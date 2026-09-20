@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Renewed inbox and auth corrections handoff</title>
+<style>
+  body{max-width:980px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui;color:#1c2733;background:#fafafa}
+  code{background:#edf1f4;padding:2px 4px;overflow-wrap:anywhere}li{margin:.45em 0}
+  .notice{border:1px solid #b88a24;background:#fff8df;padding:14px 18px}.ok{border-left:4px solid #287a55;padding-left:14px}
+</style>
+<body>
+<h1>Renewed inbox and auth corrections handoff</h1>
+<p>19 September 2026. Implementation manager handoff for the renewed bounded cycle authorized by Akhil. Assigned keeper <code>akhil/ship-conversation-identity</code>, starting HEAD <code>f122d0fd3</code>, worktree <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. The implementation preserves and extends the pre-existing uncommitted inbox correction. Root remains the sole Git, runtime validation, database and release owner.</p>
+<p class="notice"><strong>Source is frozen for integration and independent review.</strong> No Node command, unit test, lint, typecheck, build, browser, server, install, graph command, database write or Git mutation was run in this execution session. <code>git diff --check</code> exited 0. Earlier CI results do not validate this revision.</p>
+
+<h2>Inbox source corrections</h2>
+<ul>
+  <li><code>src/components/portal/pro-inbox.tsx</code>, <code>resident-inbox-panel.tsx</code> and <code>vendor-inbox-panel.tsx</code>: successful replies now load the latest authorized persisted rows at the commit boundary, merge the reply into the current target thread, and retain newer inbound turns and sibling rows.</li>
+  <li><code>pro-inbox.tsx</code>: manager draft A is not advanced optimistically. Successful delivery advances exactly once only when current storage still identifies the approved draft, using <code>generatedAt</code> when available and a conservative legacy structural match otherwise. Newer active drafts are not consumed; queued B/C and new metadata remain authoritative. A refused send leaves A/B/C unchanged.</li>
+  <li>All three panels now combine viewer ownership with conversation generation. X to Y to X cannot make an old completion current again. Reply sends have per-attempt generation; resident AI drafting and manager contact saves have their own attempt generations. Success, catch and finally branches use the matching token. Attachment completions are conversation-scoped.</li>
+  <li>Archive and restore rollback is field-aware in all three panels. A failed folder mutation reverts its own folder and previous-folder contribution while restoring unread only when unread still equals the optimistic value. A newer unread event therefore survives independently.</li>
+  <li><code>resident-inbox-panel.tsx</code>: viewer transition clears <code>bulkBusy</code>, <code>smsConfigured</code>, pending send ids, scheduled rows/loading and other viewer-owned state. Old bulk and SMS completions remain fenced by viewer ownership.</li>
+  <li>The earlier passive hydration writer remains removed. Hydration, cache events, explicit deletes, compose paths, scheduled fanout and manual reloads retain the prior viewer/source ownership fences.</li>
+</ul>
+
+<h2>Inbox behavioral coverage</h2>
+<ul>
+  <li><code>tests/unit/cross-inbox-reply-integrity.test.tsx</code>: deferred successful reply races now cover manager, resident and vendor. Each inserts a late inbound turn and sibling row into authoritative storage before send completion and requires all data plus the delivered reply in the commit.</li>
+  <li>The same suite covers manager A with queued B/C and a late cache arrival. Success promotes B once, retains C, records A resolved and preserves late rows. Delivery refusal leaves A/B/C unchanged.</li>
+  <li>The same suite covers an old X send, X to Y to X, a newer X send and a still newer unsent X draft. Resolving the old send cannot clear the newer draft.</li>
+  <li><code>tests/unit/resident-inbox-hydration-read-only.test.tsx</code>: the all-role failed archive race now changes body, preview and unread while adding a sibling. Rollback must restore the folder and preserve the newer body, preview, unread and sibling.</li>
+  <li>Existing changed tests continue to cover A to B to A hydration, pending/failed viewer transitions, late read and delete completion, unmount/remount, empty and malformed snapshots, failed draft persistence, newer AI queue arrivals, controlled selection and manager search/source behavior. <code>tests/e2e/conversation-identity.spec.ts</code> retains the prior browser observer and conversation identity coverage.</li>
+</ul>
+<p>The source guards for resident bulk/SMS viewer reset, resident AI catch/finally, manager contact catch/finally, attachment completion and restore unread rollback are directly inspected but do not each have a dedicated new behavioral test in this bounded pass. The all-role viewer, archive and reply matrices plus the X/Y/X attempt regression exercise the shared ownership mechanisms. Independent review should decide whether a focused additional case is required before release.</p>
+
+<h2>Auth correction</h2>
+<ul>
+  <li><code>src/lib/supabase/portal-session-refresh.ts</code>: after <code>readSession</code> resolves, the outer continuation now rejects a changed generation whose returned identity differs from the active identity. This closes the microtask window where an old token could be re-observed after concurrent renewal and start a second refresh.</li>
+  <li><code>tests/unit/portal-session-refresh.test.ts</code>: deterministic coordinator coverage schedules the helper acceptance, concurrent identity rotation and outer continuation in the failing order. It requires one refresh, no stale marker write or cleanup, and a fresh follow-up skip.</li>
+  <li><code>tests/unit/portal-session-keepalive.test.tsx</code>: the component fixture now persists the renewed session and emits <code>TOKEN_REFRESHED</code> before refresh resolution, matching SDK behavior. The strict one-refresh assertion remains, followed by visible/native resume reads that must not explicitly refresh again.</li>
+  <li><code>src/components/portal/portal-session-keepalive.tsx</code> is unchanged.</li>
+</ul>
+<p>The Luna spawn was unavailable because the collaboration thread limit was occupied. Root explicitly reused the completed auth reviewer as the user-authorized Astra-low fallback. Because that agent became the implementer, root assigned a different fresh Astra reviewer. Its independent review passed and is recorded in <code>docs/plans/2026-09-19-renewed-auth-independent-review.html</code>. Detailed auth rationale is in <code>docs/plans/2026-09-19-renewed-auth-handoff.html</code>.</p>
+
+<h2>Changed review scope</h2>
+<p>Inbox implementation and tests:</p>
+<ul>
+  <li><code>src/components/portal/pro-inbox.tsx</code></li>
+  <li><code>src/components/portal/resident-communication.tsx</code></li>
+  <li><code>src/components/portal/resident-inbox-panel.tsx</code></li>
+  <li><code>src/components/portal/vendor-inbox-panel.tsx</code></li>
+  <li><code>tests/unit/resident-inbox-hydration-read-only.test.tsx</code></li>
+  <li><code>tests/unit/cross-inbox-reply-integrity.test.tsx</code></li>
+  <li><code>tests/unit/manager-inbox-ai-draft.test.tsx</code></li>
+  <li><code>tests/unit/manager-inbox-search.test.tsx</code></li>
+  <li><code>tests/e2e/conversation-identity.spec.ts</code></li>
+</ul>
+<p>Auth implementation and tests:</p>
+<ul>
+  <li><code>src/lib/supabase/portal-session-refresh.ts</code></li>
+  <li><code>tests/unit/portal-session-refresh.test.ts</code></li>
+  <li><code>tests/unit/portal-session-keepalive.test.tsx</code></li>
+</ul>
+
+<h2>Required next checks</h2>
+<p>Root must integrate current upstream <code>main</code> after this freeze, preserving the reported inbound-SMS visibility change, then run focused inbox/auth tests and the required remote CI against the combined committed tree. Any test fixture/type failure must be treated as unvalidated source, not waived. Fresh independent inbox/integration source review follows the upstream merge. Production database and release work remain outside this source handoff and require the repository's exact-target gates.</p>
+</body>
+</html>

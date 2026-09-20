@@ -180,15 +180,21 @@ describe("PortalSessionKeepalive", () => {
   });
 
   it("coalesces active visibility and native resume signals", async () => {
-    const current = session("manager-1", 30_000);
+    let current = session("manager-1", 30_000);
     const pendingRefresh = deferred<{
-      data: { session: Session | null };
+      data: { session: Session };
       error: null;
     }>();
     let resume: (() => void) | undefined;
     mocks.native.mockReturnValue(true);
-    mocks.getSession.mockResolvedValue({ data: { session: current }, error: null });
-    mocks.refreshSession.mockReturnValueOnce(pendingRefresh.promise);
+    mocks.getSession.mockImplementation(async () => ({ data: { session: current }, error: null }));
+    mocks.refreshSession.mockImplementationOnce(async () => {
+      const response = await pendingRefresh.promise;
+      // The SDK saves renewal and emits TOKEN_REFRESHED before resolving.
+      current = response.data.session;
+      authCallback?.("TOKEN_REFRESHED", current);
+      return response;
+    });
     mocks.addListener.mockImplementation(async (_event, callback) => {
       resume = callback;
       return { remove: vi.fn(async () => undefined) };
@@ -209,6 +215,16 @@ describe("PortalSessionKeepalive", () => {
       await Promise.resolve();
     });
 
+    expect(mocks.refreshSession).toHaveBeenCalledOnce();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+
+    const readsAfterRenewal = mocks.getSession.mock.calls.length;
+    document.dispatchEvent(new Event("visibilitychange"));
+    resume?.();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.getSession).toHaveBeenCalledTimes(readsAfterRenewal + 2);
     expect(mocks.refreshSession).toHaveBeenCalledOnce();
   });
 

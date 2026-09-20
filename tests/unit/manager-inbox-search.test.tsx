@@ -17,7 +17,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 
-const inboxPersistence = vi.hoisted(() => ({ persist: vi.fn() }));
+const inboxPersistence = vi.hoisted(() => ({ persist: vi.fn(), upsert: vi.fn() }));
 
 type ReadOwnerRow = {
   id: string;
@@ -95,13 +95,19 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => inboxRows,
   syncPersistedInboxFromServer: () => Promise.resolve(inboxRows),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: inboxRows, ok: true }),
   persistInbox: (key: string, rows: unknown[]) => inboxPersistence.persist(key, rows),
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
   inboxMutationInFlight: () => false,
   runInboxMutation: (fn: () => unknown) => fn(),
   stagePersistedInboxRows: () => {},
-  upsertPersistedInboxRows: () => {},
+  upsertPersistedInboxRows: (key: string, _changed: unknown[], rows: typeof THREADS) => {
+    inboxRows = rows;
+    inboxPersistence.upsert(key, rows);
+    window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key } }));
+    return Promise.resolve(true);
+  },
   deleteInboxThreadIds: () => Promise.resolve(),
   inboxThreadSortMs: (id: string, t?: string) => {
     const m = String(id ?? "").match(/(\d{10,})/);
@@ -165,6 +171,7 @@ afterEach(() => {
   cleanup();
   showToast.mockClear();
   inboxPersistence.persist.mockClear();
+  inboxPersistence.upsert.mockClear();
   inboxRows = THREADS;
   window.localStorage.clear();
 });
@@ -193,12 +200,10 @@ describe("manager inbox search", () => {
       />,
     );
 
-    // Let the owner finish its initial server sync with no conversation open.
-    // B must still be unread in that settled baseline.
-    await waitFor(() => {
-      const latest = inboxPersistence.persist.mock.calls.at(-1)?.[1] as ReadOwnerRow[] | undefined;
-      expect(latest?.find((row) => row.id === "thr-1000000004")?.unread).toBe(true);
-    });
+    // Hydration is read-only. B starts unread before the controlled thread is
+    // opened and no persistence call is allowed to establish that baseline.
+    expect(inboxRows.find((row) => row.id === "thr-1000000004")?.unread).toBe(true);
+    expect(inboxPersistence.upsert).not.toHaveBeenCalled();
 
     view.rerender(
       <ManagerInbox
@@ -213,11 +218,11 @@ describe("manager inbox search", () => {
     );
 
     await waitFor(() => {
-      const latest = inboxPersistence.persist.mock.calls.at(-1)?.[1] as ReadOwnerRow[] | undefined;
+      const latest = inboxPersistence.upsert.mock.calls.at(-1)?.[1] as ReadOwnerRow[] | undefined;
       expect(latest?.find((row) => row.id === "thr-1000000004")?.unread).toBe(false);
     });
 
-    const persisted = inboxPersistence.persist.mock.calls.at(-1)?.[1] as ReadOwnerRow[];
+    const persisted = inboxPersistence.upsert.mock.calls.at(-1)?.[1] as ReadOwnerRow[];
     const emailA = persisted.find((row) => row.id === "thr-1000000001")!;
     const emailB = persisted.find((row) => row.id === "thr-1000000004")!;
     expect(emailA.unread).toBe(true);

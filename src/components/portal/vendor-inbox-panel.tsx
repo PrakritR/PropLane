@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import { Button } from "@/components/ui/button";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
@@ -30,12 +31,11 @@ import {
   inboxMessageOutbound,
   invalidatePersistedInboxCache,
   loadPersistedInbox,
-  persistInbox,
-  persistInboxAwait,
   PORTAL_INBOX_CHANGED_EVENT,
   runInboxMutation,
   stagePersistedInboxRows,
   syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
   upsertPersistedInboxRows,
   VENDOR_INBOX_STORAGE_KEY,
   inboxThreadSortMs,
@@ -43,6 +43,8 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { observeCommunicationInitialViewer, retryStaleCommunicationSource } from "@/lib/communication-initial-load";
 import { inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { inboxTurnDirection, isConversationWithPropLaneAssistant } from "@/lib/inbox-turn-direction";
 import {
@@ -128,17 +130,65 @@ export const VendorInboxPanel = forwardRef<
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const navigate = usePortalNavigate();
+  const session = usePortalSession();
+  const demoMode = isDemoModeActive();
+  const currentViewerId = session.userId?.trim() || null;
+  const currentViewerKey = demoMode
+    ? "demo"
+    : session.ready && currentViewerId
+      ? `viewer:${currentViewerId}`
+      : "pending";
   const [local, setLocal] = useState<InboxThread[]>(
-    () => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[],
+    () => demoMode || (currentViewerId && portalSessionViewerId() === currentViewerId)
+      ? loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]
+      : [],
   );
+  const [localViewerKey, setLocalViewerKey] = useState(currentViewerKey);
+  if (localViewerKey !== currentViewerKey) {
+    setLocalViewerKey(currentViewerKey);
+    setLocal(
+      demoMode || (currentViewerId && portalSessionViewerId() === currentViewerId)
+        ? loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]
+        : [],
+    );
+  }
   const localRef = useRef(local);
   useEffect(() => {
     localRef.current = local;
   }, [local]);
-  const [persistReady, setPersistReady] = useState(false);
-  const persistInboxRef = useRef(true);
+  const hydrationGenerationRef = useRef(0);
+  const panelViewerIdRef = useRef<string | null>(null);
+  const panelMountedRef = useRef(false);
+  const operationOwnerRef = useRef({ key: currentViewerKey, generation: 0 });
+  if (operationOwnerRef.current.key !== currentViewerKey) {
+    operationOwnerRef.current = {
+      key: currentViewerKey,
+      generation: operationOwnerRef.current.generation + 1,
+    };
+  }
+  const captureOperationOwnership = useCallback(() => {
+    const token = operationOwnerRef.current;
+    const viewerId = currentViewerId;
+    return () =>
+      panelMountedRef.current &&
+      operationOwnerRef.current.key === token.key &&
+      operationOwnerRef.current.generation === token.generation &&
+      (demoMode || Boolean(viewerId && portalSessionViewerId() === viewerId));
+  }, [currentViewerId, demoMode]);
   const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
   const expandedId = controlledExpandedId !== undefined ? controlledExpandedId : internalExpandedId;
+  const expandedIdRef = useRef(expandedId);
+  expandedIdRef.current = expandedId;
+  const conversationOwnerRef = useRef({ id: expandedId, generation: 0 });
+  const replyAttemptGenerationRef = useRef(0);
+  if (conversationOwnerRef.current.id !== expandedId) {
+    conversationOwnerRef.current = { id: expandedId, generation: conversationOwnerRef.current.generation + 1 };
+  }
+  const captureConversationOwnership = useCallback((id: string | null) => {
+    const token = conversationOwnerRef.current;
+    const ownsViewer = captureOperationOwnership();
+    return () => ownsViewer() && conversationOwnerRef.current.id === id && conversationOwnerRef.current.generation === token.generation;
+  }, [captureOperationOwnership]);
   const setExpandedId = useCallback(
     (id: string | null | ((prev: string | null) => string | null)) => {
       const resolve = (prev: string | null) => (typeof id === "function" ? id(prev) : id);
@@ -166,45 +216,63 @@ export const VendorInboxPanel = forwardRef<
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
+    panelMountedRef.current = true;
+    return () => {
+      panelMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     setReplyDraft("");
+    setReplySending(false);
     if (!embeddedInCommunication) {
       setReplyViaEmail(true);
       setReplyViaSms(false);
     }
     setReplyAttachments([]);
-  }, [embeddedInCommunication, expandedId]);
+  }, [currentViewerKey, embeddedInCommunication, expandedId]);
+
+  useEffect(() => {
+    setComposeOpen(false);
+    setSmsConfigured(false);
+    setEligibleContacts([]);
+    setVendorIdentity({ name: "Vendor", email: "vendor@example.com" });
+  }, [currentViewerKey]);
 
   useEffect(() => {
     if (!smsUiEnabled || isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
     void fetch("/api/vendor/sms-conversations", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((body) => setSmsConfigured(Boolean(body?.smsConfigured)))
-      .catch(() => setSmsConfigured(false));
-  }, [smsUiEnabled]);
+      .then((body) => { if (ownsOperation()) setSmsConfigured(Boolean(body?.smsConfigured)); })
+      .catch(() => { if (ownsOperation()) setSmsConfigured(false); });
+  }, [captureOperationOwnership, currentViewerKey, smsUiEnabled]);
 
   useEffect(() => {
     if (isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
     let active = true;
     void fetch("/api/portal/inbox-eligible-contacts?portal=vendor", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : { contacts: [] }))
       .then((data: { contacts?: InboxScopedContact[] }) => {
-        if (active) setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
+        if (active && ownsOperation()) setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
       })
       .catch(() => {
-        if (active) setEligibleContacts([]);
+        if (active && ownsOperation()) setEligibleContacts([]);
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [captureOperationOwnership, currentViewerKey]);
 
   useEffect(() => {
     if (isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
     let active = true;
     void fetch("/api/vendor/profile", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : { profile: null }))
       .then((data: { profile?: { name?: string; email?: string } | null }) => {
-        if (!active || !data.profile) return;
+        if (!active || !ownsOperation() || !data.profile) return;
         const name = String(data.profile.name ?? "").trim();
         const email = String(data.profile.email ?? "").trim();
         if (name || email) setVendorIdentity((prev) => ({ name: name || prev.name, email: email || prev.email }));
@@ -213,26 +281,60 @@ export const VendorInboxPanel = forwardRef<
     return () => {
       active = false;
     };
-  }, []);
+  }, [captureOperationOwnership, currentViewerKey]);
 
   useEffect(() => {
-    persistInboxRef.current = false;
-    void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY).then((rows) => {
-      if (!inboxMutationInFlight()) {
-        setLocal(rows as InboxThread[]);
-      }
-      setPersistReady(true);
-      if (!inboxMutationInFlight()) {
-        persistInboxRef.current = true;
-      }
+    const generation = ++hydrationGenerationRef.current;
+    const viewerId = session.userId?.trim() || null;
+    panelViewerIdRef.current = viewerId;
+
+    if (isDemoModeActive()) {
+      setLocal(loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]);
+      return;
+    }
+    if (!session.ready || !viewerId) {
+      setLocal([]);
+      return;
+    }
+
+    let mounted = true;
+    const viewer = observeCommunicationInitialViewer(viewerId);
+    const isCurrent = () =>
+      mounted &&
+      generation === hydrationGenerationRef.current &&
+      panelViewerIdRef.current === viewerId &&
+      viewer.isCurrent() &&
+      portalSessionViewerId() === viewerId;
+
+    void retryStaleCommunicationSource(
+      () => syncPersistedInboxFromServerWithStatus(VENDOR_INBOX_STORAGE_KEY),
+      () => isCurrent() && viewer.canRetry(),
+    ).then((result) => {
+      if (!isCurrent() || !result.ok || result.stale || inboxMutationInFlight()) return;
+      setLocal(loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]);
+    }).catch(() => {
+      // Keep the usable snapshot if an unexpected rejection escapes the status
+      // loader.
     });
-  }, []);
+
+    return () => {
+      mounted = false;
+      viewer.dispose();
+    };
+  }, [session.ready, session.userId]);
 
   useEffect(() => {
+    const expectedViewerId = session.userId?.trim() || null;
     const sync = (evt?: Event) => {
       if (evt && evt.type === PORTAL_INBOX_CHANGED_EVENT) {
         const ce = evt as CustomEvent<{ key?: string }>;
         if (ce.detail?.key && ce.detail.key !== VENDOR_INBOX_STORAGE_KEY) return;
+      }
+      if (
+        !isDemoModeActive() &&
+        (!session.ready || !expectedViewerId || panelViewerIdRef.current !== expectedViewerId || portalSessionViewerId() !== expectedViewerId)
+      ) {
+        return;
       }
       setLocal(loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]);
     };
@@ -240,12 +342,7 @@ export const VendorInboxPanel = forwardRef<
     return () => {
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!persistReady || !persistInboxRef.current) return;
-    persistInbox(VENDOR_INBOX_STORAGE_KEY, local);
-  }, [local, persistReady]);
+  }, [session.ready, session.userId]);
 
   const counts = useMemo(() => countThreads(local), [local]);
 
@@ -317,10 +414,34 @@ export const VendorInboxPanel = forwardRef<
     return m;
   }, [local]);
 
+  const persistUnreadFlag = useCallback((id: string, unread: boolean) => {
+    void runInboxMutation(async () => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
+      const previous = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
+      const target = previous.find((thread) => thread.id === id && thread.folder === "inbox");
+      if (!target || target.unread === unread) return;
+      const updated = { ...target, unread };
+      const next = previous.map((thread) => (thread.id === id ? updated : thread));
+      stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, next);
+      setLocal(next);
+      const ok = await upsertPersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, [updated], next);
+      if (!ownsOperation() || ok) return;
+      const current = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
+      const reconciled = current.map((thread) =>
+        thread.id === id && thread.unread === unread
+          ? { ...thread, unread: target.unread }
+          : thread,
+      );
+      stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, reconciled);
+      setLocal(reconciled);
+    });
+  }, [captureOperationOwnership]);
+
   const markReadSilent = useCallback((id: string) => {
-    setLocal((prev) => prev.map((t) => (t.id === id && t.folder === "inbox" ? { ...t, unread: false } : t)));
     setRetainedIds((prev) => new Set(prev).add(id));
-  }, []);
+    persistUnreadFlag(id, false);
+  }, [persistUnreadFlag]);
 
   const markRead = (id: string) => {
     markReadSilent(id);
@@ -329,10 +450,10 @@ export const VendorInboxPanel = forwardRef<
 
   const markUnread = useCallback(
     (id: string) => {
-      setLocal((prev) => prev.map((t) => (t.id === id && t.folder === "inbox" ? { ...t, unread: true } : t)));
+      persistUnreadFlag(id, true);
       showToast("Marked as unread.");
     },
-    [showToast],
+    [persistUnreadFlag, showToast],
   );
 
   function inferPreviousFolder(t: InboxThread): "inbox" | "sent" {
@@ -344,8 +465,8 @@ export const VendorInboxPanel = forwardRef<
   const moveToArchive = useCallback(
     (id: string) => {
       void runInboxMutation(async () => {
-        persistInboxRef.current = false;
-        try {
+          const ownsOperation = captureOperationOwnership();
+          if (!ownsOperation()) return;
           const prev = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
           const target = prev.find((t) => t.id === id);
           if (!target || target.folder === "trash" || (target.folder !== "inbox" && target.folder !== "sent")) return;
@@ -355,26 +476,28 @@ export const VendorInboxPanel = forwardRef<
           setLocal(next);
           setExpandedId(null);
           const ok = await upsertPersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, [updated], next);
+          if (!ownsOperation()) return;
           if (!ok) {
-            stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, prev);
-            setLocal(prev);
+            const current = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
+            const reconciled = current.map((thread) => thread.id === id && thread.folder === "trash" && thread.previousFolder === target.folder
+              ? { ...thread, folder: target.folder, previousFolder: target.previousFolder, unread: thread.unread === updated.unread ? target.unread : thread.unread }
+              : thread);
+            stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, reconciled);
+            setLocal(reconciled);
             showToast("Could not move message to trash.");
             return;
           }
           showToast("Moved to trash.");
-        } finally {
-          persistInboxRef.current = true;
-        }
       });
     },
-    [showToast],
+    [captureOperationOwnership, showToast],
   );
 
   const restoreFromArchive = useCallback(
     (id: string) => {
       void runInboxMutation(async () => {
-        persistInboxRef.current = false;
-        try {
+          const ownsOperation = captureOperationOwnership();
+          if (!ownsOperation()) return;
           const prev = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
           const target = prev.find((t) => t.id === id && t.folder === "trash");
           if (!target) return;
@@ -390,72 +513,72 @@ export const VendorInboxPanel = forwardRef<
           setLocal(next);
           setExpandedId(null);
           const ok = await upsertPersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, [updated], next);
+          if (!ownsOperation()) return;
           if (!ok) {
-            stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, prev);
-            setLocal(prev);
+            const current = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
+            const reconciled = current.map((thread) => thread.id === id && thread.folder === dest && thread.previousFolder === undefined
+              ? { ...thread, folder: target.folder, previousFolder: target.previousFolder, unread: thread.unread === updated.unread ? target.unread : thread.unread }
+              : thread);
+            stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, reconciled);
+            setLocal(reconciled);
             showToast("Could not restore message.");
             return;
           }
           showToast("Restored.");
-        } finally {
-          persistInboxRef.current = true;
-        }
       });
     },
-    [showToast],
+    [captureOperationOwnership, showToast],
   );
 
   const deleteForever = useCallback(
     (id: string) => {
       void (async () => {
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
         invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
         const ok = await deleteInboxThreadIds([id]);
+        if (!ownsOperation()) return;
         if (!ok) {
           showToast("Could not delete message.");
           return;
         }
-        const next = local.filter((t) => t.id !== id);
-        persistInboxRef.current = false;
+        const next = (loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]).filter((t) => t.id !== id);
+        stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, next);
         setLocal(next);
         setExpandedId(null);
-        await persistInboxAwait(VENDOR_INBOX_STORAGE_KEY, next);
-        const deletedIds = new Set([id]);
-        const synced = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
-        setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
-        persistInboxRef.current = true;
         showToast("Deleted permanently.");
       })();
     },
-    [local, showToast],
+    [captureOperationOwnership, setExpandedId, showToast],
   );
 
   const emptyArchive = useCallback(async () => {
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     const trashItems = local.filter((t) => t.folder === "trash");
     if (trashItems.length === 0) {
       showToast("Archive is already empty.");
       return;
     }
     if (!(await confirm({ description: `Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.` }))) return;
+    if (!ownsOperation()) return;
     void (async () => {
       invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
       const ids = trashItems.map((t) => t.id).filter(Boolean);
       const ok = await deleteInboxThreadIds(ids);
+      if (!ownsOperation()) return;
       if (!ok) {
         showToast("Could not empty trash.");
         return;
       }
-      const next = local.filter((t) => t.folder !== "trash");
-      persistInboxRef.current = false;
+      const deletedIds = new Set(ids);
+      const next = (loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]).filter((t) => !deletedIds.has(t.id));
+      stagePersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, next);
       setLocal(next);
       setExpandedId(null);
-      await persistInboxAwait(VENDOR_INBOX_STORAGE_KEY, next);
-      const deletedIds = new Set(ids);
-      const synced = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
-      setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
-      persistInboxRef.current = true;
       showToast("Archive emptied.");
-    })().catch(() => showToast("Could not empty trash."));
-  }, [local, showToast]);
+    })().catch(() => { if (ownsOperation()) showToast("Could not empty trash."); });
+  }, [captureOperationOwnership, confirm, local, setExpandedId, showToast]);
 
   useImperativeHandle(
     ref,
@@ -468,6 +591,8 @@ export const VendorInboxPanel = forwardRef<
 
   const handleComposeSend = useCallback(
     (p: ScopedInboxSendPayload) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       if (p.includesAxisAdmin && isDemoModeActive()) {
         appendPortalMessageToAdminInbox({
           role: "vendor",
@@ -497,13 +622,15 @@ export const VendorInboxPanel = forwardRef<
             }),
           });
           const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+          if (!ownsOperation()) return;
           if (!res.ok || !data.ok) {
             showToast("Message could not be sent.");
             return;
           }
           invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
-          const rows = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
-          setLocal(rows as InboxThread[]);
+          await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
+          if (!ownsOperation()) return;
+          setLocal(loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[]);
           showToast(
             p.includesAxisAdmin && !p.includesDirectoryRecipients
               ? "Message sent to PropLane admin."
@@ -511,11 +638,11 @@ export const VendorInboxPanel = forwardRef<
           );
           navigate("/vendor/communication/email/sent");
         } catch {
-          showToast("Message could not be sent.");
+          if (ownsOperation()) showToast("Message could not be sent.");
         }
       })();
     },
-    [navigate, showToast],
+    [captureOperationOwnership, navigate, showToast],
   );
 
   const activeSmsAvailable = smsUiEnabled && smsConfigured;
@@ -537,8 +664,11 @@ export const VendorInboxPanel = forwardRef<
       channels: { email: boolean; sms: boolean } = { email: true, sms: false },
       attachmentUrls: string[] = [],
     ) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
+      const ownsConversation = captureConversationOwnership(thread.id);
       if (!channels.email && !channels.sms) throw new InboxSendRefusal(null);
       const replyId = `reply-${Date.now().toString(36)}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
@@ -551,7 +681,6 @@ export const VendorInboxPanel = forwardRef<
         delivery: "sending",
         attachments: attachmentMeta.length ? attachmentMeta : undefined,
       };
-      persistInboxRef.current = false;
       setLocal((current) =>
         current.map((item) =>
           item.id === thread.id
@@ -560,6 +689,7 @@ export const VendorInboxPanel = forwardRef<
         ),
       );
       const rollbackReply = () => {
+        if (!ownsConversation()) return;
         setLocal((current) =>
           current.map((item) => {
             if (item.id !== thread.id) return item;
@@ -593,6 +723,7 @@ export const VendorInboxPanel = forwardRef<
       let failureMessage = "";
       try {
         if (channels.email) {
+          if (!ownsOperation()) return;
           try {
             const res = await fetch("/api/portal/send-inbox-message", {
               method: "POST",
@@ -616,6 +747,7 @@ export const VendorInboxPanel = forwardRef<
               ok?: boolean;
               error?: string;
             };
+            if (!ownsOperation()) return;
             emailOk = res.ok && data.ok === true;
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
@@ -623,6 +755,7 @@ export const VendorInboxPanel = forwardRef<
           }
         }
         if (channels.sms) {
+          if (!ownsOperation()) return;
           if (!activeSmsAvailable) {
             failureMessage ||= "Text messaging is not available right now.";
           } else {
@@ -649,6 +782,7 @@ export const VendorInboxPanel = forwardRef<
                 ok?: boolean;
                 error?: string;
               };
+              if (!ownsOperation()) return;
               smsOk = res.ok && data.ok === true;
               if (!smsOk) failureMessage = data.error?.trim() || failureMessage;
             } catch {
@@ -661,7 +795,15 @@ export const VendorInboxPanel = forwardRef<
           throw new InboxSendRefusal(failureMessage || null);
         }
 
-        const currentRows = localRef.current;
+        if (!ownsConversation()) {
+          return {
+            emailRequested: channels.email,
+            smsRequested: channels.sms,
+            emailOk,
+            smsOk,
+          };
+        }
+        const currentRows = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
         const currentThread = currentRows.find((item) => item.id === thread.id);
         if (currentThread) {
           const withReply = (currentThread.messages ?? []).some(
@@ -679,13 +821,16 @@ export const VendorInboxPanel = forwardRef<
             [delivered],
             persisted,
           ).catch(() => false);
+          if (!ownsConversation()) return;
         }
       } finally {
-        persistInboxRef.current = true;
+        // The delivered reply is persisted explicitly above.
       }
-      void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, {
-        force: true,
-      }).catch(() => {});
+      if (ownsOperation()) {
+        void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, {
+          force: true,
+        }).catch(() => {});
+      }
       return {
         emailRequested: channels.email,
         smsRequested: channels.sms,
@@ -693,7 +838,7 @@ export const VendorInboxPanel = forwardRef<
         smsOk,
       };
     },
-    [activeSmsAvailable, vendorIdentity],
+    [activeSmsAvailable, captureConversationOwnership, captureOperationOwnership, vendorIdentity],
   );
 
   const renderExtraActions = useCallback(
@@ -785,9 +930,15 @@ export const VendorInboxPanel = forwardRef<
   };
 
   const bulkDeleteForever = async () => {
+    const ownsOperation = captureOperationOwnership();
+    const ids = [...threadSelection.selectedIds];
     if (!(await confirm({ description: `Delete ${threadSelection.selectedIds.size} message(s) permanently?` }))) return;
-    for (const id of threadSelection.selectedIds) deleteForever(id);
-    threadSelection.clearSelection();
+    if (!ownsOperation()) return;
+    for (const id of ids) {
+      if (!ownsOperation()) return;
+      deleteForever(id);
+    }
+    if (ownsOperation()) threadSelection.clearSelection();
   };
 
   const bulkMarkUnread = () => {
@@ -857,13 +1008,16 @@ export const VendorInboxPanel = forwardRef<
         return;
       }
       for (const file of Array.from(files).slice(0, room)) {
+        const ownsConversation = captureConversationOwnership(expandedId);
         const pending = createPendingInboxAttachment(file);
         setReplyAttachments((prev) => [...prev, pending]);
         void uploadInboxAttachment(file)
           .then((url) => {
+            if (!ownsConversation()) return;
             setReplyAttachments((prev) => prev.map((a) => (a.id === pending.id ? { ...a, uploadUrl: url, uploading: false } : a)));
           })
           .catch((e) => {
+            if (!ownsConversation()) return;
             setReplyAttachments((prev) =>
               prev.map((a) =>
                 a.id === pending.id
@@ -874,7 +1028,7 @@ export const VendorInboxPanel = forwardRef<
           });
       }
     },
-    [replyAttachments.length, showToast],
+    [captureConversationOwnership, captureOperationOwnership, expandedId, replyAttachments.length, showToast],
   );
 
   // The same reply row as the manager's Communication inbox: ✦ AI, then the channel menu.
@@ -892,6 +1046,12 @@ export const VendorInboxPanel = forwardRef<
 
   const sendActiveReply = useCallback(async () => {
     if (!activeThread) return;
+    const ownsOperation = captureOperationOwnership();
+    const operationThreadId = activeThread.id;
+    const ownsConversation = captureConversationOwnership(operationThreadId);
+    const replyAttempt = ++replyAttemptGenerationRef.current;
+    const ownsReplyAttempt = () => ownsConversation() && replyAttemptGenerationRef.current === replyAttempt;
+    if (!ownsOperation()) return;
     const text = replyDraft.trim();
     const attachmentUrls = replyAttachments.filter((a) => a.uploadUrl && !a.uploading && !a.error).map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
@@ -920,20 +1080,22 @@ export const VendorInboxPanel = forwardRef<
         { email: viaEmail, sms: viaSms },
         attachmentUrls,
       );
+      if (!ownsReplyAttempt()) return;
       if (!outcome) return;
       setReplyDraft("");
       setReplyAttachments([]);
       showToast(inboxReplySentToastMessage(outcome));
     } catch (error) {
+      if (!ownsReplyAttempt()) return;
       showToast(
         error instanceof InboxSendRefusal
           ? (error.reason ?? "Could not send reply.")
           : "Could not send reply.",
       );
     } finally {
-      setReplySending(false);
+      if (ownsReplyAttempt()) setReplySending(false);
     }
-  }, [activeSmsAvailable, activeThread, handleReply, replyAttachments, replyDraft, replyViaEmail, replyViaSms, showToast]);
+  }, [activeSmsAvailable, activeThread, captureConversationOwnership, captureOperationOwnership, handleReply, replyAttachments, replyDraft, replyViaEmail, replyViaSms, showToast]);
 
   const inboxBody = (
     <>
@@ -1087,14 +1249,17 @@ export const VendorInboxPanel = forwardRef<
               tabId === "trash"
                 ? undefined
                 : async (row, text) => {
+                    const ownsOperation = captureOperationOwnership();
+                    if (!ownsOperation()) return;
                     try {
                       const outcome = await handleReply(row, text, {
                         email: true,
                         sms: false,
                       });
-                      if (outcome)
+                      if (ownsOperation() && outcome)
                         showToast(inboxReplySentToastMessage(outcome));
                     } catch (error) {
+                      if (!ownsOperation()) return;
                       showToast(
                         error instanceof InboxSendRefusal
                           ? (error.reason ?? "Could not send reply.")

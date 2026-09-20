@@ -94,6 +94,40 @@ describe("portal session refresh coordinator", () => {
     expect(test.refreshSession).toHaveBeenCalledOnce();
   });
 
+  it("does not revive a first-read snapshot after concurrent renewal changes its generation", async () => {
+    const current = session("manager-1", 30_000);
+    const renewed = {
+      ...session("manager-1", 60 * 60 * 1000),
+      refresh_token: "rotated-by-concurrent-refresh",
+    };
+    const test = harness(current);
+    const pendingRefresh = deferred<{ data: { session: Session | null }; error: null }>();
+    test.refreshSession.mockReturnValueOnce(pendingRefresh.promise);
+
+    const first = test.run();
+    await vi.waitFor(() => expect(test.refreshSession).toHaveBeenCalledOnce());
+    const pendingRead = deferred<{ session: Session | null; error: null }>();
+    test.getSession.mockReturnValueOnce(pendingRead.promise);
+    const overlapping = test.run();
+    const signedInBeforeCompletion = test.markSignedIn.mock.calls.length;
+
+    // Queue readSession's continuation first, then the refresh continuation.
+    // The helper accepts the old snapshot before the refresh rotates identity;
+    // the outer first-read continuation resumes only after that rotation.
+    pendingRead.resolve({ session: current, error: null });
+    test.setSession(renewed);
+    pendingRefresh.resolve({ data: { session: renewed }, error: null });
+
+    await expect(first).resolves.toBe("refreshed");
+    await expect(overlapping).resolves.toBe("owner-changed");
+    expect(test.getSession).toHaveBeenCalledTimes(3);
+    expect(test.refreshSession).toHaveBeenCalledOnce();
+    expect(test.markSignedIn).toHaveBeenCalledTimes(signedInBeforeCompletion + 1);
+    expect(test.clearStaleAuth).not.toHaveBeenCalled();
+    await expect(test.run()).resolves.toBe("not-due");
+    expect(test.refreshSession).toHaveBeenCalledOnce();
+  });
+
   it("keeps a near-expiry first read alive across the subscription's initial observation", async () => {
     const current = session("manager-1", 30_000);
     const test = harness(current);

@@ -63,13 +63,12 @@ import {
   deleteInboxThreadIds,
   invalidatePersistedInboxCache,
   inboxMutationInFlight,
-  persistInbox,
-  persistInboxAwait,
   loadPersistedInbox,
   RESIDENT_INBOX_STORAGE_KEY,
   runInboxMutation,
   stagePersistedInboxRows,
   syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
   upsertPersistedInboxRows,
   inboxThreadMessages,
   lastInboundChannelOf,
@@ -81,6 +80,8 @@ import {
   inboxThreadCounterpartyEmail,
   type InboxThreadMessage,
 } from "@/lib/portal-inbox-storage";
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { observeCommunicationInitialViewer, retryStaleCommunicationSource } from "@/lib/communication-initial-load";
 import { inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import {
@@ -198,18 +199,81 @@ export const ResidentInboxPanel = forwardRef<
   const session = usePortalSession();
   const navigate = usePortalNavigate();
   const searchParams = useSearchParams();
+  const demoMode = isDemoModeActive();
+  const currentViewerId = session.userId?.trim() || null;
+  const currentViewerKey = demoMode
+    ? "demo"
+    : session.ready && currentViewerId
+      ? `viewer:${currentViewerId}`
+      : "pending";
   const [local, setLocal] = useState<InboxThread[]>(
-    () => loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[],
+    () => demoMode || (currentViewerId && portalSessionViewerId() === currentViewerId)
+      ? loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]
+      : [],
   );
+  const [localViewerKey, setLocalViewerKey] = useState(currentViewerKey);
+  // Account identity is part of the rendered snapshot. React immediately
+  // restarts this render, so A's rows cannot paint while ready B is pending or
+  // failed, and an A-B-A transition cannot revive A's earlier snapshot.
+  if (localViewerKey !== currentViewerKey) {
+    setLocalViewerKey(currentViewerKey);
+    setLocal(
+      demoMode || (currentViewerId && portalSessionViewerId() === currentViewerId)
+        ? loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]
+        : [],
+    );
+  }
   const localRef = useRef(local);
   useEffect(() => {
     localRef.current = local;
   }, [local]);
   const [pendingSendingThreadIds, setPendingSendingThreadIds] = useState<Set<string>>(() => new Set());
-  const [persistReady, setPersistReady] = useState(false);
-  const persistInboxRef = useRef(true);
+  // A panel may outlive a session transition. Keep completion and cache-event
+  // updates tied to this render generation instead of publishing an older
+  // viewer's response into the current panel.
+  const hydrationGenerationRef = useRef(0);
+  const panelViewerIdRef = useRef<string | null>(null);
+  const panelMountedRef = useRef(false);
+  const operationOwnerRef = useRef({ key: currentViewerKey, generation: 0 });
+  if (operationOwnerRef.current.key !== currentViewerKey) {
+    operationOwnerRef.current = {
+      key: currentViewerKey,
+      generation: operationOwnerRef.current.generation + 1,
+    };
+  }
+  const captureOperationOwnership = useCallback(() => {
+    const token = operationOwnerRef.current;
+    const viewerId = currentViewerId;
+    return () =>
+      panelMountedRef.current &&
+      operationOwnerRef.current.key === token.key &&
+      operationOwnerRef.current.generation === token.generation &&
+      (demoMode || Boolean(viewerId && portalSessionViewerId() === viewerId));
+  }, [currentViewerId, demoMode]);
   const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
   const expandedId = controlledExpandedId !== undefined ? controlledExpandedId : internalExpandedId;
+  const expandedIdRef = useRef(expandedId);
+  expandedIdRef.current = expandedId;
+  // A viewer can come back to the same thread after visiting another one. The
+  // thread id alone cannot distinguish that X -> Y -> X transition, so every
+  // rendered conversation gets its own completion generation.
+  const conversationOwnerRef = useRef({ id: expandedId, generation: 0 });
+  const replyAttemptGenerationRef = useRef(0);
+  const aiDraftAttemptGenerationRef = useRef(0);
+  if (conversationOwnerRef.current.id !== expandedId) {
+    conversationOwnerRef.current = {
+      id: expandedId,
+      generation: conversationOwnerRef.current.generation + 1,
+    };
+  }
+  const captureConversationOwnership = useCallback((id: string | null) => {
+    const token = conversationOwnerRef.current;
+    const ownsViewer = captureOperationOwnership();
+    return () =>
+      ownsViewer() &&
+      conversationOwnerRef.current.id === id &&
+      conversationOwnerRef.current.generation === token.generation;
+  }, [captureOperationOwnership]);
   const setExpandedId = useCallback(
     (id: string | null | ((prev: string | null) => string | null)) => {
       const resolve = (prev: string | null) => (typeof id === "function" ? id(prev) : id);
@@ -247,7 +311,15 @@ export const ResidentInboxPanel = forwardRef<
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
+    panelMountedRef.current = true;
+    return () => {
+      panelMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     setReplyDraft("");
+    setReplySending(false);
     setAiDraftText("");
     setAiDraftError(null);
     setAiDrafting(false);
@@ -260,18 +332,31 @@ export const ResidentInboxPanel = forwardRef<
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
-  }, [embeddedInCommunication, expandedId]);
+  }, [currentViewerKey, embeddedInCommunication, expandedId]);
+
+  useEffect(() => {
+    setComposeOpen(false);
+    setEligibleContacts([]);
+    setScheduledMessages([]);
+    setScheduledLoading(false);
+    setBulkBusy(false);
+    setSmsConfigured(false);
+    setPendingSendingThreadIds(new Set());
+  }, [currentViewerKey]);
 
   useEffect(() => {
     if (!smsUiEnabled || isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
     void fetch("/api/resident/sms-conversations", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((body) => setSmsConfigured(Boolean(body?.smsConfigured)))
-      .catch(() => setSmsConfigured(false));
-  }, [smsUiEnabled]);
+      .then((body) => { if (ownsOperation()) setSmsConfigured(Boolean(body?.smsConfigured)); })
+      .catch(() => { if (ownsOperation()) setSmsConfigured(false); });
+  }, [captureOperationOwnership, currentViewerKey, smsUiEnabled]);
 
   const reloadScheduledMessages = useCallback(async () => {
     if (isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     setScheduledLoading(true);
     try {
       const res = await fetch("/api/portal/scheduled-inbox-messages?as=resident", {
@@ -280,14 +365,16 @@ export const ResidentInboxPanel = forwardRef<
       });
       if (!res.ok) return;
       const data = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
-      setScheduledMessages(Array.isArray(data.messages) ? data.messages : []);
+      if (ownsOperation()) setScheduledMessages(Array.isArray(data.messages) ? data.messages : []);
     } finally {
-      setScheduledLoading(false);
+      if (ownsOperation()) setScheduledLoading(false);
     }
-  }, []);
+  }, [captureOperationOwnership]);
 
   const loadEligibleContacts = useCallback(async () => {
     if (isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     try {
       const res = await fetch("/api/portal/inbox-eligible-contacts?portal=resident", {
         credentials: "include",
@@ -295,11 +382,11 @@ export const ResidentInboxPanel = forwardRef<
       });
       if (!res.ok) return;
       const data = (await res.json()) as { contacts?: InboxScopedContact[] };
-      setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
+      if (ownsOperation()) setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
     } catch {
-      setEligibleContacts([]);
+      if (ownsOperation()) setEligibleContacts([]);
     }
-  }, []);
+  }, [captureOperationOwnership]);
 
   useEffect(() => {
     if (!embeddedInCommunication || isDemoModeActive()) return;
@@ -335,23 +422,67 @@ export const ResidentInboxPanel = forwardRef<
   }, [embeddedInCommunication, reloadScheduledMessages, tabId]);
 
   useEffect(() => {
-    persistInboxRef.current = false;
-    void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY).then((rows) => {
-      if (!inboxMutationInFlight()) {
-        setLocal(rows as InboxThread[]);
-      }
-      setPersistReady(true);
-      if (!inboxMutationInFlight()) {
-        persistInboxRef.current = true;
-      }
+    const generation = ++hydrationGenerationRef.current;
+    const viewerId = session.userId?.trim() || null;
+    panelViewerIdRef.current = viewerId;
+
+    // Demo owns a synthetic, local-only inbox. It must never be converted into
+    // a server refresh while the real authenticated cache is unresolved.
+    if (isDemoModeActive()) {
+      setLocal(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]);
+      return;
+    }
+
+    // Do not retain the previous account's presentation while session identity
+    // is unresolved. This is intentionally a presentation reset only.
+    if (!session.ready || !viewerId) {
+      setLocal([]);
+      return;
+    }
+
+    let mounted = true;
+    const viewer = observeCommunicationInitialViewer(viewerId);
+    const isCurrent = () =>
+      mounted &&
+      generation === hydrationGenerationRef.current &&
+      panelViewerIdRef.current === viewerId &&
+      viewer.isCurrent() &&
+      portalSessionViewerId() === viewerId;
+
+    void retryStaleCommunicationSource(
+      () => syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY),
+      () => isCurrent() && viewer.canRetry(),
+    ).then((result) => {
+      // Failed, malformed, or stale reads preserve the usable snapshot. A
+      // successful empty result is valid and remains read-only because this
+      // component no longer persists a hydrated array.
+      if (!isCurrent() || !result.ok || result.stale || inboxMutationInFlight()) return;
+      // Read the cache again after the loader commits so an event or a newer
+      // allowed mutation cannot be rolled back by this request's old payload.
+      setLocal(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]);
+    }).catch(() => {
+      // The status loader normally resolves failures. Keep the current
+      // presentation if an unexpected rejection escapes it.
     });
-  }, []);
+
+    return () => {
+      mounted = false;
+      viewer.dispose();
+    };
+  }, [session.ready, session.userId]);
 
   useEffect(() => {
+    const expectedViewerId = session.userId?.trim() || null;
     const sync = (evt?: Event) => {
       if (evt && evt.type === PORTAL_INBOX_CHANGED_EVENT) {
         const ce = evt as CustomEvent<{ key?: string }>;
         if (ce.detail?.key && ce.detail.key !== RESIDENT_INBOX_STORAGE_KEY) return;
+      }
+      if (
+        !isDemoModeActive() &&
+        (!session.ready || !expectedViewerId || panelViewerIdRef.current !== expectedViewerId || portalSessionViewerId() !== expectedViewerId)
+      ) {
+        return;
       }
       setLocal(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]);
     };
@@ -359,12 +490,7 @@ export const ResidentInboxPanel = forwardRef<
     return () => {
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!persistReady || !persistInboxRef.current) return;
-    persistInbox(RESIDENT_INBOX_STORAGE_KEY, local);
-  }, [local, persistReady]);
+  }, [session.ready, session.userId]);
 
   const scheduledRows = useMemo(
     () =>
@@ -457,6 +583,8 @@ export const ResidentInboxPanel = forwardRef<
 
   const toggleScheduledCancelled = useCallback(
     async (id: string, cancelled: boolean) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       try {
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(id)}?as=resident`, {
           method: "PATCH",
@@ -465,13 +593,14 @@ export const ResidentInboxPanel = forwardRef<
           body: JSON.stringify({ cancelled, senderPortal: "resident" }),
         });
         if (!res.ok) throw new Error("Could not update scheduled message.");
+        if (!ownsOperation()) return;
         showToast(cancelled ? "Scheduled message cancelled." : "Scheduled message restored.");
         void reloadScheduledMessages();
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not update scheduled message.");
+        if (ownsOperation()) showToast(e instanceof Error ? e.message : "Could not update scheduled message.");
       }
     },
-    [reloadScheduledMessages, showToast],
+    [captureOperationOwnership, reloadScheduledMessages, showToast],
   );
 
   /**
@@ -491,36 +620,40 @@ export const ResidentInboxPanel = forwardRef<
   const persistUnreadFlag = useCallback(
     (id: string, unread: boolean, notify?: { success: string; failure: string }) => {
       void runInboxMutation(async () => {
-        persistInboxRef.current = false;
-        try {
-          const prev = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
-          const target = prev.find((t) => t.id === id);
-          if (!target || target.folder !== "inbox") {
-            if (notify) showToast(notify.failure);
-            return;
-          }
-          if (target.unread === unread) {
-            if (notify) showToast(notify.success);
-            return;
-          }
-          const updated: InboxThread = { ...target, unread };
-          const next = prev.map((t) => (t.id === id ? updated : t));
-          stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
-          setLocal(next);
-          const ok = await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [updated], next);
-          if (!ok) {
-            stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, prev);
-            setLocal(prev);
-            if (notify) showToast(notify.failure);
-            return;
-          }
-          if (notify) showToast(notify.success);
-        } finally {
-          persistInboxRef.current = true;
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
+        const prev = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+        const target = prev.find((t) => t.id === id);
+        if (!target || target.folder !== "inbox") {
+          if (notify) showToast(notify.failure);
+          return;
         }
+        if (target.unread === unread) {
+          if (notify) showToast(notify.success);
+          return;
+        }
+        const updated: InboxThread = { ...target, unread };
+        const next = prev.map((t) => (t.id === id ? updated : t));
+        stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
+        setLocal(next);
+        const ok = await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [updated], next);
+        if (!ownsOperation()) return;
+        if (!ok) {
+          const current = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+          const reconciled = current.map((thread) =>
+            thread.id === id && thread.unread === unread
+              ? { ...thread, unread: target.unread }
+              : thread,
+          );
+          stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, reconciled);
+          setLocal(reconciled);
+          if (notify) showToast(notify.failure);
+          return;
+        }
+        if (notify) showToast(notify.success);
       });
     },
-    [showToast],
+    [captureOperationOwnership, showToast],
   );
 
   const markRead = (id: string) => {
@@ -558,123 +691,125 @@ export const ResidentInboxPanel = forwardRef<
   const moveToTrash = useCallback(
     (id: string) => {
       void runInboxMutation(async () => {
-        persistInboxRef.current = false;
-        try {
-          const prev = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
-          const target = prev.find((t) => t.id === id);
-          if (!target || target.folder === "trash" || (target.folder !== "inbox" && target.folder !== "sent")) return;
-          const updated: InboxThread = {
-            ...target,
-            folder: "trash",
-            previousFolder: target.folder,
-            unread: false,
-          };
-          const next = prev.map((t) => (t.id === id ? updated : t));
-          stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
-          setLocal(next);
-          setExpandedId(null);
-          const ok = await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [updated], next);
-          if (!ok) {
-            stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, prev);
-            setLocal(prev);
-            showToast("Could not move message to trash.");
-            return;
-          }
-          showToast("Moved to trash.");
-        } finally {
-          persistInboxRef.current = true;
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
+        const prev = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+        const target = prev.find((t) => t.id === id);
+        if (!target || target.folder === "trash" || (target.folder !== "inbox" && target.folder !== "sent")) return;
+        const updated: InboxThread = {
+          ...target,
+          folder: "trash",
+          previousFolder: target.folder,
+          unread: false,
+        };
+        const next = prev.map((t) => (t.id === id ? updated : t));
+        stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
+        setLocal(next);
+        setExpandedId(null);
+        const ok = await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [updated], next);
+        if (!ownsOperation()) return;
+        if (!ok) {
+          const current = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+          const reconciled = current.map((thread) => thread.id === id && thread.folder === "trash" && thread.previousFolder === target.folder
+            ? { ...thread, folder: target.folder, previousFolder: target.previousFolder, unread: thread.unread === updated.unread ? target.unread : thread.unread }
+            : thread);
+          stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, reconciled);
+          setLocal(reconciled);
+          showToast("Could not move message to trash.");
+          return;
         }
+        showToast("Moved to trash.");
       });
     },
-    [showToast],
+    [captureOperationOwnership, showToast],
   );
 
   const restoreFromTrash = useCallback(
     (id: string) => {
       void runInboxMutation(async () => {
-        persistInboxRef.current = false;
-        try {
-          const prev = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
-          const target = prev.find((t) => t.id === id && t.folder === "trash");
-          if (!target) return;
-          const dest = inferPreviousFolder(target);
-          const updated: InboxThread = {
-            ...target,
-            folder: dest,
-            previousFolder: undefined,
-            unread: dest === "inbox" ? target.unread : false,
-          };
-          const next = prev.map((t) => (t.id === id ? updated : t));
-          stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
-          setLocal(next);
-          setExpandedId(null);
-          const ok = await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [updated], next);
-          if (!ok) {
-            stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, prev);
-            setLocal(prev);
-            showToast("Could not restore message.");
-            return;
-          }
-          showToast("Restored.");
-        } finally {
-          persistInboxRef.current = true;
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
+        const prev = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+        const target = prev.find((t) => t.id === id && t.folder === "trash");
+        if (!target) return;
+        const dest = inferPreviousFolder(target);
+        const updated: InboxThread = {
+          ...target,
+          folder: dest,
+          previousFolder: undefined,
+          unread: dest === "inbox" ? target.unread : false,
+        };
+        const next = prev.map((t) => (t.id === id ? updated : t));
+        stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
+        setLocal(next);
+        setExpandedId(null);
+        const ok = await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [updated], next);
+        if (!ownsOperation()) return;
+        if (!ok) {
+          const current = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+          const reconciled = current.map((thread) => thread.id === id && thread.folder === dest && thread.previousFolder === undefined
+            ? { ...thread, folder: target.folder, previousFolder: target.previousFolder, unread: thread.unread === updated.unread ? target.unread : thread.unread }
+            : thread);
+          stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, reconciled);
+          setLocal(reconciled);
+          showToast("Could not restore message.");
+          return;
         }
+        showToast("Restored.");
       });
     },
-    [showToast],
+    [captureOperationOwnership, showToast],
   );
 
   const deleteForever = useCallback(
     (id: string) => {
       void (async () => {
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
         invalidatePersistedInboxCache(RESIDENT_INBOX_STORAGE_KEY);
         const ok = await deleteInboxThreadIds([id]);
+        if (!ownsOperation()) return;
         if (!ok) {
           showToast("Could not delete message.");
           return;
         }
-        const next = local.filter((t) => t.id !== id);
-        persistInboxRef.current = false;
+        const next = (loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]).filter((t) => t.id !== id);
+        stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
         setLocal(next);
         setExpandedId(null);
-        await persistInboxAwait(RESIDENT_INBOX_STORAGE_KEY, next);
-        const deletedIds = new Set([id]);
-        const synced = await syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
-        setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
-        persistInboxRef.current = true;
         showToast("Deleted permanently.");
       })();
     },
-    [local, showToast],
+    [captureOperationOwnership, setExpandedId, showToast],
   );
 
   const emptyTrash = useCallback(async () => {
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     const trashItems = local.filter((t) => t.folder === "trash");
     if (trashItems.length === 0) {
       showToast("Archive is already empty.");
       return;
     }
     if (!(await confirm({ description: `Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.` }))) return;
+    if (!ownsOperation()) return;
     void (async () => {
       invalidatePersistedInboxCache(RESIDENT_INBOX_STORAGE_KEY);
       const ids = trashItems.map((t) => t.id).filter(Boolean);
       const ok = await deleteInboxThreadIds(ids);
+      if (!ownsOperation()) return;
       if (!ok) {
         showToast("Could not empty trash.");
         return;
       }
-      const next = local.filter((t) => t.folder !== "trash");
-      persistInboxRef.current = false;
+      const deletedIds = new Set(ids);
+      const next = (loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]).filter((t) => !deletedIds.has(t.id));
+      stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, next);
       setLocal(next);
       setExpandedId(null);
-      await persistInboxAwait(RESIDENT_INBOX_STORAGE_KEY, next);
-      const deletedIds = new Set(ids);
-      const synced = await syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
-      setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
-      persistInboxRef.current = true;
       showToast("Archive cleared.");
-    })().catch(() => showToast("Could not empty trash."));
-  }, [local, showToast]);
+    })().catch(() => { if (ownsOperation()) showToast("Could not empty trash."); });
+  }, [captureOperationOwnership, confirm, local, setExpandedId, showToast]);
 
   const findThreadForRecipient = useCallback((email: string) => {
     const norm = email.trim().toLowerCase();
@@ -697,6 +832,8 @@ export const ResidentInboxPanel = forwardRef<
 
   const handleComposeSend = useCallback(
     async (p: ScopedInboxSendPayload): Promise<boolean> => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return false;
       const senderName = p.senderName.trim() || "Resident";
       const senderEmail = session.email?.trim().toLowerCase() || p.senderEmail;
       let optimisticId: string | null = null;
@@ -723,6 +860,7 @@ export const ResidentInboxPanel = forwardRef<
               }),
             });
             const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+            if (!ownsOperation()) return false;
             if (!res.ok || !data.ok) {
               showToast(data.error ?? "Could not schedule message.");
               return false;
@@ -751,7 +889,6 @@ export const ResidentInboxPanel = forwardRef<
             });
             optimisticId = optimistic.id;
             setPendingSendingThreadIds((prev) => new Set(prev).add(optimistic.id));
-            persistInboxRef.current = false;
             setLocal((cur) => [optimistic as InboxThread, ...cur]);
             setExpandedId(optimistic.id);
           }
@@ -782,6 +919,7 @@ export const ResidentInboxPanel = forwardRef<
               error?: string;
               propertyThreadId?: string;
             };
+            if (!ownsOperation()) return false;
             if (!res.ok || !data.ok) {
               if (optimisticId) {
                 setPendingSendingThreadIds((prev) => {
@@ -791,11 +929,9 @@ export const ResidentInboxPanel = forwardRef<
                 });
                 // Take the optimistic conversation back out. Clearing only the
                 // "sending" flag left a refused message sitting in the list as a
-                // delivered thread; re-arm persistence on the way out so the
-                // inbox does not stop saving for the rest of the session.
+                // delivered thread.
                 setLocal((cur) => cur.filter((t) => t.id !== optimisticId));
                 setExpandedId(null);
-                persistInboxRef.current = true;
               }
               showToast(data.error ?? "Message could not be sent.");
               return false;
@@ -810,9 +946,9 @@ export const ResidentInboxPanel = forwardRef<
             });
           }
           invalidatePersistedInboxCache(RESIDENT_INBOX_STORAGE_KEY);
-          const rows = await syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true });
-          setLocal(rows as InboxThread[]);
-          persistInboxRef.current = true;
+          await syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true });
+          if (!ownsOperation()) return false;
+          setLocal(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[]);
           showToast("Message sent.");
           if (embeddedInCommunication) {
             if (propertyThreadId) {
@@ -828,6 +964,7 @@ export const ResidentInboxPanel = forwardRef<
           setComposeDraft(null);
           return true;
       } catch {
+        if (!ownsOperation()) return false;
         if (optimisticId) {
           const failedOptimisticId = optimisticId;
           setPendingSendingThreadIds((prev) => {
@@ -838,12 +975,11 @@ export const ResidentInboxPanel = forwardRef<
           setLocal((cur) => cur.filter((thread) => thread.id !== failedOptimisticId));
           setExpandedId((current) => current === failedOptimisticId ? null : current);
         }
-        persistInboxRef.current = true;
         showToast("Message could not be sent.");
         return false;
       }
     },
-    [eligibleContacts, embeddedInCommunication, findThreadForRecipient, navigate, reloadScheduledMessages, session.email, setExpandedId, showToast],
+    [captureOperationOwnership, eligibleContacts, embeddedInCommunication, findThreadForRecipient, navigate, reloadScheduledMessages, session.email, setExpandedId, showToast],
   );
 
   const activeSmsAvailable = smsUiEnabled && smsConfigured;
@@ -855,8 +991,11 @@ export const ResidentInboxPanel = forwardRef<
       channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
     ) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
+      const ownsConversation = captureConversationOwnership(thread.id);
       const assistantThread = isPropLaneAssistantInboxThread(thread);
       const replyToEmail = resolveResidentReplyRecipientEmail(thread.email, eligibleContacts);
       const portalRecipient =
@@ -884,12 +1023,12 @@ export const ResidentInboxPanel = forwardRef<
       // reached the thread store, so the conversation list previewed it as
       // "You: …" and a reload showed it as an ordinary sent message. Nothing is
       // written until a channel actually succeeds.
-      persistInboxRef.current = false;
       setLocal((cur) => cur.map((t) => (t.id === thread.id ? updated : t)));
       // Take back ONLY this reply, off whatever the thread looks like now. A
       // whole-row restore would discard an inbound message that landed in the
       // same thread mid-send — the lost update this change exists to prevent.
       const rollbackReply = () => {
+        if (!ownsConversation()) return;
         setLocal((cur) =>
           cur.map((t) => {
             if (t.id !== thread.id) return t;
@@ -926,12 +1065,11 @@ export const ResidentInboxPanel = forwardRef<
       let smsOk = false;
       let proplaneOk = false;
       let failureMessage = "";
-      // One window, one exit contract: the "sending" bubble and the disabled
-      // persist flag can never outlive this call, including when a fetch REJECTS
-      // (offline, aborted, DNS) rather than answering.
+      // One window, one exit contract: the "sending" bubble is rolled back
+      // when every requested channel fails, including rejected fetches.
       try {
-        try {
-          if (proplaneAllowed) {
+        if (proplaneAllowed) {
+            if (!ownsOperation()) return;
             const result = await sendPropLaneAssistantInboxMessage({
               threadId: thread.id,
               subject,
@@ -947,7 +1085,8 @@ export const ResidentInboxPanel = forwardRef<
               throw new InboxSendRefusal(failureMessage.trim() || null);
             }
           }
-          if (channels.email) {
+        if (channels.email) {
+            if (!ownsOperation()) return;
             const res = await fetch("/api/portal/send-inbox-message", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -971,7 +1110,8 @@ export const ResidentInboxPanel = forwardRef<
               throw new InboxSendRefusal(failureMessage.trim() || null);
             }
           }
-          if (channels.sms && activeSmsAvailable) {
+        if (channels.sms && activeSmsAvailable) {
+            if (!ownsOperation()) return;
             const res = await fetch("/api/portal/send-inbox-message", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -995,38 +1135,48 @@ export const ResidentInboxPanel = forwardRef<
               throw new InboxSendRefusal(failureMessage.trim() || null);
             }
           }
-          if (!emailOk && !smsOk && !proplaneOk) throw new InboxSendRefusal(failureMessage.trim() || null);
-        } catch (e) {
-          if (!emailOk && !smsOk && !proplaneOk) {
-            rollbackReply();
-            throw e;
-          }
-          // Delivered on another channel, so this cannot be reported as a failed
-          // send — but a client-side fault here would otherwise vanish entirely.
-          console.warn("[resident-inbox] reply send error after delivery", e);
+        if (!emailOk && !smsOk && !proplaneOk) throw new InboxSendRefusal(failureMessage.trim() || null);
+      } catch (e) {
+        if (!emailOk && !smsOk && !proplaneOk) {
+          rollbackReply();
+          throw e;
         }
-
-        // Delivered on at least one channel — only now may it enter the store,
-        // merged onto the CURRENT row so a mid-send arrival survives. Everything
-        // from here is bookkeeping over a message that WAS sent, so a failure
-        // must never reach the resident as a failed send: the explicit upsert is
-        // the write we trust, and the forced sync below runs unconditionally as
-        // the reconciliation.
-        const currentRows = localRef.current;
-        const currentThread = currentRows.find((t) => t.id === thread.id);
-        if (currentThread) {
-          const withReply = (currentThread.messages ?? []).some((m) => m.id === replyId)
-            ? currentThread
-            : appendReplyToInboxThread(currentThread, reply);
-          const delivered = markThreadMessageDelivery(withReply, replyId, undefined);
-          const persisted = currentRows.map((t) => (t.id === thread.id ? delivered : t));
-          setLocal(persisted);
-          await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [delivered], persisted).catch(() => false);
-        }
-      } finally {
-        persistInboxRef.current = true;
+        // Delivered on another channel, so this cannot be reported as a failed
+        // send — but a client-side fault here would otherwise vanish entirely.
+        console.warn("[resident-inbox] reply send error after delivery", e);
       }
-      void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
+
+      // Delivered on at least one channel — only now may it enter the store,
+      // merged onto the CURRENT row so a mid-send arrival survives. Everything
+      // from here is bookkeeping over a message that WAS sent, so a failure
+      // must never reach the resident as a failed send: the explicit upsert is
+      // the write we trust, and the forced sync below runs unconditionally as
+      // the reconciliation.
+      const currentRows = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
+      if (!ownsConversation()) {
+        return {
+          emailRequested: channels.email,
+          smsRequested: channels.sms,
+          proplaneRequested: proplaneAllowed,
+          emailOk,
+          smsOk,
+          proplaneOk,
+        };
+      }
+      const currentThread = currentRows.find((t) => t.id === thread.id);
+      if (currentThread) {
+        const withReply = (currentThread.messages ?? []).some((m) => m.id === replyId)
+          ? currentThread
+          : appendReplyToInboxThread(currentThread, reply);
+        const delivered = markThreadMessageDelivery(withReply, replyId, undefined);
+        const persisted = currentRows.map((t) => (t.id === thread.id ? delivered : t));
+        setLocal(persisted);
+        await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [delivered], persisted).catch(() => false);
+        if (!ownsConversation()) return;
+      }
+      if (ownsConversation()) {
+        void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
+      }
       return {
         emailRequested: channels.email,
         smsRequested: channels.sms,
@@ -1036,7 +1186,7 @@ export const ResidentInboxPanel = forwardRef<
         proplaneOk,
       };
     },
-    [activeSmsAvailable, eligibleContacts],
+    [activeSmsAvailable, captureConversationOwnership, captureOperationOwnership, eligibleContacts],
   );
 
   const threadActionBtn = embeddedInCommunication ? "min-h-0 rounded-full px-3 py-1.5 text-xs" : PORTAL_DETAIL_BTN;
@@ -1056,12 +1206,15 @@ export const ResidentInboxPanel = forwardRef<
                 className={PORTAL_DETAIL_BTN}
                 onClick={() => {
                   void (async () => {
+                    const ownsOperation = captureOperationOwnership();
+                    if (!ownsOperation()) return;
                     try {
                       await sendManualScheduledMessageNow(row.id, { asResident: true });
+                      if (!ownsOperation()) return;
                       showToast("Message sent.");
                       void reloadScheduledMessages();
                     } catch (e) {
-                      showToast(e instanceof Error ? e.message : "Could not send message.");
+                      if (ownsOperation()) showToast(e instanceof Error ? e.message : "Could not send message.");
                     }
                   })();
                 }}
@@ -1129,45 +1282,54 @@ export const ResidentInboxPanel = forwardRef<
         </Button>
       );
     },
-    [tabId, scheduledRows, toggleScheduledCancelled, moveToTrash, restoreFromTrash, deleteForever, markUnread, reloadScheduledMessages, showToast, embeddedInCommunication, threadActionBtn],
+    [captureOperationOwnership, tabId, scheduledRows, toggleScheduledCancelled, moveToTrash, restoreFromTrash, deleteForever, markUnread, reloadScheduledMessages, showToast, embeddedInCommunication, threadActionBtn],
   );
 
   const bulkScheduleSendNow = async () => {
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     const targets = selectedScheduledRows.filter((m) => m.status === "scheduled");
     if (targets.length === 0) return;
     setBulkBusy(true);
     try {
       let ok = 0;
       for (const message of targets) {
+        if (!ownsOperation()) return;
         try {
           await sendManualScheduledMessageNow(message.id, { asResident: true });
+          if (!ownsOperation()) return;
           ok += 1;
         } catch {
           /* continue */
         }
       }
+      if (!ownsOperation()) return;
       showToast(ok === 1 ? "Message sent." : `Sent ${ok} messages.`);
       scheduleSelection.clearSelection();
       void reloadScheduledMessages();
     } finally {
-      setBulkBusy(false);
+      if (ownsOperation()) setBulkBusy(false);
     }
   };
 
   const bulkScheduleCancel = async () => {
+    const ownsOperation = captureOperationOwnership();
     const targets = selectedScheduledRows.filter((m) => m.status === "scheduled");
     for (const message of targets) {
+      if (!ownsOperation()) return;
       await toggleScheduledCancelled(message.id, true);
     }
-    scheduleSelection.clearSelection();
+    if (ownsOperation()) scheduleSelection.clearSelection();
   };
 
   const bulkScheduleRestore = async () => {
+    const ownsOperation = captureOperationOwnership();
     const targets = selectedScheduledRows.filter((m) => m.status === "cancelled");
     for (const message of targets) {
+      if (!ownsOperation()) return;
       await toggleScheduledCancelled(message.id, false);
     }
-    scheduleSelection.clearSelection();
+    if (ownsOperation()) scheduleSelection.clearSelection();
   };
 
   const bulkMarkRead = () => {
@@ -1186,9 +1348,15 @@ export const ResidentInboxPanel = forwardRef<
   };
 
   const bulkDeleteForever = async () => {
+    const ownsOperation = captureOperationOwnership();
+    const ids = [...threadSelection.selectedIds];
     if (!(await confirm({ description: `Delete ${threadSelection.selectedIds.size} message(s) permanently?` }))) return;
-    for (const id of threadSelection.selectedIds) deleteForever(id);
-    threadSelection.clearSelection();
+    if (!ownsOperation()) return;
+    for (const id of ids) {
+      if (!ownsOperation()) return;
+      deleteForever(id);
+    }
+    if (ownsOperation()) threadSelection.clearSelection();
   };
 
   const bulkMarkUnread = () => {
@@ -1335,6 +1503,7 @@ export const ResidentInboxPanel = forwardRef<
   // shown inline as compact cards. Residents may cancel or send now, but not
   // edit content (the resident scheduled-message route only patches status).
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
+  useEffect(() => setScheduledBusyId(null), [currentViewerKey]);
 
   const threadScheduledItems = useMemo(
     () => (activeThread ? scheduledItemsForRecipient(activeThread.email, scheduledMessages, []) : []),
@@ -1343,30 +1512,35 @@ export const ResidentInboxPanel = forwardRef<
 
   const cancelResidentScheduled = useCallback(
     async (id: string) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       setScheduledBusyId(id);
       try {
         await toggleScheduledCancelled(id, true);
       } finally {
-        setScheduledBusyId(null);
+        if (ownsOperation()) setScheduledBusyId(null);
       }
     },
-    [toggleScheduledCancelled],
+    [captureOperationOwnership, toggleScheduledCancelled],
   );
 
   const sendResidentScheduledNow = useCallback(
     async (id: string) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       setScheduledBusyId(id);
       try {
         await sendManualScheduledMessageNow(id, { asResident: true });
+        if (!ownsOperation()) return;
         showToast("Message sent.");
         void reloadScheduledMessages();
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not send message.");
+        if (ownsOperation()) showToast(e instanceof Error ? e.message : "Could not send message.");
       } finally {
-        setScheduledBusyId(null);
+        if (ownsOperation()) setScheduledBusyId(null);
       }
     },
-    [reloadScheduledMessages, showToast],
+    [captureOperationOwnership, reloadScheduledMessages, showToast],
   );
 
   const residentScheduledCards =
@@ -1419,15 +1593,18 @@ export const ResidentInboxPanel = forwardRef<
       }
       const batch = Array.from(files).slice(0, room);
       for (const file of batch) {
+        const ownsConversation = captureConversationOwnership(expandedId);
         const pending = createPendingInboxAttachment(file);
         setReplyAttachments((prev) => [...prev, pending]);
         void uploadInboxAttachment(file)
           .then((url) => {
+            if (!ownsConversation()) return;
             setReplyAttachments((prev) =>
               prev.map((a) => (a.id === pending.id ? { ...a, uploadUrl: url, uploading: false } : a)),
             );
           })
           .catch((e) => {
+            if (!ownsConversation()) return;
             setReplyAttachments((prev) =>
               prev.map((a) =>
                 a.id === pending.id
@@ -1438,7 +1615,7 @@ export const ResidentInboxPanel = forwardRef<
           });
       }
     },
-    [replyAttachments.length, showToast],
+    [captureConversationOwnership, captureOperationOwnership, expandedId, replyAttachments.length, showToast],
   );
 
   // One channel control per decision: the reply row's menu. The AI draft card
@@ -1462,6 +1639,12 @@ export const ResidentInboxPanel = forwardRef<
 
   const sendActiveReply = useCallback(async (textOverride?: string) => {
     if (!activeThread) return;
+    const ownsOperation = captureOperationOwnership();
+    const operationThreadId = activeThread.id;
+    const ownsConversation = captureConversationOwnership(operationThreadId);
+    const replyAttempt = ++replyAttemptGenerationRef.current;
+    const ownsReplyAttempt = () => ownsConversation() && replyAttemptGenerationRef.current === replyAttempt;
+    if (!ownsOperation()) return;
     const text = (textOverride ?? replyDraft).trim();
     const attachmentUrls = replyAttachments
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
@@ -1495,6 +1678,7 @@ export const ResidentInboxPanel = forwardRef<
         { email: viaEmail, sms: viaSms, proplane: viaProplane },
         attachmentUrls,
       );
+      if (!ownsReplyAttempt()) return;
       if (!outcome) {
         showToast("Could not send reply.");
         return;
@@ -1511,19 +1695,22 @@ export const ResidentInboxPanel = forwardRef<
       });
       showToast(residentReplySentToastMessage(outcome));
     } catch (e) {
+      if (!ownsReplyAttempt()) return;
       // Say WHY when the server told us — "you can only message people connected
       // to your account" is actionable; "could not send" reads as a glitch worth
       // retrying. The draft stays in the box either way.
       const reason = e instanceof InboxSendRefusal ? e.reason : null;
       showToast(reason ?? "Could not send reply.");
     } finally {
-      setReplySending(false);
+      if (ownsReplyAttempt()) setReplySending(false);
     }
   }, [
     activeIsAssistantThread,
     activeProplaneAvailable,
     activeSmsAvailable,
     activeThread,
+    captureConversationOwnership,
+    captureOperationOwnership,
     handleReply,
     replyAttachments,
     replyDraft,
@@ -1535,6 +1722,12 @@ export const ResidentInboxPanel = forwardRef<
 
   const requestResidentAiDraft = useCallback(async () => {
     if (!activeThread || isDemoModeActive()) return;
+    const ownsOperation = captureOperationOwnership();
+    const operationThreadId = activeThread.id;
+    const ownsConversation = captureConversationOwnership(operationThreadId);
+    const aiDraftAttempt = ++aiDraftAttemptGenerationRef.current;
+    const ownsAiDraftAttempt = () => ownsConversation() && aiDraftAttemptGenerationRef.current === aiDraftAttempt;
+    if (!ownsOperation()) return;
     setAiDrafting(true);
     setAiDraftError(null);
     try {
@@ -1550,6 +1743,7 @@ export const ResidentInboxPanel = forwardRef<
         draft?: { text?: string };
         error?: string;
       };
+      if (!ownsAiDraftAttempt()) return;
       if (data.ok && data.draft?.text) {
         setAiDraftText(data.draft.text);
       } else if (!data.ok && data.error) {
@@ -1558,22 +1752,26 @@ export const ResidentInboxPanel = forwardRef<
         setAiDraftError("Nothing to draft from this thread yet.");
       }
     } catch {
-      setAiDraftError("Could not draft reply.");
+      if (ownsAiDraftAttempt()) setAiDraftError("Could not draft reply.");
     } finally {
-      setAiDrafting(false);
+      if (ownsAiDraftAttempt()) setAiDrafting(false);
     }
-  }, [activeThread]);
+  }, [activeThread, captureConversationOwnership, captureOperationOwnership]);
 
   const approveResidentAiDraft = useCallback(async () => {
     const text = aiDraftText.trim();
     if (!text) return;
+    const ownsOperation = captureOperationOwnership();
+    const operationThreadId = activeThread?.id;
+    const ownsConversation = captureConversationOwnership(operationThreadId ?? null);
+    if (!ownsOperation() || !operationThreadId) return;
     setApprovingAiDraft(true);
     try {
       await sendActiveReply(text);
     } finally {
-      setApprovingAiDraft(false);
+      if (ownsConversation()) setApprovingAiDraft(false);
     }
-  }, [aiDraftText, sendActiveReply]);
+  }, [activeThread?.id, aiDraftText, captureConversationOwnership, captureOperationOwnership, sendActiveReply]);
 
   const discardResidentAiDraft = useCallback(() => {
     setAiDraftText("");

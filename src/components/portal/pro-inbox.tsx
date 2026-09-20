@@ -38,12 +38,12 @@ import {
   PORTAL_INBOX_CHANGED_EVENT,
   deleteInboxThreadIds,
   invalidatePersistedInboxCache,
+  inboxMutationInFlight,
   loadPersistedInbox,
-  persistInbox,
-  persistInboxAwait,
   runInboxMutation,
   stagePersistedInboxRows,
   syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
   upsertPersistedInboxRows,
   inboxThreadMessages,
   lastInboundChannelOf,
@@ -60,6 +60,8 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { observeCommunicationInitialViewer, retryStaleCommunicationSource } from "@/lib/communication-initial-load";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { buildOptimisticSentThread, markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import {
@@ -289,19 +291,41 @@ export const ManagerInbox = forwardRef<
   const { messages: scheduledMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
     includeHidden: false,
   });
+  const { userId, email: viewerEmail, ready: sessionReady } = useManagerUserId();
+  const demoMode = isDemoModeActive();
+  const currentViewerId = userId?.trim() || null;
+  const currentViewerKey = demoMode
+    ? "demo"
+    : sessionReady && currentViewerId
+      ? `viewer:${currentViewerId}`
+      : "pending";
+  const scheduledOwnerRef = useRef({ key: currentViewerKey, generation: 0 });
+  if (scheduledOwnerRef.current.key !== currentViewerKey) {
+    scheduledOwnerRef.current = {
+      key: currentViewerKey,
+      generation: scheduledOwnerRef.current.generation + 1,
+    };
+  }
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
 
   const reloadManualScheduled = useCallback(async () => {
     if (isDemoModeActive()) return;
+    const token = scheduledOwnerRef.current;
+    const ownsRequest = () =>
+      scheduledOwnerRef.current.key === token.key &&
+      scheduledOwnerRef.current.generation === token.generation &&
+      Boolean(currentViewerId && portalSessionViewerId() === currentViewerId);
+    if (!ownsRequest()) return;
     const res = await fetch("/api/portal/scheduled-inbox-messages", { credentials: "include", cache: "no-store" });
     if (!res.ok) return;
     const body = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
-    setManualScheduledMessages(Array.isArray(body.messages) ? body.messages : []);
-  }, []);
+    if (ownsRequest()) setManualScheduledMessages(Array.isArray(body.messages) ? body.messages : []);
+  }, [currentViewerId]);
 
   useEffect(() => {
+    setManualScheduledMessages([]);
     void reloadManualScheduled();
-  }, [reloadManualScheduled]);
+  }, [currentViewerKey, reloadManualScheduled]);
 
   const scheduleCount = useMemo(() => {
     const upcoming = (status: string, sendAt: string) =>
@@ -311,7 +335,6 @@ export const ManagerInbox = forwardRef<
       scheduledMessages.filter((m) => upcoming(m.status, m.sendAt)).length
     );
   }, [manualScheduledMessages, scheduledMessages]);
-  const { userId, email: viewerEmail } = useManagerUserId();
   // The line and address below belong to the ACTIVE workspace; re-read them on a switch.
   const selectedWorkspace = useSelectedWorkspaceId();
   const [smsCanSend, setSmsCanSend] = useState(false);
@@ -322,6 +345,8 @@ export const ManagerInbox = forwardRef<
 
   useEffect(() => {
     if (isDemoModeActive()) return;
+    setSmsCanSend(false);
+    setSmsSendingNumber(null);
     let cancelled = false;
     void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
@@ -341,7 +366,7 @@ export const ManagerInbox = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [selectedWorkspace]);
+  }, [currentViewerKey, selectedWorkspace]);
 
   /* The address an email reply actually leaves from is the WORKSPACE work
      email (`resolveManagerOutboundFrom`), not the viewer's login address — the
@@ -350,6 +375,7 @@ export const ManagerInbox = forwardRef<
   const [workEmailAddress, setWorkEmailAddress] = useState<string | null>(null);
   useEffect(() => {
     if (isDemoModeActive()) return;
+    setWorkEmailAddress(null);
     let cancelled = false;
     void fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
@@ -367,19 +393,66 @@ export const ManagerInbox = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [selectedWorkspace]);
+  }, [currentViewerKey, selectedWorkspace]);
 
-  const [local, setLocal] = useState<InboxThread[]>(() => loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
+  const [local, setLocal] = useState<InboxThread[]>(() =>
+    demoMode || (currentViewerId && portalSessionViewerId() === currentViewerId)
+      ? loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]
+      : [],
+  );
+  const [inboxSynced, setInboxSynced] = useState(false);
+  const [localViewerKey, setLocalViewerKey] = useState(currentViewerKey);
+  // Readiness and rows form one viewer-owned presentation. Reset both during
+  // render so ready A can never paint while ready B is loading or has failed.
+  if (localViewerKey !== currentViewerKey) {
+    setLocalViewerKey(currentViewerKey);
+    setLocal(
+      demoMode || (currentViewerId && portalSessionViewerId() === currentViewerId)
+        ? loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]
+        : [],
+    );
+    setInboxSynced(false);
+  }
   const localRef = useRef(local);
   const replySmsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   useEffect(() => {
     localRef.current = local;
   }, [local]);
   const [pendingSendingThreadIds, setPendingSendingThreadIds] = useState<Set<string>>(() => new Set());
-  const [inboxSynced, setInboxSynced] = useState(false);
-  const persistInboxRef = useRef(true);
+  const hydrationGenerationRef = useRef(0);
+  const panelViewerIdRef = useRef<string | null>(null);
+  const panelMountedRef = useRef(false);
+  const operationOwnerRef = useRef({ key: currentViewerKey, generation: 0 });
+  if (operationOwnerRef.current.key !== currentViewerKey) {
+    operationOwnerRef.current = {
+      key: currentViewerKey,
+      generation: operationOwnerRef.current.generation + 1,
+    };
+  }
+  const captureOperationOwnership = useCallback(() => {
+    const token = operationOwnerRef.current;
+    const viewerId = currentViewerId;
+    return () =>
+      panelMountedRef.current &&
+      operationOwnerRef.current.key === token.key &&
+      operationOwnerRef.current.generation === token.generation &&
+      (demoMode || Boolean(viewerId && portalSessionViewerId() === viewerId));
+  }, [currentViewerId, demoMode]);
   const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
   const expandedId = controlledExpandedId !== undefined ? controlledExpandedId : internalExpandedId;
+  const expandedIdRef = useRef(expandedId);
+  expandedIdRef.current = expandedId;
+  const conversationOwnerRef = useRef({ id: expandedId, generation: 0 });
+  const replyAttemptGenerationRef = useRef(0);
+  const contactAttemptGenerationRef = useRef(0);
+  if (conversationOwnerRef.current.id !== expandedId) {
+    conversationOwnerRef.current = { id: expandedId, generation: conversationOwnerRef.current.generation + 1 };
+  }
+  const captureConversationOwnership = useCallback((id: string | null) => {
+    const token = conversationOwnerRef.current;
+    const ownsViewer = captureOperationOwnership();
+    return () => ownsViewer() && conversationOwnerRef.current.id === id && conversationOwnerRef.current.generation === token.generation;
+  }, [captureOperationOwnership]);
   const setExpandedId = useCallback(
     (id: string | null | ((prev: string | null) => string | null)) => {
       const resolve = (prev: string | null) => (typeof id === "function" ? id(prev) : id);
@@ -406,13 +479,56 @@ export const ManagerInbox = forwardRef<
   const [retainedIds, setRetainedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
-    persistInboxRef.current = false;
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY).then((rows) => {
-      setLocal(rows as InboxThread[]);
-      setInboxSynced(true);
-      persistInboxRef.current = true;
-    });
+    panelMountedRef.current = true;
+    return () => {
+      panelMountedRef.current = false;
+    };
   }, []);
+
+  useEffect(() => {
+    const generation = ++hydrationGenerationRef.current;
+    const viewerId = userId?.trim() || null;
+    panelViewerIdRef.current = viewerId;
+
+    if (isDemoModeActive()) {
+      setLocal(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
+      setInboxSynced(true);
+      return;
+    }
+    if (!sessionReady || !viewerId) {
+      setLocal([]);
+      setInboxSynced(false);
+      return;
+    }
+
+    let mounted = true;
+    const viewer = observeCommunicationInitialViewer(viewerId);
+    const isCurrent = () =>
+      mounted &&
+      generation === hydrationGenerationRef.current &&
+      panelViewerIdRef.current === viewerId &&
+      viewer.isCurrent() &&
+      portalSessionViewerId() === viewerId;
+
+    void retryStaleCommunicationSource(
+      () => syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
+      () => isCurrent() && viewer.canRetry(),
+    ).then((result) => {
+      if (!isCurrent() || !result.ok || result.stale || inboxMutationInFlight()) return;
+      // Consume the cache after its accepted commit, never this request's
+      // captured rows, so a later cache event cannot be rolled back.
+      setLocal(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
+      setInboxSynced(true);
+    }).catch(() => {
+      // Preserve the current snapshot when an unexpected rejection escapes the
+      // status loader.
+    });
+
+    return () => {
+      mounted = false;
+      viewer.dispose();
+    };
+  }, [sessionReady, userId]);
 
   useEffect(() => {
     const bump = () => setContactTick((n) => n + 1);
@@ -432,10 +548,17 @@ export const ManagerInbox = forwardRef<
   }, [userId, contactTick]);
 
   useEffect(() => {
+    const expectedViewerId = userId?.trim() || null;
     const sync = (evt?: Event) => {
       if (evt && evt.type === PORTAL_INBOX_CHANGED_EVENT) {
         const ce = evt as CustomEvent<{ key?: string }>;
         if (ce.detail?.key && ce.detail.key !== MANAGER_INBOX_STORAGE_KEY) return;
+      }
+      if (
+        !isDemoModeActive() &&
+        (!sessionReady || !expectedViewerId || panelViewerIdRef.current !== expectedViewerId || portalSessionViewerId() !== expectedViewerId)
+      ) {
+        return;
       }
       setLocal(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
     };
@@ -443,12 +566,7 @@ export const ManagerInbox = forwardRef<
     return () => {
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!inboxSynced || !persistInboxRef.current) return;
-    persistInbox(MANAGER_INBOX_STORAGE_KEY, local);
-  }, [local, inboxSynced]);
+  }, [sessionReady, userId]);
 
   const residentEmailNorm = filterResidentEmail?.trim().toLowerCase() ?? "";
   const vendorEmailNorm = filterVendorEmail?.trim() ?? "";
@@ -592,10 +710,34 @@ export const ManagerInbox = forwardRef<
   // Mark an unread inbox thread read without a toast — used when a thread is
   // opened in the two-pane view (kept listed under Unopened until refresh via
   // `retainedIds`, matching the explicit "Mark read" behaviour).
-  const markReadSilent = (id: string) => {
-    setLocal((prev) => prev.map((t) => (t.id === id && t.folder === "inbox" ? { ...t, unread: false } : t)));
+  const persistUnreadFlag = useCallback((id: string, unread: boolean) => {
+    void runInboxMutation(async () => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
+      const previous = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+      const target = previous.find((thread) => thread.id === id && thread.folder === "inbox");
+      if (!target || target.unread === unread) return;
+      const updated = { ...target, unread };
+      const next = previous.map((thread) => (thread.id === id ? updated : thread));
+      stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
+      setLocal(next);
+      const ok = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
+      if (!ownsOperation() || ok) return;
+      const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+      const reconciled = current.map((thread) =>
+        thread.id === id && thread.unread === unread
+          ? { ...thread, unread: target.unread }
+          : thread,
+      );
+      stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, reconciled);
+      setLocal(reconciled);
+    });
+  }, [captureOperationOwnership]);
+
+  const markReadSilent = useCallback((id: string) => {
     setRetainedIds((prev) => new Set(prev).add(id));
-  };
+    persistUnreadFlag(id, false);
+  }, [persistUnreadFlag]);
 
   const markRead = (id: string) => {
     markReadSilent(id);
@@ -609,8 +751,8 @@ export const ManagerInbox = forwardRef<
 
   const moveToTrash = (id: string) => {
     void runInboxMutation(async () => {
-      persistInboxRef.current = false;
-      try {
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
         const prev = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
         const target = prev.find((t) => t.id === id);
         if (!target || target.folder === "trash" || (target.folder !== "inbox" && target.folder !== "sent")) return;
@@ -625,16 +767,18 @@ export const ManagerInbox = forwardRef<
         setLocal(next);
         setExpandedId((e) => (e === id ? null : e));
         const ok = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
+        if (!ownsOperation()) return;
         if (!ok) {
-          stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, prev);
-          setLocal(prev);
+          const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+          const reconciled = current.map((thread) => thread.id === id && thread.folder === "trash" && thread.previousFolder === target.folder
+            ? { ...thread, folder: target.folder, previousFolder: target.previousFolder, unread: thread.unread === updated.unread ? target.unread : thread.unread }
+            : thread);
+          stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, reconciled);
+          setLocal(reconciled);
           showToast("Could not move message to trash.");
           return;
         }
         showToast("Moved to trash.");
-      } finally {
-        persistInboxRef.current = true;
-      }
     });
   };
 
@@ -646,8 +790,8 @@ export const ManagerInbox = forwardRef<
 
   const restoreFromTrash = (id: string) => {
     void runInboxMutation(async () => {
-      persistInboxRef.current = false;
-      try {
+        const ownsOperation = captureOperationOwnership();
+        if (!ownsOperation()) return;
         const prev = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
         const target = prev.find((t) => t.id === id && t.folder === "trash");
         if (!target) return;
@@ -658,82 +802,89 @@ export const ManagerInbox = forwardRef<
         setLocal(next);
         setExpandedId((e) => (e === id ? null : e));
         const ok = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
+        if (!ownsOperation()) return;
         if (!ok) {
-          stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, prev);
-          setLocal(prev);
+          const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+          const reconciled = current.map((thread) => thread.id === id && thread.folder === dest && thread.previousFolder === undefined
+            ? { ...thread, folder: target.folder, previousFolder: target.previousFolder, unread: thread.unread === updated.unread ? target.unread : thread.unread }
+            : thread);
+          stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, reconciled);
+          setLocal(reconciled);
           showToast("Could not restore message.");
           return;
         }
         showToast("Restored.");
-      } finally {
-        persistInboxRef.current = true;
-      }
     });
   };
 
   const deleteForever = (id: string) => {
     void (async () => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
       const ok = await deleteInboxThreadIds([id]);
+      if (!ownsOperation()) return;
       if (!ok) {
         showToast("Could not delete message.");
         return;
       }
-      const next = local.filter((t) => t.id !== id);
-      persistInboxRef.current = false;
+      const next = (loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]).filter((t) => t.id !== id);
+      stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
       setLocal(next);
       setExpandedId((e) => (e === id ? null : e));
-      await persistInboxAwait(MANAGER_INBOX_STORAGE_KEY, next);
-      const deletedIds = new Set([id]);
-      const synced = await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
-      setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
-      persistInboxRef.current = true;
       showToast("Message deleted.");
     })();
   };
 
   const deleteAllTrash = useCallback(async () => {
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     const trashItems = local.filter((t) => t.folder === "trash");
     if (trashItems.length === 0) {
       showToast("Trash is already empty.");
       return;
     }
     if (!(await confirm({ description: `Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.` }))) return;
+    if (!ownsOperation()) return;
     void (async () => {
       invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
       const ids = trashItems.map((item) => item.id).filter(Boolean);
       if (ids.length === 0) return;
       const ok = await deleteInboxThreadIds(ids);
+      if (!ownsOperation()) return;
       if (!ok) {
         showToast("Could not clear trash.");
         return;
       }
-      const next = local.filter((t) => t.folder !== "trash");
-      persistInboxRef.current = false;
+      const deletedIds = new Set(ids);
+      const next = (loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]).filter((t) => !deletedIds.has(t.id));
+      stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
       setLocal(next);
       setExpandedId(null);
-      await persistInboxAwait(MANAGER_INBOX_STORAGE_KEY, next);
-      const deletedIds = new Set(ids);
-      const synced = await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
-      setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
-      persistInboxRef.current = true;
       showToast("Trash cleared.");
-    })().catch(() => showToast("Could not clear trash."));
-  }, [local, showToast]);
+    })().catch(() => { if (ownsOperation()) showToast("Could not clear trash."); });
+  }, [captureOperationOwnership, confirm, local, setExpandedId, showToast]);
 
   const reloadInbox = useCallback(() => {
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
-      setLocal(rows as InboxThread[]);
+    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).then(() => {
+      if (!ownsOperation()) return;
+      setLocal(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
     });
-  }, []);
+  }, [captureOperationOwnership]);
 
   const reloadInboxAsync = useCallback(async () => {
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return [];
     invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
-    const rows = await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true });
-    setLocal(rows as InboxThread[]);
-    return rows as InboxThread[];
-  }, []);
+    await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true });
+    if (!ownsOperation()) return [];
+    const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+    setLocal(current);
+    return current;
+  }, [captureOperationOwnership]);
 
   const findThreadForRecipient = useCallback((email: string) => {
     const norm = email.trim().toLowerCase();
@@ -744,7 +895,6 @@ export const ManagerInbox = forwardRef<
   const stageOptimisticSentThread = useCallback((thread: PersistedInboxThread) => {
     setPendingSendingThreadIds((prev) => new Set(prev).add(thread.id));
     const next = [thread as InboxThread, ...localRef.current];
-    persistInboxRef.current = false;
     setLocal(next);
     setExpandedId(thread.id);
   }, [setExpandedId]);
@@ -789,8 +939,11 @@ export const ManagerInbox = forwardRef<
       channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
     ) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       const thread = localRef.current.find((t) => t.id === rowId);
       if (!thread) return;
+      const ownsConversation = captureConversationOwnership(thread.id);
       // A Team thread replies the way an assistant thread does: in-app only,
       // no person counterparty — the send route posts it to the team.
       const assistantThread = isPropLaneAssistantInboxThread(thread) || isTeamInboxThread(thread);
@@ -835,16 +988,18 @@ export const ManagerInbox = forwardRef<
         channel: replyChannel,
         ...(emailAllowed ? { subject } : {}),
       };
-      persistInboxRef.current = false;
       setLocal((current) =>
         current.map((row) =>
           row.id === thread.id
-            ? advanceInboxAiDraft(appendReplyToInboxThread(row, reply))
+            // Approval is a server-confirmed transition. Do not consume A's
+            // queue optimistically: a failed send must leave A and B/C intact.
+            ? appendReplyToInboxThread(row, reply)
             : row,
         ),
       );
 
       const rollbackReply = () => {
+        if (!ownsConversation()) return;
         setLocal((current) =>
           current.map((row) => {
             if (row.id !== thread.id) return row;
@@ -881,6 +1036,7 @@ export const ManagerInbox = forwardRef<
       let failureMessage = "";
       try {
         if (proplaneAllowed) {
+          if (!ownsOperation()) return;
           try {
             const result = await sendPropLaneAssistantInboxMessage({
               threadId: thread.id,
@@ -892,6 +1048,7 @@ export const ManagerInbox = forwardRef<
               toEmails: portalRecipient?.toEmails,
               toUserIds: portalRecipient?.toUserIds,
             });
+            if (!ownsOperation()) return;
             proplaneOk = result.ok;
             if (!result.ok) failureMessage = result.error?.trim() ?? "";
           } catch {
@@ -900,6 +1057,7 @@ export const ManagerInbox = forwardRef<
         }
 
         if (emailAllowed) {
+          if (!ownsOperation()) return;
           try {
             const res = await fetch("/api/portal/send-inbox-message", {
               method: "POST",
@@ -922,6 +1080,7 @@ export const ManagerInbox = forwardRef<
               ok?: boolean;
               error?: string;
             };
+            if (!ownsOperation()) return;
             emailOk = res.ok && data.ok === true;
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
@@ -930,6 +1089,7 @@ export const ManagerInbox = forwardRef<
         }
 
         if (smsAllowed) {
+          if (!ownsOperation()) return;
           const smsTarget = resolveManagerInboxSmsTarget(
             thread,
             smsRecipients,
@@ -971,6 +1131,7 @@ export const ManagerInbox = forwardRef<
                 code?: string;
                 status?: string;
               };
+              if (!ownsOperation()) return;
               smsUnknown = isManualSmsOutcomeUnknown(data);
               smsOk = res.ok && isManualSmsSubmitted(data);
               if (smsOk) {
@@ -994,8 +1155,9 @@ export const ManagerInbox = forwardRef<
           rollbackReply();
           throw new InboxSendRefusal(failureMessage || null);
         }
+        if (!ownsConversation()) return;
 
-        const currentRows = localRef.current;
+        const currentRows = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
         const currentThread = currentRows.find((row) => row.id === thread.id);
         if (currentThread) {
           const withReply = (currentThread.messages ?? []).some(
@@ -1003,21 +1165,35 @@ export const ManagerInbox = forwardRef<
           )
             ? currentThread
             : appendReplyToInboxThread(currentThread, reply);
-          const delivered = advanceInboxAiDraft(markThreadMessageDelivery(withReply, replyId, undefined));
+          const delivered = markThreadMessageDelivery(withReply, replyId, undefined);
+          const approvedDraft = thread.aiDraft;
+          const currentDraft = currentThread.aiDraft;
+          // Resolve exactly the draft this reply approved. `generatedAt` is the
+          // durable draft identity; old rows without it retain a conservative
+          // structural match. A newer active draft must never be consumed.
+          const approvingCurrentDraft = Boolean(
+            approvedDraft &&
+              currentDraft &&
+              (approvedDraft.generatedAt?.trim()
+                ? currentDraft.generatedAt?.trim() === approvedDraft.generatedAt.trim()
+                : currentDraft.text === approvedDraft.text && currentDraft.status === approvedDraft.status),
+          );
+          const settled = approvingCurrentDraft ? advanceInboxAiDraft(delivered) : delivered;
           const persisted = currentRows.map((row) =>
-            row.id === thread.id ? delivered : row,
+            row.id === thread.id ? settled : row,
           );
           setLocal(persisted);
           await upsertPersistedInboxRows(
             MANAGER_INBOX_STORAGE_KEY,
-            [delivered],
+            [settled],
             persisted,
           ).catch(() => false);
+          if (!ownsConversation()) return;
         }
       } finally {
-        persistInboxRef.current = true;
+        // The delivered reply is persisted explicitly above.
       }
-      void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, {
+      if (ownsOperation()) void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, {
         force: true,
       }).catch(() => {});
       return {
@@ -1030,11 +1206,13 @@ export const ManagerInbox = forwardRef<
         smsUnknown,
       };
     },
-    [smsRecipients, smsOutboundEnabled],
+    [captureConversationOwnership, captureOperationOwnership, smsRecipients, smsOutboundEnabled],
   );
 
   const handleComposeSend = useCallback(
     (p: ScopedInboxSendPayload) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       if (p.includesAxisAdmin && isDemoModeActive()) {
         appendPortalMessageToAdminInbox({
           role: "manager",
@@ -1078,16 +1256,17 @@ export const ManagerInbox = forwardRef<
               showToast("Add at least one recipient to schedule.");
               return;
             }
-            const results = await Promise.all(
-              schedulePayloads.map((payload) =>
-                fetch("/api/portal/scheduled-inbox-messages", {
+            const results: Response[] = [];
+            for (const payload of schedulePayloads) {
+              if (!ownsOperation()) return;
+              results.push(await fetch("/api/portal/scheduled-inbox-messages", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   credentials: "include",
                   body: JSON.stringify(payload),
-                }),
-              ),
-            );
+              }));
+            }
+            if (!ownsOperation()) return;
             if (results.some((res) => !res.ok)) {
               showToast("Some messages could not be scheduled.");
               return;
@@ -1134,6 +1313,7 @@ export const ManagerInbox = forwardRef<
             }),
           });
           const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+          if (!ownsOperation()) return;
           if (!res.ok || !data.ok) {
             if (optimisticId) clearPendingSend(optimisticId);
             showToast("Message could not be sent.");
@@ -1141,6 +1321,7 @@ export const ManagerInbox = forwardRef<
           }
           if (optimisticId) clearPendingSend(optimisticId);
           await reloadInboxAsync();
+          if (!ownsOperation()) return;
           const threadId = primaryRecipient ? findThreadForRecipient(primaryRecipient) : null;
           showToast(
             p.includesAxisAdmin && !p.includesDirectoryRecipients
@@ -1156,12 +1337,13 @@ export const ManagerInbox = forwardRef<
             navigate(`${inboxBase}/sent`);
           }
         } catch {
-          showToast("Message could not be sent.");
+          if (ownsOperation()) showToast("Message could not be sent.");
         }
       })();
     },
     [
       clearPendingSend,
+      captureOperationOwnership,
       embeddedInCommunication,
       findThreadForRecipient,
       inboxBase,
@@ -1194,6 +1376,24 @@ export const ManagerInbox = forwardRef<
   const [draftingIds, setDraftingIds] = useState<Set<string>>(() => new Set());
   const draftAttemptedRef = useRef<Set<string>>(new Set());
 
+  useEffect(() => {
+    setDraftErrors({});
+    setDraftingIds(new Set());
+    draftAttemptedRef.current.clear();
+    setComposeOpen(false);
+    setReply({ threadId: null, text: "" });
+    setReplyAttachments((previous) => {
+      previous.forEach(revokeInboxAttachmentPreview);
+      return [];
+    });
+    setReplySending(false);
+    setApprovingDraft(false);
+    setPendingSendingThreadIds(new Set());
+    replySmsAttemptRef.current = null;
+    autoSentDraftRef.current = null;
+    setDiscardedDraftIds(new Set());
+  }, [currentViewerKey]);
+
   const activeThread = useMemo(
     () =>
       resolveCommunicationInboxThread(
@@ -1210,7 +1410,7 @@ export const ManagerInbox = forwardRef<
   useEffect(() => {
     if (!activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
     markReadSilent(activeThread.id);
-  }, [activeThread?.id]);
+  }, [activeThread?.id, markReadSilent]);
 
   // A draft per conversation — restored when the manager comes back to it.
   // The text and the conversation it belongs to travel as one value, so the
@@ -1218,11 +1418,13 @@ export const ManagerInbox = forwardRef<
   useEffect(() => {
     const threadId = activeThread?.id ?? null;
     setReply({ threadId, text: threadId ? readInboxReplyDraft(threadId) : "" });
+    setReplySending(false);
+    setApprovingDraft(false);
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
-  }, [expandedId]);
+  }, [currentViewerKey, expandedId]);
 
   // Keep the unsent text for THIS conversation as it is typed.
   useEffect(() => {
@@ -1236,11 +1438,12 @@ export const ManagerInbox = forwardRef<
     } else {
       setAiDraftEditText("");
     }
-  }, [activeThread?.aiDraft?.status, activeThread?.aiDraft?.text, activeThread?.id]);
+  }, [activeThread?.aiDraft?.status, activeThread?.aiDraft?.text, activeThread?.id, currentViewerKey]);
 
   const [threadPhoneOpen, setThreadPhoneOpen] = useState(false);
   const [threadPhoneError, setThreadPhoneError] = useState<string | null>(null);
   const [savingThreadPhone, setSavingThreadPhone] = useState(false);
+  useEffect(() => setSavingThreadPhone(false), [currentViewerKey, expandedId]);
 
   const activeEmailAvailable = useMemo(
     () => Boolean(activeThread && inboxThreadHasEmail(activeThread.email)),
@@ -1302,6 +1505,12 @@ export const ManagerInbox = forwardRef<
 
   const saveThreadContact = useCallback(
     async (values: PortalContactDetailsValues) => {
+      const ownsOperation = captureOperationOwnership();
+      const operationThreadId = activeThread?.id;
+      const ownsConversation = captureConversationOwnership(operationThreadId ?? null);
+      const contactAttempt = ++contactAttemptGenerationRef.current;
+      const ownsContactAttempt = () => ownsConversation() && contactAttemptGenerationRef.current === contactAttempt;
+      if (!ownsOperation()) return;
       const threadEmail = activeThread?.email?.trim().toLowerCase();
       const email = values.email || threadEmail;
       if (!email) {
@@ -1324,17 +1533,18 @@ export const ManagerInbox = forwardRef<
           }),
         });
         const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!ownsContactAttempt()) return;
         if (!res.ok) throw new Error(body.error ?? "Could not save contact details.");
         setThreadPhoneOpen(false);
         showToast("Contact details saved.");
         dispatchManagerSmsContactsChanged();
       } catch (e) {
-        setThreadPhoneError(e instanceof Error ? e.message : "Could not save contact details.");
+        if (ownsContactAttempt()) setThreadPhoneError(e instanceof Error ? e.message : "Could not save contact details.");
       } finally {
-        setSavingThreadPhone(false);
+        if (ownsContactAttempt()) setSavingThreadPhone(false);
       }
     },
-    [activeThread, showToast],
+    [activeThread, captureConversationOwnership, captureOperationOwnership, showToast],
   );
 
   const openThreadPhone = useCallback(() => {
@@ -1467,6 +1677,7 @@ export const ManagerInbox = forwardRef<
   // render as "Scheduled · sends <when>" cards at the tail of their conversation,
   // cancelable / send-now / editable in place.
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
+  useEffect(() => setScheduledBusyId(null), [currentViewerKey, expandedId]);
 
   const threadScheduledItems = useMemo(
     () =>
@@ -1488,6 +1699,8 @@ export const ManagerInbox = forwardRef<
 
   const cancelScheduledItem = useCallback(
     async (item: { id: string; source: "manual" | "automation" }) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       setScheduledBusyId(item.id);
       try {
         if (item.source === "manual") {
@@ -1501,33 +1714,37 @@ export const ManagerInbox = forwardRef<
         } else {
           await patchScheduledMessage(item.id, { cancelled: true });
         }
+        if (!ownsOperation()) return;
         showToast("Scheduled send cancelled.");
         reloadScheduled();
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not cancel send.");
+        if (ownsOperation()) showToast(e instanceof Error ? e.message : "Could not cancel send.");
       } finally {
-        setScheduledBusyId(null);
+        if (ownsOperation()) setScheduledBusyId(null);
       }
     },
-    [reloadScheduled, showToast],
+    [captureOperationOwnership, reloadScheduled, showToast],
   );
 
   const sendScheduledItemNow = useCallback(
     async (item: { id: string; source: "manual" | "automation" }) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) return;
       setScheduledBusyId(item.id);
       try {
         if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
         else await sendAutomationScheduledMessageNow(item.id);
+        if (!ownsOperation()) return;
         showToast("Message sent.");
         reloadScheduled();
         reloadInbox();
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not send message.");
+        if (ownsOperation()) showToast(e instanceof Error ? e.message : "Could not send message.");
       } finally {
-        setScheduledBusyId(null);
+        if (ownsOperation()) setScheduledBusyId(null);
       }
     },
-    [reloadScheduled, reloadInbox, showToast],
+    [captureOperationOwnership, reloadScheduled, reloadInbox, showToast],
   );
 
   const saveScheduledEdit = useCallback(
@@ -1541,6 +1758,8 @@ export const ManagerInbox = forwardRef<
         sendAt?: string;
       },
     ) => {
+      const ownsOperation = captureOperationOwnership();
+      if (!ownsOperation()) throw new Error("Conversation changed.");
       // Rejects on failure so the inline editor stays open with the draft text.
       // The card renders the message inline, so there is deliberately no toast.
       try {
@@ -1570,10 +1789,11 @@ export const ManagerInbox = forwardRef<
       } catch (e) {
         throw new Error(e instanceof Error && e.message ? e.message : "Could not save changes.");
       }
+      if (!ownsOperation()) throw new Error("Conversation changed.");
       showToast("Scheduled message updated.");
       reloadScheduled();
     },
-    [reloadScheduled, showToast],
+    [captureOperationOwnership, reloadScheduled, showToast],
   );
 
   const openThread = useCallback(
@@ -1582,8 +1802,7 @@ export const ManagerInbox = forwardRef<
       // Opening an unread inbox message reads it (natural inbox behaviour).
       if (thread.folder === "inbox" && thread.unread) markReadSilent(thread.id);
     },
-    // markReadSilent only closes over stable state setters.
-    [],
+    [markReadSilent],
   );
 
   const pickReplyAttachments = useCallback(
@@ -1596,15 +1815,18 @@ export const ManagerInbox = forwardRef<
       }
       const batch = Array.from(files).slice(0, room);
       for (const file of batch) {
+        const ownsConversation = captureConversationOwnership(expandedId);
         const pending = createPendingInboxAttachment(file);
         setReplyAttachments((prev) => [...prev, pending]);
         void uploadInboxAttachment(file)
           .then((url) => {
+            if (!ownsConversation()) return;
             setReplyAttachments((prev) =>
               prev.map((a) => (a.id === pending.id ? { ...a, uploadUrl: url, uploading: false } : a)),
             );
           })
           .catch((e) => {
+            if (!ownsConversation()) return;
             setReplyAttachments((prev) =>
               prev.map((a) =>
                 a.id === pending.id
@@ -1615,7 +1837,7 @@ export const ManagerInbox = forwardRef<
           });
       }
     },
-    [replyAttachments.length, showToast],
+    [captureConversationOwnership, captureOperationOwnership, expandedId, replyAttachments.length, showToast],
   );
 
   const removeReplyAttachment = useCallback((id: string) => {
@@ -1628,6 +1850,12 @@ export const ManagerInbox = forwardRef<
 
   const sendActiveReply = useCallback(async () => {
     if (!activeThread) return;
+    const ownsOperation = captureOperationOwnership();
+    const operationThreadId = activeThread.id;
+    const ownsConversation = captureConversationOwnership(operationThreadId);
+    const replyAttempt = ++replyAttemptGenerationRef.current;
+    const ownsReplyAttempt = () => ownsConversation() && replyAttemptGenerationRef.current === replyAttempt;
+    if (!ownsOperation()) return;
     const text = replyDraft.trim();
     const attachmentUrls = replyAttachments
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
@@ -1677,6 +1905,7 @@ export const ManagerInbox = forwardRef<
             deliverViaSms: replyViaSms && activeSmsAvailable,
           }),
         });
+        if (!ownsReplyAttempt()) return;
         if (!res.ok) {
           const payload = (await res.json().catch(() => null)) as { error?: string } | null;
           showToast(payload?.error ?? "Could not schedule message.");
@@ -1694,9 +1923,9 @@ export const ManagerInbox = forwardRef<
         // scheduled something sees no sign it worked and schedules it twice.
         reloadScheduled();
       } catch {
-        showToast("Could not schedule message.");
+        if (ownsReplyAttempt()) showToast("Could not schedule message.");
       } finally {
-        setReplySending(false);
+        if (ownsReplyAttempt()) setReplySending(false);
       }
       return;
     }
@@ -1713,6 +1942,7 @@ export const ManagerInbox = forwardRef<
         },
         attachmentUrls,
       );
+      if (!ownsReplyAttempt()) return;
       if (!outcome) return;
       setReplyDraft("");
       clearInboxReplyDraft(activeThread.id);
@@ -1722,16 +1952,19 @@ export const ManagerInbox = forwardRef<
       });
       showToast(inboxReplySentToastMessage(outcome));
     } catch (error) {
+      if (!ownsReplyAttempt()) return;
       showToast(
         error instanceof InboxSendRefusal
           ? (error.reason ?? "Could not send reply.")
           : "Could not send reply.",
       );
     } finally {
-      setReplySending(false);
+      if (ownsReplyAttempt()) setReplySending(false);
     }
   }, [
     activeThread,
+    captureConversationOwnership,
+    captureOperationOwnership,
     replyDraft,
     replyAttachments,
     replyViaEmail,
@@ -1745,7 +1978,9 @@ export const ManagerInbox = forwardRef<
   ]);
 
   const requestInboxAiDraft = useCallback(async (threadId: string, force = false) => {
-    if (isDemoModeActive()) return;
+    if (demoMode) return;
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
     setDraftingIds((prev) => {
       if (prev.has(threadId)) return prev;
       const next = new Set(prev);
@@ -1765,6 +2000,7 @@ export const ManagerInbox = forwardRef<
         draft?: InboxAiDraft;
         error?: string;
       };
+      if (!ownsOperation()) return;
       if (data.ok && data.draft) {
         // Persist after deriving the next snapshot, never from a React state
         // updater. `persistInbox` dispatches the shared inbox-change event, so
@@ -1772,7 +2008,12 @@ export const ManagerInbox = forwardRef<
         // every inbox observer to update during another component's render.
         // A queued automation draft still waiting on this thread is kept
         // behind the fresh reply draft, never silently replaced by it.
-        const next = localRef.current.map((thread) =>
+        const currentRows = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+        const original = currentRows.find((thread) => thread.id === threadId);
+        const queuedByOperation = original?.aiDraft?.status === "pending_approval" && original.aiDraft.text !== data.draft.text
+          ? original.aiDraft
+          : undefined;
+        const next = currentRows.map((thread) =>
           thread.id === threadId
             ? {
                 ...thread,
@@ -1785,9 +2026,39 @@ export const ManagerInbox = forwardRef<
             : thread,
         );
         setLocal(next);
-        // The existing `local` persistence effect runs after this update has
-        // committed. Persisting here dispatches the inbox-change event while
-        // React may still be rendering this state transition.
+        const updated = next.find((thread) => thread.id === threadId);
+        if (updated) {
+          const persisted = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
+          if (!ownsOperation()) return;
+          if (!persisted) {
+            const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+            const reconciled = current.map((thread) =>
+              thread.id === threadId &&
+              JSON.stringify(thread.aiDraft) === JSON.stringify(data.draft)
+                ? {
+                    ...thread,
+                    aiDraft: original?.aiDraft,
+                    aiDraftQueue: queuedByOperation
+                      ? (() => {
+                          let removed = false;
+                          return (thread.aiDraftQueue ?? []).filter((draft) => {
+                            if (!removed && JSON.stringify(draft) === JSON.stringify(queuedByOperation)) {
+                              removed = true;
+                              return false;
+                            }
+                            return true;
+                          });
+                        })()
+                      : thread.aiDraftQueue,
+                  }
+                : thread,
+            );
+            stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, reconciled);
+            setLocal(reconciled);
+            setDraftErrors((prev) => ({ ...prev, [threadId]: "Could not save draft reply." }));
+            return;
+          }
+        }
         setDraftErrors((prev) => {
           const next = { ...prev };
           delete next[threadId];
@@ -1803,15 +2074,19 @@ export const ManagerInbox = forwardRef<
         setDraftErrors((prev) => ({ ...prev, [threadId]: data.error ?? "Could not draft reply." }));
       }
     } catch {
-      setDraftErrors((prev) => ({ ...prev, [threadId]: "Could not draft reply." }));
+      if (ownsOperation()) {
+        setDraftErrors((prev) => ({ ...prev, [threadId]: "Could not draft reply." }));
+      }
     } finally {
-      setDraftingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(threadId);
-        return next;
-      });
+      if (ownsOperation()) {
+        setDraftingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(threadId);
+          return next;
+        });
+      }
     }
-  }, []);
+  }, [captureOperationOwnership, demoMode]);
 
   // Auto-draft every incoming resident thread that still needs a manager reply.
   useEffect(() => {
@@ -1837,18 +2112,28 @@ export const ManagerInbox = forwardRef<
 
   const discardActiveDraft = useCallback(async () => {
     if (!activeThread?.aiDraft) return;
-    const updated: InboxThread = advanceInboxAiDraft(activeThread);
-    const next = local.map((t) => (t.id === activeThread.id ? updated : t));
+    const ownsOperation = captureOperationOwnership();
+    if (!ownsOperation()) return;
+    const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+    const target = current.find((thread) => thread.id === activeThread.id);
+    if (!target?.aiDraft) return;
+    const updated: InboxThread = advanceInboxAiDraft(target);
+    const next = current.map((t) => (t.id === target.id ? updated : t));
     setDiscardedDraftIds((prev) => new Set(prev).add(activeThread.id));
-    persistInboxRef.current = false;
     setLocal(next);
     await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
-    persistInboxRef.current = true;
-  }, [activeThread, local]);
+    if (!ownsOperation()) return;
+  }, [activeThread, captureOperationOwnership]);
 
   const approveActiveDraft = useCallback(async () => {
     const text = aiDraftEditText.trim();
     if (!activeThread || !text) return;
+    const ownsOperation = captureOperationOwnership();
+    const operationThreadId = activeThread.id;
+    const ownsConversation = captureConversationOwnership(operationThreadId);
+    const replyAttempt = ++replyAttemptGenerationRef.current;
+    const ownsReplyAttempt = () => ownsConversation() && replyAttemptGenerationRef.current === replyAttempt;
+    if (!ownsOperation()) return false;
     // Resolve against live availability so auto-send (and a stale picker
     // state right after opening a phone-only thread) still picks SMS when
     // email is impossible — never toast "choose a channel" and stick the
@@ -1869,9 +2154,11 @@ export const ManagerInbox = forwardRef<
         sms: channels.viaSms,
         proplane: channels.viaProplane,
       });
+      if (!ownsReplyAttempt()) return false;
       if (outcome) showToast(inboxReplySentToastMessage(outcome));
       return true;
     } catch (error) {
+      if (!ownsReplyAttempt()) return false;
       autoSentDraftRef.current = null;
       showToast(
         error instanceof InboxSendRefusal
@@ -1880,9 +2167,9 @@ export const ManagerInbox = forwardRef<
       );
       return false;
     } finally {
-      setApprovingDraft(false);
+      if (ownsReplyAttempt()) setApprovingDraft(false);
     }
-  }, [activeEmailAvailable, activeSmsAvailable, activeProplaneAvailable, activeThread, aiDraftEditText, aiDraftViaEmail, aiDraftViaSms, handleReply, replyViaProplane, showToast]);
+  }, [activeEmailAvailable, activeSmsAvailable, activeProplaneAvailable, activeThread, aiDraftEditText, aiDraftViaEmail, aiDraftViaSms, captureConversationOwnership, captureOperationOwnership, handleReply, replyViaProplane, showToast]);
 
   useEffect(() => {
     if (!activeThread?.aiDraft?.text || activeThread.aiDraft.status !== "pending_approval") return;
@@ -2045,9 +2332,15 @@ export const ManagerInbox = forwardRef<
   };
 
   const bulkDeleteForever = async () => {
+    const ownsOperation = captureOperationOwnership();
+    const ids = [...threadSelection.selectedIds];
     if (!(await confirm({ description: `Delete ${threadSelection.selectedIds.size} message(s) permanently?` }))) return;
-    for (const id of threadSelection.selectedIds) deleteForever(id);
-    threadSelection.clearSelection();
+    if (!ownsOperation()) return;
+    for (const id of ids) {
+      if (!ownsOperation()) return;
+      deleteForever(id);
+    }
+    if (ownsOperation()) threadSelection.clearSelection();
   };
 
   // Rendered next to the tab pills when Inbox owns its own page shell, and at

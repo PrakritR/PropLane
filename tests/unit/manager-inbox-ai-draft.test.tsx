@@ -12,7 +12,7 @@
 //     `aiDraft` hands its draft to the thread's own reply field — never a
 //     second message box beside it.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { act, render, screen, cleanup, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
 
 const RESIDENT_MSG = {
@@ -38,6 +38,12 @@ const THREADS = [
 ];
 
 let inboxRows = THREADS;
+const managerSession = vi.hoisted(() => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }));
+const draftPersistence = vi.hoisted(() => ({
+  upsert: vi.fn(),
+  succeeds: true,
+  pending: null as Promise<boolean> | null,
+}));
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -57,6 +63,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => inboxRows,
   syncPersistedInboxFromServer: () => Promise.resolve(inboxRows),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: inboxRows, ok: true }),
   persistInbox: (_key: string, rows: typeof THREADS) => {
     inboxRows = rows;
     window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
@@ -65,8 +72,16 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   invalidatePersistedInboxCache: () => {},
   inboxMutationInFlight: () => false,
   runInboxMutation: (fn: () => unknown) => fn(),
-  stagePersistedInboxRows: () => {},
-  upsertPersistedInboxRows: () => Promise.resolve(true),
+  stagePersistedInboxRows: (_key: string, rows: typeof THREADS) => {
+    inboxRows = rows;
+    window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
+  },
+  upsertPersistedInboxRows: (_key: string, _changed: unknown[], rows: typeof THREADS) => {
+    inboxRows = rows;
+    draftPersistence.upsert(rows);
+    window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
+    return draftPersistence.pending ?? Promise.resolve(draftPersistence.succeeds);
+  },
   deleteInboxThreadIds: () => Promise.resolve(true),
   inboxThreadSortMs: (id: string, t?: string) => {
     const m = String(id ?? "").match(/(\d{10,})/);
@@ -80,7 +95,11 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
 }));
 
 vi.mock("@/hooks/use-manager-user-id", () => ({
-  useManagerUserId: () => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }),
+  useManagerUserId: () => managerSession,
+}));
+vi.mock("@/lib/auth/portal-session-gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/portal-session-gate")>()),
+  portalSessionViewerId: () => managerSession.userId,
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/lib/portal-base-path-client", () => ({ usePaidPortalBasePath: () => "/portal" }));
@@ -114,6 +133,14 @@ import { ManagerInbox } from "@/components/portal/pro-inbox";
 
 afterEach(() => cleanup());
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((accept) => {
+    resolve = accept;
+  });
+  return { promise, resolve };
+}
+
 function InboxChangeObserver() {
   const [changeCount, setChangeCount] = useState(0);
   useEffect(() => {
@@ -127,6 +154,12 @@ function InboxChangeObserver() {
 describe("AI draft in the unified Communication inbox", () => {
   afterEach(() => {
     inboxRows = THREADS;
+    managerSession.userId = "mgr-1";
+    managerSession.email = "mgr@example.com";
+    managerSession.ready = true;
+    draftPersistence.succeeds = true;
+    draftPersistence.pending = null;
+    draftPersistence.upsert.mockClear();
     vi.unstubAllGlobals();
   });
 
@@ -206,5 +239,150 @@ describe("AI draft in the unified Communication inbox", () => {
     await waitFor(() => expect(screen.getByTestId("inbox-change-count").textContent).not.toBe("0"));
     expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Cannot update a component");
     consoleError.mockRestore();
+  });
+
+  it("rolls back a draft whose explicit upsert fails and surfaces the persistence error", async () => {
+    inboxRows = [{ ...THREADS[0], unread: false, aiDraft: undefined }];
+    draftPersistence.succeeds = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("inbox-draft-reply")
+          ? Response.json({
+              ok: true,
+              draft: { text: "This draft must not survive.", status: "pending_approval" },
+            })
+          : Response.json({ ok: true }),
+      ),
+    );
+
+    render(
+      <ManagerInbox
+        tabId="opened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+
+    expect(await screen.findByText("Could not save draft reply.")).toBeTruthy();
+    expect(inboxRows[0]?.aiDraft).toBeUndefined();
+    expect(draftPersistence.upsert).toHaveBeenCalled();
+  });
+
+  it("drops an old viewer's delayed draft completion before it can write into viewer B", async () => {
+    inboxRows = [{ ...THREADS[0], unread: false, aiDraft: undefined }];
+    const draftResponse = deferred<Response>();
+    let draftRequests = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("inbox-draft-reply")) {
+          draftRequests += 1;
+          return await draftResponse.promise;
+        }
+        return Response.json({ ok: true });
+      }),
+    );
+
+    const view = render(
+      <ManagerInbox
+        tabId="opened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+    await waitFor(() => expect(draftRequests).toBe(1));
+
+    managerSession.userId = "mgr-2";
+    managerSession.email = "mgr-2@example.com";
+    inboxRows = [{
+      ...THREADS[0],
+      id: "viewer-b-thread",
+      from: "Viewer B resident",
+      unread: false,
+      aiDraft: { text: "Viewer B existing draft", status: "pending_approval" },
+    }];
+    view.rerender(
+      <ManagerInbox
+        tabId="opened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        controlledExpandedId="viewer-b-thread"
+      />,
+    );
+    await screen.findByText("Viewer B resident");
+
+    await act(async () => draftResponse.resolve(Response.json({
+      ok: true,
+      draft: { text: "Viewer A delayed draft", status: "pending_approval" },
+    })));
+
+    expect(draftPersistence.upsert).not.toHaveBeenCalled();
+    expect(inboxRows[0]?.id).toBe("viewer-b-thread");
+    expect(inboxRows[0]?.aiDraft?.text).toBe("Viewer B existing draft");
+  });
+
+  it("removes only its failed draft contribution and preserves a newer queue entry and metadata", async () => {
+    const originalDraft = {
+      text: "Original approval draft",
+      status: "pending_approval" as const,
+      requiresReview: true,
+    };
+    inboxRows = [{ ...THREADS[0], unread: false, aiDraft: undefined, aiDraftQueue: [] }];
+    const draftResponse = deferred<Response>();
+    const persisted = deferred<boolean>();
+    draftPersistence.pending = persisted.promise;
+    let draftRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("inbox-draft-reply")) {
+        draftRequests += 1;
+        return await draftResponse.promise;
+      }
+      return Response.json({ ok: true });
+    }));
+
+    render(
+      <ManagerInbox
+        tabId="opened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+
+    await waitFor(() => expect(draftRequests).toBe(1));
+    inboxRows = [{ ...inboxRows[0]!, aiDraft: originalDraft, aiDraftQueue: [] }];
+    await act(async () => draftResponse.resolve(Response.json({
+      ok: true,
+      draft: { text: "Generated draft", status: "pending_approval", requiresReview: false },
+    })));
+    await waitFor(() => expect(draftPersistence.upsert).toHaveBeenCalled());
+    inboxRows = [{
+      ...inboxRows[0]!,
+      aiDraft: { ...inboxRows[0]!.aiDraft!, model: "newer-metadata" },
+      aiDraftQueue: [
+        ...(inboxRows[0]!.aiDraftQueue ?? []),
+        { text: "Newer queued draft", status: "pending_approval", requiresReview: true },
+      ],
+    }];
+    await act(async () => persisted.resolve(false));
+
+    expect(inboxRows[0]?.aiDraft).toEqual({
+      text: "Generated draft",
+      status: "pending_approval",
+      requiresReview: false,
+      model: "newer-metadata",
+    });
+    expect(inboxRows[0]?.aiDraftQueue?.map((draft) => draft.text)).toContain("Newer queued draft");
   });
 });

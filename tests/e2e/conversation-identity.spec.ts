@@ -587,6 +587,7 @@ async function expectReadAcknowledgement(page: Page, ids: string[], action: () =
 async function installExternalWriteFence(page: Page, blockManagerInboxPersistence = false) {
   const blockedAutomaticDrafts: string[] = [];
   const blockedInboxPersistence: string[] = [];
+  const observedDestructiveInboxActions: string[] = [];
   const forbiddenSendAttempts: string[] = [];
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -595,6 +596,17 @@ async function installExternalWriteFence(page: Page, blockManagerInboxPersistenc
       return;
     }
     const pathname = new URL(request.url()).pathname;
+    if (pathname === "/api/portal-inbox-threads") {
+      try {
+        const body = request.postDataJSON() as { action?: string };
+        if (body.action === "deleteIds") {
+          observedDestructiveInboxActions.push(`${body.action} ${pathname}`);
+        }
+      } catch {
+        // The route continues below. This observer never blocks or rewrites the
+        // request, so malformed traffic remains visible to the real endpoint.
+      }
+    }
     if (blockManagerInboxPersistence && pathname === "/api/portal-inbox-threads") {
       let action = "unparseable";
       try {
@@ -604,9 +616,14 @@ async function installExternalWriteFence(page: Page, blockManagerInboxPersistenc
         // Every manager inbox mutation is blocked, including malformed or
         // scope-less persistence. The browser path remains read-only.
       }
-      blockedInboxPersistence.push(`${action} ${pathname}`);
-      await route.abort("blockedbyclient");
-      return;
+      // A destructive request is evidence this regression returned. Let it
+      // reach the real endpoint and fail the passive observer assertion below;
+      // blocking it would preserve the fixture and hide the data-loss path.
+      if (action !== "deleteIds") {
+        blockedInboxPersistence.push(`${action} ${pathname}`);
+        await route.abort("blockedbyclient");
+        return;
+      }
     }
     if (pathname.includes("inbox-draft-reply")) {
       blockedAutomaticDrafts.push(`${request.method()} ${pathname}`);
@@ -625,7 +642,12 @@ async function installExternalWriteFence(page: Page, blockManagerInboxPersistenc
     }
     await route.continue();
   });
-  return { blockedAutomaticDrafts, blockedInboxPersistence, forbiddenSendAttempts };
+  return {
+    blockedAutomaticDrafts,
+    blockedInboxPersistence,
+    observedDestructiveInboxActions,
+    forbiddenSendAttempts,
+  };
 }
 
 test.describe.configure({ mode: "serial", timeout: 180_000 });
@@ -666,6 +688,7 @@ test.describe("Conversation identity browser regression", () => {
 
       const rowButton = page.locator("[data-communication-inbox-list] .portal-inbox-row button").filter({ hasText: RUN_PREFIX });
       await expect(rowButton).toHaveCount(1);
+      expect(writeFence.observedDestructiveInboxActions).toEqual([]);
       await expectReadAcknowledgement(page, [fixture.ids.residentEmail, fixture.ids.residentTour], async () => {
         await rowButton.click();
       });
@@ -704,6 +727,7 @@ test.describe("Conversation identity browser regression", () => {
       await expect(composer).toHaveValue(residentDraft);
       await expect(page.locator(".portal-inbox-thread-header").getByText(fixture.manager.name, { exact: true })).toBeVisible();
       expect(writeFence.forbiddenSendAttempts).toEqual([]);
+      expect(writeFence.observedDestructiveInboxActions).toEqual([]);
     } finally {
       await context.close();
     }
@@ -735,6 +759,7 @@ test.describe("Conversation identity browser regression", () => {
       const merged = rowContainingSources(rows, mergedIds);
       expect(merged.readSourcesComplete).toBe(true);
       expect(new Set((merged.readSources ?? []).map((source) => source.id))).toEqual(new Set(mergedIds));
+      expect(writeFence.observedDestructiveInboxActions).toEqual([]);
       const conflicting = rowContainingSources(rows, [fixture.ids.managerConflict]);
       expect(conflicting.sourceThreadIds ?? [conflicting.id]).not.toEqual(expect.arrayContaining(mergedIds));
       expect(rows.some((row) => row.threadType === "agent_notice" || row.id.startsWith("agent_notice_"))).toBe(true);
@@ -767,6 +792,7 @@ test.describe("Conversation identity browser regression", () => {
       await expect(composer).toHaveValue(managerDraft);
       await expect(page.locator(".portal-inbox-thread-header").getByText(fixture.resident.name, { exact: true })).toBeVisible();
       expect(writeFence.forbiddenSendAttempts).toEqual([]);
+      expect(writeFence.observedDestructiveInboxActions).toEqual([]);
     } finally {
       await context.close();
     }

@@ -175,6 +175,12 @@ export function createPortalSessionRefreshCoordinator(
 
     const session = firstRead.session;
     const identity = sessionIdentity(session);
+    // A concurrent refresh can rotate the session after the helper validates
+    // its read but before this continuation runs, even without an auth event.
+    // Do not let that older snapshot replace the newly observed identity.
+    if (sessionGeneration !== generationBeforeRead && identity !== activeSessionIdentity) {
+      return "owner-changed";
+    }
     let generation: number;
     if (invocationId < latestObservedInvocationId) {
       if (identity !== activeSessionIdentity) return "owner-changed";

@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  act,
   waitFor,
 } from "@testing-library/react";
 
@@ -33,6 +34,7 @@ const BASE_THREAD = {
 
 let managerRows = [{ ...BASE_THREAD }];
 let vendorRows = [{ ...BASE_THREAD }];
+let residentRows = [{ ...BASE_THREAD }];
 const upsertPersistedInboxRows = vi.fn(async () => true);
 const showToast = vi.fn();
 
@@ -40,6 +42,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   VENDOR_INBOX_STORAGE_KEY: "vendor-inbox",
+  RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   collapsePersonInboxThreads: (rows: unknown[]) => rows,
   resolveCollapsedInboxThread: (
@@ -47,10 +50,10 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     rows: Array<{ id: string }>,
   ) => rows.find((row) => row.id === id) ?? null,
   inboxThreadCounterpartyEmail: (row: { email?: string }) => row.email ?? "",
-  loadPersistedInbox: (key: string) =>
-    key === "manager-inbox" ? managerRows : vendorRows,
-  syncPersistedInboxFromServer: (key: string) =>
-    Promise.resolve(key === "manager-inbox" ? managerRows : vendorRows),
+  loadPersistedInbox: (key: string) => key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows,
+  syncPersistedInboxFromServer: (key: string) => Promise.resolve(key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows),
+  syncPersistedInboxFromServerWithStatus: (key: string) =>
+    Promise.resolve({ rows: key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows, ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(true),
   invalidatePersistedInboxCache: () => {},
@@ -92,6 +95,17 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
     email: "manager@example.com",
     ready: true,
   }),
+}));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({
+    userId: "manager-1",
+    email: "vendor@example.com",
+    ready: true,
+  }),
+}));
+vi.mock("@/lib/auth/portal-session-gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/portal-session-gate")>()),
+  portalSessionViewerId: () => "manager-1",
 }));
 vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => () => {},
@@ -136,6 +150,7 @@ vi.mock("@/components/portal/inbox-thread-assistant-strip", () => ({
 
 import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { VendorInboxPanel } from "@/components/portal/vendor-inbox-panel";
+import { ResidentInboxPanel } from "@/components/portal/resident-inbox-panel";
 
 function responseForBackground(url: string): Response {
   if (url.includes("inbox-eligible-contacts"))
@@ -161,6 +176,7 @@ async function typeAndSend(dataAttr: string, text: string) {
 beforeEach(() => {
   managerRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
   vendorRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
+  residentRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
   upsertPersistedInboxRows.mockClear();
   showToast.mockClear();
 });
@@ -171,6 +187,174 @@ afterEach(() => {
 });
 
 describe("manager and vendor inbox reply integrity", () => {
+  it("advances only approved draft A and preserves queued B/C plus newer cache rows", async () => {
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
+    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
+    managerRows = [{ ...BASE_THREAD, aiDraft: draftA, aiDraftQueue: [draftB, draftC] }] as unknown as typeof managerRows;
+    let resolveSend!: () => void;
+    const send = new Promise<void>((resolve) => { resolveSend = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("send-inbox-message") && init?.method === "POST") {
+        await send;
+        return Response.json({ ok: true });
+      }
+      return responseForBackground(url);
+    }));
+
+    render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await typeAndSend("inbox-reply", "Approve only A");
+    managerRows = [{
+      ...BASE_THREAD,
+      aiDraft: { ...draftA, model: "newer-metadata" },
+      aiDraftQueue: [draftB, draftC],
+      messages: [...BASE_THREAD.messages, { id: "late-inbound", from: "Resident One", body: "Late inbound", at: "Aug 20, 9:10 AM", outbound: false }],
+    }, { ...BASE_THREAD, id: "queue-sibling", subject: "Queue sibling" }] as unknown as typeof managerRows;
+
+    await act(async () => resolveSend());
+    await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
+    const persisted = upsertPersistedInboxRows.mock.calls.at(-1)?.[2] as Array<{
+      id: string;
+      aiDraft?: { text: string; generatedAt?: string };
+      aiDraftQueue?: Array<{ text: string; generatedAt?: string }>;
+      resolvedAiDraftIds?: string[];
+      messages?: Array<{ id: string; body: string }>;
+    }>;
+    expect(persisted.map((row) => row.id)).toContain("queue-sibling");
+    expect(persisted[0]?.messages?.some((message) => message.id === "late-inbound")).toBe(true);
+    expect(persisted[0]?.aiDraft).toMatchObject({ text: "Draft B", generatedAt: "draft-b" });
+    expect(persisted[0]?.aiDraftQueue).toEqual([expect.objectContaining({ text: "Draft C", generatedAt: "draft-c" })]);
+    expect(persisted[0]?.resolvedAiDraftIds).toContain("draft-a");
+  });
+
+  it("leaves draft A and queued B/C unchanged when manager delivery is refused", async () => {
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
+    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
+    managerRows = [{ ...BASE_THREAD, aiDraft: draftA, aiDraftQueue: [draftB, draftC] }] as unknown as typeof managerRows;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("send-inbox-message") && init?.method === "POST") {
+        return Response.json({ error: "Delivery refused." }, { status: 403 });
+      }
+      return responseForBackground(String(input));
+    }));
+
+    render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await typeAndSend("inbox-reply", "Do not consume A");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Delivery refused."));
+
+    const current = managerRows[0] as typeof BASE_THREAD & {
+      aiDraft?: typeof draftA;
+      aiDraftQueue?: Array<typeof draftB>;
+    };
+    expect(current.aiDraft).toEqual(draftA);
+    expect(current.aiDraftQueue).toEqual([draftB, draftC]);
+    expect(upsertPersistedInboxRows).not.toHaveBeenCalled();
+  });
+
+  it("does not let an old X-Y-X reply completion clear a newer same-thread draft", async () => {
+    managerRows = [
+      { ...BASE_THREAD },
+      { ...BASE_THREAD, id: "thread-2", from: "Resident Two", email: "resident-two@example.com" },
+    ];
+    let sendNumber = 0;
+    let resolveOldSend!: () => void;
+    const oldSend = new Promise<void>((resolve) => { resolveOldSend = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("send-inbox-message") && init?.method === "POST") {
+        sendNumber += 1;
+        if (sendNumber === 1) await oldSend;
+        return Response.json({ ok: true });
+      }
+      return responseForBackground(url);
+    }));
+
+    const view = render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await typeAndSend("inbox-reply", "Old X reply");
+    view.rerender(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-2" />);
+    view.rerender(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+
+    await typeAndSend("inbox-reply", "New X reply");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent."));
+    const input = await screen.findByPlaceholderText("Write a reply…") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Newest unsent X draft" } });
+
+    await act(async () => resolveOldSend());
+    await waitFor(() => expect(input).toHaveValue("Newest unsent X draft"));
+    expect(sendNumber).toBe(2);
+  });
+
+  it("commits an accepted manager reply onto the latest cache, retaining a late inbound turn and sibling row", async () => {
+    let resolveSend!: () => void;
+    const send = new Promise<void>((resolve) => { resolveSend = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("send-inbox-message") && init?.method === "POST") {
+        await send;
+        return Response.json({ ok: true });
+      }
+      return responseForBackground(url);
+    }));
+    render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await typeAndSend("inbox-reply", "Reply survives cache race");
+    managerRows = [{
+      ...BASE_THREAD,
+      messages: [...BASE_THREAD.messages, { id: "late-inbound", from: "Resident One", body: "Late inbound", at: "Aug 20, 9:10 AM", outbound: false }],
+    }, { ...BASE_THREAD, id: "sibling-row", subject: "Sibling must survive" }];
+    await act(async () => resolveSend());
+    await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
+    const persisted = upsertPersistedInboxRows.mock.calls.at(-1)?.[2] as typeof managerRows;
+    expect(persisted.map((row) => row.id)).toContain("sibling-row");
+    expect(persisted[0]?.messages?.some((message) => message.id === "late-inbound")).toBe(true);
+    expect(persisted[0]?.messages?.some((message) => message.body === "Reply survives cache race")).toBe(true);
+  });
+
+  it("commits an accepted vendor reply onto the latest cache, retaining a late inbound turn and sibling row", async () => {
+    let resolveSend!: () => void;
+    const send = new Promise<void>((resolve) => { resolveSend = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("send-inbox-message") && init?.method === "POST") {
+        await send;
+        return Response.json({ ok: true });
+      }
+      return responseForBackground(url);
+    }));
+    render(<VendorInboxPanel tabId="all" embeddedInCommunication externalTitleActions suppressListPane controlledExpandedId="thread-1" />);
+    await typeAndSend("vendor-inbox-reply", "Vendor cache race reply");
+    vendorRows = [{
+      ...BASE_THREAD,
+      messages: [...BASE_THREAD.messages, { id: "late-inbound", from: "Resident One", body: "Late inbound", at: "Aug 20, 9:10 AM", outbound: false }],
+    }, { ...BASE_THREAD, id: "vendor-sibling", subject: "Sibling must survive" }];
+    await act(async () => resolveSend());
+    await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
+    const persisted = upsertPersistedInboxRows.mock.calls.at(-1)?.[2] as typeof vendorRows;
+    expect(persisted.map((row) => row.id)).toContain("vendor-sibling");
+    expect(persisted[0]?.messages?.some((message) => message.id === "late-inbound")).toBe(true);
+    expect(persisted[0]?.messages?.some((message) => message.body === "Vendor cache race reply")).toBe(true);
+  });
+
+  it("commits an accepted resident reply onto the latest cache, retaining a late inbound turn and sibling row", async () => {
+    let resolveSend!: () => void;
+    const send = new Promise<void>((resolve) => { resolveSend = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("send-inbox-message") && init?.method === "POST") { await send; return Response.json({ ok: true }); }
+      return responseForBackground(url);
+    }));
+    render(<ResidentInboxPanel tabId="all" embeddedInCommunication externalTitleActions suppressListPane controlledExpandedId="thread-1" />);
+    await typeAndSend("resident-inbox-reply", "Resident cache race reply");
+    residentRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages, { id: "late-inbound", from: "Manager", body: "Late inbound", at: "Aug 20, 9:10 AM", outbound: false }] }, { ...BASE_THREAD, id: "resident-sibling", subject: "Sibling must survive" }];
+    await act(async () => resolveSend());
+    await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
+    const persisted = upsertPersistedInboxRows.mock.calls.at(-1)?.[2] as typeof residentRows;
+    expect(persisted.map((row) => row.id)).toContain("resident-sibling");
+    expect(persisted[0]?.messages?.some((message) => message.id === "late-inbound")).toBe(true);
+    expect(persisted[0]?.messages?.some((message) => message.body === "Resident cache race reply")).toBe(true);
+  });
+
   it("reports a PropLane-only assistant reply as sent without contacting email or SMS", async () => {
     managerRows = [{ ...BASE_THREAD, id: "agent_notice_manager-1", from: "PropLane Assistant", email: "" }];
     const sends: Record<string, unknown>[] = [];

@@ -22,7 +22,6 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
-import { canonicalResidentAgentThreadId } from "@/lib/agent/resident-inbox-agent-ids";
 import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
@@ -39,7 +38,6 @@ import {
   loadPersistedInbox,
   markPersistedInboxSourcesRead,
   syncPersistedInboxFromServerWithStatus,
-  stagePersistedInboxRows,
 } from "@/lib/portal-inbox-storage";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
@@ -55,6 +53,8 @@ import {
 } from "@/lib/communication-assistant-inbox-list";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { observeCommunicationInitialViewer, retryStaleCommunicationSource } from "@/lib/communication-initial-load";
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
 import {
   inboxRowAddressLabel,
@@ -405,7 +405,15 @@ function ResidentUnifiedInbox({
   }, [viewerId]);
 
   useEffect(() => {
-    const syncEmail = () => setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
+    const syncEmail = (evt?: Event) => {
+      if (evt?.type === PORTAL_INBOX_CHANGED_EVENT) {
+        const change = evt as CustomEvent<{ key?: string }>;
+        if (change.detail?.key && change.detail.key !== RESIDENT_INBOX_STORAGE_KEY) return;
+      }
+      const viewer = viewerIdRef.current?.trim();
+      if (!viewer || (!isDemoModeActive() && portalSessionViewerId() !== viewer)) return;
+      setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
+    };
     syncEmail();
     setSmsOpened(loadOpenedIds());
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
@@ -420,25 +428,6 @@ function ResidentUnifiedInbox({
     readSucceededRef.current.clear();
     readAttemptsRef.current.clear();
   }, [viewerId]);
-
-  useEffect(() => {
-    if (!viewerId?.trim() || listSegment !== "active") return;
-    let staged: PersistedInboxThread[] | null = null;
-    setEmailThreads((current) => {
-      const hasAssistant = current.some(
-        (thread) =>
-          isPropLaneAssistantInboxThread(thread) ||
-          thread.id === canonicalResidentAgentThreadId(viewerId),
-      );
-      if (hasAssistant) return current;
-      const next = [buildResidentAssistantPlaceholderThread(viewerId), ...current];
-      staged = next;
-      return next;
-    });
-    if (staged) {
-      queueMicrotask(() => stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, staged!));
-    }
-  }, [listSegment, viewerId]);
 
   const loadResidentSms = useCallback(async (requestGeneration?: number): Promise<boolean> => {
     const requestViewerEpoch = viewerEpochRef.current;
