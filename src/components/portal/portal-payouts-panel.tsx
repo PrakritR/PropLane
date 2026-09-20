@@ -398,6 +398,7 @@ export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [payOutOpen, setPayOutOpen] = useState(false);
+  const [retryRow, setRetryRow] = useState<PortalPayoutHistoryRow | null>(null);
   const [bankSettingsOpen, setBankSettingsOpen] = useState(false);
 
   const loadBalance = useCallback(async () => {
@@ -451,31 +452,28 @@ export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind
   );
 
   const handleReceipt = useCallback((row: PortalPayoutHistoryRow) => {
-    if (row.receiptUrl) window.open(row.receiptUrl, "_blank", "noopener");
+    // A receipt link is only ever safe to open when it is actually an
+    // outbound https URL — never `javascript:`/`data:`/relative-scheme
+    // trickery from a row shape this client does not fully control.
+    if (row.receiptUrl && row.receiptUrl.startsWith("https:")) {
+      window.open(row.receiptUrl, "_blank", "noopener");
+    }
   }, []);
 
-  const handleRetry = useCallback(
-    async (row: PortalPayoutHistoryRow) => {
-      try {
-        const res = await fetch(`${apiBase}/payouts/create`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amountCents: row.amountCents, method: row.method }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          showToast(body.error ?? "Could not retry the payout.");
-          return;
-        }
-        showToast("Payout retried.");
-        void loadBalance();
-      } catch {
-        showToast("Could not retry the payout.");
-      }
-    },
-    [apiBase, loadBalance, showToast],
-  );
+  // Retry is an outward money movement, not a re-fetch — it must go through
+  // the SAME confirmation sheet a fresh "Pay out" does rather than firing a
+  // one-click POST from a row's ⋯ menu. The sheet prefills the failed row's
+  // own amount/method (both GROSS — see `PortalPayOutSheet`'s doc comment)
+  // and the user still has to press "Pay out $X" to confirm.
+  const handleRetry = useCallback((row: PortalPayoutHistoryRow) => {
+    setRetryRow(row);
+    setPayOutOpen(true);
+  }, []);
+
+  const closePayOut = useCallback(() => {
+    setPayOutOpen(false);
+    setRetryRow(null);
+  }, []);
 
   const closeBankSettings = useCallback(() => {
     setBankSettingsOpen(false);
@@ -530,14 +528,16 @@ export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind
         />
         <PortalPayOutSheet
           open={payOutOpen}
-          onClose={() => setPayOutOpen(false)}
+          onClose={closePayOut}
           apiBase={apiBase}
           currency={balance.currency}
           availableCents={balance.availableCents}
           instantAvailableCents={balance.instantAvailableCents}
           bank={balance.bank}
+          initialAmountCents={retryRow?.amountCents}
+          initialMethod={retryRow?.method}
           onSuccess={(result) => {
-            setPayOutOpen(false);
+            closePayOut();
             track("payout_completed", { portal, method: result.method, amount_cents: result.amountCents });
             void loadBalance();
           }}

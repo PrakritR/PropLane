@@ -56,6 +56,7 @@ vi.mock("@/lib/stripe-connect", () => ({
   ensureConnectAccountTransfersRequested: async () => account,
   isStripeConnectAccountAccessError: () => false,
   clearManagerConnectAccountId: vi.fn(),
+  resolveManagerConnectAccountId: vi.fn().mockResolvedValue(null),
 }));
 
 import { POST as managerOnboard } from "@/app/api/stripe/connect/onboard/route";
@@ -67,7 +68,8 @@ beforeEach(() => {
 
 describe("POST /api/stripe/connect/onboard", () => {
   it("never returns a hosted Stripe URL — reports embedded mode instead", async () => {
-    const body = await (await managerOnboard()).json();
+    const req = new Request("http://x/api/stripe/connect/onboard", { method: "POST" });
+    const body = await (await managerOnboard(req)).json();
     expect(body).toMatchObject({ mode: "embedded", accountId: "acct_1", connected: true, paymentReady: true });
     expect(body.url).toBeUndefined();
     expect(stripe.accountLinks.create).not.toHaveBeenCalled();

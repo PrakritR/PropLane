@@ -8,6 +8,7 @@ import {
   connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
+  resolveManagerConnectAccountId,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
@@ -17,8 +18,14 @@ export const runtime = "nodejs";
  * readiness. PLAN-0920-0853: embedded onboarding (mounted via
  * `/api/vendor/stripe-connect/account-session`) replaces the redirect to
  * Stripe and the Express Dashboard login link — no Stripe-hosted URL here.
+ *
+ * A saved account id Stripe can no longer retrieve is NEVER cleared silently
+ * — see the manager twin (`/api/stripe/connect/onboard`) for the full
+ * rationale. It is kept as-is and reported as `needsRelink`; only an explicit
+ * `{ relink: true }` body (the vendor's own "Reconnect" action) clears it and
+ * creates a fresh one, and the id being replaced is logged first.
  */
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -33,11 +40,26 @@ export async function POST() {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
+    const body = await req.json().catch(() => null);
+    const relink = (body as { relink?: unknown } | null)?.relink === true;
+
     try {
       const stripe = getStripe();
+      if (relink) {
+        const staleAccountId = await resolveManagerConnectAccountId(supabase, user.id);
+        if (staleAccountId) {
+          console.error(
+            `[stripe-connect] vendor onboard relink: replacing account ${staleAccountId} for ${user.id}`,
+          );
+          await clearManagerConnectAccountId(supabase, user.id);
+        }
+      }
       const accountId = await ensureVendorConnectAccountId(stripe, supabase, {
         userId: user.id,
         email: user.email ?? undefined,
+        // Never let this call silently wipe a saved id on its own — only the
+        // explicit relink branch above may replace it, and it already has.
+        allowClearStale: false,
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
@@ -71,13 +93,13 @@ export async function POST() {
         );
       }
       if (isStripeConnectAccountAccessError(msg)) {
-        await clearManagerConnectAccountId(supabase, user.id).catch(() => undefined);
         return NextResponse.json(
           {
-            code: "CONNECT_ACCOUNT_STALE",
-            error: "Your saved Stripe account is from an old setup. Refresh this page and connect payouts again.",
+            code: "CONNECT_ACCOUNT_NEEDS_RELINK",
+            needsRelink: true,
+            error: "We couldn't reach your saved Stripe account. Reconnect to start over.",
           },
-          { status: 422 },
+          { status: 409 },
         );
       }
       return NextResponse.json({ code: "STRIPE_CONNECT_ERROR", error: msg }, { status: 400 });

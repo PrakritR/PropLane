@@ -154,6 +154,100 @@ describe("PortalPayoutsPanel — ready state", () => {
   });
 });
 
+describe("PortalPayoutsPanel — Retry routes through the confirmation sheet", () => {
+  const failedBalance = {
+    ...readyBalance,
+    history: [
+      {
+        id: "po_failed",
+        amountCents: 50_000,
+        feeCents: 500,
+        netCents: 49_500,
+        method: "instant",
+        status: "failed",
+        destinationLast4: "4421",
+        createdAt: "2026-09-10T00:00:00.000Z",
+        arrivalDate: null,
+        initiatedInApp: true,
+        failureMessage: "Bank declined.",
+        serviceLabel: null,
+      },
+    ],
+  };
+
+  beforeEach(() => stubBalanceFetch(failedBalance));
+
+  it("Retry opens the Pay out sheet prefilled with the failed row's amount and method — never a one-click POST", async () => {
+    render(<PortalPayoutsPanel portal="vendor" />);
+    await screen.findByText("$500.00");
+    // The record row renders its trailing ⋯ menu once per responsive
+    // breakpoint (mobile + desktop, both present in jsdom) — take the first.
+    fireEvent.keyDown(
+      screen.getAllByRole("button", { name: /Actions for Instant payout of \$500\.00/ })[0]!,
+      { key: "ArrowDown" },
+    );
+    const retryItem = await screen.findByRole("menuitem", { name: "Retry" });
+    fireEvent.click(retryItem);
+
+    // The sheet opens with the ORIGINAL amount/method prefilled, not fired immediately.
+    const submit = await screen.findByRole("button", { name: "Pay out $500.00" });
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toBe(false);
+
+    // Confirming is what actually sends the request.
+    fireEvent.click(submit);
+    await waitFor(() => {
+      const postCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(postCall).toBeTruthy();
+      expect(JSON.parse(String((postCall![1] as RequestInit).body))).toEqual({ amountCents: 50_000, method: "instant" });
+    });
+  });
+});
+
+describe("PortalPayoutsPanel — Receipt only opens an https URL", () => {
+  const receiptBalance = {
+    ...readyBalance,
+    history: [
+      {
+        id: "po_receipt",
+        amountCents: 12_000,
+        feeCents: 0,
+        netCents: 12_000,
+        method: "standard",
+        status: "paid",
+        destinationLast4: "4421",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        arrivalDate: "2026-09-02T00:00:00.000Z",
+        initiatedInApp: true,
+        failureMessage: null,
+        serviceLabel: null,
+        receiptUrl: "javascript:alert(1)",
+      },
+    ],
+  };
+
+  beforeEach(() => stubBalanceFetch(receiptBalance));
+
+  it("never calls window.open for a non-https receiptUrl", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<PortalPayoutsPanel portal="vendor" />);
+    await screen.findByText("$120.00");
+    fireEvent.keyDown(
+      screen.getAllByRole("button", { name: /Actions for Standard payout of \$120\.00/ })[0]!,
+      { key: "ArrowDown" },
+    );
+    const receiptItem = await screen.findByRole("menuitem", { name: "Receipt" });
+    fireEvent.click(receiptItem);
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+});
+
 describe("PortalPayoutsPanel — not-ready state", () => {
   it("renders the setup card instead of the balance card", async () => {
     stubBalanceFetch({
