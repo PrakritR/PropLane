@@ -78,11 +78,15 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar paints manager availability and drops Flexible / Add work / Tasks", () => {
+  it("vendor calendar exposes list, day, week, and month with the shared availability editor", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
     expect(calendar).toContain("vendorViewer");
-    expect(calendar).toContain("All");
-    expect(calendar).toContain("Services");
+    expect(calendar).toContain('label: "List"');
+    expect(calendar).toContain('label: "Day"');
+    expect(calendar).toContain('label: "Week"');
+    expect(calendar).toContain('label: "Month"');
+    expect(calendar).toContain("VendorAvailabilityEditor");
+    expect(read("src/lib/portal-detail-routes.ts")).toContain('["list", "day", "week", "month"]');
     expect(calendar).not.toContain("vendorDayFlexibility");
     expect(calendar).not.toContain("Add work");
     expect(calendar).not.toContain("Mark day as flexible");

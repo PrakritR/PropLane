@@ -6,7 +6,9 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalCalendarPanels, MEETING_CONFIRMED_COLOR, type DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { VENDOR_AVAILABILITY_CHANGED_EVENT } from "@/components/portal/vendor-settings-panel";
+import { VENDOR_AVAILABILITY_CHANGED_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-settings-panel";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
   readAvailabilityDateSetForStorageKey,
@@ -76,7 +78,7 @@ function hydratePaintedSlotsFromWeeklyRules(storageKey: string, rules: VendorAva
 }
 
 /** Week grid that paints availability the same way the manager calendar does. */
-export function VendorCalendarPanel({ view = "all" }: { view?: VendorCalendarViewTabId }) {
+export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarViewTabId }) {
   const { userId, ready } = usePortalSession();
   const demo = isDemoModeActive();
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
@@ -117,27 +119,38 @@ export function VendorCalendarPanel({ view = "all" }: { view?: VendorCalendarVie
   }, [rows]);
 
   const vendorMeetings = useMemo(() => {
-    const scoped = view === "services" ? visitMeetings : visitMeetings;
+    const scoped = visitMeetings;
     const needle = listSearch.trim();
     if (!needle) return scoped;
     return scoped.filter((meeting) => calendarMeetingMatchesQuery(meeting, needle));
-  }, [listSearch, view, visitMeetings]);
+  }, [listSearch, visitMeetings]);
 
   const calendarTabs = useMemo(
     () => [
       {
-        id: "all" as const,
-        label: "All",
+        id: "list" as const,
+        label: "List",
         count: visitMeetings.length,
-        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "all"),
-        dataAttr: "vendor-calendar-tab-all",
+        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "list"),
+        dataAttr: "vendor-calendar-tab-list",
       },
       {
-        id: "services" as const,
-        label: "Services",
-        count: visitMeetings.length,
-        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "services"),
-        dataAttr: "vendor-calendar-tab-services",
+        id: "day" as const,
+        label: "Day",
+        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "day"),
+        dataAttr: "vendor-calendar-tab-day",
+      },
+      {
+        id: "week" as const,
+        label: "Week",
+        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "week"),
+        dataAttr: "vendor-calendar-tab-week",
+      },
+      {
+        id: "month" as const,
+        label: "Month",
+        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "month"),
+        dataAttr: "vendor-calendar-tab-month",
       },
     ],
     [visitMeetings.length],
@@ -196,12 +209,28 @@ export function VendorCalendarPanel({ view = "all" }: { view?: VendorCalendarVie
           }}
           dataAttr="vendor-calendar-empty-search"
         />
+      ) : view === "list" ? (
+        <PortalRecordListSurface
+          isEmpty={vendorMeetings.length === 0}
+          emptyCard={{ title: "No scheduled services", section: "calendar" }}
+          dataAttr="vendor-calendar-list"
+        >
+          {vendorMeetings.map((meeting) => (
+            <PortalPropertyRecordRow
+              key={meeting.id}
+              title={meeting.title}
+              address={meeting.propertyTitle ?? "—"}
+              facts={new Date(meeting.startIso).toLocaleString()}
+              dataAttr="vendor-calendar-list-row"
+            />
+          ))}
+        </PortalRecordListSurface>
       ) : (
         <PortalCalendarPanels
           storageKey={storageKey}
           readOnly={false}
           compactAvailability
-          defaultViewMode="week"
+          defaultViewMode={view}
           availabilityHeading="Availability"
           eventSummaryLabel="visit"
           calendarRefreshSignal={calendarRefreshSignal}
@@ -210,6 +239,7 @@ export function VendorCalendarPanel({ view = "all" }: { view?: VendorCalendarVie
           vendorViewer
         />
       )}
+      <VendorAvailabilityEditor />
     </ManagerPortalPageShell>
   );
 }
