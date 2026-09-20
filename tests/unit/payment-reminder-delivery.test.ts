@@ -266,7 +266,7 @@ describe("deliverPaymentReminder", () => {
     });
     expect(enqueueOwnerSms).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining("Pay securely: https://checkout.stripe.test/session"),
+        body: expect.stringContaining("Pay securely: https://checkout.stripe.test/session"),
       }),
     );
     expect(traceSystemNotification).toHaveBeenCalledWith(
@@ -309,7 +309,7 @@ describe("deliverPaymentReminder", () => {
     });
 
     expect(enqueueOwnerSms).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "(Rent due)\nYour July rent is due." }),
+      expect.objectContaining({ body: "(Rent due)\nYour July rent is due." }),
     );
   });
 
@@ -325,8 +325,8 @@ describe("deliverPaymentReminder", () => {
       statuses.set(channel, status);
     });
     vi.mocked(enqueueOwnerSms)
-      .mockResolvedValueOnce({ sent: false, error: "recipient_opted_out" })
-      .mockResolvedValueOnce({ sent: true, channel: "managed" });
+      .mockResolvedValueOnce({ ok: false, error: "recipient_opted_out" })
+      .mockResolvedValueOnce({ ok: true, outboxId: "outbox-2", status: "queued", deduplicated: false });
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({
       data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },

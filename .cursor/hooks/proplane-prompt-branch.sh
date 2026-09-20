@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create (sessionStart) or close-if-empty (sessionEnd) a PropPlane prompt branch.
+# Compatibility status hook for persistent PropPlane keeper branches.
 # Noops when firstmate is not installed (other clones / Akhil machines).
 set -eu
 mode=${1:-start}

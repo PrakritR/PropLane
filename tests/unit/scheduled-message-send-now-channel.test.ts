@@ -14,6 +14,8 @@ const loadManagerScheduledMessages = vi.fn();
 const loadManagerPendingCharges = vi.fn();
 const loadManagerAutomationSettings = vi.fn();
 const deliverPaymentReminder = vi.fn();
+const loadPaymentReminderChargeForActor = vi.fn();
+const resolvePaymentReminderCapability = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: () => getUser() } }),
@@ -55,6 +57,13 @@ vi.mock("@/lib/payment-reminder-delivery", () => ({
   deliverPaymentReminder: (...a: unknown[]) => deliverPaymentReminder(...a),
   reminderHtmlFromText: (text: string) => text,
 }));
+vi.mock("@/lib/payment-reminder-capability.server", () => ({
+  loadPaymentReminderChargeForActor: (...a: unknown[]) => loadPaymentReminderChargeForActor(...a),
+  resolvePaymentReminderCapability: (...a: unknown[]) => resolvePaymentReminderCapability(...a),
+}));
+vi.mock("@/lib/manager-outbound-identity.server", () => ({
+  managerOutboundFromHeader: async () => "PropLane <test@example.com>",
+}));
 
 const route = await import("@/app/api/portal/scheduled-messages/[id]/send-now/route");
 
@@ -87,9 +96,28 @@ function post() {
 beforeEach(() => {
   vi.clearAllMocks();
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", user_metadata: { role: "manager" } } } });
-  loadManagerPendingCharges.mockResolvedValue([
-    { id: "hc-1", residentEmail: "resident@example.com", status: "pending", title: "Rent" },
-  ]);
+  const charge = {
+    id: "hc-1",
+    propertyId: "property-1",
+    residentEmail: "resident@example.com",
+    status: "pending",
+    title: "Rent",
+    amountLabel: "$1,000.00",
+    balanceLabel: "$1,000.00",
+  };
+  loadManagerPendingCharges.mockResolvedValue([charge]);
+  loadPaymentReminderChargeForActor.mockResolvedValue({
+    charge,
+    ownerUserId: "mgr-1",
+    propertyId: "property-1",
+  });
+  resolvePaymentReminderCapability.mockResolvedValue({
+    chargeId: "hc-1",
+    ownerUserId: "mgr-1",
+    checkedAt: new Date().toISOString(),
+    email: { available: true, reason: null },
+    sms: { available: true, reason: null, fromNumber: "+15550100" },
+  });
   loadManagerAutomationSettings.mockResolvedValue({
     paymentReminderDeliverViaEmail: true,
     paymentReminderDeliverViaSms: false,
