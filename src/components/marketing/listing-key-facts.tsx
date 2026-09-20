@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import { Bath, BedDouble, CalendarDays, DollarSign, PawPrint } from "lucide-react";
 import type { MockProperty } from "@/data/types";
 import type { ListingRichContent } from "@/data/listing-rich-content";
-import { earliestRoomOpening, roomAvailabilityTone } from "@/lib/room-availability-style";
+import { classifyRoomOpening, earliestRoomOpening } from "@/lib/room-availability-style";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import type { ListingBathroomRow, ListingSharedRow } from "@/data/listing-rich-content";
 
@@ -80,7 +80,7 @@ export function deriveListingKeyFacts(
   const rooms = rich.floorPlans.flatMap((f) => f.rooms);
   const roomCount = rooms.length > 0 ? rooms.length : property.beds > 0 ? property.beds : 0;
   if (roomCount > 0) {
-    const availableNow = rooms.filter((r) => roomAvailabilityTone(r.availability) === "available").length;
+    const availableNow = rooms.filter((r) => classifyRoomOpening(r.availability).kind === "now").length;
     facts.push({
       id: "rooms",
       value: `${roomCount} room${roomCount === 1 ? "" : "s"}`,
@@ -108,8 +108,8 @@ export function deriveListingKeyFacts(
 }
 
 export function earliestAvailability(availabilities: string[]): string | null {
-  if (availabilities.some((text) => roomAvailabilityTone(text) === "available")) return "Available now";
-  return earliestRoomOpening(availabilities.filter((text) => roomAvailabilityTone(text) === "future"));
+  if (availabilities.some((text) => classifyRoomOpening(text).kind === "now")) return "Available now";
+  return earliestRoomOpening(availabilities.filter((text) => classifyRoomOpening(text).kind === "later"));
 }
 
 const ICONS: Record<ListingKeyFactId, ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean }>> = {

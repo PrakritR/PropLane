@@ -666,6 +666,9 @@ function ManagerPropertyInlineDetails({
         onSaved: () => {
           onUpdated();
         },
+        onAutosaved: () => {
+          onUpdated();
+        },
         showToast,
         skuTier,
         userId: managerUserId,
@@ -700,6 +703,7 @@ function ManagerPropertyInlineDetails({
             }
           },
           onSaved: () => onUpdated(),
+          onAutosaved: () => onUpdated(),
           showToast,
           skuTier,
           userId: managerUserId,

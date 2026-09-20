@@ -21,6 +21,7 @@ import {
   demoOnlyBrowseCardPlaceholderImage,
   type BrowseSortId,
   type PropertyBrowseCard,
+  browseCardMatchesQuery,
 } from "@/lib/room-listings-catalog";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
@@ -502,11 +503,8 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
   );
 
   const cards = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return filteredCards;
-    return filteredCards.filter(
-      (c) => c.fullAddress.toLowerCase().includes(q) || c.neighborhood.toLowerCase().includes(q),
-    );
+    if (!query.trim()) return filteredCards;
+    return filteredCards.filter((c) => browseCardMatchesQuery(c, query));
   }, [filteredCards, query]);
 
   function applyChatFilters(applied: HousingChatAppliedFilters) {

@@ -84,6 +84,13 @@ describe("earliestAvailability", () => {
     expect(earliestAvailability(["Available after Dec 1, 2099", "Waitlist"])).toBe("Available after Dec 1, 2099");
     expect(earliestAvailability(["Waitlist", "Available soon"])).toBe("Waitlist");
   });
+  it("treats a 'from' date the same as an 'after' date — never available now", () => {
+    expect(earliestAvailability(["Available from Oct 1, 2099"])).toBe("Available from Oct 1, 2099");
+    expect(earliestAvailability(["Available from Oct 1, 2099", "Available now"])).toBe("Available now");
+    expect(earliestAvailability(["Available after Dec 1, 2099", "Available from Oct 1, 2099"])).toBe("Available from Oct 1, 2099");
+    expect(earliestAvailability(["Available after December", "Available from Oct 1, 2099"])).toBe("Available from Oct 1, 2099");
+  });
+
   it("is null when every room is unavailable or blank", () => {
     expect(earliestAvailability(["Not available", "—", ""])).toBeNull();
   });
