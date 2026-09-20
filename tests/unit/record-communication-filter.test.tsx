@@ -1,9 +1,16 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { describe, expect, it, afterEach } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import {
   EMPTY_COMMUNICATION_THREAD_FILTERS,
+  RECORD_KIND_FILTER_OPTIONS,
   threadPassesCommunicationFilters,
+  type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
+import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
+
+afterEach(() => cleanup());
 
 function contact(overrides: Partial<InboxScopedContact> = {}): InboxScopedContact {
   return {
@@ -118,5 +125,74 @@ describe("record-linked communication filtering (recordRefs / recordKinds)", () 
         recordRef: { kind: "payment", id: "chg-1" },
       }),
     ).toBe(true);
+  });
+});
+
+function tapOption(target: Element | Node) {
+  fireEvent.pointerDown(target, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
+}
+
+describe("Communication filter sheet — About (record kind) filter", () => {
+  it("lists every record kind as an option", () => {
+    let filters: CommunicationThreadFilters = { ...EMPTY_COMMUNICATION_THREAD_FILTERS };
+    render(
+      <CommunicationFilterSortFields
+        propertyOptions={[]}
+        roleOptions={[]}
+        filters={filters}
+        onFiltersChange={(next) => {
+          filters = next;
+        }}
+        listSort="recent"
+        onListSortChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "About", expanded: false }));
+    const listbox = screen.getByRole("listbox");
+    for (const option of RECORD_KIND_FILTER_OPTIONS) {
+      expect(within(listbox).getByText(option.label)).toBeTruthy();
+    }
+  });
+
+  it("picking a kind narrows threadFilters.recordKinds to it", () => {
+    let filters: CommunicationThreadFilters = { ...EMPTY_COMMUNICATION_THREAD_FILTERS };
+    render(
+      <CommunicationFilterSortFields
+        propertyOptions={[]}
+        roleOptions={[]}
+        filters={filters}
+        onFiltersChange={(next) => {
+          filters = next;
+        }}
+        listSort="recent"
+        onListSortChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "About", expanded: false }));
+    tapOption(within(screen.getByRole("listbox")).getByText("Lease"));
+    expect(filters.recordKinds).toEqual(["lease"]);
+  });
+
+  it("'All records' clears the filter", () => {
+    let filters: CommunicationThreadFilters = { ...EMPTY_COMMUNICATION_THREAD_FILTERS, recordKinds: ["lease"] };
+    render(
+      <CommunicationFilterSortFields
+        propertyOptions={[]}
+        roleOptions={[]}
+        filters={filters}
+        onFiltersChange={(next) => {
+          filters = next;
+        }}
+        listSort="recent"
+        onListSortChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "About" }));
+    tapOption(within(screen.getByRole("listbox")).getByText("All records"));
+    expect(filters.recordKinds ?? []).toEqual([]);
   });
 });
