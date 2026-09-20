@@ -392,8 +392,12 @@ function availabilityRefreshEntry(vendorId?: string, viewerId?: string): Availab
   const existing = availabilityRefreshEntries.get(key);
   if (existing) return existing;
   const url = vendorId ? `/api/vendor/availability?vendorId=${encodeURIComponent(vendorId)}` : "/api/vendor/availability";
-  let entry!: AvailabilityRefreshEntry;
-  const refresher = createCoalescedRefresher(async () => {
+  const entry: AvailabilityRefreshEntry = {
+    rules: null,
+    loadedAt: 0,
+    refresher: null as unknown as CoalescedRefresher<VendorAvailabilityRule[]>,
+  };
+  entry.refresher = createCoalescedRefresher(async () => {
     try {
       const res = await fetch(url, { credentials: "include" });
       const data = res.ok ? await res.json() : null;
@@ -407,7 +411,6 @@ function availabilityRefreshEntry(vendorId?: string, viewerId?: string): Availab
       return [];
     }
   });
-  entry = { rules: null, loadedAt: 0, refresher };
   availabilityRefreshEntries.set(key, entry);
   return entry;
 }
@@ -417,6 +420,17 @@ export function invalidateVendorAvailability(vendorId?: string, viewerId?: strin
   if (!entry) return;
   entry.rules = null;
   entry.loadedAt = 0;
+}
+
+/**
+ * Drops every cached/in-flight availability entry. Production code never
+ * needs this — the TTL and `invalidateVendorAvailability` already cover real
+ * usage — but tests that render the availability editor more than once in
+ * the same module instance need a way to stop an earlier render's cache
+ * from swallowing a later render's fetch.
+ */
+export function resetVendorAvailabilityCacheForTests(): void {
+  availabilityRefreshEntries.clear();
 }
 
 export async function fetchVendorAvailability(vendorId?: string, opts: VendorAvailabilityReadOptions = {}): Promise<VendorAvailabilityRule[]> {

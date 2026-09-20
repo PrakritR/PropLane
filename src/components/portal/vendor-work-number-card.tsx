@@ -49,7 +49,7 @@ export function VendorWorkNumberCard() {
   const card = (label: "Your work number" | "Your work email", value: string | undefined, dataAttr: string) => {
     if (contactLoad === "loading") return <div className="h-[52px] animate-pulse rounded-2xl bg-muted" data-attr={`${dataAttr}-loading`} aria-label={`Loading ${label}`} />;
     if (contactLoad === "failed") return <div className="flex items-center gap-2"><PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-failed`} label={label} value="Could not load" actions={[]} /><button type="button" className="text-xs font-semibold underline" onClick={() => reload()}>Retry</button></div>;
-    if (!value) return <PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value="Not set" actions={[]} />;
+    if (!value) return <PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value={label === "Your work number" ? "Set up work number" : "Set up work email"} actions={[]} />;
     const shown = label === "Your work number" ? formatSmsPhoneLabel(value) || value : value;
     return <PortalInboxContactCard padded={false} dataAttr={dataAttr} label={label} value={shown} actions={[copyAction(shown, copied === dataAttr, () => setCopied(dataAttr))]} />;
   };

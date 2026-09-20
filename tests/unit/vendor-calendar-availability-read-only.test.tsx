@@ -23,6 +23,7 @@ import {
   VendorAvailabilityEditor,
 } from "@/components/portal/vendor-settings-panel";
 import { readAvailabilityDateSetForStorageKey } from "@/lib/demo-admin-scheduling";
+import { resetVendorAvailabilityCacheForTests } from "@/lib/vendor-availability";
 
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
 
@@ -51,6 +52,11 @@ function expectVendorSlot(date: string, slot: number, state: "open" | "empty") {
 
 beforeEach(() => {
   demoMode.mockReturnValue(false);
+  // Each case below renders its own editor/panel and expects its own fresh
+  // fetch. The module-level read-coalescing cache in vendor-availability.ts
+  // otherwise serves an earlier case's cached rules (or "no calls yet")
+  // across renders within this file.
+  resetVendorAvailabilityCacheForTests();
 });
 
 afterEach(() => {
