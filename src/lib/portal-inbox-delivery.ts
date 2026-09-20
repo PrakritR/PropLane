@@ -449,11 +449,25 @@ export async function deliverPortalMessageThreadSide(
     const messages = Array.isArray(existing.rowData.messages)
       ? [...(existing.rowData.messages as unknown[])]
       : [];
-    if (
-      args.messageId &&
-      (existing.rowData.rootMessageId === args.messageId ||
-        messages.some((m) => (m as { id?: unknown } | null)?.id === args.messageId))
-    ) {
+    if (args.messageId && existing.rowData.rootMessageId === args.messageId) {
+      if (!args.delivery || existing.rowData.rootDelivery === args.delivery) return { action: "skipped", threadId: existing.id };
+      await db.from("portal_inbox_thread_records").upsert({
+        id: existing.id, scope: existing.scope, owner_user_id: existing.ownerUserId,
+        participant_email: existing.participantEmail, thread_type: "portal_message",
+        row_data: { ...existing.rowData, rootDelivery: args.delivery }, updated_at: nowIso,
+      }, { onConflict: "id" });
+      return { action: "skipped", threadId: existing.id };
+    }
+    const duplicate = args.messageId ? messages.findIndex((message) => (message as { id?: unknown } | null)?.id === args.messageId) : -1;
+    if (duplicate >= 0) {
+      const prior = messages[duplicate] as Record<string, unknown>;
+      if (!args.delivery || prior.delivery === args.delivery) return { action: "skipped", threadId: existing.id };
+      messages[duplicate] = { ...prior, delivery: args.delivery };
+      await db.from("portal_inbox_thread_records").upsert({
+        id: existing.id, scope: existing.scope, owner_user_id: existing.ownerUserId,
+        participant_email: existing.participantEmail, thread_type: "portal_message",
+        row_data: { ...existing.rowData, messages }, updated_at: nowIso,
+      }, { onConflict: "id" });
       return { action: "skipped", threadId: existing.id };
     }
     messages.push({
