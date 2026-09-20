@@ -1642,20 +1642,24 @@ export function ColumnHelp({ title, text, dataAttr }: { title: string; text: str
 /**
  * The line under a card's name: ☑ Same as default room / ☐ This room only · ↺ Reset.
  *
- * Ticked means every field on the card copies the "Default …" card. Unticking
- * changes nothing yet — the whole record becomes its own on purpose; changing
- * one field makes only that field its own. Reset (or ticking again) copies the
- * "Default …" card back.
+ * Ticked means every field on the card copies the "Default …" card (the
+ * Rooms step's own top card reads "All rooms" — pass `allLabel` to name it).
+ * Unticking changes nothing yet — the whole record becomes its own on
+ * purpose; changing one field makes only that field its own. Reset (or
+ * ticking again) copies the "Default …" card back.
  */
 export function SameAsAllToggle({
   same,
   noun,
+  allLabel,
   onChange,
   onReset,
   dataAttr,
 }: {
   same: boolean;
   noun: string;
+  /** What the ticked line names the top card as — "default room" by default, or e.g. "all rooms". */
+  allLabel?: string;
   onChange: (same: boolean) => void;
   onReset: () => void;
   dataAttr?: string;
@@ -1670,7 +1674,7 @@ export function SameAsAllToggle({
         className="h-3.5 w-3.5 shrink-0 accent-[var(--pl-blue)]"
       />
       {same ? (
-        <span>Same as default {noun}</span>
+        <span>Same as {allLabel ?? `default ${noun}`}</span>
       ) : (
         <span>
           This {noun} only ·{" "}

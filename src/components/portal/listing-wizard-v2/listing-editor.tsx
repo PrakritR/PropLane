@@ -1040,9 +1040,10 @@ function BedsRows({
 }
 
 const ROOM_HELP = {
-  all: "Set once. Every room ticked “Same as default room” copies this. Change one field on a room and only that field becomes its own; untick a room and the whole card does.",
+  all: "Set once. Every room ticked “Same as all rooms” copies this. Change one field on a room and only that field becomes its own; untick a room and the whole card does.",
   people: "How many residents can rent this room, each on their own lease. Not the number of beds.",
   bathroom: "The bathroom this room uses, and whether it is private (ensuite) or shared. Add bathrooms on the Bathrooms step first.",
+  floor: "Which level this room is on.",
   rent: "Set per room in Pricing. Shown here so every room’s price is in one place.",
 } as const;
 
@@ -1154,7 +1155,7 @@ function RoomCardBody({
   const own = (field: RoomInheritField) => Boolean(room) && (isOwn ? isOwn(field) : !roomInheritsDefault(room!, defaults, field));
   const inherits = (field: RoomInheritField) => Boolean(room) && !own(field);
   /** The ● Reset tag beside a label whose value is the room's own — the same one FactRow draws. */
-  const resetTag = (field: RoomInheritField, what: string) => (own(field) ? <CellResetTag onClick={() => onResetField(field)} label={`Reset ${what} for ${who} to the Default room`} /> : null);
+  const resetTag = (field: RoomInheritField, what: string) => (own(field) ? <CellResetTag onClick={() => onResetField(field)} label={`Reset ${what} for ${who} to All rooms`} /> : null);
   const photos = room ? room.photoDataUrls ?? [] : defaults.photoDataUrls;
   const video = room ? room.videoDataUrl : defaults.videoDataUrl;
   const detail = room ? room.detail ?? "" : defaults.detail;
@@ -1184,7 +1185,7 @@ function RoomCardBody({
   return (
     <>
       {wholePlace ? null : (
-        <FactRow first label={help("Residents per room", ROOM_HELP.people)} own={own("occupancyCapacity")} onReset={reset("occupancyCapacity")} resetLabel={`Reset residents for ${who} to the Default room`}>
+        <FactRow first label={help("Residents per room", ROOM_HELP.people)} own={own("occupancyCapacity")} onReset={reset("occupancyCapacity")} resetLabel={`Reset residents for ${who} to All rooms`}>
           <CountStepper
             compact
             inherited={inherits("occupancyCapacity")}
@@ -1207,12 +1208,12 @@ function RoomCardBody({
           <RowSelectCell ariaLabel={`Bathroom access for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
         </FactRow>
       )}
-      <FactRow first={wholePlace} label="Floor" own={own("floor")} onReset={reset("floor")} resetLabel={`Reset floor for ${who} to the Default room`}>
+      <FactRow first={wholePlace} label={help("Floor", ROOM_HELP.floor)} own={own("floor")} onReset={reset("floor")} resetLabel={`Reset floor for ${who} to All rooms`}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={room ? room.floor : defaults.floor} options={floorOptions} placeholder="Floor…" inherited={inherits("floor")} onChange={(v) => (room ? onRoom({ floor: v }) : onDefault("floor", v))} />
       </FactRow>
 
       <MoreRows dataAttr={room ? "listing-v2-room-more" : "listing-v2-defaults-more"}>
-        <FactRow label="Furnishing" own={own("furnishing")} onReset={reset("furnishing")} resetLabel={`Reset furnishing for ${who} to the Default room`}>
+        <FactRow label="Furnishing" own={own("furnishing")} onReset={reset("furnishing")} resetLabel={`Reset furnishing for ${who} to All rooms`}>
           <RowSelectCell
             ariaLabel={`Furnishing for ${who}`}
             value={isFurnished(furnishing) ? "furnished" : "unfurnished"}
@@ -1236,10 +1237,10 @@ function RoomCardBody({
             </FactRow>
           </>
         ) : null}
-        <FactRow label="Room amenities" own={own("roomAmenitiesText")} onReset={reset("roomAmenitiesText")} resetLabel={`Reset amenities for ${who} to the Default room`}>
+        <FactRow label="Room amenities" own={own("roomAmenitiesText")} onReset={reset("roomAmenitiesText")} resetLabel={`Reset amenities for ${who} to All rooms`}>
           <AmenityPick label={`Room amenities for ${who}`} presets={ROOM_AMENITY_PRESETS} value={amenities} inherited={inherits("roomAmenitiesText")} onChange={(next) => (room ? onRoom({ roomAmenitiesText: next }) : onDefault("roomAmenitiesText", next))} />
         </FactRow>
-        <FactRow label="Size" own={own("sizeSqft")} onReset={reset("sizeSqft")} resetLabel={`Reset size for ${who} to the Default room`}>
+        <FactRow label="Size" own={own("sizeSqft")} onReset={reset("sizeSqft")} resetLabel={`Reset size for ${who} to All rooms`}>
           <SizeInput
             who={who}
             value={size}
@@ -1347,19 +1348,26 @@ function StepRooms({
   /** Which card is open: a room id, "defaults", or nothing. */
   const [open, setOpen] = useState<string | null>(null);
   /**
-   * Which FIELDS the manager has set by hand on which room, this session.
+   * Which FIELDS the manager has set by hand on which room.
    *
    * Value comparison alone is not enough to answer "is this the room's own":
-   * while a house default is blank, every room reads as following it, so a
-   * room given its own size before the top card was filled in would be swept
-   * up the first time the top card changed. This remembers the act — per
-   * field, not per room. A room on its own floor still follows the Default
-   * room for its size, amenities and checklists; only the field that was
-   * touched comes unlinked. The Bathrooms and Shared spaces steps keep the
-   * same rule.
+   * while All rooms is blank, every room reads as following it, so a room
+   * given its own size before the top card was filled in would be swept up
+   * the first time the top card changed. This remembers the act — per field,
+   * not per room. A room on its own floor still follows All rooms for its
+   * size, amenities and checklists; only the field that was touched comes
+   * unlinked. Unlike Bathrooms and Shared spaces (still session-only), the
+   * Rooms step saves this per room (`room.ownRoomFields`) so it survives a
+   * reload; the seed below hydrates the first render from it.
    */
-  const own = useOwnFields();
-  /** Rooms whose "Same as default room" was unticked on purpose: their own on every field until re-ticked. */
+  const own = useOwnFields(() => {
+    const seeded: OwnFields = {};
+    for (const room of sub.rooms ?? []) {
+      if (room.ownRoomFields && room.ownRoomFields.length > 0) seeded[room.id] = new Set(room.ownRoomFields);
+    }
+    return seeded;
+  });
+  /** Rooms whose "Same as all rooms" was unticked on purpose: their own on every field until re-ticked. */
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const confirm = useConfirm();
   const ui = useOptionalAppUi();
@@ -1389,11 +1397,21 @@ function StepRooms({
   };
   /** A hand edit: whichever tracked fields the patch names become this room's own. Name, photos of the room's own, dates mark nothing. */
   const writeRoom = (id: string, roomPatch: Partial<ManagerRoomSubmission>) => {
+    const touched: RoomInheritField[] = [];
     for (const key of Object.keys(roomPatch) as (keyof ManagerRoomSubmission)[]) {
       const field = ROOM_INHERIT_FIELD_BY_KEY[key];
-      if (field) own.mark(id, field);
+      if (field) {
+        own.mark(id, field);
+        touched.push(field);
+      }
     }
-    writeRooms(rooms.map((r) => (r.id === id ? { ...r, ...roomPatch } : r)));
+    writeRooms(
+      rooms.map((r) =>
+        r.id === id
+          ? { ...r, ...roomPatch, ...(touched.length > 0 ? { ownRoomFields: Array.from(new Set([...(r.ownRoomFields ?? []), ...touched])) } : {}) }
+          : r,
+      ),
+    );
   };
   const isOwn = (room: ManagerRoomSubmission, field: RoomInheritField) => own.has(room.id, field) || !roomInheritsDefault(room, defaults, field);
   /** The rooms a change to ONE default field may move: not unticked, and not their own on that field, judged against the default as it was. */
@@ -1409,19 +1427,28 @@ function StepRooms({
     // The Default room is saved with the listing, so it is there on reopen.
     patch({ rooms: applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], roomIds: followersOf(field, previous) }), houseDefaults: next });
   }
-  /** Copy the Default room into these rooms for every tracked field, blanks included. */
+  /** Copy All rooms into these rooms for every tracked field, blanks included — none of it is this room's own any more. */
   const copyDefaultsInto = (ids: readonly string[]) => {
     const scope = new Set(ids);
     return rooms.map((room) =>
       scope.has(room.id)
-        ? applyHouseDefaultsToRooms([ROOM_INHERIT_FIELDS.reduce(clearRoomField, room)], defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: [room.id] })[0]!
+        ? { ...applyHouseDefaultsToRooms([ROOM_INHERIT_FIELDS.reduce(clearRoomField, room)], defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: [room.id] })[0]!, ownRoomFields: [] }
         : room,
     );
   };
-  /** Put one field back on the house: forget the hand edit and take the Default room's value, blank included. */
+  /** Put one field back on All rooms: forget the hand edit and take its value, blank included. */
   const resetField = (id: string, field: RoomInheritField) => {
     own.clear(id, field);
-    writeRooms(rooms.map((r) => (r.id === id ? applyHouseDefaultsToRooms([clearRoomField(r, field)], defaults, { onlyFields: [field], roomIds: [id] })[0]! : r)));
+    writeRooms(
+      rooms.map((r) =>
+        r.id === id
+          ? {
+              ...applyHouseDefaultsToRooms([clearRoomField(r, field)], defaults, { onlyFields: [field], roomIds: [id] })[0]!,
+              ownRoomFields: (r.ownRoomFields ?? []).filter((f) => f !== field),
+            }
+          : r,
+      ),
+    );
   };
 
   /** The checkbox: no field is the room's own, its bathroom access was not set by hand, and it was not unticked. */
@@ -1529,10 +1556,10 @@ function StepRooms({
         }
       />
 
-      {/* Default room — the defaults, in a room's clothes. Its important rows are always visible. */}
+      {/* All rooms — the defaults, in a room's clothes. Its important rows are always visible. */}
       <RecordCard
         every
-        title={`Default ${noun}`}
+        title={`All ${noun}s`}
         help={ROOM_HELP.all}
         dataAttr="listing-v2-defaults-card"
         rows={
@@ -1566,7 +1593,16 @@ function StepRooms({
             nameLabel={`Name for room ${i + 1}`}
             namePlaceholder={`${wholePlace ? "Bedroom" : "Room"} ${i + 1}`}
             onName={(v) => writeRoom(room.id, { name: v })}
-            same={<SameAsAllToggle same={sameAsAll(room)} noun={noun} onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-room-same-as-all" />}
+            same={
+              <SameAsAllToggle
+                same={sameAsAll(room)}
+                noun={noun}
+                allLabel={`all ${noun}s`}
+                onChange={(next) => setSameAsAll(room, next)}
+                onReset={() => setSameAsAll(room, true)}
+                dataAttr="listing-v2-room-same-as-all"
+              />
+            }
             onDuplicate={() => {
               if (rooms.length >= MAX_LISTING_ROOMS) {
                 ui?.showToast("Maximum 20 rooms.");
@@ -1574,6 +1610,10 @@ function StepRooms({
               }
               const copy = duplicateRoomEntry(room);
               const idx = rooms.findIndex((r) => r.id === room.id);
+              // The copy's fields keep the source room's own-vs-follows state, since
+              // it starts as an exact value copy — only the seeded `own` state (not
+              // the persisted list already on `copy`) needs telling about it.
+              for (const field of copy.ownRoomFields ?? []) own.mark(copy.id, field);
               writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
               setOpen(copy.id);
             }}
@@ -1616,7 +1656,7 @@ function StepRooms({
         onClick={() => {
           const base = rooms[0];
           const id = `room-${Date.now()}`;
-          const blank = base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null } : ({ id, name: "" } as ManagerRoomSubmission);
+          const blank = base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, ownRoomFields: [] } : ({ id, name: "" } as ManagerRoomSubmission);
           writeRooms([...rooms, applyHouseDefaultsToRooms([blank], defaults)[0]!]);
           setOpen(id);
         }}
@@ -1643,8 +1683,14 @@ function StepRooms({
  * existed). The defaults themselves are a session convenience, never stored.
  */
 type OwnFields = Record<string, Set<string>>;
-function useOwnFields() {
-  const [own, setOwn] = useState<OwnFields>({});
+/**
+ * `seed` lazily hydrates the first render from whatever a caller has
+ * persisted (the Rooms step's `room.ownRoomFields`) so a page reload does not
+ * read a hand edit as "following" again. Bathrooms and Shared spaces pass
+ * nothing and keep the session-only behaviour this hook always had.
+ */
+function useOwnFields(seed?: () => OwnFields) {
+  const [own, setOwn] = useState<OwnFields>(seed ?? {});
   const mark = (id: string, field: string) =>
     setOwn((prev) => {
       const next = new Set(prev[id] ?? []);

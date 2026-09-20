@@ -331,6 +331,18 @@ export type ManagerRoomSubmission = {
   /** Required evidence for this room; independent for arrival and departure. */
   moveInInspectionRequired?: boolean;
   moveOutInspectionRequired?: boolean;
+  /**
+   * Rooms-step fields this room has detached from the "All rooms" panel
+   * (`RoomInheritField` names in `listing-wizard-v2/listing-editor.tsx`).
+   *
+   * A field absent here still reads as following "All rooms" whenever its
+   * value equals the panel's current value — see `roomInheritsDefault`. This
+   * list exists only so a hand edit that happens to match the panel's value
+   * is not swept back into "following" the moment the page reloads; nothing
+   * outside the Rooms step editor reads it. Every value the room actually
+   * carries is what Review, the public listing and the lease already read.
+   */
+  ownRoomFields?: string[];
 };
 
 /** Sidebar “Quick facts” rows on the public listing; when empty, facts are auto-derived from the submission. */
