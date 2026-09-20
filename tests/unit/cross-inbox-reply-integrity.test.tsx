@@ -36,6 +36,7 @@ let managerRows = [{ ...BASE_THREAD }];
 let vendorRows = [{ ...BASE_THREAD }];
 let residentRows = [{ ...BASE_THREAD }];
 let realStorageMode = false;
+const aiDraftPreference = vi.hoisted(() => ({ enabled: false }));
 const upsertPersistedInboxRows = vi.fn(async () => true);
 const showToast = vi.fn();
 
@@ -108,6 +109,12 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
     userId: "manager-1",
     email: "manager@example.com",
     ready: true,
+  }),
+}));
+vi.mock("@/hooks/use-inbox-ai-draft-auto-send", () => ({
+  useInboxAiDraftAutoSend: () => ({
+    enabled: aiDraftPreference.enabled,
+    setEnabled: vi.fn(),
   }),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
@@ -192,6 +199,7 @@ beforeEach(() => {
   vendorRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
   residentRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
   realStorageMode = false;
+  aiDraftPreference.enabled = false;
   window.localStorage.clear();
   upsertPersistedInboxRows.mockClear();
   showToast.mockClear();
@@ -204,10 +212,11 @@ afterEach(() => {
 
 describe("manager and vendor inbox reply integrity", () => {
   it("keeps a newer real-storage draft, metadata, message count, and unread state after a deferred refusal", async () => {
+    aiDraftPreference.enabled = true;
     realStorageMode = true;
-    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a", model: "old" };
-    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b", model: "new" };
-    const initial = [{ ...BASE_THREAD, unread: false, aiDraft: draftA, aiDraftQueue: [{ text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" }] }] as unknown as typeof managerRows;
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a", model: "old", requiresReview: true };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b", model: "new", requiresReview: true };
+    const initial = [{ ...BASE_THREAD, unread: false, aiDraft: draftA, aiDraftQueue: [{ text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c", requiresReview: true }] }] as unknown as typeof managerRows;
     managerRows = initial;
     window.localStorage.setItem("manager-inbox", JSON.stringify(initial));
     let refuse!: () => void;
@@ -229,7 +238,7 @@ describe("manager and vendor inbox reply integrity", () => {
       ...BASE_THREAD,
       unread: true,
       aiDraft: draftB,
-      aiDraftQueue: [{ text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" }],
+      aiDraftQueue: [{ text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c", requiresReview: true }],
       messages: [...BASE_THREAD.messages],
     }] as unknown as typeof managerRows;
     managerRows = newer;
@@ -249,10 +258,11 @@ describe("manager and vendor inbox reply integrity", () => {
   });
 
   it("reconciles an approved manager draft from X after X→Y→X, preserving a newer active B", async () => {
+    aiDraftPreference.enabled = true;
     realStorageMode = true;
-    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
-    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
-    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a", requiresReview: true };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b", requiresReview: true };
+    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c", requiresReview: true };
     managerRows = [
       { ...BASE_THREAD, aiDraft: draftA, aiDraftQueue: [draftB, draftC] },
       { ...BASE_THREAD, id: "thread-y", from: "Resident Two", email: "resident-two@example.com" },
@@ -363,9 +373,10 @@ describe("manager and vendor inbox reply integrity", () => {
   });
 
   it("does not advance an AI draft queue when an ordinary reply is sent", async () => {
-    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
-    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
-    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
+    aiDraftPreference.enabled = true;
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a", requiresReview: true };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b", requiresReview: true };
+    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c", requiresReview: true };
     managerRows = [{ ...BASE_THREAD, aiDraft: draftA, aiDraftQueue: [draftB, draftC] }] as unknown as typeof managerRows;
     let resolveSend!: () => void;
     const send = new Promise<void>((resolve) => { resolveSend = resolve; });
@@ -407,9 +418,10 @@ describe("manager and vendor inbox reply integrity", () => {
   });
 
   it("leaves draft A and queued B/C unchanged when manager delivery is refused", async () => {
-    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
-    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
-    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
+    aiDraftPreference.enabled = true;
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a", requiresReview: true };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b", requiresReview: true };
+    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c", requiresReview: true };
     managerRows = [{ ...BASE_THREAD, aiDraft: draftA, aiDraftQueue: [draftB, draftC] }] as unknown as typeof managerRows;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes("send-inbox-message") && init?.method === "POST") {

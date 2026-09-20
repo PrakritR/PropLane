@@ -410,8 +410,7 @@ describe("inbox panel hydration is viewer-owned and read-only", () => {
     "keeps the remounted %s viewer current when the prior mount completes late",
     async (role) => {
       const firstMount = deferred<Response>();
-      const remount = deferred<Response>();
-      const network = installFetch([firstMount.promise, remount.promise]);
+      const network = installFetch([firstMount.promise]);
       const storageKey = storageKeyFor(role);
       setViewer(`${role}-remount`);
       const stale = thread(`${role}-stale-mount`, `${role} stale mount`);
@@ -424,11 +423,16 @@ describe("inbox panel hydration is viewer-owned and read-only", () => {
       const current = thread(`${role}-current-remount`, `${role} current remount`);
       stagePersistedInboxRows(storageKey, [current]);
       render(rolePanel(role));
-      await waitFor(() => expect(network.inboxGetCount()).toBe(2));
-      await act(async () => remount.resolve(Response.json({ rows: [current] })));
+      // The storage loader owns an in-flight request per viewer and scope.
+      // Remounting the same viewer must observe that request rather than start
+      // a duplicate GET; the current mount alone may consume its completion.
+      await waitFor(() => expect(network.inboxGetCount()).toBe(1));
+      // The shared request began before the remount and returns an older empty
+      // snapshot. Its completion must merge with the newer staged cache, and
+      // only the currently mounted consumer may publish that merged result.
+      await act(async () => firstMount.resolve(Response.json({ rows: [] })));
       await screen.findByText(`${role} current remount`);
 
-      await act(async () => firstMount.resolve(Response.json({ rows: [] })));
       expect(screen.getByText(`${role} current remount`)).toBeTruthy();
       expect(loadPersistedInbox(storageKey, []).map((row) => row.id)).toEqual([current.id]);
       expect(network.inboxPosts).toEqual([]);

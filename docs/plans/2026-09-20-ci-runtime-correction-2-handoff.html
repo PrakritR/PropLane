@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CI runtime correction 2 handoff</title>
+  <style>
+    body { max-width: 920px; margin: 40px auto; padding: 24px; font: 16px/1.6 system-ui, sans-serif; color: #18202a; }
+    h1, h2 { line-height: 1.2; }
+    code { overflow-wrap: anywhere; background: #f2f4f7; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #d7dce2; padding: 10px; text-align: left; vertical-align: top; }
+    th { background: #f7f8fa; }
+  </style>
+</head>
+<body>
+  <h1>Second CI runtime fixture correction</h1>
+  <p><strong>Goal:</strong> Correct the 23 unit failures from GitHub Actions run <code>35479592968</code>, job <code>105994866197</code>, without weakening the behavioral contracts.</p>
+  <p><strong>Plan:</strong> <code>docs/plans/2026-09-20-ci-runtime-correction-2-plan.html</code><br>
+  <strong>Branch:</strong> <code>akhil/ship-conversation-identity</code><br>
+  <strong>Starting and current HEAD:</strong> <code>7ab8ec1ed5d557205e0b41a679df92a5841cae33</code></p>
+
+  <h2>Result</h2>
+  <p>All 23 failures were traced to five test fixtures. No application defect was found, and no application source was changed. The corrections preserve delivery refusal, draft identity, cache ownership, history navigation, merged-channel rendering, and no-refetch assertions.</p>
+
+  <table>
+    <thead><tr><th>Fixture</th><th>CI failures</th><th>Root cause and correction</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>tests/unit/resident-refused-send-not-delivered.test.tsx</code></td>
+        <td>9</td>
+        <td>The fixture replaced <code>inboxThreadMessages</code> and <code>appendReplyToInboxThread</code> with partial shapes that no longer satisfy the email bubble formatter. It now keeps the production normalization and append helpers while retaining refusal, delivery, optimistic withdrawal, draft, mixed-channel, and archived-history checks.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/resident-inbox-hydration-read-only.test.tsx</code></td>
+        <td>3</td>
+        <td>The remount cases expected a second GET, but the storage layer coalesces one in-flight request per viewer and scope. The fixture now expects one GET, resolves the pre-remount request with an older empty snapshot, and proves the newer staged cache remains visible and persisted for the current mount with no POST.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/manager-inbox-ai-draft.test.tsx</code></td>
+        <td>2</td>
+        <td>The viewer-B draft was intentionally adopted by the real draft card because the auto-send preference was unspecified. The rollback case also waited for any upsert, allowing an unrelated operation to satisfy the gate. Review-required state is now explicit, viewer B is asserted in the rendered approval field, and rollback waits for the exact generated-draft write before adding newer metadata.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/cross-inbox-reply-integrity.test.tsx</code></td>
+        <td>4</td>
+        <td>The tests expected the standalone approval composer while the real disabled auto-send state adopts the draft into the ordinary composer and advances its queue. The fixture now makes the enabled preference and review-required draft state explicit, keeping A in the approval surface while ordinary and refused replies exercise their intended paths.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/portal-settings-mobile-back.test.tsx</code></td>
+        <td>5</td>
+        <td>The real settings host performs one relationships GET through <code>buildManagerPropertyFilterOptions</code> and <code>readProRelationships</code>; the mocked assignment-directory hook does not replace that consumer. The fixture now requires exactly one relationships GET and one reminder GET before and after history navigation.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Validation and limits</h2>
+  <ul>
+    <li><code>git diff --check</code>: exit 0.</li>
+    <li>Source contracts and GitHub job logs were reviewed read-only.</li>
+    <li>No Node command, test, lint, build, typecheck, browser, server, install, graph, Git mutation, or database operation was run. The root agent owns remote unit validation and all release operations.</li>
+    <li>The working tree also contains root-owned plan and CI evidence edits outside these five test fixtures and this handoff.</li>
+  </ul>
+
+  <h2>Review and next step</h2>
+  <p>Run the fresh Astra review against the five test files and this handoff, then validate the unit job remotely. This is the second fixture correction cycle. If the remote unit job still reports findings, stop and report the remaining blockers instead of starting a third automatic correction cycle.</p>
+</body>
+</html>

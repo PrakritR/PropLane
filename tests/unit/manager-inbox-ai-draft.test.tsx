@@ -39,6 +39,7 @@ const THREADS = [
 
 let inboxRows = THREADS;
 const managerSession = vi.hoisted(() => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }));
+const aiDraftPreference = vi.hoisted(() => ({ enabled: false }));
 const draftPersistence = vi.hoisted(() => ({
   upsert: vi.fn(),
   succeeds: true,
@@ -98,6 +99,12 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
 
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => managerSession,
+}));
+vi.mock("@/hooks/use-inbox-ai-draft-auto-send", () => ({
+  useInboxAiDraftAutoSend: () => ({
+    enabled: aiDraftPreference.enabled,
+    setEnabled: vi.fn(),
+  }),
 }));
 vi.mock("@/lib/auth/portal-session-gate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/portal-session-gate")>()),
@@ -159,6 +166,7 @@ describe("AI draft in the unified Communication inbox", () => {
     managerSession.userId = "mgr-1";
     managerSession.email = "mgr@example.com";
     managerSession.ready = true;
+    aiDraftPreference.enabled = false;
     draftPersistence.succeeds = true;
     draftPersistence.pending = null;
     draftPersistence.upsert.mockClear();
@@ -278,6 +286,10 @@ describe("AI draft in the unified Communication inbox", () => {
   });
 
   it("drops an old viewer's delayed draft completion before it can write into viewer B", async () => {
+    // Keep viewer B's review-required draft in the explicit approval surface.
+    // Otherwise the real draft card intentionally adopts it into the ordinary
+    // composer, which is unrelated to the viewer-ownership boundary here.
+    aiDraftPreference.enabled = true;
     inboxRows = [{ ...THREADS[0], unread: false, aiDraft: undefined }];
     const draftResponse = deferred<Response>();
     let draftRequests = 0;
@@ -311,7 +323,7 @@ describe("AI draft in the unified Communication inbox", () => {
       id: "viewer-b-thread",
       from: "Viewer B resident",
       unread: false,
-      aiDraft: { text: "Viewer B existing draft", status: "pending_approval" },
+      aiDraft: { text: "Viewer B existing draft", status: "pending_approval", requiresReview: true },
     }];
     view.rerender(
       <ManagerInbox
@@ -324,6 +336,7 @@ describe("AI draft in the unified Communication inbox", () => {
       />,
     );
     await screen.findByText("Viewer B resident");
+    await screen.findByDisplayValue("Viewer B existing draft");
 
     // Hydration may have completed a persistence call before the viewer
     // changed. Isolate the stale completion from that setup work.
@@ -336,9 +349,11 @@ describe("AI draft in the unified Communication inbox", () => {
     expect(draftPersistence.upsert).not.toHaveBeenCalled();
     expect(inboxRows[0]?.id).toBe("viewer-b-thread");
     expect(inboxRows[0]?.aiDraft?.text).toBe("Viewer B existing draft");
+    expect(screen.getByDisplayValue("Viewer B existing draft")).toBeInTheDocument();
   });
 
   it("removes only its failed draft contribution and preserves a newer queue entry and metadata", async () => {
+    aiDraftPreference.enabled = true;
     const originalDraft = {
       text: "Original approval draft",
       status: "pending_approval" as const,
@@ -372,9 +387,19 @@ describe("AI draft in the unified Communication inbox", () => {
     inboxRows = [{ ...inboxRows[0]!, aiDraft: originalDraft, aiDraftQueue: [] }];
     await act(async () => draftResponse.resolve(Response.json({
       ok: true,
-      draft: { text: "Generated draft", status: "pending_approval", requiresReview: false },
+      draft: { text: "Generated draft", status: "pending_approval", requiresReview: true },
     })));
-    await waitFor(() => expect(draftPersistence.upsert).toHaveBeenCalled());
+    await waitFor(() => expect(
+      draftPersistence.upsert.mock.calls.some((call) => {
+        const changed = call[1] as Array<{ aiDraft?: { text?: string } }>;
+        return changed[0]?.aiDraft?.text === "Generated draft";
+      }),
+    ).toBe(true));
+    expect(inboxRows[0]?.aiDraft).toMatchObject({
+      text: "Generated draft",
+      status: "pending_approval",
+      requiresReview: true,
+    });
     inboxRows = [{
       ...inboxRows[0]!,
       aiDraft: { ...inboxRows[0]!.aiDraft!, model: "newer-metadata" },
@@ -388,7 +413,7 @@ describe("AI draft in the unified Communication inbox", () => {
     expect(inboxRows[0]?.aiDraft).toEqual({
       text: "Generated draft",
       status: "pending_approval",
-      requiresReview: false,
+      requiresReview: true,
       model: "newer-metadata",
     });
     expect(inboxRows[0]?.aiDraftQueue?.map((draft) => draft.text)).toContain("Newer queued draft");

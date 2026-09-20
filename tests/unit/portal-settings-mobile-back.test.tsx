@@ -15,7 +15,9 @@
  * browser/native Back) land on the module list rather than leaving Settings.
  *
  * `resident` is the tab under test on purpose. Its real Welcome module loads reminder settings,
- * so the harness returns one bounded response and verifies that history changes do not reload it.
+ * while the real property-option path performs one bounded relationship read for the manager
+ * scope. The harness returns both bounded responses and verifies that history changes do not
+ * reload either consumer.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -98,9 +100,9 @@ function expectSettingsRequestCounts(expected: { relationships: number; reminder
 
 async function waitForReminderSettingsReady() {
   await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
-  // One mounted resident settings consumer should issue one bounded request.
-  // Include exact call diagnostics if a second caller appears in evidence.
-  expectSettingsRequestCounts({ relationships: 0, reminders: 1 });
+  // One mounted resident settings consumer and the real property-option path each issue one
+  // bounded request. Include exact call diagnostics if another caller appears in evidence.
+  expectSettingsRequestCounts({ relationships: 1, reminders: 1 });
 }
 
 beforeEach(() => {
@@ -168,7 +170,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
     expect(document.querySelector('[data-attr="settings-back-to-root"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-open-resident"]')).toBeNull();
     expect(screen.getByText("Welcome")).toBe(welcomeModule);
-    expectSettingsRequestCounts({ relationships: 0, reminders: 1 });
+    expectSettingsRequestCounts({ relationships: 1, reminders: 1 });
     expect(showToast).not.toHaveBeenCalled();
   });
 

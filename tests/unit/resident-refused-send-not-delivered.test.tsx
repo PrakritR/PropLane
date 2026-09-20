@@ -60,34 +60,6 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
       hour: "numeric",
       minute: "2-digit",
     }),
-  // Must surface appended replies, not just the root message — otherwise the
-  // "optimistic bubble is withdrawn" assertion below can never see one and
-  // passes vacuously against the buggy code too.
-  inboxThreadMessages: (t: {
-    id: string;
-    from: string;
-    body: string;
-    time: string;
-    rootChannel?: "email" | "sms" | "proplane";
-    messages?: { id: string; from: string; body: string; at: string; channel?: "email" | "sms" | "proplane" }[];
-  }) => [
-    {
-      id: `${t.id}-root`,
-      from: t.from,
-      body: t.body,
-      at: t.time,
-      channel: t.rootChannel ?? "email",
-    },
-    ...(t.messages ?? []).map((message) => ({ ...message, channel: message.channel ?? "email" })),
-  ],
-  appendReplyToInboxThread: (
-    thread: Record<string, unknown>,
-    reply: { body: string; id: string; from: string; at: string },
-  ) => ({
-    ...thread,
-    preview: reply.body,
-    messages: [...((thread.messages as unknown[]) ?? []), reply],
-  }),
 }));
 
 vi.mock("@/hooks/use-portal-session", () => ({
