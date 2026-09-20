@@ -115,12 +115,19 @@ async function resolveApprovedResidentSlot(
   const { data: propertyRecord, error: propertyError } = await db
     .from("manager_property_records")
     .select("row_data")
+    // Scoped to the manager this application is attributed to — `propertyId`
+    // comes from the client-controlled room choice, so an unscoped lookup
+    // would resolve (and then trust the pricing of) ANY manager's property
+    // row, not just one the acting manager owns.
     .eq("id", propertyId)
+    .eq("manager_user_id", managerUserId)
     .maybeSingle();
-  // A read failure here must never itself block an approval unrelated to
-  // this guard succeeding elsewhere — the DB's own bed-capacity trigger is
-  // still the authoritative backstop for the bed itself.
-  if (propertyError) return { ok: true, row };
+  // Fail CLOSED: a read failure here must never fall through to trusting
+  // whatever rent/utilities/deposit the client already had on the row —
+  // refuse the write rather than risk letting an unverified override land.
+  if (propertyError) {
+    return { ok: false, error: "Could not verify this room right now — try again." };
+  }
   const property = (propertyRecord as { row_data?: { listingSubmission?: unknown } } | null)?.row_data;
   if (!property?.listingSubmission) return { ok: true, row };
   const sub = normalizeManagerListingSubmissionV1(
@@ -134,7 +141,12 @@ async function resolveApprovedResidentSlot(
     .select("id,row_data")
     .eq("manager_user_id", managerUserId)
     .eq("row_data->>bucket", "approved");
-  if (siblingError) return { ok: true, row };
+  // Fail CLOSED here too — without the sibling rows, a taken slot cannot be
+  // detected, so a stale/tampered pick could land alongside an unverified
+  // price override instead of being refused.
+  if (siblingError) {
+    return { ok: false, error: "Could not verify open resident slots right now — try again." };
+  }
 
   const selfId = normalizeApplicationAxisId(String(row.id ?? ""));
   const placements: RoomResidentSlotPlacement[] = [];

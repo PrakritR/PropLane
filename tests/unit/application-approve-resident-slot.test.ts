@@ -16,7 +16,9 @@ import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null = null;
-let PROPERTY_RECORDS: Record<string, { row_data: { listingSubmission: unknown } }> = {};
+let PROPERTY_RECORDS: Record<string, { row_data: { listingSubmission: unknown }; manager_user_id?: string }> = {};
+let PROPERTY_READ_ERROR = false;
+let SIBLING_READ_ERROR = false;
 let STORED_ROWS: {
   id: string;
   row_data: DemoApplicantRow;
@@ -72,12 +74,22 @@ function makeDb() {
         maybeSingle() {
           if (table === "profiles") return Promise.resolve({ data: PROFILE, error: null });
           if (table === "manager_property_records") {
-            return Promise.resolve({ data: (state.eqId && PROPERTY_RECORDS[state.eqId]) || null, error: null });
+            if (PROPERTY_READ_ERROR) {
+              return Promise.resolve({ data: null, error: { message: "read failed" } });
+            }
+            const record = state.eqId ? PROPERTY_RECORDS[state.eqId] : null;
+            // Scoped exactly like the real query: `.eq("id", …).eq("manager_user_id", …)`
+            // — a record whose owner does not match the acting manager reads as not found.
+            const ownerMatches = !record || (record.manager_user_id ?? OWNER) === state.eqManagerUserId;
+            return Promise.resolve({ data: ownerMatches ? record : null, error: null });
           }
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "manager_application_records") {
+            if (state.eqBucket && SIBLING_READ_ERROR) {
+              return Promise.resolve({ data: null, error: { message: "read failed" } }).then(resolve);
+            }
             let out = STORED_ROWS;
             if (state.ids) out = out.filter((r) => state.ids?.includes(r.id));
             if (state.eqManagerUserId) out = out.filter((r) => r.manager_user_id === state.eqManagerUserId);
@@ -162,6 +174,8 @@ beforeEach(() => {
     error: null,
   });
   PROPERTY_RECORDS = { [LISTING]: { row_data: { listingSubmission: sharedRoomListing() } } };
+  PROPERTY_READ_ERROR = false;
+  SIBLING_READ_ERROR = false;
   UPSERTS = [];
 });
 
@@ -240,5 +254,63 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     expect(UPSERTS).toHaveLength(1);
     // No slot fields invented for a room that isn't priced per resident.
     expect(UPSERTS[0]!.row_data.application!.residentSlot).toBeUndefined();
+  });
+
+  it("never reads or prices a room on a property owned by a DIFFERENT manager", async () => {
+    // The room choice names a real per-resident room, but it belongs to
+    // another manager entirely — the lookup must not resolve it, so this
+    // guard treats it as inapplicable rather than pricing off a stranger's room.
+    PROPERTY_RECORDS = {
+      [LISTING]: { row_data: { listingSubmission: sharedRoomListing() }, manager_user_id: "mgr-someone-else" },
+    };
+    const grace = applicationRow("AXIS-GRACE");
+    STORED_ROWS = [{ id: grace.id, row_data: grace, manager_user_id: OWNER }];
+
+    const approvingRow: DemoApplicantRow = {
+      ...grace,
+      bucket: "approved",
+      application: { ...grace.application!, residentSlot: 2, managerRentOverride: "1" },
+    };
+    const res = await upsert(approvingRow);
+
+    expect(res.status).toBe(200);
+    expect(UPSERTS).toHaveLength(1);
+    // Falls through untouched — the same as a nonexistent property id — never
+    // the other manager's real slot price.
+    expect(UPSERTS[0]!.row_data.application!.managerRentOverride).toBe("1");
+  });
+
+  it("fails CLOSED (refuses the approval) when the property lookup errors, instead of keeping the client's override", async () => {
+    PROPERTY_READ_ERROR = true;
+    const grace = applicationRow("AXIS-GRACE");
+    STORED_ROWS = [{ id: grace.id, row_data: grace, manager_user_id: OWNER }];
+
+    const approvingRow: DemoApplicantRow = {
+      ...grace,
+      bucket: "approved",
+      application: { ...grace.application!, residentSlot: 2, managerRentOverride: "1" },
+    };
+    const res = await upsert(approvingRow);
+
+    expect(res.status).toBe(409);
+    expect(res.body.blocked).toBe("capacity");
+    expect(UPSERTS).toHaveLength(0);
+  });
+
+  it("fails CLOSED (refuses the approval) when the sibling-slot lookup errors", async () => {
+    SIBLING_READ_ERROR = true;
+    const grace = applicationRow("AXIS-GRACE");
+    STORED_ROWS = [{ id: grace.id, row_data: grace, manager_user_id: OWNER }];
+
+    const approvingRow: DemoApplicantRow = {
+      ...grace,
+      bucket: "approved",
+      application: { ...grace.application!, residentSlot: 2, managerRentOverride: "1" },
+    };
+    const res = await upsert(approvingRow);
+
+    expect(res.status).toBe(409);
+    expect(res.body.blocked).toBe("capacity");
+    expect(UPSERTS).toHaveLength(0);
   });
 });
