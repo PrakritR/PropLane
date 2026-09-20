@@ -464,6 +464,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Display-only Connect identity-verification status cache
+    // (PLAN-0920-1500 Part C). `owner_user_id` is whichever role's profile
+    // holds the Connect account — a manager's own or a vendor's own, never
+    // both for the same row — so both scopes key off the same column.
+    table: "payout_identity_status",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "stripe_payouts",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
