@@ -19,17 +19,48 @@ export type ManagerVendorSummaryJob = {
 };
 
 export type ManagerVendorSummary = {
+  /** Bounded newest-first list for the profile UI; totals below cover the full authorized history. */
   jobs: ManagerVendorSummaryJob[];
+  totalJobCount: number;
   ratingCount: number;
   completedJobCount: number;
   completedInvoiceTotalCents: number | null;
   completedInvoiceAverageCents: number | null;
 };
 
+const WORK_PAGE_SIZE = 500;
+const RELATION_PAGE_SIZE = 500;
+const WORK_ORDER_ID_BATCH_SIZE = 200;
+const RECENT_JOB_LIMIT = 100;
+
 const centsOrNull = (value: unknown): number | null => {
   const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
   return Number.isSafeInteger(parsed) ? parsed : null;
 };
+
+function recordTime(row: { submitted_at?: unknown; created_at?: unknown; id?: unknown }): string {
+  return String(row.submitted_at ?? row.created_at ?? "");
+}
+
+async function fetchAllPages<T>(
+  loadPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  pageSize: number,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const result = await loadPage(from, from + pageSize - 1);
+    if (result.error) throw result.error;
+    const page = result.data ?? [];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let start = 0; start < items.length; start += size) result.push(items.slice(start, start + size));
+  return result;
+}
 
 /** Manager-only vendor history. Every relation uses the directory row or signed-in vendor id, never contact text. */
 export async function loadManagerVendorSummary(
@@ -48,41 +79,46 @@ export async function loadManagerVendorSummary(
   const ownerId = String(vendorRecord.manager_user_id ?? "").trim();
   const vendorUserId = String(vendorRecord.vendor_user_id ?? "").trim() || null;
   if (!ownerId) return { ok: false, status: 404 };
-  let scopedPropertyIds: Set<string> | null = null;
+  let servicePropertyIds: Set<string> | null = null;
+  let financialPropertyIds: Set<string> | null = null;
   if (ownerId !== viewerId) {
-    const linked = await linkedOwnerScopeForModule(db, viewerId, "services", "read", { throwOnError: true });
-    const allowed = linked.propertyIdsByOwner.get(ownerId) ?? new Set<string>();
-    if (allowed.size === 0) {
+    const [serviceScope, financialScope] = await Promise.all([
+      linkedOwnerScopeForModule(db, viewerId, "services", "read", { throwOnError: true }),
+      linkedOwnerScopeForModule(db, viewerId, "financials", "read", { throwOnError: true }),
+    ]);
+    const allowedServices = serviceScope.propertyIdsByOwner.get(ownerId) ?? new Set<string>();
+    if (allowedServices.size === 0) {
       return { ok: false, status: 403 };
     }
-    scopedPropertyIds = allowed;
+    servicePropertyIds = allowedServices;
+    financialPropertyIds = financialScope.propertyIdsByOwner.get(ownerId) ?? new Set<string>();
   }
 
   const workSelect = "id, property_id, assigned_property_id, vendor_user_id, row_data, updated_at";
-  const propertyColumns = scopedPropertyIds ? (["property_id", "assigned_property_id"] as const) : [null] as const;
+  const propertyColumns = servicePropertyIds ? (["property_id", "assigned_property_id"] as const) : [null] as const;
   const fetchWorkRows = async (legacyAssignment: "vendorId" | "assignee" | null) => {
-    const responses = await Promise.all(propertyColumns.map((propertyColumn) => {
-      let query = db.from("portal_work_order_records").select(workSelect).eq("manager_user_id", ownerId);
-      if (vendorUserId) query = query.eq("vendor_user_id", vendorUserId);
-      else if (legacyAssignment === "vendorId") query = query.contains("row_data", { vendorId });
-      else query = query.contains("row_data", { assignee: { id: vendorId } });
-      if (propertyColumn && scopedPropertyIds) query = query.in(propertyColumn, [...scopedPropertyIds]);
-      return query.order("updated_at", { ascending: false }).limit(500);
-    }));
-    for (const response of responses) if (response.error) throw response.error;
-    return responses.flatMap((response) => response.data ?? []);
+    const responses = await Promise.all(propertyColumns.map((propertyColumn) =>
+      fetchAllPages((from, to) => {
+        let query = db.from("portal_work_order_records").select(workSelect).eq("manager_user_id", ownerId);
+        if (vendorUserId) query = query.eq("vendor_user_id", vendorUserId);
+        else if (legacyAssignment === "vendorId") query = query.contains("row_data", { vendorId });
+        else query = query.contains("row_data", { assignee: { id: vendorId } });
+        if (propertyColumn && servicePropertyIds) query = query.in(propertyColumn, [...servicePropertyIds]);
+        return query.order("updated_at", { ascending: false }).range(from, to);
+      }, WORK_PAGE_SIZE),
+    ));
+    return responses.flat();
   };
   const queriedRows = vendorUserId
     ? await fetchWorkRows(null)
     : [...await fetchWorkRows("vendorId"), ...await fetchWorkRows("assignee")];
   const workRecords = [...new Map(queriedRows.map((record) => [String(record.id), record])).values()]
-    .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? "")) || String(left.id).localeCompare(String(right.id)))
-    .slice(0, 500);
+    .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? "")) || String(left.id).localeCompare(String(right.id)));
   const permitted = workRecords.filter((record) => {
-    if (!scopedPropertyIds) return true;
+    if (!servicePropertyIds) return true;
     const propertyId = String(record.property_id ?? "").trim();
     const assignedPropertyId = String(record.assigned_property_id ?? "").trim();
-    return scopedPropertyIds.has(propertyId) || scopedPropertyIds.has(assignedPropertyId);
+    return servicePropertyIds.has(propertyId) || servicePropertyIds.has(assignedPropertyId);
   }).filter((record) => {
     const row = (record.row_data ?? {}) as DemoManagerWorkOrderRow;
     return vendorUserId
@@ -90,30 +126,44 @@ export async function loadManagerVendorSummary(
       : row.vendorId === vendorId || (row.assignee?.type === "vendor" && row.assignee.id === vendorId);
   });
   const workOrderIds = permitted.map((record) => String(record.id));
-  if (workOrderIds.length === 0) return { ok: true, summary: { jobs: [], ratingCount: 0, completedJobCount: 0, completedInvoiceTotalCents: null, completedInvoiceAverageCents: null } };
+  if (workOrderIds.length === 0) return { ok: true, summary: { jobs: [], totalJobCount: 0, ratingCount: 0, completedJobCount: 0, completedInvoiceTotalCents: null, completedInvoiceAverageCents: null } };
 
-  const [bidResult, invoiceResult, payoutResult] = await Promise.all([
+  const financialWorkOrderIds = permitted
+    .filter((record) => {
+      if (!financialPropertyIds) return true;
+      const propertyId = String(record.property_id ?? "").trim();
+      const assignedPropertyId = String(record.assigned_property_id ?? "").trim();
+      return financialPropertyIds.has(propertyId) || financialPropertyIds.has(assignedPropertyId);
+    })
+    .map((record) => String(record.id));
+
+  const fetchRelations = async <T>(
+    ids: readonly string[],
+    load: (batch: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  ) => (await Promise.all(chunks(ids, WORK_ORDER_ID_BATCH_SIZE).map((batch) => fetchAllPages(
+    (from, to) => load(batch, from, to),
+    RELATION_PAGE_SIZE,
+  )))).flat();
+
+  const [bids, invoices, payouts] = await Promise.all([
     vendorUserId
-      ? db.from("work_order_bids").select("work_order_id, amount_cents").in("work_order_id", workOrderIds).eq("vendor_user_id", vendorUserId).eq("status", "accepted")
-      : Promise.resolve({ data: [], error: null }),
+      ? fetchRelations(workOrderIds, (batch, from, to) => db.from("work_order_bids").select("work_order_id, amount_cents").in("work_order_id", batch).eq("vendor_user_id", vendorUserId).eq("status", "accepted").range(from, to))
+      : Promise.resolve([]),
     vendorUserId
-      ? db.from("vendor_invoices").select("work_order_id, total_cents, status, paid_at, submitted_at, created_at").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", workOrderIds).in("status", ["submitted", "approved", "scheduled", "paid"]).order("submitted_at", { ascending: false }).order("created_at", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
+      ? fetchRelations(financialWorkOrderIds, (batch, from, to) => db.from("vendor_invoices").select("id, work_order_id, total_cents, status, paid_at, submitted_at, created_at").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", batch).in("status", ["submitted", "approved", "scheduled", "paid"]).order("submitted_at", { ascending: false }).order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to))
+      : Promise.resolve([]),
     vendorUserId
-      ? db.from("vendor_payouts").select("work_order_id, amount_cents, status").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", workOrderIds)
-      : Promise.resolve({ data: [], error: null }),
+      ? fetchRelations(financialWorkOrderIds, (batch, from, to) => db.from("vendor_payouts").select("work_order_id, amount_cents, status").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", batch).range(from, to))
+      : Promise.resolve([]),
   ]);
-  if (bidResult.error) throw bidResult.error;
-  if (invoiceResult.error) throw invoiceResult.error;
-  if (payoutResult.error) throw payoutResult.error;
-  const acceptedByWorkOrder = new Map((bidResult.data ?? []).map((row) => [String(row.work_order_id), centsOrNull(row.amount_cents)]));
+  const acceptedByWorkOrder = new Map(bids.map((row) => [String(row.work_order_id), centsOrNull(row.amount_cents)]));
   const invoiceByWorkOrder = new Map<string, number | null>();
-  for (const row of invoiceResult.data ?? []) {
+  for (const row of invoices.sort((left, right) => recordTime(right).localeCompare(recordTime(left)) || String(right.id ?? "").localeCompare(String(left.id ?? "")))) {
     const workOrderId = String(row.work_order_id);
     if (!invoiceByWorkOrder.has(workOrderId)) invoiceByWorkOrder.set(workOrderId, centsOrNull(row.total_cents));
   }
   const paidByWorkOrder = new Map(
-    (payoutResult.data ?? []).filter((row) => row.status === "paid").map((row) => [String(row.work_order_id), centsOrNull(row.amount_cents)]),
+    payouts.filter((row) => row.status === "paid").map((row) => [String(row.work_order_id), centsOrNull(row.amount_cents)]),
   );
   const jobs = permitted.map((record) => {
     const row = (record.row_data ?? {}) as DemoManagerWorkOrderRow;
@@ -138,7 +188,8 @@ export async function loadManagerVendorSummary(
   return {
     ok: true,
     summary: {
-      jobs,
+      jobs: jobs.slice(0, RECENT_JOB_LIMIT),
+      totalJobCount: jobs.length,
       ratingCount: jobs.filter((job) => job.residentRating != null).length,
       completedJobCount: completedJobs.length,
       completedInvoiceTotalCents,
