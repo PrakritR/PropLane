@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bell, CreditCard, Download } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Input, Select } from "@/components/ui/input";
@@ -22,7 +22,7 @@ import {
   FilterFieldsAccordion,
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
-import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
+import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
@@ -703,7 +703,6 @@ export function VendorFinancesPanel({
     [basePath],
   );
 
-  const payoutsRef = useRef<VendorPaymentsPanelHandle>(null);
   const defaults = defaultFilters();
   const filterTouchCount =
     propertyIds.length +
@@ -767,39 +766,13 @@ export function VendorFinancesPanel({
   }
 
   if (tabId === "payouts") {
+    // The Payouts page owns its own command bar (search + settings), balance,
+    // bank and history — the old CSV export / reminder / payment-methods
+    // toolbar and the shared "Request payment" primary moved off this tab
+    // (PLAN-0920-0853); Payments still export from Invoices.
     return (
-      <VendorFinancesChrome
-        tabId={tabId}
-        tabItems={financeTabItems}
-        filterRow={filterSheet}
-        actions={
-          <>
-            <PortalIconAction
-              icon={Download}
-              label="Export CSV"
-              data-attr="vendor-export-payouts-csv"
-              onClick={() => {
-                window.location.assign(vendorExportUrl("payouts", filters.from, filters.to));
-              }}
-            />
-            <PortalIconAction
-              icon={Bell}
-              label="Send reminder"
-              data-attr="vendor-payments-send-reminder"
-              onClick={() => payoutsRef.current?.sendReminder()}
-            />
-            <PortalIconAction
-              icon={CreditCard}
-              label="Payment methods"
-              data-attr="vendor-payments-add"
-              onClick={() => payoutsRef.current?.openPaymentMethods()}
-            />
-          </>
-        }
-        primary={requestPayment}
-      >
-        <VendorPaymentsPanel ref={payoutsRef} embedded />
-        {requestWizard}
+      <VendorFinancesChrome tabId={tabId} tabItems={financeTabItems}>
+        <PortalPayoutsPanel portal="vendor" />
       </VendorFinancesChrome>
     );
   }

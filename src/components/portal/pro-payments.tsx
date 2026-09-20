@@ -420,7 +420,10 @@ export function ManagerPayments({
       return;
     }
     if (payouts === "1") {
-      window.location.replace(`${portalBase}/payments`);
+      // The Payouts page is a first-class destination now — send this legacy
+      // link straight to it instead of the incoming bucket list
+      // (PLAN-0920-0853).
+      window.location.replace(`${portalBase}/payments/payouts`);
     }
   }, [portalBase, showToast]);
 
