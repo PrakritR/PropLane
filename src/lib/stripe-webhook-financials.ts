@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountTransfersActive } from "@/lib/stripe-connect";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
+import { identityStatusFromAccount } from "@/lib/stripe-connect-identity.server";
 import { createNsfFeeForFailedPayment } from "@/lib/nsf-fees";
 import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
@@ -38,6 +39,23 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
       updated_at: new Date().toISOString(),
     })
     .eq("id", targetId);
+
+  // Display-only cache for Settings → Payouts (`payout_identity_status`,
+  // PLAN-0920-1500 Part C) — scoped to THIS event's account only; the
+  // identity route itself always reads Stripe fresh, this just saves that
+  // page an extra round trip.
+  const snapshot = identityStatusFromAccount(account);
+  await db.from("payout_identity_status").upsert(
+    {
+      owner_user_id: targetId,
+      status: snapshot.status,
+      currently_due: snapshot.currentlyDue,
+      pending_verification: snapshot.pendingVerification,
+      disabled_reason: snapshot.disabledReason,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "owner_user_id" },
+  );
 }
 
 export async function handleStripeTransferCreated(db: SupabaseClient, transfer: Stripe.Transfer): Promise<void> {

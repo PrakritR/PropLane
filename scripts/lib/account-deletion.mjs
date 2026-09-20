@@ -154,6 +154,7 @@ export const DELETE_ORDER = [
   "manager_tour_followup_controls",
   "manager_purchases",
   "chart_of_accounts",
+  "payout_identity_status",
   "stripe_disputes",
   "stripe_payouts",
   "payout_destinations_cache",

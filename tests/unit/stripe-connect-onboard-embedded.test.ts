@@ -54,6 +54,10 @@ vi.mock("@/lib/stripe-connect", () => ({
   connectAccountReadyForAchPayouts: () => true,
   connectAccountTransfersActive: () => true,
   ensureConnectAccountTransfersRequested: async () => account,
+  // This fixture has no `controller` — a legacy express account, which keeps
+  // the embedded-mode response (PLAN-0920-1500 Part C only changes this for
+  // application-collected accounts; see stripe-connect-onboard-identity.test.ts).
+  isApplicationCollected: () => false,
   isStripeConnectAccountAccessError: () => false,
   clearManagerConnectAccountId: vi.fn(),
   resolveManagerConnectAccountId: vi.fn().mockResolvedValue(null),
