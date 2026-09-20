@@ -60,6 +60,10 @@
     {
       "path": "/api/cron/account-deletions",
       "schedule": "15 3 * * *"
+    },
+    {
+      "path": "/api/cron/release-vendor-work-identities",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

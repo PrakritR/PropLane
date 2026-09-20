@@ -620,6 +620,7 @@ export async function listEligibleInboxContacts(
         if (!email) continue;
         push({
           id: `mgr-${row.id}`,
+          userId: String(row.id),
           name: String(row.full_name ?? "").trim() || email,
           email,
           role: "manager",
@@ -669,6 +670,7 @@ async function pushCoManagers(
       String(rowData.linkedDisplayName ?? rowData.displayName ?? rowData.name ?? "").trim() || email;
     push({
       id: `rel-${row.id}`,
+      userId: String(row.related_user_id ?? "").trim() || undefined,
       name,
       email,
       role: "manager",

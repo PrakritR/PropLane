@@ -11,6 +11,8 @@ export type InboxReplySendOutcome = {
   proplaneOk?: boolean;
   /** Provider submission may have happened, so retrying is unsafe. */
   smsUnknown?: boolean;
+  /** Durable sponsored-delivery projection; authorization is not synonymous with Sent. */
+  delivery?: "sending" | "sent" | "failed";
 };
 
 /** A server refusal whose message is safe and useful to show to the sender. */
@@ -28,6 +30,8 @@ export class InboxSendRefusal extends Error {
 export function inboxReplySentToastMessage(
   outcome: InboxReplySendOutcome,
 ): string {
+  if (outcome.delivery === "sending") return "Reply is sending. Check this conversation for delivery status.";
+  if (outcome.delivery === "failed") return "Reply could not be delivered. It remains in this conversation as failed.";
   const emailDelivered = outcome.emailRequested && outcome.emailOk;
   const smsDelivered = outcome.smsRequested && outcome.smsOk;
   const proplaneDelivered = outcome.proplaneRequested && outcome.proplaneOk;

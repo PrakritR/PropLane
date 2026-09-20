@@ -1,170 +1,67 @@
 "use client";
 
-/**
- * Work number and work email at the top of the vendor conversation list.
- *
- * Same always-on boxes as the manager Communication list. The number is the
- * vendor's `profiles.phone` (not a provisioned Twilio line); the email is the
- * signed-in account. Empty slots are "Set up work number" / "Set up work email"
- * linking to Settings — never a missing card.
- */
+/** Business contacts and sponsored send identities load independently. */
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Copy, Check } from "lucide-react";
-import {
-  PortalInboxContactCard,
-  type PortalInboxContactCardAction,
-} from "@/components/portal/portal-inbox-contact-card";
-import { usePortalSession } from "@/hooks/use-portal-session";
+import { PortalInboxContactCard, type PortalInboxContactCardAction } from "@/components/portal/portal-inbox-contact-card";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import type { VendorWorkIdentityResponse } from "@/lib/vendor-work-identity";
 
-function copyIdentityAction(args: {
-  key: string;
-  copied: boolean;
-  idleLabel: string;
-  dataAttr: string;
-  text: string;
-  onCopied: () => void;
-}): PortalInboxContactCardAction {
-  return {
-    key: args.key,
-    label: args.copied ? "Copied" : args.idleLabel,
-    dataAttr: args.dataAttr,
-    icon: args.copied ? (
-      <Check className="h-4 w-4" strokeWidth={2.2} />
-    ) : (
-      <Copy className="h-4 w-4" strokeWidth={1.9} />
-    ),
-    onClick: () => {
-      void copyTextToClipboard(args.text).then((ok) => {
-        if (ok) args.onCopied();
-      });
-    },
+type Contacts = { workEmail?: string; workPhone?: string };
+type Load = "loading" | "ready" | "failed";
+
+function copyAction(text: string, copied: boolean, onCopied: () => void): PortalInboxContactCardAction {
+  return { key: "copy", label: copied ? "Copied" : "Copy", dataAttr: "vendor-work-contact-copy", icon: copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />, onClick: () => void copyTextToClipboard(text).then((ok) => ok && onCopied()) };
+}
+
+function readiness(identity: VendorWorkIdentityResponse | null, channel: "email" | "sms") {
+  const value = identity?.[channel];
+  if (!value) return "Unavailable";
+  if (value.blockedReason === "provider_disabled") return "Disabled";
+  if (value.blockedReason === "provider_unconfigured") return "Unavailable";
+  if (value.blockedReason === "platform_capacity_reached") return "Capacity reached";
+  if (value.state === "provisioning" || value.state === "reconciling") return "Pending";
+  if (value.state === "blocked" || value.state === "quarantined") return "Failed";
+  if (value.state === "disabled" || value.state === "released") return "Disabled";
+  if (value.sendReady && value.receiveReady) return "Ready";
+  if (value.state === "ready") return value.sendReady ? "Send ready" : value.receiveReady ? "Receive ready" : "Failed";
+  return "Set up";
+}
+
+export function VendorWorkNumberCard() {
+  const [contacts, setContacts] = useState<Contacts | null>(null);
+  const [identity, setIdentity] = useState<VendorWorkIdentityResponse | null>(null);
+  const [contactLoad, setContactLoad] = useState<Load>("loading");
+  const [identityLoad, setIdentityLoad] = useState<Load>("loading");
+  const [copied, setCopied] = useState<string | null>(null);
+  const reload = () => {
+    if (isDemoModeActive()) { setContacts({ workEmail: "office@northwestplumbing.test", workPhone: "+12065550142" }); setContactLoad("ready"); setIdentityLoad("ready"); return () => {}; }
+    let active = true;
+    void fetch("/api/vendor/business-profile", { credentials: "include", cache: "no-store" }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) })).then(({ ok, body }) => { if (!active) return; if (!ok) setContactLoad("failed"); else { setContacts(body.profile ?? {}); setContactLoad("ready"); } }).catch(() => active && setContactLoad("failed"));
+    void fetch("/api/vendor/work-identity", { credentials: "include", cache: "no-store" }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) })).then(({ ok, body }) => { if (!active) return; if (!ok || !body.identity) setIdentityLoad("failed"); else { setIdentity(body.identity); setIdentityLoad("ready"); } }).catch(() => active && setIdentityLoad("failed"));
+    return () => { active = false; };
   };
-}
-
-function IdentitySkeleton({ dataAttr }: { dataAttr: string }) {
-  return <div className="h-[52px] animate-pulse rounded-2xl bg-muted" data-attr={dataAttr} aria-hidden />;
-}
-
-export function VendorWorkNumberCard({
-  onTellManagers: _onTellManagers,
-}: {
-  /** @deprecated Setup cards link to Settings; compose stays on New message. */
-  onTellManagers?: () => void;
-}) {
-  const { email: sessionEmail, ready: sessionReady } = usePortalSession();
-  const [phone, setPhone] = useState<string | null>(null);
-  const [ready, setReady] = useState(isDemoModeActive());
-  const [copiedPhone, setCopiedPhone] = useState(false);
-  const [copiedEmail, setCopiedEmail] = useState(false);
-
-  useEffect(() => {
-    if (isDemoModeActive()) {
-      setReady(true);
-      return;
-    }
-    let cancelled = false;
-    void fetch("/api/vendor/profile", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled || !body || typeof body !== "object") {
-          if (!cancelled) setReady(true);
-          return;
-        }
-        const value = String((body as { contact?: { phone?: string } }).contact?.phone ?? "").trim();
-        setPhone(value || null);
-        setReady(true);
-      })
-      .catch(() => {
-        if (!cancelled) setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!copiedPhone) return;
-    const timer = window.setTimeout(() => setCopiedPhone(false), 1600);
-    return () => window.clearTimeout(timer);
-  }, [copiedPhone]);
-
-  useEffect(() => {
-    if (!copiedEmail) return;
-    const timer = window.setTimeout(() => setCopiedEmail(false), 1600);
-    return () => window.clearTimeout(timer);
-  }, [copiedEmail]);
-
-  const workEmail = sessionEmail?.trim() || null;
-
-  const numberBox = !ready ? (
-    <IdentitySkeleton dataAttr="vendor-work-number-loading" />
-  ) : phone ? (
-    <PortalInboxContactCard
-      padded={false}
-      dataAttr="vendor-work-number-card"
-      value={formatSmsPhoneLabel(phone) || phone}
-      label="Your work number"
-      actions={[
-        copyIdentityAction({
-          key: "copy",
-          copied: copiedPhone,
-          idleLabel: "Copy number",
-          dataAttr: "vendor-work-number-copy",
-          text: formatSmsPhoneLabel(phone) || phone,
-          onCopied: () => setCopiedPhone(true),
-        }),
-      ]}
-    />
-  ) : (
-    <PortalInboxContactCard
-      padded={false}
-      tone="setup"
-      href="/vendor/profile"
-      dataAttr="vendor-work-number-setup"
-      value="Set up work number"
-      label="Your work number"
-      actions={[]}
-    />
-  );
-
-  const emailBox = !sessionReady ? (
-    <IdentitySkeleton dataAttr="vendor-work-email-loading" />
-  ) : workEmail ? (
-    <PortalInboxContactCard
-      padded={false}
-      dataAttr="vendor-work-email-card"
-      value={workEmail}
-      label="Your work email"
-      actions={[
-        copyIdentityAction({
-          key: "copy-email",
-          copied: copiedEmail,
-          idleLabel: "Copy email",
-          dataAttr: "vendor-work-email-copy",
-          text: workEmail,
-          onCopied: () => setCopiedEmail(true),
-        }),
-      ]}
-    />
-  ) : (
-    <PortalInboxContactCard
-      padded={false}
-      tone="setup"
-      href="/vendor/profile"
-      dataAttr="vendor-work-email-setup"
-      value="Set up work email"
-      label="Your work email"
-      actions={[]}
-    />
-  );
-
-  return (
-    <div className="grid gap-2 px-3 pt-3" data-attr="vendor-work-identity">
-      {numberBox}
-      {emailBox}
+  useEffect(() => reload(), []);
+  useEffect(() => { if (!copied) return; const timer = window.setTimeout(() => setCopied(null), 1600); return () => window.clearTimeout(timer); }, [copied]);
+  const card = (label: "Your work number" | "Your work email", value: string | undefined, dataAttr: string) => {
+    if (contactLoad === "loading") return <div className="h-[52px] animate-pulse rounded-2xl bg-muted" data-attr={`${dataAttr}-loading`} aria-label={`Loading ${label}`} />;
+    if (contactLoad === "failed") return <div className="flex items-center gap-2"><PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-failed`} label={label} value="Could not load" actions={[]} /><button type="button" className="text-xs font-semibold underline" onClick={() => reload()}>Retry</button></div>;
+    if (!value) return <PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value="Not set" actions={[]} />;
+    const shown = label === "Your work number" ? formatSmsPhoneLabel(value) || value : value;
+    return <PortalInboxContactCard padded={false} dataAttr={dataAttr} label={label} value={shown} actions={[copyAction(shown, copied === dataAttr, () => setCopied(dataAttr))]} />;
+  };
+  const state = (channel: "email" | "sms") => identityLoad === "loading" ? "Loading" : identityLoad === "failed" ? "Failed" : readiness(identity, channel);
+  const capability = (channel: "email" | "sms") => identityLoad !== "ready" ? null : identity?.[channel];
+  return <div className="grid gap-2 px-3 pt-3" data-attr="vendor-work-identity">
+    {card("Your work number", contacts?.workPhone, "vendor-business-work-number")}
+    {card("Your work email", contacts?.workEmail, "vendor-business-work-email")}
+    <div className="grid grid-cols-2 gap-2 text-xs" data-attr="vendor-sending-readiness">
+      <Link href="/vendor/profile?tab=work-email" className="rounded-xl border border-border px-3 py-2">Email <span className="float-right font-semibold">{state("email")}</span><span className="block pt-1">Send {capability("email")?.sendReady ? "ready" : "unavailable"} · Receive {capability("email")?.receiveReady ? "ready" : "unavailable"}</span></Link>
+      <Link href="/vendor/profile?tab=work-number" className="rounded-xl border border-border px-3 py-2">SMS <span className="float-right font-semibold">{state("sms")}</span><span className="block pt-1">Send {capability("sms")?.sendReady ? "ready" : "unavailable"} · Receive {capability("sms")?.receiveReady ? "ready" : "unavailable"}</span></Link>
     </div>
-  );
+    {identityLoad === "failed" ? <button type="button" className="justify-self-start text-xs font-semibold underline" onClick={() => reload()}>Retry</button> : null}
+  </div>;
 }

@@ -165,6 +165,32 @@ export async function POST(req: Request) {
         .eq("event_id", eventId);
       if (appliedError) return NextResponse.json({ error: "Event ledger unavailable." }, { status: 503 });
     } else {
+      // Sponsored vendor numbers share the signed Event Streams evidence but
+      // never manager billing or manager-number eligibility. Attachment and a
+      // Twilio capability alone cannot mark them send-ready.
+      const { data: vendorIdentity, error: vendorLookupError } = await db
+        .from("vendor_work_identities")
+        .select("id, attachment_state, sms_receive_ready")
+        .eq("phone_number_sid", phoneNumberSid)
+        .eq("messaging_service_sid", expectedServiceSid)
+        .maybeSingle();
+      if (vendorLookupError) return NextResponse.json({ error: "Vendor identity unavailable." }, { status: 503 });
+      if (vendorIdentity) {
+        const registered = nextRegistrationState === "registered";
+        const { error: vendorUpdateError } = await db.from("vendor_work_identities").update({
+          sms_registration_state: nextRegistrationState,
+          carrier_ready: registered,
+          sms_send_ready: registered && vendorIdentity.attachment_state === "attached",
+          // Carrier registration never revokes a valid inbound attachment.
+          sms_receive_ready: vendorIdentity.sms_receive_ready === true,
+          updated_at: new Date().toISOString(),
+        }).eq("id", vendorIdentity.id);
+        if (vendorUpdateError) return NextResponse.json({ error: "Vendor identity update unavailable." }, { status: 503 });
+        const { error: appliedError } = await db.from("sms_provider_events")
+          .update({ applied: true, rejection_reason: null }).eq("event_id", eventId);
+        if (appliedError) return NextResponse.json({ error: "Event ledger unavailable." }, { status: 503 });
+        continue;
+      }
       const { data: ownedRow } = await db
         .from("manager_sms_numbers")
         .select("last_provider_event_at, attachment_state")

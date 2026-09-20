@@ -35,6 +35,7 @@ import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 import { estimateSmsSegments } from "@/lib/sms/number-registration-policy";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
+import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -162,6 +163,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Control receipt unavailable." }, { status: 503 });
     }
     return twimlOk();
+  }
+
+  // Vendor identities are resolved before manager-only work-number ownership.
+  // Inbound never consumes a manager credit/cap and remains visible with the
+  // SMS UI feature flag off.
+  if (messageSid) {
+    try {
+      const vendorInbound = await ingestVendorWorkIdentitySms(db, { toPhone, fromPhone, text: body, messageSid });
+      if (vendorInbound.handled) return twimlOk();
+    } catch (error) {
+      console.error("vendor inbound SMS ingest failed", messageSid, error);
+      return NextResponse.json({ error: "Vendor inbox unavailable." }, { status: 503 });
+    }
   }
 
   // Pooled proxy lines are retired. Only owned work numbers route replies.
