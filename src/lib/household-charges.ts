@@ -11,6 +11,7 @@ import {
   monthlyFeesBilledSeparately,
   monthlyRentFoldInTotal,
   selfBillingPresetFees,
+  type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
 import { listingFeeCadence } from "@/lib/listing-fees";
 import { getPropertyById } from "@/lib/rental-application/data";
@@ -3388,7 +3389,73 @@ type ApprovedChargeDraft = {
   amount: number;
   title: string;
   dueDateLabel: string;
+  customFeeId?: string;
 };
+
+function approvedDraftChargeId(applicationId: string, draft: Pick<ApprovedChargeDraft, "kind" | "customFeeId">): string {
+  const base = approvedChargeId(applicationId, draft.kind);
+  return draft.customFeeId ? `${base}_cf_${chargeKeyPart(draft.customFeeId)}` : base;
+}
+
+function chargeMatchesApprovedDraft(
+  charge: Pick<HouseholdCharge, "id" | "kind" | "workOrderId" | "applicationId" | "customFeeId">,
+  applicationId: string,
+  draft: Pick<ApprovedChargeDraft, "kind" | "customFeeId">,
+  aliasIds: ReadonlySet<string>,
+): boolean {
+  if (charge.kind !== draft.kind) return false;
+  if (isManagerAddedOneOffCharge(charge)) return false;
+  if ((charge.customFeeId ?? undefined) !== (draft.customFeeId ?? undefined)) return false;
+  return aliasIds.has(charge.id) || charge.applicationId === applicationId;
+}
+
+/**
+ * The partial-month lines of every monthly fee billed separately, in the exact shape the
+ * ledger stores them. One source for the record pass and the draft comparison, so a live
+ * re-sync can never read the rows it wrote as stale.
+ */
+function proratedFeeChargeDrafts(
+  monthlyFeeSet: readonly MonthlyFeeLine[],
+  opts: {
+    leaseStart?: string;
+    leaseEnd?: string;
+    endsInsideFirstMonth: boolean;
+    prorateMethod: "auto" | "daily_rate";
+    moveInDue: string;
+  },
+): ApprovedChargeDraft[] {
+  if (!monthlyFeeSet.length) return [];
+  const out: ApprovedChargeDraft[] = [];
+  const firstPeriod = leaseFirstPeriodProration(opts.leaseStart, opts.leaseEnd, opts.endsInsideFirstMonth);
+  for (const line of proratedFeeLines(monthlyFeeSet, firstPeriod, opts.prorateMethod)) {
+    const noun = proratedFeeNoun(line.label);
+    out.push({
+      kind: "prorated_fee",
+      amount: line.amount,
+      title: line.useDailyRate
+        ? `Prorated ${noun} (${firstPeriod.billableDays} days × ${formatRoomPriceAmount(line.dailyRate)}/day)`
+        : `Prorated ${noun} (${firstPeriod.label})`,
+      dueDateLabel: opts.moveInDue,
+      customFeeId: line.id,
+    });
+  }
+  if (!opts.endsInsideFirstMonth) {
+    const lastPeriod = leaseEndProration(opts.leaseEnd);
+    for (const line of proratedFeeLines(monthlyFeeSet, lastPeriod, opts.prorateMethod)) {
+      const noun = proratedFeeNoun(line.label);
+      out.push({
+        kind: "prorated_last_month_fee",
+        amount: line.amount,
+        title: line.useDailyRate
+          ? `Prorated last month's ${noun} (${lastPeriod.billableDays} days × ${formatRoomPriceAmount(line.dailyRate)}/day)`
+          : `Prorated last month's ${noun}`,
+        dueDateLabel: lastPeriod.dueDateLabel ?? opts.moveInDue,
+        customFeeId: line.id,
+      });
+    }
+  }
+  return out;
+}
 
 function removeStalePendingUpfrontDuplicates(
   rows: HouseholdCharge[],
@@ -3397,6 +3464,7 @@ function removeStalePendingUpfrontDuplicates(
   kind: HouseholdChargeKind,
   residentEmail: string,
   propertyId: string,
+  customFeeId?: string,
 ): HouseholdCharge[] {
   const slot = upfrontApprovedChargeSlotKey({
     kind,
@@ -3409,7 +3477,8 @@ function removeStalePendingUpfrontDuplicates(
   return rows.filter((charge) => {
     if (charge.utilityAllocationId || charge.migrationSourceId || charge.status !== "pending") return true;
     if (charge.id === keepId) return true;
-    if (aliasIds.has(charge.id) || (charge.applicationId === applicationId && charge.kind === kind)) {
+    if (isManagerAddedOneOffCharge(charge)) return true;
+    if (chargeMatchesApprovedDraft(charge, applicationId, { kind, customFeeId }, aliasIds)) {
       return false;
     }
     if (!slot) return true;
@@ -3424,9 +3493,7 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
   const matches = rows.filter(
     (charge) =>
       !charge.utilityAllocationId && !charge.migrationSourceId && charge.status === "pending" &&
-      charge.kind === draft.kind &&
-      (aliasIds.has(charge.id) ||
-        (charge.applicationId === applicationId && charge.kind === draft.kind)),
+      chargeMatchesApprovedDraft(charge, applicationId, draft, aliasIds),
   );
   if (!matches.length) return false;
   const label = moneyAmountLabel(Number(draft.amount.toFixed(2)));
@@ -3437,7 +3504,7 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
     if (!Number.isFinite(chargeTime)) return best;
     return chargeTime >= bestTime ? charge : best;
   });
-  const canonicalId = approvedChargeId(applicationId, draft.kind);
+  const canonicalId = approvedDraftChargeId(applicationId, draft);
   if (
     matches.length === 1 &&
     current.id === canonicalId &&
@@ -3464,6 +3531,7 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
     draft.kind,
     current.residentEmail,
     current.propertyId,
+    draft.customFeeId,
   );
   writeAll(next);
   return true;
@@ -3486,7 +3554,7 @@ function buildApprovedStandardChargeDrafts(
     return parseMoneyAmount(fallback ?? "");
   };
   const drafts: ApprovedChargeDraft[] = [];
-  const pushDraft = (kind: HouseholdChargeKind, amount: number, title: string, dueDateLabel = opts.moveInDue) => {
+  const pushDraft = (kind: HouseholdChargeKind, amount: number, title: string, dueDateLabel = opts.moveInDue, customFeeId?: string) => {
     if (!(amount > 0)) return;
     const split = applyBundleGroupSplit(amount, title, resolveBundleGroupChargeContext(row));
     if (!(split.amount > 0)) return;
@@ -3495,6 +3563,7 @@ function buildApprovedStandardChargeDrafts(
       amount: Number(split.amount.toFixed(2)),
       title: split.title,
       dueDateLabel,
+      ...(customFeeId ? { customFeeId } : {}),
     });
   };
 
@@ -3558,6 +3627,25 @@ function buildApprovedStandardChargeDrafts(
     }
   }
 
+  const monthlyFeeSet = opts.allowListingDefaults
+    ? monthlyFeesBilledSeparately(sub, listingProperty, {
+        leaseStart: opts.leaseStart,
+        leaseEnd: opts.leaseEnd,
+        leaseTerm: row.application?.leaseTerm,
+        rentalType: row.application?.rentalType,
+      })
+    : [];
+  const feeDrafts = proratedFeeChargeDrafts(monthlyFeeSet, {
+    leaseStart: opts.leaseStart,
+    leaseEnd: opts.leaseEnd,
+    endsInsideFirstMonth,
+    prorateMethod,
+    moveInDue: opts.moveInDue,
+  });
+  for (const draft of feeDrafts) {
+    if (draft.kind === "prorated_fee") pushDraft(draft.kind, draft.amount, draft.title, draft.dueDateLabel, draft.customFeeId);
+  }
+
   const lastMonthRentCharge =
     !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0))
       ? lastMonthChargeForLeaseEnd(rentAmount, opts.leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, billedWeeklyBasisRate, monthlyFoldIn)
@@ -3582,6 +3670,9 @@ function buildApprovedStandardChargeDrafts(
       lastMonthUtilitiesCharge.title,
       lastMonthUtilitiesCharge.dueDateLabel ?? opts.moveInDue,
     );
+  }
+  for (const draft of feeDrafts) {
+    if (draft.kind === "prorated_last_month_fee") pushDraft(draft.kind, draft.amount, draft.title, draft.dueDateLabel, draft.customFeeId);
   }
 
   // Room-first precedence, identical to recordApprovedApplicationCharges: a room's own
@@ -3922,18 +4013,16 @@ export function recordApprovedApplicationCharges(
         moveInDue,
       });
       const pendingForApp = readAll().filter(
-        (c) => !c.utilityAllocationId && !c.migrationSourceId && c.applicationId === applicationId && c.status === "pending" && c.kind !== "application_fee",
+        (c) =>
+          !c.utilityAllocationId && !c.migrationSourceId && c.applicationId === applicationId && c.status === "pending" &&
+          c.kind !== "application_fee" && !isManagerAddedOneOffCharge(c),
       );
       const expectedKinds = new Set(drafts.map((draft) => draft.kind));
       const staleKind = pendingForApp.some((charge) => !expectedKinds.has(charge.kind));
       const draftMismatch = drafts.some((draft) => {
         if (!(draft.amount > 0)) return false;
         const aliasIds = new Set(approvedChargeIdAliases(applicationId, draft.kind));
-        const matches = pendingForApp.filter(
-          (charge) =>
-            charge.kind === draft.kind &&
-            (aliasIds.has(charge.id) || charge.applicationId === applicationId),
-        );
+        const matches = pendingForApp.filter((charge) => chargeMatchesApprovedDraft(charge, applicationId, draft, aliasIds));
         if (!matches.length) return true;
         if (matches.length > 1) return true;
         const match = matches[0]!;
@@ -3970,6 +4059,7 @@ export function recordApprovedApplicationCharges(
     // "Prorated first month's rent" was wiped here and rebuilt from the listing seconds
     // after the manager was told "Payment updated." The kept row's business key makes
     // the rebuild skip its own copy (see pushCharge).
+    if (isManagerAddedOneOffCharge(charge)) return true;
     if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.kind !== "holding_deposit" && charge.status === "pending" && !charge.manualAmountOverrideAt) return false;
     if (
       charge.status === "pending" &&
@@ -4212,21 +4302,11 @@ export function recordApprovedApplicationCharges(
     leaseTerm: row.application?.leaseTerm,
     rentalType: row.application?.rentalType,
   });
-  if (allowListingDefaults && monthlyFeeSet.length > 0) {
-    const firstPeriod = leaseFirstPeriodProration(leaseStart, leaseEnd, endsInsideFirstMonth);
-    for (const line of proratedFeeLines(monthlyFeeSet, firstPeriod, prorateMethod)) {
-      const noun = proratedFeeNoun(line.label);
-      pushCharge(
-        "prorated_fee",
-        line.amount,
-        line.useDailyRate
-          ? `Prorated ${noun} (${firstPeriod.billableDays} days × ${formatRoomPriceAmount(line.dailyRate)}/day)`
-          : `Prorated ${noun} (${firstPeriod.label})`,
-        false,
-        moveInDue,
-        line.id,
-      );
-    }
+  const feeDrafts = allowListingDefaults
+    ? proratedFeeChargeDrafts(monthlyFeeSet, { leaseStart, leaseEnd, endsInsideFirstMonth, prorateMethod, moveInDue })
+    : [];
+  for (const draft of feeDrafts) {
+    if (draft.kind === "prorated_fee") pushCharge(draft.kind, draft.amount, draft.title, false, draft.dueDateLabel, draft.customFeeId);
   }
 
   const lastMonthRentCharge = !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0))
@@ -4258,21 +4338,8 @@ export function recordApprovedApplicationCharges(
       lastMonthUtilitiesCharge.dueDateLabel,
     );
   }
-  if (allowListingDefaults && !endsInsideFirstMonth && monthlyFeeSet.length > 0) {
-    const lastPeriod = leaseEndProration(leaseEnd);
-    for (const line of proratedFeeLines(monthlyFeeSet, lastPeriod, prorateMethod)) {
-      const noun = proratedFeeNoun(line.label);
-      pushCharge(
-        "prorated_last_month_fee",
-        line.amount,
-        line.useDailyRate
-          ? `Prorated last month's ${noun} (${lastPeriod.billableDays} days × ${formatRoomPriceAmount(line.dailyRate)}/day)`
-          : `Prorated last month's ${noun}`,
-        false,
-        lastPeriod.dueDateLabel,
-        line.id,
-      );
-    }
+  for (const draft of feeDrafts) {
+    if (draft.kind === "prorated_last_month_fee") pushCharge(draft.kind, draft.amount, draft.title, false, draft.dueDateLabel, draft.customFeeId);
   }
 
   // Per-room deposit override: when the resolved room carries its own securityDeposit it

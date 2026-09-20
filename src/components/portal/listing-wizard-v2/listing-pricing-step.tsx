@@ -520,14 +520,17 @@ type DayRate = {
 
 /**
  * The monthly fees a card bills per day when its partial months are set per
- * day: the Default card's (and the whole place's) are the fees with no room
- * scope; a room adds the fees scoped to it alone. A fee at $0 has no day rate.
+ * day, the same split `FeeRows` draws: the Default card's (and the whole
+ * place's) are every fee not scoped to a single room; a room card has the fees
+ * scoped to it alone plus, following the Default card, every house-wide fee
+ * that still reaches it. A fee at $0 has no day rate.
  */
 function dailyFeeRows(sub: ManagerListingSubmissionV1, roomId: string | null, term: string): ListingFeeRow[] {
   return cardFeeRows(sub).filter((f) => {
     if (listingFeeCadence(f) !== "monthly" || !(num(f.amount ?? "") > 0) || !feeAppliesToLeaseType(f, term)) return false;
     const ids = f.roomIds ?? [];
-    return ids.length === 0 || (roomId !== null && ids.length === 1 && ids[0] === roomId);
+    if (roomId === null) return ids.length !== 1;
+    return ids.length === 1 ? ids[0] === roomId : feeAppliesToRoom(f, roomId);
   });
 }
 
@@ -600,7 +603,7 @@ function ProrateRows({
           {util ? dayRow("Utilities /day", util, `${dataAttr}-utilities`) : null}
           {fees.map((fee) => {
             const feeName = fee.label || "Fee";
-            const shared = roomId !== null && (fee.roomIds ?? []).length === 0;
+            const shared = roomId !== null && (fee.roomIds ?? []).length !== 1;
             return dayRow(
               `${feeName} /day`,
               { text: fee.dailyRate ? String(fee.dailyRate) : "", placeholder: perDay(num(fee.amount ?? "")), inherited: shared, onChange: (v) => writeFeeDay(fee, v) },

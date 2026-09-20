@@ -248,6 +248,9 @@ function rid(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Labels a preset carried before it was renamed; a stored row under one still maps to the preset. */
+const LEGACY_PRESET_LABEL_ALIASES: readonly [string, ListingFeePresetId][] = [["break lease fee", "break_lease_fee"]];
+
 /**
  * Rows saved before fee rows carried preset metadata were stripped to
  * {id,label,amount,frequency}, so they come back untagged and look "custom"
@@ -256,9 +259,10 @@ function rid(prefix: string): string {
  * and again as a custom one — and is what lets the standard row find its
  * cadence.
  */
-const PRESET_ID_BY_DEFAULT_LABEL = new Map<string, ListingFeePresetId>(
-  LISTING_FEE_PRESETS.map((p) => [p.defaultLabel.trim().toLowerCase(), p.presetId]),
-);
+const PRESET_ID_BY_DEFAULT_LABEL = new Map<string, ListingFeePresetId>([
+  ...LISTING_FEE_PRESETS.map((p): [string, ListingFeePresetId] => [p.defaultLabel.trim().toLowerCase(), p.presetId]),
+  ...LEGACY_PRESET_LABEL_ALIASES,
+]);
 
 function recoverPresetIdFromLabel(label: unknown): ListingFeePresetId | undefined {
   if (typeof label !== "string") return undefined;
