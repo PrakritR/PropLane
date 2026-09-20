@@ -100,6 +100,7 @@ import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
+import { residentRowSlotFact } from "@/lib/manager-resident-list";
 import {
   PORTAL_LIST_GROUP_MODE_LABELS,
   portalListGroupModeActiveCount,
@@ -389,6 +390,8 @@ type ActiveResident = {
   stage: ResidentDirectoryStage;
   /** "Incomplete" / "Pending review" / "Approved" — what this person's application says today. */
   statusLabel: string;
+  /** "Resident 2 of 2 · $800/mo" — populated when the resident is in a multi-occupancy room. */
+  residentSlotFact?: string;
 };
 
 export function ManagerResidents({
@@ -797,6 +800,7 @@ export function ManagerResidents({
           isPrevious: isPreviousResidentDirectoryRow(row),
           stage,
           statusLabel: applicationStageDisplayLabel(row),
+          residentSlotFact: residentRowSlotFact(row),
         };
       });
     if (built.length === 0 && shouldShowDevResidentListFixtures()) {
@@ -804,6 +808,7 @@ export function ManagerResidents({
         ...row,
         stage: (row.isPrevious ? "past" : "current") as ResidentDirectoryStage,
         statusLabel: "",
+        residentSlotFact: undefined,
       }));
     }
     return built;
@@ -1012,6 +1017,7 @@ export function ManagerResidents({
           leaseStart: res.leaseStart,
           groupId: res.groupId,
           statusLabel: res.stage === "potential" ? res.statusLabel : "",
+          residentSlotFact: res.residentSlotFact,
         })),
         applicationGroups,
         groupMode,

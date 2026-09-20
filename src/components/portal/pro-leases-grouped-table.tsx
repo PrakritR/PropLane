@@ -14,13 +14,14 @@
  * holds several stages (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 
-import { Clock, FileText, Mail } from "lucide-react";
+import { Clock, FileText, Mail, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   leaseRowPlaceLine,
   leaseStageFact,
   leaseUpdatedShort,
+  leaseResidentSlotFact,
   type ManagerLeaseListCluster,
 } from "@/lib/manager-lease-list";
 
@@ -55,6 +56,11 @@ export function ManagerLeasesGroupedTable({
                   {email && email.toLowerCase() !== name.trim().toLowerCase() ? (
                     <PortalRowFact icon={Mail} srLabel="Email">
                       {email}
+                    </PortalRowFact>
+                  ) : null}
+                  {leaseResidentSlotFact(row) ? (
+                    <PortalRowFact icon={Users} srLabel="Resident">
+                      {leaseResidentSlotFact(row)}
                     </PortalRowFact>
                   ) : null}
                   {stage ? (

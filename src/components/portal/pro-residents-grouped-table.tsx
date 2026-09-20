@@ -15,7 +15,7 @@
  * that order, so a house's residents still sit together.
  */
 
-import { CalendarDays, Mail } from "lucide-react";
+import { CalendarDays, Mail, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import {
   residentHousingMeta,
@@ -89,6 +89,11 @@ export function ManagerResidentsGroupedTable({
                 {email ? (
                   <PortalRowFact icon={Mail} srLabel="Email">
                     {email}
+                  </PortalRowFact>
+                ) : null}
+                {row.residentSlotFact ? (
+                  <PortalRowFact icon={Users} srLabel="Resident">
+                    {row.residentSlotFact}
                   </PortalRowFact>
                 ) : null}
                 {row.leaseStart ? (
