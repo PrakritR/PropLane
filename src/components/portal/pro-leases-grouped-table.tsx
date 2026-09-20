@@ -1,43 +1,28 @@
 "use client";
 
-import { FileText } from "lucide-react";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import { ClusterNavRow } from "@/components/portal/application-review-nav-cluster";
+/**
+ * The manager's Leases list: one white card per lease, the shape every other
+ * portal list has (AGENTS.md → Portal UI system: "Every list tab copies
+ * Properties"). An initials tile, the resident's NAME as the title,
+ * "5259 Brooklyn Ave · Room 4" as the place line, glyph facts — email, the
+ * stage as plain text, "Updated Sep 18" — and the ⋯ the list surface draws on
+ * a selectable row, carrying that row's actions.
+ *
+ * The clusters keep the list's order (a resident's leases sit together) but
+ * draw no grouping box, no nested row, no bare checkbox and no stage pill:
+ * the tab says the bucket, and the stage is a fact only because one bucket
+ * holds several stages (`tests/unit/portal-list-rows-no-pills.test.ts`).
+ */
+
+import { Clock, FileText, Mail } from "lucide-react";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
-  leaseGroupedRowMeta,
-  leaseGroupedRowPrimary,
-  leaseStatusPill,
+  leaseRowPlaceLine,
+  leaseStageFact,
+  leaseUpdatedShort,
   type ManagerLeaseListCluster,
 } from "@/lib/manager-lease-list";
-import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
-
-function ResidentLeaseClusterHeader({
-  residentLabel,
-  residentEmail,
-  propertyLabel,
-}: {
-  residentLabel: string;
-  residentEmail?: string | null;
-  propertyLabel?: string | null;
-}) {
-  const email =
-    residentEmail?.trim() &&
-    residentEmail.trim().toLowerCase() !== residentLabel.trim().toLowerCase()
-      ? residentEmail.trim()
-      : "";
-  const property = propertyLabel?.trim()
-    ? stripPropertyRoomCountSuffix(propertyLabel.trim())
-    : "";
-
-  return (
-    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="truncate text-sm font-semibold text-foreground">{residentLabel}</span>
-      {email ? <span className="truncate text-xs text-muted">{email}</span> : null}
-      {property ? <span className="truncate text-xs text-muted">{property}</span> : null}
-    </div>
-  );
-}
 
 export function ManagerLeasesGroupedTable({
   clusters,
@@ -52,49 +37,44 @@ export function ManagerLeasesGroupedTable({
   onToggleSelected?: (id: string) => void;
   selectable?: boolean;
 }) {
+  const select = (id: string) => (selectable && onToggleSelected ? () => onToggleSelected(id) : undefined);
   return (
-    <div className="space-y-3" data-attr="leases-resident-groups">
-      {clusters.map((cluster) => {
-        const propertyLabel = cluster.propertyLabel?.trim()
-          ? stripPropertyRoomCountSuffix(cluster.propertyLabel.trim())
-          : null;
-
-        return (
-          <ApplicationHouseholdCluster
-            key={cluster.key}
-            header={
-              <ResidentLeaseClusterHeader
-                residentLabel={cluster.residentLabel}
-                residentEmail={cluster.residentEmail}
-                propertyLabel={propertyLabel}
-              />
-            }
-          >
-            {/* Screen readers get the cluster's size; sighted users read it off the rows. */}
-            <span className="sr-only">
-              {cluster.rows.length === 1 ? "1 lease" : `${cluster.rows.length} leases`}
-            </span>
-            {cluster.rows.map((row) => {
-              const statusPill = leaseStatusPill(row);
-              return (
-                <ClusterNavRow
-                  key={row.id}
-                  primary={leaseGroupedRowPrimary(row, propertyLabel)}
-                  meta={leaseGroupedRowMeta(row)}
-                  icon={<FileText className="h-4 w-4" aria-hidden />}
-                  statusPill={statusPill}
-                  checked={selectable && selectedIds?.has(row.id)}
-                  onCheck={
-                    selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
-                  }
-                  onOpen={() => onOpenLease(row)}
-                  checkDataAttr={`lease-select-${row.id}`}
-                />
-              );
-            })}
-          </ApplicationHouseholdCluster>
-        );
-      })}
+    <div data-attr="leases-resident-groups">
+      {clusters.flatMap((cluster) =>
+        cluster.rows.map((row) => {
+          const name = row.residentName?.trim() || cluster.residentLabel;
+          const email = row.residentEmail?.trim() ?? "";
+          const stage = leaseStageFact(row);
+          return (
+            <PortalApplicantRecordRow
+              key={row.id}
+              name={name}
+              address={leaseRowPlaceLine(row)}
+              facts={
+                <>
+                  {email && email.toLowerCase() !== name.trim().toLowerCase() ? (
+                    <PortalRowFact icon={Mail} srLabel="Email">
+                      {email}
+                    </PortalRowFact>
+                  ) : null}
+                  {stage ? (
+                    <PortalRowFact icon={FileText} srLabel="Stage">
+                      {stage}
+                    </PortalRowFact>
+                  ) : null}
+                  <PortalRowFact icon={Clock} srLabel="Last update">
+                    {leaseUpdatedShort(row)}
+                  </PortalRowFact>
+                </>
+              }
+              checked={selectable && selectedIds?.has(row.id)}
+              onSelectedChange={select(row.id)}
+              onOpen={() => onOpenLease(row)}
+              dataAttr="lease-list-row"
+            />
+          );
+        }),
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import {
@@ -141,13 +141,8 @@ function VendorIncomeTable({
           key={row.id}
           title={row.workOrderTitle}
           address={row.propertyLabel}
-          facts={formatIncomeDate(row.dateIso)}
+          facts={[formatIncomeDate(row.dateIso), row.payoutStatusLabel].filter(Boolean).join(" · ")}
           trailing={formatVendorIncomeMoney(row.totalCents)}
-          chip={
-            <PortalRowStatusChip tone={row.payoutStatus === "paid" ? "ok" : row.payoutStatus === "failed" ? "warn" : "neutral"}>
-              {row.payoutStatusLabel}
-            </PortalRowStatusChip>
-          }
           dataAttr="vendor-income-row"
         />
       ))}
@@ -601,13 +596,8 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
               <PortalPropertyRecordRow
                 title={inv.invoiceNumber || "Invoice"}
                 address={formatInvoiceDate(inv.submittedAt)}
-                facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"}`}
+                facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"} · ${vendorInvoiceStatusLabel(inv.status)}`}
                 trailing={formatInvoiceMoney(inv.totalCents, inv.currency)}
-                chip={
-                  <PortalRowStatusChip tone={inv.status === "paid" || inv.status === "approved" ? "ok" : inv.status === "rejected" ? "warn" : "neutral"}>
-                    {vendorInvoiceStatusLabel(inv.status)}
-                  </PortalRowStatusChip>
-                }
                 selected={editingInvoice?.id === inv.id}
                 onOpen={() => openEdit(inv)}
                 dataAttr="vendor-invoice-row"

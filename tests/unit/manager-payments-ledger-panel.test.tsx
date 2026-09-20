@@ -78,18 +78,18 @@ function sampleRow(overrides: Partial<DemoManagerPaymentLedgerRow> = {}): DemoMa
 }
 
 describe("ManagerPaymentsLedgerPanel", () => {
-  it("groups the main payments ledger by resident", () => {
+  it("draws one card per charge with a resident's charges adjacent — no grouping box", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
           sampleRow({ id: "hc_a", chargeTitle: "Move-in cost" }),
-          sampleRow({ id: "hc_b", chargeTitle: "July rent" }),
           sampleRow({
             id: "hc_c",
             residentName: "Jordan Lee",
             residentEmail: "jordan@example.com",
             chargeTitle: "Application fee",
           }),
+          sampleRow({ id: "hc_b", chargeTitle: "July rent" }),
         ]}
         managerUserId="mgr-test"
         activeBucket="pending"
@@ -99,13 +99,17 @@ describe("ManagerPaymentsLedgerPanel", () => {
     );
 
     expect(container.querySelector('[data-attr="payments-resident-groups"]')).toBeTruthy();
-    expect(container.querySelectorAll('[data-attr="application-household-cluster"]')).toHaveLength(2);
-    expect(container.textContent).toContain("Maya Chen");
-    expect(container.textContent).toContain("Jordan Lee");
-    expect(container.textContent).toContain("2 charges");
+    expect(container.querySelector('[data-attr="application-household-cluster"]')).toBeNull();
+    expect(container.querySelector('[data-slot="data-list"]')).toBeNull();
+    const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
+    expect(rows).toHaveLength(3);
+    // Resident then due: Maya's two charges sit together even though Jordan's
+    // arrived between them.
+    expect(rows.map((row) => row.textContent?.includes("Maya Chen"))).toEqual([true, true, false]);
+    expect(rows[2]?.textContent).toContain("Jordan Lee");
   });
 
-  it("uses charge-style DataList cards on the main payments ledger", () => {
+  it("titles the card by the resident, places the charge and the home under it, and shows the amount", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -116,12 +120,31 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    expect(container.querySelector('[data-slot="data-list"]')).toBeTruthy();
-    expect(container.querySelector('[data-slot="data-list-mobile-row"]')).toBeTruthy();
-    const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
-    expect(mobileRow?.textContent).toContain("July rent");
-    expect(mobileRow?.textContent).toContain("$1,850.00");
-    expect(container.querySelector('[data-attr="payment-list-row"]')).toBeNull();
+    const row = container.querySelector('[data-attr="payment-list-row"]');
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain("Maya Chen");
+    expect(row?.textContent).toContain("July rent · The Magnolia · Room 2B");
+    expect(row?.textContent).toContain("Due Jul 1, 2026");
+    expect(container.textContent).toContain("$1,850.00");
+    // No pill on the row: the tab says the bucket.
+    expect(container.querySelector('[data-attr="payments-cluster-scheduled"]')).toBeNull();
+  });
+
+  it("formats an ISO due day like every other due date", () => {
+    const { container } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[sampleRow({ dueDate: "2026-10-01" }), sampleRow({ id: "hc_2", dueDate: "Before move-in" })]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
+    expect(rows[0]?.textContent).toContain("Due Oct 1, 2026");
+    expect(rows[0]?.textContent).not.toContain("2026-10-01");
+    expect(rows[1]?.textContent).toContain("Before move-in");
   });
 
   it("shows compact reminder copy on grouped charge rows", () => {
@@ -176,20 +199,22 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
-    // The copy got shorter again: the "Next reminder" prefix went, and the
-    // overflow count lost its parentheses. What the test is about is unchanged —
-    // the row shows the next send compactly, not a verbose list.
-    expect(mobileRow?.textContent).toContain("Aug 28, 2026");
-    expect(mobileRow?.textContent).toContain("+1 more");
-    expect(mobileRow?.textContent).not.toContain("Reminders scheduled:");
-    expect(mobileRow?.textContent).not.toContain("The Magnolia");
+    // The reminder is a glyph fact on the charge row it belongs to — the next
+    // send, compactly — not a pill on a group header and not a verbose list.
+    const reminder = container.querySelector('[data-attr="payment-row-reminder"]');
+    expect(reminder).toBeTruthy();
+    expect(reminder?.textContent).toContain("Aug 28, 2026");
+    expect(reminder?.textContent).toContain("+1 more");
+    expect(reminder?.textContent).not.toContain("Reminders scheduled:");
+    expect(reminder?.textContent).not.toContain("The Magnolia");
+    expect(container.querySelector('[data-attr="payments-cluster-scheduled"]')).toBeNull();
+    expect(container.querySelector('[data-attr="payment-list-row"]')?.textContent).toContain("Aug 28, 2026");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("uses resident-style DataList cards when embedded in a resident profile", () => {
+  it("uses the same card row when embedded in a resident profile", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -200,12 +225,28 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    expect(container.querySelector('[data-slot="data-list"]')).toBeTruthy();
-    expect(container.querySelector('[data-slot="data-list-mobile-row"]')).toBeTruthy();
-    const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
-    expect(mobileRow?.textContent).toContain("July rent");
-    expect(mobileRow?.textContent).toContain("$1,850.00");
-    expect(container.querySelector('[data-attr="payment-list-row"]')).toBeNull();
+    expect(container.querySelector('[data-slot="data-list"]')).toBeNull();
+    const row = container.querySelector('[data-attr="payment-list-row"]');
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain("July rent");
+    expect(container.textContent).toContain("$1,850.00");
+  });
+
+  it("colours a paid charge's amount green", () => {
+    const { container } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[sampleRow({ bucket: "paid", statusLabel: "Paid", balanceDue: "$0.00", amountPaid: "$1,850.00" })]}
+        managerUserId="mgr-test"
+        activeBucket="paid"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    const amount = Array.from(container.querySelectorAll("span")).find(
+      (el) => el.textContent === "$1,850.00" && el.className.includes("status-confirmed-fg"),
+    );
+    expect(amount).toBeTruthy();
   });
 
   it("keeps the dashed add row for the EMPTY ledger only — a populated list adds from the page head", () => {
@@ -263,6 +304,9 @@ describe("ManagerPaymentsLedgerPanel", () => {
 
     fireEvent.keyDown(screen.getByRole("button", { name: /^Actions for/ }), { key: "ArrowDown" });
     expect(await screen.findByRole("menuitem", { name: /Mark as paid/i })).toBeTruthy();
+    // The boxed reminder lead that opened the scheduled-reminders sheet is
+    // gone, so the ⋯ carries the way in.
+    expect(screen.getByRole("menuitem", { name: /Scheduled reminders/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^Delete$/i })).toBeTruthy();
     expect(document.querySelector('[data-slot="bulk-action-bar"]')).toBeNull();
   });
@@ -315,7 +359,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(screen.getByRole("button", { name: /Add payment/i })).toBeTruthy();
   });
 
-  it("opens embedded charge detail via DataList row click", () => {
+  it("opens embedded charge detail via the card row", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -326,9 +370,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
-    expect(mobileRow).toBeTruthy();
-    const recordButton = mobileRow!.querySelector('button:not([data-attr="record-actions-trigger"])');
+    const recordButton = container.querySelector('button[data-attr="payment-list-row"]');
     expect(recordButton).toBeTruthy();
     fireEvent.click(recordButton!);
     expect(navigate).toHaveBeenCalledWith("/portal/residents/approved/r1/payments/pending/hc_test_1");

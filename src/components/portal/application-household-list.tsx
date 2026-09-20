@@ -2,7 +2,6 @@
 
 import { useContext, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { RecordActionContext } from "@/components/ui/record-action-context";
-import { Badge } from "@/components/ui/badge";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { ApplicationCosignerPlannedCard } from "@/components/portal/pro-application-readonly-review";
@@ -150,10 +149,7 @@ export function ApplicationCosignerListRow({
         className="portal-inbox-row flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-foreground/[0.03] max-md:px-2.5"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{name}</span>
-            <Badge tone="info">Co-signer</Badge>
-          </div>
+          <span className="truncate text-sm font-semibold text-foreground">{name}</span>
           {subtitle ? <span className="truncate text-xs text-muted">{subtitle}</span> : null}
           {preview ? <span className="truncate text-xs text-muted">{preview}</span> : null}
         </div>
@@ -205,8 +201,8 @@ export function householdClusterHeader(
       {group ? (
         <>
           <span className="truncate text-xs font-semibold text-foreground">{groupHeading}</span>
-          <span title={badge!.title}>
-            <Badge tone={badge!.tone}>{badge!.label}</Badge>
+          <span className="truncate text-xs text-muted" title={badge!.title}>
+            {badge!.label}
           </span>
         </>
       ) : property ? (
@@ -238,7 +234,7 @@ export function ApplicationCosignerSection({
       surfaceMuted={false}
       className="mt-4"
       contentClassName="p-4 pt-0"
-      headerActions={<Badge tone="info">{submissions.length === 1 ? "1 co-signer" : `${submissions.length} co-signers`}</Badge>}
+      headerActions={<span className="text-xs text-muted">{submissions.length === 1 ? "1 co-signer" : `${submissions.length} co-signers`}</span>}
     >
       <ul className="divide-y divide-[var(--border)] rounded-2xl border border-border">
         {submissions.map((sub, index) => (
@@ -254,7 +250,7 @@ export function ApplicationCosignerSection({
                   <span className="truncate text-[13px] font-medium text-foreground">{sub.fullName || "Co-signer"}</span>
                   {sub.email ? <span className="truncate text-[11px] text-muted">{sub.email}</span> : null}
                 </span>
-                <Badge tone="confirmed">Submitted</Badge>
+                <span className="shrink-0 text-xs text-muted">Submitted</span>
               </button>
             ) : (
               <div className="flex items-center gap-3 px-3 py-2.5">
@@ -262,7 +258,7 @@ export function ApplicationCosignerSection({
                   <span className="truncate text-[13px] font-medium text-foreground">{sub.fullName || "Co-signer"}</span>
                   {sub.email ? <span className="truncate text-[11px] text-muted">{sub.email}</span> : null}
                 </span>
-                <Badge tone="confirmed">Submitted</Badge>
+                <span className="shrink-0 text-xs text-muted">Submitted</span>
               </div>
             )}
           </li>
