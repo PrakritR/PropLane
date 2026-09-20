@@ -105,7 +105,7 @@ standing keeper → prakrit  →  main  →  staging  →  production
 
 | Branch | Role | Database | Vercel |
 | --- | --- | --- | --- |
-| `agent/<lane>/…` | one prompt's work | local + **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy |
+| standing keeper | agent work across prompts | local + **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy |
 | **`prakrit`** | captain integration | **dev/test** | no deploy; localhost :3000 |
 | **`main`** | consolidation | **dev/test** | no deploy; localhost |
 | **`staging`** | QA candidate (ff of `main`) | `xwszcafaontidfgznlxd` | Preview, git-branch-scoped env |

@@ -448,8 +448,8 @@ export function ResidentDirectChatPane({
             busy={scheduledBusyId === item.id}
             recipient={email}
             sendAt={item.sendAt}
-            onCancel={() => void cancelScheduledItem(item)}
-            onSendNow={() => void sendScheduledItemNow(item)}
+            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
+            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

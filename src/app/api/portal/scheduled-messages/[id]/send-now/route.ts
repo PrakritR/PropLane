@@ -16,6 +16,11 @@ import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-remi
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  loadPaymentReminderChargeForActor,
+  resolvePaymentReminderCapability,
+} from "@/lib/payment-reminder-capability.server";
+import { paymentReminderSnapshotMatches } from "@/lib/payment-reminder-workspace";
 
 export const runtime = "nodejs";
 
@@ -27,15 +32,11 @@ async function requireManager() {
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
+  const { data: roles } = await db.from("profile_roles").select("role").eq("user_id", user.id);
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
+  const isManager = roleList.includes("manager") || roleList.includes("admin");
   if (!isManager) return null;
-  return { db, userId: user.id };
+  return { db, userId: user.id, admin: roleList.includes("admin") };
 }
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -51,7 +52,19 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Invalid scheduled message id." }, { status: 400 });
     }
 
-    const { messages } = await loadManagerScheduledMessages(auth.db, auth.userId, { includeHidden: true });
+    const chargeIdsInPath = bundled?.chargeIds ?? (parsed ? [parsed.chargeId] : []);
+    const contexts = await Promise.all(chargeIdsInPath.map((chargeId) =>
+      loadPaymentReminderChargeForActor(auth.db, auth.userId, chargeId, auth.admin),
+    ));
+    if (!contexts.length || contexts.some((context) => !context)) {
+      return NextResponse.json({ error: "Scheduled message not found." }, { status: 404 });
+    }
+    const ownerUserId = contexts[0]!.ownerUserId;
+    if (contexts.some((context) => context!.ownerUserId !== ownerUserId)) {
+      return NextResponse.json({ error: "Scheduled message cannot span workspaces." }, { status: 409 });
+    }
+
+    const { messages } = await loadManagerScheduledMessages(auth.db, ownerUserId, { includeHidden: true });
     const displayMessages = combineScheduledPaymentMessages(messages);
     const message = displayMessages.find((m) => m.id === decodedId);
     if (!message) {
@@ -64,27 +77,42 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Late fee notices cannot be sent from the schedule view." }, { status: 400 });
     }
 
-    const charges = await loadManagerPendingCharges(auth.db, auth.userId);
+    const charges = await loadManagerPendingCharges(auth.db, ownerUserId);
     const chargeIds = scheduledPaymentMessageChargeIds(message);
     const outstanding = chargeIds
       .map((id) => charges.find((c) => c.id === id))
       .filter((c): c is NonNullable<typeof c> => Boolean(c));
-    if (!outstanding.length) {
-      return NextResponse.json({ error: "Charge no longer outstanding." }, { status: 400 });
+    if (outstanding.length !== chargeIds.length) {
+      return NextResponse.json({ error: "The charge balance changed. Refresh this reminder before sending." }, { status: 409 });
     }
     const charge = outstanding[0]!;
 
+    const automationSettings = await loadManagerAutomationSettings(auth.db, ownerUserId);
+    const deliverViaEmail = message.deliverViaEmail ?? automationSettings.paymentReminderDeliverViaEmail;
+    const deliverViaSms = message.deliverViaSms ?? automationSettings.paymentReminderDeliverViaSms;
+    let managerSmsFromNumber = "";
+    if (deliverViaEmail || deliverViaSms) {
+      for (const context of contexts) {
+        const capability = await resolvePaymentReminderCapability(auth.db, context!);
+        if (deliverViaEmail && !capability.email.available) {
+          return NextResponse.json({ error: capability.email.reason ?? "Email is unavailable for this resident." }, { status: 409 });
+        }
+        if (deliverViaSms && !capability.sms.available) {
+          return NextResponse.json({ error: capability.sms.reason ?? "Text delivery is unavailable for this resident." }, { status: 409 });
+        }
+        if (deliverViaSms) managerSmsFromNumber = capability.sms.fromNumber ?? "";
+      }
+    }
+
     const { data: profile } = await auth.db
       .from("profiles")
-      .select("full_name, email, sms_from_number")
-      .eq("id", auth.userId)
+      .select("full_name, email")
+      .eq("id", ownerUserId)
       .maybeSingle();
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";
-    const managerSmsFromNumber = String(profile?.sms_from_number ?? "").trim();
     const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
     const from = await managerOutboundFromHeader(auth.db, auth.userId);
     const todayKey = new Date().toISOString().slice(0, 10);
-    const automationSettings = await loadManagerAutomationSettings(auth.db, auth.userId);
 
     const dedupPlan = paymentReminderDedupPlan({
       kind: message.kind,
@@ -97,10 +125,20 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Could not send reminder." }, { status: 400 });
     }
 
+    const current = await Promise.all(chargeIds.map((id) =>
+      loadPaymentReminderChargeForActor(auth.db, auth.userId, id, auth.admin),
+    ));
+    if (current.some((context, index) =>
+      !context || context.ownerUserId !== ownerUserId ||
+      !paymentReminderSnapshotMatches(outstanding[index]!, context.charge),
+    )) {
+      return NextResponse.json({ error: "The charge balance changed. Refresh this reminder before sending." }, { status: 409 });
+    }
+
     const result = await deliverPaymentReminder({
       db: auth.db,
-      charge,
-      managerId: auth.userId,
+      charge: current[0]!.charge,
+      managerId: ownerUserId,
       dedupId: dedupPlan.dedupId,
       bundledDedupEntries: dedupPlan.bundledDedupEntries,
       managerName,
@@ -111,8 +149,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       text: message.body,
       html: reminderHtmlFromText(message.body),
       slotLabel: message.typeLabel,
-      managerDeliverViaEmail: automationSettings.paymentReminderDeliverViaEmail,
-      managerDeliverViaSms: automationSettings.paymentReminderDeliverViaSms,
+      managerDeliverViaEmail: message.deliverViaEmail ?? automationSettings.paymentReminderDeliverViaEmail,
+      managerDeliverViaSms: message.deliverViaSms ?? automationSettings.paymentReminderDeliverViaSms,
       managerDeliverViaInbox: automationSettings.paymentReminderDeliverViaInbox,
     });
 

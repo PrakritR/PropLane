@@ -69,11 +69,15 @@ export async function loadSentReminderDedupIds(
   if (!chargeIds.length) return new Set();
   const { data } = await db
     .from("portal_outbound_mail_records")
-    .select("id")
+    .select("id, row_data")
     .limit(5000);
   const ids = new Set<string>();
   for (const row of data ?? []) {
-    if (typeof row.id === "string") ids.add(row.id);
+    // A new occurrence can have a delivered email and a failed SMS. Its legacy
+    // alias must not hide the pending SMS retry from the schedule projection.
+    if (typeof row.id === "string" && (row.row_data as { deliveryComplete?: boolean } | null)?.deliveryComplete !== false) {
+      ids.add(row.id);
+    }
   }
   return ids;
 }

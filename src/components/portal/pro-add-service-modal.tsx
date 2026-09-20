@@ -32,6 +32,7 @@ import {
   readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import {
   normalizeManagerListingSubmissionV1,
   resolveServiceOfferPricing,
@@ -247,9 +248,11 @@ export function ManagerAddServiceModal({
     const onApps = () => setTick((t) => t + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProps);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApps);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onProps);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProps);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApps);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onProps);
     };
   }, [open]);
 

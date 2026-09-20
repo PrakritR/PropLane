@@ -41,9 +41,10 @@ Port resolution: `--port` → `PROPPLANE_SANDBOX_PORT` → `.env.local`
 
 ## Prakrit promotion: sandbox → prakrit
 
-For Prakrit's process, agents land on their keeper branch only. After Prakrit
-approves, integration runs **security review + no-mistakes** before pushing
-`prakrit`:
+For Prakrit's process, agents build on their standing keeper branch. His
+standing instruction authorizes integration of completed, validated approved
+builds. Integration runs **security review + no-mistakes** before pushing
+`prakrit`; keep the source keeper afterward:
 
 ```bash
 npm run ship:to-prakrit -- --source cursor-1

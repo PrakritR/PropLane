@@ -71,6 +71,70 @@ describe("combineScheduledPaymentMessages", () => {
     expect(messages).toHaveLength(2);
   });
 
+  it("groups compatible reminders without crossing workspace owners or delivery channels", () => {
+    const messages = combineScheduledPaymentMessages([
+      makeMessage({
+        chargeId: "email-1",
+        deliverViaEmail: true,
+        deliverViaSms: false,
+      }),
+      makeMessage({
+        id: "sched|email-2|pre_due|3|2026-08-15",
+        chargeId: "email-2",
+        chargeTitle: "Parking",
+        deliverViaEmail: true,
+        deliverViaSms: false,
+      }),
+      makeMessage({
+        id: "sched|sms|pre_due|3|2026-08-15",
+        chargeId: "sms",
+        chargeTitle: "Utilities",
+        deliverViaEmail: false,
+        deliverViaSms: true,
+      }),
+      makeMessage({
+        id: "sched|other-owner-1|pre_due|3|2026-08-15",
+        chargeId: "other-owner-1",
+        chargeTitle: "Storage",
+        managerUserId: "mgr-2",
+        deliverViaEmail: true,
+        deliverViaSms: false,
+      }),
+      makeMessage({
+        id: "sched|other-owner-2|pre_due|3|2026-08-15",
+        chargeId: "other-owner-2",
+        chargeTitle: "Internet",
+        managerUserId: "mgr-2",
+        deliverViaEmail: true,
+        deliverViaSms: false,
+      }),
+    ]);
+
+    expect(messages).toHaveLength(3);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          managerUserId: "mgr-1",
+          deliverViaEmail: true,
+          deliverViaSms: false,
+          bundledChargeIds: ["email-1", "email-2"],
+        }),
+        expect.objectContaining({
+          managerUserId: "mgr-1",
+          deliverViaEmail: false,
+          deliverViaSms: true,
+          chargeId: "sms",
+        }),
+        expect.objectContaining({
+          managerUserId: "mgr-2",
+          deliverViaEmail: true,
+          deliverViaSms: false,
+          bundledChargeIds: ["other-owner-2", "other-owner-1"],
+        }),
+      ]),
+    );
+  });
+
   it("counts one combined send for cluster badges", () => {
     const combined = combineScheduledPaymentMessages([
       makeMessage({ chargeId: "hc-1" }),

@@ -57,8 +57,13 @@ function messagePreview(body: string, max = 120): string {
 
 function statusClass(status: string): string {
   if (status === "sent") return "text-emerald-700";
+  if (status === "sending") return "text-amber-700";
   if (status === "cancelled") return "text-muted line-through";
   return "text-primary";
+}
+
+function statusLabel(status: string): string {
+  return status === "sending" ? "Sending / needs review" : status;
 }
 
 function scheduleRowChannelLabel(row: ScheduleRow): string {
@@ -147,7 +152,7 @@ export function ManagerInboxSchedulePanel({
     }));
     const targetEmail = filterResidentEmail?.trim().toLowerCase();
     return [...manual, ...automation]
-      .filter((row) => sendAtWithinScheduleHorizon(row.message.sendAt, horizonDays))
+      .filter((row) => row.message.status === "sending" || sendAtWithinScheduleHorizon(row.message.sendAt, horizonDays))
       .filter((row) => {
         if (!targetEmail) return true;
         const recipientEmail = row.kind === "manual" ? row.message.recipientEmail : row.message.residentEmail;
@@ -290,6 +295,11 @@ export function ManagerInboxSchedulePanel({
         >
           ← All scheduled messages
         </button>
+        {row.kind === "manual" && row.message.status === "sending" ? (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Sending / needs review. Contact support before sending this message again.
+          </p>
+        ) : null}
         <InboxScheduledCard
           key={scheduled.id}
           sendLabel={scheduled.sendLabel}
@@ -477,7 +487,7 @@ export function ManagerInboxSchedulePanel({
                     </p>
                     <p className="mt-0.5 text-xs text-muted">{sendLabel}</p>
                     <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">{messagePreview(body)}</p>
-                    <p className={`mt-1.5 text-xs font-medium capitalize ${statusClass(status)}`}>{status}</p>
+                    <p className={`mt-1.5 text-xs font-medium ${statusClass(status)}`}>{statusLabel(status)}</p>
                     </button>
                   </div>
                 </div>
@@ -562,7 +572,7 @@ export function ManagerInboxSchedulePanel({
                         <td className={`${PORTAL_TABLE_TD} max-w-[240px]`}>
                           <p className="line-clamp-2 text-xs leading-relaxed text-muted">{messagePreview(body)}</p>
                         </td>
-                        <td className={`${PORTAL_TABLE_TD} capitalize ${statusClass(status)}`}>{status}</td>
+                        <td className={`${PORTAL_TABLE_TD} ${statusClass(status)}`}>{statusLabel(status)}</td>
                       </tr>
                   );
                 })}
