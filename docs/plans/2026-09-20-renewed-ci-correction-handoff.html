@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Renewed CI correction handoff</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 940px; margin: 0 auto; padding: 40px 24px 64px; line-height: 1.55; }
+    h1 { margin-bottom: 0.25rem; }
+    h2 { margin-top: 2rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); text-align: left; vertical-align: top; }
+    th { background: color-mix(in srgb, CanvasText 7%, Canvas); }
+    .pending { border-left: 4px solid #c47a00; padding: 10px 14px; background: color-mix(in srgb, #c47a00 9%, Canvas); }
+    .ok { border-left: 4px solid #16834a; padding: 10px 14px; background: color-mix(in srgb, #16834a 9%, Canvas); }
+  </style>
+</head>
+<body>
+  <h1>Renewed CI correction handoff</h1>
+  <p>Prepared 2026-09-20 for the correction pass based on GitHub Actions job <code>105991833903</code>. The failed run tested prior commit <code>fcd5c8a0b</code>; corrections were made against the newer reviewed tree at expected starting HEAD <code>d9c590ed9</code>.</p>
+
+  <div class="ok"><strong>Scope:</strong> seven unit-test files were corrected. Application source, database state, runtime configuration, and production behavior were not changed.</div>
+  <div class="pending"><strong>Validation status:</strong> runtime validation is pending the root agent's focused CI run. No contributor to this correction pass ran Node, unit tests, builds, typechecks, browser checks, servers, graph rebuilds, Git operations, or database operations. Do not claim the prior 34 failures are fixed until the new CI result is green.</div>
+
+  <h2>Failure causes and corrections</h2>
+  <table>
+    <thead><tr><th>File</th><th>Cause</th><th>Correction</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>tests/unit/evidence-property-calendar-conflicts.test.tsx</code></td>
+        <td>The suite used <code>beforeEach</code> without importing it, causing the suite-level reference error before its cases could execute.</td>
+        <td>Imported <code>beforeEach</code> from Vitest.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/local-qa-build-artifact.test.ts</code></td>
+        <td>The artifact expectation still required three release checks after the release transaction gained a fourth required check.</td>
+        <td>Updated the expected check set to include <code>release-cli-transaction</code>.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/portal-settings-mobile-back.test.tsx</code></td>
+        <td>The test stub rendered an empty settings module while retaining assertions against the real Welcome automation switch.</td>
+        <td>The stub now renders lightweight real <code>AutomationRuleRows</code> data for <code>resident_welcome</code>, preserving the one-reminder request and history behavior while excluding unrelated property-directory data.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/resident-inbox-hydration-read-only.test.tsx</code></td>
+        <td>Manager fixtures used the unsupported default <code>all</code> tab; auxiliary fetches returned generic shapes; list-row assertions ran while a controlled thread intentionally suppressed the list; resident action assertions mounted the embedded surface where those header actions are absent; role-specific archive/delete labels had drifted from the current UI.</td>
+        <td>Uses the manager's real <code>unopened</code>/<code>opened</code> tabs, route-shaped auxiliary responses, the correct standalone resident action surface, and rerenders the list before sibling visibility assertions. Archive actions are selected by their real role-specific accessible names: <code>Archive</code> for resident and <code>Archive conversation</code> for manager/vendor. Unique counterparty emails remain in place so siblings cannot collapse into one person row.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/resident-refused-send-not-delivered.test.tsx</code></td>
+        <td>The partial storage mock omitted <code>syncPersistedInboxFromServerWithStatus</code>. Real hydration then consumed a generic response and produced incomplete turns, causing <code>undefined.trim</code> in the real email quote formatter and cascading into missing composer, channel picker, and merged-history assertions.</td>
+        <td>Added the status-aware loader to the mock and supplied complete channel values for root and appended turns. The original refused-send, partial-delivery, draft-retention, and merged-history assertions remain.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/manager-inbox-ai-draft.test.tsx</code></td>
+        <td>The persistence spy did not match the real three-argument helper; the test asserted internal persistence copy rather than the safe rendered draft error; and the stale-viewer assertion counted a setup/hydration persistence call.</td>
+        <td>Matched the helper signature, asserted the rendered <code>Couldn’t draft a reply.</code> error card, and cleared setup calls immediately before resolving the stale viewer's delayed draft.</td>
+      </tr>
+      <tr>
+        <td><code>tests/unit/cross-inbox-reply-integrity.test.tsx</code></td>
+        <td>Status hydration bypassed the localStorage-backed fixture path, refusal tests counted earlier hydration writes, and the X-Y-X test expected legacy generic toast copy.</td>
+        <td>Status hydration now uses the same fixture path as normal hydration, refusal assertions compare against a pre-reply call baseline, and the successful in-app reply expects <code>Reply sent via PropLane.</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Contracts retained</h2>
+  <ul>
+    <li>Hydration and late completions remain scoped to the initiating viewer and mount generation.</li>
+    <li>Failed read, archive, and delete writes roll back only their own fields while retaining newer cache data and sibling rows.</li>
+    <li>A refused reply never reaches the persisted thread, and the resident keeps the unsent draft.</li>
+    <li>A successful channel remains delivered when another requested channel fails.</li>
+    <li>Delayed draft and reply completions cannot overwrite a newer viewer, newer queue entry, or newer same-thread composer state.</li>
+    <li>No assertions were skipped, weakened into existence-only checks, or given longer timeouts.</li>
+  </ul>
+
+  <h2>Next validation owner</h2>
+  <p>The root agent owns runtime and Git. Run the focused unit scope for all seven files first, then use the repository's normal broader CI gate if focused validation passes. A fresh reviewer should inspect the complete seven-file correction diff and this handoff before the result is promoted.</p>
+</body>
+</html>

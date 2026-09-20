@@ -40,6 +40,10 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
   loadPersistedInbox: () => residentRows,
   syncPersistedInboxFromServer: () => Promise.resolve(residentRows),
+  // The panels hydrate through the status-aware loader. Letting that new path
+  // fall through to the real storage module made the generic fetch fixture
+  // replace a valid test turn with an incomplete row.
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: residentRows, ok: true }),
   persistInbox: (...args: unknown[]) => persistInbox(...args),
   persistInboxAwait: () => Promise.resolve(true),
   invalidatePersistedInboxCache: () => {},
@@ -66,7 +70,16 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     time: string;
     rootChannel?: "email" | "sms" | "proplane";
     messages?: { id: string; from: string; body: string; at: string; channel?: "email" | "sms" | "proplane" }[];
-  }) => [{ id: `${t.id}-root`, from: t.from, body: t.body, at: t.time, channel: t.rootChannel }, ...(t.messages ?? [])],
+  }) => [
+    {
+      id: `${t.id}-root`,
+      from: t.from,
+      body: t.body,
+      at: t.time,
+      channel: t.rootChannel ?? "email",
+    },
+    ...(t.messages ?? []).map((message) => ({ ...message, channel: message.channel ?? "email" })),
+  ],
   appendReplyToInboxThread: (
     thread: Record<string, unknown>,
     reply: { body: string; id: string; from: string; at: string },

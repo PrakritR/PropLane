@@ -78,7 +78,9 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   },
   upsertPersistedInboxRows: (_key: string, _changed: unknown[], rows: typeof THREADS) => {
     inboxRows = rows;
-    draftPersistence.upsert(rows);
+    // Keep the spy's shape aligned with the real helper: key, changed rows,
+    // and the complete snapshot are all part of the write contract.
+    draftPersistence.upsert(_key, _changed, rows);
     window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
     return draftPersistence.pending ?? Promise.resolve(draftPersistence.succeeds);
   },
@@ -267,7 +269,10 @@ describe("AI draft in the unified Communication inbox", () => {
       />,
     );
 
-    expect(await screen.findByText("Could not save draft reply.")).toBeTruthy();
+    // The internal persistence error is intentionally rendered as the same
+    // safe, user-facing draft failure copy used for generation failures.
+    expect(await screen.findByText("Couldn’t draft a reply.")).toBeTruthy();
+    expect(document.querySelector('[data-attr="inbox-ai-draft-error"]')).not.toBeNull();
     expect(inboxRows[0]?.aiDraft).toBeUndefined();
     expect(draftPersistence.upsert).toHaveBeenCalled();
   });
@@ -320,6 +325,9 @@ describe("AI draft in the unified Communication inbox", () => {
     );
     await screen.findByText("Viewer B resident");
 
+    // Hydration may have completed a persistence call before the viewer
+    // changed. Isolate the stale completion from that setup work.
+    draftPersistence.upsert.mockClear();
     await act(async () => draftResponse.resolve(Response.json({
       ok: true,
       draft: { text: "Viewer A delayed draft", status: "pending_approval" },

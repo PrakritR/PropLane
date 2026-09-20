@@ -31,14 +31,21 @@ vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
 // This suite owns the standalone page's history layer. The real settings body
-// imports every settings panel and its data graph, which adds no behavior to
-// these assertions and can exhaust a bounded unit-test worker during module
-// collection.
+// imports every settings panel and its data graph, which can exhaust a bounded
+// worker during collection. Keep the actual welcome-rule consumer to verify
+// one reminder fetch and no remount/refetch on history changes, without loading
+// unrelated module/property-directory consumers.
 vi.mock("@/components/portal/settings-module-page", async () => {
   const React = await import("react");
+  const { AutomationRuleRows } = await import("@/components/portal/automation-rule-rows");
   return {
     SettingsModulePage: React.forwardRef(function StubSettingsModulePage() {
-      return <div data-attr="settings-module-stub" />;
+      return (
+        <section data-attr="settings-module-stub">
+          <h2>Welcome</h2>
+          <AutomationRuleRows rows={[{ kind: "resident_welcome", multi: true }]} />
+        </section>
+      );
     }),
   };
 });
@@ -93,7 +100,7 @@ async function waitForReminderSettingsReady() {
   await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
   // One mounted resident settings consumer should issue one bounded request.
   // Include exact call diagnostics if a second caller appears in evidence.
-  expectSettingsRequestCounts({ relationships: 1, reminders: 1 });
+  expectSettingsRequestCounts({ relationships: 0, reminders: 1 });
 }
 
 beforeEach(() => {
@@ -161,7 +168,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
     expect(document.querySelector('[data-attr="settings-back-to-root"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-open-resident"]')).toBeNull();
     expect(screen.getByText("Welcome")).toBe(welcomeModule);
-    expectSettingsRequestCounts({ relationships: 1, reminders: 1 });
+    expectSettingsRequestCounts({ relationships: 0, reminders: 1 });
     expect(showToast).not.toHaveBeenCalled();
   });
 

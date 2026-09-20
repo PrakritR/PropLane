@@ -60,7 +60,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   loadPersistedInbox: (key: string) => key === "manager-inbox" ? storageRows(key, managerRows) : key === "resident-inbox" ? storageRows(key, residentRows) : storageRows(key, vendorRows),
   syncPersistedInboxFromServer: (key: string) => Promise.resolve(key === "manager-inbox" ? storageRows(key, managerRows) : key === "resident-inbox" ? storageRows(key, residentRows) : storageRows(key, vendorRows)),
   syncPersistedInboxFromServerWithStatus: (key: string) =>
-    Promise.resolve({ rows: key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows, ok: true }),
+    Promise.resolve({ rows: key === "manager-inbox" ? storageRows(key, managerRows) : key === "resident-inbox" ? storageRows(key, residentRows) : storageRows(key, vendorRows), ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(true),
   invalidatePersistedInboxCache: () => {},
@@ -419,6 +419,8 @@ describe("manager and vendor inbox reply integrity", () => {
     }));
 
     render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await screen.findByPlaceholderText("Write a reply…");
+    const upsertsBeforeReply = upsertPersistedInboxRows.mock.calls.length;
     await typeAndSend("inbox-reply", "Do not consume A");
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Delivery refused."));
 
@@ -428,7 +430,7 @@ describe("manager and vendor inbox reply integrity", () => {
     };
     expect(current.aiDraft).toEqual(draftA);
     expect(current.aiDraftQueue).toEqual([draftB, draftC]);
-    expect(upsertPersistedInboxRows).not.toHaveBeenCalled();
+    expect(upsertPersistedInboxRows).toHaveBeenCalledTimes(upsertsBeforeReply);
   });
 
   it("does not let an old X-Y-X reply completion clear a newer same-thread draft", async () => {
@@ -454,8 +456,9 @@ describe("manager and vendor inbox reply integrity", () => {
     view.rerender(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-2" />);
     view.rerender(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
 
+    await screen.findByPlaceholderText("Write a reply…");
     await typeAndSend("inbox-reply", "New X reply");
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent."));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent via PropLane."));
     const input = await screen.findByPlaceholderText("Write a reply…") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Newest unsent X draft" } });
 
@@ -583,6 +586,8 @@ describe("manager and vendor inbox reply integrity", () => {
       />,
     );
 
+    await screen.findByPlaceholderText("Write a reply…");
+    const upsertsBeforeReply = upsertPersistedInboxRows.mock.calls.length;
     const input = await typeAndSend("inbox-reply", "Manager refused reply");
 
     await waitFor(() =>
@@ -591,7 +596,7 @@ describe("manager and vendor inbox reply integrity", () => {
       ),
     );
     expect(input).toHaveValue("Manager refused reply");
-    expect(upsertPersistedInboxRows).not.toHaveBeenCalled();
+    expect(upsertPersistedInboxRows).toHaveBeenCalledTimes(upsertsBeforeReply);
     expect(
       [...document.querySelectorAll(".portal-inbox-outbound-bubble")].some(
         (bubble) => bubble.textContent?.includes("Manager refused reply"),
@@ -623,6 +628,8 @@ describe("manager and vendor inbox reply integrity", () => {
       />,
     );
 
+    await screen.findByPlaceholderText("Write a reply…");
+    const upsertsBeforeReply = upsertPersistedInboxRows.mock.calls.length;
     const input = await typeAndSend(
       "vendor-inbox-reply",
       "Vendor refused reply",
@@ -634,7 +641,7 @@ describe("manager and vendor inbox reply integrity", () => {
       ),
     );
     expect(input).toHaveValue("Vendor refused reply");
-    expect(upsertPersistedInboxRows).not.toHaveBeenCalled();
+    expect(upsertPersistedInboxRows).toHaveBeenCalledTimes(upsertsBeforeReply);
     expect(
       [...document.querySelectorAll(".portal-inbox-outbound-bubble")].some(
         (bubble) => bubble.textContent?.includes("Vendor refused reply"),

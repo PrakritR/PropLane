@@ -130,7 +130,16 @@ function installFetch(
       inboxGet += 1;
       return await response;
     }
-    return Response.json({ contacts: [], messages: [], threads: [], smsConfigured: false });
+    // Each panel now owns more than its inbox read. Keep those enabled-source
+    // responses shaped like their real routes so they cannot accidentally
+    // satisfy (or corrupt) the deferred inbox fixture above.
+    if (url.includes("/api/portal/scheduled-inbox-messages")) return Response.json({ messages: [] });
+    if (url.includes("/api/portal/inbox-eligible-contacts")) return Response.json({ contacts: [] });
+    if (url.includes("/api/manager/messaging-number")) return Response.json({ canSend: false });
+    if (url.includes("/api/manager/assistant-email")) return Response.json({ canUse: false });
+    if (url.includes("/api/vendor/profile")) return Response.json({ profile: null });
+    if (url.includes("/sms-conversations")) return Response.json({ smsConfigured: false });
+    return Response.json({});
   }));
   return { inboxPosts, inboxGetCount: () => inboxGet };
 }
@@ -147,7 +156,11 @@ const storageKeyFor = (role: InboxRole) => role === "manager"
     ? VENDOR_INBOX_STORAGE_KEY
     : RESIDENT_INBOX_STORAGE_KEY;
 
-function rolePanel(role: InboxRole, controlledExpandedId?: string | null, tabId = "all") {
+function rolePanel(
+  role: InboxRole,
+  controlledExpandedId?: string | null,
+  tabId = role === "manager" ? "unopened" : "all",
+) {
   if (role === "manager") {
     return <ManagerInbox
       tabId={tabId}
@@ -173,6 +186,19 @@ function rolePanel(role: InboxRole, controlledExpandedId?: string | null, tabId 
     embeddedInCommunication
     externalTitleActions
     suppressListPane={controlledExpandedId !== undefined}
+    controlledExpandedId={controlledExpandedId}
+  />;
+}
+
+// Resident thread actions intentionally live outside its embedded Communication
+// pane. The manager and vendor panes expose their matching header icon actions
+// in-place, so this keeps every role on the actual action surface.
+function actionPanel(role: InboxRole, controlledExpandedId: string, tabId: string) {
+  if (role !== "resident") return rolePanel(role, controlledExpandedId, tabId);
+  return <ResidentInboxPanel
+    tabId={tabId}
+    externalTitleActions
+    suppressListPane
     controlledExpandedId={controlledExpandedId}
   />;
 }
@@ -277,12 +303,15 @@ describe("inbox panel hydration is viewer-owned and read-only", () => {
 
       setViewer(`${role}-read`);
       stagePersistedInboxRows(storageKey, [original]);
-      render(rolePanel(role, original.id));
+      const view = render(rolePanel(role, original.id));
       await waitFor(() => expect(network.inboxPosts.length).toBeGreaterThan(0));
 
       const concurrent = { ...original, unread: false, preview: "Newer event preview" };
       const sibling = thread(`${role}-event-row`, `${role} event sibling`);
       act(() => stagePersistedInboxRows(storageKey, [concurrent, sibling]));
+      // A selected thread deliberately suppresses the conversation list. Return
+      // to the list before asserting the sibling's visible presentation.
+      view.rerender(rolePanel(role));
       await act(async () => failedWrite.resolve(new Response(null, { status: 503 })));
 
       await waitFor(() => {
@@ -338,14 +367,18 @@ describe("inbox panel hydration is viewer-owned and read-only", () => {
 
       setViewer(`${role}-archive-owner`);
       stagePersistedInboxRows(storageKey, [original]);
-      render(rolePanel(role, original.id));
-      fireEvent.click(await screen.findByRole("button", { name: /archive conversation|archive/i }));
+      const view = render(actionPanel(role, original.id, role === "manager" ? "opened" : "all"));
+      const archiveButton = await screen.findByRole("button", {
+        name: role === "resident" ? "Archive" : "Archive conversation",
+      });
+      fireEvent.click(archiveButton);
       await waitFor(() => expect(network.inboxPosts.some((body) => body.action === "upsert")).toBe(true));
 
       const optimistic = loadPersistedInbox(storageKey, [])[0]!;
       const newer = { ...optimistic, preview: "Newer archive-time message", body: "Newer body", unread: true };
       const sibling = thread(`${role}-archive-sibling`, `${role} archive sibling`);
       act(() => stagePersistedInboxRows(storageKey, [newer, sibling]));
+      view.rerender(rolePanel(role));
       await act(async () => failedArchive.resolve(new Response(null, { status: 503 })));
 
       await waitFor(() => {
@@ -441,7 +474,7 @@ describe("inbox panel hydration is viewer-owned and read-only", () => {
       Response.json({ rows: [archived] }),
       Response.json({ rows: [] }),
     ]);
-    render(panel("trash"));
+    render(actionPanel("resident", archived.id, "trash"));
 
     const deleteButton = await screen.findByRole("button", { name: "Delete forever" });
     expect(network.inboxPosts).toEqual([]);
@@ -469,15 +502,18 @@ describe("inbox panel hydration is viewer-owned and read-only", () => {
 
       setViewer(`${role}-delete-owner-a`);
       stagePersistedInboxRows(storageKey, [archivedA]);
-      const view = render(rolePanel(role, archivedA.id, "trash"));
-      const deleteButton = await screen.findByRole("button", { name: /delete (forever|conversation)/i });
+      const view = render(actionPanel(role, archivedA.id, "trash"));
+      const deleteButton = await screen.findByRole(
+        "button",
+        { name: role === "resident" ? "Delete forever" : "Delete conversation" },
+      );
       fireEvent.click(deleteButton);
       await waitFor(() => expect(network.inboxPosts.some((body) => body.action === "deleteIds")).toBe(true));
 
       await act(async () => {
         setViewer(`${role}-delete-owner-b`);
         stagePersistedInboxRows(storageKey, [currentB]);
-        view.rerender(rolePanel(role, undefined, "all"));
+        view.rerender(rolePanel(role));
       });
       await screen.findByText(`${role} viewer B current`);
       const postsBeforeCompletion = network.inboxPosts.length;

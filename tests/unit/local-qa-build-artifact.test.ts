@@ -230,6 +230,6 @@ describe("encrypted local QA build transport", () => {
     });
     expect(JSON.stringify(steps[packageIndex])).not.toContain("toJSON(secrets)");
     expect(JSON.stringify(steps[packageIndex])).not.toContain("QA_REPOSITORY_PRIVATE");
-    expect(workflow.jobs.check.needs).toEqual(["unit", "lint", "build"]);
+    expect(workflow.jobs.check.needs).toEqual(["unit", "release-cli-transaction", "lint", "build"]);
   });
 });
