@@ -32,6 +32,11 @@ describe("Vendors section + Teams (Managers)", () => {
     expect(src).toContain('section === "vendors"');
     expect(src).toContain("redirect(`${def.basePath}/vendors${vendorId}`)");
     expect(src).not.toContain("redirect(`${def.basePath}/teams/vendors");
+    const panel = readFileSync(join(process.cwd(), "src/components/portal/pro-vendors-panel.tsx"), "utf8");
+    expect(panel).toContain('title="Vendors"');
+    expect(panel).not.toContain('title="Teams"');
+    expect(panel).not.toContain("Vendor catalog");
+    expect(panel).not.toContain("ManagerVendorCatalogModal");
   });
 
   it("keeps Teams out of the sidebar — team management lives in Settings", () => {
@@ -85,11 +90,11 @@ describe("Services no longer carries Vendors", () => {
 describe("vendor links", () => {
   it("point at the Vendors section, not the retired Teams tab or Services path", () => {
     expect(vendorListHref("/portal")).toBe("/portal/vendors");
-    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/vendors/vend-1");
+    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/vendors/vend-1/overview");
   });
 
   it("encodes a vendor id with awkward characters", () => {
-    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/vendors/a%20b%2Fc");
+    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/vendors/a%20b%2Fc/overview");
   });
 
   it("still resolves the retired /services/vendors and /teams/vendors paths", () => {

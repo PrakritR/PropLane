@@ -126,7 +126,7 @@ export function VendorPaymentMethodsModal({
               <PortalStripeConnectPanel
                 basePath="/vendor"
                 apiBase="/api/vendor/stripe-connect"
-                returnPath="/vendor/payments"
+                returnPath="/vendor/financials/payouts"
                 dataAttrPrefix="vendor-stripe-connect"
                 variant="embedded"
                 analyticsScope="vendor"

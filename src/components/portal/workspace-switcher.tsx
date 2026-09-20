@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, Check, ChevronDown, Plus, Settings2, UserPlus } from "lucide-react";
+import { Building2, Check, ChevronDown, Plus, Settings, UserPlus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -156,7 +156,7 @@ export function WorkspaceSwitcher({
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/portal/profile?tab=workspaces" data-attr="workspace-switcher-settings">
-            <Settings2 className="size-4" aria-hidden />
+            <Settings className="size-4" aria-hidden />
             Workspace settings
           </Link>
         </DropdownMenuItem>

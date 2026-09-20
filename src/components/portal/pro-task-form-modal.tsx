@@ -1,18 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
-  Modal,
-  ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
   PORTAL_MODAL_FORM_FULL_ROW_CLASS,
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
-import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { SaveStatus, saveErrorReason } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
@@ -223,6 +221,7 @@ export function ManagerTaskFormModal({
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
   const [residentTick, setResidentTick] = useState(0);
   const [serviceFooter, setServiceFooter] = useState<ServiceIntakeFooterState | null>(null);
+  const [stepIdx, setStepIdx] = useState(0);
   /** `null` = no source text: editing an existing task, or the manager has
    * typed a start of their own. Only a fetched-but-unconfirmed suggestion shows one. */
   const [taskSuggestSource, setTaskSuggestSource] = useState<TaskSuggestSource | null>(null);
@@ -288,6 +287,7 @@ export function ManagerTaskFormModal({
       createdIdRef.current = null;
       composePrefillRef.current = null;
       changedRef.current = false;
+      setStepIdx(0);
       return;
     }
     void ensureManagerTaskResidentDirectory().then(() => setResidentTick((n) => n + 1));
@@ -573,31 +573,68 @@ export function ManagerTaskFormModal({
     void autosave.flush().finally(finish);
   }, [autosave, onClose, onSaved]);
 
+  if (!open) return null;
+
+  const steps: AddWorkspaceStep[] = [
+    {
+      id: "task",
+      label: "Task",
+      incomplete: Boolean(invalidReason() && !useServiceIntakeForm),
+      summary: form.title.trim() || form.guestName.trim() || "What to do",
+    },
+    {
+      id: "property",
+      label: "Property",
+      incomplete: propertyRequired && !form.propertyId,
+      summary: selectedProperty?.label || (propertyRequired ? "Pick a house" : "Optional"),
+    },
+    {
+      id: "when",
+      label: "When",
+      summary: form.scheduleDate || form.dueDate || (form.urgency === "urgent" ? "Urgent" : "Timing"),
+    },
+    {
+      id: "review",
+      label: "Review",
+      summary: editingId ? "Save task" : "Add task",
+    },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
+
   return (
-    <Modal
-      open={open}
-      onClose={handleClose}
+    <AddWorkspace
       title={editingId ? "Edit task" : "Add task"}
-      dense
+      steps={steps}
+      current={current}
+      onJump={setStepIdx}
+      onClose={handleClose}
+      dirty={Boolean(form.title.trim() || form.guestName.trim() || form.propertyId)}
+      discardTitle={editingId ? "Discard these edits?" : "Discard this task?"}
       assistantContext={editingId ? "Edit task" : "Add task"}
-      status={useServiceIntakeForm ? undefined : <SaveStatus status={autosave} />}
-      description={useServiceIntakeForm ? undefined : saveErrorReason(autosave)}
-      footer={
-        useServiceIntakeForm && serviceFooter ? (
-          <ModalFooter>
-            <Button
-              type="button"
-              onClick={serviceFooter.submit}
-              disabled={serviceFooter.saving || !serviceFooter.canSubmit}
-              data-attr="manager-task-save"
-            >
-              {serviceFooter.saving ? "Saving…" : "Add task"}
-            </Button>
-          </ModalFooter>
-        ) : undefined
-      }
+      assistantScopeKey={editingId ? "edit-task" : "add-task"}
+      lastLabel={editingId ? "Save task" : "Add task"}
+      lastDisabled={Boolean(invalidReason()) && !useServiceIntakeForm}
+      nextDisabled={false}
+      onBeforeNext={() => {
+        if (stepId === "task" && useServiceIntakeForm) return true;
+        if (stepId === "task" && invalidReason() === "Needs a title") return false;
+        if (stepId === "property" && propertyRequired && !form.propertyId) return false;
+        return true;
+      }}
+      saveState={useServiceIntakeForm ? undefined : <SaveStatus status={autosave} />}
+      onFinish={() => {
+        if (useServiceIntakeForm && serviceFooter) {
+          serviceFooter.submit();
+          return;
+        }
+        handleClose();
+      }}
+      dataAttrPrefix="manager-task"
+      finishDataAttr="manager-task-save"
     >
-      <div className="shrink-0 pb-4">
+      <div hidden={stepId !== "task"}>
+      <div className="pb-4">
         <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
           Task type
         </label>
@@ -626,9 +663,9 @@ export function ManagerTaskFormModal({
             onClose();
             onSaved?.(composePrefill ?? null);
           }}
+          onLeaveForCatalog={onClose}
         />
       ) : (
-      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
         {isTour ? (
           <>
@@ -704,7 +741,13 @@ export function ManagerTaskFormModal({
             onChange={setAssignee}
           />
         </div>
+        </div>
+      )}
+      </div>
 
+      {!useServiceIntakeForm ? (
+      <>
+        <div hidden={stepId !== "property"}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-property">
             Property{propertyRequired ? "" : " (optional)"}
@@ -825,6 +868,9 @@ export function ManagerTaskFormModal({
             </Select>
           </div>
         ) : null}
+        </div>
+
+        <div hidden={stepId !== "when"}>
 
         {isTour ? (
           <>
@@ -1049,7 +1095,9 @@ export function ManagerTaskFormModal({
             </div>
           </>
         )}
+        </div>
 
+        <div hidden={stepId !== "review"}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-notes">
             Notes (optional)
@@ -1158,9 +1206,9 @@ export function ManagerTaskFormModal({
             ? " You can notify the guest or resident on the next screen."
             : null}
         </p>
-      </div>
-      </div>
-      )}
-    </Modal>
+        </div>
+      </>
+      ) : null}
+    </AddWorkspace>
   );
 }

@@ -22,3 +22,24 @@ export async function loadManagerSmsConversationsClient(viewerId: string, force 
   }
   return (await reader.run(force)).clone();
 }
+
+/** Irreversible hard-delete of one SMS conversation the viewer can see. */
+export async function deleteManagerSmsConversationClient(input: {
+  phone: string;
+  conversationKey: string | null;
+}): Promise<{ ok: boolean; partial?: boolean; error?: string }> {
+  const phone = input.phone.trim();
+  if (!phone) return { ok: false, error: "No phone on this conversation." };
+  const res = await fetch("/api/manager/sms-conversations", {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone,
+      conversationKey: input.conversationKey,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string; partial?: boolean };
+  if (!res.ok) return { ok: false, error: body.error ?? "Could not delete conversation." };
+  return { ok: true, partial: body.partial, error: body.error };
+}

@@ -26,7 +26,16 @@ import {
  * Outcome of the manager's linked-Google-Calendar side of the change.
  * `skipped` means there is no working calendar link, which is not a failure.
  */
-export type PlannedTourCalendarSync = { ok: boolean; skipped?: boolean; error?: string };
+export type PlannedTourCalendarSync = { ok: boolean; skipped?: boolean; deferred?: boolean; error?: string };
+
+/** A durable sync caller may report an owned lease without treating it as a completed write. */
+type ClassifiedCalendarRun = { disposition?: "skipped" | "deferred" };
+
+function calendarRunDisposition(value: unknown): ClassifiedCalendarRun["disposition"] {
+  if (!value || typeof value !== "object") return undefined;
+  const disposition = (value as ClassifiedCalendarRun).disposition;
+  return disposition === "skipped" || disposition === "deferred" ? disposition : undefined;
+}
 
 /**
  * Whole-operation ceiling on the Google side of a change.
@@ -68,7 +77,14 @@ export async function runPlannedTourCalendarSync(
       Promise.resolve()
         .then(run)
         .then(
-          () => ({ ok: true }),
+          (result) => {
+            const disposition = calendarRunDisposition(result);
+            if (disposition === "skipped") return { ok: true, skipped: true };
+            if (disposition === "deferred") {
+              return { ok: false, deferred: true, error: "Google Calendar synchronization is in flight." };
+            }
+            return { ok: true };
+          },
           (e: unknown) => {
             if (isGoogleCalendarNotLinkedError(e)) return { ok: true, skipped: true };
             return { ok: false, error: e instanceof Error ? e.message : "Google Calendar update failed." };

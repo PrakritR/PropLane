@@ -28,8 +28,10 @@ import {
 } from "@/lib/manager-listing-submission";
 import { resolvePropertySaveTargetById } from "@/lib/manager-property-save-target";
 import { createServiceRequest, CUSTOM_SERVICE_REQUEST_OFFER_ID } from "@/lib/service-requests-storage";
-import { ServiceRequestCatalogModal } from "@/components/portal/service-request-catalog-modal";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
+import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { propertyServicesCatalogHref } from "@/lib/portal-detail-routes";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import {
   createScheduledWorkTask,
@@ -159,7 +161,7 @@ export function ManagerLegacyServiceIntakeForm({
   submitLabel = "Add service",
   onComplete,
   onRegisterFooter,
-  onCatalogOpenChange,
+  onLeaveForCatalog,
 }: {
   open: boolean;
   managerUserId: string | null;
@@ -169,9 +171,12 @@ export function ManagerLegacyServiceIntakeForm({
   submitLabel?: string;
   onComplete?: (composePrefill?: ManagerComposePrefill | null) => void;
   onRegisterFooter?: (state: ServiceIntakeFooterState | null) => void;
-  onCatalogOpenChange?: (open: boolean) => void;
+  /** Close Add service / Add task before routing to the house Services tab. */
+  onLeaveForCatalog?: () => void;
 }) {
   const { showToast } = useAppUi();
+  const navigate = usePortalNavigate();
+  const portalBase = usePaidPortalBasePath();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId });
   const [tick, setTick] = useState(0);
   const [vendorTick, setVendorTick] = useState(0);
@@ -183,15 +188,10 @@ export function ManagerLegacyServiceIntakeForm({
   const [notes, setNotes] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customPriceLimit, setCustomPriceLimit] = useState("");
-  const [catalogModalOpen, setCatalogModalOpen] = useState(false);
   const [requestPrice, setRequestPrice] = useState("");
   const [requestDeposit, setRequestDeposit] = useState("");
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
   const [maintenanceCategory, setMaintenanceCategory] = useState<ResidentMaintenanceCategoryLabel>("General");
-
-  useEffect(() => {
-    onCatalogOpenChange?.(catalogModalOpen);
-  }, [catalogModalOpen, onCatalogOpenChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -225,7 +225,6 @@ export function ManagerLegacyServiceIntakeForm({
       setNotes(defaultNotes?.trim() ?? "");
       setCustomTitle("");
       setCustomPriceLimit("");
-      setCatalogModalOpen(false);
       setRequestPrice("");
       setRequestDeposit("");
       setMaintenanceTitle("");
@@ -527,9 +526,11 @@ export function ManagerLegacyServiceIntakeForm({
     });
   }, [busy, canSubmit, onRegisterFooter, open, submitLabel]);
 
-  const onCatalogSaved = (nextOfferId?: string) => {
-    setTick((t) => t + 1);
-    if (nextOfferId) setOfferId(nextOfferId);
+  const openPropertyServicesCatalog = () => {
+    const href = propertyServicesCatalogHref(portalBase, propertyId, propertySaveTarget);
+    if (!href) return;
+    onLeaveForCatalog?.();
+    navigate(href);
   };
 
   return (
@@ -554,7 +555,6 @@ export function ManagerLegacyServiceIntakeForm({
                     setPropertyId(e.target.value);
                     setResidentEmail("");
                     setOfferId("");
-                    setCatalogModalOpen(false);
                   }}
                   disabled={busy}
                 >
@@ -630,7 +630,7 @@ export function ManagerLegacyServiceIntakeForm({
               type="button"
               className="flex w-full cursor-pointer items-center justify-center rounded-xl border border-dashed border-primary/30 bg-primary/[0.04] px-3 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/50 hover:bg-primary/[0.07]"
               data-attr="service-request-manage-catalog"
-              onClick={() => setCatalogModalOpen(true)}
+              onClick={openPropertyServicesCatalog}
               disabled={busy}
             >
               Manage service types for this property
@@ -738,18 +738,6 @@ export function ManagerLegacyServiceIntakeForm({
         </div>
       </div>
 
-      {propertySubmission && propertySaveTarget && managerUserId ? (
-        <ServiceRequestCatalogModal
-          open={catalogModalOpen}
-          sub={propertySubmission}
-          saveTarget={propertySaveTarget}
-          managerUserId={managerUserId}
-          onClose={() => setCatalogModalOpen(false)}
-          onUpdated={() => setTick((t) => t + 1)}
-          onOfferSaved={(id) => onCatalogSaved(id)}
-          showToast={showToast}
-        />
-      ) : null}
     </>
   );
 }

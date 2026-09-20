@@ -88,6 +88,3 @@ export function stripSubmissionDataUrls(sub: ManagerListingSubmissionV1): Manage
     floorPlanByLabel: floorPlans.length > 0 ? Object.fromEntries(floorPlans) : undefined,
   };
 }
-
-/** Debounce before persisting in-progress listing drafts while the wizard stays open. */
-export const LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS = 2000;

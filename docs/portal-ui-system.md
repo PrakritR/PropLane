@@ -171,16 +171,12 @@ after any outline secondary actions.
 | **Shadow** | None in the command strip (`shadow-none`) — elevation comes from color, not drop shadow |
 | **Hover** | `.portal-command-primary:hover` → `brightness(1.04)` (both themes keep AA contrast) |
 
-Paired outline actions in the same row (e.g. **Share** on Properties) use
-`PORTAL_COMMAND_ACTION_BTN`: white/card fill, `border-border`, same 40px height
-and `rounded-lg` radius.
-
 ### When to use
 
 | Use | Token / component |
 |-----|-------------------|
 | Primary create action in a command strip | `PORTAL_COMMAND_PRIMARY_ACTION_BTN` + `PORTAL_COMMAND_PRIMARY_ACTION_STYLE` on `Button` |
-| Secondary utility in the same strip | `PORTAL_COMMAND_ACTION_BTN` + `variant="outline"` |
+| Secondary utility in the same strip | `PortalIconAction` (icon; tooltip + `aria-label`) |
 | Primary in the page title band (larger pill) | `PORTAL_HEADER_PRIMARY_ACTION_BTN` — different size; do not mix into command strips |
 | Phone list FAB (same action, floating) | `PortalListFab` — cobalt circle, bottom-right above native tab bar |
 
@@ -205,7 +201,16 @@ Constants live in `portal-metrics.tsx`; hover rule in `globals.css`
 - **Don't** use `variant="primary"` pill styling in command strips — it is taller and reads as a page-level CTA, not a list-toolbar action.
 - **Don't** use filled red or a second accent hue for these buttons.
 
-### A portal page's scroller is `.portal-list-page-scroll`, not the window
+## Title / card header utilities
+
+Secondary utilities in a title or card header are icons (`PortalIconAction`).
+The word lives in the tooltip and `aria-label` only.
+
+Labeled text is only for a data-commit (**Save**) or a destructive confirm.
+Do not put Share, Copy, Filter, Settings, Download, Edit, or Delete on a
+labeled pill in that chrome.
+
+## A portal page's scroller is `.portal-list-page-scroll`, not the window
 
 `ManagerPortalPageShell` defaults to `stickyPageChrome`, which sets
 `html[data-portal-sticky-chrome]`. That flips `#portal-main-content` to

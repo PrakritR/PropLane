@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { shouldMountTourSettings } from "@/lib/portal-settings-module-visibility";
 
 const SRC = readFileSync(
   join(process.cwd(), "src/components/portal/pro-portal-settings-modal.tsx"),
@@ -18,13 +19,19 @@ const PAGE_SRC = readFileSync(
 
 describe("ManagerPortalSettingsModal mount gating", () => {
   it("mounts self-loading panels only while the module page is active", () => {
-    expect(PAGE_SRC).toMatch(/\{active && tab === "tours" \?/);
+    expect(PAGE_SRC).toMatch(/shouldMountTourSettings\(active, tab\)/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "payments" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "communication" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "automation" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "tasks" \?/);
     // The modal no longer decides this itself — it just forwards `open` straight through.
     expect(SRC).toMatch(/active=\{open\}/);
+  });
+
+  it("keeps tour settings unmounted while inactive", () => {
+    expect(shouldMountTourSettings(false, "tours")).toBe(false);
+    expect(shouldMountTourSettings(true, "tours")).toBe(true);
+    expect(shouldMountTourSettings(true, "applications")).toBe(false);
   });
 
   it("pins Save in Modal footer so tall tab bodies scroll (PRP-334)", () => {

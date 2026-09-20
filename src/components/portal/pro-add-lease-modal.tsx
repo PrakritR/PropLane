@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/modal";
+import { useRouter } from "next/navigation";
+import { FilePlus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import {
   applicationVisibleToPortalUser,
-  collectLinkedPropertyIdsForModule,
-  resolvePropertyLabelForId,
+  buildManagerPropertyFilterOptions,
   syncManagerPortfolioFromServer,
 } from "@/lib/manager-portfolio-access";
 import {
@@ -30,11 +33,8 @@ import {
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
-import {
-  PROPERTY_PIPELINE_EVENT,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
-} from "@/lib/demo-property-pipeline";
+import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
 import {
@@ -59,38 +59,6 @@ type PropertyLeaseOption = {
   propertyId: string;
   propertyLabel: string;
 };
-
-function buildManagerPropertyOptions(managerUserId: string | null): PropertyLeaseOption[] {
-  if (!managerUserId) return [];
-  const seen = new Map<string, PropertyLeaseOption>();
-
-  for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  for (const property of readPendingManagerPropertiesForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim());
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "leases")) {
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  return [...seen.values()].sort((a, b) =>
-    a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
-  );
-}
 
 type ApprovedResidentOption = {
   applicationId: string;
@@ -161,11 +129,15 @@ export function ManagerAddLeaseModal({
   onOpenLease?: (leaseId: string) => void;
 }) {
   const { showToast } = useAppUi();
+  const router = useRouter();
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyId, setPropertyId] = useState("");
   const [applicationId, setApplicationId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [leaseMethod, setLeaseMethod] = useState<"generate" | "upload">("generate");
+  const [stepError, setStepError] = useState<string | null>(null);
   const [generateLeaseRowId, setGenerateLeaseRowId] = useState<string | null>(null);
   const [importReviewLeaseId, setImportReviewLeaseId] = useState<string | null>(null);
   const [newResidentImportOpen, setNewResidentImportOpen] = useState(false);
@@ -184,15 +156,22 @@ export function ManagerAddLeaseModal({
     void syncManagerPortfolioFromServer(managerUserId ?? "", { force: true }).then(onProperties);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     return () => {
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     };
   }, [open, managerUserId]);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
-    return buildManagerPropertyOptions(managerUserId);
+    return buildManagerPropertyFilterOptions(managerUserId)
+      .map((option) => ({
+        propertyId: option.id,
+        propertyLabel: displayPropertyLabel(option.label) || option.label,
+      }))
+      .filter((option) => option.propertyLabel);
   }, [managerUserId, propertyTick]);
 
   const residents = useMemo(() => {
@@ -228,6 +207,9 @@ export function ManagerAddLeaseModal({
     setGenerateLeaseRowId(null);
     setNewResidentImportOpen(false);
     setNewResidentImportBootstrap(null);
+    setStepIdx(0);
+    setLeaseMethod("generate");
+    setStepError(null);
     if (!initialApplicationId && !initialPropertyId) {
       setPropertyId("");
       setApplicationId("");
@@ -352,101 +334,161 @@ export function ManagerAddLeaseModal({
     : null;
 
   const noProperties = propertyOptions.length === 0;
-  const compactField = "min-h-9 rounded-xl px-3 py-1.5 text-sm";
+  const method = isNewResident ? "upload" : leaseMethod;
+  const whoIncomplete = !propertyId || !applicationId;
+  const propertyLabel = selectedProperty?.propertyLabel ?? "Not set";
+  const residentLabel = isNewResident
+    ? "New resident"
+    : selectedResident
+      ? selectedResident.residentName
+      : "Not set";
+  const steps: AddWorkspaceStep[] = [
+    { id: "who", label: "Who", summary: whoIncomplete ? "Property and resident" : `${propertyLabel} · ${residentLabel}`, incomplete: whoIncomplete },
+    { id: "lease", label: "Lease", summary: method === "upload" ? "Upload PDF" : "Generate" },
+    { id: "review", label: "Review", summary: "Ready" },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
 
   return (
     <>
-      <Modal
-        open={open}
-        onClose={() => {
-          if (!busy) onClose();
-        }}
-        title="Add lease"
-        description="Choose a property and resident, then upload a lease PDF or generate a lease. A lease already signed on paper: upload it, then Mark as signed."
-        dataAttr="manager-add-lease-modal"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="outline"
-              data-attr="add-lease-generate"
-              disabled={!canGenerateLease || busy}
-              onClick={openGenerateConfirm}
-            >
-              {busy ? "Uploading…" : "Generate lease"}
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              data-attr="add-lease-upload"
-              disabled={!canUploadLease || busy}
-              onClick={() => uploadRef.current?.click()}
-            >
-              {busy ? "Uploading…" : "Upload PDF"}
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-0.5 sm:col-span-2">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Property</span>
-            <Select
-              id="add-lease-property"
-              className={compactField}
-              value={propertyId}
-              onChange={(e) => {
-                setPropertyId(e.target.value);
-                setApplicationId("");
-              }}
-              disabled={busy || noProperties}
-              data-attr="add-lease-property"
-            >
-              <option value="">{noProperties ? "No properties in portfolio" : "Select property"}</option>
-              {propertyOptions.map((option) => (
-                <option key={option.propertyId} value={option.propertyId}>
-                  {option.propertyLabel}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-0.5 sm:col-span-2">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Resident</span>
-            <Select
-              id="add-lease-resident"
-              className={compactField}
-              value={applicationId}
-              onChange={(e) => setApplicationId(e.target.value)}
-              disabled={busy || !propertyId}
-              data-attr="add-lease-resident"
-            >
-              <option value="">
-                {!propertyId ? "Select property first" : "Select resident"}
-              </option>
-              <option value={NEW_RESIDENT_ID}>New resident…</option>
-              {residentsForProperty.length === 0 ? null : (
-                residentsForProperty.map((row) => (
-                  <option key={row.applicationId} value={row.applicationId}>
-                    {row.residentName}
-                    {row.roomLabel ? ` · ${row.roomLabel}` : ""}
-                  </option>
-                ))
+      {open ? (
+        <AddWorkspace
+          title="Add lease"
+          steps={steps}
+          current={current}
+          onJump={(index) => {
+            setStepError(null);
+            setStepIdx(index);
+          }}
+          onClose={() => {
+            if (!busy) onClose();
+          }}
+          dirty={Boolean(propertyId || applicationId)}
+          discardTitle="Discard this lease?"
+          assistantContext="Add a lease for a property and resident. Generate from PropLane or upload a signed PDF."
+          assistantScopeKey="Add lease"
+          sidePanel={
+            <PreviewPanel
+              title="Lease"
+              name={residentLabel}
+              sub={propertyLabel}
+              facts={[
+                { label: "Resident", value: residentLabel, warn: !applicationId },
+                { label: "Property", value: propertyLabel, warn: !propertyId },
+                { label: "Lease", value: method === "upload" ? "Upload PDF" : "Generate" },
+              ]}
+              creates={[
+                { tone: "yes", text: selectedResident ? `Draft lease for ${selectedResident.residentName} at ${propertyLabel}` : "Draft lease" },
+                { tone: "yes", text: "No signature until you send" },
+              ]}
+            />
+          }
+          lastLabel={method === "upload" ? "Upload PDF" : "Generate lease"}
+          lastDisabled={busy || (method === "generate" ? !canGenerateLease : !canUploadLease)}
+          nextDisabled={stepId === "who" && whoIncomplete}
+          onBeforeNext={() => {
+            if (stepId === "who" && whoIncomplete) {
+              setStepError(noProperties ? "Add a property first." : "Select a property and resident.");
+              return false;
+            }
+            setStepError(null);
+            return true;
+          }}
+          busy={busy}
+          onFinish={() => {
+            if (method === "upload") uploadRef.current?.click();
+            else openGenerateConfirm();
+          }}
+          dataAttrPrefix="add-lease"
+          finishDataAttr={method === "upload" ? "add-lease-upload" : "add-lease-generate"}
+          footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
+          headerActions={
+            <>
+              <PortalIconAction
+                icon={FilePlus}
+                label="Generate"
+                active={!isNewResident && method === "generate"}
+                disabled={isNewResident || busy}
+                data-attr="add-lease-method-generate"
+                onClick={() => setLeaseMethod("generate")}
+              />
+              <PortalIconAction
+                icon={Upload}
+                label="Upload"
+                active={method === "upload"}
+                disabled={busy}
+                data-attr="add-lease-method-upload"
+                onClick={() => setLeaseMethod("upload")}
+              />
+            </>
+          }
+        >
+          {stepId === "who" ? (
+            <StepColumn>
+              <StepHeading title="Property and resident" />
+              {noProperties ? (
+                <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border px-4 py-8">
+                  <p className="text-[16px] font-bold">No properties</p>
+                  <Button type="button" data-attr="add-lease-add-property" onClick={() => router.push("/portal/properties")}>
+                    Add property
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <WizardSelect
+                    label="Property"
+                    value={propertyId}
+                    onChange={(next) => {
+                      setPropertyId(next);
+                      setApplicationId("");
+                    }}
+                    options={propertyOptions.map((option) => ({ value: option.propertyId, label: option.propertyLabel }))}
+                    placeholder="Select property"
+                    dataAttr="add-lease-property"
+                    disabled={busy}
+                  />
+                  <WizardSelect
+                    label="Resident"
+                    value={applicationId}
+                    onChange={setApplicationId}
+                    options={[
+                      { value: NEW_RESIDENT_ID, label: "New resident…" },
+                      ...residentsForProperty.map((row) => ({
+                        value: row.applicationId,
+                        label: row.roomLabel ? `${row.residentName} · ${row.roomLabel}` : row.residentName,
+                      })),
+                    ]}
+                    placeholder={propertyId ? "Select resident" : "Select property first"}
+                    dataAttr="add-lease-resident"
+                    disabled={busy || !propertyId}
+                  />
+                </>
               )}
-            </Select>
-          </label>
-          {isNewResident ? (
-            <p className="text-sm text-muted sm:col-span-2">
-              Upload a lease PDF to create a resident record, or pick an approved resident to generate a lease.
-            </p>
-          ) : selectedResident ? (
-            <p className="text-sm text-muted sm:col-span-2">
-              Lease will be added for{" "}
-              <span className="font-medium text-foreground">{selectedResident.residentName}</span>
-              {selectedResident.roomLabel ? ` (${selectedResident.roomLabel})` : ""} at{" "}
-              <span className="font-medium text-foreground">{selectedResident.propertyLabel}</span>.
-            </p>
+            </StepColumn>
           ) : null}
-        </div>
-      </Modal>
+          {stepId === "lease" ? (
+            <StepColumn>
+              <StepHeading title={method === "upload" ? "Upload PDF" : "Generate"} />
+            </StepColumn>
+          ) : null}
+          {stepId === "review" ? (
+            <StepColumn>
+              <StepHeading title="Review" />
+              <PreviewPanel
+                title="Lease"
+                name={residentLabel}
+                facts={[
+                  { label: "Resident", value: residentLabel },
+                  { label: "Property", value: propertyLabel },
+                  { label: "Lease", value: method === "upload" ? "Upload PDF" : "Generate" },
+                ]}
+                creates={[{ tone: "yes", text: method === "upload" ? "Uploads a PDF" : "Generates a draft lease" }]}
+              />
+            </StepColumn>
+          ) : null}
+        </AddWorkspace>
+      ) : null}
 
       {newResidentImportOpen && selectedProperty ? (
         <PropertyResidentDocumentImportModal

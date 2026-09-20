@@ -19,7 +19,6 @@ import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-se
  * Hub `?tab=` ids can differ: automation → reminders, communication → messaging.
  */
 export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsTab; label: string }[] = [
-  { id: "properties", label: "Properties" },
   { id: "applications", label: "Applications" },
   // Renamed from "Calendar" (AXI-161): every control on this panel is a TOUR
   // setting — notice required, auto-confirm, tour reminders — so calling it
@@ -40,11 +39,11 @@ export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsT
 ];
 
 /**
- * Bare `/portal/settings` used to land on Applications. The hub default is
- * Properties — that is the module the Properties gear opens, and the first
- * Portfolio pane.
+ * Bare `/portal/settings` lands on Applications — Properties is no longer a
+ * settings module (house rules live on the listing; the Property bar scopes
+ * every other module).
  */
-export const DEFAULT_MANAGER_SETTINGS_TAB: ManagerPortalSettingsTab = "properties";
+export const DEFAULT_MANAGER_SETTINGS_TAB: ManagerPortalSettingsTab = "applications";
 
 /** Resolves a raw `/portal/settings/<area>` URL segment to a real tab, or `null` for an unknown one. */
 export function parseManagerSettingsAreaTab(area: string | undefined | null): ManagerPortalSettingsTab | null {
@@ -52,6 +51,7 @@ export function parseManagerSettingsAreaTab(area: string | undefined | null): Ma
   if (area === "leases") return "lease";
   if (area === "reminders") return "automation";
   if (area === "residents") return "resident";
+  if (area === "properties") return "applications";
   const match = MANAGER_PORTAL_SETTINGS_TABS.find((item) => item.id === area);
   return match ? match.id : null;
 }
@@ -62,7 +62,7 @@ export function parseManagerSettingsAreaTab(area: string | undefined | null): Ma
  * with Account Notifications.
  */
 export function managerSettingsHubTab(tab: ManagerPortalSettingsTab | null | undefined): string {
-  if (!tab) return "properties";
+  if (!tab || tab === "properties") return "applications";
   if (tab === "automation") return "reminders";
   if (tab === "communication") return "messaging";
   return tab;

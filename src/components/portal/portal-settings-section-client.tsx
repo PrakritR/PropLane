@@ -23,8 +23,12 @@ import {
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/pro-portal-settings-panels";
 import { SaveStatus } from "@/components/ui/save-status";
-import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsHubTab } from "@/lib/portal-settings-section";
+import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
 
 /**
  * `/portal/settings/<tab>` — the standalone page every per-section gear's "Open in Settings ↗"
@@ -57,6 +61,7 @@ export function PortalSettingsSectionClient({
     savedAt: null,
   });
   const pageRef = useRef<SettingsModulePageHandle>(null);
+  const [scopePropertyId, setScopePropertyId] = useState("");
 
   /**
    * The Applications and Lease modules are per-property, so without these the
@@ -156,7 +161,7 @@ export function PortalSettingsSectionClient({
     const { ok } = (await pageRef.current?.flushPendingSaves()) ?? { ok: true };
     if (!ok) return;
     if (typeof window !== "undefined") {
-      window.location.assign(`${basePath}/profile?tab=${managerSettingsHubTab(nextTab)}`);
+      window.location.assign(`${basePath}/settings/${nextTab}`);
     }
   }
 
@@ -218,38 +223,49 @@ export function PortalSettingsSectionClient({
 
           <PortalSettingsSections className={showList ? "max-lg:hidden" : undefined}>
             {tab ? (
-              <PortalSettingsSection
-                title={activeMeta?.label ?? "Settings"}
-                action={
-                  <SaveStatus
-                    status={{
-                      state: saveStatus.state,
-                      reason: saveStatus.reason,
-                      savedAt: saveStatus.savedAt,
-                      retry: () => {
-                        void pageRef.current?.flushPendingSaves();
-                      },
-                      flush: async () => {
-                        await pageRef.current?.flushPendingSaves();
-                      },
-                      dirty: saveStatus.state === "saving",
-                    }}
-                  />
-                }
+              <SettingsPropertyScopeProvider
+                propertyId={scopePropertyId}
+                onPropertyIdChange={setScopePropertyId}
+                options={propertyOptions}
               >
-                <SettingsModulePage
-                  ref={pageRef}
-                  tab={tab}
-                  propertyOptions={propertyOptions}
-                  onFooterChange={setFooter}
-                  onSaveStatusChange={setSaveStatus}
-                />
-                {footer ? (
-                  <div className="flex justify-end">
-                    <SettingsPanelModalSaveButton {...footer} />
-                  </div>
-                ) : null}
-              </PortalSettingsSection>
+                <PortalSettingsSection
+                  title={activeMeta?.label ?? "Settings"}
+                  action={
+                    <div className="flex items-center gap-2">
+                      <SettingsPropertyScopeBar />
+                      <SaveStatus
+                        status={{
+                          state: saveStatus.state,
+                          reason: saveStatus.reason,
+                          savedAt: saveStatus.savedAt,
+                          retry: () => {
+                            void pageRef.current?.flushPendingSaves();
+                          },
+                          flush: async () => {
+                            await pageRef.current?.flushPendingSaves();
+                          },
+                          dirty: saveStatus.state === "saving",
+                        }}
+                      />
+                    </div>
+                  }
+                >
+                  <SettingsModulePage
+                    ref={pageRef}
+                    tab={tab}
+                    propertyOptions={propertyOptions}
+                    initialPropertyId={scopePropertyId}
+                    onFooterChange={setFooter}
+                    onSaveStatusChange={setSaveStatus}
+                    showFormLink
+                  />
+                  {footer ? (
+                    <div className="flex justify-end">
+                      <SettingsPanelModalSaveButton {...footer} />
+                    </div>
+                  ) : null}
+                </PortalSettingsSection>
+              </SettingsPropertyScopeProvider>
             ) : (
               <PortalSettingsSection
                 title="Settings module not found"

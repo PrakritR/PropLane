@@ -10,8 +10,9 @@
  * 2. **Each room** — the lease types offered, then the **application fee**
  *    directly under them (one amount, or one per lease type behind a checkbox;
  *    a blank type follows the one amount), then one card per room with a tab
- *    per lease type. The top card is **Default room**: same rows, same inputs;
- *    rooms follow it until changed (grey and dashed = following, ink with a
+ *    per lease type. The top card is **Default room**: rent, utilities, deposit,
+ *    listed rent, and Other fees — no dedicated Move-in fee row. Rooms follow it
+ *    until changed (grey and dashed = following, ink with a
  *    dot = the room's own). Month-to-month and custom dates are "same as
  *    long-term" until the box is unticked. Short-term is rent per night, rent
  *    per week — the rate is all-in.
@@ -64,6 +65,7 @@ import {
   listingFeesForWizard,
   parseRemovedStandardListingFeeRows,
   patchListingFeeCadence,
+  presetListingFeeRow,
   type ListingFeeCadence,
   type ListingFeeRow,
   type RemovedStandardListingFeeRowId,
@@ -230,9 +232,33 @@ const helpRow = (title: string, text: string) => (
 const CADENCE_SHORT: Record<ListingFeeCadence, string> = { monthly: "/mo", weekly: "/wk", daily: "/day", nightly: "/night", "one-time": "once" };
 const MONTHLY_CADENCES: readonly ListingFeeCadence[] = ["monthly", "weekly", "daily", "one-time"];
 const STAY_CADENCES: readonly ListingFeeCadence[] = ["one-time", "daily", "weekly", "monthly"];
-/** Presets that never belong on a pricing card: the deposit has its own row, these two are charged when a lease ends. */
-const CARD_HIDDEN_PRESETS = new Set<string>(["security_deposit", "break_lease_fee", "holdover_daily", "short_term_nightly"]);
+/** Presets that never belong on Other fees: deposit has its own row; move-in is not a Default room field; these two are charged when a lease ends. */
+const CARD_HIDDEN_PRESETS = new Set<string>(["security_deposit", "move_in_fee", "break_lease_fee", "holdover_daily", "short_term_nightly"]);
 const isStayTerm = (term: string) => term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM;
+
+function MoveInFeeRow({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const amount = moneyValue(
+    listingFeesForWizard(sub).find((fee) => fee.presetId === "move_in_fee")?.amount ?? sub.moveInFee,
+  );
+  return (
+    <FactRow label="Move-in fee">
+      <MoneyInput
+        label="Move-in fee"
+        value={amount}
+        placeholder="150"
+        onChange={(value) => {
+          const nextAmount = sanitizeMoneyInput(value);
+          const fees = listingFeesForWizard(sub);
+          const next = fees.some((fee) => fee.presetId === "move_in_fee")
+            ? fees.map((fee) => (fee.presetId === "move_in_fee" ? { ...fee, amount: nextAmount } : fee))
+            : [...fees, presetListingFeeRow("move_in_fee", nextAmount)];
+          patch(applyListingFeesToSubmission(sub, next));
+        }}
+        dataAttr="listing-v2-price-move-in-fee"
+      />
+    </FactRow>
+  );
+}
 
 /** Fee rows a pricing card can show at all, in the order the catalogue keeps them. */
 function cardFeeRows(sub: ManagerListingSubmissionV1): ListingFeeRow[] {
@@ -701,8 +727,7 @@ function MonthlyCards({
               ) : (
                 <MoneyInput
                   label={`Rent for every room on ${term}`}
-                  value={termDef("monthlyRent")}
-                  inherited={!termDef("monthlyRent")}
+                  value={termDef("monthlyRent") || ltText("monthlyRent")}
                   placeholder={ltText("monthlyRent") || "1,100"}
                   onChange={(v) => onTermDefault(term, "monthlyRent", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-rent"
@@ -715,8 +740,7 @@ function MonthlyCards({
               ) : (
                 <MoneyInput
                   label={`Utilities for every room on ${term}`}
-                  value={termDef("utilitiesEstimate")}
-                  inherited={!termDef("utilitiesEstimate")}
+                  value={termDef("utilitiesEstimate") || ltText("utilitiesEstimate")}
                   placeholder={ltText("utilitiesEstimate") || "150"}
                   onChange={(v) => onTermDefault(term, "utilitiesEstimate", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-utilities"
@@ -729,8 +753,7 @@ function MonthlyCards({
               ) : (
                 <MoneyInput
                   label={`Deposit for every room on ${term}`}
-                  value={termDef("securityDeposit")}
-                  inherited={!termDef("securityDeposit")}
+                  value={termDef("securityDeposit") || ltText("securityDeposit")}
                   placeholder={ltText("securityDeposit") || "1,000"}
                   onChange={(v) => onTermDefault(term, "securityDeposit", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-deposit"
@@ -1008,6 +1031,7 @@ function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1;
       <FactRow label="Deposit">
         <MoneyInput label="Deposit for the whole place" value={moneyValue(sub.securityDeposit)} placeholder="3,200" onChange={(v) => patch({ securityDeposit: sanitizeMoneyInput(v) })} />
       </FactRow>
+      <MoveInFeeRow sub={sub} patch={patch} />
       <FactRow label="Utilities are">
         <RowSelectCell
           ariaLabel="How utilities are handled"
@@ -1389,14 +1413,14 @@ export function ListingPricingSections({
             <MonthlyCards
               sub={sub}
               patch={patch}
-              term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm}
+              term={activeLeaseTerm}
               feeScopeTerm={activeLeaseTerm}
               defaults={defaults}
               termDefaults={termDefaults}
               onDefault={onDefault}
               onTermDefault={onTermDefault}
               onRoom={onRoom}
-              dimmed={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm)}
+              dimmed={false}
             />
           )}
         </>

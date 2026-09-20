@@ -79,7 +79,7 @@ function str(row: Record<string, unknown>, key: string): string | null {
 async function channelStays(db: SupabaseClient): Promise<Stay[]> {
   const { data, error } = await db
     .from("external_calendar_connections")
-    .select("id, manager_user_id, property_id, room_id, label, imported_ranges")
+    .select("id, manager_user_id, property_id, room_id, label, provider, imported_ranges")
     .limit(MAX_ROWS);
   if (error) throw error;
 
@@ -103,7 +103,10 @@ async function channelStays(db: SupabaseClient): Promise<Stay[]> {
         subjectId: `channel:${connectionId}:${String(range.id ?? start).trim()}`,
         checkInKey: start,
         checkOutKey: end,
-        guestName: bookingGuestLabel(String(range.summary ?? "")),
+        guestName: bookingGuestLabel(
+          String(range.summary ?? ""),
+          str(row, "provider") === "booking_com" ? "booking_com" : "airbnb",
+        ),
         propertyId: str(row, "property_id"),
         propertyLabel: str(row, "label") ?? str(row, "property_id") ?? "your listing",
       });

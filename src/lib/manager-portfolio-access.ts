@@ -22,7 +22,11 @@ import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
 import { MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readProRelationships, syncProRelationshipsFromServer } from "@/lib/pro-relationships";
 import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import {
+  activeWorkspacePropertyOptions,
+  ownedWorkspacePropertyIds,
+  workspaceContainsProperty,
+} from "@/lib/workspaces/selection";
 import {
   coManagerModuleAllowed,
   hasCoManagerPermission,
@@ -48,6 +52,9 @@ export function ownedPropertyIdsForUser(userId: string): Set<string> {
   const owned = new Set<string>();
   for (const p of readExtraListingsForUser(userId)) owned.add(p.id);
   for (const r of readPendingManagerPropertiesForUser(userId)) owned.add(r.id);
+  // Workspace membership is authoritative when the local pipeline is empty —
+  // Incoming Add must not disappear just because listings have not cached yet.
+  for (const id of ownedWorkspacePropertyIds()) owned.add(id);
   return owned;
 }
 
@@ -460,6 +467,10 @@ export function buildManagerPropertyFilterOptions(userId: string | null): Manage
   if (!scopeUserId) return [];
   const labelById = new Map<string, string>();
 
+  for (const option of activeWorkspacePropertyOptions()) {
+    labelById.set(option.id, option.label);
+  }
+
   for (const p of readScopedExtraListings(scopeUserId)) {
     // A browser-store row with no id has nothing to filter by; skip it rather than crash.
     if (typeof p.id !== "string" || !p.id.trim()) continue;
@@ -504,8 +515,14 @@ export function buildManagerPropertyFilterOptions(userId: string | null): Manage
     }
   }
 
+  const pendingIds = new Set(
+    readPendingManagerPropertiesForUser(scopeUserId)
+      .map((row) => row.id.trim())
+      .filter(Boolean),
+  );
+
   return [...labelById.entries()]
-    .filter(([id]) => workspaceContainsProperty(id))
+    .filter(([id]) => workspaceContainsProperty(id) || pendingIds.has(id))
     .map(([id, label]) => ({ id, label }))
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 }

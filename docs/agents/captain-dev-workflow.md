@@ -94,7 +94,8 @@ Full collaborator guide: **`docs/share/proplane-collaborator-workflow.md`**.
 | Cursor 2 | `cursor-2` | http://localhost:3011 |
 | Claude 1 | `claude-1` | http://localhost:3012 |
 
-Commit and push **only** the pane's keeper branch.
+Commit and push **only** the prompt branch created when this prompt started
+(`agent/<lane>/…`). Never push the standing lane name.
 
 | Area | Read first |
 | --- | --- |

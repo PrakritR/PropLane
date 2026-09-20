@@ -7,6 +7,11 @@ describe("bookingGuestLabel", () => {
     expect(bookingGuestLabel("not available")).toBe("Booked (Airbnb)");
   });
 
+  it("names Booking.com when the imported summary is generic", () => {
+    expect(bookingGuestLabel("Reserved", "booking_com")).toBe("Booked (Booking.com)");
+    expect(bookingGuestLabel("", "booking_com")).toBe("Booked (Booking.com)");
+  });
+
   it("keeps guest names from Airbnb", () => {
     expect(bookingGuestLabel("Alex M.")).toBe("Alex M.");
   });

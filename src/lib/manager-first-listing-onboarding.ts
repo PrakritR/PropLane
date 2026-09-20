@@ -232,9 +232,11 @@ export function managerNeedsFirstListingOnboarding(
 export function shouldSkipFirstListingOnboarding(opts: {
   demo?: boolean;
   email?: string | null;
+  incomingTeam?: boolean;
 }): boolean {
   if (opts.demo ?? isDemoModeActive()) return true;
   if (isPortalSandboxEmail(opts.email)) return true;
+  if (opts.incomingTeam) return true;
   return false;
 }
 
@@ -262,11 +264,11 @@ export function firstListingDashboardRedirectStorageKey(userId: string): string 
  */
 export async function ensureManagerFirstListingDraft(
   managerUserId: string,
-  opts?: { email?: string | null; portfolioSynced?: boolean; coManagerLinksKnown?: boolean },
+  opts?: { email?: string | null; portfolioSynced?: boolean; coManagerLinksKnown?: boolean; incomingTeam?: boolean },
 ): Promise<{ draftId: string; created: boolean } | null> {
   const userId = managerUserId.trim();
   if (!userId) return null;
-  if (shouldSkipFirstListingOnboarding({ email: opts?.email })) return null;
+  if (shouldSkipFirstListingOnboarding({ email: opts?.email, incomingTeam: opts?.incomingTeam })) return null;
 
   const existing = readAdminPropertyRows(5, userId);
   if (existing.length > 0) {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, MessageSquareText } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
@@ -117,9 +117,9 @@ function messagingUpsellMessage(
   // trial waits for its first payment (a promo-code plan counts as paid).
   switch (status.entitlement.reason) {
     case "free":
-      return "A work number for texting and calls comes with Pro ($10/mo of credit) and Business ($100/mo). Upgrade to set one up.";
+      return "Free accounts cannot use a work number. Upgrade to a paid Pro or Business plan to activate one.";
     case "trialing":
-      return "A work number is provisioned once your plan is paid. Add a card to keep Pro or Business and your number is ready the same day.";
+      return "You're on a free trial. Upgrade to a paid plan to activate a work number.";
     case "past_due":
       return "Your subscription payment is past due. Update your card to keep your work number.";
     case "canceled":
@@ -231,15 +231,33 @@ export function ManagerMessagingSettingsPanel({
 
   // The line and address belong to the ACTIVE workspace; read again on a switch.
   const selectedWorkspace = useSelectedWorkspaceId();
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal, opts?: { refreshEligibility?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(ENDPOINT, {
-        credentials: "include",
-        cache: "no-store",
-        signal,
-      });
+      let res: Response;
+      if (opts?.refreshEligibility) {
+        res = await fetch(ENDPOINT, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refresh_eligibility" }),
+          signal,
+        });
+        if (!res.ok) {
+          res = await fetch(ENDPOINT, {
+            credentials: "include",
+            cache: "no-store",
+            signal,
+          });
+        }
+      } else {
+        res = await fetch(ENDPOINT, {
+          credentials: "include",
+          cache: "no-store",
+          signal,
+        });
+      }
       const body = (await res
         .json()
         .catch(() => ({}))) as ManagerMessagingNumberStatus & {
@@ -270,7 +288,7 @@ export function ManagerMessagingSettingsPanel({
 
   useEffect(() => {
     const controller = new AbortController();
-    void Promise.resolve().then(() => load(controller.signal));
+    void Promise.resolve().then(() => load(controller.signal, { refreshEligibility: true }));
     return () => controller.abort();
   }, [load, personalPhoneRefreshKey, selectedWorkspace]);
 
@@ -499,45 +517,6 @@ export function ManagerMessagingSettingsPanel({
     return () => window.removeEventListener(WORK_CONTACT_ANNOUNCE_EVENT, open);
   }, [canSend, openAnnounceModal, statusPhoneNumber, workEmail]);
 
-  /**
-   * Settle an unverified plan by itself, instead of behind a button.
-   *
-   * Reading the billing source needs no human judgement, so asking the manager
-   * to find and press "Check eligibility" only ever left the answer unread —
-   * and a brand-new account, which has no `sms_manager_entitlements` row and so
-   * reads back as `plan_unreadable`, is exactly the account that saw it.
-   *
-   * One attempt per mount avoids repeated background checks. The server also
-   * throttles eligibility refreshes. A settled Free/trial snapshot can later
-   * be refreshed explicitly after a plan upgrade.
-   */
-  const settleAttemptedRef = useRef(false);
-  const entitlementUnverified = status ? entitlementIsUnverified(status) : false;
-  useEffect(() => {
-    if (!entitlementUnverified || settleAttemptedRef.current) return;
-    settleAttemptedRef.current = true;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(ENDPOINT, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "refresh_eligibility" }),
-        });
-        if (!res.ok) return;
-        const body = (await res.json().catch(() => ({}))) as unknown;
-        if (!cancelled && isMessagingNumberStatus(body)) setStatus(body);
-      } catch {
-        // A plan we could not read is already the state on screen; surfacing a
-        // network error for work the manager never asked for would only add noise.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [entitlementUnverified]);
-
   if (loading && !status) {
     return (
       <PortalSettingsSection
@@ -750,17 +729,34 @@ export function ManagerMessagingSettingsPanel({
               </p>
             </div>
           ) : planMessage ? (
-            <div className="space-y-3">
-              <p className="text-sm leading-relaxed text-muted">
-                {planMessage}
-              </p>
+            <div
+              className="space-y-3 rounded-xl border border-[var(--status-overdue-fg)]/40 bg-[var(--status-overdue-bg)] px-3 py-3"
+              data-attr="messaging-work-number-plan-lock"
+              role="alert"
+            >
+              <div className="flex items-start gap-2 text-sm text-[var(--status-overdue-fg)]">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p className="font-medium leading-relaxed">{planMessage}</p>
+              </div>
               {unverifiedEntitlement ? null : (
                 <Button
                   asChild
-                  variant="outline"
+                  variant="primary"
                   data-attr="messaging-open-billing"
                 >
-                  <Link href="/portal/profile?tab=billing">View plans</Link>
+                  <Link
+                    href={
+                      !status.entitlement.eligible &&
+                      status.entitlement.reason === "trialing"
+                        ? "/portal/profile?tab=billing&activatePaid=1"
+                        : "/portal/profile?tab=billing"
+                    }
+                  >
+                    {!status.entitlement.eligible &&
+                    status.entitlement.reason === "trialing"
+                      ? "Activate paid plan"
+                      : "Upgrade to a paid plan"}
+                  </Link>
                 </Button>
               )}
             </div>
@@ -827,31 +823,7 @@ export function ManagerMessagingSettingsPanel({
             </div>
           ) : null}
 
-          {!status.entitlement.eligible && !unverifiedEntitlement ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pendingAction !== null}
-              aria-busy={pendingAction === "refresh"}
-              onClick={() => postAction("refresh_eligibility")}
-              data-attr="messaging-eligibility-refresh"
-            >
-              {pendingAction === "refresh" ? "Checking…" : "Refresh eligibility"}
-            </Button>
-          ) : null}
-
-          {/* They said yes during setup but cannot act on it yet — usually a
-              plan that does not include messaging. Saying so is the whole point
-              of recording the intent; dropping it silently would leave them
-              waiting for a number nobody is getting. */}
-          {status.requestedAtSignup && !status.canRequest && !status.number?.phoneNumber ? (
-            <p className="text-xs text-muted" data-attr="messaging-number-signup-intent">
-              You asked for a PropLane number when you created this account. It is waiting on your plan — once messaging
-              is included, you can request it here.
-            </p>
-          ) : null}
-
-          {status.canRequest ? (
+          {status.canRequest && !planMessage ? (
             <div className="space-y-3">
               <div className="max-w-44 space-y-1.5">
                 <label
@@ -889,34 +861,6 @@ export function ManagerMessagingSettingsPanel({
                     : "Request work number"}
               </Button>
             </div>
-          ) : null}
-
-          {announceReady ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-10 rounded-full px-4 text-xs"
-              disabled={announceBusy}
-              onClick={() => openAnnounceModal(announceChannelsLive, status.canSend)}
-              data-attr="messaging-announce-residents-open"
-            >
-              {announceChannelsLive.phone && announceChannelsLive.email
-                ? "Tell residents how to reach you"
-                : "Tell residents about this number"}
-            </Button>
-          ) : null}
-
-          {requestPending ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="min-h-10 rounded-full px-3 text-xs"
-              disabled={loading}
-              onClick={() => load()}
-              data-attr="messaging-number-status-refresh"
-            >
-              {loading ? "Checking…" : "Refresh status"}
-            </Button>
           ) : null}
         </div>
       </PortalSettingsGroup>
@@ -980,7 +924,7 @@ export function ManagerMessagingSettingsPanel({
             onChange={setAnnounceSendVia}
             smsAvailable={status?.canSend === true}
             disabled={announceBusy}
-            footerNote="We'll email and text every resident in your portfolio. Numbers without SMS consent still get the email and portal inbox copy."
+            footerNote=""
             dataAttr="messaging-announce-send-via"
           />
         </div>

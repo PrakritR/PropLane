@@ -85,6 +85,8 @@ export async function applySignedLeaseRenewal(leaseRowId: string, managerUserId:
     }
     // force=true wipes and regenerates the pending schedule (deposit/move-in
     // fee stay settled; rent months re-derive from the new profile + dates).
+    // Paid / settled charges are left alone. Advertised house rent is never
+    // written here.
     recordApprovedApplicationCharges(nextRow, managerUserId, true);
   }
 

@@ -8,11 +8,17 @@
 // several clients is the normal condition for a contractor, so this blocked the base case.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 
 const state = vi.hoisted(() => ({
   managers: [] as { managerUserId: string; label: string }[],
   posted: [] as Record<string, unknown>[],
+}));
+
+vi.mock("@/lib/demo/demo-session", () => ({
+  isDemoModeActive: () => false,
+  subscribeDemoPath: () => () => {},
 }));
 
 vi.mock("next/navigation", () => ({
@@ -55,12 +61,23 @@ afterEach(() => {
 });
 
 function renderInvoices() {
-  return render(<VendorFinancesPanel tabId="invoices" />);
+  return render(
+    <AppUiProvider>
+      <VendorFinancesPanel tabId="invoices" />
+    </AppUiProvider>,
+  );
 }
 
-async function openSubmitModal() {
+async function openRequestPayment() {
   await waitFor(() => expect(document.querySelector('[data-attr="vendor-invoice-new"]')).toBeTruthy());
   fireEvent.click(document.querySelector('[data-attr="vendor-invoice-new"]') as HTMLElement);
+}
+
+async function goToInvoiceStep() {
+  await openRequestPayment();
+  await waitFor(() => expect(document.querySelector('[data-attr="vendor-quote-wizard-next"]')).toBeTruthy());
+  fireEvent.click(document.querySelector('[data-attr="vendor-quote-wizard-next"]') as HTMLElement);
+  await waitFor(() => expect(screen.getByLabelText("Amount")).toBeTruthy());
 }
 
 /** The Bill-to control is the PropLane dropdown: a button that opens a portaled listbox. */
@@ -87,7 +104,7 @@ describe("vendor invoice manager picker", () => {
       { managerUserId: "mgr-b", label: "Blair Manager" },
     ];
     renderInvoices();
-    await openSubmitModal();
+    await goToInvoiceStep();
 
     await waitFor(() => expect(picker()).toBeTruthy());
     const listbox = openPicker();
@@ -98,9 +115,9 @@ describe("vendor invoice manager picker", () => {
   it("does not ask when there is only one manager to bill", async () => {
     state.managers = [{ managerUserId: "mgr-a", label: "Alex Manager" }];
     renderInvoices();
-    await openSubmitModal();
+    await goToInvoiceStep();
 
-    await waitFor(() => expect(screen.queryByText(/line items/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText("Amount")).toBeTruthy());
     expect(picker()).toBeNull();
   });
 
@@ -110,13 +127,13 @@ describe("vendor invoice manager picker", () => {
       { managerUserId: "mgr-b", label: "Blair Manager" },
     ];
     renderInvoices();
-    await openSubmitModal();
+    await goToInvoiceStep();
     await waitFor(() => expect(picker()).toBeTruthy());
 
     pickManager("mgr-b");
-    fireEvent.change(screen.getByPlaceholderText("Description"), { target: { value: "Labor" } });
-    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "1" } });
-    fireEvent.change(screen.getByLabelText("Unit amount in dollars"), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "100" } });
+    fireEvent.click(document.querySelector('[data-attr="vendor-quote-wizard-next"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-attr="vendor-invoice-submit"]')).toBeTruthy());
     fireEvent.click(document.querySelector('[data-attr="vendor-invoice-submit"]') as HTMLElement);
 
     await waitFor(() => expect(state.posted).toHaveLength(1));
@@ -129,12 +146,12 @@ describe("vendor invoice manager picker", () => {
       { managerUserId: "mgr-b", label: "Blair Manager" },
     ];
     renderInvoices();
-    await openSubmitModal();
+    await goToInvoiceStep();
     await waitFor(() => expect(picker()).toBeTruthy());
 
-    fireEvent.change(screen.getByPlaceholderText("Description"), { target: { value: "Labor" } });
-    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "1" } });
-    fireEvent.change(screen.getByLabelText("Unit amount in dollars"), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "100" } });
+    fireEvent.click(document.querySelector('[data-attr="vendor-quote-wizard-next"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-attr="vendor-invoice-submit"]')).toBeTruthy());
     fireEvent.click(document.querySelector('[data-attr="vendor-invoice-submit"]') as HTMLElement);
 
     await waitFor(() => expect(screen.getByText(/choose which manager/i)).toBeTruthy());

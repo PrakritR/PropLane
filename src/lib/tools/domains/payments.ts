@@ -16,6 +16,7 @@ import { appendResidentPortalLoginInstructions } from "@/lib/resident-portal-log
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 /** Server-side read of the landlord's charges, scoped by manager_user_id. */
 async function loadManagerCharges(ctx: AgentContext): Promise<HouseholdCharge[]> {
@@ -173,7 +174,7 @@ async function sendReminderForCharge(
   let email: ChannelOutcome = "skipped";
   if (channels.has("email") && apiKey && !isDemoAddress && hasDeliverableEmail) {
     try {
-      const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+      const from = await managerOutboundFromHeader(ctx.db, ctx.userId);
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },

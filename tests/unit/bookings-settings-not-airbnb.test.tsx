@@ -13,6 +13,9 @@ import { act, fireEvent, render } from "@testing-library/react";
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () => Promise.resolve([]),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
+  saveChannelCalendarConnection: () => Promise.resolve({ id: "c1" }),
+  syncChannelCalendarConnection: () => Promise.resolve(),
+  deleteChannelCalendarConnection: () => Promise.resolve(),
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
@@ -84,7 +87,7 @@ describe("Bookings → Settings", () => {
     expect(text).toContain("Booking settings");
   });
 
-  it("Link Airbnb still opens the Link Airbnb dialog", async () => {
+  it("Link calendars still opens the Link calendars dialog", async () => {
     stubFetch();
     const view = render(
       <AppUiProvider>
@@ -96,6 +99,20 @@ describe("Bookings → Settings", () => {
     fireEvent.click(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')!);
     await settle();
 
-    expect(document.body.textContent ?? "").toContain("Link Airbnb");
+    expect(document.body.textContent ?? "").toContain("Link calendars");
+    expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).toBeNull();
+  });
+
+  it("keeps Filter on the command bar with one property", async () => {
+    stubFetch();
+    const view = render(
+      <AppUiProvider>
+        <ManagerBookings bucket="upcoming" basePath="/portal" />
+      </AppUiProvider>,
+    );
+    await settle();
+    expect(view.container.querySelector('[data-attr="bookings-filter-sheet-open"]')).not.toBeNull();
   });
 });

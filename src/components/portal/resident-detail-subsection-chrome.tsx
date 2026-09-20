@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Pencil, Settings2, SlidersHorizontal } from "lucide-react";
+import { Pencil, Settings, SlidersHorizontal } from "lucide-react";
 import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
 import { cn } from "@/lib/utils";
 import { MANAGER_SETTINGS_ENTRY_POINTS } from "@/components/portal/settings-entry-points";
@@ -92,7 +92,7 @@ export function ResidentDetailCommandToolbar({
         />
       )}
       <ChromeAction
-        icon={Settings2}
+        icon={Settings}
         label={settingsLabel}
         dataAttr={settingsDataAttr}
         disabled={settingsDisabled || !onSettings}

@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 
@@ -61,5 +63,10 @@ describe("downloadLeaseFromRow", () => {
       "text/html;charset=utf-8",
       "Lease",
     );
+  });
+
+  it("loads omitted list-row bytes before download", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/lease-pipeline-storage.ts"), "utf8");
+    expect(src).toContain("ensureLeaseDocumentLoaded(row.id, undefined, row)");
   });
 });

@@ -1,6 +1,5 @@
 import "server-only";
 import type { SmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
-import { isTrialWorkNumberOnboardingEnabled } from "@/lib/sms/number-registration-policy";
 
 // Work contact addresses are included on every verified plan. Credit gates
 // apply to metered transport only; email remains usable with an empty wallet.
@@ -11,7 +10,6 @@ export function managerCommsEntitlementCanBeReconciled(
 ): boolean {
   return (
     entitlement.eligible ||
-    (entitlement.reason === "trialing" && isTrialWorkNumberOnboardingEnabled()) ||
     entitlement.reason === "plan_unreadable" ||
     entitlement.reason === "legacy_unknown"
   );

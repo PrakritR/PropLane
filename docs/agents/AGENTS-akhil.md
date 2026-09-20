@@ -8,6 +8,14 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 
 ## Process
 
+- Temporary Akhil-authorized staging-QA exception: from 2026-09-16T21:08:02Z
+  until 2026-09-23T21:08:02Z, staging QA is not required for his explicitly
+  authorized releases. Keep keeper → main → staging → production and all other
+  gates, including local/browser tests, independent review, migration backups,
+  preflight and deployment verification. This does not renew the expired
+  direct-main-to-production exception. After expiry, staging QA is mandatory
+  again. Human-readable scope: `../plans/staging-qa-exception-20260916.html`.
+
 - Do **not** file a Linear ticket, open Lavish, or run `workflow:plan` unless
   Akhil asks. Ticket → plan → approve is Prakrit's pipeline.
 - Do **not** invoke no-mistakes, including through a wrapper or at the end of
@@ -25,6 +33,13 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 ## Working style
 
 - Never use the em dash. Use a plain dash `-`.
+- Run localhost servers only during active testing or review. Stop task-owned
+  servers when active use ends, including before handoff; a Review URL is not
+  a reason to leave one running. Verify process ownership before stopping it.
+- Designate exactly one heavy-validation owner. Delegates run focused checks
+  only unless that slot is explicitly transferred; never duplicate a
+  whole-project typecheck, build, or broad test suite in the same worktree.
+  After interruption, verify child processes exited instead of leaving Node workers.
 - Act as a collaborator: when scoping something big, name alternatives and
   drawbacks, then pick. Approach the problem from more than one angle.
 - Prefer quality, simplicity, robustness, scalability, and long-term
@@ -52,6 +67,11 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 - `/demo` is not proof the feature works.
 
 ## Handoff
+
+Documents Akhil needs to review (findings, plans, reports, and handoffs) must be
+simple, self-contained HTML files, not Markdown-only deliverables. Always give
+the full absolute file path, preferably as a clickable link. Internal Markdown
+instructions may remain Markdown; provide HTML for human review.
 
 Same as `AGENTS.md`: seed real data, exercise edges, then
 

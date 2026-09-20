@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -57,6 +58,8 @@ export function ManagerAddOutgoingPaymentModal({
   const [memo, setMemo] = useState("");
   const [propertyId, setPropertyId] = useState("");
   const [vendorId, setVendorId] = useState("");
+  const [stepIdx, setStepIdx] = useState(0);
+  const [stepError, setStepError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -78,6 +81,8 @@ export function ManagerAddOutgoingPaymentModal({
     setMemo("");
     setPropertyId("");
     setVendorId("");
+    setStepIdx(0);
+    setStepError(null);
   }, [open]);
 
   const vendors = useMemo(() => {
@@ -119,16 +124,23 @@ export function ManagerAddOutgoingPaymentModal({
     return [...seen.entries()].map(([id, label]) => ({ id, label }));
   }, [managerUserId, propertyTick]);
 
+  function parsedAmountCents() {
+    return Math.round(Number.parseFloat(amount.replace(/[^0-9.]/g, "")) * 100);
+  }
+
   async function save() {
-    const amountCents = Math.round(Number.parseFloat(amount.replace(/[^0-9.]/g, "")) * 100);
+    const amountCents = parsedAmountCents();
     if (!(amountCents > 0)) {
-      showToast("Enter a valid amount.");
+      setStepError("Enter a valid amount.");
+      setStepIdx(0);
       return;
     }
     if (!memo.trim()) {
-      showToast("Enter a description.");
+      setStepError("Enter a description.");
+      setStepIdx(0);
       return;
     }
+    setStepError(null);
     if (isDemoModeActive()) {
       showToast("Outgoing payment saved (demo).");
       onSubmitted();
@@ -165,80 +177,124 @@ export function ManagerAddOutgoingPaymentModal({
     }
   }
 
+  if (!open) return null;
+
+  const categoryLabel = CATEGORY_OPTIONS.find((option) => option.code === categoryCode)?.label ?? categoryCode;
+  const propertyLabel = propertyOptions.find((option) => option.id === propertyId)?.label ?? "Portfolio";
+  const vendorLabel = vendors.find((vendor) => vendor.id === vendorId)?.name ?? "None";
+  const amountCents = parsedAmountCents();
+  const amountLabel = amountCents > 0 ? `$${(amountCents / 100).toFixed(2)}` : "Not set";
+  const whatIncomplete = !(amountCents > 0) || !memo.trim();
+  const steps: AddWorkspaceStep[] = [
+    { id: "what", label: "What", summary: whatIncomplete ? "Amount" : `${categoryLabel} · ${amountLabel}`, incomplete: whatIncomplete },
+    { id: "where", label: "Where", summary: `${propertyLabel} · ${vendorLabel}` },
+    { id: "review", label: "Review", summary: "Ready" },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
+
   return (
-    <Modal
-      open={open}
-      title="Add outgoing payment"
+    <AddWorkspace
+      title="Add payment"
+      steps={steps}
+      current={current}
+      onJump={(index) => {
+        setStepError(null);
+        setStepIdx(index);
+      }}
       onClose={onClose}
-      footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            disabled={saving}
-            onClick={() => save()}
-            data-attr="outgoing-payment-save"
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </ModalFooter>
+      dirty={Boolean(amount.trim() || memo.trim() || propertyId || vendorId)}
+      discardTitle="Discard this payment?"
+      assistantContext="Add an outgoing payment for taxes, mortgage, fees, or a vendor invoice."
+      assistantScopeKey="Add outgoing payment"
+      sidePanel={
+        <PreviewPanel
+          title="Payment"
+          name={categoryLabel}
+          facts={[
+            { label: "Category", value: categoryLabel },
+            { label: "Amount", value: amountLabel, warn: !(amountCents > 0) },
+            { label: "Vendor", value: vendorLabel },
+          ]}
+          creates={[
+            { tone: "yes", text: "Outgoing pending payment" },
+            { tone: "no", text: "Vendor payouts from completed services still post on their own" },
+          ]}
+        />
       }
+      lastLabel="Save"
+      lastDisabled={saving}
+      nextDisabled={stepId === "what" && whatIncomplete}
+      onBeforeNext={() => {
+        if (stepId === "what" && whatIncomplete) {
+          setStepError(!(amountCents > 0) ? "Enter a valid amount." : "Enter a description.");
+          return false;
+        }
+        setStepError(null);
+        return true;
+      }}
+      busy={saving}
+      onFinish={() => void save()}
+      dataAttrPrefix="outgoing-payment"
+      finishDataAttr="outgoing-payment-save"
+      footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
     >
-      <div className="space-y-4 text-sm">
-        <p className="text-muted">
-          Log taxes, mortgage, PropLane fees, vendor invoices, and other property expenses. Vendor work-order payouts
-          appear automatically when you approve completed jobs.
-        </p>
-        <label className="flex flex-col gap-1">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Category</span>
-          <Select value={categoryCode} onChange={(e) => setCategoryCode(e.target.value)} data-attr="outgoing-payment-category">
-            {CATEGORY_OPTIONS.map((option) => (
-              <option key={option.code} value={option.code}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Amount</span>
-          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$0.00" data-attr="outgoing-payment-amount" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Date</span>
-          <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} data-attr="outgoing-payment-date" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Description</span>
-          <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="What was this payment for?" data-attr="outgoing-payment-memo" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Property</span>
-          <Select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} data-attr="outgoing-payment-property">
-            <option value="">Portfolio (optional)</option>
-            {propertyOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Vendor / payee</span>
-          <Select value={vendorId} onChange={(e) => setVendorId(e.target.value)} data-attr="outgoing-payment-vendor">
-            <option value="">None</option>
-            {vendors.map((vendor) => (
-              <option key={vendor.id} value={vendor.id}>
-                {vendor.name}
-                {vendor.trade ? ` · ${vendor.trade}` : ""}
-              </option>
-            ))}
-          </Select>
-          {vendors.length === 0 ? (
-            <p className="text-xs text-muted">Add vendors in Services → Vendors → Vendor settings.</p>
-          ) : null}
-        </label>
-      </div>
-    </Modal>
+      {stepId === "what" ? (
+        <StepColumn>
+          <StepHeading title="Payment" />
+          <WizardSelect
+            label="Category"
+            value={categoryCode}
+            onChange={setCategoryCode}
+            options={CATEGORY_OPTIONS.map((option) => ({ value: option.code, label: option.label }))}
+            dataAttr="outgoing-payment-category"
+          />
+          <WizardField label="Amount" required>
+            <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="185" data-attr="outgoing-payment-amount" />
+          </WizardField>
+          <WizardField label="Date">
+            <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} data-attr="outgoing-payment-date" />
+          </WizardField>
+          <WizardField label="Description" required>
+            <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Plumbing invoice" data-attr="outgoing-payment-memo" />
+          </WizardField>
+        </StepColumn>
+      ) : null}
+      {stepId === "where" ? (
+        <StepColumn>
+          <StepHeading title="Where" />
+          <WizardSelect
+            label="Property"
+            value={propertyId}
+            onChange={setPropertyId}
+            options={[{ value: "", label: "Portfolio" }, ...propertyOptions.map((option) => ({ value: option.id, label: option.label }))]}
+            dataAttr="outgoing-payment-property"
+          />
+          <WizardSelect
+            label="Vendor"
+            value={vendorId}
+            onChange={setVendorId}
+            options={[{ value: "", label: "None" }, ...vendors.map((vendor) => ({ value: vendor.id, label: vendor.trade ? `${vendor.name} · ${vendor.trade}` : vendor.name }))]}
+            dataAttr="outgoing-payment-vendor"
+          />
+        </StepColumn>
+      ) : null}
+      {stepId === "review" ? (
+        <StepColumn>
+          <StepHeading title="Review" />
+          <PreviewPanel
+            title="Outgoing"
+            name={categoryLabel}
+            facts={[
+              { label: "Category", value: categoryLabel },
+              { label: "Amount", value: amountLabel },
+              { label: "Property", value: propertyLabel },
+              { label: "Vendor", value: vendorLabel },
+            ]}
+            creates={[{ tone: "yes", text: "Saves an outgoing payment" }]}
+          />
+        </StepColumn>
+      ) : null}
+    </AddWorkspace>
   );
 }

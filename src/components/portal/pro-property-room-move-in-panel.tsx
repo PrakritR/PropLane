@@ -1,14 +1,13 @@
 "use client";
-import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Copy, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
-import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
-import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
+import { HouseDetailsExpandable } from "@/components/portal/house-info-sections";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import {
   updateExtraListingFromSubmission,
@@ -17,8 +16,6 @@ import {
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { cn } from "@/lib/utils";
 
 type RoomSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -26,59 +23,11 @@ type RoomSaveTarget =
   | { mode: "requestChange"; saveId: string }
   | null;
 
-const HOUSE_MOVE_IN_TARGET_ID = "__house__";
-type MoveInEditTarget = typeof HOUSE_MOVE_IN_TARGET_ID | string;
-
-/** Checkbox + label — stay inline on phones (detail list rows stack actions below). */
-const MOVE_IN_SELECT_ROW_CLASS =
-  "flex flex-row items-start gap-2.5 border-b border-border/50 py-3 last:border-0";
-
-function MoveInInstructionsField({
-  moveInInstructions,
-  disabled,
-  onInstructionsChange,
-}: {
-  moveInInstructions: string;
-  disabled: boolean;
-  onInstructionsChange: (value: string) => void;
-}) {
-  return (
-    <div>
-      <label className="text-xs font-semibold text-muted">
-        Move-in instructions
-        <span className="ml-1.5 font-normal text-muted">— shown to placed residents</span>
-      </label>
-      <Textarea
-        rows={6}
-        className="mt-1 text-sm"
-        disabled={disabled}
-        value={moveInInstructions}
-        onChange={(e) => onInstructionsChange(e.target.value)}
-        placeholder="Keys, parking, access codes, what to bring…"
-      />
-    </div>
-  );
-}
-
-function houseMoveInSummary(sub: ManagerListingSubmissionV1): string {
-  const parts: string[] = [];
-  if (sub.houseMoveInInstructions?.trim()) parts.push("Instructions set");
-  const photoCount = sub.houseMoveInPhotoDataUrls?.length ?? 0;
-  if (photoCount > 0) parts.push(photoCount === 1 ? "1 photo" : `${photoCount} photos`);
-  if (sub.houseMoveInVideoDataUrl) parts.push("Video");
-  return parts.length > 0 ? parts.join(" · ") : "Nothing set yet";
-}
-
-function roomMoveInSummary(room: ManagerRoomSubmission): string {
-  const parts: string[] = [];
-  if (room.moveInInstructions?.trim()) parts.push("Instructions set");
-  if ((room.moveInPhotoDataUrls?.length ?? 0) > 0) {
-    const count = room.moveInPhotoDataUrls!.length;
-    parts.push(count === 1 ? "1 photo" : `${count} photos`);
-  }
-  if (room.moveInVideoDataUrl) parts.push("Video");
-  if (parts.length > 0) return parts.join(" · ");
-  return "No move-in details yet";
+function moveInCount(instructions: string, photos: string[], video: string | null) {
+  return {
+    filled: (instructions.trim() ? 1 : 0) + (photos.length > 0 ? 1 : 0) + (video ? 1 : 0),
+    total: 3,
+  };
 }
 
 function roomMediaMatches(a: ManagerRoomSubmission, b: ManagerRoomSubmission): boolean {
@@ -94,6 +43,53 @@ function roomMediaMatches(a: ManagerRoomSubmission, b: ManagerRoomSubmission): b
 function residentMoveInShareUrl(): string {
   if (typeof window === "undefined") return "/resident/move-in";
   return `${window.location.origin}/resident/move-in`;
+}
+
+function MoveInCardFields({
+  instructions,
+  photoDataUrls,
+  videoDataUrl,
+  disabled,
+  onInstructionsChange,
+  onPhotosChange,
+  onVideoChange,
+  onError,
+  actions,
+}: {
+  instructions: string;
+  photoDataUrls: string[];
+  videoDataUrl: string | null;
+  disabled: boolean;
+  onInstructionsChange: (value: string) => void;
+  onPhotosChange: (urls: string[]) => void;
+  onVideoChange: (url: string | null) => void;
+  onError: (message: string) => void;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-1.5 block text-xs font-semibold text-muted">Move-in instructions</label>
+        <Textarea
+          rows={6}
+          className="text-sm"
+          disabled={disabled}
+          value={instructions}
+          onChange={(e) => onInstructionsChange(e.target.value)}
+          placeholder="Keys, parking, access codes, what to bring…"
+        />
+      </div>
+      <MoveInMediaFields
+        photoDataUrls={photoDataUrls}
+        videoDataUrl={videoDataUrl}
+        disabled={disabled}
+        onPhotosChange={onPhotosChange}
+        onVideoChange={onVideoChange}
+        onError={onError}
+      />
+      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </div>
+  );
 }
 
 export function ManagerPropertyRoomMoveInPanel({
@@ -114,28 +110,17 @@ export function ManagerPropertyRoomMoveInPanel({
   const entireHome = isEntireHomeListing(sub);
   const roomIndices = useMemo(() => sortRoomIndicesByFloor(sub.rooms), [sub.rooms]);
 
-  const [editingTarget, setEditingTarget] = useState<MoveInEditTarget | null>(null);
   const [draftByRoomId, setDraftByRoomId] = useState<Record<string, ManagerRoomSubmission>>({});
   const [houseInstructions, setHouseInstructions] = useState(sub.houseMoveInInstructions ?? "");
   const [housePhotos, setHousePhotos] = useState(sub.houseMoveInPhotoDataUrls ?? []);
   const [houseVideo, setHouseVideo] = useState(sub.houseMoveInVideoDataUrl ?? null);
-  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
-  const [houseSelected, setHouseSelected] = useState(false);
   const [copyingToRooms, setCopyingToRooms] = useState(false);
-
-  const selectionActive = houseSelected || selectedRoomIds.length > 0;
-  const selectionCount = (houseSelected ? 1 : 0) + selectedRoomIds.length;
 
   useEffect(() => {
     setDraftByRoomId(Object.fromEntries(sub.rooms.map((room) => [room.id, room])));
     setHouseInstructions(sub.houseMoveInInstructions ?? "");
     setHousePhotos(sub.houseMoveInPhotoDataUrls ?? []);
     setHouseVideo(sub.houseMoveInVideoDataUrl ?? null);
-    setEditingTarget((current) => {
-      if (!current || current === HOUSE_MOVE_IN_TARGET_ID) return current;
-      return sub.rooms.some((room) => room.id === current) ? current : null;
-    });
-    setSelectedRoomIds((current) => current.filter((id) => sub.rooms.some((room) => room.id === id)));
   }, [sub]);
 
   const persistSubmission = (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
@@ -169,24 +154,23 @@ export function ManagerPropertyRoomMoveInPanel({
 
   const saveRoom = (room: ManagerRoomSubmission) => {
     const draft = roomDraft(room);
-    const ok = persistSubmission(
+    return persistSubmission(
       {
         ...sub,
-        rooms: sub.rooms.map((r) =>
-          r.id === room.id
+        rooms: sub.rooms.map((row) =>
+          row.id === room.id
             ? {
-                ...r,
+                ...row,
                 moveInInstructions: draft.moveInInstructions ?? "",
-                moveInAvailableDate: r.moveInAvailableDate ?? "",
+                moveInAvailableDate: row.moveInAvailableDate ?? "",
                 moveInPhotoDataUrls: [...(draft.moveInPhotoDataUrls ?? [])],
                 moveInVideoDataUrl: draft.moveInVideoDataUrl ?? null,
               }
-            : r,
+            : row,
         ),
       },
       "Move-in details saved.",
     );
-    if (ok) setEditingTarget(null);
   };
 
   const houseDirty =
@@ -194,8 +178,8 @@ export function ManagerPropertyRoomMoveInPanel({
     housePhotos.join("|") !== (sub.houseMoveInPhotoDataUrls ?? []).join("|") ||
     (houseVideo ?? null) !== (sub.houseMoveInVideoDataUrl ?? null);
 
-  const saveHouse = () => {
-    const ok = persistSubmission(
+  const saveHouse = () =>
+    persistSubmission(
       {
         ...sub,
         houseMoveInInstructions: houseInstructions,
@@ -205,8 +189,6 @@ export function ManagerPropertyRoomMoveInPanel({
       },
       "Move-in details saved.",
     );
-    if (ok) setEditingTarget(null);
-  };
 
   /** Copying is only meaningful once the house section has something SAVED to copy. */
   const houseHasSavedDetails =
@@ -214,52 +196,19 @@ export function ManagerPropertyRoomMoveInPanel({
     (sub.houseMoveInPhotoDataUrls?.length ?? 0) > 0 ||
     Boolean(sub.houseMoveInVideoDataUrl);
 
-  const toggleRoomSelected = (roomId: string) => {
-    setSelectedRoomIds((current) =>
-      current.includes(roomId) ? current.filter((id) => id !== roomId) : [...current, roomId],
-    );
-  };
-
-  const toggleHouseSelected = () => {
-    setHouseSelected((current) => !current);
-  };
-
-  const openEditor = (target: MoveInEditTarget) => {
-    setEditingTarget(target);
-    setSelectedRoomIds([]);
-    setHouseSelected(false);
-  };
-
-  const copyHouseToSelectedRooms = () => {
-    const targets = new Set(selectedRoomIds);
-    if (targets.size === 0) return;
+  const copyHouseToRooms = () => {
+    if (sub.rooms.length === 0 || !houseHasSavedDetails) return;
     setCopyingToRooms(true);
     const saved = {
       moveInInstructions: sub.houseMoveInInstructions ?? "",
       moveInPhotoDataUrls: [...(sub.houseMoveInPhotoDataUrls ?? [])],
       moveInVideoDataUrl: sub.houseMoveInVideoDataUrl ?? null,
     };
-    const ok = persistSubmission(
-      { ...sub, rooms: sub.rooms.map((room) => (targets.has(room.id) ? { ...room, ...saved } : room)) },
-      targets.size === 1 ? "Copied to 1 room." : `Copied to ${targets.size} rooms.`,
+    persistSubmission(
+      { ...sub, rooms: sub.rooms.map((room) => ({ ...room, ...saved })) },
+      sub.rooms.length === 1 ? "Copied to 1 room." : `Copied to ${sub.rooms.length} rooms.`,
     );
-    if (ok) {
-      setSelectedRoomIds([]);
-      setHouseSelected(false);
-    }
     setCopyingToRooms(false);
-  };
-
-  const handleBulkEdit = () => {
-    if (houseSelected && selectedRoomIds.length === 0) {
-      openEditor(HOUSE_MOVE_IN_TARGET_ID);
-      return;
-    }
-    if (selectedRoomIds.length === 1 && !houseSelected) {
-      openEditor(selectedRoomIds[0]!);
-      return;
-    }
-    copyHouseToSelectedRooms();
   };
 
   const handleShareMoveIn = async () => {
@@ -272,342 +221,117 @@ export function ManagerPropertyRoomMoveInPanel({
     }
   };
 
-  // Back is the editor's only exit and it saves on the way out, so a failed
-  // save (the payload carries photo/video data URLs, and local storage has a
-  // quota) left the manager with no way out at all. Discard resets the draft
-  // from the saved submission and leaves.
-  const discardMoveInEdits = () => {
-    setDraftByRoomId(Object.fromEntries(sub.rooms.map((room) => [room.id, room])));
-    setHouseInstructions(sub.houseMoveInInstructions ?? "");
-    setHousePhotos(sub.houseMoveInPhotoDataUrls ?? []);
-    setHouseVideo(sub.houseMoveInVideoDataUrl ?? null);
-    setEditingTarget(null);
-  };
-
-  const renderMoveInEditor = ({
-    title,
-    subtitle,
-    instructions,
-    photoDataUrls,
-    videoDataUrl,
-    dirty,
-    onInstructionsChange,
-    onPhotosChange,
-    onVideoChange,
-    onSave,
-  }: {
-    title: string;
-    subtitle?: string;
-    instructions: string;
-    photoDataUrls: string[];
-    videoDataUrl: string | null;
-    dirty: boolean;
-    onInstructionsChange: (value: string) => void;
-    onPhotosChange: (urls: string[]) => void;
-    onVideoChange: (url: string | null) => void;
-    onSave: () => void;
-  }) => (
-    <PortalPropertyDetailSection>
-      <PortalDetailHeader
-        bare
-        title={title}
-        subtitle={subtitle}
-        hideBackText
-        onBack={() => {
-          if (canEdit && dirty) {
-            onSave();
-            return;
-          }
-          setEditingTarget(null);
-        }}
-        dataAttrBack="property-move-in-editor-back"
-      />
-      {canEdit && dirty ? (
-        <div className="flex justify-end px-1 pt-2">
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-9 min-h-0 px-3 text-[13px]"
-            data-attr="property-move-in-editor-discard"
-            onClick={discardMoveInEdits}
-          >
-            Discard changes
-          </Button>
-        </div>
-      ) : null}
-      <div className="px-1 pt-4">
-        <MoveInInstructionsField
-          moveInInstructions={instructions}
-          disabled={!canEdit}
-          onInstructionsChange={onInstructionsChange}
-        />
-        <MoveInMediaFields
-          photoDataUrls={photoDataUrls}
-          videoDataUrl={videoDataUrl}
-          disabled={!canEdit}
-          onPhotosChange={onPhotosChange}
-          onVideoChange={onVideoChange}
-          onError={showToast}
-        />
-      </div>
-    </PortalPropertyDetailSection>
-  );
-
-  if (editingTarget === HOUSE_MOVE_IN_TARGET_ID) {
-    return renderMoveInEditor({
-      title: "The whole house",
-      subtitle: entireHome
-        ? "Whole-home move-in details shown to placed residents."
-        : "Shown to every resident here, whichever room they take.",
-      instructions: houseInstructions,
-      photoDataUrls: housePhotos,
-      videoDataUrl: houseVideo,
-      dirty: houseDirty,
-      onInstructionsChange: setHouseInstructions,
-      onPhotosChange: setHousePhotos,
-      onVideoChange: setHouseVideo,
-      onSave: saveHouse,
-    });
-  }
-
-  if (editingTarget && editingTarget !== HOUSE_MOVE_IN_TARGET_ID) {
-    const room = sub.rooms.find((r) => r.id === editingTarget);
-    if (!room) {
-      setEditingTarget(null);
-      return null;
-    }
-    const draft = roomDraft(room);
-    const index = sub.rooms.findIndex((r) => r.id === room.id);
-    const label = room.name.trim() || `Room ${index + 1}`;
-    return renderMoveInEditor({
-      title: label,
-      subtitle: room.floor.trim() || undefined,
-      instructions: draft.moveInInstructions ?? "",
-      photoDataUrls: draft.moveInPhotoDataUrls ?? [],
-      videoDataUrl: draft.moveInVideoDataUrl ?? null,
-      dirty: roomDirty(room),
-      onInstructionsChange: (value) =>
-        setDraftByRoomId((prev) => ({
-          ...prev,
-          [room.id]: { ...draft, moveInInstructions: value },
-        })),
-      onPhotosChange: (urls) =>
-        setDraftByRoomId((prev) => ({
-          ...prev,
-          [room.id]: { ...draft, moveInPhotoDataUrls: urls },
-        })),
-      onVideoChange: (url) =>
-        setDraftByRoomId((prev) => ({
-          ...prev,
-          [room.id]: { ...draft, moveInVideoDataUrl: url },
-        })),
-      onSave: () => saveRoom(room),
-    });
-  }
-
-  const houseRowDirty = houseDirty;
-  const bulkEditOpensEditor =
-    (houseSelected && selectedRoomIds.length === 0) ||
-    (selectedRoomIds.length === 1 && !houseSelected);
-  const bulkEditCopiesToRooms = selectedRoomIds.length > 0 && !bulkEditOpensEditor;
-  const bulkEditDisabled = copyingToRooms || (bulkEditCopiesToRooms && !houseHasSavedDetails);
-  const bulkEditLabel = copyingToRooms ? "Applying…" : bulkEditOpensEditor ? "Edit" : "Copy house details";
-
-  /* One selection contract for every property shape. A whole-home listing has no
-     room rows, but the house itself is still selectable — the bulk bar is where Edit
-     and Share live, so without the tick box those actions were unreachable there. */
-  const moveInBulkBar = selectionActive ? (
-    <>
-      <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_BULK_BAR_BTN}
-          data-attr="property-move-in-bulk-edit"
-          disabled={bulkEditDisabled}
-          onClick={handleBulkEdit}
-        >
-          {bulkEditLabel}
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_BULK_BAR_BTN}
-          data-attr="property-move-in-share"
-          onClick={() => void handleShareMoveIn()}
-        >
-          Share
-        </Button>
-      </div>
-    </>
-  ) : null;
-
-  if (entireHome) {
-    return (
-      <>
-        <PortalRecordListSurface className="mt-0" onBulkClear={canEdit ? () => { setSelectedRoomIds([]); setHouseSelected(false); } : undefined} bulkCount={selectionCount} bulkActions={moveInBulkBar}><PortalPropertyDetailSection>
-          <p className="mb-3 px-1 text-sm text-muted">Whole-home move-in details shown to placed residents.</p>
-          <div className="divide-y divide-border/50">
-            <div className="px-1">
-              <div
-                className={cn(
-                  MOVE_IN_SELECT_ROW_CLASS,
-                  "rounded-lg transition",
-                  houseSelected ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
-                )}
-              >
-                {canEdit ? (
-                  <RowSelectCheckbox
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
-                    checked={houseSelected}
-                    aria-label="Select the whole house"
-                    data-attr="property-move-in-house-select"
-                    onChange={toggleHouseSelected}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : null}
-                <button
-                  type="button"
-                  data-attr="property-move-in-house"
-                  className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left"
-                  onClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
-                  onDoubleClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">The whole house</p>
-                      {houseRowDirty ? (
-                        <Badge tone="neutral" className="text-[10px] font-semibold uppercase tracking-wide">
-                          Draft
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted">{houseMoveInSummary(sub)}</p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-        </PortalPropertyDetailSection></PortalRecordListSurface>
-
-
-      </>
-    );
-  }
-
-  if (sub.rooms.length === 0) {
-    return (
-      <PortalPropertyDetailSection>
-        <p className="px-1 text-sm text-muted">Add rooms in Edit listing to set per-room move-in details.</p>
-      </PortalPropertyDetailSection>
-    );
-  }
+  const showRooms = !entireHome && sub.rooms.length > 0;
 
   return (
-    <>
-      <PortalRecordListSurface className="mt-0" onBulkClear={canEdit ? () => { setSelectedRoomIds([]); setHouseSelected(false); } : undefined} bulkCount={selectionCount} bulkActions={moveInBulkBar}><PortalPropertyDetailSection>
-        <p className="mb-3 px-1 text-sm text-muted">
-          Set shared house details (front door code, parking, bins) for every resident. Tick individual rooms to copy
-          saved house details into them, or open a row to edit move-in instructions, photos, and video.
-        </p>
-        <div className="divide-y divide-border/50">
-          <div className="px-1">
-            <div
-              className={cn(
-                MOVE_IN_SELECT_ROW_CLASS,
-                "rounded-lg transition",
-                houseSelected ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
-              )}
-            >
-              {canEdit ? (
-                <RowSelectCheckbox
-                  className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
-                  checked={houseSelected}
-                  aria-label="Select the whole house"
-                  data-attr="property-move-in-house-select"
-                  onChange={toggleHouseSelected}
-                  onClick={(e) => e.stopPropagation()}
+    <PortalPropertyDetailSection>
+      <div className="space-y-2.5">
+        <HouseDetailsExpandable
+          defaultOpen
+          dataAttr="property-move-in-house"
+          title="The whole house"
+          count={moveInCount(houseInstructions, housePhotos, houseVideo)}
+          actions={
+            canEdit ? (
+              <>
+                {showRooms ? (
+                  <PortalIconAction
+                    icon={Copy}
+                    label="Copy house details to rooms"
+                    data-attr="property-move-in-copy"
+                    disabled={!houseHasSavedDetails || copyingToRooms}
+                    onClick={copyHouseToRooms}
+                  />
+                ) : null}
+                <PortalIconAction
+                  icon={Share2}
+                  label="Share house details"
+                  data-attr="property-move-in-share"
+                  onClick={() => void handleShareMoveIn()}
                 />
-              ) : null}
-              <button
-                type="button"
-                data-attr="property-move-in-house"
-                className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left"
-                onClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
-                onDoubleClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold text-foreground">The whole house</p>
-                    {houseRowDirty ? (
-                      <Badge tone="neutral" className="text-[10px] font-semibold uppercase tracking-wide">
-                        Draft
-                      </Badge>
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Shown to every resident · {houseMoveInSummary(sub)}
-                  </p>
-                </div>
-              </button>
-            </div>
-          </div>
+              </>
+            ) : null
+          }
+          onOpenChange={(open) => {
+            if (!open && houseDirty && canEdit) saveHouse();
+          }}
+        >
+          <MoveInCardFields
+            instructions={houseInstructions}
+            photoDataUrls={housePhotos}
+            videoDataUrl={houseVideo}
+            disabled={!canEdit}
+            onInstructionsChange={setHouseInstructions}
+            onPhotosChange={setHousePhotos}
+            onVideoChange={setHouseVideo}
+            onError={showToast}
+            actions={
+              canEdit && houseDirty ? (
+                <Button type="button" variant="primary" onClick={() => saveHouse()}>
+                  Save
+                </Button>
+              ) : null
+            }
+          />
+        </HouseDetailsExpandable>
 
-          {roomIndices.map((index) => {
-            const room = sub.rooms[index]!;
-            const label = room.name.trim() || `Room ${index + 1}`;
-            const checked = selectedRoomIds.includes(room.id);
-            const draft = roomDraft(room);
-            const dirty = roomDirty(room);
-
-            return (
-              <div key={room.id} className="px-1">
-                <div
-                  className={cn(
-                    MOVE_IN_SELECT_ROW_CLASS,
-                    "rounded-lg transition",
-                    checked ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
-                  )}
-                >
-                  {canEdit ? (
-                    <RowSelectCheckbox
-                      className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
-                      checked={checked}
-                      aria-label={`Select ${label}`}
-                      data-attr={`property-move-in-room-select-${room.id}`}
-                      onChange={() => toggleRoomSelected(room.id)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    data-attr={`property-move-in-room-${room.id}`}
-                    className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left"
-                    onClick={() => openEditor(room.id)}
-                    onDoubleClick={() => openEditor(room.id)}
+        {showRooms
+          ? roomIndices.map((index) => {
+              const room = sub.rooms[index]!;
+              const label = room.name.trim() || `Room ${index + 1}`;
+              const draft = roomDraft(room);
+              const dirty = roomDirty(room);
+              return (
+                <div key={room.id} data-attr={`property-move-in-room-${room.id}`}>
+                  <HouseDetailsExpandable
+                    title={label}
+                    count={moveInCount(
+                      draft.moveInInstructions ?? "",
+                      draft.moveInPhotoDataUrls ?? [],
+                      draft.moveInVideoDataUrl ?? null,
+                    )}
+                    onOpenChange={(open) => {
+                      if (!open && dirty && canEdit) saveRoom(room);
+                    }}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-foreground">{label}</p>
-                        {dirty ? (
-                          <Badge tone="neutral" className="text-[10px] font-semibold uppercase tracking-wide">
-                            Draft
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {[room.floor.trim() || null, roomMoveInSummary(draft)].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                  </button>
+                    <MoveInCardFields
+                      instructions={draft.moveInInstructions ?? ""}
+                      photoDataUrls={draft.moveInPhotoDataUrls ?? []}
+                      videoDataUrl={draft.moveInVideoDataUrl ?? null}
+                      disabled={!canEdit}
+                      onInstructionsChange={(value) =>
+                        setDraftByRoomId((prev) => ({
+                          ...prev,
+                          [room.id]: { ...draft, moveInInstructions: value },
+                        }))
+                      }
+                      onPhotosChange={(urls) =>
+                        setDraftByRoomId((prev) => ({
+                          ...prev,
+                          [room.id]: { ...draft, moveInPhotoDataUrls: urls },
+                        }))
+                      }
+                      onVideoChange={(url) =>
+                        setDraftByRoomId((prev) => ({
+                          ...prev,
+                          [room.id]: { ...draft, moveInVideoDataUrl: url },
+                        }))
+                      }
+                      onError={showToast}
+                      actions={
+                        canEdit && dirty ? (
+                          <Button type="button" variant="primary" onClick={() => saveRoom(room)}>
+                            Save
+                          </Button>
+                        ) : null
+                      }
+                    />
+                  </HouseDetailsExpandable>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </PortalPropertyDetailSection></PortalRecordListSurface>
-
-
-    </>
+              );
+            })
+          : null}
+      </div>
+    </PortalPropertyDetailSection>
   );
 }

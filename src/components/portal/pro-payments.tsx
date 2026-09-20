@@ -16,7 +16,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import type { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Settings2, Wrench } from "lucide-react";
+import { Settings } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
@@ -37,7 +37,6 @@ import { convertLapsedRolloverLeasesToMonthToMonth } from "@/lib/lease-rollover-
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
-import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getPaymentsSettingsEntryPoint,
@@ -258,11 +257,13 @@ export function ManagerPayments({
   bucket = "pending",
   basePath = "/portal",
   paymentId,
+  paymentTab,
 }: {
   direction?: ManagerPaymentDirection;
   bucket?: ManagerPaymentBucket;
   basePath?: string;
   paymentId?: string;
+  paymentTab?: string;
 }) {
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
@@ -277,7 +278,6 @@ export function ManagerPayments({
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
-  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   const [incomingGroupMode, setIncomingGroupMode] = useState<PortalListGroupMode>(
@@ -405,7 +405,7 @@ export function ManagerPayments({
       if (connect === "done") {
         showToast("Bank account linked. You're ready to receive resident payments.");
       } else if (connect === "refresh") {
-        showToast("Setup link expired. Open Payment setup to try again.");
+        showToast("Setup link expired. Open Payment settings to try again.");
       }
       const url = new URL(window.location.href);
       url.searchParams.delete("connect");
@@ -426,7 +426,7 @@ export function ManagerPayments({
       if (e.data?.connect === "done") {
         showToast("Bank account linked. You're ready to receive resident payments.");
       } else if (e.data?.connect === "refresh") {
-        showToast("Setup link expired. Open Payment setup to try again.");
+        showToast("Setup link expired. Open Payment settings to try again.");
       }
       window.dispatchEvent(new Event("axis-stripe-connect-refresh"));
     };
@@ -646,7 +646,7 @@ export function ManagerPayments({
   const paymentsSettingsEntry = getPaymentsSettingsEntryPoint(direction);
   const paymentsSettingsMenu = (
     <PortalIconAction
-      icon={Settings2}
+      icon={Settings}
       label={paymentsSettingsEntry.label}
       data-attr={paymentsSettingsEntry.dataAttr}
       onClick={() => setPaymentSettingsOpen(true)}
@@ -661,20 +661,10 @@ export function ManagerPayments({
     page had already done.
   */
 
-  const paymentsSetupButton = (
-    <PortalIconAction
-      icon={Wrench}
-      label="Payment setup"
-      data-attr="payments-setup"
-      onClick={() => setPaymentSetupOpen(true)}
-    />
-  );
-
   const paymentsListActions = (
     <>
       {paymentsFilterSort}
       {paymentsSettingsMenu}
-      {paymentsSetupButton}
     </>
   );
 
@@ -766,9 +756,7 @@ export function ManagerPayments({
           bucket === "overdue"
             ? []
             : direction === "incoming"
-              ? canCreatePayment
-                ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
-                : []
+              ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
               : [{ label: "Add payment", onClick: () => setAddOutgoingOpen(true), dataAttr: "payments-empty-add-outgoing" }],
       };
 
@@ -784,6 +772,7 @@ export function ManagerPayments({
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}
         paymentId={paymentId}
+        paymentTab={paymentTab}
         listBasePath={basePath}
         direction={direction}
         onAddPayment={canCreatePayment ? () => setAddOpen(true) : undefined}
@@ -799,6 +788,7 @@ export function ManagerPayments({
         activeBucket={bucket}
         vendorById={vendorById}
         paymentId={paymentId}
+        paymentTab={paymentTab}
         listBasePath={basePath}
         groupMode={outgoingGroupMode}
         onAddPayment={() => setAddOutgoingOpen(true)}
@@ -840,12 +830,6 @@ export function ManagerPayments({
           void syncManagerOutgoingExpensesFromServer(true);
         }}
       />
-      <ManagerPaymentSetupModal
-        open={paymentSetupOpen}
-        onClose={() => setPaymentSetupOpen(false)}
-        portalBase={portalBase}
-        propertyOptions={propertyOptionsForFilter}
-      />
     </>
   );
 
@@ -881,9 +865,7 @@ export function ManagerPayments({
         actions={paymentsListActions}
         primary={
           direction === "incoming" ? (
-            canCreatePayment ? (
-              <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
-            ) : undefined
+            <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
           ) : (
             <PortalPrimaryIconAction label="Add payment" data-attr="payments-add-outgoing-top" onClick={() => setAddOutgoingOpen(true)} />
           )

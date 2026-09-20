@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import type { CoManagerPermissions, PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
 
 type OpenInviteRow = {
   id: string;
@@ -28,6 +29,9 @@ const OPEN_INVITE_SELECT = [
   "payout_percent_for_manager",
   "property_co_manager_permissions",
   "co_manager_permissions",
+  "workspace_id",
+  "workspace_permissions",
+  "team_role",
   "status",
   "created_at",
   "responded_at",
@@ -72,6 +76,9 @@ export async function mintOpenCoManagerInvite(params: {
   payoutPercentForManager: number;
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
   coManagerPermissions: CoManagerPermissions;
+  workspaceId?: string | null;
+  workspacePermissions?: WorkspaceCoManagerGrant;
+  teamRole?: string | null;
   tabKind: string;
   requestOrigin?: string;
   existingId?: string;
@@ -96,6 +103,9 @@ export async function mintOpenCoManagerInvite(params: {
     payout_percent_for_manager: params.payoutPercentForManager,
     property_co_manager_permissions: params.propertyCoManagerPermissions,
     co_manager_permissions: params.coManagerPermissions,
+    workspace_id: params.workspaceId ?? null,
+    workspace_permissions: params.workspacePermissions ?? {},
+    team_role: params.teamRole ?? null,
     status: "pending",
     invite_token_hash: hash,
     invitee_plan_inherited: true,

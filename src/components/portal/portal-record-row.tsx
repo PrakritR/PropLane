@@ -17,6 +17,7 @@ export function PortalPersonRecordRow({
   checked = false,
   onSelectedChange,
   onOpen,
+  omitActionView = false,
   dataAttr,
   trailing,
   rowId,
@@ -31,6 +32,8 @@ export function PortalPersonRecordRow({
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
+  /** Bookings ⋯ is Edit + Delete — RecordActionMenu adds View when `onOpen` is set. */
+  omitActionView?: boolean;
   dataAttr?: string;
   trailing?: ReactNode;
   /** Stable id for tests and deep links (e.g. `resident-application-AXIS-…`). */
@@ -53,7 +56,7 @@ export function PortalPersonRecordRow({
           selectable ? (
             // Was `ml-3 mr-1 mt-1` on the bare box; each side minus the 12 px pad.
             <RowSelectCheckbox
-              onOpenRecord={onOpen}
+              onOpenRecord={omitActionView ? undefined : onOpen}
               wrapperClassName="ml-0 -mr-2 -mt-2 self-start"
               checked={checked}
               onChange={(e) => onSelectedChange?.(e.target.checked)}

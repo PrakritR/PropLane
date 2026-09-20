@@ -31,6 +31,7 @@ import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
+import { listingAdvertisedRentLabelForLease } from "@/lib/lease-renewal-preview";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -66,7 +67,7 @@ import {
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
-import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
 import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
@@ -87,10 +88,7 @@ function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
  * the request first (`handleLeaseFileUpload`). Never once a signature exists.
  */
 function leaseUploadAllowedForRow(row: LeasePipelineRow): boolean {
-  return (
-    leaseAllowsManagerDocumentEdits(row) ||
-    (row.status === "Resident Signature Pending" && leaseCanBeMarkedSignedOffPlatform(row))
-  );
+  return leaseAllowsSignedPdfUpload(row);
 }
 
 function leaseRowIsBulkSendable(
@@ -99,7 +97,7 @@ function leaseRowIsBulkSendable(
   // result for truthiness, so both spellings of absent are accepted.
   sendBlockedReason: (row: LeasePipelineRow) => string | null | undefined,
 ): boolean {
-  const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+  const hasDocument = leasePipelineRowHasDocument(row);
   return (
     (row.status === "Manager Review" || row.status === "Draft") &&
     hasDocument &&
@@ -292,7 +290,7 @@ export function ManagerLeasesPipelinePanel({
       if (!residentEmail || !residentAccountEmails.has(residentEmail)) {
         return "Resident must create their PropLane resident account before you can send the lease.";
       }
-      if (!row.generatedHtml && !row.managerUploadedPdf?.dataUrl) {
+      if (!leasePipelineRowHasDocument(row)) {
         return "Generate or upload a lease document first.";
       }
       return leaseSendGateBlocker(row);
@@ -487,7 +485,7 @@ export function ManagerLeasesPipelinePanel({
       showToast("Resident must create their PropLane resident account before you can send the lease.");
       return;
     }
-    if (!row.generatedHtml && !row.managerUploadedPdf?.dataUrl) {
+    if (!leasePipelineRowHasDocument(row)) {
       showToast("Generate or upload a lease document first.");
       return;
     }
@@ -657,14 +655,19 @@ export function ManagerLeasesPipelinePanel({
       }
       if (!res.parse) {
         showToast("PDF saved. Resident sees this on their Lease tab.");
-        return;
+      } else {
+        showToast(
+          res.parse.status === "parsed"
+            ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
+            : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
+        );
       }
-      setImportReviewRowId(rowId);
-      showToast(
-        res.parse.status === "parsed"
-          ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
-          : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
-      );
+      const uploaded = rows.find((r) => r.id === rowId) ?? target;
+      if (uploaded && leaseCanBeMarkedSignedOffPlatform(uploaded)) {
+        setMarkSignedRowId(rowId);
+      } else if (res.parse) {
+        setImportReviewRowId(rowId);
+      }
     },
     [confirm, managerUserId, rows, showToast],
   );
@@ -729,8 +732,7 @@ export function ManagerLeasesPipelinePanel({
           uploadPdfBusy={pendingRowId === row.id}
           onMarkSigned={leaseCanBeMarkedSignedOffPlatform(row) ? () => setMarkSignedRowId(row.id) : undefined}
           markSignedDataAttr="lease-mark-signed"
-          onRenewLease={() => setAmendLeaseRow(row)}
-          onExtendMoveOut={() => setAmendLeaseRow(row)}
+          onNewTerms={() => setAmendLeaseRow(row)}
         />
       </div>
     );
@@ -919,6 +921,7 @@ export function ManagerLeasesPipelinePanel({
       {amendLeaseRow ? (
         <LeaseAmendMoveOutModal
           open
+          variant="new-terms"
           onClose={() => setAmendLeaseRow(null)}
           currentEnd={amendLeaseRow.application?.leaseEnd ?? ""}
           leaseStart={amendLeaseRow.application?.leaseStart ?? ""}
@@ -933,6 +936,10 @@ export function ManagerLeasesPipelinePanel({
             currentRentLabel: amendLeaseRow.signedRentLabel ?? amendLeaseRow.application?.managerRentOverride ?? "",
             currentRentalType: amendLeaseRow.application?.rentalType,
             renewUrl: "/api/manager/amend-lease",
+            listingRentLabel: listingAdvertisedRentLabelForLease(
+              amendLeaseRow.propertyId ?? amendLeaseRow.application?.propertyId ?? "",
+              amendLeaseRow.roomChoice ?? amendLeaseRow.application?.roomChoice1 ?? "",
+            ),
           }}
           onSuccess={() => void handleAmendLeaseSuccess()}
         />
@@ -947,7 +954,7 @@ export function ManagerLeasesPipelinePanel({
           onDone={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
           showDownload={hasLeaseDocument(editLeaseRow)}
           onDownload={() => onDownload(editLeaseRow)}
-          showUpload={leaseAllowsManagerDocumentEdits(editLeaseRow)}
+          showUpload={leaseAllowsSignedPdfUpload(editLeaseRow)}
           onUpload={() => {
             uploadTargetRowIdRef.current = editLeaseRow.id;
             uploadRef.current?.click();
@@ -1010,6 +1017,7 @@ export function ManagerLeasesPipelinePanel({
           backHref={listBasePath ? leaseListHref(listBasePath, tab) : undefined}
           hideBackText
           bareHeader
+          iconTitleActions
           dataAttrBack="lease-detail-back"
           pinScrollBody
           scrollBody={false}
@@ -1198,26 +1206,15 @@ export function ManagerLeasesPipelinePanel({
                 </Button>
               ) : null}
               {bulkRenewalsRow ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="leases-bulk-renew"
-                    onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
-                  >
-                    Renew
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="leases-bulk-extend"
-                    onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
-                  >
-                    Extend move-out
-                  </Button>
-                </>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-new-terms"
+                  onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
+                >
+                  New terms
+                </Button>
               ) : null}
             </>
           ) : null

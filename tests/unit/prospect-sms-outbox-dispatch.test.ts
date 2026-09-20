@@ -148,7 +148,7 @@ describe("prospect burst outbox dispatcher gate", () => {
     // outbox supplies owner, key, and segment quantity inside the same
     // BURST→OUTBOX transaction that seals the candidate context and shadow.
     expect(provider).toBeGreaterThan(begin);
-    expect(dispatcher).toContain("p_allowance: plan.allowance");
+    expect(dispatcher).toMatch(/p_allowance: plan!?\.allowance/);
     expect(dispatcher).toContain("p_provider_from_phone: policy.fromNumber");
     expect(migration).toContain("public.reserve_comms_credit(v_outbox.manager_user_id,p_allowance,p_legacy_allowance");
     expect(migration).toContain("'sms_outbound:' || v_outbox.id::text");

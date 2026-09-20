@@ -16,15 +16,32 @@ export async function POST(req: Request) {
     } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    let body: { applicationId?: unknown; sendWelcomeEmail?: unknown };
+    let body: {
+      applicationId?: unknown;
+      sendWelcomeEmail?: unknown;
+      viaEmail?: unknown;
+      viaSms?: unknown;
+      viaInbox?: unknown;
+    };
     try {
-      body = (await req.json()) as { applicationId?: unknown; sendWelcomeEmail?: unknown };
+      body = (await req.json()) as {
+        applicationId?: unknown;
+        sendWelcomeEmail?: unknown;
+        viaEmail?: unknown;
+        viaSms?: unknown;
+        viaInbox?: unknown;
+      };
     } catch {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
     const applicationId = typeof body.applicationId === "string" ? body.applicationId.trim() : "";
     const sendWelcomeEmail = body.sendWelcomeEmail !== false;
+    const channels = {
+      viaEmail: body.viaEmail !== false,
+      viaSms: body.viaSms !== false,
+      viaInbox: body.viaInbox !== false,
+    };
     if (!applicationId) return NextResponse.json({ error: "applicationId is required." }, { status: 400 });
 
     const svc = createSupabaseServiceRoleClient();
@@ -59,7 +76,7 @@ export async function POST(req: Request) {
         managerName: String(requestor?.full_name ?? ""),
       },
       row,
-      { sendWelcomeEmail },
+      { sendWelcomeEmail, skipLeaseWrite: true, channels },
     );
 
     if (!result.ok) {

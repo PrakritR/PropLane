@@ -488,6 +488,16 @@ signature.
   correctly unsigned, but the previously executed text and its signatures are
   gone. An archive of prior executions on the row is the fix; it needs the
   amendment lane's owner.
+
+### New terms (Signed tab)
+
+One **New terms** header action on Fully Signed rows, including
+`externallySignedLease`. `renewLease` archives the prior PDF/HTML onto
+`signedLeaseSnapshots`, clears signatures and the old executed PDF, and stashes
+`pendingRenewal`. Listing `rooms[].monthlyRent` is never written — house
+advertised price stays put. Future / pending rent follows the new terms only
+after both e-signatures **or** Mark as signed (`applySignedLeaseRenewal`). Paid
+charges stay.
 - `executedJurisdiction` and `templateVersion` are null on every row until
   someone populates them at generation time.
 - Rows seeded as `externallySignedLease` carry synthetic signatures and no hash.

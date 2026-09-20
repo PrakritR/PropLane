@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tour SMS release: cycle 3 Bugbot review</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.55; }
+    h1 { line-height: 1.15; } h2 { margin-top: 2rem; }
+    .meta, .note { color: #575757; }
+    .finding { border-left: 5px solid #b42318; padding: .75rem 1rem; margin: 1rem 0; background: color-mix(in srgb, #b42318 7%, transparent); }
+    .pass { border-left: 5px solid #137333; padding: .75rem 1rem; margin: 1rem 0; background: color-mix(in srgb, #137333 7%, transparent); }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Tour SMS release, cycle 3 Bugbot review</h1>
+  <p class="meta">2026-09-16 · Reviewed range: <code>b1fa8f1fc6a1ff80c98c70f6675f347b2842977f..01a1ab2e2b27f653767776d8ae641bfa64884fd2</code></p>
+
+  <h2>Verdict</h2>
+  <p><strong>Do not promote this range unchanged.</strong> Two High lifecycle-integrity defects remain in the confirmed-tour schedule mutation. They can resurrect cancelled tour events and reservations, and allow a reservation-only overlap. The Google ETag fence, deterministic-create 409 path, recovery ownership, and reviewed SMS confirmation/reminder paths did not yield another confirmed defect in this timeboxed cross-owned review.</p>
+
+  <h2>Scope and independence</h2>
+  <p>This is a read-only, cross-owned review of Google Calendar, provider-write fencing, cancellation/recovery, SMS confirmation/credit/reminder lifecycle, and the directly related database schedule authority. It intentionally excludes the reviewer-owned schedule projection/delete implementation. Context reused from the earlier correction-2 work and the prior cycle-2 Bugbot report is disclosed here; this is not a fresh full-diff Astra review.</p>
+  <p class="note">No source code was edited. No tests, build, server, provider, database, remote, or network action was run. The only new artifact is this review.</p>
+
+  <h2>Confirmed findings</h2>
+  <section class="finding">
+    <h3>High: stale replace can resurrect a cancelled tour</h3>
+    <p><strong>Evidence.</strong> <code>supabase/migrations/20260915103000_prospect_sms_tour_booking.sql:238-243</code> cancels an event by adding <code>canceledAt</code>, cancelling its active reservation and changing a confirmed/rescheduled booking to <code>cancelled</code>. The <code>replace</code> branch at lines <code>244-274</code> checks only that an event with the requested id exists (lines <code>261-263</code>), then replaces the complete JSON event with caller supplied <code>p_event</code> (line <code>261</code>) and creates an active reservation (lines <code>266-273</code>). The booking update at line <code>274</code> excludes canceled bookings, leaving that row canceled. Replacement neither requires an active event nor compares an expected current start/end/version.</p>
+    <p><strong>Impact.</strong> A reschedule request built before a cancellation can run afterward, omit <code>canceledAt</code>, and restore the tour event and slot as active while the SMS booking row remains canceled. The current server caller, <code>src/lib/tour-planned-change.server.ts:370</code>, calls replace without an expected-current fence.</p>
+    <p><strong>Required correction.</strong> Make replace fail closed for cancelled events and require an atomic expected-current version or start/end predicate supplied from the authoritative current event. Do not reactivate a booking or reservation as a side effect of a stale replace.</p>
+  </section>
+
+  <section class="finding">
+    <h3>High: reservation-only intervals are not collision checked</h3>
+    <p><strong>Evidence.</strong> In the same replace branch, the planned-event mirror is protected by an interval predicate at lines <code>252-257</code>. The reservation authority check at lines <code>258-260</code>, however, compares only <code>manager_user_id</code> and <code>slot_key</code>. The subsequent upsert is likewise keyed only by <code>(manager_user_id, slot_key)</code> at lines <code>266-273</code>.</p>
+    <p><strong>Impact.</strong> If an active reservation remains while its planned-event mirror is absent or otherwise unavailable, a different slot key with an overlapping interval can pass. For example, an orphan <code>10:00-10:30</code> reservation and a requested <code>09:45-10:15</code> reservation have distinct keys but overlap in time. This violates the durable reservation authority expected when the mirror is unavailable.</p>
+    <p><strong>Required correction.</strong> Check every active reservation for the same manager using <code>starts_at &lt; requested_end AND requested_start &lt; ends_at</code>, excluding the same planned event only when it is the replacement's existing reservation. Retain the slot-key check as an additional guard, not the only one.</p>
+  </section>
+
+  <h2>Reviewed controls with no additional confirmed defect</h2>
+  <section class="pass">
+    <p><strong>ETag and 409 fence.</strong> <code>src/lib/google-calendar/api.server.ts:969-990</code> reads the remote ETag, validates durable current ownership after that read, and sends PATCH with <code>If-Match</code>. A conditional 412 becomes a superseded write at line <code>998</code>. Deterministic create 409 enters that same conditional update path at lines <code>943-949</code>.</p>
+    <p><strong>Expired-owner recovery and cancellation cleanup.</strong> <code>src/lib/prospect-tour-booking-recovery.server.ts:249-307</code> claims reconciliation, registers a bounded provider write deadline before sync, and returns failed work to <code>reconcile_current</code> or <code>cleanup_required</code>. Its cleanup path at lines <code>196-234</code> rechecks the live planned event before deleting a deterministic remote event.</p>
+    <p><strong>SMS confirmation and reminders.</strong> Confirmation recovery uses booking-keyed enqueue arbitration in <code>src/lib/prospect-tour-booking-recovery.server.ts</code>. Reminder registration checks scoped consent and dispatch records the outbox handoff before submission in <code>src/lib/sms/prospect-tour-reminder.server.ts</code>. No separate credit or duplicate-send bypass was confirmed from this read-only pass. These are bounded static observations, not runtime validation.</p>
+  </section>
+
+  <h2>Review limitations</h2>
+  <p>These findings are static evidence, not execution proof. This review did not re-run tests or simulate provider timing. The two High findings are nevertheless directly derivable from the mutation branch and its current caller, and should be fixed and regression-tested before release.</p>
+</body>
+</html>

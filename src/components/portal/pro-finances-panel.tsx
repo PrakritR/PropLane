@@ -5,8 +5,11 @@ import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card"
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
 import { ExpenseRowMenu } from "@/components/portal/expense-row-menu";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -17,6 +20,7 @@ import {
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { ExpenseTaxStatusToggle } from "@/components/portal/expense-tax-status-toggle";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
@@ -61,7 +65,6 @@ import type { ReportColumn, ReportResult, ReportRow } from "@/lib/reports/types"
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
-import { ManagerProfitabilityCard } from "@/components/portal/pro-profitability-card";
 import {
   readChargesForManager,
   syncHouseholdChargesFromServer,
@@ -591,6 +594,9 @@ export function ManagerFinancesPanel({
   const [rowFilters, setRowFilters] = useState(emptyRowFilters);
   const [expenseModal, setExpenseModal] = useState(false);
   const [incomeModal, setIncomeModal] = useState(false);
+  const [expenseStepIdx, setExpenseStepIdx] = useState(0);
+  const [incomeStepIdx, setIncomeStepIdx] = useState(0);
+  const [financeStepError, setFinanceStepError] = useState<string | null>(null);
   const billsRef = useRef<ManagerBillsPanelHandle>(null);
   const bankReconciliationRef = useRef<ManagerBankReconciliationPanelHandle>(null);
   const ownerDistributionsRef = useRef<ManagerOwnerDistributionsPanelHandle>(null);
@@ -1000,11 +1006,15 @@ export function ManagerFinancesPanel({
       description: "",
       propertyId: filters.propertyId,
     });
+    setIncomeStepIdx(0);
+    setFinanceStepError(null);
     setIncomeModal(true);
   }
 
   function openAddExpense() {
     setExpenseDraft(blankExpenseDraft(filters.propertyId));
+    setExpenseStepIdx(0);
+    setFinanceStepError(null);
     setExpenseModal(true);
   }
 
@@ -1021,6 +1031,8 @@ export function ManagerFinancesPanel({
       taxDeductible: row.taxDeductible !== false,
       taxTouched: true,
     });
+    setExpenseStepIdx(0);
+    setFinanceStepError(null);
     setExpenseModal(true);
   }
 
@@ -1142,6 +1154,21 @@ export function ManagerFinancesPanel({
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
         actions={financesCommandActions}
+        primary={
+          tabId === "income" ? (
+            <PortalPrimaryIconAction
+              label="Add income"
+              data-attr="finances-add-income-top"
+              onClick={openAddIncome}
+            />
+          ) : tabId === "expenses" ? (
+            <PortalPrimaryIconAction
+              label="Add expense"
+              data-attr="finances-add-expense-top"
+              onClick={openAddExpense}
+            />
+          ) : undefined
+        }
         activeFilterChips={
           activeFinanceFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeFinanceFilterChips} />
@@ -1176,8 +1203,6 @@ export function ManagerFinancesPanel({
         {tabId === "cash-flow-statement" ? (
           <MonthlyProfitChart points={monthlyProfitPoints} />
         ) : null}
-        {tabId === "income" ? <ManagerProfitabilityCard propertyId={filters.propertyId} /> : null}
-
         {loading && !report ? (
           <div className={PORTAL_DATA_TABLE_WRAP}>
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading entries…</div>
@@ -1236,98 +1261,132 @@ export function ManagerFinancesPanel({
       </div>
       )}
 
-      <Modal
-        open={expenseModal}
-        onClose={() => setExpenseModal(false)}
-        title={expenseDraft.id ? "Edit expense" : "Add expense"}
-        footer={
-          <ModalFooter>
-            <Button variant="primary" onClick={() => saveExpense()}>
-              {expenseDraft.id ? "Save changes" : "Save expense"}
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-            Property
-            <Select
-              value={expenseDraft.propertyId}
-              onChange={(e) => setExpenseDraft({ ...expenseDraft, propertyId: e.target.value })}
-            >
-              <option value="">All properties / unassigned</option>
-              {propertyOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Category
-            <Select
-              value={expenseDraft.categoryCode}
-              onChange={(e) =>
-                setExpenseDraft((d) => ({
-                  ...d,
-                  categoryCode: e.target.value,
-                  taxDeductible: d.taxTouched ? d.taxDeductible : isCategoryDeductible(e.target.value),
-                }))
-              }
-            >
-              {EXPENSE_CATEGORIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-2 text-xs font-medium text-muted sm:col-span-2">
-            Tax status (suggested from category)
-            <ExpenseTaxStatusToggle
-              deductible={expenseDraft.taxDeductible}
-              onChange={(taxDeductible) =>
-                setExpenseDraft((d) => ({
-                  ...d,
-                  taxDeductible,
-                  taxTouched: true,
-                }))
-              }
+      {expenseModal ? (
+        <AddWorkspace
+          title={expenseDraft.id ? "Edit expense" : "Add expense"}
+          steps={((): AddWorkspaceStep[] => {
+            const amountCents = Math.round(Number.parseFloat(expenseDraft.amount.replace(/[^0-9.]/g, "")) * 100);
+            const amountOk = Number.isFinite(amountCents) && amountCents > 0;
+            const categoryLabel = EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name ?? expenseDraft.categoryCode;
+            const propertyLabel = propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio";
+            const vendorLabel = activeVendors.find((v) => v.id === expenseDraft.vendorId)?.name ?? "None";
+            return [
+              { id: "what", label: "What", summary: amountOk ? `${categoryLabel} · $${(amountCents / 100).toFixed(2)}` : "Amount", incomplete: !amountOk },
+              { id: "where", label: "Where", summary: `${propertyLabel} · ${vendorLabel}` },
+              { id: "review", label: "Review", summary: "Ready" },
+            ];
+          })()}
+          current={expenseStepIdx}
+          onJump={(index) => {
+            setFinanceStepError(null);
+            setExpenseStepIdx(index);
+          }}
+          onClose={() => setExpenseModal(false)}
+          dirty={Boolean(expenseDraft.amount.trim() || expenseDraft.memo.trim() || expenseDraft.vendorId || expenseDraft.propertyId)}
+          discardTitle="Discard this expense?"
+          assistantContext="Add an expense on Finances."
+          assistantScopeKey="Add expense"
+          sidePanel={
+            <PreviewPanel
+              title="Expense"
+              name={EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name ?? "Expense"}
+              facts={[
+                { label: "Category", value: EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name ?? expenseDraft.categoryCode },
+                { label: "Amount", value: expenseDraft.amount.trim() ? `$${expenseDraft.amount}` : "Not set", warn: !expenseDraft.amount.trim() },
+                { label: "Property", value: propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio" },
+              ]}
+              creates={[{ tone: "yes", text: expenseDraft.id ? "Updates this expense" : "Saves an expense" }]}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Amount (USD)
-            <Input value={expenseDraft.amount} onChange={(e) => setExpenseDraft({ ...expenseDraft, amount: e.target.value })} />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Date
-            <Input
-              type="date"
-              value={expenseDraft.expenseDate}
-              onChange={(e) => setExpenseDraft({ ...expenseDraft, expenseDate: e.target.value })}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Vendor (optional, for 1099)
-            <Select
-              value={expenseDraft.vendorId}
-              onChange={(e) => setExpenseDraft({ ...expenseDraft, vendorId: e.target.value })}
-            >
-              <option value="">No vendor</option>
-              {activeVendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                  {v.trade ? ` · ${v.trade}` : ""}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-            Description / memo
-            <Input value={expenseDraft.memo} onChange={(e) => setExpenseDraft({ ...expenseDraft, memo: e.target.value })} />
-          </label>
-        </div>
-      </Modal>
+          }
+          lastLabel={expenseDraft.id ? "Save changes" : "Save expense"}
+          nextDisabled={expenseStepIdx === 0 && !(Math.round(Number.parseFloat(expenseDraft.amount.replace(/[^0-9.]/g, "")) * 100) > 0)}
+          onBeforeNext={() => {
+            const amountCents = Math.round(Number.parseFloat(expenseDraft.amount.replace(/[^0-9.]/g, "")) * 100);
+            if (expenseStepIdx === 0 && !(amountCents > 0)) {
+              setFinanceStepError("Enter a valid amount.");
+              return false;
+            }
+            setFinanceStepError(null);
+            return true;
+          }}
+          onFinish={() => saveExpense()}
+          dataAttrPrefix="finances-expense"
+          finishDataAttr="finances-expense-save"
+          footerNote={financeStepError ? <span className="text-sm text-rose-600">{financeStepError}</span> : null}
+        >
+          {expenseStepIdx === 0 ? (
+            <StepColumn>
+              <StepHeading title="Expense" />
+              <WizardSelect
+                label="Category"
+                value={expenseDraft.categoryCode}
+                onChange={(next) =>
+                  setExpenseDraft((d) => ({
+                    ...d,
+                    categoryCode: next,
+                    taxDeductible: d.taxTouched ? d.taxDeductible : isCategoryDeductible(next),
+                  }))
+                }
+                options={EXPENSE_CATEGORIES.map((c) => ({ value: c.code, label: c.name }))}
+              />
+              <WizardField label="Amount" required>
+                <Input value={expenseDraft.amount} onChange={(e) => setExpenseDraft({ ...expenseDraft, amount: e.target.value })} />
+              </WizardField>
+              <WizardField label="Date">
+                <Input type="date" value={expenseDraft.expenseDate} onChange={(e) => setExpenseDraft({ ...expenseDraft, expenseDate: e.target.value })} />
+              </WizardField>
+              <WizardField label="Description">
+                <Input value={expenseDraft.memo} onChange={(e) => setExpenseDraft({ ...expenseDraft, memo: e.target.value })} />
+              </WizardField>
+              <div className="pt-1">
+                <p className="mb-1.5 text-[12.5px] font-bold text-foreground">Tax status</p>
+                <ExpenseTaxStatusToggle
+                  deductible={expenseDraft.taxDeductible}
+                  onChange={(taxDeductible) =>
+                    setExpenseDraft((d) => ({
+                      ...d,
+                      taxDeductible,
+                      taxTouched: true,
+                    }))
+                  }
+                />
+              </div>
+            </StepColumn>
+          ) : null}
+          {expenseStepIdx === 1 ? (
+            <StepColumn>
+              <StepHeading title="Where" />
+              <WizardSelect
+                label="Property"
+                value={expenseDraft.propertyId}
+                onChange={(next) => setExpenseDraft({ ...expenseDraft, propertyId: next })}
+                options={[{ value: "", label: "Portfolio" }, ...propertyOptions.map((p) => ({ value: p.id, label: p.label }))]}
+              />
+              <WizardSelect
+                label="Vendor"
+                value={expenseDraft.vendorId}
+                onChange={(next) => setExpenseDraft({ ...expenseDraft, vendorId: next })}
+                options={[{ value: "", label: "None" }, ...activeVendors.map((v) => ({ value: v.id, label: v.trade ? `${v.name} · ${v.trade}` : v.name }))]}
+              />
+            </StepColumn>
+          ) : null}
+          {expenseStepIdx === 2 ? (
+            <StepColumn>
+              <StepHeading title="Review" />
+              <PreviewPanel
+                title="Expense"
+                name={EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name ?? "Expense"}
+                facts={[
+                  { label: "Amount", value: expenseDraft.amount.trim() ? `$${expenseDraft.amount}` : "—" },
+                  { label: "Property", value: propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio" },
+                  { label: "Vendor", value: activeVendors.find((v) => v.id === expenseDraft.vendorId)?.name ?? "None" },
+                ]}
+                creates={[{ tone: "yes", text: expenseDraft.id ? "Updates this expense" : "Saves an expense" }]}
+              />
+            </StepColumn>
+          ) : null}
+        </AddWorkspace>
+      ) : null}
 
       <Modal
         open={Boolean(expenseToDelete)}
@@ -1344,75 +1403,112 @@ export function ManagerFinancesPanel({
           </ModalFooter>
         }
       >
-        <p className="text-sm text-muted">
+        <p className="text-sm font-semibold text-foreground">
           Delete {expenseToDelete?.amount ? `${String(expenseToDelete.amount)} ` : ""}
           {expenseToDelete?.category ? `${String(expenseToDelete.category)} ` : ""}
-          expense? This cannot be undone.
+          expense?
         </p>
       </Modal>
 
-      <Modal
-        open={incomeModal}
-        onClose={() => setIncomeModal(false)}
-        title="Add income"
-        footer={
-          <ModalFooter>
-            <Button variant="primary" onClick={() => saveIncome()}>
-              Save income
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-            Property
-            <Select
-              value={incomeDraft.propertyId}
-              onChange={(e) => setIncomeDraft({ ...incomeDraft, propertyId: e.target.value })}
-            >
-              <option value="">All properties / unassigned</option>
-              {propertyOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Type
-            <Select
-              value={incomeDraft.categoryCode}
-              onChange={(e) => setIncomeDraft({ ...incomeDraft, categoryCode: e.target.value })}
-            >
-              {INCOME_CATEGORIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Amount (USD)
-            <Input value={incomeDraft.amount} onChange={(e) => setIncomeDraft({ ...incomeDraft, amount: e.target.value })} />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Date received
-            <Input
-              type="date"
-              value={incomeDraft.postedDate}
-              onChange={(e) => setIncomeDraft({ ...incomeDraft, postedDate: e.target.value })}
+      {incomeModal ? (
+        <AddWorkspace
+          title="Add income"
+          steps={((): AddWorkspaceStep[] => {
+            const amountCents = Math.round(Number.parseFloat(incomeDraft.amount.replace(/[^0-9.]/g, "")) * 100);
+            const amountOk = Number.isFinite(amountCents) && amountCents > 0;
+            const categoryLabel = INCOME_CATEGORIES.find((c) => c.code === incomeDraft.categoryCode)?.name ?? incomeDraft.categoryCode;
+            const propertyLabel = propertyOptions.find((p) => p.id === incomeDraft.propertyId)?.label ?? "Portfolio";
+            return [
+              { id: "what", label: "What", summary: amountOk ? `${categoryLabel} · $${(amountCents / 100).toFixed(2)}` : "Amount", incomplete: !amountOk },
+              { id: "where", label: "Where", summary: propertyLabel },
+              { id: "review", label: "Review", summary: "Ready" },
+            ];
+          })()}
+          current={incomeStepIdx}
+          onJump={(index) => {
+            setFinanceStepError(null);
+            setIncomeStepIdx(index);
+          }}
+          onClose={() => setIncomeModal(false)}
+          dirty={Boolean(incomeDraft.amount.trim() || incomeDraft.description.trim() || incomeDraft.propertyId)}
+          discardTitle="Discard this income?"
+          assistantContext="Add income on Finances."
+          assistantScopeKey="Add income"
+          sidePanel={
+            <PreviewPanel
+              title="Income"
+              name={INCOME_CATEGORIES.find((c) => c.code === incomeDraft.categoryCode)?.name ?? "Income"}
+              facts={[
+                { label: "Type", value: INCOME_CATEGORIES.find((c) => c.code === incomeDraft.categoryCode)?.name ?? incomeDraft.categoryCode },
+                { label: "Amount", value: incomeDraft.amount.trim() ? `$${incomeDraft.amount}` : "Not set", warn: !incomeDraft.amount.trim() },
+                { label: "Property", value: propertyOptions.find((p) => p.id === incomeDraft.propertyId)?.label ?? "Portfolio" },
+              ]}
+              creates={[{ tone: "yes", text: "Saves an income entry" }]}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-            Description
-            <Input
-              value={incomeDraft.description}
-              onChange={(e) => setIncomeDraft({ ...incomeDraft, description: e.target.value })}
-              placeholder="e.g. Utilities reimbursement"
-            />
-          </label>
-        </div>
-      </Modal>
+          }
+          lastLabel="Save income"
+          nextDisabled={incomeStepIdx === 0 && !(Math.round(Number.parseFloat(incomeDraft.amount.replace(/[^0-9.]/g, "")) * 100) > 0)}
+          onBeforeNext={() => {
+            const amountCents = Math.round(Number.parseFloat(incomeDraft.amount.replace(/[^0-9.]/g, "")) * 100);
+            if (incomeStepIdx === 0 && !(amountCents > 0)) {
+              setFinanceStepError("Enter a valid amount.");
+              return false;
+            }
+            setFinanceStepError(null);
+            return true;
+          }}
+          onFinish={() => saveIncome()}
+          dataAttrPrefix="finances-income"
+          finishDataAttr="finances-income-save"
+          footerNote={financeStepError ? <span className="text-sm text-rose-600">{financeStepError}</span> : null}
+        >
+          {incomeStepIdx === 0 ? (
+            <StepColumn>
+              <StepHeading title="Income" />
+              <WizardSelect
+                label="Type"
+                value={incomeDraft.categoryCode}
+                onChange={(next) => setIncomeDraft({ ...incomeDraft, categoryCode: next })}
+                options={INCOME_CATEGORIES.map((c) => ({ value: c.code, label: c.name }))}
+              />
+              <WizardField label="Amount" required>
+                <Input value={incomeDraft.amount} onChange={(e) => setIncomeDraft({ ...incomeDraft, amount: e.target.value })} />
+              </WizardField>
+              <WizardField label="Date received">
+                <Input type="date" value={incomeDraft.postedDate} onChange={(e) => setIncomeDraft({ ...incomeDraft, postedDate: e.target.value })} />
+              </WizardField>
+              <WizardField label="Description">
+                <Input value={incomeDraft.description} onChange={(e) => setIncomeDraft({ ...incomeDraft, description: e.target.value })} />
+              </WizardField>
+            </StepColumn>
+          ) : null}
+          {incomeStepIdx === 1 ? (
+            <StepColumn>
+              <StepHeading title="Where" />
+              <WizardSelect
+                label="Property"
+                value={incomeDraft.propertyId}
+                onChange={(next) => setIncomeDraft({ ...incomeDraft, propertyId: next })}
+                options={[{ value: "", label: "Portfolio" }, ...propertyOptions.map((p) => ({ value: p.id, label: p.label }))]}
+              />
+            </StepColumn>
+          ) : null}
+          {incomeStepIdx === 2 ? (
+            <StepColumn>
+              <StepHeading title="Review" />
+              <PreviewPanel
+                title="Income"
+                name={INCOME_CATEGORIES.find((c) => c.code === incomeDraft.categoryCode)?.name ?? "Income"}
+                facts={[
+                  { label: "Amount", value: incomeDraft.amount.trim() ? `$${incomeDraft.amount}` : "—" },
+                  { label: "Property", value: propertyOptions.find((p) => p.id === incomeDraft.propertyId)?.label ?? "Portfolio" },
+                ]}
+                creates={[{ tone: "yes", text: "Saves an income entry" }]}
+              />
+            </StepColumn>
+          ) : null}
+        </AddWorkspace>
+      ) : null}
 
     </ManagerPortalPageShell>
   );

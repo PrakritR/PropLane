@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/input";
@@ -40,8 +40,6 @@ export function ManagerTourAvailabilityModal({
 }) {
   const [tick, setTick] = useState(0);
   const [selectedPropertyId, setSelectedPropertyId] = useState(propertyId ?? propertyOptions?.[0]?.id ?? "");
-  const [calendarFooterActions, setCalendarFooterActions] = useState<ReactNode>(null);
-
   const activePropertyId = propertyId ?? selectedPropertyId;
   const activePropertyLabel =
     propertyLabel ??
@@ -130,7 +128,6 @@ export function ManagerTourAvailabilityModal({
       description={`Publish open tour windows for ${activePropertyLabel}.`}
       panelClassName="max-w-6xl"
       scrollableContent={false}
-      footer={calendarFooterActions}
       dataAttr="tour-availability-modal"
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -161,8 +158,6 @@ export function ManagerTourAvailabilityModal({
             bareSurface
             compactAvailability
             embeddedInModal
-            delegateFooterToModal
-            onModalFooterChange={setCalendarFooterActions}
             defaultViewMode="week"
             flowScroll
             availabilityHeading="Tour availability"

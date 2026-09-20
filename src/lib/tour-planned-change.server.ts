@@ -32,7 +32,8 @@ import {
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { formatRangeLabel, PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 import { cancelTourReminderForPlannedEvent } from "@/lib/tour-reminder.server";
-import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
+import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -118,29 +119,6 @@ async function loadOwnedPlannedTour(
   return { plannedRows, event, index };
 }
 
-async function writePlannedRows(db: Db, rows: Record<string, unknown>[]): Promise<string | null> {
-  const { error } = await db.from("portal_schedule_records").upsert(
-    [
-      {
-        id: PLANNED_RECORD_ID,
-        manager_user_id: null,
-        property_id: null,
-        record_type: PLANNED_RECORD_ID,
-        row_data: {
-          id: PLANNED_RECORD_ID,
-          recordType: PLANNED_RECORD_ID,
-          managerUserId: null,
-          propertyId: null,
-          payload: rows,
-        },
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    { onConflict: "id" },
-  );
-  return error?.message ?? null;
-}
-
 /** True when another confirmed tour of the same manager occupies [start, end). */
 function windowTakenByAnotherTour(
   plannedRows: Record<string, unknown>[],
@@ -184,21 +162,15 @@ export async function cancelPlannedTour(
 ): Promise<PlannedTourChangeResult> {
   const loaded = await loadOwnedPlannedTour(db, opts);
   if ("ok" in loaded) return loaded;
-  const { plannedRows, event } = loaded;
+  const { event } = loaded;
 
   const start = textField(event, "start");
   const end = textField(event, "end");
   const managerUserId = textField(event, "managerUserId");
 
-  const writeError = await writePlannedRows(
-    db,
-    plannedRows.map((row) =>
-      textField(row, "id") === opts.plannedEventId.trim()
-        ? { ...row, canceledAt: new Date().toISOString() }
-        : row,
-    ),
-  );
-  if (writeError) return { ok: false, status: 500, error: writeError };
+  const cancelled = { ...event, canceledAt: new Date().toISOString() };
+  const persisted = await mutateConfirmedTourSchedule(db, { operation: "cancel", event: cancelled });
+  if (!persisted.ok) return { ok: false, status: persisted.reason === "not_found" ? 404 : persisted.reason === "conflict" ? 409 : 500, error: persisted.reason };
 
   // Only after the tour is really gone: a guest told "cancelled" for a tour
   // still on the calendar is worse than one told nothing.
@@ -268,18 +240,21 @@ export async function deletePlannedTour(
 ): Promise<PlannedTourChangeResult> {
   const loaded = await loadOwnedPlannedTour(db, opts);
   if ("ok" in loaded) return loaded;
-  const { plannedRows, event } = loaded;
+  const { event } = loaded;
 
   const id = opts.plannedEventId.trim();
   const start = textField(event, "start");
   const end = textField(event, "end");
   const managerUserId = textField(event, "managerUserId");
 
-  const writeError = await writePlannedRows(
-    db,
-    plannedRows.filter((row) => textField(row, "id") !== id),
-  );
-  if (writeError) return { ok: false, status: 500, error: writeError };
+  const persisted = await mutateConfirmedTourSchedule(db, { operation: "delete", event });
+  if (!persisted.ok) {
+    return {
+      ok: false,
+      status: persisted.reason === "not_found" ? 404 : persisted.reason === "conflict" ? 409 : 500,
+      error: persisted.reason,
+    };
+  }
 
   // The tour is gone; a reminder for it must never send. A failure here is
   // logged in the result's shape only through the reminder's own status, so
@@ -358,10 +333,14 @@ export async function reschedulePlannedTour(
 
   const loaded = await loadOwnedPlannedTour(db, opts);
   if ("ok" in loaded) return loaded;
-  const { plannedRows, event, index } = loaded;
+  const { plannedRows, event } = loaded;
 
   const managerUserId = textField(event, "managerUserId");
-  const previous = { start: textField(event, "start"), end: textField(event, "end") };
+  const previous = {
+    start: textField(event, "start"),
+    end: textField(event, "end"),
+    generation: textField(event, "rescheduleNotificationGeneration") || null,
+  };
   if (previous.start === start && previous.end === end) {
     return { ok: false, status: 400, error: "That is the time this tour is already booked for." };
   }
@@ -385,19 +364,25 @@ export async function reschedulePlannedTour(
     ...event,
     start,
     end,
-    // The old slotKey named the old half hour. Keeping it would leave the new
-    // window bookable and the old one blocked in the public grid — the exact
-    // double-booking shape this sweep is closing. Nothing else re-derives it,
-    // so drop it and let the time range speak.
-    slotKey: undefined,
+    // A moved tour gets the new Pacific grid key. Leaving the old key blocks
+    // the old slot; omitting one means the relational reservation cannot fence
+    // the new slot.
+    slotKey: slotKeyForInstant(start) ?? undefined,
     ...(instructions ? { instructions } : {}),
     rescheduleNotificationGeneration: rescheduleGeneration,
   };
-  const nextRows = [...plannedRows];
-  nextRows[index] = moved;
-
-  const writeError = await writePlannedRows(db, nextRows);
-  if (writeError) return { ok: false, status: 500, error: writeError };
+  const persisted = await mutateConfirmedTourSchedule(db, {
+    operation: "replace",
+    event: moved,
+    expected: previous,
+  });
+  if (!persisted.ok) {
+    return {
+      ok: false,
+      status: persisted.reason === "not_found" ? 404 : ["conflict", "stale_event", "expected_window_required"].includes(persisted.reason) ? 409 : 500,
+      error: persisted.reason,
+    };
+  }
 
   let guestNotification: TourNotificationResult | null = null;
   if (opts.notifyGuest) {
@@ -409,7 +394,7 @@ export async function reschedulePlannedTour(
         managerUserId,
         adminLabel: textField(event, "adminLabel") || undefined,
       },
-      previousWindow: previous,
+      previousWindow: { start: previous.start, end: previous.end },
       rescheduleGeneration,
       reason: opts.reason,
       instructions: instructions || textField(event, "instructions") || null,

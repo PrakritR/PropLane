@@ -88,7 +88,6 @@ const CATEGORIES = [
   "developer",
   "feedback",
   "account",
-  "properties",
   "applications",
   "lease",
   "tours",

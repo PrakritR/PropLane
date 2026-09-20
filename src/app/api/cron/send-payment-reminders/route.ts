@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { type HouseholdCharge, type RecurringRentProfile, filterChargesEligibleForPaymentReminders, isUnpaidHouseholdCharge } from "@/lib/household-charges";
+import { type HouseholdCharge, type RecurringRentProfile, filterChargesEligibleForPaymentReminders, householdChargeDueDate, isUnpaidHouseholdCharge } from "@/lib/household-charges";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { lateFeePolicyFromSubmission } from "@/lib/payment-policy";
 import {
@@ -25,7 +25,7 @@ import {
   paymentReminderDedupPlan,
   scheduledPaymentMessageChargeIds,
 } from "@/lib/combined-payment-reminders";
-import { householdChargeDueDate } from "@/lib/household-charges";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 export const runtime = "nodejs";
 
@@ -71,7 +71,6 @@ export async function GET(req: Request) {
   const now = new Date();
   const todayKey = now.toISOString().slice(0, 10);
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
 
   const [{ data: records, error }, { data: profileRecords, error: profileError }] = await Promise.all([
     db
@@ -179,6 +178,7 @@ export async function GET(req: Request) {
       .maybeSingle();
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";
     const managerSmsFromNumber = String(profile?.sms_from_number ?? "").trim();
+    const from = await managerOutboundFromHeader(db, managerId);
 
     const scheduled = projectScheduledPaymentMessages({
       managerUserId: managerId,

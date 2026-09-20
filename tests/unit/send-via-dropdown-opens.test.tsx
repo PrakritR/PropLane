@@ -8,6 +8,7 @@
  * manager who knows SMS exists; a field that shows "SMS (not enabled)" tells
  * them what to fix.
  */
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -62,5 +63,22 @@ describe("Send via", () => {
       screen.queryByText(/SMS uses your work number; recipients need a phone on file or under Other/i),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/SMS uses your work number when enabled/i)).not.toBeInTheDocument();
+  });
+
+  it("compose and share surfaces do not reintroduce a Send-via footnote", () => {
+    const files = [
+      "src/components/portal/pro-work-orders-panel.tsx",
+      "src/components/portal/schedule-inbox-compose-modal.tsx",
+      "src/components/portal/share-lead-link-modal.tsx",
+      "src/components/portal/portal-record-share-modal.tsx",
+      "src/components/portal/pro-messaging-settings-panel.tsx",
+    ];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toMatch(/Always saved to PropLane inbox/);
+      expect(source, file).not.toMatch(/SMS uses your work number/);
+      expect(source, file).not.toMatch(/Sent via PropLane when email and SMS delivery are configured/);
+      expect(source, file).not.toMatch(/We'll email and text every resident in your portfolio/);
+    }
   });
 });

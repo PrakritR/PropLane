@@ -4,8 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   ChannelCalendarInputError,
-  isValidAirbnbImportUrl,
-  normalizeAirbnbImportUrl,
+  channelCalendarProviderLabel,
+  channelImportUrlErrorMessage,
+  isValidChannelImportUrl,
+  normalizeChannelImportUrl,
 } from "@/lib/channel-calendar/airbnb-url";
 import {
   mergeChannelImportedRanges,
@@ -13,8 +15,11 @@ import {
   parseConnectionRow,
   toPublicConnection,
 } from "@/lib/channel-calendar/connections.server";
-import type { ChannelCalendarConnectionRow } from "@/lib/channel-calendar/types";
-import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
+import type {
+  ChannelCalendarConnectionRow,
+  ChannelCalendarImportedRange,
+  ChannelCalendarProvider,
+} from "@/lib/channel-calendar/types";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -33,7 +38,7 @@ function icalEventsToImportedRanges(
   }));
 }
 
-async function fetchAirbnbIcs(importUrl: string): Promise<string> {
+async function fetchChannelIcs(importUrl: string, provider: ChannelCalendarProvider): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMPORT_FETCH_TIMEOUT_MS);
   try {
@@ -44,7 +49,7 @@ async function fetchAirbnbIcs(importUrl: string): Promise<string> {
       cache: "no-store",
     });
     if (!res.ok) {
-      throw new Error(`Airbnb calendar returned ${res.status}.`);
+      throw new Error(`${channelCalendarProviderLabel(provider)} calendar returned ${res.status}.`);
     }
     const text = await res.text();
     if (!text.includes("BEGIN:VCALENDAR")) {
@@ -117,20 +122,19 @@ export async function upsertChannelCalendarConnection(
     managerUserId: string;
     propertyId: string;
     roomId: string;
-    provider?: "airbnb";
+    provider?: ChannelCalendarProvider;
     label?: string | null;
     importUrl?: string | null;
   },
   browserOrigin?: string,
 ) {
+  const provider = input.provider ?? "airbnb";
   const importUrlProvided = Object.prototype.hasOwnProperty.call(input, "importUrl");
   let importUrl: string | null | undefined = undefined;
   if (importUrlProvided) {
-    importUrl = input.importUrl == null ? null : normalizeAirbnbImportUrl(input.importUrl);
-    if (importUrl && !isValidAirbnbImportUrl(importUrl)) {
-      throw new ChannelCalendarInputError(
-        "That is not an Airbnb calendar link. In Airbnb go to Calendar → Availability → Connect calendars → Export calendar, and paste the https://www.airbnb.com/calendar/ical/… URL.",
-      );
+    importUrl = input.importUrl == null ? null : normalizeChannelImportUrl(input.importUrl);
+    if (importUrl && !isValidChannelImportUrl(provider, importUrl)) {
+      throw new ChannelCalendarInputError(channelImportUrlErrorMessage(provider));
     }
   }
 
@@ -145,7 +149,7 @@ export async function upsertChannelCalendarConnection(
     .select("id, export_token")
     .eq("property_id", input.propertyId)
     .eq("room_id", input.roomId)
-    .eq("provider", input.provider ?? "airbnb")
+    .eq("provider", provider)
     .maybeSingle();
 
   const exportToken = existing?.export_token ? String(existing.export_token) : mintChannelCalendarExportToken();
@@ -155,7 +159,7 @@ export async function upsertChannelCalendarConnection(
     manager_user_id: ownerUserId,
     property_id: input.propertyId,
     room_id: input.roomId,
-    provider: input.provider ?? "airbnb",
+    provider,
     label: input.label?.trim() || null,
     ...(importUrlProvided ? { import_url: importUrl } : {}),
     export_token: exportToken,
@@ -228,15 +232,15 @@ export async function syncChannelCalendarConnection(
   const connection = parseConnectionRow(row as Record<string, unknown>);
   const importUrl = connection.import_url?.trim();
   if (!importUrl) {
-    throw new Error("Add an Airbnb import URL before syncing.");
+    throw new Error(`Add a ${channelCalendarProviderLabel(connection.provider)} import URL before syncing.`);
   }
-  if (!isValidAirbnbImportUrl(importUrl)) {
-    throw new Error("Stored import URL is not a valid Airbnb calendar link.");
+  if (!isValidChannelImportUrl(connection.provider, importUrl)) {
+    throw new Error(`Stored import URL is not a valid ${channelCalendarProviderLabel(connection.provider)} calendar link.`);
   }
 
   const now = new Date().toISOString();
   try {
-    const icsText = await fetchAirbnbIcs(importUrl);
+    const icsText = await fetchChannelIcs(importUrl, connection.provider);
     const imported = icalEventsToImportedRanges(parseIcsCalendar(icsText));
 
     const record = await loadPropertyRecord(db, connection.property_id);

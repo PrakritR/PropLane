@@ -8,7 +8,7 @@ import {
   type PortalAccessContext,
 } from "@/lib/auth/portal-access";
 
-function ctx(roles: AuthRole[], email = "founders@axis-seattle-housing.com"): PortalAccessContext {
+function ctx(roles: AuthRole[], email = "staff@prop-lane.space"): PortalAccessContext {
   return {
     user: { id: "user-1", email },
     profile: null,

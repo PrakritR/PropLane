@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ManagerPortalPageShell,
@@ -11,9 +11,10 @@ import {
   PORTAL_DETAIL_BTN,
   PORTAL_DETAIL_BTN_PRIMARY,
   PORTAL_MOBILE_DETAIL_EXPAND,
-  PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalPaymentsTable, type PortalPaymentTableRow } from "@/components/portal/portal-payments-table";
 import { VendorPaymentMethodsModal } from "@/components/portal/vendor-payment-methods-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -200,8 +201,14 @@ function VendorPaymentExpandedDetail({
   );
 }
 
+export type VendorPaymentsPanelHandle = {
+  openPaymentMethods: () => void;
+  sendReminder: () => void;
+};
+
 /** Vendor Payments — payout history from completed work orders + Stripe Connect bank linking. */
-export function VendorPaymentsPanel() {
+export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embedded?: boolean }>(
+  function VendorPaymentsPanel({ embedded = false }, ref) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
 
@@ -394,8 +401,11 @@ export function VendorPaymentsPanel() {
 
   const runBulkNotify = useCallback(
     async (action: VendorPaymentNotifyAction) => {
-      const ids = [...selectedIds];
-      if (ids.length === 0) return;
+      const ids = selectedIds.size > 0 ? [...selectedIds] : rowsForBucket.map((row) => row.id);
+      if (ids.length === 0) {
+        showToast("Select a payment first.");
+        return;
+      }
       setBulkBusy(true);
       let ok = 0;
       for (const workOrderId of ids) {
@@ -414,7 +424,18 @@ export function VendorPaymentsPanel() {
         showToast(ok === 1 ? "Reminder sent." : `Sent ${ok} reminders.`);
       }
     },
-    [demo, selectedIds, showToast],
+    [demo, rowsForBucket, selectedIds, showToast],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openPaymentMethods: () => setPaymentMethodsOpen(true),
+      sendReminder: () => {
+        void runBulkNotify("send_reminder");
+      },
+    }),
+    [runBulkNotify],
   );
 
   const renderExpandedActions = (tr: PortalPaymentTableRow) => {
@@ -467,33 +488,19 @@ export function VendorPaymentsPanel() {
     );
   };
 
-  return (
-    <ManagerPortalPageShell
-      title="Payments"
-      hideTitleOnMobileNav
-      titleAside={
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_HEADER_ACTION_BTN}
-          onClick={() => setPaymentMethodsOpen(true)}
-          data-attr="vendor-payments-add"
-        >
-          Payment methods
-        </Button>
-      }
-    >
-      <div className="mb-4">
+  const body = (
+    <>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <ManagerPortalStatusPills tabs={tabs} activeId={bucket} onChange={(id) => setBucket(id as VendorPaymentBucket)} />
       </div>
 
       {unlinked ? (
-        <p
-          className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
-          data-attr="vendor-payments-unlinked-banner"
-        >
-          Waiting on a property manager to connect with you. Completed work will appear here once you&apos;re linked.
-        </p>
+        <PortalListEmptyCard
+          title="Waiting on a manager"
+          section="financials"
+          tone="muted"
+          dataAttr="vendor-payments-unlinked-banner"
+        />
       ) : null}
 
       {showSelection && selectedIds.size > 0 ? (
@@ -533,7 +540,10 @@ export function VendorPaymentsPanel() {
       ) : null}
 
       {rowsForBucket.length === 0 ? (
-        <PortalDataTableEmpty message="No payments in this bucket yet." icon="payment" />
+        <PortalListEmptyCard
+          title={portalEmptyCopy(bucket === "pending" ? "payments.pending" : "payments.paid").title}
+          section="financials"
+        />
       ) : (
         <PortalPaymentsTable
           rows={tableRows}
@@ -561,6 +571,28 @@ export function VendorPaymentsPanel() {
         profile={vendorProfile}
         onSaved={setVendorProfile}
       />
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <ManagerPortalPageShell
+      title="Payments"
+      hideTitleOnMobileNav
+      titleAside={
+        <Button
+          type="button"
+          variant="primary"
+          className={PORTAL_HEADER_ACTION_BTN}
+          onClick={() => setPaymentMethodsOpen(true)}
+          data-attr="vendor-payments-add"
+        >
+          Payment methods
+        </Button>
+      }
+    >
+      {body}
     </ManagerPortalPageShell>
   );
-}
+});

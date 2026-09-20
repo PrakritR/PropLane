@@ -38,15 +38,12 @@ function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): M
   return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS };
 }
 
-export function ManagerPaymentSetupModal({
-  open,
-  onClose,
+export function ManagerPaymentSetupPanel({
+  active,
   propertyOptions,
   presetPropertyIds,
 }: {
-  open: boolean;
-  onClose: () => void;
-  portalBase: string;
+  active: boolean;
   propertyOptions: { id: string; label: string }[];
   /** When set, scope the fee table to these ids (e.g. resident detail). */
   presetPropertyIds?: string[];
@@ -78,13 +75,12 @@ export function ManagerPaymentSetupModal({
     () => (workspaceCtx?.workspaces ?? []).filter((w) => w.owned),
     [workspaceCtx?.workspaces],
   );
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
+  /* Workspace is the portal top-left switcher (PLAN-0916-1400). This form
+     does not carry a second workspace dropdown. */
   const activeWorkspaceId =
-    selectedWorkspaceId ||
     (workspaceCtx?.active?.owned ? workspaceCtx.active.id : "") ||
     ownedWorkspaces[0]?.id ||
     "";
-  const activeWorkspace = ownedWorkspaces.find((w) => w.id === activeWorkspaceId) ?? null;
   /*
     PropLane pays is applied only by a code at the moment it is chosen (captain,
     2026-09-14). Picking it holds the select on that answer and opens the code
@@ -236,31 +232,22 @@ export function ManagerPaymentSetupModal({
   }, [demo]);
 
   useEffect(() => {
-    if (!open) {
+    if (!active) {
       setSettingsLoaded(false);
+      cancelProplanePending();
       return;
     }
     void loadStripeStatus();
     void loadSettings();
     void loadTier();
-  }, [open, loadStripeStatus, loadSettings, loadTier]);
-
-  /* Reopening the modal drops any workspace the manager had switched to, so it
-     always opens on the workspace they are actually working in. A pick that was
-     never applied is dropped with it, so it cannot reappear looking saved. */
-  useEffect(() => {
-    if (!open) {
-      setSelectedWorkspaceId("");
-      cancelProplanePending();
-    }
-  }, [open, cancelProplanePending]);
+  }, [active, loadStripeStatus, loadSettings, loadTier, cancelProplanePending]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const onFocus = () => void loadStripeStatus();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [open, loadStripeStatus]);
+  }, [active, loadStripeStatus]);
 
   async function persistSettings(
     patch: Partial<ManagerManualPaymentSettingsView> & {
@@ -496,6 +483,143 @@ export function ManagerPaymentSetupModal({
   };
 
   return (
+    <div className="space-y-4">
+      {loading ? <p className="text-sm text-muted">Loading…</p> : null}
+
+      <div
+        className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5"
+        data-testid="payment-setup-stripe-card"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <span className="text-sm font-semibold text-foreground">Stripe payouts</span>
+          {stripeState !== "unlinked" ? <Badge tone={stripeStatus.tone}>{stripeStatus.label}</Badge> : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => void linkStripe()}
+          disabled={stripeBusy}
+          data-attr="manager-payment-stripe-link"
+          className="shrink-0 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+        >
+          {stripeAction} →
+        </button>
+      </div>
+
+      {stripeIssue ? (
+        <p className="text-xs leading-relaxed text-[var(--status-pending-fg)]">{stripeIssue}</p>
+      ) : null}
+
+      {isCoManagerForPayout ? (
+        <p className="text-xs leading-relaxed text-muted">
+          {canEditBankAccount
+            ? "You are updating the property owner's payout bank account."
+            : "Payout bank details belong to the property owner."}
+        </p>
+      ) : null}
+
+      {showFeePayerSection ? (
+        <section className="space-y-4">
+          {lockPropertySelection ? (
+            <p className="text-sm text-foreground">
+              <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Property · </span>
+              {visibleProperties[0]?.label ?? "Property"}
+            </p>
+          ) : null}
+
+          <FieldSingleSelect
+            label="Processing fee paid by"
+            value={proplanePending ? "proplane" : savedWorkspacePayer}
+            options={feePayerOptions}
+            placeholder="Select…"
+            onChange={(next) => applyFeeToWorkspace(next as ServiceFeePayer)}
+            disabled={loading || (!settingsLoaded && !demo) || savingKey === "fee-payer"}
+            dataAttr="manager-service-fee-payer-select"
+            triggerClassName={proplanePending ? "border-primary ring-2 ring-primary/20" : undefined}
+          />
+
+          {proplanePending ? (
+            <div
+              className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3"
+              data-testid="manager-service-fee-waiver-entry"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="block text-xs font-semibold text-foreground" htmlFor="manager-service-fee-waiver-code">
+                  Processing coverage code
+                </label>
+                <Badge tone="pending">{PROCESSING_FEE_PROPLANE_PENDING_LABEL}</Badge>
+              </div>
+              <input
+                id="manager-service-fee-waiver-code"
+                value={waiverCodeDraft}
+                onChange={(event) => {
+                  setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
+                  setWaiverCodeError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void applyWaiverCode();
+                  }
+                }}
+                placeholder="Enter code"
+                autoComplete="off"
+                autoFocus
+                disabled={savingKey === "fee-payer"}
+                data-attr="manager-service-fee-waiver-code"
+                aria-invalid={Boolean(waiverCodeError)}
+                aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground placeholder:normal-case disabled:opacity-60 sm:max-w-xs"
+              />
+              <p className="text-xs text-muted">
+                {processingFeeProplanePendingHelp(SERVICE_FEE_PAYER_SHORT_LABELS[savedWorkspacePayer])}
+              </p>
+              {waiverCodeError ? (
+                <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
+                  {waiverCodeError}
+                </p>
+              ) : null}
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  disabled={savingKey === "fee-payer" || (!settingsLoaded && !demo)}
+                  data-attr="manager-service-fee-waiver-apply"
+                  onClick={() => void applyWaiverCode()}
+                  className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+                >
+                  {savingKey === "fee-payer" ? "Checking…" : "Apply code"}
+                </button>
+                <button
+                  type="button"
+                  disabled={savingKey === "fee-payer"}
+                  data-attr="manager-service-fee-waiver-cancel"
+                  onClick={cancelProplanePending}
+                  className="rounded-full border border-border px-4 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+export function ManagerPaymentSetupModal({
+  open,
+  onClose,
+  propertyOptions,
+  presetPropertyIds,
+}: {
+  open: boolean;
+  onClose: () => void;
+  portalBase: string;
+  propertyOptions: { id: string; label: string }[];
+  presetPropertyIds?: string[];
+}) {
+  return (
     <Modal
       open={open}
       title="Payment setup"
@@ -504,165 +628,11 @@ export function ManagerPaymentSetupModal({
       assistantContext="Payment setup"
       panelClassName="max-w-lg"
     >
-      <div className="space-y-4">
-        {loading ? <p className="text-sm text-muted">Loading…</p> : null}
-
-        <div
-          className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5"
-          data-testid="payment-setup-stripe-card"
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-            <span className="text-sm font-semibold text-foreground">Stripe payouts</span>
-            {stripeState !== "unlinked" ? <Badge tone={stripeStatus.tone}>{stripeStatus.label}</Badge> : null}
-          </div>
-          <button
-            type="button"
-            onClick={() => void linkStripe()}
-            disabled={stripeBusy}
-            data-attr="manager-payment-stripe-link"
-            className="shrink-0 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
-          >
-            {stripeAction} →
-          </button>
-        </div>
-
-        {stripeIssue ? (
-          <p className="text-xs leading-relaxed text-[var(--status-pending-fg)]">{stripeIssue}</p>
-        ) : (
-          <p className="text-xs leading-relaxed text-muted">
-            ACH and card checkout only — rent deposits through Stripe Connect.
-          </p>
-        )}
-
-        {isCoManagerForPayout ? (
-          <p className="text-xs leading-relaxed text-muted">
-            {canEditBankAccount
-              ? "You are updating the property owner's payout bank account."
-              : "Payout bank details belong to the property owner."}
-          </p>
-        ) : null}
-
-        {showFeePayerSection ? (
-          <section className="space-y-4">
-            {lockPropertySelection ? (
-              <p className="text-sm text-foreground">
-                <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Property · </span>
-                {visibleProperties[0]?.label ?? "Property"}
-              </p>
-            ) : ownedWorkspaces.length > 1 ? (
-              <FieldSingleSelect
-                label="Workspace"
-                value={activeWorkspaceId}
-                options={ownedWorkspaces.map((w) => ({ value: w.id, label: w.name }))}
-                placeholder="Select a workspace…"
-                onChange={(next) => {
-                  cancelProplanePending();
-                  setSelectedWorkspaceId(next);
-                }}
-                disabled={loading || Boolean(savingKey)}
-                dataAttr="manager-payment-setup-workspace"
-              />
-            ) : (
-              /* One workspace is what every live account has, and a dropdown
-                 with a single entry is a decision you cannot make. Name what is
-                 being edited instead; the picker returns with a second one. */
-              <p className="text-sm text-foreground" data-attr="manager-payment-setup-workspace-name">
-                <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Workspace · </span>
-                {activeWorkspace?.name ?? "My workspace"}
-              </p>
-            )}
-
-            <FieldSingleSelect
-              label="Processing fee paid by"
-              value={proplanePending ? "proplane" : savedWorkspacePayer}
-              options={feePayerOptions}
-              placeholder="Select…"
-              onChange={(next) => applyFeeToWorkspace(next as ServiceFeePayer)}
-              disabled={loading || (!settingsLoaded && !demo) || savingKey === "fee-payer"}
-              dataAttr="manager-service-fee-payer-select"
-              triggerClassName={proplanePending ? "border-primary ring-2 ring-primary/20" : undefined}
-            />
-
-            {proplanePending ? (
-              <div
-                className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3"
-                data-testid="manager-service-fee-waiver-entry"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="block text-xs font-semibold text-foreground" htmlFor="manager-service-fee-waiver-code">
-                    Processing coverage code
-                  </label>
-                  <Badge tone="pending">{PROCESSING_FEE_PROPLANE_PENDING_LABEL}</Badge>
-                </div>
-                <input
-                  id="manager-service-fee-waiver-code"
-                  value={waiverCodeDraft}
-                  onChange={(event) => {
-                    setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
-                    setWaiverCodeError(null);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void applyWaiverCode();
-                    }
-                  }}
-                  placeholder="Enter code"
-                  autoComplete="off"
-                  autoFocus
-                  disabled={savingKey === "fee-payer"}
-                  data-attr="manager-service-fee-waiver-code"
-                  aria-invalid={Boolean(waiverCodeError)}
-                  aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground placeholder:normal-case disabled:opacity-60 sm:max-w-xs"
-                />
-                <p className="text-xs text-muted">
-                  {processingFeeProplanePendingHelp(SERVICE_FEE_PAYER_SHORT_LABELS[savedWorkspacePayer])}
-                </p>
-                {waiverCodeError ? (
-                  <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
-                    {waiverCodeError}
-                  </p>
-                ) : null}
-                <div className="flex items-center gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    disabled={savingKey === "fee-payer" || (!settingsLoaded && !demo)}
-                    data-attr="manager-service-fee-waiver-apply"
-                    onClick={() => void applyWaiverCode()}
-                    className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
-                  >
-                    {savingKey === "fee-payer" ? "Checking…" : "Apply code"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingKey === "fee-payer"}
-                    data-attr="manager-service-fee-waiver-cancel"
-                    onClick={cancelProplanePending}
-                    className="rounded-full border border-border px-4 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <p className="text-xs leading-relaxed text-muted">
-              Applies to every home in{" "}
-              <span className="font-semibold text-foreground">{activeWorkspace?.name ?? "this workspace"}</span>. A
-              single home can still be given its own on that listing. Rent deposits to the owner&apos;s bank either
-              way.
-            </p>
-
-          </section>
-        ) : (
-          <p className="text-xs leading-relaxed text-muted">
-            On Free, residents pay processing fees. Pro and Business let managers choose to pay instead. PropLane covers
-            it with a promo code — enter yours on a listing&apos;s Pricing step.
-          </p>
-        )}
-      </div>
+      <ManagerPaymentSetupPanel
+        active={open}
+        propertyOptions={propertyOptions}
+        presetPropertyIds={presetPropertyIds}
+      />
     </Modal>
   );
 }

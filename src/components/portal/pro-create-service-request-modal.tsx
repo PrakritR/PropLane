@@ -30,7 +30,6 @@ export function ManagerCreateServiceRequestModal({
   defaultResident?: ManagerServiceResidentOption | null;
   defaultNotes?: string;
 }) {
-  const [catalogModalOpen, setCatalogModalOpen] = useState(false);
   const [footer, setFooter] = useState<ServiceIntakeFooterState | null>(null);
 
   useEffect(() => {
@@ -47,7 +46,6 @@ export function ManagerCreateServiceRequestModal({
     <Modal
       open={open}
       onClose={onClose}
-      dismissBlocked={catalogModalOpen}
       title="Add service"
       dense
       assistantContext="Add service"
@@ -76,7 +74,7 @@ export function ManagerCreateServiceRequestModal({
         submitLabel="Add service"
         onComplete={handleComplete}
         onRegisterFooter={setFooter}
-        onCatalogOpenChange={setCatalogModalOpen}
+        onLeaveForCatalog={onClose}
       />
     </Modal>
   );

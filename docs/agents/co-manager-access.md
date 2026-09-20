@@ -26,17 +26,40 @@ the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
-**Shareable invite links do not need a PropLane ID.** Teams → Managers → Add
-mints a pending open row (`invitee_user_id` null, `invite_token_hash` only)
-and returns `/auth/co-manager-invite?token=…`. Houses and permissions are
-optional before copy and editable after she joins (PATCH on pending or
-accepted, inviter-only). Empty assignment stays deny-all. The raw token is
-never stored; re-copying rotates the hash so the previous URL dies. Redeem
+**Team role is a stamp + a label, never authorization.** Invite uses one Role
+dropdown (Viewer, Leasing, Property manager, Bookkeeper, Maintenance, Full
+access, Custom). A named role writes the permission map; Custom keeps the
+current map. Gates still read `property_co_manager_permissions`. A forged
+`teamRole: "full"` with an empty map grants nothing. Catalog:
+`src/lib/co-manager-team-roles.ts`. Column: `account_link_invites.team_role`
+(copied from `manager_invite_links.team_role` on redeem). Null on existing
+rows lists as Co-manager.
+
+**Workspace grants sit beside the 13 modules.** `workspace_permissions`
+(`addProperties`, `teams`) is empty-object-means-no-access. Add properties
+lets a teammate create a listing into that workspace as the owner
+(`resolveCreateListingOwner`); the new house is appended to their assigned
+ids. Invite teammates is the existing `teams` edit path. Houses and all 13
+modules edit on one member sheet — no nested "Untitled property" modal.
+
+**Shareable invite links do not need a PropLane ID.** Workspace Invite (and
+vendor Invite) always offers three methods: **link**, **message**, and
+**PropLane code**. Email is a Send via channel on the next page (New message),
+never an invite-method tab. See `docs/agents/send-message-compose.md`.
+Houses default to every house currently in that workspace. The accept screen
+is titled **Invite to workspace**, names the workspace, and offers Message
+the inviter.
+
+Mint stores a hash plus encrypted ciphertext so **Copy returns the same live
+URL**. Rotate is a separate action (`POST /api/pro/invite-links/[linkId]/link`
+with `{ rotate: true }`). Links minted before ciphertext existed fail closed
+on copy — rotate or create a new link. Redeem
 (`POST /api/pro/account-links/redeem`) is compare-and-swap on
 `status = pending` and `invitee_user_id is null`. The inviter still needs Pro
 or Business; she can join on Free as a pure co-manager and inherit the owner's
 paid modules on assigned houses. One unused open link per owner. Migration:
-`20260906010000_account_link_open_invite_token.sql`.
+`20260906010000_account_link_open_invite_token.sql` plus
+`20260917010000_invite_workspace.sql`.
 
 **Co-managers may send team invites when granted Team edit.** The `teams`
 module (shown as "Team" in the permissions editor) gates minting shareable
@@ -46,8 +69,9 @@ PropLane-ID invites. Delegation is resolved in
 property owner's id, and every selected property must belong to that owner
 with `teams` at **edit** on the actor's grant. The client mirrors eligibility
 via `teamInviteEligiblePropertyIds` in `manager-portfolio-access.ts`. Copy on
-an active link rotates the token through `POST /api/pro/invite-links/[linkId]/link`.
-Coverage: `tests/unit/co-manager-team-invite.test.ts`.
+an active link returns the same URL through `POST /api/pro/invite-links/[linkId]/link`
+unless the body sets `rotate: true`. Coverage: `tests/unit/co-manager-team-invite.test.ts`
+and `tests/unit/invite-link-copy-does-not-rotate.test.ts`.
 
 **Payment setup answers to the OWNER, and a property has exactly one payee.**
 Deciding what a resident owes is the owner's call, so `payments` gates create as

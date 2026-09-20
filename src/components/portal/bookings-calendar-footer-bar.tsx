@@ -11,7 +11,7 @@ type BookingsRoomOption = { id: string; label: string };
 
 /**
  * Pinned footer for Bookings calendars — room filter (when rent-by-room) opens the
- * standard portal filter sheet; Link Airbnb stays one tap away on every breakpoint.
+ * standard portal filter sheet; Link calendars stays one tap away on every breakpoint.
  */
 export function BookingsCalendarFooterBar({
   rooms,
@@ -69,7 +69,7 @@ export function BookingsCalendarFooterBar({
           disabled={linkAirbnbDisabled}
           onClick={onLinkAirbnb}
         >
-          Link Airbnb
+          Link calendars
         </Button>
       </div>
     </PortalPageFooterActions>

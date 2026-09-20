@@ -5,6 +5,8 @@ import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
+  importedAirbnbStayEntries,
+  isImportedAirbnbBlock,
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
@@ -163,7 +165,7 @@ export function useManagerBookingEntries({
     const scoped = new Set(propertyIds);
     const labels = new Map(propertyOptions.map((property) => [property.id, property.label]));
     return roomBlockEntries(
-      blocks.filter((block) => scoped.has(block.propertyId)),
+      blocks.filter((block) => scoped.has(block.propertyId) && !isImportedAirbnbBlock(block)),
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
         roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
@@ -229,9 +231,21 @@ export function useManagerBookingEntries({
    */
   const loading = !loaded && refreshing;
 
+  const importedAirbnbEntries = useMemo<PropertyBookingEntry[]>(() => {
+    const scoped = new Set(propertyIds);
+    const labels = new Map(propertyOptions.map((property) => [property.id, property.label]));
+    return importedAirbnbStayEntries(
+      blocks.filter((block) => scoped.has(block.propertyId)),
+      {
+        propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
+        roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+      },
+    );
+  }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels]);
+
   const entries = useMemo(
-    () => [...airbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries],
-    [airbnbEntries, leaseEntries, holdEntries, blockEntries],
+    () => [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries],
+    [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries],
   );
 
   return { entries, loading, reloadAirbnb, blocks, residentOptions };

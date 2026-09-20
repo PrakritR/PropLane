@@ -23,11 +23,9 @@ import {
   DEFAULT_APPLICATION_AUTOMATION,
   LeaseSettingsPanel,
   normalizeApplicationAutomation,
-  PaymentsSettingsPanel,
-  PropertySettingsPanel,
-  ResidentSettingsPanel,
-  type PropertySettingsArea,
-  type ResidentSettingsArea,
+    PaymentsSettingsPanel,
+    ResidentSettingsPanel,
+    type ResidentSettingsArea,
   BookingsSettingsPanel,
   InspectionsSettingsPanel,
   ServicesSettingsPanel,
@@ -53,6 +51,8 @@ import {
   activeWorkspacePropertyIds,
   filterPropertyOptionsForActiveWorkspace,
 } from "@/lib/workspaces/selection";
+import { shouldMountTourSettings } from "@/lib/portal-settings-module-visibility";
+import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 
 type PendingSaveHandle = { saveIfDirty: () => Promise<boolean> };
 
@@ -126,6 +126,8 @@ export const SettingsModulePage = forwardRef<
      * Mirrors the modal's own former per-tab `open &&` guards exactly, tab for tab.
      */
     active?: boolean;
+    /** Hub page: Form row jumps to the listing. Popup Form pane already owns that. */
+    showFormLink?: boolean;
   }
 >(function SettingsModulePage(
   {
@@ -137,6 +139,7 @@ export const SettingsModulePage = forwardRef<
     onFooterChange,
     onSaveStatusChange,
     active = true,
+    showFormLink = false,
   },
   ref,
 ) {
@@ -145,12 +148,12 @@ export const SettingsModulePage = forwardRef<
   const workspaces = useWorkspaces();
   const { userId: managerUserId } = useManagerUserId();
   const { teamMembers } = useWorkAssignmentDirectory({ managerUserId, managerName: undefined });
+  const scope = useSettingsPropertyScope();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [propertyId, setPropertyId] = useState("");
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
-  const [propertyHubArea, setPropertyHubArea] = useState<PropertySettingsArea>("applications");
-  const [residentHubArea, setResidentHubArea] = useState<ResidentSettingsArea>("payments");
+  const [residentHubArea, setResidentHubArea] = useState<ResidentSettingsArea>("household");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
@@ -158,24 +161,19 @@ export const SettingsModulePage = forwardRef<
     () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
     [propertyOptions, workspaces?.active?.id],
   );
-  const lockPropertyField =
-    tab === "properties" || (Boolean(initialPropertyId?.trim()) && scopedPropertyOptions.length <= 1);
-  const propertiesHub = tab === "properties";
-  const showApplications = tab === "applications" || (propertiesHub && propertyHubArea === "applications");
-  const showLease = tab === "lease" || (propertiesHub && propertyHubArea === "lease");
-  const showTours = (active && tab === "tours") || (propertiesHub && propertyHubArea === "tours");
-  const hasHubHouse = Boolean(propertyId.trim());
+  const lockPropertyField = true;
+  const showApplications = tab === "applications";
+  const showLease = tab === "lease";
+  const showTours = shouldMountTourSettings(active, tab);
 
-  /** Same identity/value-equality guard as the modal's original effect — see its own history. */
-  const firstPropertyOptionId = scopedPropertyOptions[0]?.id ?? "";
   useEffect(() => {
-    const preferred = initialPropertyId?.trim() || firstPropertyOptionId;
+    const preferred = (scope.propertyId || initialPropertyId || "").trim();
     setPropertyId(preferred);
     setPropertyIds((current) => {
       const next = preferred ? [preferred] : [];
       return current.length === next.length && current.every((id, index) => id === next[index]) ? current : next;
     });
-  }, [initialPropertyId, firstPropertyOptionId]);
+  }, [initialPropertyId, scope.propertyId]);
 
   useEffect(() => {
     setPanelFooter(null);
@@ -429,27 +427,14 @@ export const SettingsModulePage = forwardRef<
   // moved here so every host gets the right answer without re-deriving it.
   useEffect(() => {
     const suppressed =
-      tab === "applications" || tab === "lease" || tab === "resident" || tab === "properties";
+      tab === "applications" || tab === "lease" || tab === "resident";
     onFooterChange?.(suppressed ? null : panelFooter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, panelFooter]);
 
   return (
     <SettingsSaveStatusContext.Provider value={reportSaveStatus}>
-      {tab === "properties" ? (
-        <PropertySettingsPanel
-          propertyOptions={scopedPropertyOptions}
-          selectedPropertyId={propertyId}
-          onPropertyIdChange={(id) => {
-            setPropertyId(id);
-            setPropertyIds(id ? [id] : []);
-          }}
-          area={propertyHubArea}
-          onAreaChange={setPropertyHubArea}
-        />
-      ) : null}
-
-      {showApplications && (!propertiesHub || hasHubHouse) ? (
+      {showApplications ? (
         <ApplicationsSettingsPanel
           automation={automation}
           loading={loading}
@@ -467,12 +452,13 @@ export const SettingsModulePage = forwardRef<
           hidePropertyField={lockPropertyField}
           teamMembers={teamMembers}
           reminderFormRef={applicationsReminderFormRef}
+          showFormLink={showFormLink}
         />
       ) : null}
 
       {active && tab === "automation" ? <ManagerPortalAutomationSettingsPanel formRef={automationFormRef} /> : null}
 
-      {showTours && (!propertiesHub || hasHubHouse) ? (
+      {showTours ? (
         <TourSettingsPanel
           onFooterReady={setPanelFooter}
           onSaved={onCalendarSettingsSaved}
@@ -482,7 +468,7 @@ export const SettingsModulePage = forwardRef<
         />
       ) : null}
 
-      {showLease && (!propertiesHub || hasHubHouse) ? (
+      {showLease ? (
         <LeaseSettingsPanel
           automation={automation}
           loading={loading}
@@ -494,6 +480,7 @@ export const SettingsModulePage = forwardRef<
           hidePropertyField={lockPropertyField}
           teamMembers={teamMembers}
           reminderFormRef={leaseReminderFormRef}
+          showFormLink={showFormLink}
         />
       ) : null}
 
@@ -529,6 +516,8 @@ export const SettingsModulePage = forwardRef<
           mode={paymentsMode}
           teamMembers={teamMembers}
           outgoingReminderFormRef={outgoingPaymentReminderFormRef}
+          propertyOptions={scopedPropertyOptions}
+          initialPropertyId={initialPropertyId}
         />
       ) : null}
 

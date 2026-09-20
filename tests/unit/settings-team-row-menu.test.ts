@@ -6,9 +6,10 @@ const blocks = readFileSync(resolve("src/components/portal/pro-team-blocks.tsx")
 const panel = readFileSync(resolve("src/components/portal/pro-account-links-panel.tsx"), "utf8");
 
 describe("Settings Team row actions", () => {
-  it("puts Edit and Disconnect in a far-right ⋯ — Permissions opened the same page as Edit, and Remove is now Disconnect", () => {
-    expect(blocks).toContain('label: "Edit"');
+  it("puts Edit permissions and Disconnect in a far-right ⋯ — Permissions opened the same page as Edit, and Remove is now Disconnect", () => {
+    expect(blocks).toContain('label: "Edit permissions"');
     expect(blocks).toContain('label: "Disconnect"');
+    expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain('dataAttr: "team-member-disconnect"');
     expect(blocks).not.toContain('label: "Permissions"');
     expect(blocks).not.toContain('label: "Remove"');
@@ -35,8 +36,8 @@ describe("Settings Team row actions", () => {
   it("publishes Invite to the Team title instead of a second Link control", () => {
     expect(panel).toContain('data-attr="co-manager-invite-top"');
     expect(panel).toContain("usePublishTitleActions");
-    expect(panel).toMatch(/\n\s*Invite\n\s*<\/Button>/);
-    expect(panel).not.toContain("PortalPrimaryIconAction");
+    expect(panel).toContain("UserPlus");
+    expect(panel).toContain('label="Invite"');
     expect(panel).not.toContain('data-attr="team-invite-link-create"');
   });
 });

@@ -65,21 +65,24 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
   agents never merge to protected branches. Agents working for Akhil may merge
   only his keeper → `main` → `staging` → `production`, and only after his
   explicit ship request under `docs/agents/AGENTS-akhil.md`.
+  Akhil's new exception through 2026-09-23T21:08:02Z waives staging QA only,
+  not the branch ladder or other gates: `docs/plans/staging-qa-exception-20260916.html`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.
 
 # Landing rule
 
-**Prakrit: keepers → `prakrit` (captain integrate) → `main`; agents working
-for Akhil after his explicit ship request: his keeper → `main`. QA on
+**Prakrit: prompt branch → `prakrit` (captain integrate) → `main`; agents working
+for Akhil after his explicit ship request: his prompt branch → `main`. QA on
 `staging` by default, subject only to the dated policy above. Live from
 `production`.**
-Commit and push your keeper (fast-forward only, never force). Open a PR only on request.
+An agent branch is created when the prompt starts and deleted when it merges.
+Commit and push that prompt branch only (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.
 
 **Agent handoff:** `npm run sandbox:open -- </route>` and put the Review URL in the reply.
-**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <keeper>`.
+**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <prompt-branch>`.
 Akhil's explicit release authority bypasses this integration rung only, never
 staging or fast-forward rules.
 Details: `docs/agents/sandbox-open-review.md`.
@@ -92,14 +95,14 @@ There is no long-lived `dev` branch.
 Prakrit's path:
 
 ```
-keepers  →  prakrit  →  main  →  staging  →  production
-(no deploy)  integrate  localhost  QA preview  live + TestFlight
-             (captain)  dev DB     staging DB  live production DB
+agent/<lane>/…  →  prakrit  →  main  →  staging  →  production
+(no deploy)       integrate  localhost  QA preview  live + TestFlight
+                  (captain)  dev DB     staging DB  live production DB
 ```
 
 | Branch | Role | Database | Vercel |
 | --- | --- | --- | --- |
-| keeper | messy work | local + **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy |
+| `agent/<lane>/…` | one prompt's work | local + **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy |
 | **`prakrit`** | captain integration | **dev/test** | no deploy; localhost :3000 |
 | **`main`** | consolidation | **dev/test** | no deploy; localhost |
 | **`staging`** | QA candidate (ff of `main`) | `xwszcafaontidfgznlxd` | Preview, git-branch-scoped env |
@@ -265,14 +268,21 @@ Chevrons inline after the label. Header actions reach a phone **exactly once**
 
 Dashboard sections go in `MANAGER_DASHBOARD_SECTIONS` and gate on `visibility.<id>`.
 
-**No small grey subtext.** A heading, a row or a field carries a label and its
-control — never a sentence under it explaining it. Counts are steppers, picks
-are dropdowns (multi-select with an Other entry when several apply), never
-pills. Detail and the source guard: `docs/agents/ui-change-checklist.md`
-§ No subtext. The settings kit (`portal-settings-ui.tsx`) has no
-`description` / `meta` props by design; reminder timings, channels and
-type pickers are `CheckboxMultiSelect` / `FieldSingleSelect`, never chips.
-Guard: `tests/unit/portal-settings-no-subtext.test.ts`.
+**Never generate subtext.** A heading, a row or a field carries a label and its
+control — never a muted sentence under it explaining it, anywhere in the
+product. Counts are steppers, picks are dropdowns (multi-select with an Other
+entry when several apply), never pills. Detail and the source guard:
+`docs/agents/ui-change-checklist.md` § No subtext. The settings kit
+(`portal-settings-ui.tsx`) has no `description` / `meta` props by design;
+reminder timings, channels and type pickers are `CheckboxMultiSelect` /
+`FieldSingleSelect`, never chips. Guard:
+`tests/unit/portal-settings-no-subtext.test.ts`.
+
+**Utility chrome is icon-heavy.** Share, Copy, Filter, Settings, Download, Edit,
+and Delete in a title or card header are `PortalIconAction` in the top right —
+never a labeled pill. The word is the tooltip and `aria-label` only. Labeled
+text is reserved for a data-commit (Save) or a destructive confirm. See
+`docs/agents/ui-change-checklist.md` § Icon chrome.
 
 # Brand assets (PropLane)
 
@@ -392,6 +402,7 @@ answer. Fail closed to `true`.
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
 | Communication | `docs/agents/communication-inbox.md` | One inbox; authorize then append; `formatInboxStamp`; never `inline` |
+| Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |
 | Plan entitlements | `docs/agents/plan-entitlements.md` | `resolveEffectiveManagerSkuTier` is the only plan a quota may read |
 | Property ownership | `docs/agents/property-ownership.md` | `POST /api/property-records` never moves an owned row from the body |
 | Property drafts | `docs/agents/property-drafts.md` | Draft is `status: "draft"` on the same record; closing the wizard saves |

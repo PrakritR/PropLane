@@ -22,6 +22,28 @@ function burstQuery(row: object | null, error: object | null = null) {
   return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error }) }), maybeSingle: async () => ({ data: row, error }) }) }) };
 }
 
+/** The worker checks for a durable confirmed tour before it runs the ordinary
+ * agent turn, so retries recover a prior confirmation rather than sending a
+ * second reply. These callback cases deliberately have no such booking. */
+function noConfirmedBookingQuery() {
+  return {
+    select: () => ({
+      eq: () => ({
+        eq: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+        }),
+      }),
+    }),
+    update: () => ({
+      eq: () => ({
+        eq: () => ({
+          eq: async () => ({ data: null, error: null }),
+        }),
+      }),
+    }),
+  };
+}
+
 describe("prospect burst callback", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -52,6 +74,7 @@ describe("prospect burst callback", () => {
     mocks.from.mockImplementation((table: string) => {
       if (table === "prospect_sms_bursts") return burstQuery({ manager_user_id: "manager", counterparty_phone_e164: "+15550001111", reply_from_number: null });
       if (table === "prospect_sms_ingress") return { select: () => ({ eq: () => ({ in: (column: string, ids: string[]) => ({ order: async () => ({ data: [{ source_message_id: "sid-b", body: "latest" }], error: null, column, ids }) }) }) }) };
+      if (table === "prospect_tour_bookings") return noConfirmedBookingQuery();
       throw new Error(`unexpected ${table}`);
     });
     mocks.handle.mockResolvedValue({ ok: true, replied: false, suppressed: true }); mocks.complete.mockResolvedValue(true);
@@ -74,6 +97,7 @@ describe("prospect burst callback", () => {
           error: null,
         }) }) }) }),
       };
+      if (table === "prospect_tour_bookings") return noConfirmedBookingQuery();
       throw new Error(`unexpected ${table}`);
     });
     mocks.handle.mockResolvedValue({ ok: true, replied: false, completedWithoutReply: "quiet_handoff" });
@@ -154,6 +178,7 @@ describe("prospect burst callback", () => {
           { source_message_id: "repeat-1", body: inboundBody, received_at: "2026-09-12T00:00:00Z" },
         ], error: null }) }) }) }),
       };
+      if (table === "prospect_tour_bookings") return noConfirmedBookingQuery();
       if (table === "sms_outbox") return burstQuery({ status: "submitted" });
       throw new Error(`unexpected ${table}`);
     });

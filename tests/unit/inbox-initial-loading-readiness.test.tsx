@@ -408,7 +408,9 @@ describe("PRP-470 initial Communication readiness", () => {
     await act(async () => resolveInbox([]));
     await waitFor(() => expect(screen.queryByText("Loading conversations…")).toBeNull());
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/manager/sms-conversations"))).toBe(false);
-    expect(screen.getByRole("tab", { name: "Archived" })).toBeTruthy();
+    const archived = screen.getByRole("link", { name: /^Archived/ });
+    expect(archived).toHaveAttribute("href", "/portal/communication/archived");
+    expect(archived).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("PropLane Assistant")).toBeTruthy();
   });
 

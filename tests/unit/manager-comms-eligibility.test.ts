@@ -20,11 +20,10 @@ describe("what may still be offered versus what may be used", () => {
     expect(managerCommsUseIsAllowed({ entitlement: UNREADABLE })).toBe(false);
   });
 
-  it("offers an unenrolled trial only while trial onboarding is open", () => {
-    vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "");
-    expect(managerCommsEntitlementCanBeReconciled(TRIALING)).toBe(false);
+  it("never offers work-number setup on a trial", () => {
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
-    expect(managerCommsEntitlementCanBeReconciled(TRIALING)).toBe(true);
+    expect(managerCommsEntitlementCanBeReconciled(TRIALING)).toBe(false);
+    expect(managerCommsRequestIsOfferable({ entitlement: TRIALING })).toBe(false);
   });
 
   it("settles a genuinely free plan without offering anything", () => {

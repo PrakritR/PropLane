@@ -39,10 +39,18 @@ function renderEditor(sub: ManagerListingSubmissionV1 = createDefaultListingSubm
   return { onSaved, onClose };
 }
 
+async function waitWorkspace() {
+  await screen.findByRole("dialog", { name: "Application" });
+}
+
+function jumpRail(id: string) {
+  const btn = document.querySelector(`[data-attr="listing-v2-rail-${id}"]`) as HTMLElement | null;
+  expect(btn).not.toBeNull();
+  fireEvent.click(btn!);
+}
+
 function expandHouseholdSection() {
-  const toggle = document.querySelector('[data-attr="application-section-toggle-household"]') as HTMLElement | null;
-  expect(toggle).not.toBeNull();
-  fireEvent.click(toggle!);
+  jumpRail("household");
 }
 
 function expandFirstQuestion() {
@@ -53,7 +61,10 @@ function expandFirstQuestion() {
 }
 
 function saveButton(): HTMLButtonElement {
-  return document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement;
+  jumpRail("preview");
+  const save = document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement;
+  expect(save).not.toBeNull();
+  return save;
 }
 
 beforeEach(() => {
@@ -67,8 +78,9 @@ afterEach(() => {
 });
 
 describe("in-place expanding rows", () => {
-  it("expands a question in place with no per-question modal, and persists nothing while editing", () => {
+  it("expands a question in place with no per-question modal, and persists nothing while editing", async () => {
     renderEditor();
+    await waitWorkspace();
     expandHouseholdSection();
     expandFirstQuestion();
 
@@ -102,9 +114,8 @@ describe("⋯ reorder menu", () => {
 
   it("moves a custom question with the ⋯ menu; a built-in offers no move control", async () => {
     renderEditor(subWithTwoCustomQuestions());
-    const toggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
-    expect(toggle).not.toBeNull();
-    fireEvent.click(toggle!);
+    await waitWorkspace();
+    jumpRail("additional");
 
     // Built-in fields (e.g. "Number of occupants" in Additional details) never get a reorder trigger.
     expect(screen.queryByRole("button", { name: /^Reorder Number of occupants/ })).toBeNull();
@@ -128,6 +139,7 @@ describe("⋯ reorder menu", () => {
 describe("option rows", () => {
   it("an option containing a comma survives a save round trip", async () => {
     const { onSaved } = renderEditor();
+    await waitWorkspace();
     expandHouseholdSection();
 
     fireEvent.click(document.querySelector('[data-attr="application-questions-add"]') as HTMLElement);
@@ -182,6 +194,7 @@ describe("question packs", () => {
       ],
     };
     renderEditor(sub);
+    await waitWorkspace();
     expandHouseholdSection();
 
     fireEvent.click(document.querySelector('[data-attr="application-questions-add"]') as HTMLElement);
@@ -203,65 +216,54 @@ describe("question packs", () => {
   });
 });
 
-describe("Edit / Preview toggle", () => {
-  function editToggle(): HTMLElement {
-    return document.querySelector('[data-attr="application-preview-toggle-edit"]') as HTMLElement;
-  }
-  function previewToggle(): HTMLElement {
-    return document.querySelector('[data-attr="application-preview-toggle-preview"]') as HTMLElement;
-  }
+describe("Preview step", () => {
   function previewPane(): HTMLElement | null {
     return document.querySelector('[data-attr="application-preview-pane"]');
   }
 
-  it("toggling to Preview renders the open section's questions through the real applicant control, and toggling back returns to editing", () => {
+  it("jumping to Preview renders the open section's questions through the real applicant control, and jumping back returns to editing", async () => {
     renderEditor();
+    await waitWorkspace();
     expandHouseholdSection();
 
-    // Edit is the default view — no preview pane mounted yet.
-    expect(editToggle().getAttribute("aria-selected")).toBe("true");
-    expect(previewToggle().getAttribute("aria-selected")).toBe("false");
-    expect(previewPane()).toBeNull();
+    expect(document.querySelector('[data-attr="application-preview-section"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-questions-save"]')).toBeNull();
 
-    fireEvent.click(previewToggle());
+    jumpRail("preview");
 
-    expect(previewToggle().getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector('[data-attr="application-preview-section"]')).not.toBeNull();
     const pane = previewPane();
     expect(pane).not.toBeNull();
-    // The open section (household) and its two built-in questions, through the
-    // real applicant control.
     expect(within(pane!).getByText("Household application")).toBeTruthy();
     expect(within(pane!).getByText("Group application")).toBeTruthy();
     expect(within(pane!).getByText("Co-signer planned")).toBeTruthy();
-    // The REAL applicant control, wrapped read-only — never a hand-drawn imitation.
     expect(pane!.querySelector("[inert]")).not.toBeNull();
-    // Read-only preview never persists.
     expect(persistOnServer).not.toHaveBeenCalled();
 
-    fireEvent.click(editToggle());
+    jumpRail("household");
 
-    expect(editToggle().getAttribute("aria-selected")).toBe("true");
-    expect(previewToggle().getAttribute("aria-selected")).toBe("false");
-    expect(previewPane()).toBeNull();
+    expect(document.querySelector('[data-attr="application-preview-section"]')).toBeNull();
+    expect(document.querySelector('[data-attr^="application-question-edit-"]')).not.toBeNull();
     expect(persistOnServer).not.toHaveBeenCalled();
   });
 
-  it("reflects an UNSAVED edit — proving the pane reads the live buffered draft, not saved data", () => {
+  it("reflects an UNSAVED edit — proving the pane reads the live buffered draft, not saved data", async () => {
     renderEditor();
+    await waitWorkspace();
     expandHouseholdSection();
     expandFirstQuestion();
 
     const labelInput = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement;
     fireEvent.change(labelInput, { target: { value: "Group application (edited)" } });
 
-    fireEvent.click(previewToggle());
+    jumpRail("preview");
     const pane = previewPane()!;
     expect(within(pane).getByText("Group application (edited)")).toBeTruthy();
     expect(within(pane).queryByText("Group application")).toBeNull();
     expect(persistOnServer).not.toHaveBeenCalled();
   });
 
-  it("a section with no questions shows the empty state", () => {
+  it("a section with no questions shows the empty state", async () => {
     const sub: ManagerListingSubmissionV1 = {
       ...createDefaultListingSubmission(),
       applicationConfigMode: "custom",
@@ -269,14 +271,15 @@ describe("Edit / Preview toggle", () => {
       customApplicationFields: [],
     };
     renderEditor(sub);
+    await waitWorkspace();
 
-    fireEvent.click(previewToggle());
+    jumpRail("preview");
     const pane = previewPane()!;
     expect(within(pane).getByText("No questions in this section yet.")).toBeTruthy();
     expect(pane.querySelector("[inert]")).toBeNull();
   });
 
-  it("a question with a blank label and an empty option row renders without throwing", () => {
+  it("a question with a blank label and an empty option row renders without throwing", async () => {
     const sub: ManagerListingSubmissionV1 = {
       ...createDefaultListingSubmission(),
       applicationConfigMode: "custom",
@@ -285,12 +288,10 @@ describe("Edit / Preview toggle", () => {
       ],
     };
     renderEditor(sub);
-    const additionalToggle = document.querySelector(
-      '[data-attr="application-section-toggle-additional"]',
-    ) as HTMLElement;
-    fireEvent.click(additionalToggle);
+    await waitWorkspace();
+    jumpRail("additional");
 
-    expect(() => fireEvent.click(previewToggle())).not.toThrow();
+    expect(() => jumpRail("preview")).not.toThrow();
     const pane = previewPane()!;
     expect(within(pane).getByText("Untitled question")).toBeTruthy();
     expect(persistOnServer).not.toHaveBeenCalled();

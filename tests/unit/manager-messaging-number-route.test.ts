@@ -125,14 +125,12 @@ afterEach(() => {
 });
 
 describe("manager messaging-number route", () => {
-  it("offers explicit setup for an old trial snapshot only during the onboarding rollout", async () => {
+  it("never offers work-number setup on a trial, even during the old onboarding flag", async () => {
     const db = dbFor({ mode: "automatic" });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "trialing" });
     process.env.SMS_PROVISIONING_ENABLED = "1";
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
-    expect((await (await GET()).json()).canRequest).toBe(true);
-    vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "0");
     expect((await (await GET()).json()).canRequest).toBe(false);
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });

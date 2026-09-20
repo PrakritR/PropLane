@@ -4,10 +4,10 @@
  * Members and pending invites, rendered inside each workspace card on
  * Settings → Workspaces (under "Managers & permissions") and on the Teams page.
  *
- * Per-record actions live in a far-right ⋯ (Edit, Disconnect), matching
- * Properties. Edit opens the member's page — houses and per-house permissions
- * live there, so there is no separate Permissions item. The owner row has no
- * menu. Invite sits on the section header, not inside this block.
+ * Per-record actions live in a far-right ⋯ (Edit permissions, Disconnect),
+ * matching Properties. Edit permissions opens a sheet on this page — not a
+ * member tab. The owner row has no menu. Invite sits on the section header,
+ * not inside this block.
  */
 
 import type { ReactNode } from "react";
@@ -29,6 +29,8 @@ export type TeamMemberRow = {
   /** Axis id or email — the second line under the name. */
   detail: string;
   role: "owner" | "co_manager";
+  /** Product role stamp on a co-manager (Viewer, Leasing, …). */
+  roleLabel?: string;
   /** "3 houses · Ash Flats 6, Birch Flats 7" */
   propertiesLabel: string;
   /** ISO date the link became active; null for the owner. */
@@ -48,7 +50,7 @@ type TeamRowMenuItem = {
 function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[] }) {
   if (items.length === 0) return null;
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger
         type="button"
         aria-label={`Actions for ${label}`}
@@ -58,7 +60,7 @@ function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[]
       >
         <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" glass aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">
+      <DropdownMenuContent align="end" glass={false} backdrop={false} aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">
         {items.map((item) => (
           <DropdownMenuItem
             key={item.id}
@@ -133,8 +135,9 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
       <ul>
         {members.map((m) => {
           const pill = ROLE_PILL[m.role];
+          const pillLabel = m.role === "co_manager" ? (m.roleLabel ?? pill.label) : pill.label;
           const items = ([
-            m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+            m.onEdit ? { id: "edit", label: "Edit permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
             m.onDisconnect ? { id: "disconnect", label: "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
           ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
           return (
@@ -147,7 +150,7 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
                 </span>
               </span>
               <span>
-                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", pill.className)}>{pill.label}</span>
+                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", pill.className)}>{pillLabel}</span>
               </span>
               <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">{m.propertiesLabel}</span>
               <span className="text-[12.5px] text-muted max-md:hidden">{shortDate(m.joinedAt)}</span>
@@ -178,7 +181,6 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
 export function TeamPendingInvitesBlock({
   invites,
   propertiesLabel,
-  onCopyLink,
   onRevoke,
   onAccept,
   onDecline,
@@ -192,7 +194,6 @@ export function TeamPendingInvitesBlock({
   propertiesLabel: (inv: AccountLinkInviteDto) => string;
   /** "Expires in 12 days" — the panel owns the wording. */
   expiryLabel: (expiresAt: string | null | undefined) => string;
-  onCopyLink: (inv: AccountLinkInviteDto) => void;
   onRevoke: (inv: AccountLinkInviteDto) => void;
   onAccept: (inv: AccountLinkInviteDto) => void;
   onDecline: (inv: AccountLinkInviteDto) => void;
@@ -206,7 +207,7 @@ export function TeamPendingInvitesBlock({
           const name = inv.linkedDisplayName ?? (inv.openInvite ? "Anyone with the link" : inv.linkedAxisId) ?? "Invite";
           const items: TeamRowMenuItem[] = outgoing
             ? [
-                { id: "copy", label: "Copy link", onSelect: () => onCopyLink(inv), dataAttr: "team-pending-resend" },
+                { id: "edit", label: "Edit", onSelect: () => onOpen(inv), dataAttr: "team-pending-edit" },
                 { id: "revoke", label: "Revoke", onSelect: () => onRevoke(inv), destructive: true, dataAttr: "team-pending-revoke" },
               ]
             : [

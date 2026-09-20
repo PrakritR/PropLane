@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 import type { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
-import { assistantInboxCollapseKey } from "@/lib/communication-inbox-assistant";
+import { isAssistantUnifiedInboxRow } from "@/lib/communication-inbox-assistant";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
@@ -28,31 +28,29 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
     if (!member) return false;
     return member.channel !== "sms" || manager;
   });
-  const emailOnly = members.every((member) => member?.channel === "email");
   // Delete forever stays off the canonical Assistant thread: the server
   // re-creates it empty on the next list load, so "delete" would only erase
   // the notice history. A person thread the assistant merely spoke first in
   // (the assistant-email mirror) is an ordinary conversation and keeps Delete.
-  const assistantRow = members.some((member) => {
-    if (!member || member.channel !== "email") return false;
-    if (member.threadId.startsWith("agent_notice_") || member.threadId.startsWith("resident-agent-")) return true;
-    const thread = emailThreads.find((entry) => entry.id === member.threadId);
-    return Boolean(thread && assistantInboxCollapseKey(thread));
-  });
+  const assistantRow = isAssistantUnifiedInboxRow(row, emailThreads);
   const canArchive = permitted && !assistantRow;
   const archiveOrRestore = archived && !assistantRow ? (
     <>
       <Button variant="outline" onClick={() => bulk.handleRestore()}>Restore</Button>
-      {emailOnly ? <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button> : null}
+      <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button>
     </>
   ) : canArchive ? <Button variant="outline" onClick={() => bulk.handleArchive()}>Archive</Button> : null;
+  const canClearAssistant = assistantRow;
   const canEdit = manager && bulk.canEditContact;
   return (
     <RecordActionContext.Provider value={{
       scope: `${archived}:${row.key}`,
       clear: bulk.selection.clearSelection,
-      actions: permitted && (archiveOrRestore || canEdit) ? <>
+      actions: permitted && (archiveOrRestore || canEdit || canClearAssistant) ? <>
         {archiveOrRestore}
+        {canClearAssistant ? (
+          <Button variant="danger" onClick={() => void bulk.handleClearAssistant(row)}>Clear</Button>
+        ) : null}
         {canEdit ? <Button variant="outline" onClick={bulk.openEdit}>Edit</Button> : null}
       </> : null,
     }}>

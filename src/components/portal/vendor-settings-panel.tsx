@@ -10,7 +10,7 @@ import {
   Contact,
   Lock,
   MessageSquareText,
-  Settings2,
+  Settings,
   SlidersHorizontal,
   Smartphone,
   Wrench,
@@ -185,14 +185,6 @@ export function VendorAvailabilityEditor() {
     return map;
   }, [rules]);
 
-  const blocks = useMemo(
-    () =>
-      rules
-        .filter((r): r is Extract<VendorAvailabilityRule, { kind: "block" }> => r.kind === "block")
-        .sort((a, b) => a.specificDate.localeCompare(b.specificDate)),
-    [rules],
-  );
-
   const opens = useMemo(
     () =>
       rules
@@ -271,19 +263,6 @@ export function VendorAvailabilityEditor() {
   const resetBlockForm = () => {
     setBlockEditingId(null);
     setBlockDraft({ date: todayDateInputValue(), allDay: true, start: "09:00", end: "17:00", note: "" });
-  };
-
-  const startEditBlock = (rule: Extract<VendorAvailabilityRule, { kind: "block" }>) => {
-    const allDay = rule.startMinute === 0 && rule.endMinute === 1440;
-    setBlockDraft({
-      date: rule.specificDate,
-      allDay,
-      start: allDay ? "09:00" : minuteOfDayToTimeInputValue(rule.startMinute),
-      end: allDay ? "17:00" : minuteOfDayToTimeInputValue(rule.endMinute),
-      note: rule.note ?? "",
-    });
-    setBlockEditingId(rule.id);
-    setBlockFormOpen(true);
   };
 
   const addBlock = async () => {
@@ -877,44 +856,7 @@ export function VendorAvailabilityEditor() {
           </div>
         ) : null}
 
-        <div className="mt-3 space-y-1.5">
-          {blocks.length === 0 ? (
-            <p className="text-xs text-muted">No blocked dates.</p>
-          ) : (
-            blocks.map((b) => (
-              <div
-                key={b.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
-              >
-                <button
-                  type="button"
-                  data-attr="vendor-availability-edit-block"
-                  className={`text-left ${AVAILABILITY_EDIT_BTN}`}
-                  onClick={() => startEditBlock(b)}
-                >
-                  <span className="font-medium text-foreground">
-                    {new Date(`${b.specificDate}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>{" "}
-                  ·{" "}
-                  {b.startMinute === 0 && b.endMinute === 1440
-                    ? "All day"
-                    : `${formatMinuteOfDayLabel(b.startMinute)}–${formatMinuteOfDayLabel(b.endMinute)}`}
-                  {b.note ? <span className="text-muted"> · {b.note}</span> : null}
-                </button>
-                <button
-                  type="button"
-                  data-attr="vendor-availability-remove-block"
-                  aria-label={`Remove blocked date ${b.specificDate}`}
-                  className={AVAILABILITY_REMOVE_BTN}
-                  disabled={busyId === b.id}
-                  onClick={() => void removeRule(b.id)}
-                >
-                  ✕
-                </button>
-              </div>
-            ))
-          )}
-        </div>
+        {/* Already-blocked dates stay off this form — they paint on the calendar. */}
       </PortalCollapsibleSection>
       {!loaded ? <p className="text-xs text-muted">Loading availability…</p> : null}
     </div>
@@ -1119,7 +1061,7 @@ export function VendorSettingsPanel() {
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your account.",
-        icon: Settings2,
+        icon: Settings,
         group: "Account",
       },
     ],
@@ -1175,12 +1117,15 @@ export function VendorSettingsPanel() {
   }, [urlForTab]);
 
   const layoutTopRef = useRef<HTMLDivElement>(null);
+  const contentColRef = useRef<HTMLDivElement>(null);
   const skipInitialScroll = useRef(true);
   useEffect(() => {
     if (skipInitialScroll.current) {
       skipInitialScroll.current = false;
       return;
     }
+    // Desktop: the content column is its own scroll container; mobile: the shell scrolls.
+    contentColRef.current?.scrollTo?.({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
@@ -1343,9 +1288,9 @@ export function VendorSettingsPanel() {
       title="Settings"
       hideTitleOnMobileNav
     >
-      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <PortalSettingsNav
-          className="sticky top-0 max-lg:hidden"
+          className="max-lg:hidden"
           name={profileDraft.name || DEMO_VENDOR_NAME}
           email={profileDraft.email || DEMO_VENDOR_EMAIL}
           items={groups.map((g) => ({
@@ -1357,7 +1302,10 @@ export function VendorSettingsPanel() {
           activeId={paneGroup.id}
           onSelect={openGroup}
         />
-        <div className="min-w-0 flex-1 lg:max-w-3xl">
+        <div
+          ref={contentColRef}
+          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
+        >
           {activeGroup === null ? (
             <div className="space-y-5 lg:hidden">
               <PortalSettingsProfileHeader

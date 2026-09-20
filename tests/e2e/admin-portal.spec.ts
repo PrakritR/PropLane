@@ -77,7 +77,7 @@ test.describe("Admin portal", () => {
     // it (see admin-communication.tsx / admin-inbox-client.tsx).
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/admin/communication/inbox/unopened");
-    await expect(page.getByRole("heading", { name: /^communication$/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible({
       timeout: 15_000,
     });
     await page.getByRole("button", { name: "New message" }).click();
@@ -130,7 +130,7 @@ test.describe("Admin portal", () => {
   test("feedback section loads as its own admin page", async ({ page }) => {
     await page.goto("/admin/bugs-feedback");
     await expect(page).toHaveURL(/\/admin\/bugs-feedback/);
-    await expect(page.getByRole("heading", { name: "Feedback" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Feedback", exact: true, level: 1 })).toBeVisible({ timeout: 15_000 });
   });
 
   test("properties section loads", async ({ page }) => {

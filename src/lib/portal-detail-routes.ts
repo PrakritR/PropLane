@@ -146,6 +146,18 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   communication: "Comms",
 };
 
+export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, string> = {
+  overview: "Who they are and what is waiting",
+  tours: "Viewings for this person",
+  application: "Screen this renter",
+  "background-check": "Screening results",
+  lease: "Draft, send and e-sign",
+  payments: "Charges and receipts",
+  services: "Repairs and requests",
+  inspections: "Move-in and move-out photos",
+  communication: "Messages with this person",
+};
+
 /** Sidebar subsection ids under Residents when viewing an applicant profile. */
 export const RESIDENT_APPLICANT_SIDEBAR_TABS = ["background-check", "application"] as const;
 export type ResidentApplicantSidebarTabId = (typeof RESIDENT_APPLICANT_SIDEBAR_TABS)[number];
@@ -203,6 +215,18 @@ export function propertyDetailHref(
   tab: PropertyDetailTabId,
 ): string {
   return `${basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/${tab}`;
+}
+
+/** Add service / Add task → this house’s Services tab (listed vs drafts). */
+export function propertyServicesCatalogHref(
+  basePath: string,
+  propertyId: string,
+  saveTarget: { mode: "pending" | "listing" | "requestChange" } | null,
+): string | null {
+  const id = propertyId.trim();
+  if (!id || !saveTarget) return null;
+  const stage = saveTarget.mode === "pending" ? "drafts" : "listed";
+  return propertyDetailHref(basePath, stage, id, "requests");
 }
 
 /**
@@ -348,6 +372,22 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
   return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
+/** Vendor calendar: All + Services. No Tours, no Tasks. */
+export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services"] as const;
+export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
+export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
+
+export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
+  if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorCalendarViewTabId;
+  }
+  return DEFAULT_VENDOR_CALENDAR_VIEW;
+}
+
+export function vendorCalendarViewHref(basePath: string, tab: VendorCalendarViewTabId): string {
+  return tab === DEFAULT_VENDOR_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
+}
+
 export function bookingsHref(basePath: string): string {
   return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
 }
@@ -464,6 +504,38 @@ export function parseManagerTaskListTab(raw: string | undefined | null): Manager
 export function parseVendorTaskListTab(raw: string | undefined | null): VendorTaskListTabId {
   if (raw === "completed") return "completed";
   return "in-progress";
+}
+
+export const VENDOR_WORK_ORDER_LIST_TABS = ["pending", "upcoming", "past"] as const;
+export type VendorWorkOrderListTabId = (typeof VENDOR_WORK_ORDER_LIST_TABS)[number];
+export const DEFAULT_VENDOR_WORK_ORDER_TAB: VendorWorkOrderListTabId = "pending";
+
+export const VENDOR_WORK_ORDER_LIST_TAB_LABELS: Record<VendorWorkOrderListTabId, string> = {
+  pending: "Pending",
+  upcoming: "Upcoming",
+  past: "Past",
+};
+
+export const VENDOR_WORK_ORDER_LEGACY_LIST_TABS: Record<string, VendorWorkOrderListTabId> = {
+  quote: "pending",
+  tour: "pending",
+  scheduled: "upcoming",
+  completed: "past",
+};
+
+export function parseVendorWorkOrderListTab(raw: string | undefined | null): VendorWorkOrderListTabId {
+  if (raw && (VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorWorkOrderListTabId;
+  }
+  if (raw && VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) return VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!;
+  return DEFAULT_VENDOR_WORK_ORDER_TAB;
+}
+
+export function vendorWorkOrderListHref(
+  basePath: string,
+  tab: VendorWorkOrderListTabId = DEFAULT_VENDOR_WORK_ORDER_TAB,
+): string {
+  return `${basePath}/work-orders/${tab}`;
 }
 
 export function managerTaskListHref(
@@ -895,19 +967,189 @@ export function workOrderDetailHref(
   basePath: string,
   bucket: WorkOrderBucketId,
   workOrderId: string,
+  tab: ServiceRecordTabId = "overview",
 ): string {
-  return `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
+  const path = `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
+  return tab === "overview" ? path : `${path}/${tab}`;
+}
+
+/** Routed tabs shared by service, task, and inspection records. */
+export const SERVICE_RECORD_TABS = ["overview", "communication", "payments", "vendor", "resident"] as const;
+export type ServiceRecordTabId = (typeof SERVICE_RECORD_TABS)[number];
+
+export const SERVICE_RECORD_TAB_LABELS: Record<ServiceRecordTabId, string> = {
+  overview: "Overview",
+  communication: "Communication",
+  payments: "Payments",
+  vendor: "Vendor",
+  resident: "Resident",
+};
+
+export const SERVICE_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
+  overview: "Status, assignment, next visit",
+  communication: "Thread for this service",
+  payments: "Outgoing and charges",
+  vendor: "Who is assigned",
+  resident: "Who this is for",
+};
+
+export const SERVICE_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
+  { label: "Service", ids: ["overview", "communication"] },
+  { label: "Money", ids: ["payments"] },
+  { label: "People", ids: ["vendor", "resident"] },
+];
+
+export const TASK_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
+  overview: "Status, assignment, due",
+  communication: "Thread for this task",
+  payments: "None yet",
+  vendor: "Who is assigned",
+  resident: "Linked resident",
+};
+
+export const TASK_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
+  { label: "Task", ids: ["overview", "communication"] },
+  { label: "Money", ids: ["payments"] },
+  { label: "People", ids: ["vendor", "resident"] },
+];
+
+export const INSPECTION_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
+  overview: "Kind, status, date",
+  communication: "Thread for this report",
+  payments: "None",
+  vendor: "Assigned vendor",
+  resident: "Whose room this is",
+};
+
+export const INSPECTION_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
+  { label: "Inspection", ids: ["overview", "communication"] },
+  { label: "People", ids: ["resident", "vendor"] },
+  { label: "Money", ids: ["payments"] },
+];
+
+export const PAYMENT_RECORD_TABS = ["overview", "communication", "service", "vendor", "resident"] as const;
+export type PaymentRecordTabId = (typeof PAYMENT_RECORD_TABS)[number];
+
+export const PAYMENT_RECORD_TAB_LABELS: Record<PaymentRecordTabId, string> = {
+  overview: "Overview",
+  communication: "Communication",
+  service: "Service",
+  vendor: "Vendor",
+  resident: "Resident",
+};
+
+export const PAYMENT_RECORD_TAB_DESCRIPTIONS: Record<PaymentRecordTabId, string> = {
+  overview: "Amount, direction, status",
+  communication: "Thread for this charge",
+  service: "Linked service",
+  vendor: "Payee",
+  resident: "Who this charge is for",
+};
+
+export const PAYMENT_RECORD_RAIL_GROUPS: Array<{ label: string; ids: PaymentRecordTabId[] }> = [
+  { label: "Payment", ids: ["overview", "communication"] },
+  { label: "Linked", ids: ["service", "vendor", "resident"] },
+];
+
+export function parseServiceRecordTab(raw: string | undefined | null): ServiceRecordTabId {
+  if (raw && (SERVICE_RECORD_TABS as readonly string[]).includes(raw)) {
+    return raw as ServiceRecordTabId;
+  }
+  return "overview";
+}
+
+export function parsePaymentRecordTab(raw: string | undefined | null): PaymentRecordTabId {
+  if (raw && (PAYMENT_RECORD_TABS as readonly string[]).includes(raw)) {
+    return raw as PaymentRecordTabId;
+  }
+  return "overview";
+}
+
+export function managerTaskDetailHref(
+  basePath: string,
+  listTab: ManagerTaskListTabId,
+  taskId: string,
+  tab: ServiceRecordTabId = "overview",
+): string {
+  const path = `${basePath}/tasks/${listTab}/${encodeURIComponent(taskId)}`;
+  return tab === "overview" ? path : `${path}/${tab}`;
+}
+
+export function inspectionDetailHref(
+  basePath: string,
+  kind: "move-in" | "move-out",
+  reportId: string,
+  tab: ServiceRecordTabId = "overview",
+): string {
+  const path = `${basePath}/inspections/${kind}/${encodeURIComponent(reportId)}`;
+  return tab === "overview" ? path : `${path}/${tab}`;
+}
+
+export function paymentRecordDetailHref(
+  basePath: string,
+  direction: PaymentDirectionId,
+  bucket: PaymentBucketId,
+  paymentId: string,
+  tab: PaymentRecordTabId = "overview",
+): string {
+  const path = paymentDetailHref(basePath, direction, bucket, paymentId);
+  return tab === "overview" ? path : `${path}/${tab}`;
 }
 
 // Vendors is its own section. These builders point at it directly rather than leaning on the
 // compatibility redirects from /teams/vendors and /services/vendors — a link that redirects on
 // every click costs a round trip and briefly shows the wrong section as active.
-export function vendorListHref(basePath: string): string {
-  return `${basePath}/vendors`;
+export function vendorListHref(basePath: string, tab: VendorDirectoryTab = "yours"): string {
+  return tab === "catalog" ? `${basePath}/vendors?tab=catalog` : `${basePath}/vendors`;
 }
 
-export function vendorDetailHref(basePath: string, vendorId: string): string {
-  return `${basePath}/vendors/${encodeURIComponent(vendorId)}`;
+export type VendorDirectoryTab = "yours" | "catalog";
+
+export function parseVendorDirectoryTab(raw: string | null | undefined): VendorDirectoryTab {
+  return raw === "catalog" ? "catalog" : "yours";
+}
+
+export function vendorCatalogDetailHref(basePath: string, catalogId: string): string {
+  return `${basePath}/vendors?tab=catalog&catalog=${encodeURIComponent(catalogId)}`;
+}
+
+/** Routed detail tabs for a manager vendor — same chrome as a resident. */
+export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "check-ins", "communication"] as const;
+export type VendorDetailTabId = (typeof VENDOR_DETAIL_TABS)[number];
+
+export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
+  overview: "Overview",
+  profile: "Profile",
+  jobs: "Jobs",
+  "check-ins": "Check-ins",
+  communication: "Communication",
+};
+
+export const VENDOR_DETAIL_TAB_DESCRIPTIONS: Record<VendorDetailTabId, string> = {
+  overview: "Status, houses, and what needs you",
+  profile: "Name, trade, phone, email",
+  jobs: "Work assigned to this vendor",
+  "check-ins": "Scheduled questions",
+  communication: "Messages with this vendor",
+};
+
+export const VENDOR_RAIL_GROUPS: Array<{ label: string; ids: VendorDetailTabId[] }> = [
+  { label: "Vendor", ids: ["overview", "profile"] },
+  { label: "Work", ids: ["jobs", "check-ins"] },
+  { label: "Contact", ids: ["communication"] },
+];
+
+export function parseVendorDetailTab(raw: string | undefined | null): VendorDetailTabId {
+  if (raw === "messages") return "communication";
+  if (raw === "checkins") return "check-ins";
+  if (raw && (VENDOR_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorDetailTabId;
+  }
+  return "overview";
+}
+
+export function vendorDetailHref(basePath: string, vendorId: string, tab: VendorDetailTabId = "overview"): string {
+  return `${basePath}/vendors/${encodeURIComponent(vendorId)}/${tab}`;
 }
 
 /** Workspace Promotion sections — live in `?kind=`, never a path (collides with [assetId]). */

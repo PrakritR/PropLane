@@ -26,11 +26,70 @@ import {
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { ensureResidentSetupTokenForApplication } from "@/lib/auth/resident-setup-token";
 import { resolveManagerReachabilityForResident } from "@/lib/manager-reachability-for-resident.server";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 // Domain is matched as dot-separated labels (no char class overlaps the "." delimiter)
 // so there is exactly one way to parse a match — avoids polynomial backtracking on
 // attacker-controlled input.
 export const RESIDENT_WELCOME_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+
+/** Import / harness inboxes must never receive Resend. SMS to a sheet phone still may. */
+export function isPlaceholderResidentEmail(email: string): boolean {
+  const to = email.trim().toLowerCase();
+  return (
+    to.endsWith("@axis.local") ||
+    to.endsWith("@test.proplane.local") ||
+    to.endsWith("@import.proplane.local")
+  );
+}
+
+function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {
+  return isPlaceholderResidentEmail(to) || (Boolean(senderEmail) && to === senderEmail);
+}
+
+async function postResendEmail(input: {
+  apiKey: string;
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  mailtoHref: string;
+}): Promise<{ ok: true; id: string | null } | { ok: false; status: 502; error: string; mailtoHref: string }> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: input.from,
+        to: [input.to],
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+      }),
+    });
+    const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: 502,
+        error: payload.message ?? res.statusText ?? "Resend request failed.",
+        mailtoHref: input.mailtoHref,
+      };
+    }
+    return { ok: true, id: payload.id ?? null };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      error: err instanceof Error ? err.message : "Resend request failed.",
+      mailtoHref: input.mailtoHref,
+    };
+  }
+}
 
 /** Roles allowed to send the welcome email (matches the original route gate). */
 export function canSendResidentWelcome(role: string | null | undefined): boolean {
@@ -53,9 +112,11 @@ export function buildResidentWelcomeSmsBody(input: {
   axisId: string;
   senderName: string;
   propertyLabel?: string;
+  setupUrl?: string;
 }): string {
   const residentName = input.residentName?.trim() ?? "";
-  return `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(input.axisId)}. — ${input.senderName} Reply STOP to opt out.`;
+  const setup = input.setupUrl?.trim() ? ` Set up your account: ${input.setupUrl.trim()}` : "";
+  return `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online.${setup} PropLane ID: ${formatProplaneIdForDisplay(input.axisId)}. — ${input.senderName} Reply STOP to opt out.`;
 }
 
 function normalizeEmail(value: unknown): string {
@@ -112,7 +173,7 @@ export type ResidentWelcomeActor = {
 };
 
 export type DeliverResidentWelcomeResult =
-  | { ok: true; id: string | null; skipped: boolean }
+  | { ok: true; id: string | null; skipped: boolean; smsSent?: boolean }
   | { ok: false; status: 502 | 503; error: string; mailtoHref: string };
 
 /**
@@ -132,7 +193,7 @@ export async function deliverResidentWelcome(
   const axisId = input.axisId.trim();
 
   const senderEmail = normalizeEmail(actor.email);
-  const skipExternalEmail = to.endsWith("@axis.local") || (Boolean(senderEmail) && to === senderEmail);
+  const skipExternalEmail = skipExternalWelcomeEmail(to, senderEmail);
 
   // Mint (or refresh) a setup token on the application so the approval email links
   // to a working /auth/resident-setup?token=&axis_id= handoff — the same machinery
@@ -181,32 +242,18 @@ export async function deliverResidentWelcome(
       };
     }
 
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [to],
-        subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
-        text,
-        html,
-      }),
+    const from = await managerOutboundFromHeader(db, actor.userId);
+    const sent = await postResendEmail({
+      apiKey,
+      from,
+      to,
+      subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
+      text,
+      html,
+      mailtoHref,
     });
-
-    const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: 502,
-        error: payload.message ?? res.statusText ?? "Resend request failed.",
-        mailtoHref,
-      };
-    }
-    payloadId = payload.id ?? null;
+    if (!sent.ok) return sent;
+    payloadId = sent.id;
   }
 
   // Deliver to portal inboxes: manager's Sent + resident's Unopened
@@ -296,7 +343,14 @@ export async function deliverResidentWelcome(
 export async function deliverExistingResidentWelcome(
   db: SupabaseClient,
   actor: ResidentWelcomeActor,
-  input: { to: string; residentName?: string; axisId: string; propertyLabel?: string },
+  input: {
+    to: string;
+    residentName?: string;
+    axisId: string;
+    propertyLabel?: string;
+    residentPhone?: string;
+    channels?: { viaEmail?: boolean; viaSms?: boolean; viaInbox?: boolean };
+  },
 ): Promise<DeliverResidentWelcomeResult> {
   const to = normalizeEmail(input.to);
   const residentName = input.residentName?.trim() ?? "";
@@ -304,7 +358,10 @@ export async function deliverExistingResidentWelcome(
   const propertyLabel = input.propertyLabel?.trim() ?? "";
 
   const senderEmail = normalizeEmail(actor.email);
-  const skipExternalEmail = to.endsWith("@axis.local") || (Boolean(senderEmail) && to === senderEmail);
+  const skipExternalEmail = skipExternalWelcomeEmail(to, senderEmail);
+  const viaEmail = input.channels?.viaEmail !== false;
+  const viaSms = input.channels?.viaSms !== false;
+  const viaInbox = input.channels?.viaInbox !== false;
 
   const ensured = await ensureResidentSetupTokenForApplication(db, axisId, {
     managerUserId: actor.userId,
@@ -339,7 +396,7 @@ export async function deliverExistingResidentWelcome(
   });
 
   let payloadId: string | null = null;
-  if (!skipExternalEmail) {
+  if (viaEmail && !skipExternalEmail) {
     const apiKey = process.env.RESEND_API_KEY?.trim();
     if (!apiKey) {
       return {
@@ -350,32 +407,18 @@ export async function deliverExistingResidentWelcome(
       };
     }
 
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [to],
-        subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
-        text,
-        html,
-      }),
+    const from = await managerOutboundFromHeader(db, actor.userId);
+    const sent = await postResendEmail({
+      apiKey,
+      from,
+      to,
+      subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
+      text,
+      html,
+      mailtoHref,
     });
-
-    const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: 502,
-        error: payload.message ?? res.statusText ?? "Resend request failed.",
-        mailtoHref,
-      };
-    }
-    payloadId = payload.id ?? null;
+    if (!sent.ok) return sent;
+    payloadId = sent.id;
   }
 
   try {
@@ -411,7 +454,7 @@ export async function deliverExistingResidentWelcome(
       { onConflict: "id" },
     );
 
-    if (!skipExternalEmail && to !== senderLower) {
+    if (viaInbox && !skipExternalEmail && to !== senderLower) {
       const residentThreadId = `welcome_existing_inbox_${ts}_${rand}`;
       await db.from("portal_inbox_thread_records").upsert(
         {
@@ -441,18 +484,25 @@ export async function deliverExistingResidentWelcome(
     /* non-critical */
   }
 
+  let smsSent = false;
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
-    if (!skipExternalEmail) {
+    if (viaSms) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
-      const residentPhone = String(residentProfile?.phone ?? "").trim();
+      const residentPhone = input.residentPhone?.trim() || String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
         const senderName = String(managerProfile?.full_name ?? actor.email ?? "Your property manager").trim() || "Your property manager";
-        const smsBody = `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(axisId)}. — ${senderName}`;
+        const smsBody = buildResidentWelcomeSmsBody({
+          residentName,
+          axisId,
+          senderName,
+          setupUrl: isPlaceholderResidentEmail(to) ? signupUrl : undefined,
+        });
         await enqueueOwnerSms({ managerUserId: actor.userId, actorUserId: actor.userId, recipientPhone: residentPhone, recipientEmail: to, body: smsBody, sendClass: "transactional", purpose: "resident_welcome", counterpartyRole: "resident", dedupeKey: `welcome:${actor.userId}:${axisId}:${payloadId}` }, db);
+        smsSent = true;
       }
     }
   } catch { /* non-critical */ }
 
-  return { ok: true, id: payloadId, skipped: skipExternalEmail };
+  return { ok: true, id: payloadId, skipped: skipExternalEmail, smsSent };
 }

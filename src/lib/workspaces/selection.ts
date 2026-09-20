@@ -83,6 +83,38 @@ export function activeWorkspacePropertyIds(): string[] | null {
 }
 
 /**
+ * Houses the active workspace holds, with the labels the server already
+ * attached to the workspace payload. List pickers seed from this so an empty
+ * local pipeline does not hide houses the workspace knows about.
+ */
+export function activeWorkspacePropertyOptions(): { id: string; label: string }[] {
+  const active = activeWorkspace();
+  if (!active) return [];
+  const labels = active.propertyLabels ?? {};
+  return active.propertyIds
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((id) => {
+      const label = (labels[id] ?? "").trim();
+      return { id, label: label || "Untitled property" };
+    });
+}
+
+/** Property ids on workspaces this account owns — not the pipeline cache. */
+export function ownedWorkspacePropertyIds(): string[] {
+  if (!selection) return [];
+  const ids: string[] = [];
+  for (const workspace of selection.workspaces) {
+    if (!workspace.owned) continue;
+    for (const id of workspace.propertyIds) {
+      const trimmed = id.trim();
+      if (trimmed) ids.push(trimmed);
+    }
+  }
+  return ids;
+}
+
+/**
  * Settings "Applies to" lists. `null` selection means not narrowing yet (tests
  * and first paint) — pass the options through. An empty array is a workspace
  * with no houses, so the picker is empty.

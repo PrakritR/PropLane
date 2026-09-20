@@ -8,7 +8,7 @@ import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { useIsNativeApp } from "@/hooks/use-is-native-app";
+import { useIsNativeApp, useIsSmallPortalViewport } from "@/hooks/use-is-native-app";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import {
@@ -130,7 +130,8 @@ export function ShareLeadLinkModal({
   const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
   const { isNative } = useIsNativeApp();
-  const useFullPageModal = isNative === true;
+  const isSmallViewport = useIsSmallPortalViewport();
+  const useFullPageModal = isNative === true || isSmallViewport;
   const multiEnabled = properties.length > 1;
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [roomChoice, setRoomChoice] = useState("");
@@ -825,7 +826,7 @@ export function ShareLeadLinkModal({
         defaultViaEmail={viaEmail}
         defaultViaSms={viaSms}
         editableSubject={viaEmail}
-        footerNote="Sent via PropLane when email and SMS delivery are configured."
+        footerNote=""
         confirmLabel={kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link"}
         confirmBusy={sendBusy}
         confirmBusyLabel="Sending…"

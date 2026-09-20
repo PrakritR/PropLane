@@ -42,7 +42,12 @@ export async function runExistingResidentOnboarding(
   db: SupabaseClient,
   actor: ResidentWelcomeActor & { managerName?: string },
   row: DemoApplicantRow,
-  opts?: { sendWelcomeEmail?: boolean; preserveExistingLease?: boolean },
+  opts?: {
+    sendWelcomeEmail?: boolean;
+    preserveExistingLease?: boolean;
+    skipLeaseWrite?: boolean;
+    channels?: { viaEmail?: boolean; viaSms?: boolean; viaInbox?: boolean };
+  },
 ): Promise<ExistingResidentOnboardingResult> {
   if (!row.manuallyAdded) {
     return { ok: false, status: 400, error: "Not a manager-added existing resident." };
@@ -138,54 +143,60 @@ export async function runExistingResidentOnboarding(
     return { ok: true, leaseId, welcomeEmailSent: false, axisId, row };
   }
 
-  const leaseTable = db.from("portal_lease_pipeline_records");
-  const payload = buildLeaseUpsert(leaseRow as unknown as Record<string, unknown>);
-  const { error: leaseError } = opts?.preserveExistingLease
-    ? await leaseTable.insert(payload)
-    : await leaseTable.upsert(payload, { onConflict: "id" });
-  if (leaseError) {
-    return { ok: false, status: 500, error: leaseError.message };
+  const skipLeaseWrite = opts?.skipLeaseWrite === true && Boolean(existingLease);
+  if (!skipLeaseWrite) {
+    const leaseTable = db.from("portal_lease_pipeline_records");
+    const payload = buildLeaseUpsert(leaseRow as unknown as Record<string, unknown>);
+    const { error: leaseError } = opts?.preserveExistingLease
+      ? await leaseTable.insert(payload)
+      : await leaseTable.upsert(payload, { onConflict: "id" });
+    if (leaseError) {
+      return { ok: false, status: 500, error: leaseError.message };
+    }
   }
 
   let welcomeEmailSent = false;
   let nextRow = row;
   if (sendWelcomeEmail) {
-    const welcome = await deliverExistingResidentWelcome(db, actor, {
-      to: email,
-      residentName,
-      axisId,
-      propertyLabel: row.property,
-    });
-    if (!welcome.ok) {
-      return {
-        ok: false,
-        status: welcome.status,
-        error: welcome.error,
-        mailtoHref: welcome.mailtoHref,
-        leaseId,
-      };
+    try {
+      const welcome = await deliverExistingResidentWelcome(db, actor, {
+        to: email,
+        residentName,
+        axisId,
+        propertyLabel: row.property,
+        residentPhone:
+          row.manualResidentDetails?.phone?.trim() ||
+          (typeof row.application?.phone === "string" ? row.application.phone.trim() : "") ||
+          undefined,
+        channels: opts?.channels,
+      });
+      if (welcome.ok) {
+        welcomeEmailSent = !welcome.skipped || welcome.smsSent === true;
+        nextRow = {
+          ...row,
+          manualResidentDetails: {
+            ...row.manualResidentDetails,
+            onboardingWelcomeSentAt: iso,
+            ...(manualPdf ? { externallySignedLease: true as const } : {}),
+          },
+        };
+        // Scoped to the caller as defence in depth: the route only hands us a row
+        // it read back under this manager's id, and this update must not be able
+        // to reach another manager's application even if that ever changes.
+        await db
+          .from("manager_application_records")
+          .update({
+            row_data: sealApplicantRow(nextRow, row.id, actor.userId),
+            resident_email: email,
+            updated_at: iso,
+          })
+          .eq("id", row.id)
+          .eq("manager_user_id", actor.userId);
+      }
+    } catch {
+      // The resident and lease stub already exist. A Resend/network throw must
+      // not roll the add back — the client still generates and sends the lease.
     }
-    welcomeEmailSent = !welcome.skipped;
-    nextRow = {
-      ...row,
-      manualResidentDetails: {
-        ...row.manualResidentDetails,
-        onboardingWelcomeSentAt: iso,
-        ...(manualPdf ? { externallySignedLease: true as const } : {}),
-      },
-    };
-    // Scoped to the caller as defence in depth: the route only hands us a row
-    // it read back under this manager's id, and this update must not be able
-    // to reach another manager's application even if that ever changes.
-    await db
-      .from("manager_application_records")
-      .update({
-        row_data: sealApplicantRow(nextRow, row.id, actor.userId),
-        resident_email: email,
-        updated_at: iso,
-      })
-      .eq("id", row.id)
-      .eq("manager_user_id", actor.userId);
   }
 
   return { ok: true, leaseId, welcomeEmailSent, axisId, row: nextRow };

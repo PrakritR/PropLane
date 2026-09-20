@@ -181,11 +181,11 @@ import { ManagerPayments } from "@/components/portal/pro-payments";
 import { ManagerResidents } from "@/components/portal/pro-residents";
 
 describe("evidence · Payments action rows", () => {
-  it("the Payments section publishes Settings and Setup, and no Check", () => {
+  it("the Payments section publishes Settings, and no Check or Setup wrench", () => {
     const html = renderToStaticMarkup(<ManagerPayments direction="incoming" bucket="pending" />);
 
     expect(html).toContain('data-attr="settings-open-payments"');
-    expect(html).toContain('data-attr="payments-setup"');
+    expect(html).not.toContain('data-attr="payments-setup"');
     // The Check button is gone from the action row entirely.
     expect(html).not.toContain('data-attr="manager-check-manual-payments"');
     expect(html).not.toMatch(/>Check</);

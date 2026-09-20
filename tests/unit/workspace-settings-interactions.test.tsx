@@ -97,7 +97,7 @@ it("shows failed deletion and preserves the move dialog for retry", async () => 
 
 it("creates one named workspace from a single Save", async () => {
   mount([]);
-  fireEvent.click(screen.getByRole("button", { name: "+ Add workspace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add workspace" }));
   fireEvent.change(await screen.findByLabelText("Workspace name"), { target: { value: "North homes" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(mocks.context.mutate).toHaveBeenCalledWith({ action: "create", id: undefined, name: "North homes" }));

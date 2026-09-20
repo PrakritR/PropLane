@@ -94,6 +94,7 @@ export function PortalNotificationPreviewModal({
   assistantContext,
   onConfirm,
   panelClassName,
+  stackClassName,
   assigneeKind,
   assigneeTeamMembers,
   assigneeVendors,
@@ -143,6 +144,7 @@ export function PortalNotificationPreviewModal({
     draft?: NotificationConfirmDraft,
   ) => void;
   panelClassName?: string;
+  stackClassName?: string;
   /** When set, renders an assignee picker above the message body. */
   assigneeKind?: AssignableWorkKind;
   assigneeTeamMembers?: readonly { userId: string; name?: string | null; email?: string | null }[];
@@ -178,7 +180,9 @@ export function PortalNotificationPreviewModal({
       // state could start carrying "sms", and the dropdown filters that only for
       // DISPLAY — so an untouched control still submitted viaSms: true.
       setSendVia(
-        portalMessageSelectionFromDeliverVia(saved, effectiveSmsAvailable),
+        portalMessageSelectionFromDeliverVia(saved, effectiveSmsAvailable).filter(
+          (value) => value !== "email" || emailAvailable,
+        ),
       );
       setScheduleLater(initialScheduleLater);
       setSendAt(defaultPortalMessageScheduleAt());
@@ -356,6 +360,7 @@ export function PortalNotificationPreviewModal({
       footer={footer}
       assistantContext={assistantContext ?? title}
       panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, panelClassName)}
+      stackClassName={stackClassName}
     >
       <PortalMessageComposeModalBody>
         {warning ? (

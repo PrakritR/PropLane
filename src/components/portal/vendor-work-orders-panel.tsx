@@ -1,15 +1,19 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ListChecks } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Settings } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
+import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
+import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ManagerPortalPageShell,
-  ManagerPortalStatusPills,
 
   PORTAL_TOOLBAR_GROUP,
   PORTAL_TOOLBAR_PILL_BUTTON,
@@ -17,7 +21,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import {
   PORTAL_DETAIL_BTN,
-  PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -45,6 +48,8 @@ import {
   VENDOR_WORK_ORDER_TAB_ORDER,
   type VendorWorkOrderTab,
 } from "@/lib/vendor-work-order-tabs";
+import { vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
+import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
@@ -89,9 +94,11 @@ function formatVisitLabel(iso: string): string {
 
 /** Work orders offered/assigned to the signed-in vendor. Read-only except for submitting a
  * cost/time bid once the manager has opened a work order for bids. */
-export function VendorWorkOrdersPanel() {
+export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWorkOrderTab }) {
   const { showToast } = useAppUi();
+  const router = useRouter();
   const demo = isDemoModeActive();
+  const servicesSettingsEntry = getSettingsEntryPoint("vendorServices");
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
   const [bidsByWorkOrderId, setBidsByWorkOrderId] = useState<Record<string, WorkOrderBid>>({});
   const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer>>({});
@@ -107,11 +114,12 @@ export function VendorWorkOrdersPanel() {
   const [modeById, setModeById] = useState<Record<string, "upfront" | "after_consultation">>({});
   const [consultationDraftById, setConsultationDraftById] = useState<Record<string, string>>({});
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
-  const [tab, setTab] = useState<VendorWorkOrderTab>("quote");
   const [bidsSyncFailed, setBidsSyncFailed] = useState(false);
   const [payoutsSyncFailed, setPayoutsSyncFailed] = useState(false);
   const [decliningOfferId, setDecliningOfferId] = useState<string | null>(null);
   const [withdrawingBidId, setWithdrawingBidId] = useState<string | null>(null);
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadBids = useCallback(async () => {
     const result = await fetchWorkOrderBidsResult();
@@ -177,7 +185,7 @@ export function VendorWorkOrdersPanel() {
   );
 
   const tabCounts = useMemo(() => {
-    const c: Record<VendorWorkOrderTab, number> = { quote: 0, tour: 0, scheduled: 0, completed: 0 };
+    const c: Record<VendorWorkOrderTab, number> = { pending: 0, upcoming: 0, past: 0 };
     for (const row of sorted) c[vendorWorkOrderTab(row, bidsByWorkOrderId[row.id])] += 1;
     return c;
   }, [sorted, bidsByWorkOrderId]);
@@ -188,22 +196,27 @@ export function VendorWorkOrdersPanel() {
         id,
         label: VENDOR_WORK_ORDER_TAB_LABELS[id],
         count: tabCounts[id],
+        href: vendorWorkOrderListHref("/vendor", id),
         dataAttr: `vendor-wo-tab-${id}`,
       })),
     [tabCounts],
   );
 
-  const tabPickRef = useRef(false);
   useEffect(() => {
-    if (tabPickRef.current || sorted.length === 0) return;
-    const first = VENDOR_WORK_ORDER_TAB_ORDER.find((id) => tabCounts[id] > 0);
-    if (first) setTab(first);
-    tabPickRef.current = true;
-  }, [sorted.length, tabCounts]);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("add") !== "1") return;
+    setQuoteOpen(true);
+    router.replace(vendorWorkOrderListHref("/vendor", tabId));
+  }, [router, tabId]);
 
   const visible = useMemo(
-    () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === tab),
-    [sorted, tab, bidsByWorkOrderId],
+    () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === tabId),
+    [sorted, tabId, bidsByWorkOrderId],
+  );
+
+  const wizardJobs = useMemo(
+    () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === "pending"),
+    [sorted, bidsByWorkOrderId],
   );
 
   const openExpand = (row: DemoManagerWorkOrderRow) => {
@@ -234,6 +247,7 @@ export function VendorWorkOrdersPanel() {
       if (demo) {
         upsertWorkOrderBid({
           workOrderId: row.id,
+          vendorUserId: "demo-vendor-1",
           vendorDirectoryId: row.vendorId ?? "demo-vendor-1",
           quoteMode: modeById[row.id] ?? "upfront",
           amountCents,
@@ -295,6 +309,7 @@ export function VendorWorkOrdersPanel() {
         }
         upsertWorkOrderBid({
           workOrderId: row.id,
+          vendorUserId: "demo-vendor-1",
           vendorDirectoryId: row.vendorId ?? "demo-vendor-1",
           quoteMode: "after_consultation",
           consultationVisitAt: visitAt,
@@ -511,7 +526,7 @@ export function VendorWorkOrdersPanel() {
             {payout.status === "failed" ? (
               <p className="mt-1 text-xs text-muted">
                 Paid by the manager, but the payout to your bank couldn&apos;t be sent. Check your{" "}
-                <Link href="/vendor/payments" className="font-medium text-foreground underline underline-offset-2">
+                <Link href="/vendor/financials/payouts" className="font-medium text-foreground underline underline-offset-2">
                   Stripe payout setup
                 </Link>
                 .
@@ -521,7 +536,7 @@ export function VendorWorkOrdersPanel() {
         ) : (
           <p className="mt-1 text-xs text-muted">
             Paid by the manager.{" "}
-            <Link href="/vendor/payments" className="font-medium text-foreground underline underline-offset-2">
+            <Link href="/vendor/financials/payouts" className="font-medium text-foreground underline underline-offset-2">
               Connect Stripe
             </Link>{" "}
             to receive future payouts directly.
@@ -851,16 +866,7 @@ export function VendorWorkOrdersPanel() {
     );
   };
 
-  const emptyMessage =
-    sorted.length === 0
-      ? "No services offered to you yet."
-      : tab === "quote"
-        ? "Nothing needs a quote. New offers from your manager land here."
-        : tab === "tour"
-          ? "No site visits waiting for a price."
-          : tab === "scheduled"
-            ? "No confirmed jobs on the calendar yet."
-            : "No completed jobs yet.";
+  const emptyCopy = portalEmptyCopy(`work-orders.${tabId}`);
 
   return (
     <ManagerPortalPageShell
@@ -869,23 +875,32 @@ export function VendorWorkOrdersPanel() {
       titleInlineFilter={null}
       compactFilterRow
     >
-      {/* Tasks are part of Services for a vendor (no separate destination): the
-          same tab strip carries the work-order states and a Tasks tab. */}
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinationRow={
-          <div className="flex min-w-0 items-center gap-1">
-            <ManagerPortalStatusPills tabs={tabs} activeId={tab} onChange={(id) => setTab(id as VendorWorkOrderTab)} />
-            <Link
-              href="/vendor/tasks"
-              data-attr="vendor-services-tasks-tab"
-              className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-muted transition hover:bg-[var(--secondary)]/60 hover:text-foreground"
-            >
-              <ListChecks className="size-4" aria-hidden />
-              Tasks
-            </Link>
-          </div>
+        destinations={tabs.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: tab.href,
+          count: tab.count,
+          dataAttr: tab.dataAttr,
+        }))}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Service status"
+        actions={
+          <PortalIconAction
+            icon={Settings}
+            label={servicesSettingsEntry.label}
+            data-attr={servicesSettingsEntry.dataAttr}
+            onClick={() => setSettingsOpen(true)}
+          />
+        }
+        primary={
+          <PortalPrimaryIconAction
+            label="Add quote"
+            data-attr="vendor-services-add"
+            onClick={() => setQuoteOpen(true)}
+          />
         }
       />
       {bidsSyncFailed || payoutsSyncFailed ? (
@@ -895,7 +910,12 @@ export function VendorWorkOrdersPanel() {
       ) : null}
       <PortalRecordListSurface
         isEmpty={visible.length === 0}
-        empty={<PortalDataTableEmpty message={emptyMessage} icon="work-order" />}
+        emptyCard={{
+          title: emptyCopy.title,
+          section: emptyCopy.section,
+          sibling: portalEmptySibling(tabs, tabId),
+          actions: [{ label: "Add quote", onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-empty-add" }],
+        }}
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedDoneable.length}
         bulkActions={
@@ -942,6 +962,21 @@ export function VendorWorkOrdersPanel() {
           );
         })}
       </PortalRecordListSurface>
+      <VendorQuoteWizard
+        open={quoteOpen}
+        door="quote"
+        jobs={wizardJobs}
+        onClose={() => setQuoteOpen(false)}
+        onSubmitted={() => {
+          setQuoteOpen(false);
+          void loadBids();
+        }}
+      />
+      <VendorSectionSettingsModal
+        open={settingsOpen}
+        title={servicesSettingsEntry.dialogTitle}
+        onClose={() => setSettingsOpen(false)}
+      />
     </ManagerPortalPageShell>
   );
 }

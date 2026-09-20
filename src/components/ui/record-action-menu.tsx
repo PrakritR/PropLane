@@ -119,7 +119,7 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
     cloneElement(leaf, { "data-record-action-destructive": "" } as Partial<ActionLeafProps>),
   );
   return <span className="order-last ml-auto inline-flex shrink-0 self-center" data-portal-row-ignore onClick={(event) => event.stopPropagation()}>
-    <DropdownMenu open={open} onOpenChange={(next) => {
+    <DropdownMenu modal={false} open={open} onOpenChange={(next) => {
       if (next) {
         actionClosingRef.current = false;
         openedAtRef.current = Date.now();

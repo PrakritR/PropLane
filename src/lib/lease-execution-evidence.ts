@@ -189,6 +189,33 @@ export function leaseCanBeMarkedSignedOffPlatform(
 }
 
 /**
+ * Upload a signed PDF at any unsigned stage. Same window as
+ * {@link leaseCanBeMarkedSignedOffPlatform}, plus a manager-owned draft that
+ * still allows document edits — so Create → upload → mark signed does not
+ * wait on a generate step.
+ */
+export function leaseAllowsSignedPdfUpload(
+  row: Pick<
+    LeasePipelineRow,
+    | "bucket"
+    | "status"
+    | "managerSignature"
+    | "residentSignature"
+    | "signatureName"
+    | "signedAtIso"
+    | "fullySignedAt"
+    | "voidedAt"
+    | "residentReturnedSignedPdfAt"
+  >,
+): boolean {
+  if (row.status === "Fully Signed" || row.status === "Voided" || row.status === "Admin Review" || row.voidedAt) {
+    return false;
+  }
+  if (leaseClaimsExecution(row)) return false;
+  return leaseAllowsManagerDocumentEdits(row) || leaseCanBeMarkedSignedOffPlatform(row);
+}
+
+/**
  * True when `next` erases execution that `stored` already carries without
  * supplying a superseding document — the shape a stale empty-browser lease
  * mirror posts after `syncApprovedApplications` materializes draft rows.

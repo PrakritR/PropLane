@@ -664,19 +664,23 @@ export async function renewLease(
     residentSignature: null,
     signatureName: null,
     signedAtIso: null,
+    residentSignedAt: null,
+    managerSignedAt: null,
+    fullySignedAt: null,
+    residentReturnedSignedPdfAt: null,
+    externallySignedLease: false,
+    // Never leave the prior executed PDF as the new unsigned document.
+    managerUploadedPdf: null,
+    uploadedLeaseParse: null,
+    generatedHtml: regeneratedDocument?.html ?? null,
+    generatedAtIso: regeneratedDocument ? iso : null,
+    executedJurisdiction: regeneratedDocument?.executedJurisdiction ?? leaseRow.executedJurisdiction ?? null,
+    templateVersion: regeneratedDocument?.templateVersion ?? leaseRow.templateVersion ?? null,
     bucket: "manager",
     status: "Manager Review",
     currentActorRole: "manager",
     updatedAtIso: iso,
     updated: "just now",
-    ...(regeneratedDocument
-      ? {
-          generatedHtml: regeneratedDocument.html,
-          generatedAtIso: iso,
-          executedJurisdiction: regeneratedDocument.executedJurisdiction,
-          templateVersion: regeneratedDocument.templateVersion,
-        }
-      : {}),
   };
 
   const { error: upsertError } = await db.from("portal_lease_pipeline_records").upsert({
