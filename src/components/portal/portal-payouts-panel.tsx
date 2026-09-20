@@ -14,7 +14,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { PortalPayoutSetupCard, type PortalPayoutSetupStatus } from "@/components/portal/portal-payout-setup-card";
-import { PortalPayOutSheet } from "@/components/portal/portal-pay-out-sheet";
+import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { track } from "@/lib/analytics/track-client";
@@ -86,13 +86,15 @@ const SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[]
   { value: "manual", label: "Manual" },
 ];
 
-function formatMoney(cents: number, currency: string): string {
+/** Exported for reuse by `portal-payouts-settings-page.tsx`, which mounts the same money formatting. */
+export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: (currency || "usd").toUpperCase() }).format(
     cents / 100,
   );
 }
 
-function formatDate(iso: string | null | undefined): string | null {
+/** Exported for reuse by `portal-payouts-settings-page.tsx`. */
+export function formatDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -101,6 +103,25 @@ function formatDate(iso: string | null | undefined): string | null {
 
 function capitalize(value: string): string {
   return value.length ? value[0]!.toUpperCase() + value.slice(1) : value;
+}
+
+/**
+ * Today's balance has exactly one bank on it — synthesizes the single-entry
+ * `PayoutWithdrawAccount` list `PayoutWithdrawSheet` expects until the
+ * bank-accounts route lands and a real multi-destination list replaces this.
+ * Exported so `portal-payouts-settings-page.tsx` shares the same shape.
+ */
+export function bankToWithdrawAccounts(bank: PortalPayoutBank | null): PayoutWithdrawAccount[] {
+  if (!bank) return [];
+  return [
+    {
+      id: "default",
+      label: bank.bankName,
+      last4: bank.last4,
+      kind: "bank",
+      instantEligible: bank.instantEligible,
+    },
+  ];
 }
 
 /** A per-row ⋯ that owns its own scope — mirrors `BookingsRowOverflow`, the shared way to give one record its own menu outside a bulk-select list. */
@@ -180,7 +201,8 @@ function GetsPaidToCard({ bank, onChangeBank }: { bank: PortalPayoutBank | null;
   );
 }
 
-function ScheduleCard({
+/** Exported so `portal-payouts-settings-page.tsx`'s Schedule section mounts the identical control. */
+export function ScheduleCard({
   schedule,
   availableCents,
   currency,
@@ -296,7 +318,8 @@ function PayoutHistoryRow({
   );
 }
 
-function HistorySection({
+/** Exported so `portal-payouts-settings-page.tsx`'s History section mounts the identical rows. */
+export function HistorySection({
   rows,
   currency,
   search,
@@ -465,7 +488,7 @@ export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind
   // Retry is an outward money movement, not a re-fetch — it must go through
   // the SAME confirmation sheet a fresh "Pay out" does rather than firing a
   // one-click POST from a row's ⋯ menu. The sheet prefills the failed row's
-  // own amount/method (both GROSS — see `PortalPayOutSheet`'s doc comment)
+  // own amount/method (both GROSS — see `PayoutWithdrawSheet`'s doc comment)
   // and the user still has to press "Pay out $X" to confirm.
   const handleRetry = useCallback((row: PortalPayoutHistoryRow) => {
     setRetryRow(row);
@@ -535,14 +558,14 @@ export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind
           onReceipt={handleReceipt}
           onRetry={handleRetry}
         />
-        <PortalPayOutSheet
+        <PayoutWithdrawSheet
           open={payOutOpen}
           onClose={closePayOut}
           apiBase={apiBase}
           currency={balance.currency}
           availableCents={balance.availableCents}
           instantAvailableCents={balance.instantAvailableCents}
-          bank={balance.bank}
+          accounts={bankToWithdrawAccounts(balance.bank)}
           initialAmountCents={retryRow?.amountCents}
           initialMethod={retryRow?.method}
           onSuccess={(result) => {

@@ -191,14 +191,17 @@ describe("PortalPayoutsPanel — Retry routes through the confirmation sheet", (
     fireEvent.click(retryItem);
 
     // The sheet opens with the ORIGINAL amount/method prefilled, not fired immediately.
-    const submit = await screen.findByRole("button", { name: "Pay out $500.00" });
+    const continueBtn = await screen.findByRole("button", { name: "Continue" });
+    expect(screen.getByLabelText("Amount")).toHaveValue("500.00");
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
         ([, init]) => (init as RequestInit | undefined)?.method === "POST",
       ),
     ).toBe(false);
 
-    // Confirming is what actually sends the request.
+    // Continue → review step; Confirm withdrawal is what actually sends the request.
+    fireEvent.click(continueBtn);
+    const submit = await screen.findByRole("button", { name: "Confirm withdrawal" });
     fireEvent.click(submit);
     await waitFor(() => {
       const postCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
