@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
 import {
@@ -15,7 +15,6 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
-import { PortalSharedDocumentsTable } from "@/components/portal/portal-shared-documents-table";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { VendorUploadDocumentWorkspace } from "@/components/portal/vendor-upload-document-workspace";
 import { isDemoModeActive, subscribeDemoPath } from "@/lib/demo/demo-session";
@@ -28,6 +27,7 @@ import {
   type VendorDocumentKind,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
+import { DOCUMENT_CATEGORY_LABELS, type ManagerDocumentDTO } from "@/lib/documents/manager-documents";
 
 const DEMO_VENDOR_DOCUMENTS: VendorDocumentRecord[] = [
   {
@@ -62,7 +62,7 @@ function statusChipTone(doc: VendorDocumentRecord | undefined): "ok" | "warn" | 
   return "neutral";
 }
 
-/** Vendor Documents — Mine / From managers command bar + upload workspace. */
+/** Vendor Documents — one source-filtered list plus the vendor's upload workspace. */
 export function VendorDocumentsPanel({
   tabId,
   basePath = "/vendor",
@@ -76,6 +76,7 @@ export function VendorDocumentsPanel({
   const demoFromPath = useSyncExternalStore(subscribeDemoPath, isDemoModeActive, () => false);
   const demo = demoProp ?? demoFromPath;
   const loadToastShown = useRef(false);
+  const sharedLoadToastShown = useRef(false);
   const fileRefs = useRef<Partial<Record<VendorDocumentKind, HTMLInputElement | null>>>({});
 
   const [documents, setDocuments] = useState<VendorDocumentRecord[]>(() => (demo ? DEMO_VENDOR_DOCUMENTS : []));
@@ -87,14 +88,11 @@ export function VendorDocumentsPanel({
   const [accessDenied, setAccessDenied] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
-
-  const tabItems = useMemo(
-    () => [
-      { id: "mine", label: "Mine", href: `${basePath}/documents/mine` },
-      { id: "shared", label: "From managers", href: `${basePath}/documents/shared` },
-    ],
-    [basePath],
-  );
+  const [source, setSource] = useState<"all" | "mine" | "managers">("all");
+  const [sharedDocuments, setSharedDocuments] = useState<ManagerDocumentDTO[]>([]);
+  const [sharedLoading, setSharedLoading] = useState(!demo);
+  const [sharedExpandedId, setSharedExpandedId] = useState<string | null>(null);
+  const [sharedPreview, setSharedPreview] = useState<{ title: string; url: string } | null>(null);
 
   const loadDocuments = useCallback(async () => {
     if (demo) {
@@ -133,11 +131,42 @@ export function VendorDocumentsPanel({
     void loadDocuments();
   }, [loadDocuments]);
 
+  const loadSharedDocuments = useCallback(async () => {
+    if (demo) {
+      setSharedDocuments([]);
+      setSharedLoading(false);
+      return;
+    }
+    setSharedLoading(true);
+    try {
+      const res = await fetch("/api/vendor/shared-documents", { credentials: "include" });
+      if (res.status === 401 || res.status === 403) {
+        setSharedDocuments([]);
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { documents?: ManagerDocumentDTO[] };
+      if (!res.ok) throw new Error("Failed to load documents from managers.");
+      setSharedDocuments(Array.isArray(data.documents) ? data.documents : []);
+    } catch (error) {
+      if (!sharedLoadToastShown.current) {
+        sharedLoadToastShown.current = true;
+        showToast(error instanceof Error ? error.message : "Failed to load documents from managers.");
+      }
+    } finally {
+      setSharedLoading(false);
+    }
+  }, [demo, showToast]);
+
+  useEffect(() => {
+    void loadSharedDocuments();
+  }, [loadSharedDocuments]);
+
   useEffect(() => {
     setExpandedKind(null);
+    setSharedExpandedId(null);
     setPreviewKind(null);
     setListSearch("");
-  }, [tabId]);
+  }, [source]);
 
   const documentsByKind = useMemo(() => {
     const map = new Map<VendorDocumentKind, VendorDocumentRecord>();
@@ -146,7 +175,6 @@ export function VendorDocumentsPanel({
   }, [documents]);
 
   const rows = useMemo(() => {
-    if (tabId === "shared") return [];
     const needle = listSearch.trim().toLowerCase();
     return VENDOR_DOCUMENT_SECTIONS.flatMap((section) =>
       section.kinds.map((kind) => ({
@@ -159,9 +187,19 @@ export function VendorDocumentsPanel({
       const haystack = `${VENDOR_DOCUMENT_LABELS[row.kind]} ${row.section} ${row.doc?.fileName ?? ""}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [tabId, documentsByKind, listSearch]);
+  }, [documentsByKind, listSearch]);
 
   const previewDoc = previewKind ? documentsByKind.get(previewKind) : undefined;
+  const includesMine = source !== "managers";
+  const includesManagers = source !== "mine";
+  const ownRows = includesMine ? rows : [];
+  const managerRows = includesManagers
+    ? sharedDocuments.filter((doc) => {
+        const needle = listSearch.trim().toLowerCase();
+        return !needle || `${doc.displayName} ${DOCUMENT_CATEGORY_LABELS[doc.category]}`.toLowerCase().includes(needle);
+      })
+    : [];
+  const visibleRowCount = ownRows.length + managerRows.length;
 
   const uploadFile = async (kind: VendorDocumentKind, file: File) => {
     if (demo) {
@@ -289,31 +327,48 @@ export function VendorDocumentsPanel({
     );
   };
 
+  const previewSharedDocument = async (doc: ManagerDocumentDTO) => {
+    try {
+      const response = await fetch(`/api/vendor/shared-documents/${doc.id}/signed-url`, { credentials: "include" });
+      const data = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!response.ok || !data.url) throw new Error(data.error ?? "Could not load document preview.");
+      setSharedPreview({ title: doc.displayName, url: data.url });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not load document preview.");
+    }
+  };
+
   return (
     <ManagerPortalPageShell title="Documents" hideTitleOnMobileNav compactFilterRow>
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinations={tabItems.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          href: tab.href,
-          dataAttr: `vendor-documents-tab-${tab.id}`,
-        }))}
-        activeDestinationId={tabId}
-        destinationAriaLabel="Document views"
+        filterRow={
+          <label className="flex items-center gap-2 text-xs font-semibold text-muted">
+            Source
+            <select
+              value={source}
+              onChange={(event) => setSource(event.target.value as "all" | "mine" | "managers")}
+              className="h-9 rounded-lg border border-border bg-card px-2 text-sm font-semibold text-foreground"
+              aria-label="Document source"
+              data-attr="vendor-documents-source"
+            >
+              <option value="all">All</option>
+              <option value="mine">Mine</option>
+              <option value="managers">From managers</option>
+            </select>
+          </label>
+        }
         search={
-          tabId === "mine"
-            ? {
-                value: listSearch,
-                onChange: setListSearch,
-                placeholder: "Search documents",
-                dataAttr: "vendor-documents-search",
-              }
-            : undefined
+          {
+            value: listSearch,
+            onChange: setListSearch,
+            placeholder: "Search documents",
+            dataAttr: "vendor-documents-search",
+          }
         }
         primary={
-          tabId === "mine" ? (
+          source !== "managers" ? (
             <PortalPrimaryIconAction
               label="Upload"
               data-attr="vendor-documents-add"
@@ -329,24 +384,16 @@ export function VendorDocumentsPanel({
           section="documents"
           dataAttr="vendor-documents-access-denied-banner"
         />
-      ) : tabId === "shared" ? (
-        <PortalSharedDocumentsTable
-          listUrl="/api/vendor/shared-documents"
-          signedUrlBase="/api/vendor/shared-documents"
-          emptyMessage="No documents shared with you yet."
-          demoMessage="Documents from managers appear here after they share files from their library."
-          demo={demo}
-        />
-      ) : loading ? (
+      ) : loading || sharedLoading ? (
         <p className="text-sm font-semibold text-foreground">Loading documents…</p>
       ) : (
         <PortalRecordListSurface
-          isEmpty={rows.length === 0}
+          isEmpty={visibleRowCount === 0}
           emptyCard={{
             title: listSearch.trim() ? "No documents match this search" : portalEmptyCopy("documents.other").title,
             section: portalEmptyCopy("documents.other").section,
             tone: listSearch.trim() ? "muted" : "default",
-            actions: listSearch.trim()
+            actions: listSearch.trim() || !includesMine
               ? []
               : [{ label: "Upload", onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
             clear: listSearch.trim()
@@ -357,11 +404,11 @@ export function VendorDocumentsPanel({
                 }
               : undefined,
           }}
-          add={{
+          add={includesMine ? {
             ariaLabel: "Upload document",
             onClick: () => setUploadOpen(true),
             dataAttr: "vendor-documents-list-add",
-          }}
+          } : undefined}
           dataAttr="vendor-documents-list"
         >
           {unlinked ? (
@@ -372,13 +419,13 @@ export function VendorDocumentsPanel({
               dataAttr="vendor-documents-unlinked-banner"
             />
           ) : null}
-          {rows.map(({ kind, section, doc }) => {
+          {ownRows.map(({ kind, section, doc }) => {
             const expanded = expandedKind === kind;
             return (
               <div key={kind}>
                 <PortalPropertyRecordRow
                   title={VENDOR_DOCUMENT_LABELS[kind]}
-                  address={doc?.fileName ?? section}
+                  address={doc?.fileName ? `Mine · ${doc.fileName}` : `Mine · ${section}`}
                   leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
                   facts={doc ? safeFormatDateTime(doc.uploadedAt) : undefined}
                   chip={
@@ -391,6 +438,30 @@ export function VendorDocumentsPanel({
                   dataAttr="vendor-document-row"
                 />
                 {expanded ? <div className="mb-2 px-1">{renderRowActions(kind, doc)}</div> : null}
+              </div>
+            );
+          })}
+          {managerRows.map((doc) => {
+            const expanded = sharedExpandedId === doc.id;
+            return (
+              <div key={doc.id}>
+                <PortalPropertyRecordRow
+                  title={doc.displayName}
+                  address={`From managers · ${DOCUMENT_CATEGORY_LABELS[doc.category]}`}
+                  leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+                  facts={safeFormatDateTime(doc.createdAt)}
+                  selected={expanded}
+                  onOpen={() => setSharedExpandedId((current) => (current === doc.id ? null : doc.id))}
+                  dataAttr="vendor-document-row"
+                />
+                {expanded ? (
+                  <div className="mb-2 px-1">
+                    <div className="flex items-center gap-1">
+                      <PortalIconAction icon={FileText} label="Preview" data-attr="vendor-shared-document-preview" onClick={() => void previewSharedDocument(doc)} />
+                      <PortalIconAction icon={FileText} label="Download" data-attr="vendor-shared-document-download" onClick={() => triggerDocumentDownload(`/api/vendor/shared-documents/${doc.id}/signed-url?download=1`)} />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -410,6 +481,15 @@ export function VendorDocumentsPanel({
           }}
           downloadLabel="Download PDF"
           downloadAttr={`vendor-documents-inline-download-${previewKind}`}
+        />
+      ) : null}
+      {sharedPreview ? (
+        <DocumentInlineViewer
+          title={sharedPreview.title}
+          src={sharedPreview.url}
+          onDownload={() => triggerDocumentDownload(sharedPreview.url, sharedPreview.title)}
+          downloadLabel="Download"
+          downloadAttr="vendor-shared-document-inline-download"
         />
       ) : null}
 

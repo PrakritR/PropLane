@@ -23,6 +23,7 @@ export type ManagerVendorSummary = {
   jobs: ManagerVendorSummaryJob[];
   totalJobCount: number;
   ratingCount: number;
+  ratingAverage: number | null;
   completedJobCount: number;
   completedInvoiceTotalCents: number | null;
   completedInvoiceAverageCents: number | null;
@@ -104,7 +105,7 @@ export async function loadManagerVendorSummary(
         else if (legacyAssignment === "vendorId") query = query.contains("row_data", { vendorId });
         else query = query.contains("row_data", { assignee: { id: vendorId } });
         if (propertyColumn && servicePropertyIds) query = query.in(propertyColumn, [...servicePropertyIds]);
-        return query.order("updated_at", { ascending: false }).range(from, to);
+        return query.order("updated_at", { ascending: false }).order("id", { ascending: false }).range(from, to);
       }, WORK_PAGE_SIZE),
     ));
     return responses.flat();
@@ -113,7 +114,7 @@ export async function loadManagerVendorSummary(
     ? await fetchWorkRows(null)
     : [...await fetchWorkRows("vendorId"), ...await fetchWorkRows("assignee")];
   const workRecords = [...new Map(queriedRows.map((record) => [String(record.id), record])).values()]
-    .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? "")) || String(left.id).localeCompare(String(right.id)));
+    .sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? "")) || String(right.id).localeCompare(String(left.id)));
   const permitted = workRecords.filter((record) => {
     if (!servicePropertyIds) return true;
     const propertyId = String(record.property_id ?? "").trim();
@@ -126,7 +127,7 @@ export async function loadManagerVendorSummary(
       : row.vendorId === vendorId || (row.assignee?.type === "vendor" && row.assignee.id === vendorId);
   });
   const workOrderIds = permitted.map((record) => String(record.id));
-  if (workOrderIds.length === 0) return { ok: true, summary: { jobs: [], totalJobCount: 0, ratingCount: 0, completedJobCount: 0, completedInvoiceTotalCents: null, completedInvoiceAverageCents: null } };
+  if (workOrderIds.length === 0) return { ok: true, summary: { jobs: [], totalJobCount: 0, ratingCount: 0, ratingAverage: null, completedJobCount: 0, completedInvoiceTotalCents: null, completedInvoiceAverageCents: null } };
 
   const financialWorkOrderIds = permitted
     .filter((record) => {
@@ -147,24 +148,31 @@ export async function loadManagerVendorSummary(
 
   const [bids, invoices, payouts] = await Promise.all([
     vendorUserId
-      ? fetchRelations(workOrderIds, (batch, from, to) => db.from("work_order_bids").select("work_order_id, amount_cents").in("work_order_id", batch).eq("vendor_user_id", vendorUserId).eq("status", "accepted").range(from, to))
+      ? fetchRelations(workOrderIds, (batch, from, to) => db.from("work_order_bids").select("id, work_order_id, amount_cents").in("work_order_id", batch).eq("vendor_user_id", vendorUserId).eq("status", "accepted").order("id", { ascending: true }).range(from, to))
       : Promise.resolve([]),
     vendorUserId
       ? fetchRelations(financialWorkOrderIds, (batch, from, to) => db.from("vendor_invoices").select("id, work_order_id, total_cents, status, paid_at, submitted_at, created_at").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", batch).in("status", ["submitted", "approved", "scheduled", "paid"]).order("submitted_at", { ascending: false }).order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to))
       : Promise.resolve([]),
     vendorUserId
-      ? fetchRelations(financialWorkOrderIds, (batch, from, to) => db.from("vendor_payouts").select("work_order_id, amount_cents, status").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", batch).range(from, to))
+      ? fetchRelations(financialWorkOrderIds, (batch, from, to) => db.from("vendor_payouts").select("id, work_order_id, amount_cents, status").eq("manager_user_id", ownerId).eq("vendor_user_id", vendorUserId).in("work_order_id", batch).order("id", { ascending: true }).range(from, to))
       : Promise.resolve([]),
   ]);
-  const acceptedByWorkOrder = new Map(bids.map((row) => [String(row.work_order_id), centsOrNull(row.amount_cents)]));
+  const acceptedByWorkOrder = new Map<string, number | null>();
+  for (const bid of bids) {
+    const workOrderId = String(bid.work_order_id);
+    if (!acceptedByWorkOrder.has(workOrderId)) acceptedByWorkOrder.set(workOrderId, centsOrNull(bid.amount_cents));
+  }
   const invoiceByWorkOrder = new Map<string, number | null>();
   for (const row of invoices.sort((left, right) => recordTime(right).localeCompare(recordTime(left)) || String(right.id ?? "").localeCompare(String(left.id ?? "")))) {
     const workOrderId = String(row.work_order_id);
     if (!invoiceByWorkOrder.has(workOrderId)) invoiceByWorkOrder.set(workOrderId, centsOrNull(row.total_cents));
   }
-  const paidByWorkOrder = new Map(
-    payouts.filter((row) => row.status === "paid").map((row) => [String(row.work_order_id), centsOrNull(row.amount_cents)]),
-  );
+  const paidByWorkOrder = new Map<string, number | null>();
+  for (const payout of payouts) {
+    if (payout.status !== "paid") continue;
+    const workOrderId = String(payout.work_order_id);
+    if (!paidByWorkOrder.has(workOrderId)) paidByWorkOrder.set(workOrderId, centsOrNull(payout.amount_cents));
+  }
   const jobs = permitted.map((record) => {
     const row = (record.row_data ?? {}) as DemoManagerWorkOrderRow;
     const completed = row.bucket === "completed";
@@ -183,6 +191,7 @@ export async function loadManagerVendorSummary(
     permitted.filter((record) => (record.row_data as DemoManagerWorkOrderRow | null)?.bucket === "completed").map((record) => String(record.id)),
   );
   const completedJobs = jobs.filter((job) => completedJobIds.has(job.id));
+  const ratings = jobs.map((job) => job.residentRating).filter((rating): rating is number => rating !== null);
   const completedInvoices = completedJobs.map((job) => job.finalInvoiceCents).filter((value): value is number => value !== null);
   const completedInvoiceTotalCents = completedInvoices.length ? completedInvoices.reduce((sum, value) => sum + value, 0) : null;
   return {
@@ -190,7 +199,8 @@ export async function loadManagerVendorSummary(
     summary: {
       jobs: jobs.slice(0, RECENT_JOB_LIMIT),
       totalJobCount: jobs.length,
-      ratingCount: jobs.filter((job) => job.residentRating != null).length,
+      ratingCount: ratings.length,
+      ratingAverage: ratings.length ? Math.round((ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length) * 10) / 10 : null,
       completedJobCount: completedJobs.length,
       completedInvoiceTotalCents,
       completedInvoiceAverageCents: completedInvoiceTotalCents === null ? null : Math.round(completedInvoiceTotalCents / completedInvoices.length),

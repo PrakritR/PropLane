@@ -338,7 +338,7 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "payments") {
-    redirect(`${def.basePath}/financials/payouts`);
+    redirect(`${def.basePath}/financials/income`);
   }
 
   if (kind === "vendor" && section === "tasks") {
@@ -1620,10 +1620,10 @@ export async function renderPortalSection(
       notFound();
     }
     const documentsTab = tabParts[0]!;
-    // The three category tabs collapsed into one "Mine" list. A vendor's
+    // The category and former source tabs collapsed into one source-filtered list. A vendor's
     // bookmark, or a manager's emailed link, must still land somewhere.
-    if (documentsTab === "tax" || documentsTab === "insurance" || documentsTab === "licensing") {
-      redirect(`${def.basePath}/${section}/mine`);
+    if (["tax", "insurance", "licensing", "mine", "shared"].includes(documentsTab)) {
+      redirect(`${def.basePath}/${section}/all`);
     }
     if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
     return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;

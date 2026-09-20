@@ -267,6 +267,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       notifyAvailabilityChanged(next);
       setWeeklyFormOpen(false);
       resetWeeklyForm();
+      if (dialog) setDialogOpen(false);
       showToast(editingId ? "Weekly window updated." : "Weekly window added.");
       return;
     }
@@ -279,6 +280,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
     }
     setWeeklyFormOpen(false);
     resetWeeklyForm();
+    if (dialog) setDialogOpen(false);
     showToast(editingId ? "Weekly window updated." : "Weekly window added.");
     await reload();
   };
@@ -344,6 +346,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       }
       setBlockFormOpen(false);
       resetBlockForm();
+      if (dialog) setDialogOpen(false);
       showToast(editingId ? "Blocked date updated." : "Date blocked.");
       return;
     }
@@ -362,6 +365,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
     }
     setBlockFormOpen(false);
     resetBlockForm();
+    if (dialog) setDialogOpen(false);
     showToast(editingId ? "Blocked date updated." : "Date blocked.");
     await reload();
   };
@@ -440,6 +444,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
       }
       setOpenFormOpen(false);
       resetOpenForm();
+      if (dialog) setDialogOpen(false);
       showToast(editingId ? "Open date updated." : "Date opened.");
       return;
     }
@@ -458,6 +463,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
     }
     setOpenFormOpen(false);
     resetOpenForm();
+    if (dialog) setDialogOpen(false);
     showToast(editingId ? "Open date updated." : "Date opened.");
     await reload();
   };

@@ -119,6 +119,7 @@ describe("vendor calendar canonical availability", () => {
         note: "",
       });
     });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("keeps Set availability available from the list command bar and opens the dialog", async () => {
@@ -128,6 +129,20 @@ describe("vendor calendar canonical availability", () => {
     fireEvent.click(screen.getByRole("button", { name: "Set availability" }));
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(screen.getByText("Set availability")).toBeTruthy();
+  });
+
+  it("keeps the availability dialog open when the canonical server rejects a booked-service conflict", async () => {
+    const fetchSpy = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return { ok: false, json: async () => ({ error: "That time overlaps a scheduled service." }) } as Response;
+      return response({ rules: [] });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<VendorAvailabilityEditor dialog />);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    act(() => window.dispatchEvent(new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, { detail: { date: "2099-08-05", slotIdx: 18 } })));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
   });
 
   it("paints fetched weekly and one-off rules in Day, Week, and Month with adjacent empty states and no legacy requests", async () => {

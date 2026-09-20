@@ -633,6 +633,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             <ManagerVendorDetail
               row={routeVendor}
               managerUserId={userId}
+              basePath={basePath}
+              onNavigate={navigate}
               tab={vendorTab}
               extraNeedsYou={personRecordNeedsYouItems({
                 kind: "vendor",
