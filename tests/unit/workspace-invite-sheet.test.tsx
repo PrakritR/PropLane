@@ -471,3 +471,140 @@ describe("WorkspaceInviteSheet", () => {
     expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
   });
 });
+
+/**
+ * The link action ("Invite link", still `[data-attr="workspace-invite-copy"]`)
+ * no longer copies on its own — it resolves the URL then advances to a second
+ * view of the SAME sheet (`view: "link"`). Copy is the icon action inside
+ * that view; Back returns to the form with state untouched; Done closes.
+ */
+describe("WorkspaceInviteSheet — invite link view", () => {
+  it("the link action advances to the link view, showing the URL and hiding the recipient field", async () => {
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+    expect(screen.getByLabelText("Add people")).toBeTruthy();
+
+    clickCopy();
+    await waitFor(() =>
+      expect((screen.getByLabelText("Invite link") as HTMLInputElement).value).toBe(
+        "https://proplane.test/invite/revealed",
+      ),
+    );
+    expect(screen.queryByLabelText("Add people")).toBeNull();
+    expect(document.querySelector('[data-attr="workspace-invite-access"]')).toBeNull();
+  });
+
+  it("the Copy icon in the link view writes the URL to the clipboard", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+
+    clickCopy();
+    await waitFor(() =>
+      expect((screen.getByLabelText("Invite link") as HTMLInputElement).value).toBe(
+        "https://proplane.test/invite/revealed",
+      ),
+    );
+
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-copy-link"]') as HTMLElement);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.test/invite/revealed"));
+    expect(showToast).toHaveBeenCalledWith("Invite link copied.");
+  });
+
+  it("Back returns to the form view with the previously chosen role still selected", async () => {
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      mintResult: { url: "https://proplane.test/invite/fresh", link: { id: "link-fresh" } },
+    });
+    renderSheet();
+    await flushMicrotasks();
+
+    const trigger = document.querySelector('[data-attr="workspace-invite-access"]') as HTMLElement;
+    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, isPrimary: true });
+    fireEvent.pointerUp(trigger, { button: 0, pointerId: 1, isPrimary: true });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Admin" }));
+    await flushMicrotasks();
+
+    clickCopy();
+    await waitFor(() => expect(screen.getByLabelText("Invite link")).toBeTruthy());
+
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-back"]') as HTMLElement);
+    await flushMicrotasks();
+
+    expect(screen.getByLabelText("Add people")).toBeTruthy();
+    expect(accessChipText()).toContain("Admin");
+  });
+
+  it("Done in the link view calls onClose", async () => {
+    const onClose = vi.fn();
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet({ onClose });
+    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+
+    clickCopy();
+    await waitFor(() => expect(screen.getByLabelText("Invite link")).toBeTruthy());
+
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-done"]') as HTMLElement);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("pressing the link action with matching terms twice mints only once", async () => {
+    const { calls } = mockFetch({ existingLink: null });
+    renderSheet();
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="))).toBe(true),
+    );
+    await flushMicrotasks();
+
+    clickCopy();
+    await waitFor(() =>
+      expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(true),
+    );
+    await waitFor(() => expect(screen.getByLabelText("Invite link")).toBeTruthy());
+
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-back"]') as HTMLElement);
+    await flushMicrotasks();
+
+    clickCopy();
+    await flushMicrotasks();
+
+    const mintCalls = calls.filter((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
+    expect(mintCalls).toHaveLength(1);
+  });
+});
