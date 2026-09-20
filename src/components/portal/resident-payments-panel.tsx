@@ -1051,10 +1051,10 @@ export function ResidentPaymentsPanel({
             variant="primary"
             className="h-11 shrink-0 rounded-full px-5"
             disabled={checkout?.loading}
-            data-attr="resident-payments-confirm-stripe"
+            data-attr="resident-payments-confirm-pay"
             onClick={() => void continuePayModal()}
           >
-            Continue to Stripe
+            Pay {confirmTotalLabel}
           </Button>
         </div>
         {selectedOption ? (
@@ -1302,7 +1302,7 @@ export function ResidentPaymentsPanel({
       {setupCheckout ? (
         <div className="space-y-3">
           <p className="text-sm text-muted">
-            Add {setupCheckout.kind === "card" ? "a credit card" : "a bank account"} with Stripe.
+            Add {setupCheckout.kind === "card" ? "a credit card" : "a bank account"} to pay in PropLane.
           </p>
           <StripeEmbeddedCheckout clientSecret={setupCheckout.clientSecret} />
           <div className="flex justify-start">
