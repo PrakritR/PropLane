@@ -35,11 +35,16 @@ remove members and add or move houses in THAT workspace; Property manager may
 add houses; every other role acts only inside its modules
 (`workspaceRightsForRole`). An Admin may stamp up to Admin, never touch the
 owner, and never remove or demote the last Admin (`canActOnMember`,
-`roleAssignableBy`). The pre-migration on-by-default flags were moved to
-`legacy_workspace_permissions` and shown to the owner as a review note on the
-member row; the next save clears them. `workspace_permissions` survives only
-on a Custom row. `resolveCreateListingOwner` reads the membership OF THE
-TARGET WORKSPACE; a membership elsewhere grants nothing there.
+`roleAssignableBy`). A delegate whose own membership is `selected` cannot mint
+an `all` link either: `mintInviteLink` caps the houses to the ones they hold
+AND stores the link as `selected`, because an `all` row would auto-fill a
+house that joins later from the role stamp with no cap re-applied
+(`tests/unit/mint-invite-link-delegate-house-cap.test.ts`). The pre-migration
+on-by-default flags were moved to `legacy_workspace_permissions` and shown to
+the owner as a review note on the member row; the next save clears them.
+`workspace_permissions` survives only on a Custom row.
+`resolveCreateListingOwner` reads the membership OF THE TARGET WORKSPACE; a
+membership elsewhere grants nothing there.
 
 **The team is shown per workspace, never as its own list.** Settings →
 Workspaces renders "Members" inside every workspace card the viewer runs (their
@@ -102,13 +107,17 @@ number (`POST /api/pro/invite-links/send-sms`, the same
 `sendFromManagerWorkNumber` transport `record-share-link/send` and
 `send-lead-invite` use for an ad hoc phone recipient) and fails with the real
 reason (most commonly no work number provisioned yet) rather than pretending
-to send. A PropLane code recipient instead POSTs directly to
-`/api/pro/account-links` as an addressed invite (no message step) and is the
-ONLY one of the three that creates an `account_link_invites` row before
-redemption — it alone stamps `invited_via` ("code") and `invited_at`
-(`20260920190000_invite_delivery.sql`). Phone and email sends carry no such
-row (the invite lives entirely in the link until redeemed), so "Who has
-access" shows them only for the current sheet session
+to send. The client sends only `linkId`, never the text: the route re-reads
+the link, proves it belongs to this workspace, and composes the body itself
+with `formatInviteMessageBody` — a workspace admin is not a licence to send
+arbitrary text from a PropLane-owned number
+(`tests/unit/invite-link-send-sms-route.test.ts`). A PropLane code recipient
+instead POSTs directly to `/api/pro/account-links` as an addressed invite (no
+message step) and is the ONLY one of the three that creates an
+`account_link_invites` row before redemption — it alone stamps `invited_via`
+("code") and `invited_at` (`20260920190000_invite_delivery.sql`). Phone and
+email sends carry no such row (the invite lives entirely in the link until
+redeemed), so "Who has access" shows them only for the current sheet session
 (`sentThisSession`, cleared on reopen), never durably. The old three-path
 chooser (`PortalInvitePaths`, "how to send it" step) is **gone from the
 manager invite**; it is kept only for the vendor invite modal

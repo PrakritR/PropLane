@@ -61,7 +61,6 @@ import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invit
 import { deliverManagerDirectoryMessage, sendWorkspaceInviteSms } from "@/lib/manager-vendor-invite-client";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
-import { cn } from "@/lib/utils";
 
 type LocalSentInvite = {
   id: string;

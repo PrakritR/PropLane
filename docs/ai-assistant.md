@@ -278,7 +278,9 @@ the ONE source of bookable times; `book_tour` W from scratch, `reschedule_tour` 
 `schedule_vendor_visit` W, `accept_bid` W, `complete_work_order` W,
 `approve_and_pay_work_order` W destructive, `send_work_order_reminder` W),
 properties (`list_properties` R, `get_property_details` R, `create_property` W,
-`update_property` W, `get_property_links` R, `share_property_link` W), residents (`list_residents` R,
+`update_property` W, `get_property_links` R, `share_property_link` W,
+`listing_syndication_status` R — see
+[`docs/agents/listing-syndication.md`](agents/listing-syndication.md)), residents (`list_residents` R,
 `set_resident_approval` W, `send_resident_welcome` W, `revoke_resident_access`
 W destructive, `record_move_out` W), applications (`list_applications` R,
 `get_application_details` R, `update_application_bucket` W,
@@ -309,7 +311,8 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `list_my_work_orders`, `get_move_in_info`, `list_my_inbox_threads`,
 `get_my_payment_methods`, `get_my_scheduled_messages`,
 `list_my_shared_documents`, `list_open_tour_slots`, `list_inspections`,
-`get_inspection`. Writes:
+`get_inspection`, `rent_reporting_status` (read-only by design; see
+[`docs/agents/rent-reporting.md`](agents/rent-reporting.md)). Writes:
 `open_inspection`, `save_inspection_observations`,
 `file_inspection_photo` (the same shared inspection
 service the manager uses, scoped to this resident's own residency),
@@ -326,14 +329,19 @@ or completed request is the manager's to change (PRP-268),
 `request_tour` (files a pending inquiry; the manager still confirms),
 `start_rent_payment` (re-validates the charges and points the resident at their
 own in-app Payments page — never a hosted Stripe Checkout link, and the agent
-never completes a payment; guard: `tests/unit/in-app-payment-exits.test.ts`).
+never completes a payment; guard: `tests/unit/in-app-payment-exits.test.ts`),
+`set_autopay` (portal chat only — `PORTAL_ONLY_TOOLS` hides it on resident SMS,
+because picking a saved payment method is not something to confirm blind over
+text; it calls the same `resolveResidentAutopayHousehold` as the route, see
+[`docs/agents/resident-payments.md`](agents/resident-payments.md)).
 Application-phase residents get
 `get_my_application_status` + `send_message_to_manager` + the two tour tools
 (touring is exactly what a pre-approval resident does); a free-tier manager
 hides services/inbox tools.
 
 Deliberately NOT tools: lease signing (legal ceremony — deep-link to
-`/resident/lease`), autopay (feature doesn't exist).
+`/resident/lease`), turning rent reporting on (typed consent — see
+[`docs/agents/rent-reporting.md`](agents/rent-reporting.md)).
 
 ### Manager SMS (`buildManagerSmsRegistry()` in `src/lib/tools/index.ts`)
 
