@@ -14,6 +14,7 @@ import {
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
   clearManagerConnectAccountId,
+  resolveManagerConnectAccountId,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
@@ -25,8 +26,16 @@ export const runtime = "nodejs";
  * onboarding — the client mounts `account_onboarding` via
  * `/api/stripe/connect/account-session` in PropLane's own modal, so this
  * route no longer mints or returns any Stripe-hosted URL.
+ *
+ * A saved account id Stripe can no longer retrieve is NEVER cleared silently
+ * — that used to happen on every access error, even on a routine load, which
+ * meant a transient platform-key hiccup could strand a manager's saved id
+ * with no chance to recover it. It is now kept as-is and reported as
+ * `needsRelink`; only an explicit `{ relink: true }` body (the user's own
+ * "Reconnect" action) clears it and creates a fresh one, and the id being
+ * replaced is logged first.
  */
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -50,6 +59,9 @@ export async function POST() {
     }
 
     const payoutOwnerId = payout.payoutOwnerUserId;
+    const body = await req.json().catch(() => null);
+    const relink = (body as { relink?: unknown } | null)?.relink === true;
+
     const { data: ownerProfile } = await service
       .from("profiles")
       .select("email")
@@ -58,9 +70,23 @@ export async function POST() {
 
     try {
       const stripe = getStripe();
+      if (relink) {
+        // Explicit user action ("Reconnect" / "Start over"): log the id being
+        // replaced, then clear it before creating a fresh account.
+        const staleAccountId = await resolveManagerConnectAccountId(service, payoutOwnerId);
+        if (staleAccountId) {
+          console.error(
+            `[stripe-connect] onboard relink: replacing account ${staleAccountId} for owner ${payoutOwnerId} (requested by ${user.id})`,
+          );
+          await clearManagerConnectAccountId(service, payoutOwnerId);
+        }
+      }
       const accountId = await ensureManagerConnectAccountId(stripe, service, {
         userId: payoutOwnerId,
         email: ownerProfile?.email ?? user.email ?? undefined,
+        // Never let this call silently wipe a saved id on its own — only the
+        // explicit relink branch above may replace it, and it already has.
+        allowClearStale: false,
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
@@ -93,17 +119,17 @@ export async function POST() {
           { status: 400 },
         );
       }
-      // Reset-and-relink: a stale saved account id (e.g. from an old Stripe
-      // setup the platform key can no longer access) is cleared so the next
-      // attempt creates a fresh account instead of retrying the same dead id.
+      // The saved account id stays exactly as it was — refuse and ask for an
+      // explicit relink rather than wiping it on an error the platform key
+      // could be reporting only transiently.
       if (isStripeConnectAccountAccessError(msg)) {
-        await clearManagerConnectAccountId(service, payoutOwnerId).catch(() => undefined);
         return NextResponse.json(
           {
-            code: "CONNECT_ACCOUNT_STALE",
-            error: "Your saved Stripe account is from an old setup. Refresh this page and link your bank again.",
+            code: "CONNECT_ACCOUNT_NEEDS_RELINK",
+            needsRelink: true,
+            error: "We couldn't reach your saved Stripe account. Reconnect to start over.",
           },
-          { status: 422 },
+          { status: 409 },
         );
       }
       return NextResponse.json({ code: "STRIPE_CONNECT_ERROR", error: msg }, { status: 400 });
