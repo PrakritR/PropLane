@@ -36,6 +36,8 @@ type RuntimeRow = {
 };
 
 type ClaimRow = { operation_id: string; claimed: boolean; state: string };
+type ReconcileOperation = { id: string; created_at: string; state: string };
+const DEFINITIVE_PROVIDER_ABSENCE_MS = 15 * 60_000;
 
 export type VendorWorkIdentityProvider = {
   emailConfigured(): boolean;
@@ -362,24 +364,63 @@ export async function reconcileVendorWorkIdentity(
   provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
 ): Promise<VendorWorkIdentityResponse> {
   const identity = await loadIdentity(db, vendorUserId);
-  if (!identity || !provider.smsConfigured() || !identity.phone_number_sid || !identity.messaging_service_sid) return getVendorWorkIdentity(db, vendorUserId, provider);
-  const domain = configuredDomain();
-  if (!domain) return getVendorWorkIdentity(db, vendorUserId, provider);
+  if (!identity || !provider.smsConfigured()) return getVendorWorkIdentity(db, vendorUserId, provider);
+  let phoneSid = identity.phone_number_sid;
+  let messagingServiceSid = identity.messaging_service_sid ?? process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null;
+  let operation: ReconcileOperation | null = null;
+  if (!phoneSid) {
+    const { data, error } = await db.from("vendor_work_identity_operations")
+      .select("id,created_at,state")
+      .eq("identity_id", identity.id).eq("operation_kind", "setup_sms")
+      .in("state", ["calling_provider", "reconciling"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    operation = data as ReconcileOperation | null;
+    if (!operation) return getVendorWorkIdentity(db, vendorUserId, provider);
+    const found = await provider.findSmsByOperation(operation.id);
+    if (!found) {
+      const age = Date.now() - Date.parse(operation.created_at);
+      if (Number.isFinite(age) && age >= DEFINITIVE_PROVIDER_ABSENCE_MS) {
+        const { error: identityError } = await db.from("vendor_work_identities").update({ sms_state: "blocked", attachment_state: "failed", quarantine_reason: "provider_resource_absent", updated_at: new Date().toISOString() }).eq("id", identity.id);
+        if (identityError) throw new Error(identityError.message);
+        const { error: opError } = await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "provider_resource_absent", updated_at: new Date().toISOString() }).eq("id", operation.id);
+        if (opError) throw new Error(opError.message);
+      }
+      return getVendorWorkIdentity(db, vendorUserId, provider);
+    }
+    phoneSid = found.phoneSid;
+    const { error: recoverError } = await db.from("vendor_work_identities").update({
+      phone_number: found.phoneNumber, phone_number_sid: found.phoneSid, messaging_service_sid: messagingServiceSid,
+      sms_state: "reconciling", attachment_state: "reconciling", updated_at: new Date().toISOString(),
+    }).eq("id", identity.id);
+    if (recoverError) throw new Error(recoverError.message);
+    const { error: operationError } = await db.from("vendor_work_identity_operations").update({ state: "reconciling", provider_reference: found.phoneSid, updated_at: new Date().toISOString() }).eq("id", operation.id);
+    if (operationError) throw new Error(operationError.message);
+  }
+  if (!phoneSid || !messagingServiceSid) return getVendorWorkIdentity(db, vendorUserId, provider);
   try {
-    const [email, sms] = await Promise.all([
-      provider.emailDomainReadiness(domain),
-      provider.inspectSms({ phoneSid: identity.phone_number_sid, messagingServiceSid: identity.messaging_service_sid }),
-    ]);
-    const ready = email.sendReady && email.receiveReady && sms.attached && sms.carrierReady;
-    await db.from("vendor_work_identities").update({
-      lifecycle_state: ready ? "ready" : "reconciling", email_provider_id: email.domainId,
-      email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, phone_number: sms.phoneNumber,
-      carrier_ready: sms.carrierReady, sms_send_ready: sms.attached && sms.carrierReady, sms_receive_ready: sms.attached && sms.carrierReady,
+    let sms = await provider.inspectSms({ phoneSid, messagingServiceSid });
+    // Attachment create is permitted only after a provider read says it is
+    // missing.  The second read makes Ready dependent on observed state, never
+    // merely a successful create response.
+    if (!sms.attached) {
+      await provider.attachSms({ phoneSid, messagingServiceSid });
+      sms = await provider.inspectSms({ phoneSid, messagingServiceSid });
+    }
+    const ready = sms.attached && sms.carrierReady;
+    const { error } = await db.from("vendor_work_identities").update({
+      sms_state: ready ? "ready" : "reconciling", phone_number: sms.phoneNumber,
+      carrier_ready: sms.carrierReady, sms_send_ready: ready, sms_receive_ready: ready,
       attachment_state: sms.attached ? "attached" : "reconciling", quarantined_at: ready ? null : new Date().toISOString(),
       quarantine_reason: ready ? null : "provider_readiness_incomplete", updated_at: new Date().toISOString(),
     }).eq("id", identity.id);
+    if (error) throw new Error(error.message);
+    const { error: operationConvergeError } = await db.from("vendor_work_identity_operations")
+      .update({ state: ready ? "succeeded" : "reconciling", provider_reference: phoneSid, error_code: ready ? null : "provider_readiness_incomplete", updated_at: new Date().toISOString() })
+      .eq("identity_id", identity.id).eq("operation_kind", "setup_sms").in("state", ["calling_provider", "reconciling"]);
+    if (operationConvergeError) throw new Error(operationConvergeError.message);
   } catch (error) {
-    await db.from("vendor_work_identities").update({ lifecycle_state: "reconciling", quarantined_at: new Date().toISOString(), quarantine_reason: isTimeout(error) ? "provider_outcome_unknown" : "provider_reconciliation_failed", sms_send_ready: false, email_send_ready: false, updated_at: new Date().toISOString() }).eq("id", identity.id);
+    const { error: updateError } = await db.from("vendor_work_identities").update({ sms_state: "reconciling", quarantined_at: new Date().toISOString(), quarantine_reason: isTimeout(error) ? "provider_outcome_unknown" : "provider_reconciliation_failed", sms_send_ready: false, updated_at: new Date().toISOString() }).eq("id", identity.id);
+    if (updateError) throw new Error(updateError.message);
   }
   return getVendorWorkIdentity(db, vendorUserId, provider);
 }
