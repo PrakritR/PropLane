@@ -1,5 +1,6 @@
 import "server-only";
 
+import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { collectLinkedPropertyPermissionsForUser } from "@/lib/auth/manager-lease-scope";
 import {
   coManagerModuleAllowed,
@@ -99,7 +100,7 @@ export async function linkedOwnerScopeForModule(
 
     const { data: linkRows, error } = await db
       .from("account_link_invites")
-      .select("inviter_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+      .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("invitee_user_id", userId);
     if (error) {
@@ -136,11 +137,7 @@ export async function linkedOwnerScopeForModule(
         : [];
       if (assigned.length === 0) continue;
 
-      const perms = normalizePropertyCoManagerPermissions(
-        (row as { property_co_manager_permissions?: unknown }).property_co_manager_permissions ??
-          (row as { co_manager_permissions?: unknown }).co_manager_permissions,
-        assigned,
-      );
+      const perms = readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]);
 
       let ownerQualifies = false;
       for (const propertyId of assigned) {

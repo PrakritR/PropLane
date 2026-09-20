@@ -147,6 +147,15 @@ export async function commitResident(
   const notes: string[] = [];
   const sendWelcomeEmail = opts?.sendWelcomeEmail === true;
 
+  // Rent per resident (PLAN-0920-0631): the Lease step's picker already put
+  // the SLOT's rent/utilities/deposit into `form.rent`/`utilities`/
+  // `securityDeposit` — those already flow into `row.application` through
+  // the ordinary manual-rent path. The one field only this commit can stamp
+  // is the slot number itself, for the "Resident N of M" list fact.
+  if (form.residentSlot != null && row.application) {
+    row = { ...row, application: { ...row.application, residentSlot: form.residentSlot } };
+  }
+
   // 1. The row. A refused write (room full, property not yours…) leaves no
   //    phantom in the local list — the wizard stays open with the reason.
   appendManagerApplicationRow(row, { skipServerMirror: true });

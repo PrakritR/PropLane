@@ -324,8 +324,10 @@ or completed request is the manager's to change (PRP-268),
 `send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,
 `request_tour` (files a pending inquiry; the manager still confirms),
-`start_rent_payment` (returns a hosted Stripe Checkout link — the agent never
-completes a payment). Application-phase residents get
+`start_rent_payment` (re-validates the charges and points the resident at their
+own in-app Payments page — never a hosted Stripe Checkout link, and the agent
+never completes a payment; guard: `tests/unit/in-app-payment-exits.test.ts`).
+Application-phase residents get
 `get_my_application_status` + `send_message_to_manager` + the two tour tools
 (touring is exactly what a pre-approval resident does); a free-tier manager
 hides services/inbox tools.
@@ -447,7 +449,7 @@ Check it before adding a tool, and prune the row you close.
 | `POSTHOG_KEY` / `POSTHOG_HOST` | no | analytics |
 | `RESEND_API_KEY` / `RESEND_FROM` | no | outbound email (tools degrade to portal-only delivery) |
 | `CHECKR_API_KEY` / `CERTN_API_KEY` | no | background-check ordering (tool reports "not configured" otherwise) |
-| Stripe keys + Connect | no | rent checkout links, vendor payouts (tools report honestly when unconfigured) |
+| Stripe keys + Connect | no | the resident's in-app rent payment validation, vendor payouts (tools report honestly when unconfigured) |
 
 Database: migrations `20260625000000_agent_observability.sql`
 (`audit_log`, `agent_sessions`, `agent_messages`),

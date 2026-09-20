@@ -47,7 +47,9 @@ export function workspaceInitials(name: string): string {
  * houses the viewer reaches, so a selected scope prints that count.
  */
 function standingLabel(workspace: PortalWorkspace): string {
-  const count = workspace.propertyIds.length;
+  // Live houses only — a workspace's record list also holds drafts and
+  // unlisted rows that still drive scoping (PRP-481).
+  const count = workspace.livePropertyCount ?? 0;
   const houses = `${count} ${count === 1 ? "house" : "houses"}`;
   if (workspace.owned) return `Owner · ${houses}`;
   const role = workspace.viewerRole && workspace.viewerRole !== "owner" ? TEAM_ROLE_LABELS[workspace.viewerRole] : "Shared";

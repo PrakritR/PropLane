@@ -1,4 +1,5 @@
 import { ensureFreeManagerPortalAccess } from "@/lib/auth/manager-portal-provision";
+import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import { resolveRequestOrigin } from "@/lib/app-url";
 import { finalizeManagerGoogleCalendarLink } from "@/lib/google-calendar/link-after-manager-provision.server";
 import { resolveManagerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding.server";
@@ -7,6 +8,20 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+
+/**
+ * Whether this account holds the `admin` role (`profile_roles`, or legacy
+ * `profiles.role`). An admin must never provision itself a manager portal
+ * here — that role is what the production admin→manager block keys on
+ * (`adminBlockedFromManagerPortal`), so self-service provisioning would make
+ * the control bypassable. The primary admin is intentionally both.
+ */
+async function isAdminAccount(service: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string): Promise<boolean> {
+  const { data: roleRows } = await service.from("profile_roles").select("role").eq("user_id", userId);
+  if ((roleRows ?? []).some((r) => String((r as { role?: unknown }).role ?? "").toLowerCase() === "admin")) return true;
+  const { data: profile } = await service.from("profiles").select("role").eq("id", userId).maybeSingle();
+  return String((profile as { role?: unknown } | null)?.role ?? "").toLowerCase() === "admin";
+}
 
 /** Ensures the signed-in user has a manager portal account (idempotent). */
 export async function POST(request: Request) {
@@ -29,6 +44,12 @@ export async function POST(request: Request) {
     const trialForNewManager = body?.trial !== false;
 
     const service = createSupabaseServiceRoleClient();
+    if (!isPrimaryAdminEmail(user.email) && (await isAdminAccount(service, user.id))) {
+      return NextResponse.json(
+        { ok: false, skipped: true, reason: "admin_account", error: "An admin account cannot be set up as a property manager." },
+        { status: 403 },
+      );
+    }
     // Reached only via the explicit "add another portal type" / get-started
     // click, never an OAuth callback — the user has explicitly asked to set up
     // a property manager account, so a resident-only account may upgrade.

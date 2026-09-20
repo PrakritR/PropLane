@@ -12,13 +12,13 @@ import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
-import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
 import {
   claimPaymentReminderChannel,
   paymentReminderOccurrenceId,
   resolvePaymentReminderChannel,
   type PaymentReminderChannel,
 } from "@/lib/payment-reminder-occurrence.server";
+import { residentChargesListHref } from "@/lib/portal-detail-routes";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -193,29 +193,19 @@ export async function deliverPaymentReminder(input: {
       try {
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone && managerSmsFromNumber) {
-        let checkoutUrl: string | null = null;
-        if (category === "payments" && managerId && residentUserId) {
-          try {
-            const checkout = await createHouseholdChargeCheckout(db, {
-              userId: residentUserId,
-              userEmail: residentLower,
-              chargeIds: [charge.id],
-              mode: "hosted",
-              paymentMethod: "ach",
-              expectedManagerUserId: managerId,
-              appOrigin: resolveShareableAppOrigin(),
-            });
-            if (checkout.ok && checkout.mode === "hosted") checkoutUrl = checkout.url;
-          } catch {
-            // A reminder remains useful when Stripe/Connect is unavailable.
-            // Keep delivery on the existing text-only path and try again next cadence.
-          }
-        }
+        // The pay link always stays in-app — the resident's own Payments tab,
+        // never a hosted checkout session — so a reminder can never hand out
+        // a link that bypasses PropLane. Only payment-category reminders get
+        // the link at all; other categories (leases, etc.) stay text-only.
+        const checkoutUrl =
+          category === "payments"
+            ? `${resolveShareableAppOrigin()}${residentChargesListHref("/resident", "pending")}`
+            : null;
 
         const smsBody = [
           `(${subject})`,
           text.slice(0, 300),
-          checkoutUrl ? `Pay securely: ${checkoutUrl}` : null,
+          checkoutUrl ? `Pay in PropLane: ${checkoutUrl}` : null,
         ]
           .filter((line): line is string => Boolean(line))
           .join("\n");

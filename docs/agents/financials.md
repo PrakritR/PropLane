@@ -82,6 +82,47 @@ Phase 3 excludes non-income accounts properly.
 
 **Stripe Dashboard:** add events `transfer.created`, `payout.*`, `charge.refunded`, `refund.*`, `charge.dispute.*`, `payment_intent.payment_failed` to the webhook destination alongside existing checkout/subscription events.
 
+## In-app payouts (PLAN-0920-0853)
+
+**Payments → Payouts** (`/portal/payments/payouts`, vendor twin
+`/vendor/financials/payouts`) is the one payout UI — balance, a single "Pay
+out" action (Standard or Instant), the bank card, the payout schedule, and
+history. Stripe's Express Dashboard and Account Links are gone; identity and
+bank linking are Stripe's embedded `account_onboarding` /
+`account_management` components mounted inside PropLane's own modal (see
+[`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md)).
+
+- **Pure logic** — `src/lib/stripe-payouts.ts`: Instant fee (flat 1%, no
+  floor — Stripe's Connect Instant Payouts pricing has no minimum fee, only a
+  $0.50 minimum PAYOUT amount), Standard/Instant eligibility, arrival
+  estimates, `settings.payouts.schedule` ↔ our schedule shape, next-payout-date,
+  and the history row normaliser.
+- **Stripe/DB reads and writes** — `src/lib/stripe-payouts.server.ts`:
+  `readPayoutSnapshot` (balance, bank/eligibility from the external account's
+  `available_payout_methods`, setup state from `account.requirements`,
+  schedule, last-50 history); `createInAppPayout` claims a pending
+  `stripe_payouts` row BEFORE calling Stripe — the same pattern as
+  `payoutVendorForWorkOrder` (`src/lib/stripe-vendor-payout.ts`) — so a
+  double-click loses the insert race on the partial unique index
+  `stripe_payouts_pending_claim_unique` and gets a 409; `writePayoutSchedule`.
+- **Instant amount semantics**: Stripe assesses its 1% Instant fee as a
+  SEPARATE debit from the connected account's balance on top of whatever
+  `amount` you request — it is not netted out of `amount` for you. To make
+  "Bank receives $X" true, `createInAppPayout` requests the NET amount as
+  the Stripe payout `amount`; the gross amount the user typed is what gets
+  checked against `instant_available`, leaving room for both.
+- **Schema** — `supabase/migrations/20260920200000_in_app_payouts.sql`:
+  `stripe_payouts.stripe_payout_id` becomes nullable (the claim row has none
+  yet), plus `method`, `vendor_user_id`, `initiated_in_app`,
+  `destination_last4`, `fee_cents`, and a `returned` status (a `payout.failed`
+  webhook with a bank-return failure code, surfaced distinctly from an
+  ordinary failure). RLS is unchanged — `manager_user_id` already holds the
+  vendor's own id for a vendor-initiated row (vendors and managers share the
+  same `profiles.stripe_connect_account_id` column).
+- A newly created Connect account defaults to **automatic weekly payouts
+  (Friday)** (`createAxisConnectAccount` in `src/lib/stripe-connect.ts`); the
+  in-app "Pay out" button works regardless of the schedule interval.
+
 # Financials Phase 3: security deposit trust sub-ledger
 
 **Schema** — `supabase/migrations/20260712110000_security_deposit_trust.sql`: `security_deposit_ledger` (per-deposit sub-ledger with disposition status/itemization), `manager_bank_accounts` / `manager_bank_statements` / `manager_bank_statement_lines` (reconciliation foundation), `manager_reclassification_log` (audit).

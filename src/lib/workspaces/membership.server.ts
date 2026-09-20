@@ -89,19 +89,28 @@ export async function workspaceHouseIds(db: SupabaseClient, ownerUserId: string,
 
 /**
  * The workspace a set of houses sits in, for a request that named houses but
- * no workspace (an older client). One workspace, or null when the houses span
- * several or there are none — the caller then falls back to the owner's default.
+ * no workspace (an older client). `one` names it; `none` when no house is
+ * pinned to a workspace yet (the caller falls back to the owner's default);
+ * `several` when the houses span workspaces — a membership belongs to exactly
+ * one, so the caller refuses rather than pinning the row somewhere it cannot
+ * reach the houses from.
  */
-export async function workspaceForHouses(db: SupabaseClient, ownerUserId: string, propertyIds: string[]): Promise<string | null> {
+export async function workspaceForHouses(
+  db: SupabaseClient,
+  ownerUserId: string,
+  propertyIds: string[],
+): Promise<{ kind: "one"; workspaceId: string } | { kind: "none" } | { kind: "several" }> {
   const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
-  if (ids.length === 0) return null;
+  if (ids.length === 0) return { kind: "none" };
   const { data } = await db
     .from("manager_property_records")
     .select("workspace_id")
     .eq("manager_user_id", ownerUserId)
     .in("id", ids);
   const workspaces = new Set((data ?? []).map((row) => String(row.workspace_id ?? "").trim()).filter(Boolean));
-  return workspaces.size === 1 ? [...workspaces][0]! : null;
+  if (workspaces.size === 0) return { kind: "none" };
+  if (workspaces.size > 1) return { kind: "several" };
+  return { kind: "one", workspaceId: [...workspaces][0]! };
 }
 
 export async function ownerDefaultWorkspaceId(db: SupabaseClient, ownerUserId: string): Promise<string | null> {

@@ -15,7 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsForManagers, loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -109,20 +109,20 @@ export async function sweepWorkOrderEscalations(db: SupabaseClient, now: Date = 
   const rows = (await loadOpenWorkOrders(db)).filter((row) => isUnassigned(row.row_data));
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings) continue;
     const emergency = row.row_data.priority === "Emergency";
     const kind: ReminderSubjectKind = emergency ? "work_order_unassigned_emergency" : "work_order_unassigned";
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
     if (!settings.rules[kind]?.enabled) continue;
     const anchorIso = isoOrNull(row.created_at);
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
-    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
     const recipients = await managerSideRecipients(db, row.manager_user_id, kind, settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
@@ -160,19 +160,20 @@ export async function sweepWorkOrderNoOnMyWay(db: SupabaseClient, now: Date = ne
   );
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, serviceByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, serviceByManager, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadServiceAutomationSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.work_order_no_on_my_way.enabled) continue;
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
+    if (!settings.rules.work_order_no_on_my_way.enabled) continue;
     if (!serviceByManager.get(row.manager_user_id)?.requireOnMyWay) continue;
     const anchorIso = isoOrNull(row.row_data.scheduledAtIso)!;
     if (!withinAge(anchorIso, now, 7)) continue;
-    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
     const recipients = await managerSideRecipients(db, row.manager_user_id, "work_order_no_on_my_way", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
@@ -226,7 +227,7 @@ export async function sweepVendorOfferExpiry(db: SupabaseClient, now: Date = new
   const offers = (data ?? []) as OfferRow[];
   if (offers.length === 0) return 0;
   const managerIds = offers.map((offer) => offer.manager_user_id);
-  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const reminderResolver = await loadReminderSettingsResolver(db, managerIds);
   const workOrderIds = [...new Set(offers.map((offer) => offer.work_order_id))];
   const { data: workOrders } = await db.from("portal_work_order_records").select("id, row_data").in("id", workOrderIds);
   const workOrderById = new Map<string, DemoManagerWorkOrderRow>();
@@ -243,11 +244,13 @@ export async function sweepVendorOfferExpiry(db: SupabaseClient, now: Date = new
   }
   let queued = 0;
   for (const offer of offers) {
-    const settings = settingsByManager.get(offer.manager_user_id);
-    if (!settings?.rules.vendor_offer_expiry.enabled) continue;
+    const workOrder = workOrderById.get(offer.work_order_id);
+    const propertyId = workOrder?.assignedPropertyId || workOrder?.propertyId || null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(offer.manager_user_id, propertyId);
+    if (!settings.rules.vendor_offer_expiry.enabled) continue;
     const vendor = vendorById.get(offer.vendor_directory_id);
     if (!vendor?.email.includes("@")) continue;
-    const workOrder = workOrderById.get(offer.work_order_id);
     if (!workOrder || workOrder.bucket === "completed") continue;
     const anchorIso = isoOrNull(offer.expires_at);
     if (!anchorIso) continue;
@@ -285,7 +288,7 @@ export async function sweepVendorInvoiceNudge(db: SupabaseClient, now: Date = ne
   );
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const reminderResolver = await loadReminderSettingsResolver(db, managerIds);
   const vendorIds = [...new Set(rows.map((row) => String(row.row_data.vendorUserId)))];
   const { data: profiles } = await db.from("profiles").select("id, email, full_name").in("id", vendorIds);
   const vendorById = new Map<string, { email: string; name: string }>();
@@ -294,8 +297,10 @@ export async function sweepVendorInvoiceNudge(db: SupabaseClient, now: Date = ne
   }
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.vendor_invoice_nudge.enabled) continue;
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
+    if (!settings.rules.vendor_invoice_nudge.enabled) continue;
     const vendor = vendorById.get(String(row.row_data.vendorUserId));
     if (!vendor?.email.includes("@")) continue;
     const anchorIso = isoOrNull(row.row_data.vendorMarkedDoneAt)!;
@@ -334,22 +339,33 @@ export async function sweepInvoiceApproval(db: SupabaseClient, now: Date = new D
   const invoices = data ?? [];
   if (invoices.length === 0) return 0;
   const managerIds = invoices.map((invoice) => String(invoice.manager_user_id));
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   const vendorIds = [...new Set(invoices.map((invoice) => String(invoice.vendor_user_id)))];
-  const { data: profiles } = await db.from("profiles").select("id, full_name").in("id", vendorIds);
+  const workOrderIds = [...new Set(invoices.map((invoice) => String(invoice.work_order_id ?? "")).filter(Boolean))];
+  const [{ data: profiles }, { data: invoiceWorkOrders }] = await Promise.all([
+    db.from("profiles").select("id, full_name").in("id", vendorIds),
+    workOrderIds.length
+      ? db.from("portal_work_order_records").select("id, row_data").in("id", workOrderIds)
+      : Promise.resolve({ data: [] as { id: string; row_data: DemoManagerWorkOrderRow }[] }),
+  ]);
   const vendorName = new Map<string, string>();
   for (const row of profiles ?? []) vendorName.set(String(row.id), String(row.full_name ?? "").trim());
+  const invoiceWorkOrderById = new Map<string, DemoManagerWorkOrderRow>();
+  for (const row of invoiceWorkOrders ?? []) invoiceWorkOrderById.set(String(row.id), row.row_data as DemoManagerWorkOrderRow);
   let queued = 0;
   for (const invoice of invoices) {
     const managerUserId = String(invoice.manager_user_id);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.invoice_approval.enabled) continue;
+    const invoiceWorkOrder = invoice.work_order_id ? invoiceWorkOrderById.get(String(invoice.work_order_id)) : undefined;
+    const propertyId = invoiceWorkOrder?.assignedPropertyId || invoiceWorkOrder?.propertyId || null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(managerUserId, propertyId);
+    if (!settings.rules.invoice_approval.enabled) continue;
     const anchorIso = isoOrNull(invoice.submitted_at);
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
-    const recipients = await managerSideRecipients(db, managerUserId, "invoice_approval", settings, managerRecipients, null);
+    const recipients = await managerSideRecipients(db, managerUserId, "invoice_approval", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     const amount = `$${(Number(invoice.total_cents ?? 0) / 100).toFixed(2)}`;
     queued += await materializeReminders(
@@ -401,17 +417,18 @@ export async function sweepServiceRequestDecision(db: SupabaseClient, now: Date 
   const rows = (await loadServiceRequests(db)).filter((row) => String(row.row_data.status ?? "") === "pending");
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.service_request_decision.enabled) continue;
+    const propertyId = typeof row.row_data.propertyId === "string" ? row.row_data.propertyId : null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
+    if (!settings.rules.service_request_decision.enabled) continue;
     const anchorIso = isoOrNull(String(row.row_data.requestedAt ?? "")) ?? isoOrNull(row.created_at);
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
-    const propertyId = typeof row.row_data.propertyId === "string" ? row.row_data.propertyId : null;
     const recipients = await managerSideRecipients(db, row.manager_user_id, "service_request_decision", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
@@ -448,11 +465,13 @@ export async function sweepServiceRequestUnpaid(db: SupabaseClient, now: Date = 
       (row.resident_email ?? "").includes("@"),
   );
   if (rows.length === 0) return 0;
-  const settingsByManager = await loadReminderSettingsForManagers(db, rows.map((row) => row.manager_user_id));
+  const reminderResolver = await loadReminderSettingsResolver(db, rows.map((row) => row.manager_user_id));
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.service_request_unpaid.enabled) continue;
+    const propertyId = typeof row.row_data.propertyId === "string" ? row.row_data.propertyId : null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
+    if (!settings.rules.service_request_unpaid.enabled) continue;
     const anchorIso = isoOrNull(String(row.row_data.approvedAt ?? ""));
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
     queued += await materializeReminders(
@@ -500,6 +519,9 @@ export async function sweepVendorDocumentExpiry(db: SupabaseClient, now: Date = 
   });
   if (candidates.length === 0) return 0;
   const managerIds = candidates.map(({ row }) => row.manager_user_id);
+  // A vendor and its documents are a WORKSPACE resource, not scoped to any one
+  // house (`manager_vendor_records` carries no `property_id`), so this one
+  // stays on the plain workspace-only load (PLAN-0916-1040 scope note).
   const [settingsByManager, managerRecipients] = await Promise.all([
     loadReminderSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),

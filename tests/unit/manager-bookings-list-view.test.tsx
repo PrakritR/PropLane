@@ -61,4 +61,47 @@ describe("ManagerBookingsListView", () => {
     expect(menu.textContent).not.toContain("View");
     expect(menu.textContent).not.toContain("Blocked");
   });
+
+  it("is the Properties card: guest as title, stay · room · property, source and stage as plain facts", () => {
+    const airbnb: PropertyBookingEntry = {
+      ...stay,
+      source: "airbnb",
+      summary: "Airbnb guest",
+      start: "2026-10-02",
+      end: "2026-10-05",
+      statusLabel: undefined,
+    };
+    const confirmed: PropertyBookingEntry = { ...stay, start: "2026-11-01", end: "2026-11-30", statusLabel: "Confirmed" };
+    const view = render(
+      <ManagerBookingsListView
+        entries={[stay, airbnb, block, confirmed]}
+        bucket="upcoming"
+        selectedKeys={new Set()}
+        onToggleSelected={() => {}}
+      />,
+    );
+
+    const cards = view.container.querySelectorAll(".portal-property-row");
+    expect(cards).toHaveLength(4);
+    expect(view.container.querySelector("[class*='badge']")).toBeNull();
+
+    const signed = cards[0]!;
+    expect(signed.textContent).toContain("Ada Lovelace");
+    expect(signed.textContent).toContain("Room 1");
+    expect(signed.textContent).toContain("4709A 8th Ave NE");
+    const signedFacts = signed.querySelector("[data-attr='record-row-facts']")!;
+    expect(signedFacts.textContent).toContain("PropLane");
+    expect(signed.querySelector("[data-attr='booking-row-status']")?.textContent).toBe("Signed");
+
+    expect(cards[1]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Airbnb");
+    expect(cards[1]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
+
+    // A block's source fact says "Block"; it never repeats "Blocked" as a state.
+    expect(cards[2]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Block");
+    expect(cards[2]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
+
+    // Confirmed is the default and says nothing.
+    expect(cards[3]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
+    expect(view.container.textContent).not.toContain("Confirmed");
+  });
 });

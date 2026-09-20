@@ -13,7 +13,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import {
@@ -22,6 +22,7 @@ import {
   FilterFieldsAccordion,
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
+import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
@@ -140,13 +141,8 @@ function VendorIncomeTable({
           key={row.id}
           title={row.workOrderTitle}
           address={row.propertyLabel}
-          facts={formatIncomeDate(row.dateIso)}
+          facts={[formatIncomeDate(row.dateIso), row.payoutStatusLabel].filter(Boolean).join(" · ")}
           trailing={formatVendorIncomeMoney(row.totalCents)}
-          chip={
-            <PortalRowStatusChip tone={row.payoutStatus === "paid" ? "ok" : row.payoutStatus === "failed" ? "warn" : "neutral"}>
-              {row.payoutStatusLabel}
-            </PortalRowStatusChip>
-          }
           dataAttr="vendor-income-row"
         />
       ))}
@@ -600,13 +596,8 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
               <PortalPropertyRecordRow
                 title={inv.invoiceNumber || "Invoice"}
                 address={formatInvoiceDate(inv.submittedAt)}
-                facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"}`}
+                facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"} · ${vendorInvoiceStatusLabel(inv.status)}`}
                 trailing={formatInvoiceMoney(inv.totalCents, inv.currency)}
-                chip={
-                  <PortalRowStatusChip tone={inv.status === "paid" || inv.status === "approved" ? "ok" : inv.status === "rejected" ? "warn" : "neutral"}>
-                    {vendorInvoiceStatusLabel(inv.status)}
-                  </PortalRowStatusChip>
-                }
                 selected={editingInvoice?.id === inv.id}
                 onOpen={() => openEdit(inv)}
                 dataAttr="vendor-invoice-row"
@@ -774,6 +765,19 @@ export function VendorFinancesPanel({
   if (tabId === "invoices") {
     return <VendorInvoicesView tabItems={financeTabItems} tabId={tabId} />;
   }
+
+  if (tabId === "payouts") {
+    // The Payouts page owns its own command bar (search + settings), balance,
+    // bank and history — the old CSV export / reminder / payment-methods
+    // toolbar and the shared "Request payment" primary moved off this tab
+    // (PLAN-0920-0853); Payments still export from Invoices.
+    return (
+      <VendorFinancesChrome tabId={tabId} tabItems={financeTabItems}>
+        <PortalPayoutsPanel portal="vendor" />
+      </VendorFinancesChrome>
+    );
+  }
+
 
   const incomeEmpty = portalEmptyCopy("finances.income");
   const filtersHideRows = allRows.length > 0 && filteredRows.length === 0;

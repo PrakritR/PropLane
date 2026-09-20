@@ -88,7 +88,10 @@ export type RentalWizardFormState = {
   leaseStart: string;
   leaseEnd: string;
   managerRentOverride: string;
+  /** Manager-set utilities for THIS resident (money string); blank = the room's figure. Roommate pricing, PLAN-0920-0631. */
   managerUtilitiesOverride: string;
+  /** Which resident slot (1-based) of a per-resident room this application holds; absent = not a per-resident room. */
+  residentSlot?: number;
   managerSecurityDepositOverride: string;
   managerMoveInFeeOverride: string;
   managerOtherCostLabel: string;

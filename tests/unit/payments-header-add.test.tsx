@@ -96,6 +96,8 @@ describe("Incoming header Add charge", () => {
     expect(html).toContain('data-attr="payments-add-top"');
     expect(html).toContain('aria-label="Add charge"');
     expect(html).toContain('data-attr="payments-empty-add"');
+    // Every list tab has the search box in its command bar.
+    expect(html).toContain('data-attr="payments-search"');
   });
 
   it("renders with 0 workspace houses", () => {

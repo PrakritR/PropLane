@@ -8,7 +8,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import {
   PORTAL_DETAIL_BTN,
   PORTAL_DETAIL_BTN_PRIMARY,
@@ -56,14 +56,7 @@ type DocumentsPayload = {
   documents?: VendorDocumentRecord[];
 };
 
-function statusChipTone(doc: VendorDocumentRecord | undefined): "ok" | "warn" | "neutral" {
-  const label = vendorDocumentStatusLabel(doc).toLowerCase();
-  if (label.includes("on file") || label.includes("uploaded")) return "ok";
-  if (label.includes("expir") || label.includes("missing")) return "warn";
-  return "neutral";
-}
-
-/** Vendor Documents — one source-filtered list plus the vendor's upload workspace. */
+/** Vendor Documents — Mine / From managers command bar + upload workspace, one source-filtered list. */
 export function VendorDocumentsPanel({
   tabId,
   basePath = "/vendor",
@@ -430,12 +423,8 @@ export function VendorDocumentsPanel({
                   title={VENDOR_DOCUMENT_LABELS[kind]}
                   address={doc?.fileName ? `Mine · ${doc.fileName}` : `Mine · ${section}`}
                   leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
-                  facts={doc ? safeFormatDateTime(doc.uploadedAt) : undefined}
-                  chip={
-                    <PortalRowStatusChip tone={statusChipTone(doc)}>
-                      {vendorDocumentStatusLabel(doc)}
-                    </PortalRowStatusChip>
-                  }
+                  // The status is a plain fact beside the date — never a pill.
+                  facts={[doc ? safeFormatDateTime(doc.uploadedAt) : "", vendorDocumentStatusLabel(doc)].filter(Boolean).join(" · ")}
                   selected={expanded}
                   onOpen={() => setExpandedKind((cur) => (cur === kind ? null : kind))}
                   dataAttr="vendor-document-row"

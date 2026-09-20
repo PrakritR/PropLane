@@ -467,6 +467,9 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "stripe_payouts",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+    // Set only for a vendor-initiated in-app payout (PLAN-0920-0853); a
+    // manager row leaves this null.
+    vendor: { ids: ["vendor_user_id"] },
   },
   {
     table: "external_calendar_connections",

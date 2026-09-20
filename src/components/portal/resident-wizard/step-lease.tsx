@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FileText } from "lucide-react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,13 @@ import {
   WizardSection,
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
+import { getPropertyById } from "@/lib/rental-application/data";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { openResidentSlotsForApplicationRow } from "@/lib/manager-applications-storage";
+import {
+  ApplicationResidentSlotPicker,
+  defaultOpenResidentSlot,
+} from "@/components/portal/application-resident-slot-picker";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm, LeaseDocumentChoice } from "./state";
 
@@ -59,6 +66,46 @@ export function LeaseStep({
       </span>
     </WizardField>
   );
+  // Rent per resident (PLAN-0920-0631): when the chosen room prices per
+  // resident, Add resident asks the SAME "Rent for this resident" pick
+  // approval does. Resolved locally (not through `derived`, which only
+  // exposes the room's flat rent) so this file owns its own room read.
+  const residentSlots = useMemo(() => {
+    if (!derived.rentedByRoom || !form.propertyId.trim() || !form.roomId.trim() || derived.isShortTerm || derived.isAirbnb) {
+      return [];
+    }
+    const listing = getPropertyById(form.propertyId);
+    if (!listing?.listingSubmission || listing.listingSubmission.v !== 1) return [];
+    const submission = normalizeManagerListingSubmissionV1(listing.listingSubmission);
+    const room = submission.rooms.find((r) => r.id === form.roomId);
+    if (!room) return [];
+    return openResidentSlotsForApplicationRow(
+      { id: "", name: "", assignedRoomChoice: `${form.propertyId}::${form.roomId}` },
+      room,
+    );
+  }, [form.propertyId, form.roomId, derived.rentedByRoom, derived.isShortTerm, derived.isAirbnb]);
+
+  // Default to the lowest open slot the moment the room offers any, and clear
+  // the pick when it stops applying (room/property changed, or the room no
+  // longer prices per resident).
+  useEffect(() => {
+    if (residentSlots.length === 0) {
+      if (form.residentSlot != null) patch({ residentSlot: undefined });
+      return;
+    }
+    if (form.residentSlot != null && residentSlots.some((s) => s.slot === form.residentSlot)) return;
+    const slot = defaultOpenResidentSlot(residentSlots);
+    const chosen = slot != null ? residentSlots.find((s) => s.slot === slot) : undefined;
+    if (!chosen) return;
+    patch({
+      residentSlot: chosen.slot,
+      rent: String(chosen.price.monthlyRent),
+      utilities: chosen.price.utilitiesEstimate ?? form.utilities,
+      securityDeposit: chosen.price.securityDeposit ?? form.securityDeposit,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [residentSlots, form.residentSlot]);
+
   const termSelectValue = residentLeaseTermSelectValue(form.leaseTerm, form.leaseTermCustomMode, derived.leaseTermPresetValues);
   const stayPreview = derived.isShortTerm
     ? (() => {
@@ -109,6 +156,26 @@ export function LeaseStep({
         </WizardSection>
       ) : (
         <WizardSection title="Money" chip={derived.listingSays ? <WizardChip>defaults from the listing</WizardChip> : undefined} dataAttr="residents-wizard-lease-money">
+          {residentSlots.length > 0 ? (
+            <div className="mb-4">
+              <ApplicationResidentSlotPicker
+                slots={residentSlots}
+                value={form.residentSlot ?? null}
+                onChange={(slot) => {
+                  const chosen = residentSlots.find((s) => s.slot === slot);
+                  if (!chosen || chosen.holder) return;
+                  patch({
+                    residentSlot: chosen.slot,
+                    rent: String(chosen.price.monthlyRent),
+                    utilities: chosen.price.utilitiesEstimate ?? form.utilities,
+                    securityDeposit: chosen.price.securityDeposit ?? form.securityDeposit,
+                    marks: clearMark("rent"),
+                  });
+                }}
+                name="residents-wizard-resident-slot"
+              />
+            </div>
+          ) : null}
           <WizardRow cols={3}>
             {money("rent", derived.isShortTerm ? "Rent per night" : "Monthly rent", derived.isShortTerm ? "85.00" : "875.00", true)}
             {!derived.isShortTerm ? money("utilities", "Monthly utilities", "175.00") : null}

@@ -32,11 +32,21 @@ const rule = (enabled: boolean) => ({
 });
 
 let bookingEnabled = true;
+/** House `mgr-house-override` gets its own `booking` rule; every other house tracks the workspace's. */
+let bookingOverrideRule: ReturnType<typeof rule> | null = null;
+const OVERRIDE_PROPERTY_ID = "mgr-house-override";
+
 vi.mock("@/lib/reminders/settings.server", () => ({
-  loadReminderSettingsForManagers: () =>
-    Promise.resolve(
-      new Map([["mgr-1", { rules: { booking: rule(bookingEnabled) }, quietHours: { enabled: false } }]]),
-    ),
+  loadReminderSettingsResolver: () =>
+    Promise.resolve({
+      resolve: (_managerUserId: string, propertyId: string | null) => ({
+        rules: {
+          booking:
+            propertyId === OVERRIDE_PROPERTY_ID && bookingOverrideRule ? bookingOverrideRule : rule(bookingEnabled),
+        },
+        quietHours: { enabled: false },
+      }),
+    }),
 }));
 
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
@@ -84,6 +94,7 @@ function fakeDb(connections: unknown[], leases: unknown[]) {
 beforeEach(() => {
   materialize.mockClear();
   bookingEnabled = true;
+  bookingOverrideRule = null;
 });
 
 describe("sweepBookingReminders", () => {
@@ -122,5 +133,17 @@ describe("sweepBookingReminders", () => {
     const queued = await sweepBookingReminders(fakeDb([CONNECTION], [LEASE_ROW]), NOW);
     expect(materialize).not.toHaveBeenCalled();
     expect(queued).toBe(0);
+  });
+
+  it("PLAN-0916-1040: a house override fires where the workspace value would not — and vice versa", async () => {
+    // Workspace has bookings OFF; this one house turned them ON.
+    bookingEnabled = false;
+    bookingOverrideRule = rule(true);
+    const overriddenConnection = { ...CONNECTION, id: "conn-override", property_id: OVERRIDE_PROPERTY_ID };
+    const queued = await sweepBookingReminders(fakeDb([CONNECTION, overriddenConnection], []), NOW);
+    // Only the overridden house's stay queued — the workspace-scoped one did not.
+    expect(queued).toBe(1);
+    const ids = materialize.mock.calls.map((call) => (call[1] as { subjectId: string }).subjectId);
+    expect(ids).toEqual(["channel:conn-override:r1"]);
   });
 });

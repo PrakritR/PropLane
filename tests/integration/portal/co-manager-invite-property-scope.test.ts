@@ -241,7 +241,7 @@ describe("co-manager invite property scope", () => {
       );
       const { status, data } = await parseJsonResponse<{ error?: string }>(res);
       expect(status).toBe(403);
-      expect(data.error).toMatch(/only the primary manager can change the property scope/i);
+      expect(data.error).toMatch(/only the workspace owner or an admin can change the property scope/i);
     });
 
     it("refuses to let the inviter widen the scope to a property they do not own", async () => {

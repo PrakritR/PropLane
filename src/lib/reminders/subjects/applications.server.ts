@@ -15,7 +15,7 @@ import {
 } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import {
   inProgressApplicationResumeUrl,
   shouldOfferApplicationCompletionReminder,
@@ -99,19 +99,20 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
   if (candidates.length === 0) return 0;
 
   const managerIds = candidates.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
   for (const entry of candidates) {
-    const settings = settingsByManager.get(entry.managerUserId);
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, entry.row.propertyId ?? null);
     const resumeUrl = inProgressApplicationResumeUrl(origin, entry.row);
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = teamReminderRecipients(
-      await loadTeamReminderRecipients(db, entry.managerUserId, settings?.rules.application_manager.teamUserIds ?? [], {
+      await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.application_manager.teamUserIds ?? [], {
         module: REMINDER_SUBJECT_CO_MANAGER_MODULE.application,
         propertyId: entry.row.propertyId ?? null,
       }),
@@ -126,7 +127,7 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
       notificationCategory: "leases",
     };
 
-    if (settings?.rules.application.enabled) {
+    if (settings.rules.application.enabled) {
       queued += await materializeReminders(
         db,
         {
@@ -148,7 +149,7 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
       );
     }
 
-    if (settings?.rules.application_manager.enabled) {
+    if (settings.rules.application_manager.enabled) {
       queued += await materializeReminders(
         db,
         {
@@ -264,7 +265,7 @@ export async function sweepApplicationPostTourReminders(
   );
 
   const managerIds = endedTours.map((event) => String((event as Record<string, unknown>).managerUserId));
-  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const reminderResolver = await loadReminderSettingsResolver(db, managerIds);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   const { buildTourApplyUrl } = await import("@/lib/tour-notifications");
 
@@ -272,15 +273,16 @@ export async function sweepApplicationPostTourReminders(
   for (const event of endedTours) {
     const row = event as Record<string, unknown>;
     const managerUserId = String(row.managerUserId ?? "").trim();
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.application_post_tour.enabled) continue;
+    const propertyId = String(row.propertyId ?? "").trim() || null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(managerUserId, propertyId);
+    if (!settings.rules.application_post_tour.enabled) continue;
     const anchorIso = tourEndedAnchorIso(
       { end: String(row.end ?? ""), start: String(row.start ?? "") },
       now,
     );
     if (!anchorIso) continue;
     const email = String(row.attendeeEmail ?? "").trim().toLowerCase();
-    const propertyId = String(row.propertyId ?? "").trim() || null;
     if (hasApplicationForProspect(applications, email, propertyId)) continue;
 
     const applyUrl = buildTourApplyUrl(origin, propertyId, String(row.roomLabel ?? "") || null);

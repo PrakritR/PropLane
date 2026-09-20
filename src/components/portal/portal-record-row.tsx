@@ -73,10 +73,11 @@ export function PortalPersonRecordRow({
 /**
  * Property-style card row.
  *
- * Title, the address, a line of detail; on the right, a status chip
- * ("1 / 2 occupied") and the money in bold — the two things a manager scans a
- * list of homes for. On a phone the chip drops under the title and the money
- * stays on the right, so the row is still two lines and a glance.
+ * Title, the address, a line of detail; on the right, the money in bold — the
+ * thing a manager scans a list of homes for. No status chip: the tab says the
+ * bucket, anything else is a plain fact with a glyph. On a phone the money
+ * drops under the title so the title keeps its width, and the row is still two
+ * lines and a glance.
  *
  * No chevron after the title: the whole row is the link and hover says so; the
  * old "2 ›" read as a count (PLAN-0914-1345). Bed / bath / room counts come as
@@ -89,25 +90,30 @@ export function PortalPropertyRecordRow({
   meta,
   facts,
   badge,
-  chip,
   trailing,
   leading,
   selected = false,
   checked = false,
   onSelectedChange,
   onOpen,
+  omitActionView = false,
+  selectLabel,
   dataAttr,
 }: {
   title: string;
   address: string;
+  /**
+   * What the ⋯ and the hidden selection box call this row when the title alone
+   * is ambiguous — a guest with two tours is "Maya Chen · Thu, Sep 17, 4:00 PM".
+   * Defaults to the title.
+   */
+  selectLabel?: string;
   summary?: string;
   /** Bed / bath / room counts drawn as glyphs under the address. */
   meta?: { beds?: number; baths?: number; rooms?: number | null };
   /** Any other glyph facts on that same line — a person row's date, email, household. */
   facts?: ReactNode;
   badge?: ReactNode;
-  /** Status chip — occupancy, stage — shown beside the money. */
-  chip?: ReactNode;
   /** The money, right-aligned and bold. */
   trailing?: ReactNode;
   /** A thumbnail or glyph before the text — what makes one row recognisable among twenty. */
@@ -121,6 +127,8 @@ export function PortalPropertyRecordRow({
    * nothing would announce itself to a screen reader as actionable.
    */
   onOpen?: () => void;
+  /** Bookings ⋯ is Edit + Delete — RecordActionMenu adds View when `onOpen` is set. */
+  omitActionView?: boolean;
   dataAttr?: string;
 }) {
   const selectable = Boolean(onSelectedChange);
@@ -150,22 +158,20 @@ export function PortalPropertyRecordRow({
         </p>
       ) : null}
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
-      {badge || chip || trailing ? (
+      {badge || trailing ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           {badge}
-          {/* On a phone the chip and the money sit under the title, so the title
-              keeps its width; on desktop both move to the right edge. */}
-          {chip ? <span className="md:hidden">{chip}</span> : null}
+          {/* On a phone the money sits under the title, so the title keeps its
+              width; on desktop it moves to the right edge. */}
           {trailing ? <span className="text-[13px] font-bold text-foreground md:hidden">{trailing}</span> : null}
         </div>
       ) : null}
     </>
   );
   const aside =
-    chip || trailing ? (
+    trailing ? (
       <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-1 self-center text-right md:flex">
-        {trailing ? <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailing}</span> : null}
-        {chip}
+        <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailing}</span>
       </div>
     ) : null;
   return (
@@ -180,11 +186,11 @@ export function PortalPropertyRecordRow({
     >
       {selectable ? (
         <RowSelectCheckbox
-              onOpenRecord={onOpen}
+          onOpenRecord={omitActionView ? undefined : onOpen}
           wrapperClassName="mr-0 self-center"
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
-          aria-label={`Select ${title}`}
+          aria-label={`Select ${selectLabel ?? title}`}
         />
       ) : null}
       {leading ? <div className="mr-3 shrink-0 self-start">{leading}</div> : null}
@@ -207,32 +213,6 @@ export function PortalPropertyRecordRow({
   );
 }
 
-/** A small status chip for a list row — "1 / 2 occupied", "Vacant". */
-export function PortalRowStatusChip({
-  tone = "neutral",
-  children,
-  dataAttr,
-}: {
-  tone?: "ok" | "warn" | "neutral";
-  children: ReactNode;
-  dataAttr?: string;
-}) {
-  return (
-    <span
-      data-attr={dataAttr}
-      className={cn(
-        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold",
-        tone === "ok"
-          ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-          : tone === "warn"
-            ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
-            : "bg-[var(--secondary)] text-muted",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
 
 /** One glyph fact on a record row — an icon and a short value. */
 export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideIcon; children: ReactNode; srLabel?: string }) {
@@ -246,23 +226,33 @@ export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideI
 }
 
 /**
- * The Properties row, for a person — an applicant, a co-signer.
+ * The Properties row, for a person — an applicant, a resident, a lease, a
+ * charge, a vendor, a tour guest.
  *
  * Same card, same slots: an initials tile where the home has its photo, the
  * name as the title, "Alder Row · Room 2" as the address line, glyph facts,
- * chips on the left, the date in bold and a status chip on the right, and the
- * ⋯ the list surface draws for a selectable row.
+ * the figure that matters (an amount, a date) in bold on the right, and the ⋯
+ * the list surface draws for a selectable row. No pills: the tab says the
+ * bucket, and anything else the row must say is a plain fact with a glyph
+ * (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 export function PortalApplicantRecordRow({
   name,
   kind = "applicant",
+  tileLabel,
   ...rest
 }: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta"> & {
   name: string;
   /** A co-signer gets a person glyph rather than initials, and sits under its applicant. */
   kind?: "applicant" | "cosigner";
+  /**
+   * Whose initials fill the tile when they are not the title's — a payment row
+   * is titled by the resident but a vendor payout by the payee, and the tile
+   * should always be the person the ⋯ acts for.
+   */
+  tileLabel?: string;
 }) {
-  const initials = name
+  const initials = (tileLabel ?? name)
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)

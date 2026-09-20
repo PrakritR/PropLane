@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import {
   hasCoManagerPermissionLevelForProperty,
   type CoManagerPermissionId,
@@ -79,7 +79,7 @@ export async function collectLinkedPropertyPermissionsForUser(
   try {
     const { data: linkRows, error } = await db
       .from("account_link_invites")
-      .select("inviter_user_id, invitee_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+      .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("invitee_user_id", userId);
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {

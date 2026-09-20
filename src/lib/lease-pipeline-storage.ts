@@ -12,7 +12,9 @@ import {
   leaseContextFromApplication,
   leaseTemplateDocForContext,
   leaseTemplateVersionForContext,
+  type LeaseGenerationContext,
 } from "@/lib/generated-lease";
+import type { MockProperty } from "@/data/types";
 import {
   LEASE_ESIGN_CONSENT_TEXT,
   LEASE_ESIGN_CONSENT_VERSION,
@@ -2733,7 +2735,7 @@ function leaseGenerationContextForRow(
   row: LeasePipelineRow,
   managerUserId?: string | null,
   templateId?: string | null,
-) {
+): LeaseGenerationContext | null {
   const app = applicationSnapshotForLeaseRow(row);
   if (!app || !Object.keys(app).length) return null;
   let ctx = leaseContextFromApplication(app as RentalWizardFormState);
@@ -2777,15 +2779,18 @@ function leaseGenerationContextForRow(
   // has to produce a document — default those to Washington rather than leaving
   // a Draft stub. A real non-CA/WA state stays unsupported.
   if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(billed))) {
+    // A listing carries its state as loose address data, not on MockProperty.
+    const stateOf = (value: unknown): string =>
+      value && typeof value === "object" && typeof (value as { state?: unknown }).state === "string"
+        ? (value as { state: string }).state.trim()
+        : "";
     const hasState = Boolean(
-      billed.listingProperty?.state?.trim() ||
-      billed.leasedRoom?.state?.trim() ||
-      billed.submission?.state?.trim(),
+      stateOf(billed.listingProperty) || stateOf(billed.leasedRoom) || billed.submission?.state?.trim(),
     );
     if (!hasState && billed.listingProperty) {
       return {
         ...billed,
-        listingProperty: { ...billed.listingProperty, state: "WA" },
+        listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" } as unknown as MockProperty,
       };
     }
   }

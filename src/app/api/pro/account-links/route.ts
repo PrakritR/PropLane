@@ -343,9 +343,12 @@ export async function POST(req: Request) {
       }
       inviterUserId = delegate.ownerUserId;
       actorRole = user.id.trim() === inviterUserId.trim() ? "owner" : null;
+      const housesWorkspace = await workspaceForHouses(svc, inviterUserId, assignedPropertyIds);
+      if (housesWorkspace.kind === "several") {
+        return NextResponse.json({ error: "Choose houses from one workspace." }, { status: 400 });
+      }
       workspaceId =
-        (await workspaceForHouses(svc, inviterUserId, assignedPropertyIds)) ??
-        (await ownerDefaultWorkspaceId(svc, inviterUserId));
+        housesWorkspace.kind === "one" ? housesWorkspace.workspaceId : await ownerDefaultWorkspaceId(svc, inviterUserId);
     }
 
     const isDelegateInvite = user.id.trim() !== inviterUserId.trim();

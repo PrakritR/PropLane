@@ -74,12 +74,10 @@ async function getUserContext() {
 }
 
 function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = false }: { sanitizeGeneratedHtml?: boolean } = {}) {
-  const generatedHtml =
-    typeof row.generatedHtml === "string"
-      ? sanitizeGeneratedHtml
-        ? sanitizeLeaseDocumentHtml(row.generatedHtml)
-        : row.generatedHtml
-      : null;
+  // A stored document is a string or nothing; anything else reads as nothing so
+  // the list projection can type it.
+  const stored = typeof row.generatedHtml === "string" ? row.generatedHtml : null;
+  const generatedHtml = sanitizeGeneratedHtml && stored ? sanitizeLeaseDocumentHtml(stored) : stored;
   return { ...row, generatedHtml };
 }
 

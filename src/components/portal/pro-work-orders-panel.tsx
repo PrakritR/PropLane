@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Wrench } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -106,25 +105,24 @@ function formatScheduledLabel(iso: string): string {
 
 /** The same source the Schedule visit modal names in its "Visit arrival"
  * label (`schedule-service-visit-modal.tsx`, `data-attr="schedule-service-visit-source"`),
- * as a pill here because a list row has no label to carry it: booked-on-arrival
- * (the visit time IS the suggestion) reads as a plain fact, a still-open
- * proposal reads as a call to confirm it. `null` when there is nothing to say. */
+ * as plain muted text beside the visit time — never a pill on a row
+ * (`tests/unit/portal-list-rows-no-pills.test.ts`): booked-on-arrival (the
+ * visit time IS the suggestion) reads as a plain fact, a still-open proposal
+ * reads as a call to confirm it. `null` when there is nothing to say. */
 function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
   const proposed = row.proposedVisit;
   if (!proposed) return null;
   if (row.scheduledAtIso && row.scheduledAtIso === proposed.iso) {
     return (
-      <span data-attr="schedule-service-visit-source">
-        <Badge tone="success">From your availability</Badge>
+      <span className="text-xs text-muted" data-attr="schedule-service-visit-source">
+        From your availability
       </span>
     );
   }
   if (!row.scheduledAtIso) {
     return (
-      <span data-attr="schedule-service-visit-source">
-        <Badge tone={proposed.source === "availability" ? "success" : "info"}>
-          {proposed.source === "availability" ? "From your availability · confirm" : "PropLane pick · confirm"}
-        </Badge>
+      <span className="text-xs text-muted" data-attr="schedule-service-visit-source">
+        {proposed.source === "availability" ? "From your availability · confirm" : "PropLane pick · confirm"}
       </span>
     );
   }

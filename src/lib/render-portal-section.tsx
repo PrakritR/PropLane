@@ -6,7 +6,7 @@ import { ManagerLeases } from "@/components/portal/pro-leases";
 import { ManagerPayments } from "@/components/portal/pro-payments";
 import { ManagerPromotion } from "@/components/portal/pro-promotion";
 import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
-import { PortalStripeConnectPanel } from "@/components/portal/portal-stripe-connect-panel";
+import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
@@ -908,7 +908,7 @@ export async function renderPortalSection(
     if (section === "payments") {
       if (tabParts?.length === 1 && tabParts[0] === "payouts") {
         return subscriptionGated(
-          <PortalStripeConnectPanel basePath={def.basePath} />,
+          <PortalPayoutsPanel portal="manager" />,
           kind,
           "payments",
           managerOwnerSubscriptionTier,

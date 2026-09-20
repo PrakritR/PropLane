@@ -262,9 +262,12 @@ Empty `PropertyBrowseCard.imageUrl` means no real photo. Render
 # Portal UI system
 
 **Start at [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).**
-Every list tab copies Properties via `PortalRecordListSurface`: header card,
-flat shared record rows, dashed ADD footer with
+Every list tab copies Properties via `PortalRecordListSurface`: header card
+with the search box, flat shared record rows, dashed ADD footer with
 unique `ariaLabel`, per-record ⋯ menus with contextual actions. Mobile is the same surface.
+**No pills on rows**: a row is tile · title · place line · glyph facts · figure · ⋯,
+never a `Badge` or status chip — the tab says the bucket, anything else is a
+plain fact with a glyph (`tests/unit/portal-list-rows-no-pills.test.ts`).
 Chevrons inline after the label. Header actions reach a phone **exactly once**
 (band-only or split - never both). Details: `docs/portal-ui-system.md`,
 `docs/portal-list-section-layout.md`.

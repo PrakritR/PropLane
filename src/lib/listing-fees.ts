@@ -82,7 +82,45 @@ export type ListingFeeRow = ManagerCustomFeeRow & {
    * calendar fraction (amount × days ÷ days in month), never to zero.
    */
   dailyRate?: number;
+  /**
+   * Which resident slots of the fee's rooms this fee bills, 1-based, when a room
+   * prices each resident on its own (PLAN-0920-0631) — "Parking $50" on Resident 1
+   * only. Absent or empty means EVERY resident of the fee's rooms, exactly as an
+   * absent `roomIds` means every room; only a real narrowing is stored. Read it
+   * through {@link feeAppliesToResidentSlot}.
+   */
+  residentSlots?: number[];
 };
+
+/**
+ * Whether this fee bills the resident holding `slot` (1-based). Absent or empty
+ * `residentSlots` is every resident. An unknown slot (undefined, null or 0 — an
+ * application approved before slots existed, or a room that does not price per
+ * resident) also reads as applying, mirroring `feeAppliesToRoom` for a missing
+ * room id: a fee is never silently dropped for want of a slot number.
+ */
+export function feeAppliesToResidentSlot(
+  fee: Pick<ListingFeeRow, "residentSlots">,
+  slot: number | null | undefined,
+): boolean {
+  const slots = fee.residentSlots;
+  if (!Array.isArray(slots) || slots.length === 0) return true;
+  if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 1) return true;
+  return slots.includes(slot);
+}
+
+/** Whole numbers 1..20, de-duplicated and sorted; an empty scope is stored as absent ("all"). */
+function normalizeFeeResidentSlots(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = [
+    ...new Set(
+      raw
+        .map((v) => (typeof v === "number" ? v : Number(v)))
+        .filter((n) => Number.isInteger(n) && n >= 1 && n <= 20),
+    ),
+  ].sort((a, b) => a - b);
+  return out.length > 0 ? out : undefined;
+}
 
 export type ListingFeePresetMeta = {
   presetId: ListingFeePresetId;
@@ -248,6 +286,9 @@ function rid(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Labels a preset carried before it was renamed; a stored row under one still maps to the preset. */
+const LEGACY_PRESET_LABEL_ALIASES: readonly [string, ListingFeePresetId][] = [["break lease fee", "break_lease_fee"]];
+
 /**
  * Rows saved before fee rows carried preset metadata were stripped to
  * {id,label,amount,frequency}, so they come back untagged and look "custom"
@@ -256,9 +297,10 @@ function rid(prefix: string): string {
  * and again as a custom one — and is what lets the standard row find its
  * cadence.
  */
-const PRESET_ID_BY_DEFAULT_LABEL = new Map<string, ListingFeePresetId>(
-  LISTING_FEE_PRESETS.map((p) => [p.defaultLabel.trim().toLowerCase(), p.presetId]),
-);
+const PRESET_ID_BY_DEFAULT_LABEL = new Map<string, ListingFeePresetId>([
+  ...LISTING_FEE_PRESETS.map((p): [string, ListingFeePresetId] => [p.defaultLabel.trim().toLowerCase(), p.presetId]),
+  ...LEGACY_PRESET_LABEL_ALIASES,
+]);
 
 function recoverPresetIdFromLabel(label: unknown): ListingFeePresetId | undefined {
   if (typeof label !== "string") return undefined;
@@ -294,6 +336,7 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
     // save. Absent stays absent, and absent means "every lease type / every room".
     leaseTypes: normalizeFeeScopeIds(row.leaseTypes),
     roomIds: normalizeFeeScopeIds(row.roomIds),
+    residentSlots: normalizeFeeResidentSlots(row.residentSlots),
     // The per-day figure for a "Set per day" partial month. Kept only when positive.
     dailyRate: typeof row.dailyRate === "number" && Number.isFinite(row.dailyRate) && row.dailyRate > 0 ? row.dailyRate : undefined,
   };

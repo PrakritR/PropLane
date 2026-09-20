@@ -285,6 +285,59 @@ function writeRoomDefaultField(
   }
 }
 
+/* ─────────────── rent per resident is a room's own state ─────────────── */
+
+/**
+ * The Default-card fields a room priced per resident owns outright. Never the
+ * Default card's own fields: `residentPricing` / `residentPrices` are a room's
+ * answer for ITS residents, and there is no "most rooms" figure for them.
+ */
+const RESIDENT_PRICING_OWN_FIELDS: ReadonlySet<ListingHouseDefaultField> = new Set([
+  "monthlyRent",
+  "utilitiesEstimate",
+  "securityDeposit",
+]);
+
+/**
+ * Whether the room (or, with `term`, that lease type's entry) carries its own
+ * per-resident rows. Such a room is "own" for the Same-as-default-room tick on
+ * every price field, and a default change never reaches it (PLAN-0920-0631).
+ */
+export function roomHasResidentPricing(room: ManagerRoomSubmission, term?: string | null): boolean {
+  const t = String(term ?? "").trim();
+  if (t) {
+    const entry = room.termPricing?.[t];
+    if (entry?.residentPricing === "same") return false;
+    if (entry?.residentPricing === "per_resident") return (entry.residentPrices?.length ?? 0) > 0;
+  }
+  return room.residentPricing === "per_resident" && (room.residentPrices?.length ?? 0) > 0;
+}
+
+/**
+ * Untick "Different rent per resident" — on the room, or with `term` on that
+ * lease type's entry only. The room's own figures are untouched, so Review, the
+ * applicant's room list and the lease keep reading a priced room.
+ */
+export function clearRoomResidentPricing(room: ManagerRoomSubmission, term?: string | null): ManagerRoomSubmission {
+  const t = String(term ?? "").trim();
+  if (t) {
+    const entry = room.termPricing?.[t];
+    if (!entry) return room;
+    const { residentPricing: _flag, residentPrices: _rows, ...rest } = entry;
+    void _flag;
+    void _rows;
+    const all = { ...(room.termPricing ?? {}) };
+    if (Object.keys(rest).length === 0) delete all[t];
+    else all[t] = rest;
+    return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+  }
+  if (room.residentPricing === undefined && room.residentPrices === undefined) return room;
+  const { residentPricing: _flag, residentPrices: _rows, ...rest } = room;
+  void _flag;
+  void _rows;
+  return rest;
+}
+
 /** An unset value — treated as inheriting rather than as a deliberate blank. */
 function isUnset(value: ListingHouseDefaults[ListingHouseDefaultField]): boolean {
   if (value === null || value === undefined) return true;
@@ -313,6 +366,10 @@ export function roomInheritsDefault(
   defaults: ListingHouseDefaults,
   field: ListingHouseDefaultField,
 ): boolean {
+  // A room priced per resident is its own room on every price field: the card's
+  // one rent is not what its residents pay, so a default change must not reach it
+  // and the Same-as-default-room tick reads unticked.
+  if (RESIDENT_PRICING_OWN_FIELDS.has(field) && roomHasResidentPricing(room)) return false;
   const roomValue = roomDefaultFieldValue(room, field);
   const defaultValue = defaults[field];
   if (typeof roomValue === "boolean" || typeof defaultValue === "boolean") return roomValue === defaultValue;
@@ -410,7 +467,11 @@ export function resetRoomFieldToDefault(
   defaults: ListingHouseDefaults,
 ): ManagerRoomSubmission {
   const blank = emptyListingHouseDefaults();
-  const cleared = writeRoomDefaultField(room, field, blank);
+  // Reset on a price field also unticks "Different rent per resident": the room
+  // goes back on the card as one room with one rent, never a card rent beside
+  // resident rows that no longer match it.
+  const base = RESIDENT_PRICING_OWN_FIELDS.has(field) ? clearRoomResidentPricing(room) : room;
+  const cleared = writeRoomDefaultField(base, field, blank);
   return applyHouseDefaultsToRooms([cleared], defaults, { onlyFields: [field], roomIds: [room.id] })[0]!;
 }
 
@@ -561,6 +622,8 @@ export function roomFollowsTermDefault(
   field: ListingTermPriceField,
   termDefaults: ListingHouseTermPricing | undefined,
 ): boolean {
+  // A term priced per resident is the room's own on that term, as above.
+  if (roomHasResidentPricing(room, term)) return false;
   const own = termPriceFieldText(room.termPricing?.[term], field);
   if (own === "") return true;
   const def = termPriceFieldText(termDefaults?.[term], field);

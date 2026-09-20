@@ -8,8 +8,12 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  DEFAULT_REMINDER_RULES,
   DEFAULT_REMINDER_SETTINGS,
+  REMINDER_SUBJECT_KINDS,
   normalizeReminderSettings,
+  normalizeRule,
+  type ReminderRules,
   type ReminderSettings,
 } from "@/lib/reminders/rules";
 import {
@@ -18,6 +22,55 @@ import {
 } from "@/lib/settings/property-overrides.server";
 
 const ROW_DATA_KEY = "reminderRules";
+
+/**
+ * The per-kind partial a house's `reminderRules` override stores, keyed by
+ * `ReminderSubjectKind`. A pre-existing WHOLE-BLOB override (saved before
+ * per-kind partial overrides existed, PLAN-0916-1040) nests every kind under
+ * its own `rules` key instead — that shape already has every kind present, so
+ * reading it as "a partial with every kind" resolves it exactly as it did
+ * before. Both shapes are read together: a top-level kind (a per-kind save
+ * that landed on a legacy blob) always wins over the nested copy.
+ */
+function extractRulesPartial(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const row = raw as Record<string, unknown>;
+  const nested =
+    row.rules && typeof row.rules === "object" && !Array.isArray(row.rules)
+      ? (row.rules as Record<string, unknown>)
+      : {};
+  const topLevel: Record<string, unknown> = {};
+  for (const kind of REMINDER_SUBJECT_KINDS) {
+    if (kind in row) topLevel[kind] = row[kind];
+  }
+  return { ...nested, ...topLevel };
+}
+
+/**
+ * Resolution for a house's `reminderRules` override (PLAN-0916-1040): the
+ * workspace value, deep-merged with the house's own partial PER KIND. A kind
+ * absent from the partial keeps tracking the workspace value — including a
+ * later change to it — rather than being frozen at whatever the workspace
+ * held the moment a sibling kind was first customized.
+ */
+export function mergeReminderSettingsOverride(workspace: ReminderSettings, raw: unknown): ReminderSettings {
+  const partial = extractRulesPartial(raw);
+  const rules = { ...workspace.rules } as ReminderRules;
+  for (const kind of REMINDER_SUBJECT_KINDS) {
+    if (kind in partial) {
+      rules[kind] = normalizeRule(partial[kind], workspace.rules[kind] ?? DEFAULT_REMINDER_RULES[kind], kind);
+    }
+  }
+  return normalizeReminderSettings({
+    rules,
+    quietHours: workspace.quietHours,
+    automationSendMode: workspace.automationSendMode,
+  });
+}
+
+function isEmptyOverride(raw: unknown): boolean {
+  return raw == null || (typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length === 0);
+}
 
 export async function loadReminderSettings(
   db: SupabaseClient,
@@ -83,7 +136,7 @@ export async function loadReminderSettingsForProperty(
   const workspace = await loadReminderSettings(db, managerUserId);
   if (!propertyId) return workspace;
   const override = await loadPropertyOverride(db, managerUserId, propertyId, ROW_DATA_KEY);
-  return override == null ? workspace : normalizeReminderSettings(override);
+  return isEmptyOverride(override) ? workspace : mergeReminderSettingsOverride(workspace, override);
 }
 
 export type ReminderSettingsResolver = {
@@ -110,7 +163,7 @@ export async function loadReminderSettingsResolver(
       const ws = workspace.get(managerUserId) ?? DEFAULT_REMINDER_SETTINGS;
       if (!propertyId) return ws;
       const raw = overrides.get(managerUserId)?.get(propertyId);
-      return raw == null ? ws : normalizeReminderSettings(raw);
+      return isEmptyOverride(raw) ? ws : mergeReminderSettingsOverride(ws, raw);
     },
   };
 }

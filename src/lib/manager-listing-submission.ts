@@ -79,6 +79,36 @@ export type ManagerRoomTermPrice = {
   prorateMethod?: "auto" | "daily_rate";
   dailyRentRate?: number;
   dailyUtilitiesRate?: number;
+  /**
+   * This term's own answer to "different rent per resident" (see
+   * {@link ManagerRoomSubmission.residentPricing}). Absent means the term follows
+   * the room's long-term answer, exactly as an absent rent does. `"same"` is stored
+   * only on a term that turns per-resident OFF while the room's long-term tab has it
+   * on; `"per_resident"` carries this term's own {@link residentPrices}.
+   */
+  residentPricing?: "same" | "per_resident";
+  /** One row per resident slot for this term; same shape and rules as the room's. */
+  residentPrices?: ManagerRoomResidentPrice[];
+};
+
+/**
+ * What ONE resident slot of a shared room pays, when the room prices each resident
+ * on its own (PLAN-0920-0631). Index in the array + 1 is the slot number the
+ * approval pick and the lease row name ("Resident 2 of 2").
+ *
+ * `monthlyRent` is always a positive figure after normalization — a blank or zero
+ * resident rent falls back to the room's (or the term's) rent, so a lease can never
+ * be generated at $0 off an unfilled row. The other three are optional the way they
+ * are on the room: absent means "the room's figure".
+ */
+export type ManagerRoomResidentPrice = {
+  monthlyRent: number;
+  /** Monthly utilities estimate for this resident (money string). Absent = the room's. */
+  utilitiesEstimate?: string;
+  /** Security deposit for this resident (money string). Absent = the room's. */
+  securityDeposit?: string;
+  /** Fixed / Flexible for this resident's listed rent. Absent = the room's. */
+  pricingMode?: "fixed" | "flexible";
 };
 
 /**
@@ -264,6 +294,36 @@ export type ManagerRoomSubmission = {
    * is the opposite of this. See {@link normalizeRoomOccupancyCapacity}.
    */
   occupancyCapacity?: number;
+  /**
+   * Whether a shared room ({@link occupancyCapacity} >= 2) prices each resident on
+   * its own — the "Different rent per resident" row on the room's Pricing card
+   * (PLAN-0920-0631).
+   *
+   * Absent or `"same"` means every resident pays the room's one rent, which is what
+   * every room saved before this field existed meant, so nothing already stored
+   * changes. `"per_resident"` means {@link residentPrices} holds one row per slot.
+   * Normalization keeps `"per_resident"` only on a room whose capacity is 2 or
+   * more and drops both fields otherwise (a one-resident room has nothing to price
+   * per resident); it never stores `"same"` on the room itself.
+   *
+   * The money path needs nothing new for this: at approval the manager picks a
+   * slot and its figures are written to the application's own overrides, which
+   * `resolveStayPricing` already ranks above every listing figure.
+   *
+   * Monthly rooms only. A room priced by the day or week keeps one rate for every
+   * resident (`docs/agents/rent-basis.md`), and `room-pricing.ts` ignores these
+   * fields on such a room.
+   */
+  residentPricing?: "same" | "per_resident";
+  /**
+   * One row per resident slot, index + 1 = slot number, present only when
+   * {@link residentPricing} is `"per_resident"`. Normalization clamps its length to
+   * {@link occupancyCapacity}: extras are truncated, missing rows are padded from
+   * the last row (else from the room's own figures), and a blank or zero rent falls
+   * back to the room's `monthlyRent`. Never says WHO holds a slot — that lives on
+   * the application — so the public projection may carry it.
+   */
+  residentPrices?: ManagerRoomResidentPrice[];
   /**
    * How many BEDS are physically in the room, for the listing to describe.
    *
@@ -510,6 +570,11 @@ export type ManagerSharedSpaceSubmission = {
   photoDataUrls: string[];
   /** Optional shared-space video shown in listing details. */
   videoDataUrl?: string | null;
+  /**
+   * Floor area in square feet, same contract as {@link ManagerRoomSubmission.sizeSqft}:
+   * absent means the manager did not say, never 0 (`normalizeRoomSizeSqft`).
+   */
+  sizeSqft?: number | null;
   /**
    * Rooms with access (same room may have access to multiple shared spaces).
    * Empty means Everyone, and a list naming every current room reads the
@@ -1743,7 +1808,7 @@ function normalizeManagerListingSubmissionV1Base(
     paymentAtSigningIncludes = paymentAtSigningIncludes.filter((id): id is PaymentAtSigningOptionId => allowed.has(id));
   }
 
-  const rooms: ManagerRoomSubmission[] = sub.rooms.map((r) => {
+  const mappedRooms: ManagerRoomSubmission[] = sub.rooms.map((r) => {
     const legacyRoom = r as ManagerRoomSubmission & { bathroomSetup?: string; sharesBathWith?: string };
     return {
       id: legacyRoom.id,
@@ -1932,8 +1997,17 @@ function normalizeManagerListingSubmissionV1Base(
       paymentAtSigningByLeaseType: normalizeRoomSigningMatrix(
         (legacyRoom as ManagerRoomSubmission & { paymentAtSigningByLeaseType?: unknown }).paymentAtSigningByLeaseType,
       ),
+      // Raw-cleaned only here; the capacity clamp and rent fallback need the
+      // normalized room, so `reconcileRoomResidentPricing` runs on it below.
+      residentPricing: normalizeRoomResidentPricingFlag(
+        (legacyRoom as ManagerRoomSubmission & { residentPricing?: unknown }).residentPricing,
+      ),
+      residentPrices: normalizeRoomResidentPriceRows(
+        (legacyRoom as ManagerRoomSubmission & { residentPrices?: unknown }).residentPrices,
+      ),
     };
   });
+  const rooms: ManagerRoomSubmission[] = mappedRooms.map(reconcileRoomResidentPricing);
 
   let bundles = sub.bundles;
   if (!Array.isArray(bundles)) bundles = [];
@@ -2205,6 +2279,7 @@ function normalizeManagerListingSubmissionV1Base(
         (ss as ManagerSharedSpaceSubmission & { spaceKind?: unknown }).spaceKind,
         typeof ss.name === "string" ? ss.name : "",
       ),
+      sizeSqft: normalizeRoomSizeSqft((ss as ManagerSharedSpaceSubmission & { sizeSqft?: unknown }).sizeSqft),
     }));
 
   const applicationFeeStripeEnabled = sub.axisPaymentsEnabled !== false;
@@ -2698,6 +2773,8 @@ export function duplicateRoomEntry(
       start: r.start,
       end: r.end,
     })),
+    // Own copies, so editing Resident 2 on the duplicate never edits the source.
+    ...(source.residentPrices ? { residentPrices: source.residentPrices.map((row) => ({ ...row })) } : {}),
   };
 }
 
@@ -2878,9 +2955,137 @@ export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRo
       const n = typeof raw === "number" ? raw : Number(raw);
       if (Number.isFinite(n) && n > 0) entry[key] = Math.round(n * 100) / 100;
     }
+    // Raw-cleaned here; the capacity clamp runs in `reconcileRoomResidentPricing`
+    // once the room's own figures (the fallback) are known. "same" is kept at this
+    // stage so the reconcile pass can decide whether it says anything.
+    const residentPricing = (v as { residentPricing?: unknown }).residentPricing;
+    if (residentPricing === "same" || residentPricing === "per_resident") entry.residentPricing = residentPricing;
+    const residentPrices = normalizeRoomResidentPriceRows((v as { residentPrices?: unknown }).residentPrices);
+    if (residentPrices) entry.residentPrices = residentPrices;
     if (Object.keys(entry).length > 0) out[term] = entry;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/* ─────────────── rent per resident on a shared room ─────────────── */
+
+/** `"per_resident"` when the manager ticked it; anything else reads as absent. */
+function normalizeRoomResidentPricingFlag(raw: unknown): "per_resident" | undefined {
+  return raw === "per_resident" ? "per_resident" : undefined;
+}
+
+/**
+ * Clean the stored rows without judging their count: a junk entry is dropped, a
+ * money string loses its `$`, a rent that is not a positive number becomes 0 so
+ * the reconcile pass can fall it back to the room's. Returns undefined for
+ * anything that is not a list, so an old room stays byte-identical.
+ */
+function normalizeRoomResidentPriceRows(raw: unknown): ManagerRoomResidentPrice[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ManagerRoomResidentPrice[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const v = item as Record<string, unknown>;
+    const rent = typeof v.monthlyRent === "number" ? v.monthlyRent : Number(String(v.monthlyRent ?? "").replace(/[$,]/g, ""));
+    const row: ManagerRoomResidentPrice = { monthlyRent: Number.isFinite(rent) && rent > 0 ? Math.round(rent * 100) / 100 : 0 };
+    const utils = typeof v.utilitiesEstimate === "string" ? v.utilitiesEstimate.replace(/^\$/, "").trim() : "";
+    if (utils) row.utilitiesEstimate = utils;
+    const deposit = typeof v.securityDeposit === "string" ? v.securityDeposit.replace(/^\$/, "").trim() : "";
+    if (deposit) row.securityDeposit = deposit;
+    if (v.pricingMode === "fixed" || v.pricingMode === "flexible") row.pricingMode = v.pricingMode;
+    out.push(row);
+  }
+  return out;
+}
+
+/** The figures a resident row falls back to when it leaves one blank. */
+export type RoomResidentPriceFallback = Pick<ManagerRoomResidentPrice, "monthlyRent" | "utilitiesEstimate" | "securityDeposit" | "pricingMode">;
+
+/**
+ * Clamp resident rows to a room's capacity: extras are truncated, missing rows are
+ * padded from the last row (else from `fallback`, the room's or the term's own
+ * figures), and a blank or zero rent takes `fallback.monthlyRent`. Pure, so the
+ * Pricing card can call it when the Rooms step changes a capacity — a room raised
+ * to three residents gains a third row prefilled from the second. Returns
+ * undefined when `capacity` is below 2, because a one-resident room has nothing
+ * to price per resident.
+ */
+export function clampRoomResidentPrices(
+  rows: readonly ManagerRoomResidentPrice[] | undefined,
+  capacity: number,
+  fallback: RoomResidentPriceFallback,
+): ManagerRoomResidentPrice[] | undefined {
+  const n = Number.isInteger(capacity) ? capacity : 0;
+  if (n < 2) return undefined;
+  const fallbackRent = Number.isFinite(fallback.monthlyRent) && fallback.monthlyRent > 0 ? fallback.monthlyRent : 0;
+  const seed: ManagerRoomResidentPrice = { monthlyRent: fallbackRent };
+  if (fallback.utilitiesEstimate?.trim()) seed.utilitiesEstimate = fallback.utilitiesEstimate.trim();
+  if (fallback.securityDeposit?.trim()) seed.securityDeposit = fallback.securityDeposit.trim();
+  if (fallback.pricingMode) seed.pricingMode = fallback.pricingMode;
+  const out: ManagerRoomResidentPrice[] = [];
+  for (let slot = 0; slot < n; slot += 1) {
+    const source = rows?.[slot] ?? out[out.length - 1] ?? seed;
+    const row: ManagerRoomResidentPrice = { ...source };
+    if (!(row.monthlyRent > 0)) row.monthlyRent = fallbackRent;
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Apply the per-resident rules to a NORMALIZED room (its rent, deposit, utilities,
+ * mode and capacity are already clean):
+ *
+ *  - capacity below 2, or the row unticked → both fields dropped, on the room and
+ *    on every term entry; the room's own figures are untouched.
+ *  - ticked → `residentPrices` clamped to capacity with the room's figures as the
+ *    fallback; each term entry marked `"per_resident"` is clamped the same way
+ *    with that term's figures (else the room's) as its fallback.
+ *  - a term entry saying `"same"` is kept only while the room itself prices per
+ *    resident — it is that term's way of turning the row off — and otherwise says
+ *    nothing, so it goes.
+ */
+export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): ManagerRoomSubmission {
+  const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  const perResident = room.residentPricing === "per_resident" && capacity >= 2;
+  const roomFallback: RoomResidentPriceFallback = {
+    monthlyRent: room.monthlyRent,
+    utilitiesEstimate: room.utilitiesEstimate,
+    securityDeposit: room.securityDeposit,
+    pricingMode: room.pricingMode,
+  };
+
+  let termPricing = room.termPricing;
+  if (termPricing) {
+    const next: Record<string, ManagerRoomTermPrice> = {};
+    for (const [term, entry] of Object.entries(termPricing)) {
+      const { residentPricing, residentPrices, ...rest } = entry;
+      const cleaned: ManagerRoomTermPrice = { ...rest };
+      if (perResident && residentPricing === "same") {
+        cleaned.residentPricing = "same";
+      } else if (perResident && residentPricing === "per_resident") {
+        cleaned.residentPricing = "per_resident";
+        cleaned.residentPrices = clampRoomResidentPrices(residentPrices, capacity, {
+          monthlyRent: entry.monthlyRent && entry.monthlyRent > 0 ? entry.monthlyRent : room.monthlyRent,
+          utilitiesEstimate: entry.utilitiesEstimate ?? room.utilitiesEstimate,
+          securityDeposit: entry.securityDeposit ?? room.securityDeposit,
+          pricingMode: entry.pricingMode ?? room.pricingMode,
+        });
+      }
+      if (Object.keys(cleaned).length > 0) next[term] = cleaned;
+    }
+    termPricing = Object.keys(next).length > 0 ? next : undefined;
+  }
+
+  const { residentPricing: _flag, residentPrices: _rows, ...bare } = room;
+  void _flag;
+  void _rows;
+  const out: ManagerRoomSubmission = { ...bare, termPricing };
+  if (perResident) {
+    out.residentPricing = "per_resident";
+    out.residentPrices = clampRoomResidentPrices(room.residentPrices, capacity, roomFallback);
+  }
+  return out;
 }
 
 export function emptyBathroom(index: number): ManagerBathroomSubmission {

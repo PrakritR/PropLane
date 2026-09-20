@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseTeamRole } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 import { workspaceRightsForMembership } from "@/lib/workspaces/membership";
+import { ensureDefaultWorkspaceId } from "@/lib/workspaces/active.server";
 
 export type CreateListingOwnerResult =
   | {
@@ -29,6 +30,18 @@ export async function resolveCreateListingOwner(
     admin: boolean;
     requestedOwnerId: string | null;
     workspaceId: string | null;
+    /**
+     * True when `workspaceId` is an explicit ask — the caller (or the request
+     * body) named this exact workspace — rather than the ambient cookie
+     * selection. An explicit ask that resolves to a workspace the caller does
+     * not own, with no houses right, is refused outright: honoring it
+     * would let the body move a record into a workspace the caller doesn't own
+     * (docs/agents/property-ownership.md). Left unset (the ordinary
+     * cookie-selected case), the same failure falls back to the caller's own
+     * default workspace instead of refusing — a stale or foreign cookie should
+     * not block a manager from creating their own listing (PRP-481).
+     */
+    explicitWorkspaceId?: boolean;
   },
 ): Promise<CreateListingOwnerResult> {
   const caller = input.callerUserId.trim();
@@ -79,7 +92,14 @@ export async function resolveCreateListingOwner(
     }).houses;
   });
   if (!grant) {
-    return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+    if (input.explicitWorkspaceId) {
+      return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+    }
+    // Self-owned create: the ambient (cookie) selection is not writable, and
+    // nothing asked for it by name, so land in the caller's own workspace
+    // rather than refuse the create outright.
+    const ownWorkspaceId = await ensureDefaultWorkspaceId(db, caller);
+    return { ok: true, ownerUserId: caller, workspaceId: ownWorkspaceId };
   }
 
   return {

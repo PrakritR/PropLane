@@ -5,8 +5,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { ChevronDown, Copy, Eye, Home, Pencil, Share2, Trash2 } from "lucide-react";
+import { ChevronDown, CircleOff, Copy, Eye, FileText, Home, Pencil, Share2, Trash2, TriangleAlert, Users } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -75,7 +74,7 @@ import {
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
-import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { LEASE_PIPELINE_EVENT } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -2234,34 +2233,45 @@ export function ManagerHousePropertiesPanel({
           const rowKey = row.adminRefId + (row.listingId ?? "");
           const thumb = propertyRowThumbnail(row);
           const attentionParts = sourceBucket === 2 ? propertyAttentionParts(attention) : [];
+          // Under All the row has to say its own state — the tab no longer
+          // does — as a plain fact with a glyph, never a pill. No rent figure,
+          // no occupancy count and no Listed switch on the row: the glyph line
+          // says how many rooms there are, and List / Unlist lives in the ⋯
+          // menu with its confirmation.
+          const draftFact = sourceBucket === 5 && activeStage === "all";
+          const offMarketFact = sourceBucket === 3;
+          const facts =
+            draftFact || offMarketFact || linked || attentionParts.length > 0 ? (
+              <>
+                {draftFact ? (
+                  <PortalRowFact icon={FileText} srLabel="Stage">
+                    <span data-attr="property-row-stage">Draft</span>
+                  </PortalRowFact>
+                ) : null}
+                {offMarketFact ? (
+                  <PortalRowFact icon={CircleOff} srLabel="Stage">
+                    <span data-attr="property-row-stage">Off the market</span>
+                  </PortalRowFact>
+                ) : null}
+                {linked ? (
+                  <PortalRowFact icon={Users} srLabel="Access">
+                    Co-managed
+                  </PortalRowFact>
+                ) : null}
+                {attentionParts.map((part) => (
+                  <PortalRowFact key={part.text} icon={TriangleAlert} srLabel="Needs you">
+                    {part.text}
+                  </PortalRowFact>
+                ))}
+              </>
+            ) : undefined;
           return (
             <PortalPropertyRecordRow
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
               address={propertyRowAddressLine(row)}
+              facts={facts}
               meta={propertyRowMeta(row)}
-              trailing={
-                sourceBucket === 5 ? (
-                  activeStage === "all" ? (
-                    <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">Draft</PortalRowStatusChip>
-                  ) : undefined
-                ) : (
-                  /* No rent figure and no Listed switch on the row: the tabs say
-                     where a home is, and List / Unlist lives in the ⋯ menu with its
-                     confirmation. */
-                  undefined
-                )
-              }
-              chip={
-                // Under All the row has to say its own state — the tab no longer
-                // does. No occupancy count on the row: the glyph line already
-                // says how many rooms there are.
-                sourceBucket === 3 ? (
-                  <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">
-                    Off the market
-                  </PortalRowStatusChip>
-                ) : undefined
-              }
               leading={
                 thumb ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -2283,18 +2293,6 @@ export function ManagerHousePropertiesPanel({
               }
               checked={selectedIds.has(rowKey)}
               onSelectedChange={() => toggleSelected(rowKey)}
-              badge={
-                linked || attentionParts.length > 0 ? (
-                  <span className="flex flex-wrap gap-1.5">
-                    {attentionParts.map((part) => (
-                      <Badge key={part.text} tone={part.tone}>
-                        {part.text}
-                      </Badge>
-                    ))}
-                    {linked ? <Badge tone="info">Co-managed</Badge> : null}
-                  </span>
-                ) : undefined
-              }
               onOpen={() => {
                 const routeKey = propertyKeyFromRow(row);
                 router.push(

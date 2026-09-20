@@ -24,10 +24,6 @@ vi.mock("@/lib/manager-subscription-client", () => ({
   loadManagerSubscriptionTierClient: vi.fn(async () => "pro"),
   loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false),
 }));
-const openStripeConnectOnboarding = vi.fn(async () => undefined);
-vi.mock("@/lib/stripe-connect-onboarding-client", () => ({
-  openStripeConnectOnboarding: (...args: unknown[]) => openStripeConnectOnboarding(...args),
-}));
 vi.mock("@/components/ui/modal", () => ({
   Modal: ({ open, children, footer }: { open: boolean; children: ReactNode; footer?: ReactNode }) =>
     open ? <div role="dialog">{children}{footer}</div> : null,
@@ -75,7 +71,8 @@ it("does not leave bank editing enabled when the payout owner could not be resol
   await mount();
   const link = document.querySelector<HTMLButtonElement>('[data-attr="manager-payment-stripe-link"]');
   expect(link).toBeTruthy();
+  const hrefBefore = window.location.href;
   await act(async () => { link!.click(); });
-  expect(openStripeConnectOnboarding).not.toHaveBeenCalled();
+  expect(window.location.href).toBe(hrefBefore);
   expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Only the property owner"));
 });

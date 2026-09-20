@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
   BookingsDayDetailModal,
@@ -13,6 +14,7 @@ import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingEntryKey,
+  bookingSourceLabel,
   formatBookingStayRange,
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
@@ -22,6 +24,26 @@ function guestName(entry: PropertyBookingEntry): string {
   return entry.source === "airbnb" || entry.source === "booking_com"
     ? bookingGuestLabel(entry.summary, entry.source)
     : entry.summary;
+}
+
+/**
+ * Where a stay came from, as the row's tag fact — "Airbnb", "Booking.com",
+ * "PropLane", "Hold", "Block". A closed range is a block, not a "Blocked"
+ * state, so the fact names the thing rather than restating the row.
+ */
+export function bookingRowSourceLabel(source: PropertyBookingEntry["source"]): string {
+  return source === "block" ? "Block" : bookingSourceLabel(source);
+}
+
+/**
+ * The stage a stay is at, as plain fact text — only when it adds to the row.
+ * Confirmed is the default and says nothing; a block's "Blocked" / "Held" is
+ * already its source fact. No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
+ */
+export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
+  if (entry.source === "block") return "";
+  const status = entry.statusLabel?.trim() ?? "";
+  return status && status !== "Confirmed" ? status : "";
 }
 
 export function ManagerBookingsListView({
@@ -115,6 +137,7 @@ export function ManagerBookingsListView({
               .filter(Boolean)
               .join(" · ");
             const isBlock = entry.source === "block" && Boolean(entry.blockId);
+            const status = bookingRowStatusFact(entry);
             return (
               <BookingsRowOverflow
                 key={key}
@@ -122,9 +145,17 @@ export function ManagerBookingsListView({
                 onEdit={() => (isBlock && onEditBlock ? onEditBlock(entry) : openEntry(entry))}
                 onDelete={isBlock && onDeleteBlock ? () => onDeleteBlock(entry) : undefined}
               >
-                <PortalPersonRecordRow
+                <PortalApplicantRecordRow
                   name={name}
-                  subtitle={subtitle}
+                  address={subtitle}
+                  facts={
+                    <>
+                      <PortalRowFact icon={Tag} srLabel="Source">
+                        {bookingRowSourceLabel(entry.source)}
+                      </PortalRowFact>
+                      {status ? <span data-attr="booking-row-status">{status}</span> : null}
+                    </>
+                  }
                   checked={selectedKeys.has(key)}
                   onSelectedChange={(selected) => onToggleSelected(key, selected)}
                   onOpen={() => openEntry(entry)}

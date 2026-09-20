@@ -1836,6 +1836,15 @@ export function CommunicationSettingsPanel({
             dataAttr="communication-inbox-ai-draft-auto-send"
           />
         </PortalSettingsRow>
+        <PortalSettingsRow label="Share my profile phone and email when no work number or work email is set">
+          <PortalSettingsToggle
+            checked={draft.shareProfileContactWithoutWorkChannel}
+            onChange={(next) => setDraft((prev) => ({ ...prev, shareProfileContactWithoutWorkChannel: next }))}
+            label="Share my profile phone and email when no work number or work email is set"
+            disabled={saving}
+            dataAttr="communication-share-profile-contact"
+          />
+        </PortalSettingsRow>
       </PortalSettingsGroup>
       {smsSetup?.phone ? (
         <ManagerWorkNumberCopyControl

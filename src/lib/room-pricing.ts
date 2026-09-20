@@ -45,6 +45,8 @@ export type RoomPricingLike = {
    */
   securityDeposit?: string | null;
   shortTermDeposit?: string | null;
+  /** Monthly utilities estimate (money string) — the fallback for a resident slot that leaves its own blank. */
+  utilitiesEstimate?: string | null;
   /**
    * "flexible" (PRP-462) means the room still lists and bills the same rent fields as
    * Fixed; Communication / SMS will ask the manager before accepting a counter-offer.
@@ -55,6 +57,48 @@ export type RoomPricingLike = {
   /** @deprecated Legacy guidance bounds — not the billed or primary advertised price (PRP-462). */
   flexibleRentMin?: number | null;
   flexibleRentMax?: number | null;
+  /**
+   * Rent per resident on a shared room (PLAN-0920-0631). `residentPricing`
+   * "per_resident" with one row per slot means the headline is the LOWEST resident
+   * rent, printed "from $X/mo"; absent means every resident pays `monthlyRent`.
+   * Monthly rooms only — a daily or weekly basis ignores these, see
+   * {@link roomPricesPerResident}.
+   */
+  occupancyCapacity?: number | null;
+  residentPricing?: "same" | "per_resident";
+  residentPrices?: readonly RoomResidentPriceLike[] | null;
+  /** Per-lease-type price overrides, shaped like a room's `termPricing` (PRP-463). */
+  termPricing?: Record<string, RoomTermPriceLike> | null;
+};
+
+/** One resident slot's figures as stored on the room (see `ManagerRoomResidentPrice`). */
+export type RoomResidentPriceLike = {
+  monthlyRent?: number | null;
+  utilitiesEstimate?: string | null;
+  securityDeposit?: string | null;
+  pricingMode?: "fixed" | "flexible";
+};
+
+/** The slice of a room's per-term entry this module reads. */
+export type RoomTermPriceLike = {
+  monthlyRent?: number;
+  securityDeposit?: string;
+  utilitiesEstimate?: string;
+  pricingMode?: "fixed" | "flexible";
+  residentPricing?: "same" | "per_resident";
+  residentPrices?: readonly RoomResidentPriceLike[] | null;
+};
+
+/**
+ * What one resident slot of a room pays, resolved. `slot` is 1-based and is the
+ * number the approval pick stores and the lease row names ("Resident 2 of 2").
+ */
+export type RoomResidentPrice = {
+  slot: number;
+  monthlyRent: number;
+  utilitiesEstimate?: string;
+  securityDeposit?: string;
+  pricingMode?: "fixed" | "flexible";
 };
 
 /**
@@ -126,6 +170,10 @@ export function roomMonthlyEquivalent(room: RoomPricingLike | null | undefined):
   if (daily !== undefined) return Number((daily * DAILY_RENT_MONTH_ESTIMATE_DAYS).toFixed(2));
   const weekly = roomWeeklyRentPrice(room);
   if (weekly !== undefined) return Number((weekly * WEEKLY_RENT_MONTH_ESTIMATE_WEEKS).toFixed(2));
+  // A room priced per resident ranks, filters and ranges on its LOWEST rent — the
+  // "from" figure — so a prospect searching under $850 still finds the $800 slot.
+  const lowest = roomLowestResidentRent(room);
+  if (lowest !== undefined) return lowest;
   const monthly = positiveNumber(room?.monthlyRent);
   return monthly ?? 0;
 }
@@ -177,6 +225,9 @@ export function roomHeadlineAmount(room: RoomPricingLike | null | undefined): nu
   if (daily !== undefined) return daily;
   const weekly = roomWeeklyRentPrice(room);
   if (weekly !== undefined) return weekly;
+  // Per resident: the lowest slot's rent is the headline ("from $800/mo").
+  const lowest = roomLowestResidentRent(room);
+  if (lowest !== undefined) return lowest;
   const monthly = positiveNumber(room?.monthlyRent);
   return monthly ?? null;
 }
@@ -190,8 +241,19 @@ export function formatRoomPriceAmount(amount: number): string {
 }
 
 /**
- * The room's headline price label, e.g. "$40/day" or "$825/mo". Returns
- * `fallback` when nothing is priced.
+ * Whether the headline is a "from" figure — the lowest of several resident rents
+ * rather than the one rent every resident pays. Surfaces that rebuild the label
+ * from `roomHeadlineAmount` (a stored row's `priceHeadlineAmount`) use this to
+ * put the prefix back.
+ */
+export function roomHeadlinePriceIsFrom(room: RoomPricingLike | null | undefined): boolean {
+  return roomPricesPerResident(room);
+}
+
+/**
+ * The room's headline price label, e.g. "$40/day" or "$825/mo", and for a room
+ * priced per resident "from $800/mo" (its lowest slot). Returns `fallback` when
+ * nothing is priced.
  */
 export function roomHeadlinePriceLabel(
   room: RoomPricingLike | null | undefined,
@@ -199,7 +261,144 @@ export function roomHeadlinePriceLabel(
 ): string {
   const amount = roomHeadlineAmount(room);
   if (amount === null) return fallback;
-  return `${formatRoomPriceAmount(amount)}${roomPricePeriodSuffix(room)}`;
+  const prefix = roomHeadlinePriceIsFrom(room) ? "from " : "";
+  return `${prefix}${formatRoomPriceAmount(amount)}${roomPricePeriodSuffix(room)}`;
+}
+
+/* ─────────────── rent per resident on a shared room ─────────────── */
+
+/** The room's capacity as the guard reads it: a whole number 1..20, else 1. */
+function roomCapacity(room: RoomPricingLike | null | undefined): number {
+  const n = Number(room?.occupancyCapacity);
+  return Number.isInteger(n) && n >= 1 && n <= 20 ? n : 1;
+}
+
+/** The term's own entry when the lease names a term the room priced. */
+function roomTermEntry(
+  room: RoomPricingLike | null | undefined,
+  leaseTerm: string | null | undefined,
+): RoomTermPriceLike | undefined {
+  const term = String(leaseTerm ?? "").trim();
+  if (!term) return undefined;
+  return room?.termPricing?.[term];
+}
+
+/**
+ * Whether this room prices each resident on its own — for the lease's term when
+ * one is named, else long-term.
+ *
+ * True only when the room is MONTHLY, holds 2 or more residents, and carries at
+ * least one resident row with a positive rent (for the term: the term's own rows,
+ * or the room's when the term says nothing; a term saying "same" turns it off).
+ * A daily- or weekly-priced room keeps one rate for every resident and reads
+ * false here whatever it stores — the interaction rule in
+ * `docs/agents/rent-basis.md`.
+ */
+export function roomPricesPerResident(
+  room: RoomPricingLike | null | undefined,
+  term?: string | null,
+): boolean {
+  if (!room) return false;
+  if (roomIsDailyPriced(room) || roomIsWeeklyPriced(room)) return false;
+  if (roomCapacity(room) < 2) return false;
+  return residentRowsFor(room, term).some((row) => positiveNumber(row.monthlyRent) !== undefined);
+}
+
+/** The stored rows that apply — the term's own, else the room's, else none. */
+function residentRowsFor(
+  room: RoomPricingLike,
+  term: string | null | undefined,
+): readonly RoomResidentPriceLike[] {
+  const entry = roomTermEntry(room, term);
+  if (entry?.residentPricing === "same") return [];
+  if (entry?.residentPricing === "per_resident") return entry.residentPrices ?? [];
+  if (room.residentPricing === "per_resident") return room.residentPrices ?? [];
+  return [];
+}
+
+/**
+ * One entry per resident slot, 1-based, for the lease's term (else long-term).
+ *
+ * When the room prices per resident these are its rows, each blank figure filled
+ * from the room's (or the term's) own figures so a caller never sees a $0 rent.
+ * When it does not, the result is still one entry per slot — every one the room's
+ * own figures — so a caller can always iterate the room's residents without
+ * branching. A one-resident room yields exactly one entry.
+ */
+export function roomResidentPrices(
+  room: RoomPricingLike | null | undefined,
+  term?: string | null,
+): RoomResidentPrice[] {
+  if (!room) return [];
+  const capacity = roomCapacity(room);
+  const entry = roomTermEntry(room, term);
+  const base: Omit<RoomResidentPrice, "slot"> = {
+    monthlyRent: positiveNumber(entry?.monthlyRent) ?? positiveNumber(room.monthlyRent) ?? 0,
+  };
+  const baseUtilities = String(entry?.utilitiesEstimate ?? room.utilitiesEstimate ?? "").trim();
+  const baseDeposit = String(entry?.securityDeposit ?? room.securityDeposit ?? "").trim();
+  const baseMode = entry?.pricingMode ?? room.pricingMode;
+  if (baseUtilities) base.utilitiesEstimate = baseUtilities;
+  if (baseDeposit) base.securityDeposit = baseDeposit;
+  if (baseMode) base.pricingMode = baseMode;
+
+  const rows = roomPricesPerResident(room, term) ? residentRowsFor(room, term) : [];
+  const out: RoomResidentPrice[] = [];
+  for (let i = 0; i < capacity; i += 1) {
+    const stored = rows[i] ?? (rows.length > 0 ? rows[rows.length - 1] : undefined);
+    const resolved: RoomResidentPrice = { slot: i + 1, ...base };
+    if (stored) {
+      const rent = positiveNumber(stored.monthlyRent);
+      if (rent !== undefined) resolved.monthlyRent = rent;
+      const utilities = String(stored.utilitiesEstimate ?? "").trim();
+      if (utilities) resolved.utilitiesEstimate = utilities;
+      const deposit = String(stored.securityDeposit ?? "").trim();
+      if (deposit) resolved.securityDeposit = deposit;
+      if (stored.pricingMode) resolved.pricingMode = stored.pricingMode;
+    }
+    out.push(resolved);
+  }
+  return out;
+}
+
+/** The figures for one 1-based slot, or undefined when the room has no such slot. */
+export function roomResidentPriceForSlot(
+  room: RoomPricingLike | null | undefined,
+  slot: number,
+  term?: string | null,
+): RoomResidentPrice | undefined {
+  if (!Number.isInteger(slot) || slot < 1) return undefined;
+  return roomResidentPrices(room, term).find((row) => row.slot === slot);
+}
+
+/**
+ * The lowest resident rent of a room priced per resident, or undefined when the
+ * room is not (so every legacy reader falls through to `monthlyRent` untouched).
+ */
+export function roomLowestResidentRent(
+  room: RoomPricingLike | null | undefined,
+  term?: string | null,
+): number | undefined {
+  if (!roomPricesPerResident(room, term)) return undefined;
+  const rents = roomResidentPrices(room, term)
+    .map((row) => row.monthlyRent)
+    .filter((rent) => rent > 0);
+  return rents.length > 0 ? Math.min(...rents) : undefined;
+}
+
+/**
+ * "Resident 1 · $900/mo", "Resident 2 · $800/mo" — one line per slot for the
+ * public room detail and the browse card. Empty when the room does not price per
+ * resident, so a caller renders nothing rather than a list of identical rents.
+ */
+export function roomResidentRentLines(
+  room: RoomPricingLike | null | undefined,
+  term?: string | null,
+): string[] {
+  if (!roomPricesPerResident(room, term)) return [];
+  return roomResidentPrices(room, term).map(
+    (row) => `Resident ${row.slot} · ${formatRoomPriceAmount(row.monthlyRent)}/mo`,
+  );
 }
 
 /** Whether this room's rent is negotiated per resident rather than advertised as one figure. */
@@ -408,11 +607,7 @@ function roomTermPrice(
   room: RoomPricingLike | null | undefined,
   leaseTerm: string | null | undefined,
 ): { monthlyRent?: number; securityDeposit?: string } | undefined {
-  const term = String(leaseTerm ?? "").trim();
-  if (!term) return undefined;
-  const table = (room as { termPricing?: Record<string, { monthlyRent?: number; securityDeposit?: string }> } | null | undefined)
-    ?.termPricing;
-  return table?.[term];
+  return roomTermEntry(room, leaseTerm);
 }
 
 function positiveMoney(raw: string | null | undefined): number | undefined {

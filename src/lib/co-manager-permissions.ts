@@ -7,7 +7,11 @@ export const CO_MANAGER_PERMISSION_OPTIONS = [
   { id: "residents", label: "Residents" },
   { id: "leases", label: "Leases" },
   { id: "payments", label: "Payments" },
-  { id: "bankAccount", label: "Bank account" },
+  // Edit on this module also authorizes initiating payouts (including the
+  // fee-bearing Instant option) and changing the automatic payout schedule —
+  // not just editing bank details — so the label says so (PLAN-0920-0853
+  // payouts security review, item 7).
+  { id: "bankAccount", label: "Bank account & payouts" },
   { id: "documents", label: "Documents" },
   { id: "financials", label: "Finances" },
   { id: "services", label: "Services" },

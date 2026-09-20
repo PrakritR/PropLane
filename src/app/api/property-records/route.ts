@@ -4,7 +4,7 @@ import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
-import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -17,6 +17,7 @@ import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
+import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import {
   buildAllModulesGrant,
@@ -147,6 +148,7 @@ export async function POST(req: Request) {
       rowData?: unknown;
       propertyData?: unknown;
       editRequestNote?: string | null;
+      workspaceId?: string | null;
     };
     const id = body.id?.trim();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -226,11 +228,16 @@ export async function POST(req: Request) {
     let createWorkspaceId: string | undefined;
     let appendCreatedListingToInviteId: string | undefined;
     if (!existing) {
+      // A workspace named in the body is an explicit ask and is refused when
+      // it is not writable; the ambient cookie selection falls back to the
+      // caller's own workspace instead (see `resolveCreateListingOwner`).
+      const bodyWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
       const created = await resolveCreateListingOwner(db, {
         callerUserId: user.id,
         admin,
         requestedOwnerId: body.managerUserId?.trim() || null,
-        workspaceId: readWorkspaceCookie(req.headers.get("cookie")) ?? null,
+        workspaceId: bodyWorkspaceId || readWorkspaceCookie(req.headers.get("cookie")) || null,
+        explicitWorkspaceId: bodyWorkspaceId.length > 0,
       });
       if (!created.ok) {
         return NextResponse.json({ error: created.error }, { status: created.status });
@@ -329,8 +336,30 @@ export async function POST(req: Request) {
     // `rowData` (pending bucket). Treat an omitted field as "leave unchanged",
     // not "clear" — `?? null` on a missing JSON key was wiping seeded row_data
     // the first time a manager opened Properties after `npm run test:seed`.
-    const rowDataForWrite0 =
-      body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null);
+    const existingRowData =
+      existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+        ? (existing.row_data as Record<string, unknown>)
+        : null;
+    let rowDataForWrite0: unknown = body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null);
+    // A listing edit (the wizard, a background mirror, the demo pipeline)
+    // rebuilds `row_data` from its OWN fields and never names Operations
+    // settings — carry a house's existing reminder / automation override
+    // forward unless the request explicitly sets that key, so publishing a
+    // listing edit never silently wipes it (PLAN-0916-1040).
+    if (
+      body.rowData !== undefined &&
+      existingRowData &&
+      OPERATIONS_SETTINGS_KEY in existingRowData &&
+      body.rowData &&
+      typeof body.rowData === "object" &&
+      !Array.isArray(body.rowData) &&
+      !(OPERATIONS_SETTINGS_KEY in (body.rowData as Record<string, unknown>))
+    ) {
+      rowDataForWrite0 = {
+        ...(body.rowData as Record<string, unknown>),
+        [OPERATIONS_SETTINGS_KEY]: existingRowData[OPERATIONS_SETTINGS_KEY],
+      };
+    }
     const propertyDataForWrite0 =
       body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);
 
@@ -438,7 +467,7 @@ export async function POST(req: Request) {
     if (appendCreatedListingToInviteId) {
       const invite = await db
         .from("account_link_invites")
-        .select("assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+        .select(INVITE_PERMISSION_COLUMNS)
         .eq("id", appendCreatedListingToInviteId)
         .maybeSingle();
       if (!invite.error && invite.data) {
