@@ -50,7 +50,7 @@ import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
-import { deliverExistingResidentWelcome } from "@/lib/resident-welcome.server";
+import { deliverExistingResidentWelcome, isPlaceholderResidentEmail } from "@/lib/resident-welcome.server";
 import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
 
 const APPLY = process.argv.includes("--apply");
@@ -574,7 +574,7 @@ async function main() {
       : "(none)";
     let welcome = "skip";
     if (stay.onboard) {
-      if (email && !email.endsWith("@import.proplane.local")) welcome = `email ${email}`;
+      if (email && !isPlaceholderResidentEmail(email)) welcome = `email ${email}`;
       else if (stay.phone) welcome = `SMS ${stay.phone}`;
       else welcome = "WARN no email/phone — file only";
     }
