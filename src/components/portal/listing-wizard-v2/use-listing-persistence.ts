@@ -35,6 +35,21 @@ import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { listingSaveFailureMessage } from "@/lib/prepare-listing-submission-for-persist";
+import { track } from "@/lib/analytics/track-client";
+
+/** Every reason `publish()` can refuse, for the `listing_publish_refused` event below. */
+type PublishRefusedReason = "signed_out" | "plan_limit" | "server";
+
+/**
+ * Every publish refusal used to be silent past the toast — there was no
+ * record of WHERE in the flow a manager stalled (never signed in, hit their
+ * plan limit, or a genuine server refusal). Fired on every `{ ok: false }`
+ * return below, never on success. No PII: reason is a fixed enum, message is
+ * the same copy already shown in the UI, hasDraft is a boolean.
+ */
+function trackPublishRefused(reason: PublishRefusedReason, message: string, hasDraft: boolean): void {
+  track("listing_publish_refused", { reason, message, hasDraft });
+}
 
 export type ListingPersistenceResult =
   | { ok: true; id: string }
@@ -108,7 +123,11 @@ export function useListingPersistence({
 
   const publish = useCallback(
     async (submission: ManagerListingSubmissionV1): Promise<ListingPersistenceResult> => {
-      if (!userId) return { ok: false, message: "Sign in to publish this listing.", reason: "Sign in to publish this listing." };
+      if (!userId) {
+        const message = "Sign in to publish this listing.";
+        trackPublishRefused("signed_out", message, Boolean(draftIdRef.current));
+        return { ok: false, message, reason: message };
+      }
       const editing = editListingId?.trim();
       if (editing) {
         // Editing an existing listing updates it IN PLACE. It consumes no new
@@ -128,13 +147,14 @@ export function useListingPersistence({
               if (status != null && status >= 400 && status < 500) serverReason = message;
             },
           });
-          return ok
-            ? { ok: true, id: editing }
-            : {
-                ok: false,
-                message: listingSaveFailureMessage(serverReason),
-                reason: serverReason || "Check your connection and try again.",
-              };
+          if (ok) return { ok: true, id: editing };
+          const message = listingSaveFailureMessage(serverReason);
+          trackPublishRefused("server", message, Boolean(draftIdRef.current));
+          return {
+            ok: false,
+            message,
+            reason: serverReason || "Check your connection and try again.",
+          };
         } finally {
           setBusy(false);
         }
@@ -143,6 +163,7 @@ export function useListingPersistence({
       // returned to the caller below.
       if (managerTierPropertyLimitReached(skuTier, propertyCount)) {
         const message = managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() });
+        trackPublishRefused("plan_limit", message, Boolean(draftIdRef.current));
         return { ok: false, message, reason: message };
       }
       setBusy(true);
@@ -157,12 +178,15 @@ export function useListingPersistence({
         const id = draftId
           ? await publishManagerPropertyDraftToServer(draftId, submission, userId, opts)
           : await submitManagerPendingPropertyToServer(submission, userId, opts);
-        if (!id)
+        if (!id) {
+          const message = serverError || "Could not publish this listing.";
+          trackPublishRefused("server", message, Boolean(draftIdRef.current));
           return {
             ok: false,
-            message: serverError || "Could not publish this listing.",
+            message,
             reason: serverError || "Check your connection and try again.",
           };
+        }
         draftIdRef.current = null;
         recordDelightMoment("listing_published");
         return { ok: true, id };

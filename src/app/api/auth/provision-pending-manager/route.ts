@@ -29,7 +29,13 @@ export async function POST(request: Request) {
     const trialForNewManager = body?.trial !== false;
 
     const service = createSupabaseServiceRoleClient();
-    const result = await ensureFreeManagerPortalAccess(service, user, { trialForNewManager });
+    // Reached only via the explicit "add another portal type" / get-started
+    // click, never an OAuth callback — the user has explicitly asked to set up
+    // a property manager account, so a resident-only account may upgrade.
+    const result = await ensureFreeManagerPortalAccess(service, user, {
+      trialForNewManager,
+      allowResidentUpgrade: true,
+    });
 
     if (result.status === "skipped") {
       return NextResponse.json({ ok: false, skipped: true, reason: result.reason }, { status: 409 });

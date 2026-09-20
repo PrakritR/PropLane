@@ -6,6 +6,8 @@ import {
   extractAssistantEmailToken,
   extractAssistantMailboxLocal,
   generateAssistantEmailToken,
+  isReservedMailboxLocal,
+  isValidMailboxLocal,
 } from "@/lib/manager-assistant-email/assistant-email-address";
 import { allocateAssistantMailboxLocal } from "@/lib/manager-assistant-email/assistant-mailbox-local.server";
 import {
@@ -451,4 +453,90 @@ export async function ensureManagerAssistantEmail(
     address: assistantMailboxAddress(mailboxLocal),
     provisionState: "active",
   };
+}
+
+export type MailboxLocalCheckResult =
+  | { ok: true; state: "available" | "current" }
+  | { ok: false; state: "invalid" | "reserved" | "taken"; message: string };
+
+/**
+ * Whether a WORKSPACE could use `local` as its work-email local part.
+ *
+ * `current` means it is already this workspace's own active local part (a
+ * no-op save); any other workspace's active local part is `taken`, exactly
+ * like the DB's own unique constraint, but checked ahead of the write so the
+ * UI can disable Save before the manager ever submits it.
+ */
+export async function checkWorkspaceAssistantMailboxLocal(
+  db: SupabaseClient,
+  workspaceId: string,
+  local: string,
+): Promise<MailboxLocalCheckResult> {
+  const trimmed = local.trim().toLowerCase();
+  if (trimmed.length < 3) {
+    return { ok: false, state: "invalid", message: "At least 3 characters" };
+  }
+  if (!isValidMailboxLocal(trimmed)) {
+    return { ok: false, state: "invalid", message: "Letters, digits, dots and hyphens only" };
+  }
+  if (isReservedMailboxLocal(trimmed)) {
+    return { ok: false, state: "reserved", message: "That address is reserved." };
+  }
+
+  const { data, error } = await db
+    .from("manager_assistant_emails")
+    .select("workspace_id")
+    .eq("mailbox_local", trimmed)
+    .eq("provision_state", "active")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return { ok: true, state: "available" };
+
+  const holderWorkspaceId = String(data.workspace_id ?? "").trim();
+  if (holderWorkspaceId && holderWorkspaceId === workspaceId.trim()) {
+    return { ok: true, state: "current" };
+  }
+  return { ok: false, state: "taken", message: "That address is already in use." };
+}
+
+/**
+ * Rename a WORKSPACE's work-email local part (e.g. `assist-jane` ->
+ * `frontdesk`). Owner-only, same guard `ensureManagerAssistantEmail` uses —
+ * which this also calls first, so the workspace is guaranteed to have an
+ * active row (adopting a legacy unplaced one for the default workspace) before
+ * it is renamed.
+ *
+ * One address per workspace: mail to the OLD local part stops resolving the
+ * instant this commits, because the row's `mailbox_local` is what inbound
+ * resolution reads.
+ */
+export async function setWorkspaceAssistantMailboxLocal(
+  db: SupabaseClient,
+  managerUserId: string,
+  workspace: Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault">,
+  local: string,
+): Promise<{ ok: true; address: string } | { ok: false; state: "invalid" | "reserved" | "taken"; message: string }> {
+  // Throws WorkspaceNotOwnedError / WorkspaceEmailSharedError for a
+  // non-owner, and mints a row first if this workspace somehow has none yet.
+  const row = await ensureManagerAssistantEmail(db, managerUserId, workspace);
+
+  const trimmed = local.trim().toLowerCase();
+  const check = await checkWorkspaceAssistantMailboxLocal(db, workspace.id, trimmed);
+  if (!check.ok) return check;
+  if (check.state === "current") {
+    return { ok: true, address: row.address };
+  }
+
+  const { error } = await db
+    .from("manager_assistant_emails")
+    .update({ mailbox_local: trimmed, updated_at: new Date().toISOString() })
+    .eq("inbox_token", row.inboxToken)
+    .eq("provision_state", "active");
+  if (error) {
+    if (error.code === "23505") {
+      return { ok: false, state: "taken", message: "That address is already in use." };
+    }
+    throw new Error(error.message);
+  }
+  return { ok: true, address: assistantMailboxAddress(trimmed) };
 }

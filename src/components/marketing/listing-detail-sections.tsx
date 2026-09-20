@@ -127,7 +127,7 @@ function AboutBody({ rich }: { rich: ListingRichContent }) {
   const overview = rich.heroOverview?.trim();
   const long = (overview?.length ?? 0) > 420;
   return (
-    <div className="max-w-3xl">
+    <div className="min-w-0 max-w-3xl">
       <p
         className={`whitespace-pre-wrap text-sm leading-relaxed text-foreground/85 sm:text-[0.9375rem] ${
           long && !expanded ? "line-clamp-5" : ""
@@ -339,7 +339,7 @@ export function ListingDetailSections({
   return (
     <ListingPreviewNewTabContext.Provider value={embeddedPreview}>
       <ListingSidebarRenterCtasContext.Provider value>
-        <div className="min-w-0 max-w-full bg-background text-foreground" data-listing-sections-root data-manager-listing-preview={managerPreviewChrome ? "" : undefined}>
+        <div className="@container min-w-0 max-w-full bg-background text-foreground" data-listing-sections-root data-manager-listing-preview={managerPreviewChrome ? "" : undefined}>
           <div
             className={`mx-auto flex min-w-0 max-w-6xl flex-col px-4 ${
               embeddedPreview
@@ -387,7 +387,10 @@ export function ListingDetailSections({
             {/* Phone: the manager's doors sit under the title; desktop has them in the card. */}
             <ListingContactCard property={property} className="mt-3 lg:hidden" />
 
-            <div className="mt-6 grid min-w-0 gap-8 lg:mt-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] lg:gap-10">
+            <div
+              className="mt-6 grid min-w-0 gap-8 lg:mt-8 @min-[900px]:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] @min-[900px]:gap-10"
+              data-listing-about-grid
+            >
               <div className="min-w-0">
                 {portalEmbedded ? (
                   hidePortalSubnav ? null : (
@@ -407,11 +410,16 @@ export function ListingDetailSections({
                     >
                       {hasAbout ? <AboutBody rich={rich} /> : null}
                       {quickFacts.length > 0 ? (
-                        <dl className={`grid gap-x-8 sm:grid-cols-2 ${hasAbout ? "mt-4" : ""}`}>
+                        <dl className={hasAbout ? "mt-4" : ""}>
                           {quickFacts.map((q) => (
-                            <div key={q.label} className="flex items-baseline justify-between gap-4 border-b border-border py-2 text-sm">
+                            <div
+                              key={q.label}
+                              className="grid gap-1 border-b border-border py-2 text-sm sm:grid-cols-[minmax(7.5rem,auto)_minmax(0,1fr)] sm:items-start sm:gap-4"
+                            >
                               <dt className="text-muted">{q.label}</dt>
-                              <dd className="text-right font-semibold text-foreground">{q.value}</dd>
+                              <dd className="min-w-0 text-pretty break-words font-semibold leading-relaxed text-foreground">
+                                {q.value}
+                              </dd>
                             </div>
                           ))}
                         </dl>
@@ -420,6 +428,9 @@ export function ListingDetailSections({
                   ) : (
                     <div id="overview" aria-hidden />
                   )}
+                  <div className="hidden lg:block @min-[900px]:hidden" data-listing-price-card-stack>
+                    <PriceCard property={property} rich={rich} newTab={embeddedPreview} />
+                  </div>
 
                   <ListingDetailCollapsibleSection
                     id="rooms"
@@ -535,7 +546,7 @@ export function ListingDetailSections({
                 </div>
               </div>
 
-              <aside className="hidden lg:sticky lg:top-[var(--listing-sticky-stack,calc(env(safe-area-inset-top,0px)+7.5rem))] lg:block lg:self-start">
+              <aside className="hidden @min-[900px]:sticky @min-[900px]:top-[var(--listing-sticky-stack,calc(env(safe-area-inset-top,0px)+7.5rem))] @min-[900px]:block @min-[900px]:self-start">
                 <PriceCard property={property} rich={rich} newTab={embeddedPreview} />
               </aside>
             </div>

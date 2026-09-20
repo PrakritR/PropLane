@@ -29,13 +29,22 @@ describe("founder/admin cannot reach the property portal in production", () => {
       process.env = { ...originalEnv, NODE_ENV: "production", VERCEL_ENV: "production" };
     });
 
-    it("still blocks a non-primary admin identity from the manager/property portal", () => {
-      const account = ctx(["admin", "manager"]);
+    it("still blocks an admin-only identity from the manager/property portal", () => {
+      const account = ctx(["admin"]);
       expect(adminBlockedFromManagerPortal(account)).toBe(true);
       // Switch/route authorization decision — must refuse manager.
       expect(isPortalRoleReachable(account, "manager")).toBe(false);
       // The portal switch + choose-portal chooser never offer the property portal.
       expect(reachablePortalRoles(account)).toEqual(["admin"]);
+    });
+
+    it("does not block a non-primary admin who also explicitly holds the manager role", () => {
+      // Holding `manager` is itself the deliberate grant (e.g. via "add another
+      // portal type"), so this admin+manager account is not blocked.
+      const account = ctx(["admin", "manager"]);
+      expect(adminBlockedFromManagerPortal(account)).toBe(false);
+      expect(isPortalRoleReachable(account, "manager")).toBe(true);
+      expect(reachablePortalRoles(account)).toEqual(["admin", "manager"]);
     });
 
     it("lets the primary admin reach both admin and property portals", () => {

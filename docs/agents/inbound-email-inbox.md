@@ -47,6 +47,37 @@ below goes through them.
   their OWN profile email and scoped to their assigned houses; their exchange
   mirrors into THEIR assistant thread.
 
+### Custom work email local part
+
+The owner may rename the workspace's mailbox local part in Settings →
+Messaging → Work email (e.g. `assist-jane-smith@…` → `frontdesk@…`) instead of
+living with the auto-generated `assist-<slug>` address. `POST
+/api/manager/assistant-email` gained two actions:
+`check_address` (`{ action: "check_address", local }`, rate limited, returns
+`available` / `current` / `taken` / `reserved` / `invalid`) and `set_address`
+(`{ action: "set_address", local }`, owner-only, returns the refreshed
+status). Both go through `checkWorkspaceAssistantMailboxLocal` /
+`setWorkspaceAssistantMailboxLocal`
+(`src/lib/manager-assistant-email/manager-assistant-email.server.ts`).
+
+- **The rule** (`isValidMailboxLocal`,
+  `src/lib/manager-assistant-email/assistant-email-address.ts`): lowercase
+  letters, digits, dots and hyphens; 3-32 characters; must start and end
+  alphanumeric; never contains `+` (that stays reserved for the legacy
+  `assistant+<token>` form).
+- **The reserved list** (`RESERVED_MAILBOX_LOCALS` /
+  `isReservedMailboxLocal`, same file) blocks official-sounding locals
+  (`support`, `admin`, `postmaster`, `assist`, `assistant`, …) at both the
+  write (`checkWorkspaceAssistantMailboxLocal`) and the inbound read
+  (`extractAssistantMailboxLocal` skips a reserved local before it is ever
+  treated as a mailbox — so `support@…`/`admin@…` still falls through to the
+  admin support inbox, never this feature, no matter what the manager scheme
+  allows elsewhere).
+- **One address per workspace.** Renaming updates the workspace's existing
+  active row in place; the OLD local part stops resolving the instant the
+  change commits, because inbound resolution reads `mailbox_local` off that
+  same row. There is no grace period and no forwarding.
+
 ## How it works
 
 1. `support@prop-lane.space` is routed to **Resend Inbound**.
