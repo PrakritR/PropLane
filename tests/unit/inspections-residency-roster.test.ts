@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInspectionRows, pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
+import { buildInspectionRows, filterInspectionRows, pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
 import { residencyOccupancy, type InspectionResidency, type InspectionSummary } from "@/lib/inspections/model";
 
 /**
@@ -7,6 +7,9 @@ import { residencyOccupancy, type InspectionResidency, type InspectionSummary } 
  * and nine approved residents saw "Move-in 0 / Move-out 0" and an empty state telling them an
  * approved resident was needed. The list is a roster of people; a report rides on the row it
  * belongs to.
+ *
+ * A row is the Properties card — name, place line, glyph facts — so the builder hands back
+ * structured facts (`tenancy`, `photos`, `required`) and never a pill (PLAN-0920-0436).
  */
 
 const residency = (over: Partial<InspectionResidency> & { id: string }): InspectionResidency => ({
@@ -48,9 +51,12 @@ describe("buildInspectionRows", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.name).toBe("Sohan Vivek Naik");
-    expect(rows[0]!.preview).toContain("Moves in Oct 1, 2026");
-    expect(rows[0]!.preview).toContain("No photos yet");
-    expect(rows[0]!.badge.label).toBe("Needs photos");
+    expect(rows[0]!.address).toBe("5259 Brooklyn Ave NE · Room 1");
+    expect(rows[0]!.tenancy).toBe("Moves in Oct 1, 2026");
+    expect(rows[0]!.photos).toContain("No photos yet");
+    expect(rows[0]!.required).toBe(false);
+    // The card never carries a pill: the photo fact is the state.
+    expect(rows[0]).not.toHaveProperty("badge");
   });
 
   it("shows a current resident with the date they moved in", () => {
@@ -58,8 +64,8 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-2", name: "aarav jain", moveInDate: "2026-08-01", occupancy: "current" }),
     ], []);
 
-    expect(rows[0]!.preview).toContain("Moved in Aug 1, 2026");
-    expect(rows[0]!.badge.label).toBe("Needs photos");
+    expect(rows[0]!.tenancy).toBe("Moved in Aug 1, 2026");
+    expect(rows[0]!.photos).toBe("No photos yet");
   });
 
   it("puts current residents on the move-out tab as still to move out", () => {
@@ -70,7 +76,7 @@ describe("buildInspectionRows", () => {
 
     // Someone who has not moved in yet cannot be moving out.
     expect(rows.map(row => row.key)).toEqual(["residency:app-2"]);
-    expect(rows[0]!.preview).toContain("Moves out Jul 31, 2027");
+    expect(rows[0]!.tenancy).toBe("Moves out Jul 31, 2027");
   });
 
   it("drops a moved-out resident from the move-in tab but keeps them on move-out", () => {
@@ -91,10 +97,9 @@ describe("buildInspectionRows", () => {
 
     // Both move-in reports stay reachable; the move-out one belongs to the other tab.
     expect(rows.map(row => row.report?.id)).toEqual(["r-old", "r-new"]);
-    expect(rows.every(row => row.preview.includes("Moved in Aug 1, 2026"))).toBe(true);
-    expect(rows[1]!.badge.label).toBe("3 photos");
-    expect(rows[1]!.preview).toContain("3 photos · resident 1, manager 2");
-    expect(rows[0]!.badge.label).toBe("Needs photos");
+    expect(rows.every(row => row.tenancy === "Moved in Aug 1, 2026")).toBe(true);
+    expect(rows[1]!.photos).toBe("3 photos · resident 1, manager 2");
+    expect(rows[0]!.photos).toBe("No photos yet");
   });
 
   it("keeps a report whose residency is gone reachable on its own row", () => {
@@ -103,6 +108,9 @@ describe("buildInspectionRows", () => {
 
     expect(rows.map(row => row.key)).toEqual(["report:r-orphan"]);
     expect(rows[0]!.report?.id).toBe("r-orphan");
+    // No residency means no tenancy fact; the place line falls back to the report's labels.
+    expect(rows[0]!.tenancy).toBe("");
+    expect(rows[0]!.address).toBe("5259 Brooklyn Ave NE · Room 1");
   });
 
   it("orders a tab by the date that tab is about, undated last", () => {
@@ -121,7 +129,7 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-1", moveInDate: "2026-03-04", occupancy: "upcoming" }),
     ], []);
 
-    expect(rows[0]!.preview).toContain("Mar 4, 2026");
+    expect(rows[0]!.tenancy).toContain("Mar 4, 2026");
   });
 
   it("marks a row whose room configuration requires the inspection", () => {
@@ -131,7 +139,7 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-in"] }),
     ], []);
 
-    expect(rows[0]!.preview).toContain("required");
+    expect(rows[0]!.required).toBe(true);
   });
 
   it("leaves a row unmarked when the room requires the other kind only", () => {
@@ -139,8 +147,38 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-out"] }),
     ], []);
 
-    expect(rows[0]!.badge.label).toBe("Needs photos");
-    expect(rows[0]!.preview).not.toContain("required");
+    expect(rows[0]!.required).toBe(false);
+    expect(rows[0]!.photos).toBe("No photos yet");
+  });
+});
+
+describe("filterInspectionRows", () => {
+  // The search box in the command bar narrows the current tab by everything the card shows —
+  // name, place line, tenancy, photo line, "required" — through the one shared matcher.
+  const rows = buildInspectionRows("move-in", [
+    residency({ id: "app-1", name: "Sohan Vivek Naik", property: "5259 Brooklyn Ave NE", room: "Room 4", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-in"] }),
+    residency({ id: "app-2", name: "Aaron Lee", property: "4709a 8th Ave", room: "Room 6", moveInDate: "2026-08-15", occupancy: "current" }),
+  ], [
+    report({ id: "r-1", application_id: "app-2", resident_name: "Aaron Lee", inspection_date: "2026-08-16", photos: photos(2, 2) }),
+  ]);
+
+  it("returns every row for an empty query", () => {
+    expect(filterInspectionRows(rows, "")).toEqual(rows);
+    expect(filterInspectionRows(rows, "   ")).toEqual(rows);
+  });
+
+  it("narrows by name, place line, tenancy, photo line and requirement, ignoring case", () => {
+    expect(filterInspectionRows(rows, "sohan").map(row => row.key)).toEqual(["residency:app-1"]);
+    expect(filterInspectionRows(rows, "brooklyn 4").map(row => row.key)).toEqual(["residency:app-1"]);
+    expect(filterInspectionRows(rows, "moved in aug").map(row => row.key)).toEqual(["report:r-1"]);
+    // Every word must land somewhere on the row: "4 photos" also hits "Room 4" + "No photos yet",
+    // so the photo-line probe is the part only a filed report carries.
+    expect(filterInspectionRows(rows, "manager 2").map(row => row.key)).toEqual(["report:r-1"]);
+    expect(filterInspectionRows(rows, "required").map(row => row.key)).toEqual(["residency:app-1"]);
+  });
+
+  it("hides every row when nothing matches, so the list shows the no-match card", () => {
+    expect(filterInspectionRows(rows, "paseo")).toEqual([]);
   });
 });
 
