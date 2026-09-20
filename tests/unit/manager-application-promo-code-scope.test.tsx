@@ -73,6 +73,12 @@ function renderModal() {
       open
       onClose={() => undefined}
       initialTab="applications"
+      // The promo code + automation toggles live on the Automation pane; the
+      // Form pane is the question-template editor. Real callers that open
+      // this modal for application settings (e.g. the property Application
+      // tab's own settings gear) pass this explicitly — match that here.
+      initialPane="automation"
+      initialPropertyId={PROPERTY_OPTIONS[0].id}
       propertyOptions={PROPERTY_OPTIONS}
     />,
   );
@@ -140,7 +146,8 @@ describe("automation toggles across several properties", () => {
     await selectEveryProperty();
     patches.length = 0;
 
-    await userEvent.click(await screen.findByRole("checkbox", { name: /auto-approve applications/i }));
+    // PortalSettingsToggle is an accessible switch (role="switch"), not a checkbox input.
+    await userEvent.click(await screen.findByRole("switch", { name: /auto-approve applications/i }));
 
     await waitFor(() => expect(patches).toHaveLength(3));
     expect(patches.map((p) => p.propertyId)).toEqual(["prop-1", "prop-2", "prop-3"]);

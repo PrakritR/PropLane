@@ -161,19 +161,32 @@ export const SettingsModulePage = forwardRef<
     () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
     [propertyOptions, workspaces?.active?.id],
   );
-  const lockPropertyField = true;
+  // Locked only when there is nothing to pick: the (now-removed) properties hub tab, or a
+  // single-property scoped dialog that opened with its house already known. Otherwise the
+  // Applications/Lease panel's own multi-select (promo code + automation fan-out, PRP-427)
+  // must stay reachable — the title-row scope bar above is a single-property "which house am I
+  // viewing" filter, not a substitute for selecting several houses to write the same value to.
+  const lockPropertyField =
+    tab === "properties" || (Boolean(initialPropertyId?.trim()) && scopedPropertyOptions.length <= 1);
   const showApplications = tab === "applications";
   const showLease = tab === "lease";
   const showTours = shouldMountTourSettings(active, tab);
 
+  /**
+   * The title-row scope bar's "All properties" is a real, deliberate choice for most modules,
+   * but Applications/Lease still need ONE house to load and save against when nothing more
+   * specific won — same identity/value-equality guard as the modal's original effect (before
+   * the property-bar refactor) — see this file's own history.
+   */
+  const firstPropertyOptionId = scopedPropertyOptions[0]?.id ?? "";
   useEffect(() => {
-    const preferred = (scope.propertyId || initialPropertyId || "").trim();
+    const preferred = (scope.propertyId || initialPropertyId || firstPropertyOptionId || "").trim();
     setPropertyId(preferred);
     setPropertyIds((current) => {
       const next = preferred ? [preferred] : [];
       return current.length === next.length && current.every((id, index) => id === next[index]) ? current : next;
     });
-  }, [initialPropertyId, scope.propertyId]);
+  }, [initialPropertyId, scope.propertyId, firstPropertyOptionId]);
 
   useEffect(() => {
     setPanelFooter(null);
@@ -252,8 +265,17 @@ export const SettingsModulePage = forwardRef<
     saveStatusInFlightRef.current = 0;
   }, [tab]);
 
+  /**
+   * A PATCH only ever carries the field the manager actually changed.
+   * `automation` and `waiverCode` used to ride along together on every save —
+   * toggling auto-approve across several properties replayed whatever promo
+   * code happened to be loaded onto each of them, and a promo-code save sent
+   * a phantom automation write. The codes table is also unique on
+   * (manager, code text), so a promo code is a single-property write; callers
+   * must never fan it out.
+   */
   const saveApplicationAutomationSettings = useCallback(
-    async (next: ApplicationAutomationPreferences, nextWaiverCode: string, targetPropertyIds: string[]) => {
+    async (fields: { automation?: ApplicationAutomationPreferences; waiverCode?: string }, targetPropertyIds: string[]) => {
       const allowed = activeWorkspacePropertyIds();
       const ids = targetPropertyIds
         .map((id) => id.trim())
@@ -269,7 +291,7 @@ export const SettingsModulePage = forwardRef<
             method: "PATCH",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ propertyId: id, automation: next, waiverCode: nextWaiverCode }),
+            body: JSON.stringify({ propertyId: id, ...fields }),
           });
           if (!res.ok) {
             const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -296,16 +318,19 @@ export const SettingsModulePage = forwardRef<
 
   const commitWaiverCode = useCallback(() => {
     const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
-    void saveApplicationAutomationSettings(automation, waiverCode, ids);
-  }, [automation, propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode]);
+    // A promo code belongs to exactly one property. Anything else — none
+    // selected, or more than one — is inert rather than a half-write.
+    if (ids.length !== 1) return;
+    void saveApplicationAutomationSettings({ waiverCode }, ids);
+  }, [propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode]);
 
   const changeAutomation = useCallback(
     (next: ApplicationAutomationPreferences) => {
       setAutomation(next);
       const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
-      void saveApplicationAutomationSettings(next, waiverCode, ids);
+      void saveApplicationAutomationSettings({ automation: next }, ids);
     },
-    [propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode],
+    [propertyId, propertyIds, saveApplicationAutomationSettings],
   );
 
   const saveRegistryRef = useRef(new Map<string, PendingSaveHandle>());

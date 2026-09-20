@@ -396,6 +396,10 @@ export function ApplicationsSettingsPanel({
   const multiSelect = Boolean(onPropertyIdsChange);
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
   const hasSelection = selectedIds.length > 0;
+  // The codes table is unique on (manager, code text): a promo code lives on
+  // exactly one property, never a fan-out. Automation toggles are fine across
+  // several properties; the promo field is not.
+  const hasSingleSelection = selectedIds.length === 1;
   const disabled = loading || saving;
 
   return (
@@ -423,17 +427,23 @@ export function ApplicationsSettingsPanel({
             <PortalSettingsRow
               label="Promo code"
             >
-              <input
-                id="manager-application-promo-code"
-                type="text"
-                className="w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:w-40"
-                value={waiverCode}
-                disabled={disabled || !hasSelection}
-                placeholder="E.G. WELCOME50"
-                data-attr="manager-application-settings-promo-code"
-                onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
-                onBlur={() => onWaiverCodeCommit?.()}
-              />
+              <div className="flex flex-col items-end gap-1">
+                <input
+                  id="manager-application-promo-code"
+                  type="text"
+                  aria-label="Promo code"
+                  className="w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:w-40"
+                  value={waiverCode}
+                  disabled={disabled || !hasSingleSelection}
+                  placeholder="E.G. WELCOME50"
+                  data-attr="manager-application-settings-promo-code"
+                  onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
+                  onBlur={() => onWaiverCodeCommit?.()}
+                />
+                {hasSelection && !hasSingleSelection ? (
+                  <p className="text-right text-[11px] text-muted">A promo code belongs to one property. Pick a single property to set it.</p>
+                ) : null}
+              </div>
             </PortalSettingsRow>
           ) : null}
           <PortalSettingsRow
