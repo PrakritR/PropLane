@@ -113,7 +113,10 @@ vi.mock("@/lib/service-requests-storage", () => ({
 vi.mock("@/lib/resident-lease-upload", () => ({
   clearUploadedOwnLease: () => undefined,
 }));
-vi.mock("@/lib/portal-inbox-storage", () => ({
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+  // Spread the real module so new exports (storage keys, recordRef helpers)
+  // keep resolving; only the persistence calls are stubbed here.
+  ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
   loadPersistedInbox: () => [],
   persistInbox: () => undefined,
   MANAGER_INBOX_STORAGE_KEY: "mgr-inbox",
