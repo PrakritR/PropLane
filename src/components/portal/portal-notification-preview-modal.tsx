@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalComposeScheduledMessagesSection } from "@/components/portal/portal-compose-scheduled-messages-section";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { cn } from "@/lib/utils";
@@ -519,23 +520,19 @@ export function PortalBulkPaymentReminderPreviewModal({
   const title = count === 1 ? "Send payment reminder" : `Send ${count} payment reminders`;
   const confirmLabel = count === 1 ? "Send reminder" : `Send ${count} reminders`;
 
-  const footer = (
-    <ModalFooter>
-      <Button
-        type="button"
-        variant="primary"
-        className="rounded-full"
-        data-attr="portal-bulk-notification-confirm"
-        disabled={confirmBusy || count === 0}
-        onClick={onConfirm}
-      >
-        {confirmBusy ? "Sending…" : confirmLabel}
-      </Button>
-    </ModalFooter>
-  );
-
   return (
-    <Modal open={open} title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}>
+    <PortalDialog
+      open={open}
+      title={title}
+      onClose={onClose}
+      primaryAction={{
+        label: confirmBusy ? "Sending…" : confirmLabel,
+        onClick: onConfirm,
+        disabled: confirmBusy || count === 0,
+        loading: confirmBusy,
+        dataAttr: "portal-bulk-notification-confirm",
+      }}
+    >
       <div className="max-h-[min(52vh,26rem)] space-y-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
         {items.map((item, index) => (
           <div key={item.id} className="space-y-2 rounded-xl border border-border bg-accent/10 p-3">
@@ -565,7 +562,7 @@ export function PortalBulkPaymentReminderPreviewModal({
           </div>
         ))}
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }
 

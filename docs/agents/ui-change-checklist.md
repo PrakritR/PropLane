@@ -113,6 +113,22 @@ site-sweep every utility in the app.
 row next to Services, Tours, …). Never repeat it on each section header.
 Account / Billing / API / Feedback stay unscoped.
 
+## Pop-ups
+
+One shape for every modal, sheet and confirm: `PortalDialog`
+(`src/components/portal/portal-dialog.tsx`), built over `Modal` — never a raw
+`Modal`/`ui/sheet.tsx`/`VaulBottomSheet` for a new dialog. Desktop: centered,
+560px (`size="wizard"`: 720px). Phone: bottom sheet with a grab handle, full
+height only for a wizard. Header: title, optional back arrow, optional
+step-dot strip — never a sentence under the title (`description` is reserved
+for the dot strip). Footer: exactly one text secondary (left, defaults to
+"Cancel") and one filled primary (right) whose label names the outcome
+("Record $1,200", never "Save"); `tone="danger"` is the one place a filled red
+primary is correct (`ConfirmRows` for the confirm body, key-value not prose).
+The in-workspace "Ask PropLane" chip is top-bar chrome, not dialog chrome —
+`PortalDialog` always renders without it. Guard:
+`tests/unit/portal-dialog-shape.test.tsx`.
+
 ## Mobile
 
 - Same design as desktop — reflow, not a separate layout
@@ -121,7 +137,7 @@ Account / Billing / API / Feedback stay unscoped.
 
 ## Buttons & loading
 
-- Single **`Button`** from `@/components/ui/button.tsx` — no filled-red destructive
+- Single **`Button`** from `@/components/ui/button.tsx` — no filled-red destructive, except a `PortalDialog` `tone="danger"` primary (§ Pop-ups)
 - Async `onClick={() => save()}` — **do not** `void save()` (drops loading guard)
 
 ## Analytics (meaningful interactions)

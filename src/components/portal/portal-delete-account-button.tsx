@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import posthog from "posthog-js";
-import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { clearPortalBrowserCache } from "@/lib/auth/clear-portal-browser-cache";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -132,28 +131,22 @@ export function PortalDeleteAccountButton({
         Delete account
       </button>
 
-      <Modal
+      <PortalDialog
         open={open}
         title={copy.title}
+        tone="danger"
+        dismissBlocked={busy}
         onClose={() => {
           if (!busy) setOpen(false);
         }}
-        footer={
-          <div className="flex flex-col gap-2 sm:flex-row-reverse">
-            <Button
-              type="button"
-              variant="danger"
-              disabled={busy}
-              onClick={() => deleteAccount()}
-              data-attr="portal-delete-account-confirm"
-            >
-              {busy ? "Deleting…" : portalKind === "admin" ? "Yes, permanently delete" : "Yes, delete account"}
-            </Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-        }
+        secondaryAction={{ label: "Cancel", onClick: () => setOpen(false), disabled: busy }}
+        primaryAction={{
+          label: busy ? "Deleting…" : portalKind === "admin" ? "Yes, permanently delete" : "Yes, delete account",
+          onClick: () => deleteAccount(),
+          disabled: busy,
+          loading: busy,
+          dataAttr: "portal-delete-account-confirm",
+        }}
       >
         <div className="space-y-3 text-sm text-foreground">
           <p className="font-semibold text-danger">{copy.lead}</p>
@@ -163,7 +156,7 @@ export function PortalDeleteAccountButton({
             our payment processor, Stripe) may be retained as required by law.
           </p>
         </div>
-      </Modal>
+      </PortalDialog>
     </>
   );
 }
