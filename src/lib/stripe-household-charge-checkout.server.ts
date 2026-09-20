@@ -23,6 +23,7 @@ import {
   resolveAndValidateManagerConnectForPayments,
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 /**
  * The Stripe Checkout core for paying pending household charges, extracted from
@@ -223,6 +224,14 @@ export async function createHouseholdChargeCheckout(
     const resolved = await loadHouseholdChargesForCheckout(db, input);
     if (!resolved.ok) return resolved;
     const { loaded, managerUserId } = resolved;
+    if ((await captureTestWorkspaceEffectForUser({
+      userId: input.userId,
+      kind: "payment",
+      summary: "Resident payment refused for a test workspace.",
+      db,
+    })).captured) {
+      return { ok: false, status: 403, code: "TEST_WORKSPACE_PROVIDER_DISABLED", error: "Payments are unavailable for test accounts." };
+    }
 
     const { tier: managerTierRaw, promoCode, readFailed } = await getManagerPurchaseSku(managerUserId);
     if (readFailed) throw new Error("Payment plan could not be verified. Try again.");

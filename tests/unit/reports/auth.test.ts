@@ -37,6 +37,9 @@ vi.mock("@/lib/supabase/service", () => ({
 vi.mock("@/lib/auth/admin-preview", () => ({
   isAdminUser: vi.fn(async () => false),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+}));
 
 describe("getReportsAuthContext", () => {
   beforeEach(() => {

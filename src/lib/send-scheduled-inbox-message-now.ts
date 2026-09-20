@@ -3,7 +3,7 @@ import {
   updateScheduledInboxMessage,
   isResidentOriginatedScheduledMessage,
   type ScheduledInboxMessageRecord,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 async function markScheduledInboxMessageSent(
@@ -42,6 +42,9 @@ export async function sendScheduledInboxMessageNow(
   db: SupabaseClient,
   message: ScheduledInboxMessageRecord,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (message.smsTestSessionId) {
+    return { ok: false, error: "SMS test scheduled messages cannot enter live delivery." };
+  }
   if (message.status !== "scheduled") {
     return { ok: false, error: "Only scheduled messages can be sent now." };
   }

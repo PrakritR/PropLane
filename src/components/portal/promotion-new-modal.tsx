@@ -169,9 +169,9 @@ export function PromotionNewModal({
     if (flyerBusy || textBusy || uploadBusy) return;
     const leavingDirty =
       kind === "flyer"
-        ? flyerContentChanged(draft, flyerBaseRef.current)
+        ? flyerContentChanged(draft, flyerBase)
         : kind === "text"
-          ? textDirtyRef.current
+          ? textDirty
           : Boolean(uploadFile);
     if (
       leavingDirty &&

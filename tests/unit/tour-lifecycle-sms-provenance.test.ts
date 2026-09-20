@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 const sendResidentOutboundSms = vi.fn(async () => ({ sent: true, sid: "SM-tour", channel: "claw" as const }));
 const syncPlannedTourToGoogleCalendar = vi.fn(async () => "gcal-new");
 const fetchEmail = vi.fn(async () => new Response(JSON.stringify({ id: "email-tour" }), { status: 200 }));

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
-import { loadScheduledInboxMessagesForManager } from "@/lib/scheduled-inbox-messages";
+import { loadScheduledInboxMessagesForManager } from "@/lib/scheduled-inbox-messages.server";
 import {
   dateSlotKey,
   managerAvailabilityStorageKey,
@@ -71,11 +71,14 @@ function summarizeEvent(rec: RawScheduleRecord) {
  * (managerUserId === ctx.landlordId), mirroring the schedule-records GET route.
  */
 async function readSingletonItems(ctx: AgentContext, recordId: string): Promise<Record<string, unknown>[]> {
-  const { data, error } = await ctx.db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", recordId)
-    .limit(1);
+  const query = ctx.testWorkspaceId
+    ? ctx.db
+        .from("test_workspace_schedule_records")
+        .select("row_data")
+        .eq("workspace_id", ctx.testWorkspaceId)
+        .eq("record_key", recordId === PLANNED_RECORD_ID ? "planned_events" : "partner_inquiries")
+    : ctx.db.from("portal_schedule_records").select("row_data").eq("id", recordId);
+  const { data, error } = await query.limit(1);
   if (error) throw new Error(error.message);
   const row = ((data ?? []) as { row_data: unknown }[])[0];
   return row ? rowsFromRecord(row.row_data) : [];
@@ -86,11 +89,14 @@ async function readSingletonRecord(
   ctx: AgentContext,
   recordId: string,
 ): Promise<{ rowData: Record<string, unknown> | null; items: Record<string, unknown>[] }> {
-  const { data, error } = await ctx.db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", recordId)
-    .limit(1);
+  const query = ctx.testWorkspaceId
+    ? ctx.db
+        .from("test_workspace_schedule_records")
+        .select("row_data")
+        .eq("workspace_id", ctx.testWorkspaceId)
+        .eq("record_key", recordId === PLANNED_RECORD_ID ? "planned_events" : "partner_inquiries")
+    : ctx.db.from("portal_schedule_records").select("row_data").eq("id", recordId);
+  const { data, error } = await query.limit(1);
   if (error) throw new Error(error.message);
   const rowData = asObject(((data ?? []) as { row_data: unknown }[])[0]?.row_data);
   return { rowData, items: rowsFromRecord(rowData) };
@@ -122,6 +128,7 @@ export const listCalendarEventsTool = defineTool({
       .eq("manager_user_id", ctx.landlordId)
       .order("starts_at", { ascending: true })
       .limit(1000);
+    if (ctx.testWorkspaceId) query = query.eq("test_workspace_id", ctx.testWorkspaceId);
     if (input.from) query = query.gte("starts_at", input.from);
     if (input.to) query = query.lte("starts_at", input.to);
     const { data, error } = await query;

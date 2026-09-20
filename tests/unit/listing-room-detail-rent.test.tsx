@@ -117,5 +117,6 @@ describe("room detail modal — rent", () => {
     expect(screen.getByLabelText("Previous month")).toBeTruthy();
     expect(screen.getByLabelText("Next month")).toBeTruthy();
     expect(document.querySelectorAll('[data-tone="open"]').length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
   });
 });

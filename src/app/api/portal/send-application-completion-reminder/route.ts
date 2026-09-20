@@ -19,6 +19,8 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -74,6 +76,9 @@ export async function POST(req: Request) {
     const previewOnly = body.preview === true;
 
     const svc = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
+      return NextResponse.json({ error: "Application access is unavailable for this account." }, { status: 403 });
+    }
     const { data: requestor, error: requestorError } = await svc
       .from("profiles")
       .select("role")
@@ -158,10 +163,12 @@ export async function POST(req: Request) {
     }
 
     const from = await managerOutboundFromHeader(svc, user.id);
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [email], subject: subjectOverride, text: textOverride, html }),
+    const res = await postResendEmail({
+      apiKey,
+      actorUserId: String(row.managerUserId ?? "").trim() || user.id,
+      payload: { from, to: [email], subject: subjectOverride, text: textOverride, html },
+      effectSummary: "Application completion reminder email captured for the test workspace.",
+      metadata: { applicationId: record.id },
     });
     const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
     if (!res.ok) {

@@ -83,6 +83,47 @@ describe("manager + two co-managers texting work numbers", () => {
     expect(await identity(db)).toBeNull();
   });
 
+  it("shows an assigned application in combined scope while hiding ungranted and unassigned rows", async () => {
+    const db = seed();
+    db.__tables.account_link_invites[0].property_co_manager_permissions = {
+      "house-a": { applications: { read: true } },
+    };
+    const applicationRows = [
+      { id: "app-a", manager_user_id: owner, row_data: { id: "app-a", propertyId: "house-a", name: "Assigned", bucket: "pending" } },
+      { id: "app-b", manager_user_id: owner, row_data: { id: "app-b", propertyId: "house-b", name: "Not assigned", bucket: "pending" } },
+    ];
+    const access = await resolveManagerSmsAccess(db as never, { actorUserId: co, workNumberOwnerId: co });
+    const rowDb = {
+      from: vi.fn(() => {
+        let selectedOwner = "";
+        const query = {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn((column: string, value: string) => {
+            if (column === "manager_user_id") selectedOwner = value;
+            return query;
+          }),
+          order: vi.fn().mockReturnThis(),
+          range: vi.fn(async () => ({
+            data: applicationRows.filter((row) => row.manager_user_id === selectedOwner),
+            error: null,
+          })),
+        };
+        return query;
+      }),
+    };
+    const ctx = { landlordId: co, userId: co, email: "co@unit.test", roles: ["manager"], isAdmin: false, db: rowDb, managerSmsAccess: access } as never;
+
+    await expect(agentRegistry.get("list_applications")!.handler(ctx, {})).resolves.toMatchObject({
+      count: 1,
+      applications: [{ id: "app-a", name: "Assigned" }],
+    });
+    expect(smsAccessAllowsRow(access, {
+      dataOwnerId: owner,
+      table: "portal_household_charge_records",
+      rowData: { propertyId: "house-a" },
+    })).toBe(false);
+  });
+
   it("inherits paid assistant-email eligibility without overwriting the co-manager's own billing state", async () => {
     const db = seed();
     expect(await getStoredManagerSmsEntitlement(db as never, co)).toMatchObject({ eligible: false });

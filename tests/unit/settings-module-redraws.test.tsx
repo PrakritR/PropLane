@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -49,8 +49,33 @@ import {
   ResidentSettingsPanel,
   CommunicationSettingsPanel,
 } from "@/components/portal/pro-portal-settings-panels";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
+
+function SharedPropertyScope({ children }: { children: ReactNode }) {
+  const [propertyId, setPropertyId] = useState("");
+  return (
+    <SettingsPropertyScopeProvider
+      propertyId={propertyId}
+      onPropertyIdChange={setPropertyId}
+      options={PROPERTY_OPTIONS}
+    >
+      <SettingsPropertyScopeBar />
+      <output data-testid="settings-scope-value">{propertyId || "workspace"}</output>
+      {children}
+    </SettingsPropertyScopeProvider>
+  );
+}
+
+function scopeTrigger(): HTMLButtonElement {
+  const trigger = document.querySelector('[data-attr="settings-property-scope"]');
+  if (!(trigger instanceof HTMLButtonElement)) throw new Error("Expected the shared Property scope control.");
+  return trigger;
+}
 
 function stubFetch() {
   vi.stubGlobal(
@@ -119,69 +144,77 @@ afterEach(() => {
   showToast.mockClear();
 });
 
-describe("settings module redraws — shared property scope ownership", () => {
-  it("Applications leaves scope ownership to the shared property bar", async () => {
+describe("settings module redraws — shared Property scope", () => {
+  it("Applications keeps both sections under a selectable shared property scope", async () => {
     stubFetch();
-    render(<ControlledApplications />);
+    render(<SharedPropertyScope><ControlledApplications /></SharedPropertyScope>);
     expect(await screen.findByText("Handling")).toBeTruthy();
-    expect(screen.queryByText("1 property")).toBeNull();
-    expect(screen.queryByText("All properties")).toBeNull();
+    expect(screen.getByText("Reminders")).toBeTruthy();
+    expect(scopeTrigger().textContent).toContain("All properties");
+
+    await userEvent.click(scopeTrigger());
+    await userEvent.click(await screen.findByRole("option", { name: "Ballard House" }));
+    await waitFor(() => expect(screen.getByTestId("settings-scope-value").textContent).toBe("prop-1"));
+    expect(scopeTrigger().textContent).toContain("Ballard House");
   });
 
-  it("Lease leaves scope ownership to the shared property bar", async () => {
+  it("Lease keeps both sections under the shared workspace scope", async () => {
     stubFetch();
-    render(<ControlledLease />);
+    render(<SharedPropertyScope><ControlledLease /></SharedPropertyScope>);
     expect(await screen.findByText("Documents")).toBeTruthy();
-    expect(screen.queryByText("1 property")).toBeNull();
-    expect(screen.queryByText("All properties")).toBeNull();
+    expect(screen.getByText("Reminders")).toBeTruthy();
+    expect(scopeTrigger().textContent).toContain("All properties");
   });
 
-  it("module section headers omit duplicate scope tags", async () => {
+  it("Task, Payments, Bookings, Inspections, Services, Communication retain their sections with one shared scope", async () => {
     stubFetch();
-    render(<TaskSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByText("Reminders")).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    render(<SharedPropertyScope><TaskSettingsPanel teamMembers={[]} /></SharedPropertyScope>);
+    expect(await screen.findByText("Lifecycle automation")).toBeTruthy();
+    expect(scopeTrigger()).toBeTruthy();
     cleanup();
 
-    render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByRole("heading", { name: "Payment setup" })).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    render(<SharedPropertyScope><PaymentsSettingsPanel teamMembers={[]} /></SharedPropertyScope>);
+    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
+    expect(scopeTrigger()).toBeTruthy();
     cleanup();
 
-    render(<BookingsSettingsPanel teamMembers={[]} />);
+    render(<SharedPropertyScope><BookingsSettingsPanel teamMembers={[]} /></SharedPropertyScope>);
     expect(await screen.findByRole("heading", { name: "Reminders" })).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    expect(scopeTrigger()).toBeTruthy();
     cleanup();
 
-    render(<InspectionsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByText("Reminders")).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    render(<SharedPropertyScope><InspectionsSettingsPanel teamMembers={[]} /></SharedPropertyScope>);
+    expect(await screen.findByRole("heading", { name: "Reminders" })).toBeTruthy();
+    expect(scopeTrigger()).toBeTruthy();
     cleanup();
 
-    render(<ServicesSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByText("Reminders")).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    render(<SharedPropertyScope><ServicesSettingsPanel teamMembers={[]} /></SharedPropertyScope>);
+    expect(await screen.findByText("Requests")).toBeTruthy();
+    expect(scopeTrigger()).toBeTruthy();
     cleanup();
 
-    render(<CommunicationSettingsPanel />);
-    expect(await screen.findByText("Messages sent automatically")).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    render(<SharedPropertyScope><CommunicationSettingsPanel /></SharedPropertyScope>);
+    expect(await screen.findByRole("switch", { name: "Auto-send AI drafts" })).toBeTruthy();
+    expect(scopeTrigger()).toBeTruthy();
   });
 
   it("Resident settings is the welcome message, scoped by the Property bar", async () => {
     stubFetch();
     render(
-      <ResidentSettingsPanel
-        propertyOptions={PROPERTY_OPTIONS}
-        selectedPropertyId="prop-1"
-        onPropertyIdChange={() => {}}
-        area="household"
-        onAreaChange={() => {}}
-        teamMembers={[]}
-      />,
+      <SharedPropertyScope>
+        <ResidentSettingsPanel
+          propertyOptions={PROPERTY_OPTIONS}
+          selectedPropertyId="prop-1"
+          onPropertyIdChange={() => {}}
+          area="household"
+          onAreaChange={() => {}}
+          teamMembers={[]}
+        />
+      </SharedPropertyScope>,
     );
     expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    expect(scopeTrigger().textContent).toContain("All properties");
     expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
     expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();

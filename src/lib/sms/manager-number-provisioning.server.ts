@@ -19,6 +19,7 @@ import {
   type ProvisionState,
   type RegistrationState,
 } from "@/lib/sms/number-registration-policy";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 /**
  * Per-manager SMS number provisioning + registration state machine (server).
@@ -192,6 +193,14 @@ export async function provisionManagerNumber(
 ): Promise<ProvisionResult> {
   const id = managerUserId.trim();
   if (!id) return { ok: false, error: "Missing manager id.", state: "failed" };
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: id,
+    kind: "provisioning",
+    summary: "Work-number provisioning refused for a test workspace.",
+    db,
+  })).captured) {
+    return { ok: false, error: "test_workspace_provider_disabled", state: "failed" };
+  }
 
   // One work number per WORKSPACE, bought only by its owner. With a workspace
   // named, ownership is re-derived from the workspace row — never from the

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import posthog from "posthog-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { clearPrivateTestWorkspaceListings } from "@/lib/demo-property-pipeline";
 
 type PortalSignOutButtonProps = {
   className?: string;
@@ -31,6 +32,7 @@ export function PortalSignOutButton({ className, onSignedOut, dataAttr }: Portal
       } catch {
         /* ignore — server route already cleared session */
       }
+      clearPrivateTestWorkspaceListings();
       onSignedOut?.();
       router.push("/auth/sign-in");
       router.refresh();

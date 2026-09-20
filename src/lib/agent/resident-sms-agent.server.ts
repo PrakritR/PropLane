@@ -101,9 +101,10 @@ export async function runResidentSmsAgentTurn(
   args: {
     ctx: ResidentAgentContext;
     ownerManagerUserId: string;
-    residentPhoneE164: string;
+    residentPhoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
+    testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null; targetListingId: string };
   },
 ): Promise<ResidentSmsTurn | null> {
   if (args.ctx.activeManagerId !== args.ownerManagerUserId) {
@@ -121,6 +122,7 @@ export async function runResidentSmsAgentTurn(
     phoneE164: args.residentPhoneE164,
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
+    testActor: args.testActor ? { ...args.testActor, mode: "resident" } : undefined,
     precomputedReply:
       referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
         ? referenceResolution.message

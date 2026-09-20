@@ -10,10 +10,11 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
  *    so the emailed link matches the one already shown on the finish screen.
  */
 
-const { ensureMock, serviceRows, smsMock } = vi.hoisted(() => ({
+const { ensureMock, serviceRows, smsMock, workspaceClassification } = vi.hoisted(() => ({
   ensureMock: vi.fn(),
   serviceRows: [] as Array<{ id: string; resident_email: string; row_data: unknown; manager_user_id: string | null }>,
   smsMock: vi.fn(),
+  workspaceClassification: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/resident-setup-token", async (importOriginal) => {
@@ -25,12 +26,22 @@ vi.mock("@/lib/application-lifecycle-sms.server", () => ({
   notifyApplicantApplicationSms: smsMock,
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceRequestScope: vi.fn(async () => ({ kind: "normal" })),
+  resolveTestWorkspaceClassification: workspaceClassification,
+}));
+
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: (table: string) => {
       if (table === "manager_application_records") {
         return {
           select: () => ({ in: () => Promise.resolve({ data: serviceRows, error: null }) }),
+        };
+      }
+      if (table === "test_workspace_members") {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }),
         };
       }
       throw new Error(`unexpected table ${table}`);
@@ -72,6 +83,7 @@ describe("POST /api/portal/send-application-submitted — setup handoff", () => 
     ensureMock.mockReset();
     smsMock.mockReset();
     smsMock.mockResolvedValue({ sent: true, accepted: true });
+    workspaceClassification.mockResolvedValue({ kind: "normal" });
     serviceRows.length = 0;
     vi.stubEnv("RESEND_API_KEY", "");
   });
@@ -137,6 +149,23 @@ describe("POST /api/portal/send-application-submitted — setup handoff", () => 
     const res = await POST(post({ email: row.email, axisId: row.id, setupToken: token }));
 
     expect(res.status).toBe(503);
+    expect(smsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a legacy untagged application owned by a classified manager before setup mutation", async () => {
+    const { row } = attachResidentSetupToken(baseRow());
+    serviceRows.push({ id: row.id, resident_email: row.email!, row_data: row, manager_user_id: "private-manager" });
+    workspaceClassification.mockResolvedValue({
+      kind: "classified",
+      workspaceId: "workspace-a",
+      role: "manager",
+      state: "active",
+    });
+
+    const res = await POST(post({ email: row.email, axisId: row.id, includeSetupHandoff: true }));
+
+    expect(res.status).toBe(403);
+    expect(ensureMock).not.toHaveBeenCalled();
     expect(smsMock).not.toHaveBeenCalled();
   });
 });

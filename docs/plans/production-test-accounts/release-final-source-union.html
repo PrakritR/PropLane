@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Final release source union</title>
+<style>body{max-width:1000px;margin:36px auto;padding:0 24px;font:16px/1.55 system-ui;color:#172331}table{border-collapse:collapse;width:100%;margin:14px 0}td,th{border:1px solid #ccd3da;padding:10px;text-align:left;vertical-align:top}.ok{color:#126b37}.open{color:#9b241b}.note{background:#eef5ff;padding:14px}code{overflow-wrap:anywhere}li{margin:.55rem 0}a{color:#145f9b}</style></head>
+<body><h1>Final release source union</h1>
+<p class="note"><strong>Current complete candidate inventory, refreshed 19 September 2026.</strong> The machine-readable manifest covers all 417 tracked workflow, source, test, release-script and SQL paths changed from the fixed base. Human review and evidence documents remain outside the code-review manifest.</p>
+<h2>Identity and coverage</h2>
+<table>
+<tr><th>Branch / fixed base</th><td><code>akhil/test-workspace-release-20260919</code> / <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code></td></tr>
+<tr><th>Current pushed keeper</th><td><code>7166e901ac34a777d7c4060c4feedd94dd6ec1fe</code></td></tr>
+<tr><th>Compiled application freeze</th><td><code>235bc7fc516a6589de068b0abd75948764f418b3</code>; exact-head build-only CI <code>35462131960</code> succeeded. The two later commits change only reviewed E2E tests and review evidence.</td></tr>
+<tr><th>Manifest</th><td><code>docs/plans/production-test-accounts/release-final-source-union.json</code></td></tr>
+<tr><th>Manifest SHA-256</th><td><code>98cbe33c151a04c840518b87b7e381e3c370f082b75a0d8e8827e62153e2bb33</code></td></tr>
+<tr><th>Composition</th><td>250 <code>src/</code>, 146 <code>tests/</code>, 10 <code>scripts/</code>, 10 <code>supabase/</code>, and one workflow file; 417 total.</td></tr>
+</table>
+<p class="ok">A fresh filesystem audit compared the manifest with every current changed path under <code>.github/</code>, <code>src/</code>, <code>tests/</code>, <code>scripts/</code> and <code>supabase/</code>. It found zero omitted paths, zero extra paths, zero missing files and zero hash mismatches.</p>
+<h2>Review closure</h2>
+<ul>
+<li>The prior 396-file candidate received independent full security and correctness review: <a href="../../security/2026-09-19-test-workspace-final-396-security.html">security report</a> (<code>d8d03941…</code>) and <a href="../../security/2026-09-19-test-workspace-final-396-bugbot.html">correctness report</a> (<code>e8610b48…</code>).</li>
+<li>The encrypted local-QA artifact, server import boundary, combined database rehearsal and guarded TLS apply transport have separate exact-source reviews: <a href="../../security/2026-09-19-encrypted-qa-ci-fresh-review.html">artifact</a>, <a href="../../security/2026-09-19-test-workspace-server-boundary-review.html">server boundary</a>, <a href="../../security/2026-09-19-test-workspace-combined-rehearsal-review.html">rehearsal</a>, and <a href="../../security/2026-09-19-test-workspace-apply-transport-review.html">transport</a>.</li>
+<li>The listing-close request attribution and shared trusted Pacific clock corrections received exact scoped review: <a href="../../security/2026-09-19-listing-close-save-test-review.html">listing test</a> and <a href="../../security/2026-09-19-sms-trusted-clock-review.html">SMS clock</a>.</li>
+<li>The final seven-file application correction received fresh review in <a href="../../security/2026-09-19-sms-test-manager-scope-resident-links-review.html">manager scope and resident links review</a> (SHA-256 <code>fdfbeca88e475d82722b6448ff580d648b2ce64dfd4a8042adcc83df45513ecd</code>). It keeps co-manager SMS reads within the accepted account link, exact private workspace, property and module grants; rejects cross-workspace fallback; preserves ordinary carrier behavior; and makes resident links deployment-relative only inside an authenticated classified SMS-test context.</li>
+<li>The final five evidence-based E2E corrections received fresh review in <a href="../../security/2026-09-19-e2e-current-ui-auth-overflow-review.html">current UI, auth and overflow review</a> (SHA-256 <code>0fcf7fcf2668b568cdc3d95e5236cc40040b0d4d37351dba03d0f20a524dc093</code>). Current public copy and guest-tour gates are asserted, resident cases establish fresh authenticated sessions, and the viewport helper retries only recognized navigation-context loss while persistent overflow still fails.</li>
+<li>The final approved-but-unsigned fixture correction received fresh review in <a href="../../security/2026-09-19-resident-pre-lease-e2e-review.html">resident pre-lease E2E review</a> (SHA-256 <code>943a8fc4f21733c720bbd817a64bd08d9c8f5383cbe1d8b692cb992afed3f0e5</code>). Accessible pre-lease routes still require their intended URL and content, while My home, Services and the legacy Services path require the dashboard redirect and visible signed-lease lock reason.</li>
+</ul>
+<h2>Validation represented by this union</h2>
+<ul>
+<li>Full CI at the preceding application freeze passed lint, integration, all 1,755 unit files / 12,225 cases, and the actual Next build. The final app correction passed 60/60 plus 13/13 focused cases and scoped lint. Build-only CI <code>35462131960</code> then built, encrypted and uploaded the exact <code>235bc7fc</code> application bytes successfully.</li>
+<li>Compiled DEV browser QA on those bytes confirms the corrected co-manager sees the one assigned pending application; a new resident test reply in the existing SMS-test session generates and opens a same-deployment resident-application link despite the older production-link history; and the trusted “tomorrow” calendar preview resolves to September 20 Pacific and cancels cleanly. The billing denial is limited evidence because the co-manager fixture has no charges. The current-only focused browser failures are closed: the combined run retained 23 passes, the private-manager listing rerun passed 4/4 including setup, and the approved-resident pre-lease suite passed 13/13 including setup. These counts include separate setup cases and are not summed as unique product assertions.</li>
+<li>Staging prerequisite and ten-feature migration bundles were applied and freshly verified through the reviewed transport after immutable backups and both-target local rehearsals. Verified-TLS parity passed. Production database and application remain unchanged.</li>
+</ul>
+<h2>Open release gates</h2>
+<p class="open">Deploy this exact application candidate to staging, create only synthetic staging QA records through authorized product paths, and complete staging browser QA. Production then requires fresh guarded baseline and feature artifacts, explicit bounded apply, the fast-forward branch ladder, deployment verification and iOS verification.</p>
+<p class="open"><strong>No production operator identity is known or selected.</strong> Akhil's production operator account email remains required. Do not infer it from DEV, staging, fixtures or repository history.</p>
+<p>This inventory proves exact review coverage. It does not authorize a database apply, account mutation, branch promotion or deployment.</p>
+</body></html>

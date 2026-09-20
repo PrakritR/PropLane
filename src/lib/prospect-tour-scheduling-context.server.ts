@@ -14,6 +14,10 @@ export type ProspectTourSchedulingContext = {
 
 type ToolEvidence = { tool: string; input: unknown; output: unknown };
 
+type ProspectTourSchedulingIdentity =
+  | { trustedPhoneE164: string; testActorUserId?: never; testSessionId?: never }
+  | { trustedPhoneE164?: never; testActorUserId: string; testSessionId: string };
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
@@ -63,6 +67,10 @@ function extractUpdate(evidence: readonly ToolEvidence[], trustedInboundText?: s
       roomId = text(input?.roomId) ?? roomId;
       contactName = text(input?.name) ?? contactName;
       contactEmail = text(input?.email) ?? contactEmail;
+      // A later exact offer replaces a broad availability search. The merge
+      // RPC treats null constraints as contact-only, preserving the prepared
+      // offer instead of downgrading it back to collecting.
+      if (item.tool === "prepare_prospect_tour_confirmation") constraints = null;
     }
   }
   const parsed = inboundContact(trustedInboundText);
@@ -117,11 +125,10 @@ export async function persistProspectTourSchedulingContext(
   args: {
     managerUserId: string;
     conversationKey: string;
-    trustedPhoneE164: string;
     evidence: readonly ToolEvidence[];
     trustedInboundText?: string;
     burst?: { id: string; revision: number; workerId: string };
-  },
+  } & ProspectTourSchedulingIdentity,
 ): Promise<ProspectTourSchedulingContext | null> {
   const update = extractUpdate(args.evidence, args.trustedInboundText);
   if (!update.propertyId && !update.roomId && !update.contactName && !update.contactEmail && !update.constraints) return null;
@@ -130,19 +137,28 @@ export async function persistProspectTourSchedulingContext(
     // The database validates and locks the exact current burst lease, selects
     // a contact-only reply's sole active property, invalidates corrections,
     // and merges without ever downgrading a terminal state.
-    const { data, error } = await db.rpc("merge_prospect_sms_tour_context", {
-      p_manager_user_id: args.managerUserId,
-      p_conversation_key: args.conversationKey,
-      p_trusted_phone_e164: args.trustedPhoneE164,
-      p_property_id: update.propertyId,
-      p_room_id: update.roomId,
-      p_contact_name: update.contactName,
-      p_contact_email: update.contactEmail,
-      p_constraints: update.constraints,
-      p_burst_id: args.burst.id,
-      p_burst_revision: args.burst.revision,
-      p_worker_id: args.burst.workerId,
-    });
+    const identityArgs = args.testActorUserId
+      ? {
+          p_test_actor_user_id: args.testActorUserId,
+          p_test_session_id: args.testSessionId,
+        }
+      : { p_trusted_phone_e164: args.trustedPhoneE164 };
+    const { data, error } = await db.rpc(
+      args.testActorUserId ? "merge_authenticated_sms_test_tour_context" : "merge_prospect_sms_tour_context",
+      {
+        p_manager_user_id: args.managerUserId,
+        p_conversation_key: args.conversationKey,
+        ...identityArgs,
+        p_property_id: update.propertyId,
+        p_room_id: update.roomId,
+        p_contact_name: update.contactName,
+        p_contact_email: update.contactEmail,
+        p_constraints: update.constraints,
+        p_burst_id: args.burst.id,
+        p_burst_revision: args.burst.revision,
+        p_worker_id: args.burst.workerId,
+      },
+    );
     if (error || (data as { ok?: unknown } | null)?.ok !== true) return null;
     return loadProspectTourSchedulingContext(db, args);
   } catch {

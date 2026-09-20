@@ -23,6 +23,7 @@ import {
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 const HORIZON_DAYS = 31;
 /** Ceiling on rows examined per sweep, so one tick can never run unbounded. */
@@ -107,6 +108,7 @@ async function sweepRecordTable(
 
   let queued = 0;
   for (const row of rows) {
+    if (hasSmsTestProvenance(row.row_data)) continue;
     const settings: ReminderSettings | undefined = settingsByManager.get(row.manager_user_id);
     if (!settings?.rules[kind]?.enabled) continue;
     const managerRecipient = managerRecipients.get(row.manager_user_id);

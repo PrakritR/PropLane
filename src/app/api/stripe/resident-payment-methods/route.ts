@@ -8,6 +8,10 @@ import {
 } from "@/lib/stripe-resident-customer";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  assertTestWorkspaceProviderEffectAllowed,
+  TestWorkspaceProviderDisabledError,
+} from "@/lib/test-workspaces/effects.server";
 
 export const runtime = "nodejs";
 
@@ -26,6 +30,12 @@ export async function GET() {
     }
 
     const db = createSupabaseServiceRoleClient();
+    await assertTestWorkspaceProviderEffectAllowed({
+      userId: user.id,
+      kind: "payment",
+      summary: "Saved payment method access refused for a test workspace.",
+      db,
+    });
     const { data: profile } = await db
       .from("profiles")
       .select("stripe_customer_id, full_name, role")
@@ -41,6 +51,9 @@ export async function GET() {
     const methods = await listResidentSavedPaymentMethods(stripe, customerId);
     return NextResponse.json({ methods });
   } catch (e) {
+    if (e instanceof TestWorkspaceProviderDisabledError) {
+      return NextResponse.json({ error: "Payments are unavailable for test accounts." }, { status: 403 });
+    }
     const message = e instanceof Error ? e.message : "Failed to load payment methods.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -68,6 +81,12 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    await assertTestWorkspaceProviderEffectAllowed({
+      userId: user.id,
+      kind: "payment",
+      summary: "Saved payment method setup refused for a test workspace.",
+      db,
+    });
     const { data: profile } = await db
       .from("profiles")
       .select("full_name")
@@ -107,6 +126,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ clientSecret: session.client_secret, kind });
   } catch (e) {
+    if (e instanceof TestWorkspaceProviderDisabledError) {
+      return NextResponse.json({ error: "Payments are unavailable for test accounts." }, { status: 403 });
+    }
     const message = e instanceof Error ? e.message : "Could not start payment method setup.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -133,6 +155,12 @@ export async function PATCH(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    await assertTestWorkspaceProviderEffectAllowed({
+      userId: user.id,
+      kind: "payment",
+      summary: "Saved payment method update refused for a test workspace.",
+      db,
+    });
     const { data: profile } = await db
       .from("profiles")
       .select("stripe_customer_id")
@@ -149,6 +177,9 @@ export async function PATCH(req: Request) {
     const methods = await listResidentSavedPaymentMethods(stripe, customerId);
     return NextResponse.json({ methods });
   } catch (e) {
+    if (e instanceof TestWorkspaceProviderDisabledError) {
+      return NextResponse.json({ error: "Payments are unavailable for test accounts." }, { status: 403 });
+    }
     const message = e instanceof Error ? e.message : "Could not set default payment method.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

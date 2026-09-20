@@ -10,6 +10,7 @@ import { residentBelongsToManager } from "@/lib/resident-manager-scope";
 import { buildResidentWorkOrderReminderEmail } from "@/lib/resident-work-order-reminder-email";
 import { RESIDENT_WORK_ORDER_REMINDER_COOLDOWN_MS } from "@/lib/resident-work-order-reminder-email";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -124,7 +125,7 @@ export async function deliverResidentWorkOrderReminder(
       resident_email: recordEmail,
       property_id: rowData.propertyId || null,
       assigned_property_id: rowData.assignedPropertyId || null,
-      row_data: nextRow,
+      row_data: stampSmsTestProvenance(nextRow as unknown as Record<string, unknown>),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },

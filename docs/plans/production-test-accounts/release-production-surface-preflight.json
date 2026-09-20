@@ -1,0 +1,23 @@
+{
+  "project": "qahnczmilgptcedaqype",
+  "views": [],
+  "graphql": [
+    {
+      "anon": true,
+      "signature": "graphql_public.graphql(text,text,jsonb,jsonb)",
+      "authenticated": true,
+      "security_definer": false
+    }
+  ],
+  "read_only": "on",
+  "existing_test_columns": 0,
+  "exposed_schemas_probe": {
+    "status": 406,
+    "code": "PGRST106",
+    "details": null,
+    "hint": "Only the following schemas are exposed: public, graphql_public",
+    "message": "Invalid schema: proplane_release_invalid_schema"
+  },
+  "pending_action_backfill_expected_rows": 0,
+  "backfill_reason": "Both session source columns absent before immutable first migration adds nullable columns; no nonnull test identity can match backfill in fresh atomic install"
+}

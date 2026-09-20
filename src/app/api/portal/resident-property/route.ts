@@ -7,6 +7,10 @@ import {
 import { pickPrimaryFilingScope } from "@/lib/resident-filing-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  resolveAuthenticatedBusinessAccess,
+  resolveTestWorkspaceClassification,
+} from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -61,16 +65,24 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    const businessAccess = await resolveAuthenticatedBusinessAccess(user.id, db);
+    if (businessAccess.kind === "denied") {
+      return NextResponse.json({ error: "Property access is unavailable for this account." }, { status: 403 });
+    }
     const { data: profile } = await db.from("profiles").select("email").eq("id", user.id).maybeSingle();
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
     if (!email) return NextResponse.json({ error: "No email on file." }, { status: 400 });
 
-    const { data: appRows, error: appError } = await db
+    let applicationsQuery = db
       .from("manager_application_records")
-      .select("manager_user_id, property_id, assigned_property_id, row_data, updated_at")
+      .select("manager_user_id, property_id, assigned_property_id, row_data, updated_at, test_workspace_id")
       .eq("resident_email", email)
       .order("updated_at", { ascending: false })
       .limit(50);
+    applicationsQuery = businessAccess.kind === "test"
+      ? applicationsQuery.eq("test_workspace_id", businessAccess.workspaceId)
+      : applicationsQuery.is("test_workspace_id", null);
+    const { data: appRows, error: appError } = await applicationsQuery;
     if (appError) return NextResponse.json({ error: appError.message }, { status: 500 });
 
     const rows = appRows ?? [];
@@ -90,18 +102,30 @@ export async function GET() {
       })
       .filter((c): c is NonNullable<typeof c> => Boolean(c?.managerUserId && c.propertyId));
 
-    const primary = pickPrimaryFilingScope(candidates);
+    const compatibleCandidates = [] as typeof candidates;
+    for (const candidate of candidates) {
+      const manager = await resolveTestWorkspaceClassification(candidate.managerUserId, db);
+      const compatible = businessAccess.kind === "test"
+        ? manager.kind === "classified" && manager.workspaceId === businessAccess.workspaceId && manager.state === "active"
+        : manager.kind === "normal";
+      if (compatible) compatibleCandidates.push(candidate);
+    }
+    const primary = pickPrimaryFilingScope(compatibleCandidates);
     if (!primary) {
       return NextResponse.json({ error: "No property linked to this resident." }, { status: 404 });
     }
     const propertyId = primary.propertyId;
     const managerUserId = primary.managerUserId;
 
-    const { data: propRecord, error: propError } = await db
+    let propertyQuery = db
       .from("manager_property_records")
-      .select("id, property_data, status")
+      .select("id, manager_user_id, property_data, status, test_workspace_id")
       .eq("id", propertyId)
-      .maybeSingle();
+      .eq("manager_user_id", managerUserId);
+    propertyQuery = businessAccess.kind === "test"
+      ? propertyQuery.eq("test_workspace_id", businessAccess.workspaceId)
+      : propertyQuery.is("test_workspace_id", null);
+    const { data: propRecord, error: propError } = await propertyQuery.maybeSingle();
     if (propError) return NextResponse.json({ error: propError.message }, { status: 500 });
 
     let property = propRecord ? asProperty(propRecord.property_data, propRecord.id) : null;
@@ -110,11 +134,15 @@ export async function GET() {
     // Pending/draft listings sometimes live under a different id — soft-match by scanning
     // this manager's properties when the exact id miss fires (id formatting drift).
     if (!property && managerUserId) {
-      const { data: managerProps } = await db
+      let managerPropertiesQuery = db
         .from("manager_property_records")
-        .select("id, property_data, status")
+        .select("id, manager_user_id, property_data, status, test_workspace_id")
         .eq("manager_user_id", managerUserId)
         .limit(100);
+      managerPropertiesQuery = businessAccess.kind === "test"
+        ? managerPropertiesQuery.eq("test_workspace_id", businessAccess.workspaceId)
+        : managerPropertiesQuery.is("test_workspace_id", null);
+      const { data: managerProps } = await managerPropertiesQuery;
       const token = propertyId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80).toLowerCase();
       const match = (managerProps ?? []).find((row) => {
         const id = String(row.id ?? "").trim();

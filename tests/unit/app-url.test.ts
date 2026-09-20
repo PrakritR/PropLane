@@ -1,6 +1,51 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { leadInviteAppOrigin } from "@/lib/lead-invite.server";
-import { resolveAppOrigin, resolveEmailLinkBaseUrl, resolveShareableAppOrigin } from "@/lib/app-url";
+import {
+  resolveAppOrigin,
+  resolveEmailLinkBaseUrl,
+  resolveShareableAppOrigin,
+  resolveSmsTestAppOrigin,
+} from "@/lib/app-url";
+
+describe("resolveSmsTestAppOrigin", () => {
+  it("pins local compiled QA to the reserved origin", () => {
+    expect(resolveSmsTestAppOrigin({
+      VERCEL_ENV: "development",
+      NEXT_PUBLIC_APP_URL: "http://localhost:3010",
+    } as NodeJS.ProcessEnv)).toBe("http://localhost:3010");
+
+    for (const NEXT_PUBLIC_APP_URL of [
+      "http://localhost:3000",
+      "http://localhost:3011",
+      "https://attacker.example",
+    ]) {
+      expect(() => resolveSmsTestAppOrigin({
+        VERCEL_ENV: "development",
+        NEXT_PUBLIC_APP_URL,
+      } as NodeJS.ProcessEnv)).toThrow("unavailable");
+    }
+  });
+
+  it("uses trusted preview deployment configuration without consulting request hosts", () => {
+    expect(resolveSmsTestAppOrigin({
+      VERCEL_ENV: "preview",
+      VERCEL_BRANCH_URL: "proplane-git-staging.example.vercel.app",
+      VERCEL_URL: "untrusted-request-host.example",
+      NEXT_PUBLIC_APP_URL: "https://prop-lane.space",
+    } as NodeJS.ProcessEnv)).toBe("https://proplane-git-staging.example.vercel.app");
+  });
+
+  it("requires HTTPS for preview and keeps production canonical", () => {
+    expect(() => resolveSmsTestAppOrigin({
+      VERCEL_ENV: "preview",
+      NEXT_PUBLIC_APP_URL: "http://localhost:3010",
+    } as NodeJS.ProcessEnv)).toThrow("unavailable");
+    expect(resolveSmsTestAppOrigin({
+      VERCEL_ENV: "production",
+      NEXT_PUBLIC_APP_URL: "https://attacker.example",
+    } as NodeJS.ProcessEnv)).toBe("https://prop-lane.space");
+  });
+});
 
 describe("resolveShareableAppOrigin", () => {
   const prevCanonical = process.env.NEXT_PUBLIC_CANONICAL_APP_URL;

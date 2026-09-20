@@ -4,6 +4,7 @@ import { purgeManagerResidentOrphans } from "@/lib/auth/purge-manager-resident-o
 import { purgeOrphanedPortalRecords } from "@/lib/auth/purge-orphaned-portal-records";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Portal access is unavailable for this account." }, { status: 403 });
+    }
     const [{ data: profile }, admin] = await Promise.all([
       db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
       isAdminUser(user.id),

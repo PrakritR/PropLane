@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
+import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 
 export type ManagerBillingIdentity = {
   customerId: string | null;
@@ -18,6 +19,12 @@ export async function loadManagerBillingIdentity(
   db: SupabaseClient,
   owner: string,
 ): Promise<ManagerBillingIdentity> {
+  await assertTestWorkspaceProviderEffectAllowed({
+    userId: owner,
+    kind: "payment",
+    summary: "Stripe billing access refused for a test workspace.",
+    db,
+  });
   // Financial credentials must be linked to the authenticated user id. Plan
   // recovery's email fallback is deliberately not an authorization source.
   const { data: purchases, error: purchaseError } = await db

@@ -30,6 +30,7 @@ import {
 } from "@/lib/security/application-document-crypto.server";
 import { APPLICATION_DOCUMENT_ENCRYPTED_SUFFIX } from "@/lib/security/application-document-format";
 import { resolveApplicationDocumentStoragePath } from "@/lib/security/application-document-aliases.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,7 @@ async function resolveSession(db: ServiceClient): Promise<ResolvedSession> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { kind: "none" };
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return { kind: "none" };
   if (await isAdminUser(user.id)) return { kind: "admin" };
   const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
   const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();

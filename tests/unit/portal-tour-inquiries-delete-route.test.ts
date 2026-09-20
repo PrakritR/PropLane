@@ -15,6 +15,9 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => makeServiceClient(),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 
 import { POST as deleteTourInquiry } from "@/app/api/portal-tour-inquiries/delete/route";
 import { notifyTenantTourRequestRemoved } from "@/lib/tour-notification-delivery.server";

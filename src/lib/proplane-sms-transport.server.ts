@@ -19,12 +19,13 @@ import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registration-policy";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 export type { SmsSendClass };
 
 export type PropLaneSmsResult = {
   ok: boolean;
-  channel?: "twilio" | "claw";
+  channel?: "twilio" | "claw" | "in_app_test";
   sid?: string;
   error?: string;
   /** Durable managed outbox handoff. Once present, the outbox owns retries. */
@@ -148,6 +149,23 @@ export async function sendPropLaneSms(args: {
 }): Promise<PropLaneSmsResult> {
   const text = args.text.trim();
   if (!text) return { ok: false, error: "empty_body" };
+  if (captureSmsTestDelivery({
+    kind: "sms",
+    summary: "SMS delivery captured in the test conversation.",
+    status: "captured",
+    metadata: {
+      purpose: args.purpose?.trim() || "unspecified",
+      sendClass: args.sendClass ?? "transactional",
+    },
+  })) {
+    return {
+      ok: true,
+      channel: "in_app_test",
+      sid: "in_app_test",
+      outboxStatus: "captured",
+      durablyAccepted: true,
+    };
+  }
   const to = normalizeTo(args.to);
   if (!to) return { ok: false, error: "invalid_to" };
 

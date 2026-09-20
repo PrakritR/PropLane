@@ -122,6 +122,26 @@ describe("filterRecipientsBySenderScope", () => {
     expect(res.blocked.map((r) => r.email)).toEqual(["random-manager@example.com"]);
   });
 
+  it("blocks an otherwise linked peer from a different durable test workspace", async () => {
+    const db = makeDb({
+      account_link_invites: [{ inviter_user_id: "mgr_1", invitee_user_id: "mgr_2", status: "accepted" }],
+      profiles: [{ id: "mgr_2", email: "partner@example.com" }],
+      test_workspace_members: [
+        { user_id: "mgr_1", workspace_id: "workspace-a", portal_role: "manager", state: "active", expires_at: null, workspace: { status: "active" } },
+        { user_id: "mgr_2", workspace_id: "workspace-b", portal_role: "co_manager", state: "active", expires_at: null, workspace: { status: "active" } },
+      ],
+    });
+
+    const result = await filterRecipientsBySenderScope(
+      db,
+      { id: "mgr_1", email: "mgr@example.com", role: "manager", isAdmin: false },
+      [{ email: "partner@example.com", userId: "mgr_2" }],
+    );
+
+    expect(result.allowed).toEqual([]);
+    expect(result.blocked).toEqual([{ email: "partner@example.com", userId: "mgr_2" }]);
+  });
+
   it("resident may message their manager, co-manager, housemate, and admin — not arbitrary people", async () => {
     const db = makeDb({
       manager_application_records: [

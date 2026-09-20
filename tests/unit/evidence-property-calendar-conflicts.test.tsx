@@ -8,8 +8,8 @@
 //
 // This renders the REAL availability modal against a stubbed
 // `/api/portal/google-calendar/events` and counts the blocked cells on the grid.
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startOfWeekMonday } from "@/lib/demo-admin-scheduling";

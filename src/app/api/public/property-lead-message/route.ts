@@ -24,6 +24,7 @@ async function resolveManagerForProperty(propertyId: string): Promise<{
     .from("manager_property_records")
     .select("id, manager_user_id, property_data, row_data, status")
     .eq("id", propertyId)
+    .is("test_workspace_id", null)
     .maybeSingle();
 
   if (!data) {

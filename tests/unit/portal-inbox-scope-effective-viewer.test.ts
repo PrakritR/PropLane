@@ -22,6 +22,10 @@ vi.mock("@/lib/auth/admin-preview", () => ({
 vi.mock("@/lib/auth/effective-session", () => ({
   getEffectiveUserIdForPortal: state.effective,
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+  assertTestWorkspacePrincipalCompatibility: vi.fn(async () => undefined),
+}));
 
 const db = {
   from: vi.fn((table: string) => {

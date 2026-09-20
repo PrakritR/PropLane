@@ -6,6 +6,7 @@
  * row carries a real consequence line via `PortalSettingsRow`'s `meta` prop.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState, type ReactNode } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
@@ -29,6 +30,31 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 
 import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
+
+function ScopedTourSettings({ children }: { children: ReactNode }) {
+  const [propertyId, setPropertyId] = useState("");
+  return (
+    <SettingsPropertyScopeProvider
+      propertyId={propertyId}
+      onPropertyIdChange={setPropertyId}
+      options={[{ id: "prop-1", label: "Ballard House" }]}
+    >
+      <SettingsPropertyScopeBar />
+      <output data-testid="tour-settings-scope">{propertyId || "workspace"}</output>
+      {children}
+    </SettingsPropertyScopeProvider>
+  );
+}
+
+function scopeTrigger(): HTMLButtonElement {
+  const trigger = document.querySelector('[data-attr="settings-property-scope"]');
+  if (!(trigger instanceof HTMLButtonElement)) throw new Error("Expected the shared Property scope control.");
+  return trigger;
+}
 
 function stubFetch(overrides?: { tourNoticeDays?: number; proposeTourConfirmations?: boolean }) {
   vi.stubGlobal(
@@ -122,14 +148,17 @@ describe("TourSettingsPanel redraw", () => {
     expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
-  it("leaves property scope to the shared bar instead of duplicating it in sections", async () => {
+  it("keeps Booking and Reminders under a selectable shared Property scope", async () => {
     stubFetch();
-    render(<TourSettingsPanel />);
+    render(<ScopedTourSettings><TourSettingsPanel /></ScopedTourSettings>);
     await screen.findByText("Notice required");
-
-    // Scope is provided once by the shared settings property bar; section
-    // headers do not duplicate the picker/tag.
-    expect(screen.queryByText("All properties")).toBeNull();
     expect(screen.getByText("Booking")).toBeTruthy();
+    expect(screen.getByText("Reminders")).toBeTruthy();
+    expect(scopeTrigger().textContent).toContain("All properties");
+
+    await userEvent.click(scopeTrigger());
+    await userEvent.click(await screen.findByRole("option", { name: "Ballard House" }));
+    expect(screen.getByTestId("tour-settings-scope").textContent).toBe("prop-1");
+    expect(scopeTrigger().textContent).toContain("Ballard House");
   });
 });

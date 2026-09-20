@@ -29,6 +29,7 @@ import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-lab
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { mintOpenCoManagerInvite } from "@/lib/co-manager-open-invite.server";
 import { resolveRequestOrigin } from "@/lib/app-url";
+import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import {
@@ -454,6 +455,15 @@ export async function POST(req: Request) {
     const inviteeEmail = String(inviteeProfile.email ?? "").trim();
     if (isCrossSandboxPortalPair(inviterEmail, inviteeEmail)) {
       return NextResponse.json({ error: CROSS_SANDBOX_PORTAL_PAIR_ERROR }, { status: 400 });
+    }
+    try {
+      await assertTestWorkspacePrincipalCompatibility({
+        actorUserId: inviterUserId,
+        relatedUserIds: [inviteeProfile.id],
+        db: svc,
+      });
+    } catch {
+      return NextResponse.json({ error: "Co-managers must belong to the same workspace." }, { status: 400 });
     }
 
     const { data: existingLink, error: existingErr } = await svc

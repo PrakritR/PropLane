@@ -1169,7 +1169,8 @@ function leasePipelineSessionKey(scopeUserId?: string | null): string {
 }
 
 function ensureLeasePipelineScope(scopeUserId?: string | null) {
-  const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? portalSessionViewerId() ?? undefined;
+  const explicitScope = scopeUserId?.trim() || null;
+  const nextScope = isDemoModeActive() ? undefined : explicitScope ?? portalSessionViewerId() ?? undefined;
   if (activeLeasePipelineScopeUserId !== nextScope) {
     activeLeasePipelineScopeUserId = nextScope;
     leaseScopeGeneration++;

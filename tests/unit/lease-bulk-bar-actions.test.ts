@@ -25,6 +25,9 @@ describe("leases list bulk bar mirrors detail footer actions", () => {
     expect(PANEL).toContain("onNewTerms={() => setAmendLeaseRow(row)}");
     expect(PANEL).toContain("renew={{");
     expect(PANEL).toContain("renewUrl: \"/api/manager/amend-lease\"");
+    expect(PANEL).toContain('data-attr="leases-bulk-new-terms"');
+    expect(PANEL).toContain("setAmendLeaseRow(bulkRenewalsRow)");
+    expect(PANEL).toContain("New terms");
   });
 
   it("exposes review-import when a row carries an uploaded parse", () => {

@@ -2,6 +2,10 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  lookupRecordTestWorkspaceId,
+  resolveTestWorkspaceClassification,
+} from "@/lib/test-workspaces/index.server";
 
 export type PortalRecordShareKind = "lease" | "application";
 
@@ -66,6 +70,24 @@ export async function createPortalRecordShareLink(
     throw new Error("managerUserId is required for portal_record_share_links");
   }
 
+  // Keep the shared mint helper fail-closed even when a future caller forgets
+  // the route-level gate. Authorization inputs are not provenance: re-derive
+  // the durable owner, creator, and record namespace before issuing a bearer
+  // capability.
+  const createdBy = input.createdBy.trim();
+  const [owner, creator, recordWorkspaceId] = await Promise.all([
+    resolveTestWorkspaceClassification(managerUserId, db),
+    resolveTestWorkspaceClassification(createdBy, db),
+    lookupRecordTestWorkspaceId(
+      input.recordKind === "lease" ? "portal_lease_pipeline_records" : "manager_application_records",
+      input.recordId.trim(),
+      db,
+    ),
+  ]);
+  if (!createdBy || owner.kind === "classified" || creator.kind === "classified" || recordWorkspaceId) {
+    throw new Error("Public share links are unavailable for this record.");
+  }
+
   const { data, error } = await db
     .from("portal_record_share_links")
     .insert({
@@ -74,7 +96,7 @@ export async function createPortalRecordShareLink(
       manager_user_id: managerUserId,
       share_token: shareToken,
       expires_at: expiresAt,
-      created_by: input.createdBy,
+      created_by: createdBy,
     })
     .select("id, record_kind, record_id, share_token, expires_at, created_at, revoked_at, access_count")
     .single();
@@ -108,6 +130,21 @@ export async function resolvePortalRecordShareToken(
 
   if (error || !linkRow) return null;
   if (new Date(String(linkRow.expires_at)).getTime() < Date.now()) return null;
+
+  // A public bearer token must never bridge into a private test namespace,
+  // including a token issued before the account was suspended or the feature
+  // was disabled. Link rows predate durable provenance, so check both stored
+  // principals and the current record rather than trusting the token alone.
+  const [owner, creator, recordWorkspaceId] = await Promise.all([
+    resolveTestWorkspaceClassification(String(linkRow.manager_user_id ?? ""), db),
+    resolveTestWorkspaceClassification(String(linkRow.created_by ?? ""), db),
+    lookupRecordTestWorkspaceId(
+      String(linkRow.record_kind) === "lease" ? "portal_lease_pipeline_records" : "manager_application_records",
+      String(linkRow.record_id ?? ""),
+      db,
+    ),
+  ]);
+  if (owner.kind === "classified" || creator.kind === "classified" || recordWorkspaceId) return null;
 
   await db
     .from("portal_record_share_links")

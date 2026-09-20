@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Dev forward migration verification</title><style>body{max-width:1000px;margin:36px auto;padding:0 20px;font:15px/1.55 system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef1f3;padding:16px}code{background:#eef1f3}</style><h1>Dev forward migration verification</h1><p>Exact target: <code>emstjswhotsnyksqhqyf</code>. Only two reviewer-approved forward migrations were applied. No staging or production mutation occurred. CLI 2.72.7 was reused from its existing cache; no package was installed.</p><h2>Prerequisites</h2><p>The existing isolated CLI workdir /private/tmp/proplane-test-workspace-cli-20260918 was asserted to link to the exact dev project before every command. The migration list confirmed the six earlier task migrations were already applied. Read-only PostgREST limit=0 checks verified current workspace columns without retrieving row data:</p><pre>[
+  {
+    &quot;table&quot;: &quot;portal_workspaces&quot;,
+    &quot;columns&quot;: &quot;id,owner_user_id,is_default,payment_settings&quot;,
+    &quot;status&quot;: 200,
+    &quot;errorCode&quot;: null
+  },
+  {
+    &quot;table&quot;: &quot;manager_sms_numbers&quot;,
+    &quot;columns&quot;: &quot;id,workspace_id&quot;,
+    &quot;status&quot;: 200,
+    &quot;errorCode&quot;: null
+  },
+  {
+    &quot;table&quot;: &quot;manager_assistant_emails&quot;,
+    &quot;columns&quot;: &quot;id,workspace_id&quot;,
+    &quot;status&quot;: 200,
+    &quot;errorCode&quot;: null
+  },
+  {
+    &quot;table&quot;: &quot;account_link_invites&quot;,
+    &quot;columns&quot;: &quot;workspace_id,workspace_permissions&quot;,
+    &quot;status&quot;: 200,
+    &quot;errorCode&quot;: null
+  },
+  {
+    &quot;table&quot;: &quot;manager_invite_links&quot;,
+    &quot;columns&quot;: &quot;workspace_id&quot;,
+    &quot;status&quot;: 200,
+    &quot;errorCode&quot;: null
+  },
+  {
+    &quot;table&quot;: &quot;test_workspace_members&quot;,
+    &quot;columns&quot;: &quot;workspace_id,user_id,state&quot;,
+    &quot;status&quot;: 200,
+    &quot;errorCode&quot;: null
+  }
+]</pre><p>Read-only OpenAPI metadata confirmed the live slice RPC includes p_actor_is_admin, the private slice RPC includes p_workspace_id, authenticated tour context exposes test actor/session arguments, and workspace SMS provisioning exists. This is signature evidence, not a complete function-body/concurrency proof.</p><h2>Reviewed bounded apply</h2><ul><li>20260919113000_reconcile_sms_test_google_cleanup_claim_fence.sql: cdc40f142b47c647e81b50ca66d7b0a1641c9a3907f88f1011a40ca3ef28f722</li><li>20260919120000_harden_test_workspace_schedule_slice.sql: ffef538feb885bfbca0c311e0482572ea81aa12ce86099c15f70204cdca35de5</li></ul><p>Both source hashes matched the independent migration review before copying to the isolated dev history directory. Dry-run output was parsed and required to list exactly these two files before apply. Stale inherited database-password environment variables were removed; PGSSLMODE=require was set for this dev command.</p><pre>supabase migration list --linked --workdir /private/tmp/proplane-test-workspace-cli-20260918
+# exit 0
+supabase db push --dry-run --linked --workdir /private/tmp/proplane-test-workspace-cli-20260918
+# exit 0; exactly the two listed forward fixes
+supabase db push --linked --yes --workdir /private/tmp/proplane-test-workspace-cli-20260918
+# exit 0; both listed migrations applied</pre><h2>Runtime rejection probes</h2><p>Node 22.23.0 sent three invalid-array calls to the namespace slice RPC using freshly generated, uncreated actor/workspace IDs. No global namespace was addressed. Every call rejected before schedule access or mutation:</p><pre>[
+  {
+    &quot;case&quot;: &quot;null submitted events&quot;,
+    &quot;status&quot;: 200,
+    &quot;reason&quot;: &quot;invalid_payload&quot;,
+    &quot;passed&quot;: true
+  },
+  {
+    &quot;case&quot;: &quot;null expected events&quot;,
+    &quot;status&quot;: 200,
+    &quot;reason&quot;: &quot;invalid_payload&quot;,
+    &quot;passed&quot;: true
+  },
+  {
+    &quot;case&quot;: &quot;non-array submitted events&quot;,
+    &quot;status&quot;: 200,
+    &quot;reason&quot;: &quot;invalid_payload&quot;,
+    &quot;passed&quot;: true
+  }
+]</pre><p>No namespace data was written by these rejection probes. This does not establish successful bookings, concurrent cleanup correctness, browser acceptance, or production readiness. Those remain required, as do independent source corrections and broad release gates. Do not reuse this dev apply command as a production release path: production requires its own exact target, backup, reviewed atomic eight-file bundle, and postcondition checks.</p></html>

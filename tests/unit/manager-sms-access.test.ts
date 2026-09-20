@@ -119,6 +119,43 @@ describe("resolveManagerSmsAccess", () => {
     expect(access?.assignedPropertyIds).toEqual([ASSIGNED]);
   });
 
+  it("keeps authenticated SMS-test assignments inside the active test workspace", async () => {
+    const db = seed({
+      account_link_invites: [
+        {
+          id: "link-workspace-a",
+          status: "accepted",
+          inviter_user_id: OWNER,
+          invitee_user_id: CO,
+          assigned_property_ids: [ASSIGNED],
+          test_workspace_id: "workspace-a",
+          property_co_manager_permissions: { [ASSIGNED]: { applications: { read: true } } },
+        },
+        {
+          id: "link-workspace-b",
+          status: "accepted",
+          inviter_user_id: STRANGER,
+          invitee_user_id: CO,
+          assigned_property_ids: [OTHER_PROP],
+          test_workspace_id: "workspace-b",
+          property_co_manager_permissions: { [OTHER_PROP]: { applications: { read: true } } },
+        },
+      ],
+    });
+    const access = await resolveManagerSmsAccess(db, {
+      actorUserId: CO,
+      workNumberOwnerId: CO,
+      testWorkspaceId: "workspace-a",
+    });
+    expect(access).toMatchObject({
+      mode: "combined",
+      dataOwnerIds: [CO, OWNER],
+      assignedPropertyIds: [ASSIGNED],
+    });
+    expect(access?.dataOwnerIds).not.toContain(STRANGER);
+    expect(access?.assignedPropertyIds).not.toContain(OTHER_PROP);
+  });
+
   it("returns delegated only for an accepted assignment from THIS work-number owner", async () => {
     const access = await resolveManagerSmsAccess(seed(), {
       actorUserId: CO,

@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { buildPortalRecordShareUrl } from "@/lib/portal-record-share-links.server";
+const shareBoundaries = vi.hoisted(() => ({
+  classification: vi.fn(),
+  recordWorkspace: vi.fn(),
+}));
+
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceClassification: shareBoundaries.classification,
+  lookupRecordTestWorkspaceId: shareBoundaries.recordWorkspace,
+}));
+
+import { buildPortalRecordShareUrl, createPortalRecordShareLink } from "@/lib/portal-record-share-links.server";
 import { isSafeLeasePdfDataUrl } from "@/lib/portal-record-share-pdf";
 
 describe("buildPortalRecordShareUrl", () => {
@@ -12,6 +22,26 @@ describe("buildPortalRecordShareUrl", () => {
     expect(buildPortalRecordShareUrl("https://prop-lane.space/", "application", "AXIS-1")).toBe(
       "https://prop-lane.space/share/applications/AXIS-1",
     );
+  });
+});
+
+describe("createPortalRecordShareLink provenance", () => {
+  it("refuses a classified record owner before inserting a public bearer token", async () => {
+    shareBoundaries.classification
+      .mockResolvedValueOnce({ kind: "classified", workspaceId: "workspace-a", role: "manager", state: "active" })
+      .mockResolvedValueOnce({ kind: "normal" });
+    shareBoundaries.recordWorkspace.mockResolvedValue(null);
+    const insert = vi.fn();
+    const db = { from: vi.fn(() => ({ insert })) };
+
+    await expect(createPortalRecordShareLink(db as never, {
+      recordKind: "application",
+      recordId: "application-a",
+      managerUserId: "private-owner",
+      createdBy: "normal-admin",
+    })).rejects.toThrow("unavailable");
+
+    expect(insert).not.toHaveBeenCalled();
   });
 });
 

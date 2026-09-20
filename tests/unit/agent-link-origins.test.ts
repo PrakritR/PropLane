@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { publicAppOrigin } from "@/lib/claw-leasing-bot.server";
 import { residentPortalUrl, residentSmsLinkOrigin } from "@/lib/claw-resident-links";
 import { publicOrigin } from "@/lib/tools/domains/leasing-sms";
+import { runWithSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 const LEGACY_ORIGIN = "https://www.axis-seattle-housing.com";
 const CANONICAL_ORIGIN = "https://prop-lane.space";
@@ -26,5 +27,15 @@ describe("agent-generated link origins", () => {
     expect(publicAppOrigin()).toBe(CANONICAL_ORIGIN);
     expect(residentSmsLinkOrigin()).toBe(CANONICAL_ORIGIN);
     expect(residentPortalUrl("payments")).toBe(`${CANONICAL_ORIGIN}/resident/payments/pending`);
+  });
+
+  it("ignores an app-origin override outside a classified SMS-test workspace", async () => {
+    const unclassified = await runWithSmsTestTransport({
+      actorUserId: "actor",
+      managerUserId: "manager",
+      appOrigin: "http://localhost:3010",
+    }, async () => publicOrigin());
+    expect(unclassified.result).toBe(CANONICAL_ORIGIN);
+    expect(publicOrigin()).toBe(CANONICAL_ORIGIN);
   });
 });

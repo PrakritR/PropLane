@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upstream integration handoff - 2026-09-20</title>
+  <style>
+    body { margin: 0 auto; max-width: 960px; padding: 40px 24px 64px; font: 16px/1.55 system-ui, sans-serif; color: #172033; background: #f7f8fb; }
+    main { background: white; border: 1px solid #d9deea; border-radius: 14px; padding: 28px; }
+    h1, h2 { line-height: 1.2; }
+    h1 { margin-top: 0; font-size: 28px; }
+    h2 { margin-top: 28px; font-size: 19px; }
+    code { background: #eef1f7; border-radius: 4px; padding: 2px 5px; }
+    li { margin: 8px 0; }
+    .ok { color: #176b3a; font-weight: 650; }
+    .risk { color: #8a4b08; font-weight: 650; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Upstream integration handoff</h1>
+  <p><strong>Date:</strong> 2026-09-20<br>
+     <strong>Worktree:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code><br>
+     <strong>Keeper start:</strong> <code>881961849</code><br>
+     <strong>Upstream merged:</strong> <code>origin/main</code> at <code>05be85d4e</code></p>
+
+  <h2>Outcome</h2>
+  <p class="ok">All assigned application-source and test conflicts have their markers removed. The integration preserves the released test-workspace boundaries, hidden-SMS notice visibility, keeper conversation identity, auth/session isolation, property payload preservation, and the reviewed UI fixes.</p>
+
+  <h2>Application-source conflict choices</h2>
+  <ul>
+    <li><code>src/app/api/portal-lease-pipeline/route.ts</code> - kept the keeper's recursive <code>normalizeLeaseListRow</code> narrowing before list projection. This protects slim-list hydration and signed snapshot document omission without weakening upstream route changes.</li>
+    <li><code>src/app/portal/layout.tsx</code> - combined <code>isSmsCommUiEnabled</code> with upstream test-workspace classification, unavailable-state blocking, and the test-account banner.</li>
+    <li><code>src/app/resident/layout.tsx</code> - made the same additive resolution for resident navigation and test-workspace access.</li>
+    <li><code>src/components/portal/channel-calendar-link-modal.tsx</code> - retained the effect-based callback-ref update from both sides and the keeper comment documenting why callback replacement must not trigger a footer notification.</li>
+    <li><code>src/components/portal/pro-team-blocks.tsx</code> - resolved a formatting-only overlap with the readable multiline menu declaration; behavior is unchanged.</li>
+    <li><code>src/components/portal/promotion-new-modal.tsx</code> - kept the keeper's ref plus state design. Refs provide current values to async type-switch confirmation; state drives render-time dirty UI. This preserves the later text-composer lifecycle correction while retaining upstream workspace behavior.</li>
+    <li><code>src/lib/application-submitted-notification.server.ts</code> - combined keeper SMS conversation resolution and role provenance with upstream <code>postResendEmail</code> test-effect capture.</li>
+    <li><code>src/lib/lease-pipeline-storage.ts</code> - kept the typed <code>LeaseGenerationContext</code> return and the keeper's location-only Washington fallback. Any real unsupported state, city, ZIP, or address remains authoritative; a fallback does not invent a listing identity. Upstream scope/cache changes outside the conflict remain present.</li>
+  </ul>
+
+  <h2>Test conflict choices</h2>
+  <p>The delegated test resolution inspected merge stages 1, 2, and 3 for every assigned conflict. The resolved tests retain the authenticated resident fixture and upstream portal coverage, combine keeper and upstream calendar/list/lease assertions, use the current shared settings property-scope contract, and keep stricter async application assertions where the UI settles after render.</p>
+  <p>Resolved files:</p>
+  <ul>
+    <li><code>tests/e2e/resident-portal-ui-bug-hunt.spec.ts</code></li>
+    <li><code>tests/e2e/resident-portal.spec.ts</code></li>
+    <li><code>tests/unit/calendar-meeting-search.test.ts</code></li>
+    <li><code>tests/unit/calendar-shows-scheduled-work.test.ts</code></li>
+    <li><code>tests/unit/communication-inbox-filters.test.ts</code></li>
+    <li><code>tests/unit/evidence-property-calendar-conflicts.test.tsx</code></li>
+    <li><code>tests/unit/inbox-initial-loading-readiness.test.tsx</code></li>
+    <li><code>tests/unit/lease-bulk-bar-actions.test.ts</code></li>
+    <li><code>tests/unit/lease-document-preview-scroll.test.tsx</code></li>
+    <li><code>tests/unit/listing-room-detail-rent.test.tsx</code></li>
+    <li><code>tests/unit/manager-applications-incomplete-reminder.test.tsx</code></li>
+    <li><code>tests/unit/manager-property-application-questions-panel.test.tsx</code></li>
+    <li><code>tests/unit/manager-property-room-move-in-panel.test.tsx</code></li>
+    <li><code>tests/unit/settings-module-redraws.test.tsx</code></li>
+    <li><code>tests/unit/tour-settings-redraw.test.tsx</code></li>
+    <li><code>tests/unit/withdrawn-approval-ui.test.tsx</code></li>
+  </ul>
+  <p>After integration review, <code>communication-inbox-filters.test.ts</code> was tightened to assert both branches explicitly: SMS-like rows are excluded from the email list when the SMS pane is enabled and remain visible when it is disabled.</p>
+  <p><code>tests/unit/property-records-omitted-payload-preservation.test.ts</code> now stubs upstream's new authenticated test-workspace classifier as a normal workspace. This keeps the focused route harness isolated and allows its omitted-versus-null payload assertions to reach the upsert behavior they cover.</p>
+
+  <h2>Auto-merged interaction audit</h2>
+  <ul>
+    <li><code>src/app/api/portal/send-inbox-message/route.ts</code> keeps upstream test-workspace denial before writes and keeper server-derived selected-thread identity, fail-closed authorization, and counterpart identity projection.</li>
+    <li><code>src/lib/tour-notification-delivery.server.ts</code> keeps upstream captured email effects and keeper deterministic lifecycle message IDs plus owner/property/SMS conversation identity.</li>
+    <li><code>src/lib/demo-property-pipeline.ts</code> distinguishes omitted payloads from explicit nulls, retains authoritative listing submissions when public projections hydrate, and includes upstream private test-workspace catalog scoping.</li>
+    <li><code>src/components/portal/pro-inbox.tsx</code>, <code>src/components/portal/resident-inbox-panel.tsx</code>, and <code>src/lib/communication-inbox-filters.ts</code> keep keeper async operation ownership guards and route SMS-like notices into the unified list when the SMS UI is hidden.</li>
+  </ul>
+
+  <h2>Verification and ownership boundaries</h2>
+  <ul>
+    <li><code>git diff --check</code> over the assigned source files completed with no whitespace errors.</li>
+    <li>No conflict markers remain in assigned source or delegated test files.</li>
+    <li>No Node command, test, lint, build, typecheck, browser, server, install, database, or graph command was run, as required by the integration assignment.</li>
+    <li>No Git index mutation, add, commit, checkout, reset, or merge command was run. The root integration owner must stage the resolved files to clear their unmerged index status.</li>
+    <li><code>.github/workflows/test.yml</code> and <code>tests/unit/ci-test-workflow.test.ts</code> remained root-owned and were not edited in this lane.</li>
+  </ul>
+
+  <h2>Residual risks</h2>
+  <ul>
+    <li class="risk">Runtime validation remains pending with the root integration owner. Static reconciliation cannot rule out a type or behavioral regression across the large upstream merge.</li>
+    <li>The source files continue to appear as unmerged in Git until the root stages the resolved worktree versions.</li>
+    <li>The settings and calendar conflict tests intentionally follow upstream's current UI contracts; validation should catch any stale selector assumptions.</li>
+  </ul>
+</main>
+</body>
+</html>

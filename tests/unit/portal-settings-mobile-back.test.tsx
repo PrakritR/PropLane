@@ -30,6 +30,18 @@ vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userI
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
+// This suite owns the standalone page's history layer. The real settings body
+// imports every settings panel and its data graph, which adds no behavior to
+// these assertions and can exhaust a bounded unit-test worker during module
+// collection.
+vi.mock("@/components/portal/settings-module-page", async () => {
+  const React = await import("react");
+  return {
+    SettingsModulePage: React.forwardRef(function StubSettingsModulePage() {
+      return <div data-attr="settings-module-stub" />;
+    }),
+  };
+});
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode, and a hand-listed mock
   // silently breaks every time the module gains an export a component calls at import time.

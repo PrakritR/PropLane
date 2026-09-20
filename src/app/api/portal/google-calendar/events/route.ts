@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 
-import { classifyGoogleCalendarEventsFetchError, listGoogleCalendarEventsPaged } from "@/lib/google-calendar/api.server";
+import { assertGoogleCalendarProviderAllowed, classifyGoogleCalendarEventsFetchError, listGoogleCalendarEventsPaged } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import { googleCalendarEventsToMeetings } from "@/lib/google-calendar/meetings";
 import { loadPersistedGoogleMeetings } from "@/lib/google-calendar/persisted-meetings.server";
@@ -35,6 +35,7 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "events_read");
     const url = new URL(req.url);
     const timeMin = url.searchParams.get("timeMin");
     const timeMax = url.searchParams.get("timeMax");
@@ -115,6 +116,7 @@ export async function DELETE(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "events_delete");
     const eventId = new URL(req.url).searchParams.get("eventId")?.trim() ?? "";
     if (!eventId) return NextResponse.json({ error: "eventId is required." }, { status: 400 });
     const connection = await loadGoogleCalendarConnection(ctx.db, ctx.userId);

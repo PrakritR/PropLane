@@ -3,6 +3,7 @@ import { ensureProvisionedManagerForPricing } from "@/lib/auth/manager-pricing-s
 import { createManagerCheckoutSession } from "@/lib/stripe/manager-checkout";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,6 @@ type Body = {
   email?: string;
   fullName?: string;
   phone?: string;
-  userId?: string;
   promo?: string;
   embedded?: boolean;
 };
@@ -50,12 +50,17 @@ export async function POST(req: Request) {
     } = await supabaseAuth.auth.getUser();
 
     let managerId: string | undefined;
-    let userId = typeof body.userId === "string" ? body.userId.trim() : "";
+    let userId: string | undefined;
+    let checkoutEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     if (authUser?.id) {
       userId = authUser.id;
-      const email = authUser.email?.trim().toLowerCase() ?? (typeof body.email === "string" ? body.email.trim().toLowerCase() : "");
+      const email = authUser.email?.trim().toLowerCase() ?? "";
+      const supabase = createSupabaseServiceRoleClient();
+      if ((await resolveTestWorkspaceClassification(authUser.id, supabase)).kind !== "normal") {
+        return NextResponse.json({ error: "This action is unavailable." }, { status: 403 });
+      }
       if (email) {
-        const supabase = createSupabaseServiceRoleClient();
+        checkoutEmail = email;
         const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
         const prepared = await ensureProvisionedManagerForPricing(supabase, {
           userId: authUser.id,
@@ -73,10 +78,10 @@ export async function POST(req: Request) {
     const result = await createManagerCheckoutSession({
       tier: tierRaw,
       billing: billingRaw,
-      email: body.email,
+      email: checkoutEmail,
       fullName: body.fullName,
       phone: body.phone,
-      userId: userId || undefined,
+      userId,
       managerId,
       promo: body.promo,
       embedded: body.embedded,

@@ -49,6 +49,9 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: () => {} }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: async () => ({ kind: "normal" }),
+}));
 
 /**
  * The tier is read from the manager's own `manager_purchases` row by

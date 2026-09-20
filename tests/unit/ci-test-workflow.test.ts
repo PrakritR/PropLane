@@ -26,9 +26,16 @@ type WorkflowJob = {
   needs?: string[];
   steps: WorkflowStep[];
 };
-const jobs = (parse(workflow) as { jobs: Record<string, WorkflowJob> }).jobs;
-const NORMAL_VALIDATION = "${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}";
+type WorkflowDocument = {
+  on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+  jobs: Record<string, WorkflowJob>;
+};
+const workflowDocument = parse(workflow) as WorkflowDocument;
+const jobs = workflowDocument.jobs;
+const NORMAL_VALIDATION = "${{ !(github.event_name == 'workflow_dispatch' && (inputs.unit_only || (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))) }}";
 const UPLOAD_ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
+const BUILD_ONLY = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true";
+const NOT_BUILD_ONLY = `\${{ !(${BUILD_ONLY}) }}`;
 
 // Parse active YAML: comments cannot satisfy a gate, and all upload requirements
 // must belong to the same executable step in the same job.
@@ -54,6 +61,10 @@ describe("Test workflow resource budget", () => {
     expect(parsed.on.push).toEqual({ branches: ["main", "staging"] });
     expect(parsed.on).toHaveProperty("pull_request");
     expect(parsed.on.workflow_dispatch).toEqual({ inputs: {
+      build_only: {
+        description: "Run only the build and encrypted local QA artifact job on the exact release keeper",
+        required: false, type: "boolean", default: false,
+      },
       unit_only: {
         description: "Run only the unit job", required: false, type: "boolean", default: false,
       },
@@ -65,10 +76,11 @@ describe("Test workflow resource budget", () => {
     // Exact parsed conditions prevent a similarly named push/PR input or a
     // comment from disabling validation. Every bypass requires dispatch AND
     // the boolean input; false/default keeps all existing checks active.
-    for (const name of ["integration", "release-cli-transaction", "lint", "build"]) expect(jobConfig(name).if).toBe(NORMAL_VALIDATION);
-    expect(jobConfig("check").if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
+    for (const name of ["integration", "release-cli-transaction", "lint"]) expect(jobConfig(name).if).toBe(NORMAL_VALIDATION);
+    expect(jobConfig("build").if).toBe("${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
+    expect(jobConfig("check").if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.unit_only || (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))) }}");
     const unit = jobConfig("unit");
-    expect(unit.if).toBeUndefined();
+    expect(unit.if).toBe(NOT_BUILD_ONLY);
     const commands = unit.steps.filter(step => step.run?.includes("npm run test:unit"));
     expect(commands).toHaveLength(1);
     expect(commands[0].run).toBe("npm run test:unit");
@@ -109,7 +121,7 @@ describe("Test workflow resource budget", () => {
   it("keeps the full suite on schedule/manual dispatch only", () => {
     const full = jobConfig("e2e-full");
     expect(full.if).toBe(
-      "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}",
+      "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !(github.event_name == 'workflow_dispatch' && (inputs.unit_only || (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))) }}",
     );
     expect(full.steps).toContainEqual(expect.objectContaining({
       name: "Run full E2E suite",
@@ -207,7 +219,7 @@ describe("Test workflow resource budget", () => {
     const check = jobConfig("check");
 
     expect(check.needs).toEqual(["unit", "release-cli-transaction", "lint", "build"]);
-    expect(check.if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
+    expect(check.if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.unit_only || (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))) }}");
     expect(check.steps.some((step) => step.run?.includes('if [ "$result" != "success" ]'))).toBe(true);
     // `e2e` is skipped on pull requests, and `integration` needs live Supabase
     // credentials a fork PR never receives — depending on either would make the
@@ -236,9 +248,28 @@ describe("Test workflow resource budget", () => {
     for (const [name, runner] of Object.entries(runners)) {
       const job = jobConfig(name);
       expect(job["runs-on"]).toBe(runner);
-      if (name === "unit") expect(job.if).toBeUndefined();
-      else expect(job.if, `${name} skips only an explicit unit-only dispatch`).toBe(NORMAL_VALIDATION);
+      if (name === "unit") expect(job.if).toBe(NOT_BUILD_ONLY);
+      else if (name === "build") expect(job.if).toBe("${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
+      else expect(job.if, `${name} skips only an explicit diagnostic dispatch`).toBe(NORMAL_VALIDATION);
     }
+  });
+
+  it("preserves both diagnostic modes without changing default release gates", () => {
+    expect(workflowDocument.on.workflow_dispatch.inputs.build_only).toEqual({
+      description: "Run only the build and encrypted local QA artifact job on the exact release keeper",
+      required: false,
+      type: "boolean",
+      default: false,
+    });
+    expect(workflowDocument.on.workflow_dispatch.inputs.unit_only).toEqual({
+      description: "Run only the unit job", required: false, type: "boolean", default: false,
+    });
+    expect(jobConfig("unit").if).toBe(NOT_BUILD_ONLY);
+    for (const name of ["integration", "lint", "release-cli-transaction"]) {
+      expect(jobConfig(name).if).toBe(NORMAL_VALIDATION);
+    }
+    expect(jobConfig("build").if).toBe("${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
+    expect(workflow).not.toContain("inputs.build_only != false");
   });
 
   it("proves the pinned CLI batch transaction on disposable PostgreSQL 16 and exact target 17.6", () => {

@@ -151,7 +151,7 @@ describe("communication-inbox-filters", () => {
     })).toBe(1);
   });
 
-  it("counts SMS-like unread rows that fall through while the SMS pane is hidden", () => {
+  it("counts SMS-like unread rows that remain visible while the SMS UI is hidden", () => {
     const rows = [thread({ id: "sms-visible", from: "+15105550100", unread: true })];
     expect(countVisibleUnreadCommunication(rows, {
       portal: "manager",

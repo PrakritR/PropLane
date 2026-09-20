@@ -19,6 +19,7 @@ import {
   type ManagerAssistantWorkspace,
 } from "@/lib/communication-manager-assistant-thread";
 import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const MANAGER_AGENT_FROM_NAME = "PropLane Assistant";
@@ -74,6 +75,18 @@ export async function notifyManagerFromAgent(
     propertyId?: string | null;
   },
 ): Promise<{ delivered: boolean; suppressed: boolean }> {
+  if (captureSmsTestDelivery({
+    kind: "manager_notification",
+    summary: args.subject.trim() || "Manager notification captured in the test conversation.",
+    status: "captured",
+    metadata: {
+      category: args.category ?? "messages",
+      pushRequested: args.notify?.push !== false,
+      smsRequested: args.notify?.sms !== false,
+    },
+  })) {
+    return { delivered: true, suppressed: false };
+  }
   const channels = await resolveManagerNotificationChannels(
     db,
     args.landlordId,

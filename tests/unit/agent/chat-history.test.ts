@@ -173,6 +173,44 @@ function portalSession(id: string, updatedAt: string, overrides: Partial<Row> = 
 }
 
 describe("portal chat archive", () => {
+  it("scopes an SMS-test archive by kind, manager, mode, and workspace and never restores a confirmation card", async () => {
+    const smsSession = portalSession(SESSION_A, "2026-08-04T12:00:00.000Z", {
+      kind: "resident_sms_test:manager-a:listing-a",
+      sms_test_manager_user_id: "manager-a",
+      sms_test_mode: "resident",
+      test_workspace_id: "workspace-a",
+      portal: "resident",
+    });
+    const foreignWorkspace = portalSession(SESSION_B, "2026-08-04T12:00:01.000Z", {
+      kind: "resident_sms_test:manager-a:listing-a",
+      sms_test_manager_user_id: "manager-a",
+      sms_test_mode: "resident",
+      test_workspace_id: "workspace-b",
+      portal: "resident",
+    });
+    const db = makeDb({
+      agent_sessions: [smsSession, foreignWorkspace],
+      agent_messages: [{ id: "m1", session_id: SESSION_A, role: "user", content: "Book a tour", created_at: "2026-08-04T12:00:00.000Z" }],
+      agent_pending_actions: [{
+        id: "pending-1", session_id: SESSION_A, user_id: USER_A, portal: "resident", status: "proposed",
+        sms_test_manager_user_id: "manager-a", test_workspace_id: "workspace-a",
+        expires_at: "2099-01-01T00:00:00.000Z", preview: { kind: "book_tour", title: "Book", confirmLabel: "Book", fields: [] },
+      }],
+    });
+    const scope = {
+      sessionKind: "resident_sms_test:manager-a:listing-a",
+      managerUserId: "manager-a",
+      smsTestMode: "resident" as const,
+      workspaceId: "workspace-a",
+    };
+
+    const archive = await listAgentChatThreads({ userId: USER_A, db }, "resident", null, null, scope);
+    expect(archive.threads).toEqual([expect.objectContaining({ id: SESSION_A })]);
+    const transcript = await loadAgentChatTranscript({ userId: USER_A, db }, "resident", SESSION_A, scope);
+    expect(transcript?.pendingAction).toBeNull();
+    expect(await loadAgentChatTranscript({ userId: USER_A, db }, "resident", SESSION_B, scope)).toBeNull();
+  });
+
   it("paginates newest portal_chat sessions and excludes other users, portals, and agent kinds", async () => {
     const newest = Array.from({ length: AGENT_CHAT_HISTORY_PAGE_SIZE + 1 }, (_, index) =>
       portalSession(

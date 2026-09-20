@@ -412,6 +412,13 @@ describe("PRP-470 initial Communication readiness", () => {
     // it is an Active-only conversation. A successful empty response must
     // therefore reveal the current empty-list surface rather than stay loading.
     expect(document.querySelector('[data-attr="unified-inbox-empty"]')).toBeTruthy();
+    const archived = screen.getByRole("link", { name: /^Archived/ });
+    expect(archived).toHaveAttribute("href", "/portal/communication/archived");
+    expect(archived).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Active conversations" })).toHaveAttribute(
+      "href",
+      "/portal/communication/active",
+    );
   });
 
   it("shows a retryable load error and recovers on retry", async () => {

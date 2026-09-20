@@ -21,6 +21,7 @@ import { isManagerTaskLate } from "@/lib/manager-task-display";
 import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { shouldNotifyManagerOfApplicationSubmit } from "@/lib/application-submitted-notification.server";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 type ServiceDb = SupabaseClient;
 
@@ -83,7 +84,7 @@ async function createLifecycleAutoTask(input: {
   const taskType =
     input.taskType ??
     (meta.section === "tours" ? "tour" : "general");
-  const task: ManagerTask = {
+  const task = stampSmsTestProvenance({
     id: crypto.randomUUID(),
     title: input.title,
     notes: input.notes,
@@ -101,7 +102,7 @@ async function createLifecycleAutoTask(input: {
     dedupKey: taskDedupKey(input.templateKey, input.sourceId),
     createdAt: now,
     updatedAt: now,
-  };
+  }) as unknown as ManagerTask;
   await saveManagerTasks(input.db, input.managerUserId, [...tasks, task]);
   if (input.config.sendEmailReminder && assignee) {
     void sendTaskAssigneeEmail({

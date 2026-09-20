@@ -30,6 +30,10 @@ import { validateResidentApplicationRowForPersistence } from "@/lib/rental-appli
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import {
+  isTestWorkspaceFeatureEnabled,
+  resolveTestWorkspaceClassification,
+} from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -61,6 +65,40 @@ function idVariants(id: string): string[] {
       [trimmed, trimmed.toUpperCase(), normalized, normalized.toUpperCase()].filter(Boolean),
     ),
   ];
+}
+
+async function applicationWorkspaceGate(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  user: Awaited<ReturnType<typeof sessionUser>>,
+  row: DemoApplicantRow,
+): Promise<NextResponse | null> {
+  const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+  const classification = user ? await resolveTestWorkspaceClassification(user.id, db) : { kind: "normal" as const };
+  if (!propertyId) {
+    return classification.kind === "classified"
+      ? NextResponse.json({ error: "A private test-workspace property is required." }, { status: 403 })
+      : null;
+  }
+  const { data, error } = await db.from("manager_property_records")
+    .select("test_workspace_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: "Could not verify application workspace." }, { status: 503 });
+  const propertyWorkspaceId = String(data?.test_workspace_id ?? "").trim() || null;
+  if (!propertyWorkspaceId) {
+    return classification.kind === "classified"
+      ? NextResponse.json({ error: "Test accounts cannot apply to customer listings." }, { status: 403 })
+      : null;
+  }
+  if (
+    classification.kind !== "classified" ||
+    classification.workspaceId !== propertyWorkspaceId ||
+    classification.state !== "active" ||
+    !isTestWorkspaceFeatureEnabled()
+  ) {
+    return NextResponse.json({ error: "Property not found." }, { status: 404 });
+  }
+  return null;
 }
 
 /**
@@ -867,6 +905,8 @@ export async function POST(req: Request) {
     if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
     const requestedRowId = String(body.row.id);
     let row = normalizeRow(body.row);
+    const workspaceGate = await applicationWorkspaceGate(db, user, row);
+    if (workspaceGate) return workspaceGate;
     let residentSelfWrite = false;
     if (!user) {
       const ids = idVariants(requestedRowId);

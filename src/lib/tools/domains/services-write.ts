@@ -13,6 +13,7 @@ import { z } from "zod";
 import { defineWriteTool } from "../registry";
 import type { ActionPreview } from "../registry";
 import type { AgentContext } from "../context";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 
 const decideServiceRequestSchema = z
@@ -90,7 +91,7 @@ export const decideServiceRequestTool = defineWriteTool<DecideServiceRequestInpu
     };
     const { error } = await ctx.db
       .from("portal_service_request_records")
-      .update({ status, row_data: next, updated_at: nowIso })
+      .update({ status, row_data: stampSmsTestProvenance(next), updated_at: nowIso })
       .eq("manager_user_id", ctx.landlordId)
       .eq("id", request.id);
     if (error) throw new Error("Could not record the decision.");

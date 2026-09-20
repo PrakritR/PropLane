@@ -1,0 +1,11 @@
+{
+  "scope": "ordinary-dispute R3 correction after resumed payment review",
+  "branch": "akhil/test-workspace-release-20260919",
+  "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
+  "fileCount": 3,
+  "files": [
+    { "path": "src/lib/stripe-webhook-financials.ts", "sha256": "be313d048c584deda375c60a46fe68e09097db7c9a72eb890706a2e26679d107" },
+    { "path": "src/app/api/stripe/webhook/route.ts", "sha256": "b126826529f89a753530af8b85413c19d45a180fda4f72c35ea95a6d415f53cc" },
+    { "path": "tests/integration/stripe/webhook.test.ts", "sha256": "eac767a92feb8d44901d4b7f71411cd8994ff9c8e5718ba350b4460189614750" }
+  ]
+}

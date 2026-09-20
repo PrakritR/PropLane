@@ -40,12 +40,16 @@ describe("calendarMeetingMatchesQuery", () => {
   });
 });
 
-describe("Add task wizard scroll", () => {
-  it("keeps the wizard mounted with the title and schedule steps reachable", () => {
+describe("Add task workspace", () => {
+  it("keeps Title and Schedule in the shared stepped workspace", () => {
     const src = readFileSync(join(process.cwd(), "src/components/portal/pro-task-form-modal.tsx"), "utf8");
     expect(src).toContain("AddWorkspace");
     expect(src).not.toContain("PORTAL_MODAL_BODY_SCROLL_CLASS");
     expect(src).toContain('id="manager-task-title"');
     expect(src).toContain('id="manager-task-schedule-date"');
+    expect(src).toContain("<AddWorkspace");
+    expect(src).toContain('id: "when"');
+    expect(src).toContain('htmlFor="manager-task-title"');
+    expect(src).toContain('aria-label="Schedule date"');
   });
 });

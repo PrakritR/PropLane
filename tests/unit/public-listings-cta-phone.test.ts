@@ -12,7 +12,7 @@ const queryQueue: Array<{ data: unknown[] | null; error: null }> = [];
 function chain(result: { data: unknown[] | null; error: null }) {
   const q: Record<string, unknown> = {};
   const ret = () => q;
-  for (const m of ["select", "eq", "in", "order", "limit", "not"]) q[m] = ret;
+  for (const m of ["select", "eq", "is", "in", "order", "limit", "not"]) q[m] = ret;
   q.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
     Promise.resolve(result).then(res, rej);
   return q;

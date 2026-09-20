@@ -17,6 +17,11 @@ import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isLegitimateEmail } from "@/lib/email-address";
+import { postResendEmail } from "@/lib/resend-delivery.server";
+import {
+  resolveTestWorkspaceClassification,
+  resolveTestWorkspaceRequestScope,
+} from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -36,6 +41,11 @@ export async function POST(req: Request) {
   try {
     if (!(await rateLimit(`send-application-started:${clientIpFrom(req)}`, 12, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
+    }
+
+    const requestScope = await resolveTestWorkspaceRequestScope();
+    if (requestScope.kind === "denied") {
+      return NextResponse.json({ error: "Application access is unavailable." }, { status: 403 });
     }
 
     let body: { email?: unknown; axisId?: unknown; setupToken?: unknown };
@@ -64,12 +74,29 @@ export async function POST(req: Request) {
 
     const { data: rows, error } = await db
       .from("manager_application_records")
-      .select("id, resident_email, row_data")
+      .select("id, resident_email, row_data, manager_user_id, test_workspace_id")
       .in("id", idVariants(axisId));
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     const match = (rows ?? []).find((row) => (row.resident_email ?? "").trim().toLowerCase() === email);
     if (!match?.row_data) {
+      return NextResponse.json({ error: "Application not found for this email and ID." }, { status: 403 });
+    }
+    const recordWorkspaceId = String(match.test_workspace_id ?? "").trim();
+    const ownerUserId = String(match.manager_user_id ?? "").trim();
+    const owner = ownerUserId
+      ? await resolveTestWorkspaceClassification(ownerUserId, db)
+      : { kind: "normal" as const };
+    if (
+      (requestScope.kind === "normal" && recordWorkspaceId) ||
+      (requestScope.kind === "normal" && owner.kind === "classified") ||
+      (requestScope.kind === "active" && (
+        recordWorkspaceId !== requestScope.workspaceId ||
+        owner.kind !== "classified" ||
+        owner.workspaceId !== requestScope.workspaceId ||
+        owner.state !== "active"
+      ))
+    ) {
       return NextResponse.json({ error: "Application not found for this email and ID." }, { status: 403 });
     }
 
@@ -110,11 +137,20 @@ export async function POST(req: Request) {
     }
 
     const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [email], subject: APPLICATION_STARTED_EMAIL_SUBJECT, text, html }),
-    });
+    const resendPayload = { from, to: [email], subject: APPLICATION_STARTED_EMAIL_SUBJECT, text, html };
+    const res = ownerUserId
+      ? await postResendEmail({
+          apiKey,
+          actorUserId: ownerUserId,
+          payload: resendPayload,
+          effectSummary: "Application started email captured for the test workspace.",
+          metadata: { applicationId: match.id },
+        })
+      : await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(resendPayload),
+        });
     const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
     if (!res.ok) {
       return NextResponse.json({ ok: false, error: payload.message ?? res.statusText }, { status: 502 });

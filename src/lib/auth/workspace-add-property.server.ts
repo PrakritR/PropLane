@@ -34,6 +34,10 @@ export async function resolveCreateListingOwner(
     return { ok: true, ownerUserId: input.requestedOwnerId };
   }
 
+  if (input.requestedOwnerId && input.requestedOwnerId !== caller) {
+    return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+  }
+
   const selected = input.workspaceId?.trim() || "";
   if (!selected) {
     // A missing workspace proves nothing about a foreign owner. Keep the

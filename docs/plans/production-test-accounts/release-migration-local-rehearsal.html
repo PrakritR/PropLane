@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Local test-workspace release rehearsal</title>
+<style>body{font:16px/1.55 system-ui;max-width:960px;margin:36px auto;padding:0 24px;color:#172334}code{overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f1f4f6;padding:14px}li{margin:10px 0}.status{padding:16px;background:#fff0e9}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #cbd5df;padding:8px;text-align:left;vertical-align:top}</style>
+<h1>Actual-schema local release rehearsal</h1>
+<p class="status"><strong>Staging and production rehearsals passed on 2026-09-19.</strong> Both target-specific runs exited 0 and verified exact cleanup of the owned PostgreSQL process tree and private data directory. This harness is offline and disposable. It has no cloud connection, credential input, apply path, development server, browser, provider call, or customer-row restoration path.</p>
+<h2>Commands</h2>
+<pre>node --max-old-space-size=256 scripts/testing/test-workspace-release-local-rehearsal.mjs
+node --max-old-space-size=256 scripts/testing/test-workspace-release-local-rehearsal.mjs --target production</pre>
+<p>Staging is the default. The only accepted argument is the exact production or staging target selector. The harness rejects any path, credential, connection, or apply override. It requires Node 22, PostgreSQL 17 tools, a 256 MiB old-space cap, and the pre-existing bounded loopback cluster configuration.</p>
+<h2>Pinned private inputs</h2>
+<table><thead><tr><th>Target</th><th>Schema/ACL SHA-256</th><th>Full catalog SHA-256</th><th>Baseline catalog SHA-256</th><th>Invitation preimage SHA-256</th></tr></thead><tbody>
+<tr><td>staging</td><td><code>5ef79f5aec15630bc1fa8ee032902a7e70fde7d7dd267bb1d1e7cce85621da3d</code></td><td><code>e5e5e21ecb5fc317f551b23108258e48b36d9c09b2a75654162a7852f1abcabd</code></td><td><code>538d4c6f14f957967b74f5057f20a0d4fa80fb0b6388e00a5c715e52df4c604a</code></td><td><code>f5d2d1478f917c60a9cd5f874f8f43b4975e2ad337f5370e5c1112d55b3039fc</code></td></tr>
+<tr><td>production</td><td><code>122bfcf96f0e093fc450893c04436be94f95d6a65475f479ec2ebdb1d58b0f7f</code></td><td><code>a7a32a72e2cfef3c9df79356ef56f3e0f8a691e6e33b269a4388b0b86513f88f</code></td><td><code>17ed6e241f9417ff717a8f37832eef4741f288e0247da5c1ebab9c35d5e5e83a</code></td><td><code>64d30833f4cb607499e29a1d55a167a38e4ceb8b61a1a0b82ece1af8940cf1a2</code></td></tr>
+</tbody></table>
+<p>Inputs remain under the private backup directory. The source-only schema restore receives no customer rows. Historical migration entries are inserted as bound data, never executed as historical SQL.</p>
+<h2>Rehearsal order</h2>
+<ol>
+<li>Restore the selected pinned schema/ACL, load both full catalog captures, and require their historical ledger and public-table inventory to agree. The restored local structural catalog must exactly equal the reviewed baseline catalog.</li>
+<li>Build and run the reviewed baseline bundle first: four immutable migrations for staging and five for production. The bundle is generated only after the local synthetic invitation preimage is captured. A copied local catalog carries that synthetic digest; actual target invitation rows are never restored.</li>
+<li>Refuse the recovery internal GUC, replica replication mode, a deliberately wrong synthetic invitation beforeimage, and an invitation that would receive an <code>addProperties</code> grant. Each refusal must leave the schema and historical ledger unchanged.</li>
+<li>Run the matching synthetic invitation preimage. Its digest must remain unchanged through baseline replay, and the exact historical ledger plus only the reviewed baseline entries must remain.</li>
+<li>Capture fresh local ledger and table inventory after the baseline bundle, then generate the immutable ten-migration feature bundle from that fresh local state. Existing attestation, ledger-drift, advisory-barrier rollback, exact-success, and role/RLS scenarios run only after this point.</li>
+<li>After success, prove only the target's historical <code>automated_communication_reminder_kinds</code> statement arrays: staging <code>20260916051253</code>; production <code>20260915120000</code> and <code>20260916063005</code>. The exported immutable <code>COMPACT_STATEMENTS_SHA_SQL</code> expression and PostgreSQL <code>sha256(convert_to(array_to_json(statements)::text,'UTF8'))</code> must each equal JavaScript <code>sha256(JSON.stringify(statements))</code>.</li>
+</ol>
+<h2>Executed evidence</h2>
+<table><thead><tr><th>Run</th><th>Outcome</th><th>Log SHA-256</th></tr></thead><tbody>
+<tr><td>Initial staging run</td><td>Exit 1 in baseline refusal setup because the local snapshot normalizer omitted its required <code>read_only</code> attestation. Cleanup passed. The harness was corrected without changing either migration generator.</td><td><code>2fad61eaf39cc9b7b903e141ed7be68115033ff3d0b38e339be8a291611829f0</code></td></tr>
+<tr><td>Staging rerun</td><td>Exit 0. Baseline refusal and success scenarios, feature rollback and success scenarios, role/RLS checks, historical parity checks, and cleanup passed.</td><td><code>fca8eaf2012c5863193682fe8ed8f018f6c3db46a207275c0437a0cb88d76c0b</code></td></tr>
+<tr><td>Production-schema run</td><td>Exit 0 with the same complete scenario set and cleanup verification against the separately pinned production schema and catalog.</td><td><code>ee2628aa25506903ea20ffa85147943e6ce1c86d7d499101fb657b5fe8f2b5d7</code></td></tr>
+</tbody></table>
+<p>The executed harness SHA-256 is <code>12019cc88c8e92f97b92e4b459de00d65d22a680b4783c3f65c6c64b95571ffa</code>. The first failure is retained as evidence of the fail-closed snapshot contract and successful owned-resource cleanup.</p>
+<h2>Containment and cleanup</h2>
+<p>The private cluster listens only on a dynamically allocated 127.0.0.1 port, disables Unix sockets, uses a random local SCRAM password, has bounded memory and worker settings, and strips inherited cloud connection settings from subprocesses. Cleanup verifies the random ownership marker, data directory, postmaster command and process tree before stopping only the owned server and removing only its private temporary directory. Failure output stays bounded and excludes historical SQL.</p>
+<h2>Limits</h2>
+<p>This local rehearsal cannot prove real target identity, backup recovery, cloud TLS, customer-data compatibility, application sessions, provider behavior, Storage HTTP, browser/native flows, or deployment results. Root-owned target verification, independent review, focused validation, staging QA, and release gates remain required.</p>
+</html>

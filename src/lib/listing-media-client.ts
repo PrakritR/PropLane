@@ -119,7 +119,36 @@ async function uploadViaTus(file: File, path: string, mime: string, token: strin
   }
 }
 
+async function shouldUseServerListingUpload(): Promise<boolean> {
+  const response = await fetch("/api/listing-photos", { credentials: "same-origin" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "Listing media is unavailable.");
+  }
+  const body = await response.json() as { serverUpload?: unknown };
+  return body.serverUpload === true;
+}
+
+async function uploadThroughServer(input: File | string): Promise<string> {
+  let response: Response;
+  if (typeof input === "string") {
+    response = await fetch("/api/listing-photos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataUrl: input }),
+    });
+  } else {
+    const form = new FormData();
+    form.set("file", input);
+    response = await fetch("/api/listing-photos", { method: "POST", body: form });
+  }
+  const body = await response.json().catch(() => null) as { url?: string; error?: string } | null;
+  if (!response.ok || !body?.url) throw new Error(body?.error ?? "Upload failed.");
+  return body.url;
+}
+
 async function uploadToBucket(input: File | string): Promise<string> {
+  if (await shouldUseServerListingUpload()) return uploadThroughServer(input);
   const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser");
   const db = createSupabaseBrowserClient();
   const {

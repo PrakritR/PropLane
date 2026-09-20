@@ -3,6 +3,11 @@ import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-sc
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { expectedManagerScheduleRecordIds } from "@/lib/portal-schedule-record-scope";
+import {
+  resolveAuthenticatedBusinessAccess,
+  resolveTestWorkspaceClassification,
+} from "@/lib/test-workspaces/index.server";
+import { coManagerModuleAllowed, normalizePropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 
 export const runtime = "nodejs";
 
@@ -59,20 +64,25 @@ export async function GET(req: Request) {
     if (!propertyId) return NextResponse.json({ error: "propertyId required" }, { status: 400 });
 
     const db = createSupabaseServiceRoleClient();
-
-    const hasAccess = await managerHasCalendarAccessForProperty(db, user.id, propertyId);
-    if (!hasAccess) {
-      return NextResponse.json({ error: "You do not have calendar access to this property." }, { status: 403 });
+    const businessAccess = await resolveAuthenticatedBusinessAccess(user.id, db);
+    if (businessAccess.kind === "denied") {
+      return NextResponse.json({ error: "Calendar access is unavailable for this account." }, { status: 403 });
     }
 
     const peers = new Map<string, { label: string; isSelf: boolean }>();
 
-    const { data: propertyRow, error: propertyError } = await db
+    let propertyQuery = db
       .from("manager_property_records")
-      .select("manager_user_id, property_data")
-      .eq("id", propertyId)
-      .maybeSingle();
+      .select("manager_user_id, property_data, test_workspace_id")
+      .eq("id", propertyId);
+    propertyQuery = businessAccess.kind === "test"
+      ? propertyQuery.eq("test_workspace_id", businessAccess.workspaceId)
+      : propertyQuery.is("test_workspace_id", null);
+    const { data: propertyRow, error: propertyError } = await propertyQuery.maybeSingle();
     if (propertyError) return NextResponse.json({ error: propertyError.message }, { status: 500 });
+    if (!propertyRow) {
+      return NextResponse.json({ error: "You do not have calendar access to this property." }, { status: 403 });
+    }
 
     const ownerId = String(propertyRow?.manager_user_id ?? "").trim();
     if (ownerId) {
@@ -82,13 +92,17 @@ export async function GET(req: Request) {
       });
     }
 
-    const { data: linkRows, error: linkError } = await db
+    let linkQuery = db
       .from("account_link_invites")
       .select(
-        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, status",
+        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, status, test_workspace_id",
       )
       .eq("status", "accepted")
       .or(`inviter_user_id.eq.${user.id},invitee_user_id.eq.${user.id}`);
+    linkQuery = businessAccess.kind === "test"
+      ? linkQuery.eq("test_workspace_id", businessAccess.workspaceId)
+      : linkQuery.is("test_workspace_id", null);
+    const { data: linkRows, error: linkError } = await linkQuery;
 
     if (linkError && !String(linkError.message ?? "").toLowerCase().includes("account_link_invites")) {
       return NextResponse.json({ error: linkError.message }, { status: 500 });
@@ -100,9 +114,17 @@ export async function GET(req: Request) {
         ? row.assigned_property_ids.filter((item): item is string => typeof item === "string")
         : [];
       if (!assigned.includes(propertyId)) continue;
-
       const inviterId = textField(row, "inviter_user_id");
       const inviteeId = textField(row, "invitee_user_id");
+      const actorIsOwner = ownerId === user.id;
+      const actorIsGrantedInvitee = inviteeId === user.id && inviterId === ownerId;
+      if (!actorIsOwner && !actorIsGrantedInvitee) continue;
+      const permissions = normalizePropertyCoManagerPermissions(
+        row.property_co_manager_permissions ?? row.co_manager_permissions,
+        assigned,
+      );
+      if (!actorIsOwner && !coManagerModuleAllowed(permissions, propertyId, "calendar", "read")) continue;
+
       if (inviterId) {
         peers.set(inviterId, {
           label: inviterId === user.id ? "You" : textField(row, "inviter_display_name") || textField(row, "inviter_axis_id") || inviterId,
@@ -117,20 +139,41 @@ export async function GET(req: Request) {
       }
     }
 
+    const hasAccess = businessAccess.kind === "test"
+      ? ownerId === user.id || peers.has(user.id)
+      : await managerHasCalendarAccessForProperty(db, user.id, propertyId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: "You do not have calendar access to this property." }, { status: 403 });
+    }
+
     if (!peers.has(user.id)) {
       return NextResponse.json({ error: "You do not have calendar access to this property." }, { status: 403 });
     }
 
-    const peerIds = [...peers.keys()];
+    const peerIds: string[] = [];
+    for (const peerId of peers.keys()) {
+      const classification = await resolveTestWorkspaceClassification(peerId, db);
+      const compatible = businessAccess.kind === "test"
+        ? classification.kind === "classified" && classification.workspaceId === businessAccess.workspaceId && classification.state === "active"
+        : classification.kind === "normal";
+      if (compatible) peerIds.push(peerId);
+    }
+    if (!peerIds.includes(user.id)) {
+      return NextResponse.json({ error: "You do not have calendar access to this property." }, { status: 403 });
+    }
     const recordIds = peerIds.flatMap((peerId) => {
       const { shareKey, availKey } = expectedManagerScheduleRecordIds(peerId, propertyId);
       return [shareKey, availKey];
     });
 
-    const { data: scheduleRows, error: scheduleError } = await db
+    let scheduleQuery = db
       .from("portal_schedule_records")
-      .select("id, manager_user_id, property_id, record_type, row_data")
+      .select("id, manager_user_id, property_id, record_type, row_data, test_workspace_id")
       .in("id", recordIds.length > 0 ? recordIds : ["__none__"]);
+    scheduleQuery = businessAccess.kind === "test"
+      ? scheduleQuery.eq("test_workspace_id", businessAccess.workspaceId)
+      : scheduleQuery.is("test_workspace_id", null);
+    const { data: scheduleRows, error: scheduleError } = await scheduleQuery;
 
     if (scheduleError) return NextResponse.json({ error: scheduleError.message }, { status: 500 });
 

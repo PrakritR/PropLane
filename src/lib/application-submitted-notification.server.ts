@@ -17,21 +17,23 @@ import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-pr
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
 import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
 import { resolveExistingSmsConversation } from "@/lib/sms/existing-conversation.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
 type Db = ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceRoleClient>;
 
-async function deliverEmail(to: string[], subject: string, text: string): Promise<{ sent: boolean; skipped: boolean }> {
+async function deliverEmail(to: string[], subject: string, text: string, actorUserId: string): Promise<{ sent: boolean; skipped: boolean }> {
   const recipients = to.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@") && !e.endsWith("@axis.local"));
   if (recipients.length === 0) return { sent: false, skipped: true };
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { sent: false, skipped: true };
   const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: recipients, subject, text }),
+  const res = await postResendEmail({
+    apiKey,
+    actorUserId,
+    payload: { from, to: recipients, subject, text },
+    effectSummary: "Application submitted email captured for the test workspace.",
   });
   if (!res.ok) return { sent: false, skipped: false };
   return { sent: true, skipped: false };
@@ -190,6 +192,7 @@ export async function notifyManagerApplicationSubmitted(
     recipients.map((r) => r.email),
     subject,
     text,
+    managerUserId,
   );
 
   await Promise.all(

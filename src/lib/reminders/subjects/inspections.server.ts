@@ -7,6 +7,7 @@ import { materializeReminders, type ReminderQueueRow } from "../queue.server";
 import { loadReminderSettingsForManagers } from "../settings.server";
 import { loadManagerReminderRecipients } from "../manager-recipients.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 type Placement = { id: string; manager_user_id: string; resident_email: string; property_id: string | null; assigned_property_id: string | null; row_data: Record<string, unknown> };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -54,11 +55,11 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
   let queued = 0;
   for (let offset = 0; ; offset += 100) {
     const { data, error } = await db.from("manager_application_records")
-      .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_term:row_data->application->>leaseTerm,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt")
+      .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_term:row_data->application->>leaseTerm,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt,sms_test_session:row_data->>smsTestSessionId")
       .eq("row_data->>bucket", "approved").order("id").range(offset, offset + 99);
     if (error) throw error;
     const rows = (data ?? []).map(raw => ({ ...raw, row_data: { assignedRoomChoice: raw.placement, manualResidentDetails: { moveInDate: raw.manual_start, moveOutDate: raw.manual_end, roomNumber: raw.manual_room },
-      application: { leaseTerm: raw.lease_term, leaseStart: raw.lease_start, leaseEnd: raw.lease_end }, bucket: raw.bucket, withdrawnAt: raw.withdrawn } })) as unknown as Placement[];
+      application: { leaseTerm: raw.lease_term, leaseStart: raw.lease_start, leaseEnd: raw.lease_end }, bucket: raw.bucket, withdrawnAt: raw.withdrawn, smsTestSessionId: raw.sms_test_session } })) as unknown as Placement[];
     if (!rows.length) break;
     const ids = [...new Set(rows.map(propertyId).filter(Boolean))];
     const owners = [...new Set(rows.map(r => r.manager_user_id).filter(Boolean))];
@@ -70,6 +71,7 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
     if (properties.error) throw properties.error;
     const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
     for (const row of rows.filter(active)) {
+      if (hasSmsTestProvenance(row.row_data)) continue;
       const property = properties.data?.find(p => p.id === propertyId(row) && p.manager_user_id === row.manager_user_id);
       const config = settings.get(row.manager_user_id);
       if (!property || !config) continue;
@@ -123,7 +125,7 @@ export async function inspectionReminderIsCurrent(db: SupabaseClient, queued: Re
   if (error) throw error;
   const row = data as Placement | null;
   const kind = queued.payload.inspectionKind;
-  if (!row || !active(row) || (kind !== "move-in" && kind !== "move-out") || assignment(row) !== queued.payload.roomAssignment ||
+  if (!row || hasSmsTestProvenance(row.row_data) || !active(row) || (kind !== "move-in" && kind !== "move-out") || assignment(row) !== queued.payload.roomAssignment ||
       inspectionDueDate(row, kind) !== queued.payload.anchorIso) return false;
   // A notice addressed to the resident must still be addressed to THIS residency's resident:
   // a reassigned or corrected email cancels the queued copy rather than mailing the old

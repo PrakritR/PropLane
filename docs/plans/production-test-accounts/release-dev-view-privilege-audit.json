@@ -1,0 +1,28 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "read_only": "on",
+  "public_views": [
+    {
+      "name": "inspection_room_requirements",
+      "owner": "postgres",
+      "kind": "v",
+      "options": [
+        "security_invoker=true"
+      ],
+      "authenticated_select": false,
+      "anon_select": false,
+      "authenticated_column_select": false,
+      "anon_column_select": false,
+      "definition": " SELECT p.id AS property_id,\n    p.manager_user_id,\n    rooms.room ->> 'id'::text AS room_id,\n    rooms.room ->> 'name'::text AS room_name,\n    ((rooms.room -> 'requireMoveInInspection'::text) = 'true'::jsonb) IS TRUE AS move_in_required,\n    ((rooms.room -> 'requireMoveOutInspection'::text) = 'true'::jsonb) IS TRUE AS move_out_required\n   FROM manager_property_records p\n     CROSS JOIN LATERAL jsonb_array_elements(\n        CASE\n            WHEN jsonb_typeof(COALESCE((p.property_data -> 'listingSubmission'::text) -> 'rooms'::text, (p.row_data -> 'submission'::text) -> 'rooms'::text)) = 'array'::text THEN COALESCE((p.property_data -> 'listingSubmission'::text) -> 'rooms'::text, (p.row_data -> 'submission'::text) -> 'rooms'::text)\n            ELSE '[]'::jsonb\n        END) rooms(room)\n  WHERE jsonb_typeof(rooms.room) = 'object'::text AND COALESCE(rooms.room ->> 'id'::text, ''::text) <> ''::text;"
+    }
+  ],
+  "postgrest_schema_role_settings": [],
+  "graphql_routines": [
+    {
+      "routine": "graphql_public.graphql(text,text,jsonb,jsonb)",
+      "definer": false,
+      "authenticated_execute": true,
+      "anon_execute": true
+    }
+  ]
+}

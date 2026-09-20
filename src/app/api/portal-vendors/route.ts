@@ -6,6 +6,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,9 @@ export async function GET(req: Request) {
     const catalogQuery = url.searchParams.get("q")?.trim() ?? "";
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
+    }
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
     const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
@@ -167,6 +171,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
+    }
     const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
     const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
     const admin = await isAdminUser(user.id);

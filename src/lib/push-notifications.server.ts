@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { assertInAppPushPath } from "@/lib/platform/parity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 /**
  * Server-only push delivery via Firebase Cloud Messaging (HTTP v1).
@@ -127,6 +128,13 @@ export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<{ sent: number; skipped?: boolean }> {
+  if (captureSmsTestDelivery({
+    kind: "push",
+    summary: payload.title.trim() || "Push notification captured in the test conversation.",
+    status: "captured",
+  })) {
+    return { sent: 1 };
+  }
   if (payload.url) assertInAppPushPath(payload.url);
 
   const creds = readCreds();
