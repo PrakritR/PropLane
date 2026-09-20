@@ -86,6 +86,14 @@ export type ManagerAutomationSettings = {
    */
   inboxAiDraftAutoSend: boolean;
   /**
+   * Opt-in (default OFF): when no work number or work email is provisioned, let
+   * residents and applicants reach the manager on the profile phone and account
+   * email instead. Off, the contact card shows only provisioned work channels —
+   * a manager's personal number never reaches an applicant they have not
+   * accepted unless they chose that (captain decision, 2026-09-20).
+   */
+  shareProfileContactWithoutWorkChannel: boolean;
+  /**
    * They asked for a PropLane work number while creating the account. Intent
    * only — it never buys anything. Signup is the wrong place to spend money: the
    * plan may not be settled yet and a failed purchase would derail account
@@ -193,6 +201,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   maintenanceDeliverViaEmail: true,
   maintenanceDeliverViaSms: false,
   inboxAiDraftAutoSend: false,
+  shareProfileContactWithoutWorkChannel: false,
   workNumberRequestedAtSignup: false,
   workEmailRequestedAtSignup: false,
   templates: {
@@ -427,6 +436,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     maintenanceDeliverViaEmail: row.maintenanceDeliverViaEmail !== false,
     maintenanceDeliverViaSms: row.maintenanceDeliverViaSms === true,
     inboxAiDraftAutoSend: row.inboxAiDraftAutoSend === true,
+    shareProfileContactWithoutWorkChannel: row.shareProfileContactWithoutWorkChannel === true,
     workNumberRequestedAtSignup: row.workNumberRequestedAtSignup === true,
     workEmailRequestedAtSignup: row.workEmailRequestedAtSignup === true,
     templates: {

@@ -60,7 +60,7 @@ type MoveOutTerms = {
 type AvailabilityResult =
   | { status: "idle" }
   | { status: "checking" }
-  | ({ status: "available"; direction: "extend" | "decrease" | "same" } & MoveOutTerms)
+  | ({ status: "available"; direction: "extend" | "decrease" | "same"; /** The terms check failed, so the fee is unknown — warn generically, never charge silently. */ termsUnknown?: boolean } & MoveOutTerms)
   | { status: "unavailable"; direction: "extend"; reason: string; nextAvailableDate?: string | null }
   | { status: "error"; message: string };
 
@@ -501,7 +501,7 @@ export function LeaseAmendMoveOutModal({
           } & MoveOutTerms;
           if (!res.ok || json.error) {
             if (direction === "decrease") {
-              setAvailability({ status: "available", direction: "decrease" });
+              setAvailability({ status: "available", direction: "decrease", termsUnknown: true });
               return;
             }
             setAvailability({ status: "error", message: json.error ?? "Could not check availability." });
@@ -528,7 +528,7 @@ export function LeaseAmendMoveOutModal({
             });
           }
         } catch {
-          if (direction === "decrease") setAvailability({ status: "available", direction: "decrease" });
+          if (direction === "decrease") setAvailability({ status: "available", direction: "decrease", termsUnknown: true });
           else setAvailability({ status: "error", message: "Network error. Please try again." });
         }
       })();
@@ -870,6 +870,14 @@ export function LeaseAmendMoveOutModal({
                 <p className="text-sm text-muted">Working out what an earlier move-out costs…</p>
               ) : null}
               {direction === "decrease" && availability.status === "available" ? (() => {
+                // The terms could not be read: say a fee may apply rather than nothing.
+                if (availability.termsUnknown) {
+                  return (
+                    <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending" data-attr="lease-amend-fee-notice-generic">
+                      Moving out earlier may result in an early move-out fee. Confirm any charges with your property manager.
+                    </div>
+                  );
+                }
                 const fee = availability.earlyMoveOutFee ?? null;
                 const due = availability.earlyMoveOutFeeDueLabel?.replace(/^By /, "") ?? "";
                 const finalMonth = availability.finalMonth ?? null;
