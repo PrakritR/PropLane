@@ -34,7 +34,7 @@ export type VendorSponsoredOutboundRequest = {
 };
 
 export type VendorSponsoredOutboundResult =
-  | { ok: true; providerMessageId: string | null }
+  | { ok: true; providerMessageId: string | null; delivery: "sending" | "failed" | "sent" }
   | { ok: false; error: "invalid_request" | "recipient_unlinked" | "conversation_unavailable" | "delivery_refused"; reason?: string };
 
 async function profileById(db: SupabaseClient, id: string): Promise<Recipient | null> {
@@ -160,7 +160,8 @@ export async function sendVendorSponsoredOutbound(
     },
     provider,
   );
-  if (!delivered.ok || !delivered.sent) return { ok: false, error: "delivery_refused", reason: delivered.reason };
+  if (!delivered.ok && !delivered.authorized) return { ok: false, error: "delivery_refused", reason: delivered.reason };
+  const delivery = delivered.sent ? "sent" as const : delivered.reason === "provider_outcome_unknown" ? "sending" as const : "failed" as const;
 
   const messageId = `vendor-sponsored:${request.sendId}`;
   if (target) {
@@ -172,6 +173,7 @@ export async function sendVendorSponsoredOutbound(
       channel: request.channel,
       subject,
       outbound: true,
+      delivery,
     });
   } else {
     const when = new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short", timeZone: "America/Los_Angeles" }).format(new Date());
@@ -181,15 +183,15 @@ export async function sendVendorSponsoredOutbound(
         scope: scopeForRole("vendor"), folder: "sent", ownerUserId: actor.userId, participantEmail: null,
         otherPartyEmail: recipient.email, fallbackId: `vendor-sponsored-sent:${actor.userId}:${recipient.userId}`,
         fromName: actor.name || "PropLane vendor", subject, body: text, preview, when, unread: false, outbound: true,
-        messageId, channel: request.channel, messageSubject: subject, attachments,
+        messageId, channel: request.channel, messageSubject: subject, attachments, delivery,
       }),
       deliverPortalMessageThreadSide(db, {
         scope: scopeForRole(recipient.role), folder: "inbox", ownerUserId: recipient.userId || null, participantEmail: recipient.email,
         otherPartyEmail: actor.email, fallbackId: `vendor-sponsored-inbox:${actor.userId}:${recipient.userId}`,
         fromName: actor.name || "PropLane vendor", subject, body: text, preview, when, unread: true, outbound: false,
-        messageId, channel: request.channel, messageSubject: subject, attachments,
+        messageId, channel: request.channel, messageSubject: subject, attachments, delivery,
       }),
     ]);
   }
-  return { ok: true, providerMessageId: delivered.providerMessageId ?? null };
+  return { ok: true, providerMessageId: delivered.providerMessageId ?? null, delivery };
 }

@@ -212,6 +212,8 @@ export async function commitInboxThreadReply(
     messageId?: string;
     /** Channel the turn actually went on; omitted = unknown (never assumed email). */
     channel?: InboxThreadMessageChannel;
+    /** Durable external-delivery state; never infer Sent before the provider records it. */
+    delivery?: "sending" | "sent" | "failed";
     /** Email subject the turn left with, for the bubble's subject line. */
     subject?: string;
   },
@@ -228,9 +230,20 @@ export async function commitInboxThreadReply(
   // A durable outbound sender may be replayed after its provider accepted the
   // request.  Keep the thread append idempotent so a retry repairs a failed
   // companion write without showing the recipient a second sent turn.
-  if (opts.messageId && (rowData.rootMessageId === opts.messageId || messages.some((message) =>
-    (message as { id?: unknown } | null)?.id === opts.messageId,
-  ))) return;
+  const existingIndex = opts.messageId
+    ? messages.findIndex((message) => (message as { id?: unknown } | null)?.id === opts.messageId)
+    : -1;
+  if (existingIndex >= 0) {
+    const existing = messages[existingIndex] as Record<string, unknown>;
+    if (!opts.delivery || existing.delivery === opts.delivery) return;
+    messages[existingIndex] = { ...existing, delivery: opts.delivery };
+    const { error } = await db.from("portal_inbox_thread_records").upsert({
+      id: target.threadId, scope: target.scope, owner_user_id: target.ownerUserId,
+      participant_email: target.participantEmail, row_data: { ...rowData, messages }, updated_at: new Date().toISOString(),
+    }, { onConflict: "id" });
+    if (error) throw new Error("Could not save the reply. Please try again.", { cause: error });
+    return;
+  }
   const when = formatPacificDateTime(new Date());
   messages.push({
     id: opts.messageId ?? `reply-${Date.now().toString(36)}`,
@@ -241,6 +254,7 @@ export async function commitInboxThreadReply(
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
     ...(opts.channel ? { channel: opts.channel } : {}),
     ...(opts.subject?.trim() ? { subject: opts.subject.trim() } : {}),
+    ...(opts.delivery ? { delivery: opts.delivery } : {}),
   });
   const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
     {
@@ -425,6 +439,7 @@ export async function deliverPortalMessageThreadSide(
     channel?: InboxThreadMessageChannel;
     /** Per-turn email subject; the thread-level `subject` above still labels the list. */
     messageSubject?: string;
+    delivery?: "sending" | "sent" | "failed";
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string }> {
   const existing = await findExistingPortalMessageThread(db, args);
@@ -450,6 +465,7 @@ export async function deliverPortalMessageThreadSide(
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(args.channel ? { channel: args.channel } : {}),
       ...(args.messageSubject?.trim() ? { subject: args.messageSubject.trim() } : {}),
+      ...(args.delivery ? { delivery: args.delivery } : {}),
     });
     await db.from("portal_inbox_thread_records").upsert(
       {
@@ -525,6 +541,7 @@ export async function deliverPortalMessageThreadSide(
         // under `root*` so the bubble builders can label it like any other turn.
         ...(args.channel ? { rootChannel: args.channel } : {}),
         ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
+        ...(args.delivery ? { rootDelivery: args.delivery } : {}),
       },
       updated_at: nowIso,
     },

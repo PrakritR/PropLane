@@ -67,7 +67,7 @@ export async function deliverVendorWorkIdentity(
   db: SupabaseClient,
   input: { vendorUserId: string; channel: VendorIdentityChannel; recipient: string; recipientUserId?: string | null; subject: string; text: string; idempotencyKey: string; contextFingerprint?: string; sendClass?: SmsSendClass },
   provider: VendorDeliveryProvider,
-): Promise<{ ok: boolean; sent?: boolean; reason?: string; providerMessageId?: string | null }> {
+): Promise<{ ok: boolean; sent?: boolean; authorized?: boolean; reason?: string; providerMessageId?: string | null }> {
   const { data: runtime, error: runtimeError } = await db.from("vendor_work_identity_runtime").select("enabled").eq("singleton", true).maybeSingle();
   if (runtimeError || !(runtime as { enabled?: boolean } | null)?.enabled) return { ok: false, reason: "provider_disabled" };
   if (!provider.configured(input.channel)) return { ok: false, reason: "provider_unconfigured" };
@@ -112,16 +112,16 @@ export async function deliverVendorWorkIdentity(
       String(replay.body ?? "") !== input.text
     ) return { ok: false, sent: false, reason: "idempotency_mismatch" };
     if (replay.status === "sent") return { ok: true, sent: true, providerMessageId: replay.provider_message_id ?? null };
-    if (replay.status === "reconciling" || replay.status === "authorized" || replay.status === "calling_provider") return { ok: false, sent: false, reason: "provider_outcome_unknown", providerMessageId: replay.provider_message_id ?? null };
-    return { ok: false, sent: false, reason: replay.blocked_reason ?? "provider_rejected", providerMessageId: replay.provider_message_id ?? null };
+    if (replay.status === "reconciling" || replay.status === "authorized" || replay.status === "calling_provider") return { ok: false, sent: false, reason: "provider_outcome_unknown", providerMessageId: replay.provider_message_id ?? null, authorized: true };
+    return { ok: false, sent: false, reason: replay.blocked_reason ?? "provider_rejected", providerMessageId: replay.provider_message_id ?? null, authorized: true };
   }
   const { error: callingError } = await db.from("vendor_work_identity_operations").update({ state: "calling_provider", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
-  if (callingError) return { ok: false, reason: "operation_unavailable" };
+  if (callingError) return { ok: false, reason: "operation_unavailable", authorized: true };
   const { data: attempt, error: attemptError } = await db.from("vendor_work_identity_delivery_attempts").insert({ outbox_id: outbox.outbox_id, attempt_number: 1, state: "calling_provider" }).select("id").maybeSingle();
   if (attemptError || !(attempt as { id?: string } | null)?.id) {
     await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "attempt_unavailable", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
     await db.from("vendor_work_identity_outbox").update({ status: "blocked", blocked_reason: "attempt_unavailable", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
-    return { ok: false, reason: "attempt_unavailable" };
+    return { ok: false, reason: "attempt_unavailable", authorized: true };
   }
   let providerAccepted = false;
   let acceptedId: string | null = null;
@@ -145,6 +145,6 @@ export async function deliverVendorWorkIdentity(
     await db.from("vendor_work_identity_operations").update({ state: reconcile ? "reconciling" : "failed", provider_reference: acceptedId, error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
     const { error: persistError } = await db.from("vendor_work_identity_outbox").update({ status: reconcile ? "reconciling" : "failed", provider_message_id: acceptedId, blocked_reason: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
     if (persistError) throw new Error(persistError.message);
-    return { ok: false, reason: reconcile ? "provider_outcome_unknown" : "provider_rejected" };
+    return { ok: false, reason: reconcile ? "provider_outcome_unknown" : "provider_rejected", authorized: true };
   }
 }

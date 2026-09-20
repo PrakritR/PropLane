@@ -186,9 +186,9 @@ begin
     select p_identity_id, p_vendor_user_id, p_operation_kind, p_idempotency_key
     where exists (select 1 from public.vendor_work_identities where id = p_identity_id and vendor_user_id = p_vendor_user_id)
     on conflict (vendor_user_id, operation_kind, idempotency_key) do nothing
-    returning id, state
+    returning vendor_work_identity_operations.id, vendor_work_identity_operations.state
   )
-  select id, true, state from inserted
+  select inserted.id, true, inserted.state from inserted
   union all
   select o.id, false, o.state
   from public.vendor_work_identity_operations o
