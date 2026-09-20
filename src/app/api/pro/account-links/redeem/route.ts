@@ -13,7 +13,7 @@ import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-s
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { findPendingOpenInviteByToken, openInviteIsExpired } from "@/lib/co-manager-open-invite.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
-import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token";
+import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token.server";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";

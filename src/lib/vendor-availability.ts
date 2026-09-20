@@ -1,3 +1,5 @@
+import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
+
 /**
  * Vendor availability: recurring weekly windows + one-off blocked dates, and
  * the pure slot-resolution algorithm managers use to auto-schedule a visit
@@ -18,6 +20,8 @@ export const VENDOR_WORK_MEETING_ID_PREFIX = "vendor-work-";
 export const DEFAULT_VISIT_DURATION_MINUTES = 60;
 export const SLOT_STEP_MINUTES = 30;
 export const MINUTES_PER_DAY = 1440;
+
+const VENDOR_AVAILABILITY_TTL_MS = 15_000;
 
 export type VendorFlexibleTiming = "morning" | "afternoon" | "evening";
 
@@ -366,16 +370,59 @@ export function resolveNextAvailableSlot(options: {
   return null;
 }
 
-export async function fetchVendorAvailability(vendorId?: string): Promise<VendorAvailabilityRule[]> {
+type AvailabilityRefreshEntry = {
+  rules: VendorAvailabilityRule[] | null;
+  loadedAt: number;
+  refresher: CoalescedRefresher<VendorAvailabilityRule[]>;
+};
+
+const availabilityRefreshEntries = new Map<string, AvailabilityRefreshEntry>();
+
+type VendorAvailabilityReadOptions = { force?: boolean; viewerId?: string };
+
+function vendorAvailabilityRefreshKey(vendorId?: string, viewerId?: string): string {
+  // The endpoint is authorization-scoped: never reuse a prior viewer's rules
+  // during the TTL window after sign-out/sign-in.
+  const viewer = viewerId?.trim() || "anonymous";
+  return vendorId?.trim() ? `viewer:${viewer}:vendor:${vendorId.trim()}` : `viewer:${viewer}:self`;
+}
+
+function availabilityRefreshEntry(vendorId?: string, viewerId?: string): AvailabilityRefreshEntry {
+  const key = vendorAvailabilityRefreshKey(vendorId, viewerId);
+  const existing = availabilityRefreshEntries.get(key);
+  if (existing) return existing;
   const url = vendorId ? `/api/vendor/availability?vendorId=${encodeURIComponent(vendorId)}` : "/api/vendor/availability";
-  try {
-    const res = await fetch(url, { credentials: "include" });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.rules) ? (data.rules as VendorAvailabilityRule[]) : [];
-  } catch {
-    return [];
-  }
+  let entry!: AvailabilityRefreshEntry;
+  const refresher = createCoalescedRefresher(async () => {
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      const data = res.ok ? await res.json() : null;
+      const rules = Array.isArray(data?.rules) ? (data.rules as VendorAvailabilityRule[]) : [];
+      entry.rules = rules;
+      entry.loadedAt = Date.now();
+      return rules;
+    } catch {
+      entry.rules = [];
+      entry.loadedAt = Date.now();
+      return [];
+    }
+  });
+  entry = { rules: null, loadedAt: 0, refresher };
+  availabilityRefreshEntries.set(key, entry);
+  return entry;
+}
+
+export function invalidateVendorAvailability(vendorId?: string, viewerId?: string): void {
+  const entry = availabilityRefreshEntries.get(vendorAvailabilityRefreshKey(vendorId, viewerId));
+  if (!entry) return;
+  entry.rules = null;
+  entry.loadedAt = 0;
+}
+
+export async function fetchVendorAvailability(vendorId?: string, opts: VendorAvailabilityReadOptions = {}): Promise<VendorAvailabilityRule[]> {
+  const entry = availabilityRefreshEntry(vendorId, opts.viewerId);
+  if (!opts.force && entry.rules && Date.now() - entry.loadedAt < VENDOR_AVAILABILITY_TTL_MS) return entry.rules;
+  return entry.refresher.run(Boolean(opts.force));
 }
 
 async function postAvailability(body: Record<string, unknown>): Promise<{ ok: boolean; rule?: VendorAvailabilityRule; error?: string }> {
@@ -388,6 +435,7 @@ async function postAvailability(body: Record<string, unknown>): Promise<{ ok: bo
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: data.error ?? "Request failed." };
+    invalidateVendorAvailability();
     return { ok: true, rule: data.rule };
   } catch {
     return { ok: false, error: "Network error." };
