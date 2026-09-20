@@ -571,6 +571,11 @@ export type ManagerSharedSpaceSubmission = {
   /** Optional shared-space video shown in listing details. */
   videoDataUrl?: string | null;
   /**
+   * Floor area in square feet, same contract as {@link ManagerRoomSubmission.sizeSqft}:
+   * absent means the manager did not say, never 0 (`normalizeRoomSizeSqft`).
+   */
+  sizeSqft?: number | null;
+  /**
    * Rooms with access (same room may have access to multiple shared spaces).
    * Empty means Everyone, and a list naming every current room reads the
    * same; the encoding lives in `src/lib/listing-shared-space-access.ts`.
@@ -2274,6 +2279,7 @@ function normalizeManagerListingSubmissionV1Base(
         (ss as ManagerSharedSpaceSubmission & { spaceKind?: unknown }).spaceKind,
         typeof ss.name === "string" ? ss.name : "",
       ),
+      sizeSqft: normalizeRoomSizeSqft((ss as ManagerSharedSpaceSubmission & { sizeSqft?: unknown }).sizeSqft),
     }));
 
   const applicationFeeStripeEnabled = sub.axisPaymentsEnabled !== false;

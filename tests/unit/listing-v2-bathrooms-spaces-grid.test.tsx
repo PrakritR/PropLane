@@ -213,4 +213,19 @@ describe("shared spaces as cards", () => {
     expect(added.spaceKind).toBeUndefined();
     expect(seen.at(-1)!.sharedSpaceDefaults).toBeUndefined();
   });
+
+  it("has its own Size · sq ft row behind More ▾, same box as a room's (PRP-481)", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("spaces", (s) => seen.push(s));
+    openCard("Kitchen");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-space-editor"] [data-attr="listing-v2-space-more"]')!);
+    const size = screen.getByLabelText("Size of Kitchen") as HTMLInputElement;
+    expect(size.placeholder).toBe("—");
+    fireEvent.focus(size);
+    fireEvent.change(size, { target: { value: "140" } });
+    fireEvent.blur(size);
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.sizeSqft).toBe(140);
+    // No Default card for shared spaces, so no Reset tag appears on the row.
+    expect(screen.queryByRole("button", { name: /Reset size/ })).toBeNull();
+  });
 });

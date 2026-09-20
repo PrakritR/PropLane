@@ -2058,6 +2058,14 @@ function SharedSpaceCardBody({
         <FactRow label="What is in it">
           <AmenityPick label={`What is in ${who}`} presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
         </FactRow>
+        <FactRow label="Size">
+          <SizeInput
+            who={who}
+            value={space.sizeSqft ?? 0}
+            inherited={false}
+            onCommit={(n) => onChange({ sizeSqft: n ?? undefined })}
+          />
+        </FactRow>
         <CardFields>
           <Field label="Description">
             <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
