@@ -54,12 +54,13 @@ describe("vendor list sections", () => {
   });
 
   it("uses the manager-owned stable vendor row for private jobs and ratings", () => {
-    const detail = read("src/components/portal/pro-vendor-detail.tsx");
-    expect(detail).toContain("wo.vendorId === row.id");
-    expect(detail).toContain('wo.assignee?.type === "vendor" && wo.assignee.id === row.id');
-    expect(detail).toContain('job.bucket === "completed" && typeof job.residentConfirmation?.rating === "number"');
-    expect(detail).not.toContain("row.name ===");
-    expect(detail).not.toContain("row.phone ===");
+    const summary = read("src/lib/manager-vendor-summary.server.ts");
+    expect(summary).toContain("vendor_user_id");
+    expect(summary).toContain("row.vendorId === vendorId");
+    expect(summary).toContain('row.bucket === "completed"');
+    expect(summary).toContain("row.residentConfirmation?.rating");
+    expect(summary).not.toContain("vendorRow.name");
+    expect(summary).not.toContain("vendorRow.phone");
   });
 
   it("keeps vendor-list hooks above the detail return", () => {
