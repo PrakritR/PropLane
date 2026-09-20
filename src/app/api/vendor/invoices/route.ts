@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { track } from "@/lib/analytics/posthog";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_SELECT } from "@/lib/vendor-invoices";
 import {
@@ -23,12 +24,9 @@ async function requireVendor(): Promise<
     data: { user },
   } = await auth.auth.getUser();
   if (!user) return { ok: false, status: 401, error: "Unauthorized." };
-  const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (String(profile?.role ?? "").toLowerCase() !== "vendor") {
-    return { ok: false, status: 403, error: "Forbidden." };
-  }
-  return { ok: true, userId: user.id, email: user.email ?? "", db };
+  const access = await resolveVendorPortalUserId();
+  if (!access.ok) return { ok: false, status: access.status, error: access.status === 401 ? "Unauthorized." : "Forbidden." };
+  return { ok: true, userId: access.userId, email: user.email ?? "", db: createSupabaseServiceRoleClient() };
 }
 
 /** Returns the signed-in vendor's own invoices, most recent first. */

@@ -75,7 +75,11 @@ async function getUserContext() {
 
 function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = false }: { sanitizeGeneratedHtml?: boolean } = {}) {
   const generatedHtml =
-    sanitizeGeneratedHtml && typeof row.generatedHtml === "string" ? sanitizeLeaseDocumentHtml(row.generatedHtml) : row.generatedHtml;
+    typeof row.generatedHtml === "string"
+      ? sanitizeGeneratedHtml
+        ? sanitizeLeaseDocumentHtml(row.generatedHtml)
+        : row.generatedHtml
+      : null;
   return { ...row, generatedHtml };
 }
 

@@ -65,6 +65,14 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => makeFakeDb(state.rows),
 }));
 
+vi.mock("@/lib/auth/vendor-api-access", () => ({
+  resolveVendorPortalUserId: async () => {
+    if (!state.user) return { ok: false, status: 401 };
+    const profile = state.rows.find((row) => row.__table === "profiles" && row.id === state.user?.id);
+    return profile?.role === "vendor" ? { ok: true, userId: state.user.id } : { ok: false, status: 403 };
+  },
+}));
+
 const VENDOR = "vendor-1";
 const OTHER_VENDOR = "vendor-2";
 const INVOICE = "inv-1";

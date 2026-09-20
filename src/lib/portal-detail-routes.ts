@@ -372,10 +372,10 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
   return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
-/** Vendor calendar: All + Services. No Tours, no Tasks. */
-export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services"] as const;
+/** Vendor calendar views. List is the accessible record view of the same visits. */
+export const VENDOR_CALENDAR_VIEW_TABS = ["list", "day", "week", "month"] as const;
 export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
-export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
+export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "week";
 
 export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
   if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
@@ -1109,18 +1109,26 @@ export function parseVendorDirectoryTab(raw: string | null | undefined): VendorD
   return raw === "catalog" ? "catalog" : "yours";
 }
 
-export function vendorCatalogDetailHref(basePath: string, catalogId: string): string {
-  return `${basePath}/vendors?tab=catalog&catalog=${encodeURIComponent(catalogId)}`;
+export function vendorCatalogDetailHref(
+  basePath: string,
+  catalogId: string,
+  detailTab: VendorDetailTabId = "overview",
+): string {
+  const params = new URLSearchParams({ tab: "catalog", catalog: catalogId });
+  if (detailTab !== "overview") params.set("detailTab", detailTab);
+  return `${basePath}/vendors?${params.toString()}`;
 }
 
 /** Routed detail tabs for a manager vendor — same chrome as a resident. */
-export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "check-ins", "communication"] as const;
+export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "pricing", "reviews", "check-ins", "communication"] as const;
 export type VendorDetailTabId = (typeof VENDOR_DETAIL_TABS)[number];
 
 export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
   overview: "Overview",
   profile: "Profile",
   jobs: "Jobs",
+  pricing: "Pricing",
+  reviews: "Reviews",
   "check-ins": "Check-ins",
   communication: "Communication",
 };
@@ -1129,13 +1137,15 @@ export const VENDOR_DETAIL_TAB_DESCRIPTIONS: Record<VendorDetailTabId, string> =
   overview: "Status, houses, and what needs you",
   profile: "Name, trade, phone, email",
   jobs: "Work assigned to this vendor",
+  pricing: "Rates for this vendor",
+  reviews: "Ratings from your completed services",
   "check-ins": "Scheduled questions",
   communication: "Messages with this vendor",
 };
 
 export const VENDOR_RAIL_GROUPS: Array<{ label: string; ids: VendorDetailTabId[] }> = [
   { label: "Vendor", ids: ["overview", "profile"] },
-  { label: "Work", ids: ["jobs", "check-ins"] },
+  { label: "Work", ids: ["jobs", "pricing", "reviews", "check-ins"] },
   { label: "Contact", ids: ["communication"] },
 ];
 

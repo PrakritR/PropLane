@@ -221,15 +221,15 @@ export async function deliverPaymentReminder(input: {
           .join("\n");
         const smsResult = await traceSystemNotification({
           domain: "payment_reminder",
-          managerUserId,
-          recipientUserId,
+          managerUserId: ownerManagerId,
+          recipientUserId: residentUserId,
           entityId: charge.id,
           cadence: slotLabel,
           run: () => enqueueOwnerSms({
             managerUserId: managerId,
             actorUserId: managerId,
             recipientPhone: residentPhone,
-            recipientUserId,
+            recipientUserId: residentUserId,
             recipientEmail: residentLower,
             body: smsBody,
             sendClass: "transactional",

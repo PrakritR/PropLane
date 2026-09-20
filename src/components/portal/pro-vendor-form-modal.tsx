@@ -590,7 +590,7 @@ export function ManagerVendorFormModal({
         propertyIds: (draft.propertyIds.length ? draft.propertyIds : propertyOptions.map((row) => row.id)),
         trades: draft.trades,
         existing: draft.typicalRates,
-        fallback: catalogVendor
+        fallback: catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
           ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
           : undefined,
       }),
@@ -906,7 +906,7 @@ export function ManagerVendorFormModal({
   const rateHouses = draft.propertyIds.length
     ? propertyOptions.filter((row) => draft.propertyIds.includes(row.id))
     : propertyOptions;
-  const rateFallback = catalogVendor
+  const rateFallback = catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
     ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
     : undefined;
 

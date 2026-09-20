@@ -49,9 +49,8 @@ describe("portal nav order contracts", () => {
       "payments",
       "communication",
       "documents",
-      "profile",
     ]);
-    expect(ordered.at(-1)).toBe("profile");
+    expect(ordered.at(-1)).toBe("documents");
   });
 
   it("resident approved native order follows the cross-stage mobile order", () => {
@@ -70,7 +69,6 @@ describe("portal nav order contracts", () => {
       // with My home, before the reference sections.
       "inspections",
       "documents",
-      "profile",
     ]);
   });
 });
@@ -146,9 +144,9 @@ describe("resident portal nav grouping", () => {
     expectContiguousBlock(sections, ["applications", "lease", "move-in", "inspections"], "communication", "documents");
   });
 
-  it("approved: keeps documents next to settings after the post-lease workspace", () => {
+  it("approved: ends navigation with documents while account remains in the profile menu", () => {
     const sections = sectionIds(RESIDENT_APPROVED_PORTAL_SECTIONS);
-    expect(sections.slice(-2)).toEqual(["documents", "profile"]);
+    expect(sections.at(-1)).toBe("documents");
     expect(sections.indexOf("move-in")).toBeLessThan(sections.indexOf("documents"));
   });
 });

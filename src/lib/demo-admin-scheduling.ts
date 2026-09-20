@@ -634,6 +634,21 @@ export function writeAvailabilityDateSetForStorageKey(next: Set<string>, storage
   writeJson(storageKey, [...next]);
 }
 
+/**
+ * Install a derived availability snapshot for a calendar that owns its actual
+ * persistence elsewhere. This deliberately updates only the in-memory and
+ * session caches that `readAvailabilityDateSetForStorageKey` consumes; it must
+ * never mirror a canonical vendor availability read back through the legacy
+ * schedule-records API.
+ */
+export function installAvailabilityDateSetForStorageKey(next: Set<string>, storageKey: string): void {
+  if (!isBrowser()) return;
+  const slots = [...next];
+  memoryStore.set(storageKey, slots);
+  writeSessionJson(storageKey, slots);
+  emitAdminUi();
+}
+
 export async function writeAvailabilityDateSetForStorageKeyToServer(
   next: Set<string>,
   storageKey: string,

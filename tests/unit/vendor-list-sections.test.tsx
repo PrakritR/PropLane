@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AXIS_VENDOR_CATALOG } from "@/lib/axis-vendor-catalog";
-import { parseVendorDirectoryTab, vendorCatalogDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
+import { AXIS_VENDOR_CATALOG, formatVendorCatalogUsd } from "@/lib/axis-vendor-catalog";
+import { parseVendorDirectoryTab, vendorCatalogDetailHref, vendorListHref, VENDOR_DETAIL_TABS } from "@/lib/portal-detail-routes";
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
@@ -32,7 +32,35 @@ describe("vendor list sections", () => {
     const detail = read("src/components/portal/pro-vendor-catalog-detail.tsx");
     expect(detail).toContain("Hourly");
     expect(detail).toContain("Typical service");
-    expect(detail).toContain("vendor-catalog-add");
+    expect(detail).toContain("vendor-catalog-empty-${tab}");
+  });
+
+  it("gives catalog entries the same seven-section rail without fabricating private history", () => {
+    const panel = read("src/components/portal/pro-vendors-panel.tsx");
+    const detail = read("src/components/portal/pro-vendor-catalog-detail.tsx");
+    expect(VENDOR_DETAIL_TABS).toEqual(["overview", "profile", "jobs", "pricing", "reviews", "check-ins", "communication"]);
+    expect(panel).toContain("VENDOR_RAIL_GROUPS");
+    expect(panel).toContain("catalogDetailTab");
+    expect(detail).not.toContain("readManagerWorkOrderRows");
+    expect(detail).not.toContain("residentConfirmation");
+    expect(detail).not.toContain("findRosterCatalogMatch");
+    expect(detail).toContain('No {tab === "jobs" ? "services" : tab} are available');
+  });
+
+  it("keeps absent catalog rates distinct from a genuine zero rate", () => {
+    expect(formatVendorCatalogUsd(null)).toBe("—");
+    expect(formatVendorCatalogUsd(undefined)).toBe("—");
+    expect(formatVendorCatalogUsd(0)).toBe("$0");
+  });
+
+  it("uses the manager-owned stable vendor row for private jobs and ratings", () => {
+    const summary = read("src/lib/manager-vendor-summary.server.ts");
+    expect(summary).toContain("vendor_user_id");
+    expect(summary).toContain("row.vendorId === vendorId");
+    expect(summary).toContain('row.bucket === "completed"');
+    expect(summary).toContain("row.residentConfirmation?.rating");
+    expect(summary).not.toContain("vendorRow.name");
+    expect(summary).not.toContain("vendorRow.phone");
   });
 
   it("keeps vendor-list hooks above the detail return", () => {

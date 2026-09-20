@@ -143,7 +143,7 @@ export const WEEKDAY_LABELS: Record<number, string> = {
   6: "Sat",
 };
 
-function pacificPartsAt(date: Date) {
+export function pacificDateTimeParts(date: Date) {
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: TIME_ZONE,
     year: "numeric",
@@ -168,14 +168,14 @@ function pacificPartsAt(date: Date) {
 }
 
 /** Pacific wall-clock (year, month 1-12, day, minuteOfDay) -> the UTC instant it corresponds to. */
-function pacificWallClockToUtc(year: number, month: number, day: number, minuteOfDay: number): Date {
+export function pacificWallClockToUtc(year: number, month: number, day: number, minuteOfDay: number): Date {
   const hour = Math.floor(minuteOfDay / 60);
   const minute = minuteOfDay % 60;
   let guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
   // Two correction passes converge reliably since the Pacific/UTC offset is a
   // stable integer number of hours except across the DST-transition instant itself.
   for (let i = 0; i < 2; i += 1) {
-    const parts = pacificPartsAt(guess);
+    const parts = pacificDateTimeParts(guess);
     const dayDiffMs = Date.UTC(year, month - 1, day) - Date.UTC(parts.year, parts.month - 1, parts.day);
     const minuteDiffMs = (minuteOfDay - (parts.hour * 60 + parts.minute)) * 60_000;
     guess = new Date(guess.getTime() + dayDiffMs + minuteDiffMs);
@@ -248,7 +248,7 @@ export function resolveNextAvailableSlot(options: {
   if (tenantPreferredIso) {
     const preferred = new Date(tenantPreferredIso);
     if (!Number.isNaN(preferred.getTime()) && !overlapsBusy(busy, preferred.toISOString(), durationMinutes)) {
-      const parts = pacificPartsAt(preferred);
+      const parts = pacificDateTimeParts(preferred);
       const minute = parts.hour * 60 + parts.minute;
       const key = dateKey(parts.year, parts.month, parts.day);
       const weekday = preferred.getUTCDay();
@@ -307,8 +307,8 @@ export function resolveNextAvailableSlot(options: {
 
   const busyByDate = new Map<string, Array<{ start: number; end: number }>>();
   for (const window of busy) {
-    const start = pacificPartsAt(new Date(window.startIso));
-    const end = pacificPartsAt(new Date(window.endIso));
+    const start = pacificDateTimeParts(new Date(window.startIso));
+    const end = pacificDateTimeParts(new Date(window.endIso));
     const key = dateKey(start.year, start.month, start.day);
     const startMinute = start.hour * 60 + start.minute;
     const sameDay = dateKey(end.year, end.month, end.day) === key;
@@ -318,7 +318,7 @@ export function resolveNextAvailableSlot(options: {
     busyByDate.set(key, list);
   }
 
-  const fromParts = pacificPartsAt(from);
+  const fromParts = pacificDateTimeParts(from);
   const fromMinuteFloor = fromParts.hour * 60 + fromParts.minute;
   const fromUtcMidnight = Date.UTC(fromParts.year, fromParts.month - 1, fromParts.day);
 

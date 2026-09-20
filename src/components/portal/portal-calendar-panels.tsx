@@ -112,7 +112,7 @@ import {
   compactTaskRoomLabel,
   taskNotesPreview,
 } from "@/lib/manager-task-display";
-type CalendarMode = "day" | "week" | "month";
+export type CalendarMode = "day" | "week" | "month";
 type RecurrenceCadence = "once" | "weekly" | "biweekly" | "monthly";
 type DragSelection = {
   dateStr: string;
@@ -453,6 +453,23 @@ function addMonths(d: Date, n: number): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
   x.setMonth(x.getMonth() + n);
   return x;
+}
+
+/** Calendar navigation is noon-anchored so DST cannot skip a local date. */
+export function shiftCalendarAnchor(anchor: Date, mode: CalendarMode, direction: -1 | 1): Date {
+  if (mode === "month") return addMonths(anchor, direction);
+  return addDays(anchor, mode === "week" ? direction * 7 : direction);
+}
+
+/** A fresh value prevents a mutating Date caller from changing the clock anchor. */
+export function calendarTodayAnchor(today: Date): Date {
+  return new Date(today);
+}
+
+export function calendarVisibleDateCount(mode: CalendarMode, anchor: Date): number {
+  if (mode === "day") return 1;
+  if (mode === "week") return 7;
+  return buildMonthCells(anchor.getFullYear(), anchor.getMonth()).filter(Boolean).length;
 }
 
 function buildMonthCells(year: number, month: number): (number | null)[] {
@@ -811,6 +828,7 @@ export function PortalCalendarPanels({
   editKind = "tours",
   calendarRefreshSignal,
   defaultViewMode = "week",
+  viewMode: controlledViewMode,
   pinMonthSchedule = false,
   tourScopeLabel,
   unavailableMessage = "Sign in to manage your availability.",
@@ -857,6 +875,8 @@ export function PortalCalendarPanels({
   onDefaultTourGridEnabledChange,
   weekActionsHost,
   vendorViewer = false,
+  hideViewModeControl = false,
+  onVendorAvailabilityEdit,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -864,6 +884,8 @@ export function PortalCalendarPanels({
   editKind?: AvailabilityKind;
   calendarRefreshSignal?: number;
   defaultViewMode?: CalendarMode;
+  /** Route-owned calendar mode. When provided, navigation updates this panel without remounting it. */
+  viewMode?: CalendarMode;
   pinMonthSchedule?: boolean;
   tourScopeLabel?: string;
   unavailableMessage?: string;
@@ -889,6 +911,10 @@ export function PortalCalendarPanels({
    * still key off `vendorDayFlexibility`.
    */
   vendorViewer?: boolean;
+  /** The portal route owns mode navigation, so do not render a second picker. */
+  hideViewModeControl?: boolean;
+  /** Vendor edits are delegated to the canonical vendor-availability editor. */
+  onVendorAvailabilityEdit?: (dateStr: string, slotIdx?: number) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1005,11 +1031,15 @@ export function PortalCalendarPanels({
     if (availabilityKeysByKind) return availabilityKeysByKind;
     return writeStorageKeys.length > 0 ? { tours: writeStorageKeys } : {};
   }, [availabilityKeysByKind, writeStorageKeys]);
+  // A vendor supplies a storage key solely as a paint cache of canonical
+  // `/api/vendor/availability` rules. It is never a legacy schedule-record
+  // target, even though the manager calendar uses the same prop for writes.
   const hasEditableKeys = useMemo(
-    () => AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
-    [kindKeysMap],
+    () => !isVendorViewer && AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
+    [isVendorViewer, kindKeysMap],
   );
-  const [viewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
+  const [uncontrolledViewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
+  const viewMode = controlledViewMode ?? uncontrolledViewMode;
   const [monthPick, setMonthPick] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
   const [uncontrolledAnchorDate, setUncontrolledAnchorDate] = useState(() => new Date());
   const anchorDate = anchorDateProp ?? uncontrolledAnchorDate;
@@ -1201,10 +1231,14 @@ export function PortalCalendarPanels({
   const meetings = useMemo<DemoMeeting[]>(() => {
     void calendarRefreshSignal;
     void meetingRefresh;
-    const builtMeetings = buildScheduledTourMeetings(scheduledTourFilter, storageKey);
+    // Vendor visits arrive through `externalMeetings`. Do not read the shared
+    // manager schedule snapshot here: that snapshot is hydrated and refreshed
+    // by the legacy schedule-records transport, which a vendor viewer neither
+    // owns nor needs.
+    const builtMeetings = isVendorViewer ? [] : buildScheduledTourMeetings(scheduledTourFilter, storageKey);
     const tourMeetings = scheduledMeetingFilter ? builtMeetings.filter(scheduledMeetingFilter) : builtMeetings;
     const linkedGoogleIds = new Set(
-      readPlannedEvents()
+      (isVendorViewer ? [] : readPlannedEvents())
         .map((event) => event.googleCalendarEventId?.trim())
         .filter((id): id is string => Boolean(id)),
     );
@@ -1218,7 +1252,7 @@ export function PortalCalendarPanels({
       return true;
     });
     return [...tourMeetings, ...filteredExternal];
-  }, [storageKey, calendarRefreshSignal, meetingRefresh, scheduledTourFilter, scheduledMeetingFilter, externalMeetings]);
+  }, [storageKey, calendarRefreshSignal, meetingRefresh, scheduledTourFilter, scheduledMeetingFilter, externalMeetings, isVendorViewer]);
 
   /**
    * Personal Google busy time is drawn as "Blocked", never as an event, and the
@@ -1256,17 +1290,25 @@ export function PortalCalendarPanels({
     [visibleEndSlotExclusive, visibleStartSlot],
   );
 
-  const reloadAvailability = useCallback(() => {
-    if (!hasEditableKeys) return;
+  const refreshPaintedAvailability = useCallback(() => {
     setActiveSlotsByKind(unionAvailabilityByKind(kindKeysMap));
+  }, [kindKeysMap]);
+
+  const reloadAvailability = useCallback(() => {
+    // A vendor cache is installed from canonical availability rules by the
+    // parent. It still needs a local React refresh to paint those slots, but
+    // must never enter the legacy server synchronization path.
+    refreshPaintedAvailability();
+    if (isVendorViewer || !hasEditableKeys) return;
     void syncScheduleRecordsFromServer({ force: true }).finally(() => {
-      setActiveSlotsByKind(unionAvailabilityByKind(kindKeysMap));
+      refreshPaintedAvailability();
     });
-  }, [hasEditableKeys, kindKeysMap]);
+  }, [hasEditableKeys, isVendorViewer, refreshPaintedAvailability]);
 
   /** Writes to one kind's keys (defaults to `editKind` — the view's current target). */
   const mutateAvailability = useCallback(
     (mutate: (current: Set<string>) => Set<string>, kind: AvailabilityKind = editKind) => {
+      if (isVendorViewer) return;
       const keys = kindKeysMap[kind];
       if (!keys?.length) return;
       setSaveStatus("saving");
@@ -1292,7 +1334,7 @@ export function PortalCalendarPanels({
           reloadAvailability();
         });
     },
-    [editKind, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
+    [editKind, isVendorViewer, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
   );
 
   const mutateAvailabilityAllKinds = useCallback(
@@ -1842,6 +1884,15 @@ export function PortalCalendarPanels({
   }, [onGoogleCalendarRefresh, onMeetingsChanged, reloadAvailability, selectedBlock, showToast, userId]);
 
   const prevRefreshSig = useRef<number | undefined>(undefined);
+  // Canonical vendor availability is installed in the local paint cache by
+  // the parent. React may coalesce that first cache signal with mount, so the
+  // generic change detector below cannot be the only refresh path: its first
+  // observation intentionally skips a reload for manager calendars.
+  useEffect(() => {
+    if (!isVendorViewer || calendarRefreshSignal === undefined) return;
+    refreshPaintedAvailability();
+  }, [calendarRefreshSignal, isVendorViewer, refreshPaintedAvailability]);
+
   useEffect(() => {
     if (calendarRefreshSignal === undefined) return;
     if (prevRefreshSig.current === undefined) {
@@ -2106,13 +2157,11 @@ export function PortalCalendarPanels({
   };
 
   const shiftAnchor = (dir: -1 | 1) => {
-    if (viewMode === "month") setAnchorDate((d) => addMonths(d, dir));
-    else if (viewMode === "week") setAnchorDate((d) => addDays(d, dir * 7));
-    else setAnchorDate((d) => addDays(d, dir));
+    setAnchorDate((date) => shiftCalendarAnchor(date, viewMode, dir));
   };
 
   const jumpToToday = useCallback(() => {
-    setAnchorDate(new Date(today));
+    setAnchorDate(calendarTodayAnchor(today));
     setMonthPick({ start: null, end: null });
   }, [today]);
 
@@ -3024,6 +3073,15 @@ export function PortalCalendarPanels({
                 >
                   ←
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 shrink-0 rounded-full px-2 text-xs"
+                  onClick={jumpToToday}
+                  data-attr="calendar-today"
+                >
+                  Today
+                </Button>
                 <p className={cn("shrink-0 whitespace-nowrap px-0.5 text-center text-foreground", CALENDAR_COMPACT_TOOLBAR_TEXT, "lg:text-sm lg:font-semibold")}>
                   <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
                   <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
@@ -3056,6 +3114,7 @@ export function PortalCalendarPanels({
             const renderSlotButton = (ds: string, slotIdx: number) => {
               const key = dateSlotKey(ds, slotIdx);
               const active = publishedActiveSlots.has(key);
+              const vendorAvailabilityState = active ? "open" : "empty";
               const coManagerOverlay = coManagerOverlayBySlotKey.get(key);
               const coManagerOpen = Boolean(coManagerOverlay && !active && !meetingBySlotKey.get(key));
               const selected = isSlotInDragSelection(ds, slotIdx);
@@ -3076,7 +3135,13 @@ export function PortalCalendarPanels({
               const isRunFirstCell = Boolean(run && run.startSlot === slotIdx);
               const isRunLastCell = Boolean(run && run.endSlotExclusive === slotIdx + 1);
               const runTint = run ? (run.isDefault ? CALENDAR_DEFAULT_OPEN_RUN_TINT : CALENDAR_OPEN_RUN_TINTS[run.kinds[0] ?? "tours"]) : undefined;
-              const runLabel = run ? (run.isDefault ? "Tours" : formatOpenRunKindsLabel(run.kinds)) : "";
+              const runLabel = run
+                ? vendorViewer
+                  ? "Available"
+                  : run.isDefault
+                    ? "Tours"
+                    : formatOpenRunKindsLabel(run.kinds)
+                : "";
               // Super plan item 43: a small × on the first cell of an open run
               // (not a chip). Week toolbar icons stay; Delete block in the
               // dialog remains as the longer edit path.
@@ -3109,6 +3174,10 @@ export function PortalCalendarPanels({
                       finishDragSelection();
                     }}
                     onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                      if (vendorViewer && !meeting && !coManagerOpen) {
+                        onVendorAvailabilityEdit?.(ds, slotIdx);
+                        return;
+                      }
                       if (defaultOpen) {
                         if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
                         return;
@@ -3167,7 +3236,9 @@ export function PortalCalendarPanels({
                           : undefined
                     }
                     aria-label={
-                      defaultOpen
+                      vendorViewer && !meeting && !coManagerOpen
+                        ? `${active ? "Available" : "Unavailable"} at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Set availability.`
+                        : defaultOpen
                         ? canEditAvailability
                           ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
                           : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
@@ -3177,6 +3248,9 @@ export function PortalCalendarPanels({
                             ? `Add ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
                             : `Select ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
                     }
+                    data-availability-state={vendorViewer ? vendorAvailabilityState : undefined}
+                    data-availability-date={vendorViewer ? ds : undefined}
+                    data-availability-slot={vendorViewer ? slotIdx : undefined}
                   >
                     {meeting ? (
                       isMeetingStart ? (
@@ -3528,39 +3602,47 @@ export function PortalCalendarPanels({
       <div className="border-b border-border bg-card px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
-              {viewMode === "day" ? "Day view" : viewMode === "week" ? "Week view" : "Month view"}
-            </p>
-            <h2 className="mt-1 truncate text-xl font-semibold text-foreground">{formatNavTitle(anchorDate, viewMode)}</h2>
+            {vendorViewer ? null : (
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
+                {viewMode === "day" ? "Day view" : viewMode === "week" ? "Week view" : "Month view"}
+              </p>
+            )}
+            <h2 className={cn("truncate text-xl font-semibold text-foreground", vendorViewer ? "" : "mt-1")}>{formatNavTitle(anchorDate, viewMode)}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-border bg-card p-0.5">
               <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={jumpToToday}>
                 Today
               </Button>
-              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(-1)}>
+              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(-1)} aria-label={`Previous ${viewMode}`}>
                 ←
               </Button>
-              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(1)}>
+              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(1)} aria-label={`Next ${viewMode}`}>
                 →
               </Button>
             </div>
-            <PortalSegmentedControl<CalendarMode>
-              options={[
-                { id: "day", label: "Day" },
-                { id: "week", label: "Week" },
-                { id: "month", label: "Month" },
-              ]}
-              value={viewMode}
-              onChange={setViewMode}
-            />
-            <div className="rounded-full bg-accent/30 px-4 py-2 text-sm font-semibold text-muted">
-              {viewMode === "month" ? monthBlocksCount : gridPaintedMeetings.length} blocks
-            </div>
-            {viewMode !== "month" ? renderTimeWindowControl() : null}
-            <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={openBlockModal}>
-              Create block
-            </Button>
+            {hideViewModeControl ? null : (
+              <PortalSegmentedControl<CalendarMode>
+                options={[
+                  { id: "day", label: "Day" },
+                  { id: "week", label: "Week" },
+                  { id: "month", label: "Month" },
+                ]}
+                value={viewMode}
+                onChange={setViewMode}
+              />
+            )}
+            {vendorViewer ? null : (
+              <div className="rounded-full bg-accent/30 px-4 py-2 text-sm font-semibold text-muted">
+                {viewMode === "month" ? monthBlocksCount : gridPaintedMeetings.length} blocks
+              </div>
+            )}
+            {!vendorViewer && viewMode !== "month" ? renderTimeWindowControl() : null}
+            {!vendorViewer ? (
+              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={openBlockModal}>
+                Create block
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -3574,19 +3656,23 @@ export function PortalCalendarPanels({
               </div>
             ))}
           </div>
-          <div className="mt-1 grid grid-cols-7 gap-1">
+          <div className="mt-1 grid grid-cols-7 gap-1" data-slot="calendar-month-grid">
             {monthCells.map((day, i) => {
               if (!day) return <div key={`pad-${i}`} className="aspect-square" />;
               const cellDate = new Date(monthYear, monthIndex, day, 12, 0, 0, 0);
               const ds = toLocalDateStr(cellDate);
               const picked = pinMonthSchedule && isInMonthPickRange(ds, monthPick);
-              const hasAvail = dateHasAvailability(cellDate, offeredSlots);
+              const hasAvail = dateHasAvailability(cellDate, vendorViewer ? activeSlots : offeredSlots);
               return (
                 <button
                   key={`${monthYear}-${monthIndex}-${day}`}
                   type="button"
                   onClick={() => {
                     setAnchorDate(cellDate);
+                    if (vendorViewer) {
+                      onVendorAvailabilityEdit?.(ds);
+                      return;
+                    }
                     if (pinMonthSchedule) {
                       setMonthPick((prev) => {
                         if (!prev.start || (prev.start && prev.end)) return { start: ds, end: null };
@@ -3600,8 +3686,16 @@ export function PortalCalendarPanels({
                   className={`flex aspect-square flex-col items-center justify-center rounded-xl border text-sm font-semibold transition hover:border-primary/30 ${
                     picked ? "border-primary bg-primary/[0.14] text-foreground ring-2 ring-primary/35" : ""
                   } ${hasAvail ? "border-primary/25 bg-primary/[0.07] text-foreground" : "border-border bg-card text-foreground"}`}
+                  aria-label={
+                    vendorViewer
+                      ? `${hasAvail ? "Available" : "Unavailable"} on ${ds}. Set availability.`
+                      : undefined
+                  }
+                  data-availability-state={vendorViewer ? (hasAvail ? "open" : "empty") : undefined}
+                  data-availability-date={vendorViewer ? ds : undefined}
                 >
-                  {day}
+                  <span>{day}</span>
+                  {vendorViewer && hasAvail ? <span className="text-[9px] font-semibold text-primary">Available</span> : null}
                 </button>
               );
             })}
@@ -3615,7 +3709,7 @@ export function PortalCalendarPanels({
             {fullWeekDates.map((d) => {
               const ds = toLocalDateStr(d);
               return (
-                <div key={ds} className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div key={ds} className="overflow-hidden rounded-2xl border border-border bg-card" data-slot="calendar-week-date">
                   <div className={`bg-accent/30 px-4 py-3 [html[data-theme=dark]_&]:portal-calendar-week-banner`}>
                     <p className="text-sm font-semibold text-foreground">{d.toLocaleDateString(undefined, { weekday: "long" })}</p>
                     <p className="text-xs text-muted">{d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
@@ -3625,6 +3719,7 @@ export function PortalCalendarPanels({
                       const meeting = meetings.find(
                         (m) => m.dateStr === ds && m.startSlot === slotIdx && meetingPaintsCalendarGrid(m),
                       );
+                      const active = activeSlots.has(dateSlotKey(ds, slotIdx));
                       return (
                         <Fragment key={`${ds}-${slotIdx}`}>
                           <div className={`bg-card px-3 py-2 text-[11px] ${CALENDAR_TIME_CELL}`}>{formatAvailabilitySlotLabel(slotIdx)}</div>
@@ -3637,6 +3732,19 @@ export function PortalCalendarPanels({
                               >
                                 {meetingCalendarGridLabel(meeting)}
                               </button>
+                            ) : vendorViewer ? (
+                              <button
+                                type="button"
+                                className={cn(
+                                  "h-full w-full rounded-xl border",
+                                  active ? "border-primary/30 bg-primary/[0.08]" : "border-dashed border-border",
+                                )}
+                                aria-label={`${active ? "Edit open availability" : "Edit availability"} at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
+                                data-availability-state={active ? "open" : "empty"}
+                                data-availability-date={ds}
+                                data-availability-slot={slotIdx}
+                                onClick={() => onVendorAvailabilityEdit?.(ds, slotIdx)}
+                              />
                             ) : (
                               <div className="h-full rounded-xl border border-dashed border-border" />
                             )}
@@ -3655,7 +3763,7 @@ export function PortalCalendarPanels({
       {viewMode === "day" ? (
         <div className={PORTAL_CALENDAR_FRAME}>
           <div className={`grid grid-cols-[72px_minmax(0,1fr)] ${CALENDAR_GRID_GAP}`}>
-            <div className={`col-span-2 px-3 py-3 text-center ${CALENDAR_HEADER_CELL}`}>
+            <div className={`col-span-2 px-3 py-3 text-center ${CALENDAR_HEADER_CELL}`} data-slot="calendar-day-header">
               <p className="text-sm font-semibold text-foreground">{anchorDate.toLocaleDateString(undefined, { weekday: "long" })}</p>
               <p className="text-xs text-muted">{anchorDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
             </div>
@@ -3664,6 +3772,7 @@ export function PortalCalendarPanels({
               const meeting = meetings.find(
                 (m) => m.dateStr === ds && m.startSlot === slotIdx && meetingPaintsCalendarGrid(m),
               );
+              const active = activeSlots.has(dateSlotKey(ds, slotIdx));
               return (
                 <Fragment key={slotIdx}>
                   <div className={`bg-card px-2 py-2 text-[11px] ${CALENDAR_TIME_CELL}`}>{formatAvailabilitySlotLabel(slotIdx)}</div>
@@ -3677,6 +3786,19 @@ export function PortalCalendarPanels({
                       >
                         {meetingCalendarGridLabel(meeting)}
                       </button>
+                    ) : vendorViewer ? (
+                      <button
+                        type="button"
+                        className={cn(
+                          "h-full w-full rounded-xl border",
+                          active ? "border-primary/30 bg-primary/[0.08]" : "border-dashed border-border",
+                        )}
+                        aria-label={`${active ? "Edit open availability" : "Edit availability"} at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
+                        data-availability-state={active ? "open" : "empty"}
+                        data-availability-date={ds}
+                        data-availability-slot={slotIdx}
+                        onClick={() => onVendorAvailabilityEdit?.(ds, slotIdx)}
+                      />
                     ) : (
                       <div className="h-full rounded-xl border border-dashed border-border" />
                     )}
@@ -3796,9 +3918,9 @@ export function PortalCalendarPanels({
 
   return (
     <>
-      <div className="grid gap-4 xl:grid-cols-[1.25fr_0.95fr]">
+      <div className={cn("grid gap-4", vendorViewer ? "" : "xl:grid-cols-[1.25fr_0.95fr]")}>
         {scheduleCard}
-        {availabilityCard}
+        {vendorViewer ? null : availabilityCard}
       </div>
 
       <Modal
@@ -3844,7 +3966,7 @@ export function PortalCalendarPanels({
         />
       </Modal>
       {selectedBlockModal}
-      {userId ? (
+      {userId && !isVendorViewer && !readOnly ? (
         <ManagerTaskFormModal
           open={taskFormOpen}
           onClose={() => {
