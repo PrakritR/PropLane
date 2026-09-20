@@ -221,6 +221,23 @@ describe("property overrides — savePropertyOverride merges, never replaces (PL
     });
   });
 
+  it("a per-kind save onto a legacy whole-blob override lifts the nested kinds to the top level first", async () => {
+    const db = makeDb(seed());
+    // Saved on `main` before per-kind overrides existed: every kind under `rules`.
+    await savePropertyOverride(db, MGR, HOUSE_A, "reminderRules", {
+      rules: { tour: { enabled: true }, lease: { enabled: true, timings: ["before:1440"] } },
+      quietHours: { enabled: true, startHour: 21, endHour: 8 },
+      automationSendMode: "auto",
+    });
+    await savePropertyOverride(db, MGR, HOUSE_A, "reminderRules", { lease: { enabled: false } });
+    expect(await loadPropertyOverride(db, MGR, HOUSE_A, "reminderRules")).toEqual({
+      tour: { enabled: true },
+      lease: { enabled: false },
+      quietHours: { enabled: true, startHour: 21, endHour: 8 },
+      automationSendMode: "auto",
+    });
+  });
+
   it("an atomic namespace that always saves its whole shape still gets a full replace in effect", async () => {
     // lifecycleTasks and automatedMessages stay atomic: every caller always
     // passes the complete, already-normalized object, so the merge and a

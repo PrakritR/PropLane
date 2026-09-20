@@ -1065,7 +1065,12 @@ export function openResidentSlotsForApplicationRow(
     });
   }
 
-  return openResidentSlots({ room, placements, at: options.at ?? new Date() });
+  return openResidentSlots({
+    room,
+    placements,
+    at: options.at ?? new Date(),
+    term: effectiveApplicationForRow(row)?.leaseTerm,
+  });
 }
 
 /** The four application fields a resident-slot pick writes — never trust a caller's own figures over these. */

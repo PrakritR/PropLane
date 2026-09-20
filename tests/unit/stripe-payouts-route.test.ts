@@ -52,38 +52,84 @@ vi.mock("@/lib/supabase/server", () => ({
 
 type Row = Record<string, unknown>;
 
-/** In-memory `stripe_payouts` table backing `createInAppPayout`'s claim pattern. */
-function makeFakeDb() {
-  const rows: Row[] = [];
+/**
+ * In-memory `stripe_payouts` table backing `createInAppPayout`'s claim
+ * pattern and the reconciliation that now runs before every claim: the
+ * partial pending-claim index, the `stripe_payout_id` unique index (an
+ * update that would land a second row on the same id fails like Postgres
+ * does), and the read/update/delete chains reconciliation uses.
+ */
+function makeFakeDb(seedRows: Row[] = []) {
+  const rows: Row[] = [...seedRows];
   let nextId = 1;
+  const failUpdatesOnce: { remaining: number } = { remaining: 0 };
+  const applyFilters = (filters: Array<(r: Row) => boolean>) => rows.filter((r) => filters.every((f) => f(r)));
   const client = {
     from(table: string) {
       if (table !== "stripe_payouts") throw new Error(`unexpected table ${table}`);
+      const filters: Array<(r: Row) => boolean> = [];
+      const chain = (mode: "select" | "update" | "delete", patch: Row = {}) => {
+        const builder: Record<string, unknown> = {
+          eq(col: string, value: unknown) {
+            filters.push((r) => r[col] === value);
+            return builder;
+          },
+          in(col: string, values: unknown[]) {
+            filters.push((r) => values.includes(r[col]));
+            return builder;
+          },
+          maybeSingle: async () => ({ data: applyFilters(filters)[0] ?? null, error: null }),
+          then(resolve: (v: { data: Row[] | null; error: { code?: string; message: string } | null }) => unknown) {
+            const matched = applyFilters(filters);
+            if (mode === "update") {
+              if (failUpdatesOnce.remaining > 0) {
+                failUpdatesOnce.remaining -= 1;
+                return resolve({ data: null, error: { message: "connection reset" } });
+              }
+              if (typeof patch.stripe_payout_id === "string") {
+                const taken = rows.some(
+                  (r) => r.stripe_payout_id === patch.stripe_payout_id && !matched.includes(r),
+                );
+                if (taken) {
+                  return resolve({
+                    data: null,
+                    error: { code: "23505", message: 'duplicate key value violates unique constraint "stripe_payouts_stripe_id_unique"' },
+                  });
+                }
+              }
+              for (const r of matched) Object.assign(r, patch);
+              return resolve({ data: matched, error: null });
+            }
+            if (mode === "delete") {
+              for (const r of matched) rows.splice(rows.indexOf(r), 1);
+              return resolve({ data: matched, error: null });
+            }
+            return resolve({ data: matched, error: null });
+          },
+        };
+        return builder;
+      };
       return {
         insert: (row: Row) => ({
           select: () => ({
             maybeSingle: async () => {
               const conflict = rows.some(
-                (r) => r.stripe_connect_account_id === row.stripe_connect_account_id && r.status === "pending",
+                (r) => r.stripe_connect_account_id === row.stripe_connect_account_id && r.status === "pending" && r.initiated_in_app,
               );
               if (conflict) return { data: null, error: { message: "duplicate key" } };
               const id = `claim-${nextId++}`;
-              rows.push({ id, ...row });
+              rows.push({ id, created_at: new Date().toISOString(), ...row });
               return { data: { id }, error: null };
             },
           }),
         }),
-        update: (patch: Row) => ({
-          eq: (col: string, value: unknown) => {
-            const row = rows.find((r) => r[col] === value);
-            if (row) Object.assign(row, patch);
-            return Promise.resolve({ error: null });
-          },
-        }),
+        select: () => chain("select"),
+        update: (patch: Row) => chain("update", patch),
+        delete: () => chain("delete"),
       };
     },
   };
-  return { client, rows };
+  return { client, rows, failUpdatesOnce };
 }
 
 let fakeDb = makeFakeDb();
@@ -96,6 +142,8 @@ type FakeStripeConfig = {
   instantAvailableCents: number;
   bankInstantEligible: boolean;
   payoutCreate?: ReturnType<typeof vi.fn>;
+  payoutRetrieve?: ReturnType<typeof vi.fn>;
+  payoutList?: ReturnType<typeof vi.fn>;
 };
 
 function makeFakeStripe(config: FakeStripeConfig) {
@@ -131,6 +179,8 @@ function makeFakeStripe(config: FakeStripeConfig) {
     },
     payouts: {
       create: config.payoutCreate ?? vi.fn().mockResolvedValue({ id: "po_1", status: "pending", arrival_date: null }),
+      retrieve: config.payoutRetrieve ?? vi.fn().mockResolvedValue({ id: "po_1", status: "pending", arrival_date: null }),
+      list: config.payoutList ?? vi.fn().mockResolvedValue({ data: [] }),
     },
   } as unknown as Stripe;
 }
@@ -287,6 +337,126 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
     );
     expect(second.status).toBe(409);
     expect(fakeDb.rows).toHaveLength(1); // no second row claimed
+  });
+
+  it("reconciles a pending claim against Stripe before a new click — a payout Stripe has since paid no longer blocks", async () => {
+    const first = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expect(first.status).toBe(200);
+
+    // No webhook ever arrived, but Stripe itself now reports the payout paid.
+    (fakeStripe.payouts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "po_1",
+      status: "paid",
+      arrival_date: 1_790_000_000,
+    });
+    (fakeStripe.payouts.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "po_2", status: "pending", arrival_date: null });
+
+    const second = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expect(second.status).toBe(200);
+    expect(fakeStripe.payouts.retrieve).toHaveBeenCalledWith("po_1", {}, { stripeAccount: "acct_owner" });
+    expect(fakeDb.rows.map((r) => [r.stripe_payout_id, r.status])).toEqual([
+      ["po_1", "paid"],
+      ["po_2", "pending"],
+    ]);
+  });
+
+  it("merges the claim onto a webhook-inserted row for the same payout id instead of leaving a stuck pending claim", async () => {
+    // The `payout.created` webhook beat the stamp: its own row for po_1 is
+    // already there (initiated_in_app false, net amount).
+    fakeDb = makeFakeDb([
+      {
+        id: "hook-1",
+        manager_user_id: "owner-1",
+        stripe_connect_account_id: "acct_owner",
+        stripe_payout_id: "po_1",
+        amount_cents: 99_000,
+        fee_cents: null,
+        method: "instant",
+        status: "pending",
+        initiated_in_app: false,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    const res = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant" }),
+    );
+    expect(res.status).toBe(200);
+
+    // Exactly one row survives: the webhook's, now carrying the claim's own
+    // gross amount / fee and flagged as in-app. The claim row is gone, so the
+    // pending-claim index holds nothing that can never be advanced.
+    expect(fakeDb.rows).toHaveLength(1);
+    expect(fakeDb.rows[0]).toMatchObject({
+      id: "hook-1",
+      stripe_payout_id: "po_1",
+      initiated_in_app: true,
+      amount_cents: 100_000,
+      fee_cents: 1000,
+      method: "instant",
+    });
+  });
+
+  it("retries a transient stamp failure once, and the payout still succeeds", async () => {
+    fakeDb.failUpdatesOnce.remaining = 1;
+    const res = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expect(res.status).toBe(200);
+    expect(fakeDb.rows[0]).toMatchObject({ stripe_payout_id: "po_1", status: "pending" });
+  });
+
+  it("recovers an unstamped claim by matching Stripe's own payout list, and writes off one Stripe never saw", async () => {
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+    fakeDb = makeFakeDb([
+      {
+        id: "orphan-matched",
+        manager_user_id: "owner-1",
+        stripe_connect_account_id: "acct_owner",
+        stripe_payout_id: null,
+        amount_cents: 5000,
+        fee_cents: 0,
+        method: "standard",
+        status: "pending",
+        initiated_in_app: true,
+        created_at: twentyMinutesAgo,
+      },
+    ]);
+    (fakeStripe.payouts.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: [{ id: "po_lost", amount: 5000, method: "standard", status: "in_transit", arrival_date: null }],
+    });
+    const recovered = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expect(recovered.status).toBe(200);
+    expect(fakeDb.rows.find((r) => r.id === "orphan-matched")).toMatchObject({ stripe_payout_id: "po_lost", status: "in_transit" });
+
+    // A second orphan older than the grace window with NO matching Stripe
+    // payout is written off as failed so it can never block Pay out.
+    fakeDb = makeFakeDb([
+      {
+        id: "orphan-unconfirmed",
+        manager_user_id: "owner-1",
+        stripe_connect_account_id: "acct_owner",
+        stripe_payout_id: null,
+        amount_cents: 7000,
+        fee_cents: 0,
+        method: "standard",
+        status: "pending",
+        initiated_in_app: true,
+        created_at: twentyMinutesAgo,
+      },
+    ]);
+    (fakeStripe.payouts.list as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [] });
+    const unblocked = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expect(unblocked.status).toBe(200);
+    expect(fakeDb.rows.find((r) => r.id === "orphan-unconfirmed")).toMatchObject({ status: "failed" });
   });
 });
 

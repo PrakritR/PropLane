@@ -193,6 +193,24 @@ describe("mergeReminderSettingsOverride — per-kind partial (PLAN-0916-1040 §1
     expect(merged.quietHours).toEqual(laterWorkspace.quietHours);
   });
 
+  it("a top-level kind beside a legacy `rules` blob wins over the nested copy of the same kind", () => {
+    // A per-kind PATCH that landed on a legacy blob before the save path
+    // lifted it: both shapes present at once. The top-level (newer) edit is
+    // the one that must resolve.
+    const mixed = {
+      rules: {
+        ...workspace.rules,
+        inspection: { ...workspace.rules.inspection, timings: ["before:60"] },
+      },
+      inspection: { ...workspace.rules.inspection, timings: ["before:2880"] },
+      quietHours: { enabled: false, startHour: 0, endHour: 0 },
+    };
+    const merged = mergeReminderSettingsOverride(workspace, mixed);
+    expect(merged.rules.inspection.timings).toEqual(["before:2880"]);
+    // Every other kind still comes from the nested legacy blob.
+    expect(merged.rules.tour).toEqual(workspace.rules.tour);
+  });
+
   it("an empty override (every kind cleared) is treated as no override at all", () => {
     expect(mergeReminderSettingsOverride(workspace, {})).toEqual(workspace);
     expect(mergeReminderSettingsOverride(workspace, null)).toEqual(workspace);

@@ -132,6 +132,39 @@ describe("POST /api/stripe/connect/onboard — relink contract", () => {
     // The old id is logged BEFORE it's replaced.
     expect(consoleErrorSpy.mock.calls.some((call) => String(call[0]).includes("acct_stale"))).toBe(true);
   });
+
+  it("with relink on a HEALTHY saved account: refuses with 409 and never replaces it", async () => {
+    profiles = { id: "owner-1", stripe_connect_account_id: "acct_fine", email: "owner@example.com" };
+    const { POST } = await import("@/app/api/stripe/connect/onboard/route");
+    const res = await POST(
+      new Request("http://x/api/stripe/connect/onboard", { method: "POST", body: JSON.stringify({ relink: true }) }),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(409);
+    expect(body).toMatchObject({ code: "CONNECT_ACCOUNT_HEALTHY" });
+    expect(profiles.stripe_connect_account_id).toBe("acct_fine");
+    expect(currentStripe.accounts.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/stripe/connect/status — never clears a saved id", () => {
+  beforeEach(() => {
+    payout.payoutOwnerUserId = "owner-1";
+    payout.canEditBankAccount = true;
+    profiles = { id: "owner-1", stripe_connect_account_id: "acct_stale", email: "owner@example.com" };
+    currentStripe = makeStripe({ staleAccountId: "acct_stale", freshAccountId: "acct_fresh" });
+  });
+
+  it("reports needsRelink for an unreachable account and leaves the profile row alone", async () => {
+    const { GET } = await import("@/app/api/stripe/connect/status/route");
+    const res = await GET();
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ connected: false, needsRelink: true, accountId: "acct_stale" });
+    expect(profiles.stripe_connect_account_id).toBe("acct_stale");
+  });
 });
 
 describe("POST /api/vendor/stripe-connect/onboard — relink contract", () => {

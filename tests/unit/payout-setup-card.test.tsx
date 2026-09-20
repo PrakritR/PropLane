@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 vi.mock("@/components/ui/modal", () => ({
@@ -29,6 +29,7 @@ import { PortalPayoutSetupCard } from "@/components/portal/portal-payout-setup-c
 afterEach(() => {
   cleanup();
   embeddedProps.length = 0;
+  vi.unstubAllGlobals();
 });
 
 describe("PortalPayoutSetupCard", () => {
@@ -63,6 +64,58 @@ describe("PortalPayoutSetupCard", () => {
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
     expect(screen.getAllByText("Done")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Link bank" })).not.toBeInTheDocument();
+  });
+
+  it("offers Reconnect only when the saved account needs relinking, POSTs relink, then opens onboarding", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ mode: "embedded", accountId: "acct_fresh" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <PortalPayoutSetupCard
+        connectBase="/api/vendor/stripe-connect"
+        setup={{ identity: "needed", bank: "needed", ready: false }}
+        needsRelink
+        onReady={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(embeddedProps).toHaveLength(1));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/vendor/stripe-connect/onboard");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ relink: true });
+    expect(embeddedProps[0]).toEqual({ connectBase: "/api/vendor/stripe-connect", component: "account_onboarding" });
+  });
+
+  it("refreshes instead of onboarding when the server says the saved account is still healthy", async () => {
+    const onReady = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ code: "CONNECT_ACCOUNT_HEALTHY" }) }),
+    );
+    render(
+      <PortalPayoutSetupCard
+        connectBase="/api/stripe/connect"
+        setup={{ identity: "needed", bank: "needed", ready: false }}
+        needsRelink
+        onReady={onReady}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    expect(embeddedProps).toHaveLength(0);
+  });
+
+  it("draws no Reconnect control when the account is reachable", () => {
+    render(
+      <PortalPayoutSetupCard
+        connectBase="/api/stripe/connect"
+        setup={{ identity: "needed", bank: "needed", ready: false }}
+        onReady={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Reconnect" })).not.toBeInTheDocument();
   });
 
   it("marks every step done when ready", () => {

@@ -144,6 +144,7 @@ export async function POST(req: Request) {
       rowData?: unknown;
       propertyData?: unknown;
       editRequestNote?: string | null;
+      workspaceId?: string | null;
     };
     const id = body.id?.trim();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -222,11 +223,16 @@ export async function POST(req: Request) {
     let createWorkspaceId: string | undefined;
     let appendCreatedListingToInviteId: string | undefined;
     if (!existing) {
+      // A workspace named in the body is an explicit ask and is refused when
+      // it is not writable; the ambient cookie selection falls back to the
+      // caller's own workspace instead (see `resolveCreateListingOwner`).
+      const bodyWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
       const created = await resolveCreateListingOwner(db, {
         callerUserId: user.id,
         admin,
         requestedOwnerId: body.managerUserId?.trim() || null,
-        workspaceId: readWorkspaceCookie(req.headers.get("cookie")) ?? null,
+        workspaceId: bodyWorkspaceId || readWorkspaceCookie(req.headers.get("cookie")) || null,
+        explicitWorkspaceId: bodyWorkspaceId.length > 0,
       });
       if (!created.ok) {
         return NextResponse.json({ error: created.error }, { status: created.status });

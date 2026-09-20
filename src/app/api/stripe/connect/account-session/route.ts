@@ -8,6 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
+import { isStripeConnectAccountAccessError } from "@/lib/stripe-connect";
 import { createAccountSession, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
 
 export const runtime = "nodejs";
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       const accountId = await ensureManagerConnectAccountId(stripe, service, {
         userId: payout.payoutOwnerUserId,
         email: ownerProfile?.email ?? user.email ?? undefined,
+        allowClearStale: false,
       });
 
       const session = await createAccountSession(stripe, accountId, component);
@@ -73,6 +75,16 @@ export async function POST(req: Request) {
           message:
             "Stripe is not configured (missing STRIPE_SECRET_KEY). Add keys in your environment to enable live embedded payout setup.",
         });
+      }
+      if (isStripeConnectAccountAccessError(msg)) {
+        return NextResponse.json(
+          {
+            code: "CONNECT_ACCOUNT_NEEDS_RELINK",
+            needsRelink: true,
+            error: "We couldn't reach your saved Stripe account. Reconnect to start over.",
+          },
+          { status: 409 },
+        );
       }
       return NextResponse.json({ error: msg }, { status: 400 });
     }

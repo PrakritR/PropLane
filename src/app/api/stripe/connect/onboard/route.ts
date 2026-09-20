@@ -15,6 +15,7 @@ import {
   isStripeConnectAccountAccessError,
   clearManagerConnectAccountId,
   resolveManagerConnectAccountId,
+  retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
@@ -74,6 +75,12 @@ export async function POST(req: Request) {
         // Explicit user action ("Reconnect" / "Start over"): log the id being
         // replaced, then clear it before creating a fresh account.
         const staleAccountId = await resolveManagerConnectAccountId(service, payoutOwnerId);
+        if (staleAccountId && (await retrieveManagerConnectAccountOrNull(stripe, staleAccountId))) {
+          return NextResponse.json(
+            { code: "CONNECT_ACCOUNT_HEALTHY", error: "Your saved Stripe account is still connected." },
+            { status: 409 },
+          );
+        }
         if (staleAccountId) {
           console.error(
             `[stripe-connect] onboard relink: replacing account ${staleAccountId} for owner ${payoutOwnerId} (requested by ${user.id})`,

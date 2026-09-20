@@ -29,15 +29,21 @@ const ROW_DATA_KEY = "reminderRules";
  * per-kind partial overrides existed, PLAN-0916-1040) nests every kind under
  * its own `rules` key instead — that shape already has every kind present, so
  * reading it as "a partial with every kind" resolves it exactly as it did
- * before, with no migration.
+ * before. Both shapes are read together: a top-level kind (a per-kind save
+ * that landed on a legacy blob) always wins over the nested copy.
  */
 function extractRulesPartial(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const row = raw as Record<string, unknown>;
-  if (row.rules && typeof row.rules === "object" && !Array.isArray(row.rules)) {
-    return row.rules as Record<string, unknown>;
+  const nested =
+    row.rules && typeof row.rules === "object" && !Array.isArray(row.rules)
+      ? (row.rules as Record<string, unknown>)
+      : {};
+  const topLevel: Record<string, unknown> = {};
+  for (const kind of REMINDER_SUBJECT_KINDS) {
+    if (kind in row) topLevel[kind] = row[kind];
   }
-  return row;
+  return { ...nested, ...topLevel };
 }
 
 /**

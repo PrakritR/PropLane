@@ -32,8 +32,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * A pre-existing whole-blob `reminderRules` override (saved before per-kind
  * partial overrides existed) already has every kind present under a nested
  * `rules` key — callers that understand that shape (`extractRulesPartial` in
- * `reminders/settings.server.ts`) read it as "a partial with every kind" and
- * it resolves exactly as it did before, with no migration required.
+ * `reminders/settings.server.ts`) read it as "a partial with every kind",
+ * with any top-level kind winning over the nested copy, so it resolves
+ * exactly as it did before. The first per-kind save on such a house lifts
+ * the nested kinds to the top level in place (`liftLegacyReminderRulesOverride`).
  *
  * Ownership is verified on every read and write against the `managerUserId`
  * the caller passes in. The literal owner of record
@@ -155,9 +157,26 @@ export async function loadPropertyOverride(
 }
 
 /**
+ * A `reminderRules` override saved before per-kind partials existed nests
+ * every kind under its own `rules` key. Lifted to the per-kind shape — each
+ * `rules.<kind>` becomes a top-level key, every other key (`quietHours`,
+ * `automationSendMode`) is kept as-is — so a per-kind merge lands beside the
+ * legacy kinds instead of being shadowed by them on read. A value with no
+ * nested `rules` object is returned untouched.
+ */
+export function liftLegacyReminderRulesOverride(value: Record<string, unknown>): Record<string, unknown> {
+  const nested = value.rules;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return value;
+  const rest = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "rules"));
+  return { ...rest, ...(nested as Record<string, unknown>) };
+}
+
+/**
  * Store a house's override for a namespace. MERGES `value`'s own top-level
  * keys onto whatever is already stored — see the module doc for what that
- * means for a per-kind namespace (`reminderRules`) versus an atomic one.
+ * means for a per-kind namespace (`reminderRules`) versus an atomic one. A
+ * legacy whole-blob `reminderRules` override is migrated in place to the
+ * per-kind shape before the merge (`liftLegacyReminderRulesOverride`).
  */
 export async function savePropertyOverride(
   db: SupabaseClient,
@@ -168,7 +187,8 @@ export async function savePropertyOverride(
 ): Promise<void> {
   const rowData = await ownedRowData(db, managerUserId, propertyId);
   const ops = { ...asObject(rowData[OPERATIONS_SETTINGS_KEY]) };
-  const existing = asObject(ops[namespace]);
+  const stored = asObject(ops[namespace]);
+  const existing = namespace === "reminderRules" ? liftLegacyReminderRulesOverride(stored) : stored;
   const incoming = asObject(value);
   ops[namespace] = { ...existing, ...incoming };
   await writeRowData(db, managerUserId, propertyId, { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops });

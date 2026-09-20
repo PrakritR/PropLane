@@ -7,7 +7,7 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
-import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
+import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { emptyPayoutSnapshot, readPayoutSnapshot } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
@@ -56,6 +56,10 @@ export async function GET() {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {
         return NextResponse.json({ ...emptyPayoutSnapshot(), demo: true });
+      }
+      // The saved id stays put; the page offers Reconnect instead of a dead end.
+      if (isStripeConnectAccountAccessError(msg)) {
+        return NextResponse.json({ ...emptyPayoutSnapshot(), needsRelink: true });
       }
       return NextResponse.json({ error: msg }, { status: 400 });
     }

@@ -10,6 +10,7 @@ import {
   matchServiceLabelForPayout,
   netCentsForPayout,
   normalizePayoutHistoryRow,
+  normalizePayoutStatus,
   resolveSetupState,
   toStripePayoutSchedule,
   validatePayoutAgainstBalance,
@@ -25,6 +26,16 @@ import {
 } from "@/lib/stripe-payouts";
 
 const CURRENCY = "usd";
+
+/**
+ * How long an in-app claim that never received a Stripe payout id is given
+ * before reconciliation writes it off as failed. A claim only lacks the id
+ * when the process died between `stripe.payouts.create` and the stamp, or
+ * the stamp itself failed twice — either way, a payout Stripe did create is
+ * found by `findPayoutForUnstampedClaim` first, so only a genuinely
+ * unconfirmed claim ever ages out.
+ */
+const UNCONFIRMED_CLAIM_GRACE_MS = 15 * 60 * 1000;
 
 export type PayoutSnapshot = {
   currency: "usd";
@@ -161,11 +172,203 @@ async function readOnTheWayCents(db: SupabaseClient, ownerUserId: string): Promi
   return (data ?? []).reduce((sum, row) => sum + (Number((row as { amount_cents: number }).amount_cents) || 0), 0);
 }
 
+type PendingClaimRow = {
+  id: string;
+  stripe_payout_id: string | null;
+  amount_cents: number;
+  fee_cents: number | null;
+  method: string | null;
+  vendor_user_id: string | null;
+  created_at: string;
+};
+
+function isUniqueViolation(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === "23505") return true;
+  return /duplicate key|unique constraint|stripe_payouts_stripe_id_unique/i.test(error.message ?? "");
+}
+
+function methodFromRow(method: string | null | undefined): PayoutMethod {
+  return method === "instant" ? "instant" : "standard";
+}
+
+function arrivalDateForPayout(payout: Stripe.Payout, method: PayoutMethod): string | null {
+  return payout.arrival_date
+    ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10)
+    : estimateArrivalDate(method);
+}
+
+function payoutStatusPatch(payout: Stripe.Payout, method: PayoutMethod) {
+  return {
+    stripe_payout_id: payout.id,
+    status: normalizePayoutStatus(payout.status ?? "pending", payout.failure_code),
+    arrival_date: arrivalDateForPayout(payout, method),
+    failure_message: payout.failure_message ?? null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * The `payout.created` webhook beat the stamp and already inserted its own
+ * row for this Stripe payout (`stripe_payouts_stripe_id_unique`). The claim's
+ * own facts — gross amount, fee, method, vendor — move onto that row, which
+ * becomes the in-app row, and the claim is deleted so the pending-claim
+ * index never holds a row nothing can advance.
+ */
+async function mergeClaimIntoWebhookRow(db: SupabaseClient, claimId: string, payoutId: string): Promise<void> {
+  const { data: claim, error: claimReadError } = await db
+    .from("stripe_payouts")
+    .select("amount_cents, fee_cents, method, vendor_user_id")
+    .eq("id", claimId)
+    .maybeSingle();
+  if (claimReadError) throw new Error(claimReadError.message);
+  if (claim) {
+    const row = claim as Pick<PendingClaimRow, "amount_cents" | "fee_cents" | "method" | "vendor_user_id">;
+    const patch: Record<string, unknown> = {
+      initiated_in_app: true,
+      amount_cents: row.amount_cents,
+      fee_cents: row.fee_cents,
+      method: row.method,
+      updated_at: new Date().toISOString(),
+    };
+    if (row.vendor_user_id) patch.vendor_user_id = row.vendor_user_id;
+    const { error: mergeError } = await db.from("stripe_payouts").update(patch).eq("stripe_payout_id", payoutId);
+    if (mergeError) throw new Error(mergeError.message);
+  }
+  const { error: deleteError } = await db.from("stripe_payouts").delete().eq("id", claimId);
+  if (deleteError) throw new Error(deleteError.message);
+}
+
+/**
+ * Stamps the Stripe payout onto the claim row. A unique-index collision with
+ * a webhook-inserted row merges onto that row instead; any other failure is
+ * retried once and then thrown so the caller can log it — never swallowed.
+ */
+async function stampClaimWithPayout(
+  db: SupabaseClient,
+  opts: { claimId: string; payout: Stripe.Payout; method: PayoutMethod },
+): Promise<void> {
+  const patch = payoutStatusPatch(opts.payout, opts.method);
+  const attempt = () => db.from("stripe_payouts").update(patch).eq("id", opts.claimId);
+  let { error } = await attempt();
+  if (error && !isUniqueViolation(error)) ({ error } = await attempt());
+  if (!error) return;
+  if (isUniqueViolation(error)) {
+    await mergeClaimIntoWebhookRow(db, opts.claimId, opts.payout.id);
+    return;
+  }
+  throw new Error(error.message);
+}
+
+/**
+ * For a claim that never got its Stripe id: the payout Stripe created for it,
+ * if any — matched on the connected account by creation time, method and the
+ * exact amount sent to Stripe, skipping ids another in-app row already holds.
+ */
+async function findPayoutForUnstampedClaim(
+  stripe: Stripe,
+  db: SupabaseClient,
+  accountId: string,
+  claim: PendingClaimRow,
+  method: PayoutMethod,
+): Promise<Stripe.Payout | null> {
+  const createdAtSeconds = Math.floor(Date.parse(claim.created_at) / 1000);
+  if (!Number.isFinite(createdAtSeconds)) return null;
+  const feeCents = claim.fee_cents ?? feeCentsForMethod(method, claim.amount_cents);
+  const expectedAmount = method === "instant" ? netCentsForPayout(claim.amount_cents, feeCents) : claim.amount_cents;
+  const list = await stripe.payouts.list(
+    { limit: 25, created: { gte: createdAtSeconds - 60 } },
+    { stripeAccount: accountId },
+  );
+  const candidates = (list.data ?? []).filter((p) => p.amount === expectedAmount && p.method === method);
+  if (candidates.length === 0) return null;
+  const { data: claimedRows } = await db
+    .from("stripe_payouts")
+    .select("stripe_payout_id")
+    .in(
+      "stripe_payout_id",
+      candidates.map((p) => p.id),
+    )
+    .eq("initiated_in_app", true);
+  const taken = new Set((claimedRows ?? []).map((r) => String((r as { stripe_payout_id: string }).stripe_payout_id)));
+  return candidates.find((p) => !taken.has(p.id)) ?? null;
+}
+
+async function reconcileClaim(
+  stripe: Stripe,
+  db: SupabaseClient,
+  accountId: string,
+  claim: PendingClaimRow,
+): Promise<void> {
+  const method = methodFromRow(claim.method);
+  if (claim.stripe_payout_id) {
+    const payout = await stripe.payouts.retrieve(claim.stripe_payout_id, {}, { stripeAccount: accountId });
+    const patch = payoutStatusPatch(payout, method);
+    if (patch.status === "pending") return;
+    const { error } = await db.from("stripe_payouts").update(patch).eq("id", claim.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const payout = await findPayoutForUnstampedClaim(stripe, db, accountId, claim, method);
+  if (payout) {
+    await stampClaimWithPayout(db, { claimId: claim.id, payout, method });
+    return;
+  }
+  const ageMs = Date.now() - Date.parse(claim.created_at);
+  if (!Number.isFinite(ageMs) || ageMs < UNCONFIRMED_CLAIM_GRACE_MS) return;
+  const { error } = await db
+    .from("stripe_payouts")
+    .update({
+      status: "failed",
+      failure_message: "Stripe never confirmed this payout.",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", claim.id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Brings every pending in-app claim for a connected account in line with
+ * Stripe's own view of the payout. One in-flight in-app payout per account is
+ * the product rule (`stripe_payouts_pending_claim_unique`), and the
+ * `payout.*` webhooks normally advance the row — but a webhook that never
+ * arrives (local, preview, an endpoint not subscribed for connected
+ * accounts) must not leave that index blocking Pay out forever. Runs before
+ * every snapshot read and every new payout attempt. Each claim is handled on
+ * its own; a failure is logged and never blocks the read or the payout.
+ */
+export async function reconcilePendingInAppClaims(
+  stripe: Stripe,
+  db: SupabaseClient,
+  accountId: string,
+): Promise<void> {
+  const { data, error } = await db
+    .from("stripe_payouts")
+    .select("id, stripe_payout_id, amount_cents, fee_cents, method, vendor_user_id, created_at")
+    .eq("stripe_connect_account_id", accountId)
+    .eq("status", "pending")
+    .eq("initiated_in_app", true);
+  if (error) {
+    console.error(`[stripe-payouts] could not read pending claims for ${accountId}: ${error.message}`);
+    return;
+  }
+  for (const claim of (data ?? []) as PendingClaimRow[]) {
+    try {
+      await reconcileClaim(stripe, db, accountId, claim);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[stripe-payouts] could not reconcile claim ${claim.id} for ${accountId}: ${message}`);
+    }
+  }
+}
+
 export async function readPayoutSnapshot(
   stripe: Stripe,
   db: SupabaseClient,
   opts: { accountId: string; ownerUserId: string; portal: "manager" | "vendor" },
 ): Promise<PayoutSnapshot> {
+  await reconcilePendingInAppClaims(stripe, db, opts.accountId);
   const [account, balance, history, onTheWayCents] = await Promise.all([
     stripe.accounts.retrieve(opts.accountId),
     stripe.balance.retrieve({}, { stripeAccount: opts.accountId }),
@@ -243,6 +446,8 @@ export async function createInAppPayout(
 
   const feeCents = feeCentsForMethod(opts.input.method, opts.input.amountCents);
 
+  await reconcilePendingInAppClaims(stripe, db, opts.accountId);
+
   const { data: claimed, error: claimError } = await db
     .from("stripe_payouts")
     .insert({
@@ -284,29 +489,16 @@ export async function createInAppPayout(
       { stripeAccount: opts.accountId, idempotencyKey: `in-app-payout:${claimId}` },
     );
 
-    const arrivalDate = payout.arrival_date
-      ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10)
-      : estimateArrivalDate(opts.input.method);
+    const arrivalDate = arrivalDateForPayout(payout, opts.input.method);
 
-    // Best-effort: if the `payout.created` webhook races this and inserts its
-    // own row for `payout.id` first, this update can lose to the unique index
-    // on `stripe_payout_id`. That is a rare timing window (the webhook would
-    // have to beat this synchronous continuation), and either way the caller
-    // already has the correct amount/fee/net from this response — a lost
-    // write here is a stale duplicate history row, not a wrong payment.
-    await db
-      .from("stripe_payouts")
-      .update({
-        stripe_payout_id: payout.id,
-        status: payout.status ?? "pending",
-        arrival_date: arrivalDate,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", claimId)
-      .then(
-        () => undefined,
-        () => undefined,
+    try {
+      await stampClaimWithPayout(db, { claimId, payout, method: opts.input.method });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(
+        `[stripe-payouts] claim ${claimId} for ${opts.accountId} could not be stamped with ${payout.id} — reconciliation will retry: ${message}`,
       );
+    }
 
     return {
       ok: true,

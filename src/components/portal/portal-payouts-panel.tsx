@@ -65,6 +65,8 @@ export type PortalPayoutBalance = {
   };
   setup: PortalPayoutSetupStatus;
   history: PortalPayoutHistoryRow[];
+  /** The saved Stripe account could not be reached; the setup card offers Reconnect. */
+  needsRelink?: boolean;
 };
 
 const PORTAL_API_BASE: Record<PortalPayoutsPortalKind, string> = {
@@ -496,8 +498,15 @@ export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind
     );
   } else if (!balance) {
     content = null;
-  } else if (!balance.setup.ready) {
-    content = <PortalPayoutSetupCard connectBase={connectBase} setup={balance.setup} onReady={() => void loadBalance()} />;
+  } else if (balance.needsRelink || !balance.setup.ready) {
+    content = (
+      <PortalPayoutSetupCard
+        connectBase={connectBase}
+        setup={balance.setup}
+        needsRelink={balance.needsRelink === true}
+        onReady={() => void loadBalance()}
+      />
+    );
   } else {
     content = (
       <div className="space-y-4">

@@ -9,6 +9,7 @@ import {
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
   resolveManagerConnectAccountId,
+  retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
@@ -47,6 +48,12 @@ export async function POST(req: Request) {
       const stripe = getStripe();
       if (relink) {
         const staleAccountId = await resolveManagerConnectAccountId(supabase, user.id);
+        if (staleAccountId && (await retrieveManagerConnectAccountOrNull(stripe, staleAccountId))) {
+          return NextResponse.json(
+            { code: "CONNECT_ACCOUNT_HEALTHY", error: "Your saved Stripe account is still connected." },
+            { status: 409 },
+          );
+        }
         if (staleAccountId) {
           console.error(
             `[stripe-connect] vendor onboard relink: replacing account ${staleAccountId} for ${user.id}`,

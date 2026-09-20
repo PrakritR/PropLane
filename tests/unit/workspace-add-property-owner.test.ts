@@ -137,4 +137,10 @@ describe("resolveCreateListingOwner", () => {
     expect(route).toContain("assigned_property_ids: nextAssigned");
     expect(route).toContain("property_co_manager_permissions: nextPerms");
   });
+
+  it("the property-records route marks a body-named workspace explicit and a cookie selection ambient", () => {
+    const route = readFileSync("src/app/api/property-records/route.ts", "utf8");
+    expect(route).toContain("explicitWorkspaceId: bodyWorkspaceId.length > 0");
+    expect(route).toContain("workspaceId: bodyWorkspaceId || readWorkspaceCookie(req.headers.get(\"cookie\")) || null");
+  });
 });

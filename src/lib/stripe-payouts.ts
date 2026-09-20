@@ -231,11 +231,17 @@ export function computeNextPayoutDate(schedule: PayoutSchedule, now: Date = new 
     return next.toISOString().slice(0, 10);
   }
 
-  // monthly
+  // monthly — Stripe treats an anchor past the month's last day as that last
+  // day, so the anchor is clamped per month rather than overflowing into the
+  // next one (Sep 31 → Sep 30, Feb 30 → Feb 28/29).
   const anchor = Math.min(Math.max(schedule.monthlyAnchor ?? 1, 1), 31);
-  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), anchor));
+  const monthlyPayoutDate = (year: number, month: number): Date => {
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(year, month, Math.min(anchor, lastDay)));
+  };
+  let next = monthlyPayoutDate(now.getUTCFullYear(), now.getUTCMonth());
   if (next.getTime() <= now.getTime()) {
-    next.setUTCMonth(next.getUTCMonth() + 1);
+    next = monthlyPayoutDate(now.getUTCFullYear(), now.getUTCMonth() + 1);
   }
   return next.toISOString().slice(0, 10);
 }

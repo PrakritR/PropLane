@@ -11,6 +11,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
+  useOptionalAppUi: () => null,
 }));
 vi.mock("@/components/stripe-connect-embedded", () => ({
   StripeConnectEmbedded: ({ component }: { component: string }) => (

@@ -170,7 +170,7 @@ async function resolveApprovedResidentSlot(
     });
   }
 
-  const slots = openResidentSlots({ room, placements, at: new Date() });
+  const slots = openResidentSlots({ room, placements, at: new Date(), term: row.application?.leaseTerm });
   if (slots.length === 0) return { ok: true, row }; // room does not price per resident
 
   const wantSlotRaw = Number(row.application?.residentSlot);

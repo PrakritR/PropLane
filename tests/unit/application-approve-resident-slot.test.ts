@@ -110,7 +110,7 @@ const LISTING = "mgr-magnolia-shared-room";
 const ROOM_ID = "room-shared-1";
 const ROOM_CHOICE = `${LISTING}::${ROOM_ID}`;
 
-function sharedRoomListing() {
+function sharedRoomListing(termPricing?: Record<string, unknown>) {
   const room = {
     ...emptyRoom(0),
     id: ROOM_ID,
@@ -120,6 +120,7 @@ function sharedRoomListing() {
     occupancyCapacity: 2,
     residentPricing: "per_resident" as const,
     residentPrices: [{ monthlyRent: 900 }, { monthlyRent: 800 }],
+    ...(termPricing ? { termPricing } : {}),
   };
   return { ...createDefaultListingSubmission(), rooms: [room] };
 }
@@ -212,6 +213,64 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     expect(written.managerRentOverride).toBe("800");
     expect(written.managerUtilitiesOverride).toBe("75");
     expect(written.managerSecurityDepositOverride).toBe("250");
+  });
+
+  it("prices the slot from the application's OWN lease term when the room stores per-term resident rows", async () => {
+    // Long-term: $900 / $800. Month-to-Month: $950 / $850. Grace applied
+    // Month-to-Month, so slot 2 must bill $850 — never the long-term $800.
+    PROPERTY_RECORDS = {
+      [LISTING]: {
+        row_data: {
+          listingSubmission: sharedRoomListing({
+            "Month-to-Month": {
+              residentPricing: "per_resident",
+              residentPrices: [{ monthlyRent: 950 }, { monthlyRent: 850, utilitiesEstimate: "90" }],
+            },
+          }),
+        },
+      },
+    };
+    const aaron = applicationRow("AXIS-AARON", { bucket: "approved" }, { residentSlot: 1, managerRentOverride: "900" });
+    const grace = applicationRow("AXIS-GRACE", {}, { leaseStart: "2026-09-05", leaseTerm: "Month-to-Month" });
+    STORED_ROWS = [
+      { id: aaron.id, row_data: aaron, manager_user_id: OWNER },
+      { id: grace.id, row_data: grace, manager_user_id: OWNER },
+    ];
+
+    const res = await upsert({
+      ...grace,
+      bucket: "approved",
+      application: { ...grace.application!, residentSlot: 2, managerRentOverride: "1" },
+    });
+
+    expect(res.status).toBe(200);
+    const written = UPSERTS[0]!.row_data.application!;
+    expect(written.residentSlot).toBe(2);
+    expect(written.managerRentOverride).toBe("850");
+    expect(written.managerUtilitiesOverride).toBe("90");
+  });
+
+  it("leaves the client's figures alone when the application's term says resident pricing is the same for everyone", async () => {
+    PROPERTY_RECORDS = {
+      [LISTING]: {
+        row_data: { listingSubmission: sharedRoomListing({ "Month-to-Month": { residentPricing: "same" } }) },
+      },
+    };
+    const grace = applicationRow("AXIS-GRACE", {}, { leaseTerm: "Month-to-Month" });
+    STORED_ROWS = [{ id: grace.id, row_data: grace, manager_user_id: OWNER }];
+
+    const res = await upsert({
+      ...grace,
+      bucket: "approved",
+      application: { ...grace.application!, managerRentOverride: "1000" },
+    });
+
+    expect(res.status).toBe(200);
+    const written = UPSERTS[0]!.row_data.application!;
+    // Not a per-resident room on THIS term: no slot is invented and the
+    // long-term slot price is never forced onto the row.
+    expect(written.residentSlot).toBeUndefined();
+    expect(written.managerRentOverride).toBe("1000");
   });
 
   it("refuses a slot already held by another approved resident — the existing capacity 409 shape", async () => {

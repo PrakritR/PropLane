@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { PortalSettingsGroup, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
+import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { cn } from "@/lib/utils";
 
 export type PortalPayoutSetupStatus = {
@@ -33,18 +34,26 @@ function StepBadge({ index, done }: { index: number; done: boolean }) {
  * Stripe embedded onboarding flow (Stripe asks for whatever it still needs);
  * PropLane draws only the steps and their state, never the identity or bank
  * fields themselves (PLAN-0920-0853).
+ *
+ * `needsRelink` is the one case the saved Stripe account can no longer be
+ * reached: the card offers Reconnect, which POSTs `/onboard` with
+ * `{ relink: true }` — the only path that replaces a saved account id — and
+ * then opens onboarding on the fresh account.
  */
 export function PortalPayoutSetupCard({
   connectBase,
   setup,
+  needsRelink = false,
   onReady,
 }: {
   /** `/api/stripe/connect` for a manager, `/api/vendor/stripe-connect` for a vendor. */
   connectBase: string;
   setup: PortalPayoutSetupStatus;
+  needsRelink?: boolean;
   /** Re-fetches the balance/setup status after the embedded flow reports it exited. */
   onReady: () => void;
 }) {
+  const appUi = useOptionalAppUi();
   const [open, setOpen] = useState(false);
   const identityDone = setup.identity === "done";
   const bankDone = setup.bank === "done";
@@ -54,9 +63,40 @@ export function PortalPayoutSetupCard({
     onReady();
   };
 
+  const reconnect = async () => {
+    try {
+      const res = await fetch(`${connectBase}/onboard`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relink: true }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { code?: string; needsRelink?: boolean; error?: string };
+      if (res.ok) {
+        setOpen(true);
+        return;
+      }
+      if (body.code === "CONNECT_ACCOUNT_HEALTHY") {
+        onReady();
+        return;
+      }
+      appUi?.showToast(body.error ?? "Could not reconnect Stripe.");
+    } catch {
+      appUi?.showToast("Could not reconnect Stripe.");
+    }
+  };
+
   return (
     <PortalSettingsSection title="Set up payouts">
       <PortalSettingsGroup>
+        {needsRelink ? (
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+            <span className="truncate text-sm font-medium text-foreground">Stripe account</span>
+            <Button type="button" variant="outline" onClick={reconnect} data-attr="payouts-setup-reconnect">
+              Reconnect
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
           <div className="flex min-w-0 items-center gap-2.5">
             <StepBadge index={1} done={identityDone} />

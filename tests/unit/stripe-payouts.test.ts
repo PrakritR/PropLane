@@ -141,6 +141,21 @@ describe("computeNextPayoutDate", () => {
     expect(computeNextPayoutDate({ interval: "monthly", monthlyAnchor: 1 }, now)).toBe("2026-10-01");
     expect(computeNextPayoutDate({ interval: "monthly", monthlyAnchor: 25 }, now)).toBe("2026-09-25");
   });
+
+  it("monthly clamps an anchor past the month's last day to that last day, never overflowing", () => {
+    // September has 30 days: anchor 31 is Sep 30, not Oct 1.
+    expect(computeNextPayoutDate({ interval: "monthly", monthlyAnchor: 31 }, new Date("2026-09-20T10:00:00.000Z"))).toBe(
+      "2026-09-30",
+    );
+    // February 2026 has 28 days: anchor 30 is Feb 28, not Mar 2.
+    expect(computeNextPayoutDate({ interval: "monthly", monthlyAnchor: 30 }, new Date("2026-02-10T10:00:00.000Z"))).toBe(
+      "2026-02-28",
+    );
+    // Rolling from a 31-day month into a 30-day one clamps the NEXT month too.
+    expect(computeNextPayoutDate({ interval: "monthly", monthlyAnchor: 31 }, new Date("2026-10-31T12:00:00.000Z"))).toBe(
+      "2026-11-30",
+    );
+  });
 });
 
 describe("resolveSetupState", () => {

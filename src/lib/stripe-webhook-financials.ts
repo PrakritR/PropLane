@@ -107,17 +107,18 @@ async function resolveDestinationLast4(
 }
 
 /**
- * Vendor accounts never belong to a property-owning manager (co-managers
- * never get their own Connect account — payouts always land in the OWNER's
- * account; see `resolveStripePayoutContext`). So "this account's owner has no
- * `manager_property_records`" reliably means it's a vendor's own account.
+ * Whether the Connect account's owner is a vendor rather than a manager —
+ * decided from `profile_roles` (a vendor role with no manager role; legacy
+ * `profiles.role` when no role rows exist), never from how many listings the
+ * owner happens to have. A manager who set up payouts before creating a
+ * listing, or who deleted every listing, is still a manager.
  */
 async function isVendorOwnedAccount(db: SupabaseClient, ownerUserId: string): Promise<boolean> {
-  const { count } = await db
-    .from("manager_property_records")
-    .select("id", { count: "exact", head: true })
-    .eq("manager_user_id", ownerUserId);
-  return (count ?? 0) === 0;
+  const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", ownerUserId);
+  const roles = new Set((roleRows ?? []).map((r) => String((r as { role?: unknown }).role ?? "").toLowerCase()));
+  if (roles.size > 0) return roles.has("vendor") && !roles.has("manager");
+  const { data: profile } = await db.from("profiles").select("role").eq("id", ownerUserId).maybeSingle();
+  return String((profile as { role?: unknown } | null)?.role ?? "").toLowerCase() === "vendor";
 }
 
 export async function upsertStripePayoutRecord(
