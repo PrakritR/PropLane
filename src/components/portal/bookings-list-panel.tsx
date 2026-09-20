@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
+import { bookingRowSourceLabel, bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import {
@@ -119,17 +121,28 @@ export function ManagerBookingsListPanel({
             ]
               .filter(Boolean)
               .join(" · ");
+            const status = bookingRowStatusFact(entry);
             return (
-              <PortalPersonRecordRow
-                key={bookingEntryKey(entry)}
-                name={name}
-                subtitle={subtitle}
-                onOpen={() => openEntry(entry)}
-                dataAttr={`bookings-list-row-${bookingEntryKey(entry)}`}
-                trailing={
-                  <BookingsRowOverflow label={name} onEdit={() => openEntry(entry)} />
-                }
-              />
+              // The overflow provides the row's ⋯ (Edit); the card draws it in
+              // the selection slot, so there is one menu and no checkbox.
+              <BookingsRowOverflow key={bookingEntryKey(entry)} label={name} onEdit={() => openEntry(entry)}>
+                <PortalApplicantRecordRow
+                  name={name}
+                  address={subtitle}
+                  facts={
+                    <>
+                      <PortalRowFact icon={Tag} srLabel="Source">
+                        {bookingRowSourceLabel(entry.source)}
+                      </PortalRowFact>
+                      {status ? <span data-attr="booking-row-status">{status}</span> : null}
+                    </>
+                  }
+                  onSelectedChange={() => {}}
+                  omitActionView
+                  onOpen={() => openEntry(entry)}
+                  dataAttr={`bookings-list-row-${bookingEntryKey(entry)}`}
+                />
+              </BookingsRowOverflow>
             );
           })}
         </PortalRecordListSurface>

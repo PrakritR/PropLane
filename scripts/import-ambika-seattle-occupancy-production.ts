@@ -99,7 +99,7 @@ function check(error: { message: string } | null) {
   if (error) throw new Error(error.message);
 }
 
-function isRoomCapacityError(error: { message?: string } | null): boolean {
+function isRoomCapacityError(error: { message?: string } | null): error is { message: string } {
   const message = error?.message ?? "";
   return /room is blocked|No bed is available|statement timeout/i.test(message);
 }

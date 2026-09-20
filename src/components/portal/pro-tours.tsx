@@ -5,6 +5,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
@@ -350,6 +351,7 @@ export function ManagerTours({
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [tourSearch, setTourSearch] = useState("");
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
@@ -465,9 +467,22 @@ export function ManagerTours({
 
   const rowsForBucket = useMemo(() => {
     const filtered = filterManagerTourRows(allRows, bucket, effectivePropertyFilters, "");
-    if (bucket !== "pending" || scopedPropertyId) return filtered;
-    return mergePendingTourRowsWithProposals(filtered, pendingProposalRows);
-  }, [allRows, bucket, effectivePropertyFilters, scopedPropertyId, pendingProposalRows]);
+    const rows =
+      bucket !== "pending" || scopedPropertyId ? filtered : mergePendingTourRowsWithProposals(filtered, pendingProposalRows);
+    // The search box narrows the current bucket only; the tab counts stay the bucket totals.
+    return rows.filter((row) =>
+      matchesPortalListSearch(
+        tourSearch,
+        row.guestName,
+        row.guestEmail,
+        row.guestPhone,
+        row.propertyTitle,
+        row.roomLabel,
+        row.whenLabel,
+        row.statusLabel,
+      ),
+    );
+  }, [allRows, bucket, effectivePropertyFilters, scopedPropertyId, pendingProposalRows, tourSearch]);
 
   const displayCounts = useMemo(() => {
     if (scopedPropertyId || pendingProposalRows.length === 0) return counts;
@@ -1627,6 +1642,7 @@ export function ManagerTours({
         }))}
         activeDestinationId={bucket}
         destinationAriaLabel="Tour status"
+        search={{ value: tourSearch, onChange: setTourSearch, placeholder: "Search tours", dataAttr: "tours-search" }}
         actions={
           <>
             {filterSheet}
@@ -1666,7 +1682,14 @@ export function ManagerTours({
       <PortalRecordListSurface
         isEmpty={authReady && rowsForBucket.length === 0}
         emptyCard={
-          filterTouchCount > 0
+          tourSearch.trim()
+            ? {
+                title: portalEmptyNoMatchTitle("tours", tourSearch),
+                section: "tours",
+                tone: "muted",
+                clear: { label: "Clear search", onClick: () => setTourSearch(""), dataAttr: "tours-empty-clear-search" },
+              }
+            : filterTouchCount > 0
             ? {
                 title: portalEmptyNoMatchTitle("tours"),
                 section: "tours",

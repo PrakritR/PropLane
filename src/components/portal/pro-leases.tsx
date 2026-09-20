@@ -65,6 +65,7 @@ export function ManagerLeases({
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [listSearch, setListSearch] = useState("");
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [clientReady, setClientReady] = useState(false);
   const [shareLeasesOpen, setShareLeasesOpen] = useState(false);
@@ -288,6 +289,12 @@ export function ManagerLeases({
           }))}
           activeDestinationId={tab}
           destinationAriaLabel="Lease pipeline stage"
+          search={{
+            value: listSearch,
+            onChange: setListSearch,
+            placeholder: "Search leases",
+            dataAttr: "leases-search",
+          }}
           actions={leasesListActions}
           primary={
             <PortalPrimaryIconAction
@@ -319,6 +326,8 @@ export function ManagerLeases({
           leaseId={leaseIdProp}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
+          searchQuery={listSearch}
+          onClearSearch={() => setListSearch("")}
           emptyCard={
             propertyFilters.length > 0
               ? {

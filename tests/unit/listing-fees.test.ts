@@ -37,6 +37,12 @@ describe("listing fees migration", () => {
     expect(fees.find((f) => f.presetId === "holdover_daily")?.amount).toBe("45");
   });
 
+  it("recovers a row saved under the preset's old label as that preset", () => {
+    const row = normalizeListingFeeRow({ id: "f-legacy", label: "Break lease fee", amount: "500", frequency: "one-time" });
+    expect(row.presetId).toBe("break_lease_fee");
+    expect(normalizeListingFeeRow({ id: "f-now", label: "Early move-out fee", amount: "500", frequency: "one-time" }).presetId).toBe("break_lease_fee");
+  });
+
   it("builds preset rows from legacy scalar fields", () => {
     const sub = createDefaultListingSubmission();
     sub.securityDeposit = "900";

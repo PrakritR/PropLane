@@ -1,12 +1,14 @@
 /**
- * Default bathroom / Default shared space — saved on the listing, inferred for
- * older ones, and judged per field the way the rooms are.
+ * Default bathroom — saved on the listing, inferred for older ones, and judged
+ * per field the way the rooms are. Shared spaces have no Default card any
+ * more; their reader below only keeps an older listing's stored block legible.
  */
 import { describe, expect, it } from "vitest";
 import {
   applyBathroomDefaults,
   bathroomDefaultsForSubmission,
   emptyBathroomDefaults,
+  emptySharedSpaceDefaults,
   recordFollowsDefault,
   sharedSpaceDefaultsForSubmission,
   writeBathroomField,
@@ -52,11 +54,27 @@ describe("bathroomDefaultsForSubmission", () => {
   });
 });
 
-describe("sharedSpaceDefaultsForSubmission", () => {
+describe("sharedSpaceDefaultsForSubmission (read-only: older listings keep reading)", () => {
   it("infers a clip only when every space shares it", () => {
     const s1 = { ...emptySharedSpace(0), videoDataUrl: "v", detail: "Sunny" };
     const s2 = { ...emptySharedSpace(1), videoDataUrl: "v", detail: "Sunny" };
     expect(sharedSpaceDefaultsForSubmission({ sharedSpaces: [s1, s2], sharedSpaceDefaults: undefined })).toMatchObject({ videoDataUrl: "v", detail: "Sunny" });
     expect(sharedSpaceDefaultsForSubmission({ sharedSpaces: [s1, { ...s2, videoDataUrl: null }], sharedSpaceDefaults: undefined }).videoDataUrl).toBeNull();
+  });
+
+  it("a stored block from a listing saved with the old Default card still reads, over the inference", () => {
+    const s1 = { ...emptySharedSpace(0), location: "1st floor" };
+    const s2 = { ...emptySharedSpace(1), location: "1st floor" };
+    const stored = sharedSpaceDefaultsForSubmission({ sharedSpaces: [s1, s2], sharedSpaceDefaults: { location: "Basement", detail: "Shared by all" } });
+    expect(stored.location).toBe("Basement");
+    expect(stored.detail).toBe("Shared by all");
+    // Reading never touches the spaces themselves: each keeps its own copy.
+    expect(s1.location).toBe("1st floor");
+    expect(s2.location).toBe("1st floor");
+  });
+
+  it("a listing with no spaces and no stored block reads the empty defaults", () => {
+    expect(sharedSpaceDefaultsForSubmission({ sharedSpaces: [], sharedSpaceDefaults: undefined })).toEqual(emptySharedSpaceDefaults());
+    expect(sharedSpaceDefaultsForSubmission({ sharedSpaces: undefined, sharedSpaceDefaults: undefined })).toEqual(emptySharedSpaceDefaults());
   });
 });
