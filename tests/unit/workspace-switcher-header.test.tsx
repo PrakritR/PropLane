@@ -66,7 +66,7 @@ describe("the header switcher", () => {
     render(<WorkspaceSwitcher />);
     const trigger = screen.getByRole("button", { name: "Switch workspace: My workspace" });
     expect(trigger.textContent).toContain("MW");
-    expect(trigger.textContent).toContain("Owner · 3 properties");
+    expect(trigger.textContent).toContain("Owner · 3 houses");
   });
 
   it("lists every workspace, then settings, invite, and New workspace with the cap", async () => {
@@ -76,11 +76,11 @@ describe("the header switcher", () => {
     const items = await screen.findAllByRole("menuitem");
     const labels = items.map((el) => el.textContent?.replace(/\s+/g, " ").trim());
     expect(labels[0]).toContain("My workspace");
-    expect(labels[0]).toContain("Owned");
+    expect(labels[0]).toContain("Owner");
     expect(labels[1]).toContain("Ballard houses");
     expect(labels[1]).toContain("Shared");
     expect(labels[2]).toBe("Workspace settings");
-    expect(labels[3]).toBe("Invite a manager");
+    expect(labels[3]).toBe("Invite a manager to My workspace");
     expect(labels[4]).toMatch(/^New workspace\s*1 of 3$/);
     expect(document.querySelector('[data-attr="workspace-switcher-new"]')?.getAttribute("href")).toBe(
       "/portal/profile?tab=workspaces&new=1",

@@ -54,8 +54,15 @@ export type AccountLinkInviteDto = {
    * permission map — a forged `full` with an empty map grants nothing.
    */
   teamRole?: CoManagerTeamRole;
-  /** Workspace grants — Add properties / Invite teammates. Empty = none. */
+  /**
+   * Which houses of `workspaceId` the row reaches: every house (kept current
+   * by the database) or the listed ones. Default on old rows is `selected`.
+   */
+  houseScope?: "all" | "selected";
+  /** Workspace grants on a Custom row — Add properties / Invite teammates. Empty = none. Other roles derive theirs. */
   workspacePermissions?: WorkspaceCoManagerGrant;
+  /** The on-by-default flags this row held before rights followed the role; the owner is asked to review. */
+  legacyWorkspacePermissions?: WorkspaceCoManagerGrant;
   createdAt: string;
   respondedAt: string | null;
 };

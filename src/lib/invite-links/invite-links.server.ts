@@ -32,6 +32,10 @@ function storedTeamRole(raw: unknown): TeamRoleId | null {
   return parsed.ok ? parsed.role : null;
 }
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { parseHouseScope, roleAssignableBy } from "@/lib/workspaces/membership";
+import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
+import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
+import { actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
 const TOKEN_BYTES = 32;
@@ -91,6 +95,7 @@ type DbRow = {
   created_at: string;
   workspace_id?: string | null;
   workspace_name_snapshot?: string | null;
+  house_scope?: string | null;
   property_labels?: unknown;
   token_ciphertext?: string | null;
   team_role?: string | null;
@@ -151,7 +156,7 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
 }
 
 const LINK_COLUMNS =
-  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role";
+  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role, house_scope";
 
 export type MintInviteLinkResult =
   | { ok: true; link: InviteLinkRow; token: string }
@@ -181,25 +186,53 @@ export async function mintInviteLink(
     workspaceId?: string;
     propertyLabelsById?: Record<string, string>;
     teamRole?: unknown;
+    /** Co-manager links: all = every house in `workspaceId`, now and later. */
+    houseScope?: unknown;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
   if (!actorUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
 
   const kind = normalizeInviteLinkKind(input.kind);
+  const houseScope = kind === "manager" ? parseHouseScope(input.houseScope) : "selected";
 
   // Every kind may carry properties. A vendor link's properties are NOT a
   // module grant (vendors have none) — they become the directory row's
   // assigned houses on redemption, the same scoping a manager sets by hand.
-  const propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
-  // Who this link is really FOR. A co-manager with Team edit may mint on the
-  // owner's behalf (PRP-400), so the owner is resolved and authorized here
-  // rather than taken from the caller — for every kind, resident included.
-  const delegate = await resolveTeamInviteDelegate(db, actorUserId, propertyIds);
-  if (!delegate.ok) {
-    return { ok: false, status: delegate.status, error: delegate.error };
+  let propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
+  // Who this link is really FOR. When the request names a workspace, the
+  // owner is that workspace's owner and the actor must run it (owner or an
+  // Admin of THAT workspace). Otherwise a co-manager with Team edit may mint
+  // on the owner's behalf for the houses they hold (PRP-400) — for every kind,
+  // resident included.
+  let ownerUserId: string;
+  const requestedWorkspaceId = input.workspaceId?.trim() ?? "";
+  if (kind === "manager" && requestedWorkspaceId) {
+    const standing = await actorWorkspaceStanding(db, actorUserId, requestedWorkspaceId);
+    if (!standing) return { ok: false, status: 403, error: "That workspace is not yours to invite into." };
+    if (!standing.rights.members) {
+      return { ok: false, status: 403, error: "Only the workspace owner or an admin can invite into this workspace." };
+    }
+    ownerUserId = standing.ownerUserId;
+    if (houseScope === "all") {
+      propertyIds = await workspaceHouseIds(db, ownerUserId, standing.workspaceId);
+    } else if (propertyIds.length > 0) {
+      const inWorkspace = new Set(await workspaceHouseIds(db, ownerUserId, standing.workspaceId));
+      if (propertyIds.some((id) => !inWorkspace.has(id))) {
+        return { ok: false, status: 400, error: "Choose houses from this workspace only." };
+      }
+    }
+    const parsedRole = parseTeamRole(input.teamRole);
+    if (parsedRole.ok && parsedRole.role && !roleAssignableBy(standing.role, parsedRole.role)) {
+      return { ok: false, status: 403, error: "You cannot hand out a role above your own." };
+    }
+  } else {
+    const delegate = await resolveTeamInviteDelegate(db, actorUserId, propertyIds);
+    if (!delegate.ok) {
+      return { ok: false, status: delegate.status, error: delegate.error };
+    }
+    ownerUserId = delegate.ownerUserId;
   }
-  const ownerUserId = delegate.ownerUserId;
 
   // The co-manager paid gate, and ONLY for co-manager links. A resident is a
   // person who lives in the property, not a seat on the owner's plan, so
@@ -266,7 +299,6 @@ export async function mintInviteLink(
 
   let workspaceId: string | null = null;
   let workspaceNameSnapshot: string | null = null;
-  const requestedWorkspaceId = input.workspaceId?.trim() ?? "";
   if (requestedWorkspaceId) {
     const { data: workspace } = await db
       .from("portal_workspaces")
@@ -316,6 +348,7 @@ export async function mintInviteLink(
       workspace_name_snapshot: workspaceNameSnapshot,
       property_labels: propertyLabels,
       team_role: kind === "manager" ? storedTeamRole(input.teamRole) : null,
+      house_scope: houseScope,
     })
     .select(LINK_COLUMNS)
     .maybeSingle();
@@ -515,6 +548,11 @@ export type InviteLinkPreview = {
   workspaceName: string | null;
   propertyLabels: string[];
   teamRole?: TeamRoleId | null;
+  /** Co-manager links: all = every house in the workspace, the ones added later included. */
+  houseScope?: "all" | "selected";
+  houseCount?: number;
+  /** "Edit applications · View properties" — the role's reach, in words. */
+  canDo?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -592,6 +630,17 @@ export async function previewInviteLink(
     workspaceName,
     propertyLabels: labels,
     teamRole: storedTeamRole(link.team_role),
+    houseScope: kind === "manager" ? parseHouseScope(link.house_scope) : "selected",
+    houseCount: (link.assigned_property_ids ?? []).length,
+    canDo:
+      kind === "manager"
+        ? describeCoManagerPermissions(
+            stampTeamRolePermissions(storedTeamRole(link.team_role) ?? "custom") ??
+              flatCoManagerPermissionsFromProperty(
+                normalizePropertyCoManagerPermissions(link.property_permissions, link.assigned_property_ids ?? []),
+              ),
+          )
+        : null,
     unusableReason: inviteLinkUnusableReason(
       {
         expiresAt: link.expires_at,
@@ -748,13 +797,18 @@ export async function redeemInviteLink(
     });
   }
 
-  const { data: existingInvite } = await db
+  // One membership per workspace: a second link for the SAME workspace hands
+  // back the row that exists; a link for another workspace makes a new one.
+  const existingInviteQuery = db
     .from("account_link_invites")
     .select("id")
     .eq("inviter_user_id", link.owner_user_id)
     .eq("invitee_user_id", redeemerUserId)
-    .in("status", ["pending", "accepted"])
-    .maybeSingle();
+    .in("status", ["pending", "accepted"]);
+  const { data: existingInvite } = await (link.workspace_id
+    ? existingInviteQuery.eq("workspace_id", link.workspace_id)
+    : existingInviteQuery.is("workspace_id", null)
+  ).maybeSingle();
 
   if (existingRedemption && existingInvite) {
     return { ok: true, kind: "manager", inviteId: String(existingInvite.id), alreadyRedeemed: true };
@@ -824,8 +878,10 @@ export async function redeemInviteLink(
         link.assigned_property_ids ?? [],
       ),
       workspace_id: link.workspace_id ?? null,
-      workspace_permissions: { addProperties: true, teams: true },
+      // Workspace rights follow the role now; nothing is switched on by default.
+      workspace_permissions: {},
       team_role: storedTeamRole(link.team_role),
+      house_scope: parseHouseScope(link.house_scope),
     })
     .select("id")
     .maybeSingle();

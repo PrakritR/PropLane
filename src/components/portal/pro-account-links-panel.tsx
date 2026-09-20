@@ -26,6 +26,7 @@ import {
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
+import { memberReachLabel, workspaceRightsForRole, type HouseScope } from "@/lib/workspaces/membership";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -47,9 +48,10 @@ import {
   inferInviteTeamRole,
   inferTeamRoleFromPermissions,
   stampTeamRolePermissions,
-  TEAM_ROLE_SELECT_OPTIONS,
   teamRoleListLabel,
   type TeamRoleId,
+  TEAM_ROLE_INVITE_OPTIONS,
+  TEAM_ROLE_LABELS,
 } from "@/lib/co-manager-team-roles";
 import {
   PROPERTY_PIPELINE_EVENT,
@@ -171,7 +173,76 @@ type InviteDraft = {
   workspaceDefaultPermissions: CoManagerPermissions;
   workspacePermissions: WorkspaceCoManagerGrant;
   teamRole: TeamRoleId;
+  /** all = every house in the workspace, now and later; selected = the listed ones. */
+  houseScope: HouseScope;
 };
+
+/** Role → the row's chips: what the person can do in each module, read-only. */
+function RoleCanTable({ role, grant }: { role: TeamRoleId; grant: CoManagerPermissions }) {
+  const rights = workspaceRightsForRole(role);
+  const rows: { label: string; value: string; on: boolean }[] = [
+    { label: "Invite and edit members", value: rights.members ? "Yes" : "No", on: rights.members },
+    { label: "Add and move houses in this workspace", value: rights.houses ? "Yes" : "No", on: rights.houses },
+    ...CO_MANAGER_PERMISSION_OPTIONS.map(({ id, label }) => {
+      const access = levelsToAccess(grantToLevels(grant[id]));
+      return {
+        label,
+        value: MODULE_ACCESS_OPTIONS.find((option) => option.id === access)?.label ?? "No access",
+        on: access !== "none",
+      };
+    }),
+  ];
+  return (
+    <div className="rounded-xl border border-border bg-card" data-attr="team-role-can">
+      <p className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{TEAM_ROLE_LABELS[role]} can</p>
+      <ul className="mt-1 divide-y divide-border/60">
+        {rows.map((row) => (
+          <li key={row.label} className="flex items-center justify-between gap-3 px-3 py-2 text-[13.5px]">
+            <span className="text-foreground">{row.label}</span>
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+                row.on ? "bg-primary/10 text-primary" : "bg-[var(--secondary)] text-muted",
+              )}
+            >
+              {row.value}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function HouseScopeSelect({
+  value,
+  onChange,
+  workspaceName,
+  houseCount,
+  disabled,
+  dataAttr = "team-house-scope",
+}: {
+  value: HouseScope;
+  onChange: (next: HouseScope) => void;
+  workspaceName: string;
+  houseCount: number;
+  disabled?: boolean;
+  dataAttr?: string;
+}) {
+  return (
+    <FieldSingleSelect
+      label="Houses"
+      options={[
+        { value: "all", label: `All houses in ${workspaceName} (${houseCount})` },
+        { value: "selected", label: "Only selected houses" },
+      ]}
+      value={value}
+      onChange={(next) => onChange(next === "all" ? "all" : "selected")}
+      disabled={disabled}
+      dataAttr={dataAttr}
+    />
+  );
+}
 
 function WorkspaceGrantFields({
   value,
@@ -401,8 +472,9 @@ function CoManagerRoleSelect({
   return (
     <FieldSingleSelect
       label="Role"
-      options={TEAM_ROLE_SELECT_OPTIONS}
-      value={value}
+      options={TEAM_ROLE_INVITE_OPTIONS}
+      // The legacy Full access stamp is the same grant as Admin and lists as it.
+      value={value === "full" ? "admin" : value}
       onChange={(next) => onChange(next as TeamRoleId)}
       disabled={disabled}
       dataAttr="co-manager-role"
@@ -584,6 +656,7 @@ function inviteDraftFromRemote(inv: AccountLinkInviteDto): InviteDraft {
     workspaceDefaultPermissions,
     workspacePermissions: normalizeWorkspacePermissions(inv.workspacePermissions),
     teamRole: inv.teamRole ?? inferInviteTeamRole(propertyCoManagerPermissions),
+    houseScope: inv.houseScope === "all" ? "all" : "selected",
   };
 }
 
@@ -602,6 +675,7 @@ function inviteDraftFromRelationship(row: ProRelationshipRecord): InviteDraft {
       (row as { workspacePermissions?: unknown }).workspacePermissions,
     ),
     teamRole: inferInviteTeamRole(propertyCoManagerPermissions),
+    houseScope: "selected",
   };
 }
 
@@ -675,7 +749,13 @@ export function ProAccountLinksPanel({
   const { email: managerEmail, ready: managerSessionReady } = useManagerUserId();
   const workspaces = useWorkspaces();
   const byWorkspace = typeof renderWorkspaces === "function";
-  const ownedWorkspaces = useMemo(() => (workspaces?.workspaces ?? []).filter((w) => w.owned), [workspaces?.workspaces]);
+  // Every workspace this viewer runs: their own, and shared ones where they are
+  // an Admin. The team section, the invite picker and the member sheet all
+  // work per workspace from this list.
+  const ownedWorkspaces = useMemo(
+    () => (workspaces?.workspaces ?? []).filter((w) => w.owned || w.canManageMembers),
+    [workspaces?.workspaces],
+  );
   const activePropertyIds = workspaces?.active?.propertyIds;
   // Per-card rendering needs every grant, so the visibility scope is the union of
   // the owned workspaces' houses rather than the active workspace alone.
@@ -1009,6 +1089,7 @@ export function ProAccountLinksPanel({
     buildAllModulesGrant("read"),
   );
   const [inviteTeamRole, setInviteTeamRole] = useState<TeamRoleId>("viewer");
+  const [inviteHouseScope, setInviteHouseScope] = useState<HouseScope>("all");
   const [inviteWorkspacePermissions, setInviteWorkspacePermissions] = useState<WorkspaceCoManagerGrant>(
     DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
   );
@@ -1257,6 +1338,11 @@ export function ProAccountLinksPanel({
     setPropertyPermissionsDraft({});
     setInviteeAtCap(false);
     setInvitePath("link");
+    setInviteHouseScope("all");
+    setInviteTeamRole("viewer");
+    const viewerStamp = stampTeamRolePermissions("viewer");
+    if (viewerStamp) setInviteDefaultPermissions(viewerStamp);
+    setInviteWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
     setInviteeName("");
     setInviteePhone("");
     setInviteeEmail("");
@@ -1388,6 +1474,7 @@ export function ProAccountLinksPanel({
       propertyPermissions: normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids),
       propertyLabelsById: Object.fromEntries(ids.map((id) => [id, teamPropertyLabel(id)])),
       teamRole: inviteTeamRole,
+      houseScope: inviteHouseScope,
     });
     if (!result.ok) {
       showToast(result.error);
@@ -1503,6 +1590,7 @@ export function ProAccountLinksPanel({
               workspaceId: inviteWorkspaceId,
               workspacePermissions: inviteWorkspacePermissions,
               teamRole: inviteTeamRole,
+              houseScope: inviteHouseScope,
               skipInviteNotification: true,
             }),
           });
@@ -1674,6 +1762,7 @@ export function ProAccountLinksPanel({
             coManagerPermissions: draft.workspaceDefaultPermissions,
             workspacePermissions: draft.workspacePermissions,
             teamRole: draft.teamRole,
+            houseScope: draft.houseScope,
           });
         }
       }, 300);
@@ -1758,6 +1847,7 @@ export function ProAccountLinksPanel({
     const draft = getInviteDraft(inv);
     const normalized = normalizeCoManagerPermissions(permissions);
     const next: InviteDraft = {
+      houseScope: draft.houseScope,
       assignedPropertyIds: draft.assignedPropertyIds,
       propertyCoManagerPermissions: {
         ...draft.propertyCoManagerPermissions,
@@ -2215,7 +2305,11 @@ export function ProAccountLinksPanel({
           onClick={() => openTeamRemovePreview([entry])}
           data-attr="co-manager-remove-link"
         >
-          {readOnly ? "Leave team" : "Disconnect"}
+          {readOnly
+            ? "Leave team"
+            : inv.workspaceId
+              ? `Remove from ${(workspaces?.workspaces ?? []).find((w) => w.id === inv.workspaceId)?.name ?? "workspace"}`
+              : "Disconnect"}
         </Button>
       );
     }
@@ -2265,37 +2359,37 @@ export function ProAccountLinksPanel({
         {inv.status === "pending" && inv.direction === "outgoing"
           ? renderInviteAcceptLinkCard(inv)
           : null}
-        {!readOnly ? (
+        {!readOnly && draft.houseScope !== "all" ? (
           <AddPropertyToCoManager
             linkId={inv.id}
             assignedPropertyIds={draft.assignedPropertyIds}
             propertyOptions={propertyOptions}
             onAddProperty={(id, propertyId) => void addPropertyToInvite(inv, propertyId)}
           />
-        ) : (
+        ) : readOnly ? (
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
             Properties they granted you
           </p>
-        )}
+        ) : null}
 
-        <CheckboxMultiSelect
-          label="Houses"
-          labelClassName="text-xs font-semibold text-foreground"
-          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
-          selected={draft.assignedPropertyIds}
-          onChange={(ids) => {
-            if (readOnly) return;
-            applyAssignedPropertyChange(inv.id, ids, draft, true);
-          }}
-          emptyLabel="Select houses…"
-          searchPlaceholder="Search houses…"
-          dataAttr="team-member-houses"
-        />
-        <CoManagerPermissionsEditor
-          value={draft.workspaceDefaultPermissions}
-          disabled={readOnly}
-          role={draft.teamRole}
-          onRoleChange={(teamRole) => {
+        {(() => {
+          const memberWorkspace = (workspaces?.workspaces ?? []).find((w) => w.id === inv.workspaceId) ?? null;
+          const workspaceHouseOptions = memberWorkspace
+            ? memberWorkspace.propertyIds.map((id) => ({
+                value: id,
+                label: memberWorkspace.propertyLabels?.[id]?.trim() || teamPropertyLabel(id),
+              }))
+            : propertyOptions.map((option) => ({ value: option.id, label: option.label }));
+          const alsoIn = remoteInvites.filter(
+            (other) =>
+              other.id !== inv.id &&
+              other.status === "accepted" &&
+              other.direction === "outgoing" &&
+              other.linkedUserId === inv.linkedUserId &&
+              other.workspaceId &&
+              other.workspaceId !== inv.workspaceId,
+          );
+          const applyRole = (teamRole: TeamRoleId) => {
             const stamp = stampTeamRolePermissions(teamRole);
             const nextPerms = stamp
               ? normalizePropertyCoManagerPermissions(
@@ -2308,29 +2402,109 @@ export function ProAccountLinksPanel({
               teamRole,
               workspaceDefaultPermissions: stamp ?? draft.workspaceDefaultPermissions,
               propertyCoManagerPermissions: nextPerms,
+              // A named role carries its own workspace rights.
+              workspacePermissions: teamRole === "custom" ? draft.workspacePermissions : {},
             });
-          }}
-          onChange={(next) => {
-            const nextPerms = normalizePropertyCoManagerPermissions(
-              Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
-              draft.assignedPropertyIds,
-            );
-            const nextDraft: InviteDraft = {
-              ...draft,
-              workspaceDefaultPermissions: next,
-              propertyCoManagerPermissions: nextPerms,
-              teamRole: inferTeamRoleFromPermissions(next),
-            };
-            scheduleInviteSave(inv.id, nextDraft);
-          }}
-        />
-        <WorkspaceGrantFields
-          value={draft.workspacePermissions}
-          disabled={readOnly}
-          onChange={(next) => {
-            scheduleInviteSave(inv.id, { ...draft, workspacePermissions: next });
-          }}
-        />
+          };
+          return (
+            <>
+              <CoManagerRoleSelect value={draft.teamRole} onChange={applyRole} disabled={readOnly} />
+              {memberWorkspace ? (
+                <HouseScopeSelect
+                  value={draft.houseScope}
+                  disabled={readOnly}
+                  workspaceName={memberWorkspace.name}
+                  houseCount={memberWorkspace.propertyIds.length}
+                  onChange={(houseScope) => {
+                    if (readOnly) return;
+                    const ids = houseScope === "all" ? memberWorkspace.propertyIds : draft.assignedPropertyIds;
+                    const stamp = stampTeamRolePermissions(draft.teamRole) ?? draft.workspaceDefaultPermissions;
+                    scheduleInviteSave(inv.id, {
+                      ...draft,
+                      houseScope,
+                      assignedPropertyIds: ids,
+                      propertyCoManagerPermissions: normalizePropertyCoManagerPermissions(
+                        { ...draft.propertyCoManagerPermissions, ...Object.fromEntries(ids.filter((id) => !draft.propertyCoManagerPermissions[id]).map((id) => [id, stamp])) },
+                        ids,
+                      ),
+                    });
+                  }}
+                />
+              ) : null}
+              {draft.houseScope === "selected" || !memberWorkspace ? (
+                <CheckboxMultiSelect
+                  label={memberWorkspace ? "Selected houses" : "Houses"}
+                  labelClassName="text-xs font-semibold text-foreground"
+                  options={workspaceHouseOptions}
+                  selected={draft.assignedPropertyIds}
+                  onChange={(ids) => {
+                    if (readOnly) return;
+                    applyAssignedPropertyChange(inv.id, ids, draft, true);
+                  }}
+                  emptyLabel="Select houses…"
+                  searchPlaceholder="Search houses…"
+                  dataAttr="team-member-houses"
+                />
+              ) : null}
+              {draft.teamRole === "custom" ? (
+                <>
+                  <CoManagerPermissionsEditor
+                    hideRole
+                    value={draft.workspaceDefaultPermissions}
+                    disabled={readOnly}
+                    role={draft.teamRole}
+                    onRoleChange={applyRole}
+                    onChange={(next) => {
+                      const nextPerms = normalizePropertyCoManagerPermissions(
+                        Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
+                        draft.assignedPropertyIds,
+                      );
+                      const nextDraft: InviteDraft = {
+                        ...draft,
+                        workspaceDefaultPermissions: next,
+                        propertyCoManagerPermissions: nextPerms,
+                        teamRole: inferTeamRoleFromPermissions(next),
+                      };
+                      scheduleInviteSave(inv.id, nextDraft);
+                    }}
+                  />
+                  <WorkspaceGrantFields
+                    value={draft.workspacePermissions}
+                    disabled={readOnly}
+                    onChange={(next) => {
+                      scheduleInviteSave(inv.id, { ...draft, workspacePermissions: next });
+                    }}
+                  />
+                </>
+              ) : (
+                <RoleCanTable role={draft.teamRole} grant={stampTeamRolePermissions(draft.teamRole) ?? draft.workspaceDefaultPermissions} />
+              )}
+              {alsoIn.length > 0 ? (
+                <div className="rounded-xl border border-border bg-card" data-attr="team-member-also-in">
+                  <p className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Also in</p>
+                  <ul className="mt-1 divide-y divide-border/60">
+                    {alsoIn.map((other) => {
+                      const otherWorkspace = (workspaces?.workspaces ?? []).find((w) => w.id === other.workspaceId);
+                      return (
+                        <li key={other.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[13.5px]">
+                          <span className="text-foreground">{otherWorkspace?.name ?? "Another workspace"}</span>
+                          <span className="text-muted">
+                            {teamRoleListLabel(other.teamRole)} ·{" "}
+                            {memberReachLabel({
+                              houseScope: other.houseScope === "all" ? "all" : "selected",
+                              houseCount: other.assignedPropertyIds.length,
+                              workspaceHouseCount: otherWorkspace?.propertyIds.length ?? other.assignedPropertyIds.length,
+                            })}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          );
+        })()}
         {!readOnly ? renderMakeOwner(draft.assignedPropertyIds, inv.linkedAxisId, inv.linkedUserId) : null}
       </div>
     );
@@ -2573,42 +2747,67 @@ export function ProAccountLinksPanel({
               }}
             />
 
-            {linkInvitePropertySelectOptions.length === 0 ? (
-              <p className="text-sm text-muted">No houses in this workspace yet.</p>
-            ) : (
-              <CheckboxMultiSelect
-                label="Properties"
-                labelClassName="text-xs font-semibold text-muted"
-                options={linkInvitePropertySelectOptions}
-                selected={selectedPropIds}
-                onChange={handleLinkPropertySelectionChange}
-                emptyLabel="Select properties…"
-                searchPlaceholder="Search properties…"
-                dataAttr="co-manager-invite-properties"
-              />
-            )}
-
-            <CoManagerPermissionsEditor
-              hideRole
-              value={inviteDefaultPermissions}
-              role={inviteTeamRole}
-              onRoleChange={(next) => {
-                setInviteTeamRole(next);
-                const stamp = stampTeamRolePermissions(next);
-                if (stamp) {
-                  setInviteDefaultPermissions(stamp);
-                  const ids = selectedInvitePropertyIds();
-                  setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, stamp])));
+            <HouseScopeSelect
+              value={inviteHouseScope}
+              onChange={(next) => {
+                setInviteHouseScope(next);
+                // "All" keeps every house selected so the message and the
+                // snapshot name them; the server pins the row to the workspace.
+                if (next === "all") {
+                  handleLinkPropertySelectionChange(
+                    linkInvitePropertySelectOptions.filter((option) => !option.disabled).map((option) => option.value),
+                  );
                 }
               }}
-              onChange={(next) => {
-                setInviteDefaultPermissions(next);
-                setInviteTeamRole(inferTeamRoleFromPermissions(next));
-                const ids = selectedInvitePropertyIds();
-                setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, next])));
-              }}
+              workspaceName={inviteWorkspace?.name ?? workspaceName}
+              houseCount={linkInvitePropertySelectOptions.length}
+              dataAttr="co-manager-invite-house-scope"
             />
-            <WorkspaceGrantFields value={inviteWorkspacePermissions} onChange={setInviteWorkspacePermissions} />
+
+            {inviteHouseScope === "selected" ? (
+              linkInvitePropertySelectOptions.length === 0 ? (
+                <p className="text-sm text-muted">No houses in this workspace yet.</p>
+              ) : (
+                <CheckboxMultiSelect
+                  label="Selected houses"
+                  labelClassName="text-xs font-semibold text-muted"
+                  options={linkInvitePropertySelectOptions}
+                  selected={selectedPropIds}
+                  onChange={handleLinkPropertySelectionChange}
+                  emptyLabel="Select houses…"
+                  searchPlaceholder="Search houses…"
+                  dataAttr="co-manager-invite-properties"
+                />
+              )
+            ) : null}
+
+            {inviteTeamRole === "custom" ? (
+              <>
+                <CoManagerPermissionsEditor
+                  hideRole
+                  value={inviteDefaultPermissions}
+                  role={inviteTeamRole}
+                  onRoleChange={(next) => {
+                    setInviteTeamRole(next);
+                    const stamp = stampTeamRolePermissions(next);
+                    if (stamp) {
+                      setInviteDefaultPermissions(stamp);
+                      const ids = selectedInvitePropertyIds();
+                      setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, stamp])));
+                    }
+                  }}
+                  onChange={(next) => {
+                    setInviteDefaultPermissions(next);
+                    setInviteTeamRole(inferTeamRoleFromPermissions(next));
+                    const ids = selectedInvitePropertyIds();
+                    setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, next])));
+                  }}
+                />
+                <WorkspaceGrantFields value={inviteWorkspacePermissions} onChange={setInviteWorkspacePermissions} />
+              </>
+            ) : (
+              <RoleCanTable role={inviteTeamRole} grant={inviteDefaultPermissions} />
+            )}
           </div>
         </Modal>
 
@@ -2877,17 +3076,22 @@ export function ProAccountLinksPanel({
         ? belongs(entry.row.assignedPropertyIds)
         : entry.invite.status === "accepted" && belongs(entry.invite.assignedPropertyIds, entry.invite.workspaceId),
     );
-    const previewFor = (assigned: string[]) => {
-      const here = assignedIdsInWorkspace(assigned, workspace.propertyIds);
-      return here.length === 0 ? "No houses yet" : teamPropertyPreview(here, teamPropertyLabel);
-    };
+    const reachFor = (assigned: string[], houseScope: HouseScope | undefined) =>
+      memberReachLabel({
+        houseScope: houseScope === "all" ? "all" : "selected",
+        houseCount: assignedIdsInWorkspace(assigned, workspace.propertyIds).length,
+        workspaceHouseCount: workspace.propertyIds.length,
+      });
+    const ownerName = workspace.owned
+      ? managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName
+      : "Workspace owner";
     const rows: TeamMemberRow[] = [
       {
         id: "owner",
-        name: managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName,
-        detail: managerEmail ?? "You",
+        name: ownerName,
+        detail: workspace.owned ? (managerEmail ?? "You") : "Owner",
         role: "owner",
-        propertiesLabel: `All houses in ${workspace.name}`,
+        propertiesLabel: "All houses",
         joinedAt: null,
       },
       ...memberEntries.map((entry) => ({
@@ -2896,8 +3100,18 @@ export function ProAccountLinksPanel({
         detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
         role: "co_manager" as const,
         roleLabel: entry.kind === "remote" ? teamRoleListLabel(entry.invite.teamRole) : "Co-manager",
-        propertiesLabel: previewFor(entry.kind === "remote" ? entry.invite.assignedPropertyIds : entry.row.assignedPropertyIds),
+        propertiesLabel:
+          entry.kind === "remote"
+            ? reachFor(entry.invite.assignedPropertyIds, entry.invite.houseScope)
+            : reachFor(entry.row.assignedPropertyIds, "selected"),
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
+        // The on-by-default rights this row held before rights followed the
+        // role. Saving the member once settles it.
+        note:
+          entry.kind === "remote" && Object.keys(entry.invite.legacyWorkspacePermissions ?? {}).length > 0 && entry.invite.teamRole !== "admin" && entry.invite.teamRole !== "full"
+            ? "Had Add properties and Team before roles — review"
+            : undefined,
+        removeLabel: `Remove from ${workspace.name}`,
         onEdit: () => setPermissionsMember(entry),
         onDisconnect: () => openTeamRemovePreview([entry]),
       })),
@@ -2911,11 +3125,12 @@ export function ProAccountLinksPanel({
         <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
           <span className="inline-flex min-h-10 items-center gap-1.5 text-sm font-semibold text-primary">
             <Users className="size-4" aria-hidden />
-            Managers &amp; permissions
+            Members
+            <span className="rounded-full bg-primary/10 px-2 py-px text-[11px] font-semibold tabular-nums text-primary">{rows.length}</span>
           </span>
           <PortalIconAction
             icon={UserPlus}
-            label="Invite"
+            label={`Invite a manager to ${workspace.name}`}
             className="min-h-9"
             disabled={inviteLinkBlocked}
             onClick={() => openLinkModal(workspace.id)}
@@ -2933,7 +3148,8 @@ export function ProAccountLinksPanel({
             <TeamPendingInvitesBlock
               embedded
               invites={pending}
-              propertiesLabel={(inv) => previewFor(inv.assignedPropertyIds)}
+              roleLabel={(inv) => teamRoleListLabel(inv.teamRole)}
+              propertiesLabel={(inv) => reachFor(inv.assignedPropertyIds, inv.houseScope)}
               expiryLabel={teamInvitePendingExpiryLabel}
               onRevoke={(inv) => void cancelInvite(inv.id)}
               onAccept={(inv) => void respondInvite(inv.id, "accept")}
@@ -2942,7 +3158,7 @@ export function ProAccountLinksPanel({
             />
             {memberEntries.length === 0 && pending.length === 0 ? (
               <p className="border-t border-border/60 px-4 py-2.5 text-sm text-muted" data-attr="workspace-team-empty">
-                Only you. Invite a manager to share these houses.
+                Only you. Invite a manager to share this workspace.
               </p>
             ) : null}
           </>

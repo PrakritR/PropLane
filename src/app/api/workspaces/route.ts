@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { loadWorkspacePlan, loadWorkspaces } from "@/lib/workspaces/server";
+import { actorWorkspaceStanding, previewHouseMove } from "@/lib/workspaces/membership.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
       if (result.error) throw result.error;
       return NextResponse.json({ id: result.data });
     }
-    if (action !== "create" && action !== "rename" && action !== "delete" && action !== "move-property") {
+    if (action !== "create" && action !== "rename" && action !== "delete" && action !== "move-property" && action !== "move-preview") {
       return NextResponse.json({ error: "Unknown workspace action." }, { status: 400 });
     }
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -92,17 +93,40 @@ export async function POST(request: Request) {
     if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) {
       return NextResponse.json({ error: "A valid workspace is required." }, { status: 400 });
     }
+    if (action === "move-property" || action === "move-preview") {
+      if (typeof body.propertyId !== "string" || !body.propertyId.trim()) return NextResponse.json({ error: "Select a property." }, { status: 400 });
+      // A house moves between two workspaces the actor RUNS: the owner, or an
+      // admin of both the source and the destination. Ownership of the house
+      // and of the destination are server-derived; the body only names them.
+      const destination = await actorWorkspaceStanding(db, user.id, body.id);
+      if (!destination || !destination.rights.houses) {
+        return NextResponse.json({ error: "Only the workspace owner or an admin can move houses here." }, { status: 403 });
+      }
+      const house = await db.from("manager_property_records").select("id, workspace_id, manager_user_id")
+        .eq("id", body.propertyId.trim()).eq("manager_user_id", destination.ownerUserId).maybeSingle();
+      if (house.error) throw house.error;
+      if (!house.data) return NextResponse.json({ error: "Property not found in this portfolio." }, { status: 404 });
+      const fromWorkspaceId = String(house.data.workspace_id ?? "").trim();
+      if (fromWorkspaceId && fromWorkspaceId !== destination.workspaceId) {
+        const source = await actorWorkspaceStanding(db, user.id, fromWorkspaceId);
+        if (!source || !source.rights.houses) {
+          return NextResponse.json({ error: "Only the workspace owner or an admin can move houses out of this workspace." }, { status: 403 });
+        }
+      }
+      const impact = fromWorkspaceId && fromWorkspaceId !== destination.workspaceId
+        ? await previewHouseMove(db, { ownerUserId: destination.ownerUserId, propertyId: body.propertyId.trim(), fromWorkspaceId, toWorkspaceId: destination.workspaceId })
+        : { loses: [], keeps: [], gains: [] };
+      if (action === "move-preview") return NextResponse.json({ ok: true, ...impact });
+      const result = await db.from("manager_property_records").update({ workspace_id: destination.workspaceId })
+        .eq("id", body.propertyId.trim()).eq("manager_user_id", destination.ownerUserId).select("id");
+      if (result.error) throw result.error;
+      if (!result.data?.length) return NextResponse.json({ error: "Property not found in this portfolio." }, { status: 404 });
+      return NextResponse.json({ ok: true, ...impact });
+    }
     const existing = await db.from("portal_workspaces").select("id").eq("id", body.id).eq("owner_user_id", user.id).maybeSingle();
     if (existing.error) throw existing.error;
     if (!existing.data) return NextResponse.json({ error: "Only the workspace owner can change it." }, { status: 403 });
-    if (action === "move-property") {
-      if (typeof body.propertyId !== "string" || !body.propertyId.trim()) return NextResponse.json({ error: "Select a property." }, { status: 400 });
-      // Both property ownership and destination ownership are server-derived.
-      const result = await db.from("manager_property_records").update({ workspace_id: body.id })
-        .eq("id", body.propertyId).eq("manager_user_id", user.id).select("id");
-      if (result.error) throw result.error;
-      if (!result.data?.length) return NextResponse.json({ error: "Property not found in your portfolio." }, { status: 404 });
-    } else if (action === "delete") {
+    if (action === "delete") {
       // Any owned workspace can go, the default one included. Its houses may
       // ride along to another workspace of the same owner; the RPC moves them,
       // deletes, and hands "default" to the oldest remaining workspace under
