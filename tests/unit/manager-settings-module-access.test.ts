@@ -127,6 +127,11 @@ vi.mock("@/lib/vendor-dispatch-settings", () => ({
 vi.mock("@/lib/reminders/settings.server", () => ({
   loadReminderSettings: vi.fn().mockResolvedValue({ rules: {}, quietHours: { enabled: false } }),
   saveReminderSettings: vi.fn().mockResolvedValue({ rules: {}, quietHours: { enabled: false } }),
+  // PLAN-0916-1040: `reminder-settings/route.ts` references this unconditionally
+  // (it is `resolveOperationsOverride`'s `mergeOverride` option on every call,
+  // property-scoped or not), so a mock that omits it throws on import access
+  // even though the mocked `resolveOperationsOverride` below never calls it.
+  mergeReminderSettingsOverride: vi.fn((workspace: unknown) => workspace),
 }));
 
 // PLAN-0916-1040: the per-property override store is exercised by the routes on
