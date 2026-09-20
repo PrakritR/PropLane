@@ -48,10 +48,17 @@ function dayAfter(isoDate: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** What an earlier end date costs, as the server states it (`describeMoveOutChange`). */
+type MoveOutTerms = {
+  earlyMoveOutFee?: number | null;
+  earlyMoveOutFeeDueLabel?: string | null;
+  finalMonth?: { billableDays: number; daysInMonth: number; label: string } | null;
+};
+
 type AvailabilityResult =
   | { status: "idle" }
   | { status: "checking" }
-  | { status: "available"; direction: "extend" | "decrease" | "same" }
+  | ({ status: "available"; direction: "extend" | "decrease" | "same" } & MoveOutTerms)
   | { status: "unavailable"; direction: "extend"; reason: string; nextAvailableDate?: string | null }
   | { status: "error"; message: string };
 
@@ -310,6 +317,7 @@ export function LeaseAmendMoveOutModal({
   amendBody,
   onSuccess,
   propertyId = "",
+  canWaiveEarlyMoveOutFee = false,
   renew,
   /** @deprecated Inline renewal replaces opening a second modal when `renew` is set. */
   onOpenRenew,
@@ -324,6 +332,8 @@ export function LeaseAmendMoveOutModal({
   amendBody?: Record<string, string>;
   onSuccess: () => void;
   propertyId?: string;
+  /** Manager side: a checkbox to waive the listing's early move-out fee on an earlier date. */
+  canWaiveEarlyMoveOutFee?: boolean;
   /** When set, term picks expand the same modal with renewal fields instead of a second popup. */
   renew?: LeaseRenewConfig;
   onOpenRenew?: (leaseTerm: string) => void;
@@ -334,6 +344,7 @@ export function LeaseAmendMoveOutModal({
   const [selectedLongTerm, setSelectedLongTerm] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [availability, setAvailability] = useState<AvailabilityResult>({ status: "idle" });
+  const [chargeEarlyMoveOutFee, setChargeEarlyMoveOutFee] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeRenewTerm, setActiveRenewTerm] = useState<string | null>(null);
   const [renewLeaseStart, setRenewLeaseStart] = useState("");
@@ -418,10 +429,8 @@ export function LeaseAmendMoveOutModal({
       queueMicrotask(() => setAvailability({ status: "idle" }));
       return;
     }
-    if (direction === "decrease") {
-      queueMicrotask(() => setAvailability({ status: "available", direction: "decrease" }));
-      return;
-    }
+    // An earlier date is always available; the server is still asked so it can state the
+    // early move-out fee and the final month's day count before the resident confirms.
     queueMicrotask(() => setAvailability({ status: "checking" }));
     checkTimerRef.current = setTimeout(() => {
       void (async () => {
@@ -437,9 +446,23 @@ export function LeaseAmendMoveOutModal({
             reason?: string;
             nextAvailableDate?: string | null;
             error?: string;
-          };
+          } & MoveOutTerms;
           if (!res.ok || json.error) {
+            if (direction === "decrease") {
+              setAvailability({ status: "available", direction: "decrease" });
+              return;
+            }
             setAvailability({ status: "error", message: json.error ?? "Could not check availability." });
+            return;
+          }
+          if (direction === "decrease") {
+            setAvailability({
+              status: "available",
+              direction: "decrease",
+              earlyMoveOutFee: json.earlyMoveOutFee ?? null,
+              earlyMoveOutFeeDueLabel: json.earlyMoveOutFeeDueLabel ?? null,
+              finalMonth: json.finalMonth ?? null,
+            });
             return;
           }
           if (json.available) {
@@ -453,7 +476,8 @@ export function LeaseAmendMoveOutModal({
             });
           }
         } catch {
-          setAvailability({ status: "error", message: "Network error. Please try again." });
+          if (direction === "decrease") setAvailability({ status: "available", direction: "decrease" });
+          else setAvailability({ status: "error", message: "Network error. Please try again." });
         }
       })();
     }, 600);
@@ -505,9 +529,13 @@ export function LeaseAmendMoveOutModal({
       const res = await fetch(amendUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newLeaseEnd: selectedDate, ...amendBody }),
+        body: JSON.stringify({
+          newLeaseEnd: selectedDate,
+          ...amendBody,
+          ...(canWaiveEarlyMoveOutFee && direction === "decrease" ? { waiveEarlyMoveOutFee: !chargeEarlyMoveOutFee } : {}),
+        }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string; direction?: string };
+      const json = (await res.json()) as { ok?: boolean; error?: string; direction?: string; earlyMoveOutFee?: number | null };
       if (!res.ok || !json.ok) {
         showToast(json.error ?? "Failed to update move-out date.");
       } else {
@@ -515,7 +543,9 @@ export function LeaseAmendMoveOutModal({
         onSuccess();
         const msg =
           json.direction === "decrease"
-            ? "Move-out date updated. The lease needs to be re-signed."
+            ? json.earlyMoveOutFee
+              ? `Move-out date updated and the $${json.earlyMoveOutFee.toFixed(2)} early move-out fee added. The lease needs to be re-signed.`
+              : "Move-out date updated. The lease needs to be re-signed."
             : "Lease extended. The lease needs to be re-signed.";
         showToast(msg);
       }
@@ -756,11 +786,45 @@ export function LeaseAmendMoveOutModal({
 
           {selectedDate && selectedDate !== currentEnd ? (
             <div className="mb-5 space-y-2">
-              {direction === "decrease" ? (
-                <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
-                  Moving out earlier may result in an early termination fee. Confirm any charges with your property manager.
-                </div>
+              {direction === "decrease" && availability.status === "checking" ? (
+                <p className="text-sm text-muted">Working out what an earlier move-out costs…</p>
               ) : null}
+              {direction === "decrease" && availability.status === "available" ? (() => {
+                const fee = availability.earlyMoveOutFee ?? null;
+                const due = availability.earlyMoveOutFeeDueLabel?.replace(/^By /, "") ?? "";
+                const finalMonth = availability.finalMonth ?? null;
+                const finalMonthSentence = finalMonth
+                  ? ` Your final month becomes ${finalMonth.billableDays}/${finalMonth.daysInMonth} days of rent and monthly charges.`
+                  : "";
+                if (fee != null && fee > 0 && canWaiveEarlyMoveOutFee) {
+                  return (
+                    <div className="space-y-2">
+                      <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={chargeEarlyMoveOutFee}
+                          data-attr="lease-amend-fee-charge"
+                          onChange={(e) => setChargeEarlyMoveOutFee(e.target.checked)}
+                          className="h-4 w-4 shrink-0 rounded border-border"
+                        />
+                        Charge the early move-out fee (${fee.toFixed(2)}){due ? `, due by ${due}` : ""}
+                      </label>
+                      {finalMonthSentence ? <p className="text-sm text-muted">{finalMonthSentence.trim()}</p> : null}
+                    </div>
+                  );
+                }
+                if (fee != null && fee > 0) {
+                  return (
+                    <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending" data-attr="lease-amend-fee-notice">
+                      An <strong>early move-out fee of ${fee.toFixed(2)}</strong> will be added to your charges{due ? `, due by ${due}` : ""}.
+                      {finalMonthSentence}
+                    </div>
+                  );
+                }
+                return finalMonthSentence ? (
+                  <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">{finalMonthSentence.trim()}</div>
+                ) : null;
+              })() : null}
               {direction === "extend" && availability.status === "checking" ? (
                 <p className="text-sm text-muted">Checking room availability…</p>
               ) : null}

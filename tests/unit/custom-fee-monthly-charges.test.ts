@@ -2,11 +2,13 @@
  * @vitest-environment jsdom
  *
  * Monthly recurring custom-fee billing ([key=custom-fee-monthly]). A monthly custom fee
- * bills its FULL amount each recurring month (flat monthly service, not prorated), starting
- * the first full month after move-in — the partial move-in month is not charged. Design
- * choices proven here: exactly one row per month across repeated syncs (no double-emission),
- * removing a fee keeps already-emitted (owed) months but stops new emission, and an amount
- * change leaves already-emitted months untouched.
+ * bills its FULL amount each FULL recurring month, starting the first full month after
+ * move-in. Both PARTIAL months — move-in and move-out — are billed up front as prorated
+ * fee lines instead (`prorated_fee` / `prorated_last_month_fee`, PLAN-0920-0423), so the
+ * recurring loop never emits the partial last month. Design choices proven here: exactly
+ * one row per month across repeated syncs (no double-emission), removing a fee keeps
+ * already-emitted (owed) months but stops new emission, and an amount change leaves
+ * already-emitted months untouched.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -104,7 +106,7 @@ beforeEach(() => {
 });
 
 describe("monthly recurring custom fee", () => {
-  it("bills the full amount each recurring month, not the partial move-in month", () => {
+  it("bills the full amount each FULL recurring month; both partial months are prorated lines", () => {
     const email = "monthly-recur@example.com";
     removeResidentHouseholdPaymentData(email);
     const propertyId = "prop-monthly-recur";
@@ -114,11 +116,19 @@ describe("monthly recurring custom fee", () => {
 
     const rows = bikeRows(email);
     const months = rows.map((r) => r.rentMonth);
-    expect(months).toEqual(["2026-04", "2026-05", "2026-06"]);
+    // April and May are full months. March (move-in, 22/31 days) and June (move-out,
+    // 12/30 days) are partial and bill as prorated fee lines, not flat months.
+    expect(months).toEqual(["2026-04", "2026-05"]);
     expect(rows.every((r) => r.amountLabel === "$100.00")).toBe(true);
     expect(rows.every((r) => Boolean(r.recurringRentProfileId))).toBe(true);
-    // Move-in month is not charged the monthly fee.
     expect(months).not.toContain("2026-03");
+    const all = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email && c.customFeeId === "cf-bike");
+    const first = all.find((c) => c.kind === "prorated_fee");
+    const last = all.find((c) => c.kind === "prorated_last_month_fee");
+    expect(first?.amountLabel).toBe("$70.97");
+    expect(first?.title).toBe("Prorated bike storage (22/31 days from lease start)");
+    expect(last?.amountLabel).toBe("$40.00");
+    expect(last?.title).toBe("Prorated last month's bike storage");
   });
 
   it("does not double-emit when charge generation runs repeatedly", () => {
@@ -131,8 +141,8 @@ describe("monthly recurring custom fee", () => {
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
-    // Still exactly one row per month.
-    expect(bikeRows(email).map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
+    // Still exactly one row per month (and June stays a prorated line, never a flat month).
+    expect(bikeRows(email).map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05"]);
   });
 
   it("removing the fee keeps already-emitted (owed) months and emits no new ones", () => {
@@ -141,7 +151,7 @@ describe("monthly recurring custom fee", () => {
     const propertyId = "prop-monthly-remove";
     seed(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "100", frequency: "monthly" }]);
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
-    expect(bikeRows(email)).toHaveLength(3);
+    expect(bikeRows(email)).toHaveLength(2);
 
     // Manager removes the fee from the listing, then charge-gen runs again.
     seed(propertyId, []);
@@ -149,7 +159,7 @@ describe("monthly recurring custom fee", () => {
 
     // The already-emitted months are NOT silently deleted (the resident may owe them),
     // and no new ones appear.
-    expect(bikeRows(email)).toHaveLength(3);
+    expect(bikeRows(email)).toHaveLength(2);
   });
 
   it("an amount change does not alter already-emitted months", () => {

@@ -35,6 +35,12 @@ import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
+import {
+  leaseChargeDefaultMark,
+  resolvedLeaseChargeValue,
+  withoutLeaseChargeDefault,
+  type LeaseChargeDefaultKey,
+} from "@/lib/lease-charge-defaults";
 import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
@@ -2294,6 +2300,15 @@ function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
  * the answer every other price on the screen depends on.
  */
 function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  /**
+   * A charge still at its prefilled default shows the "Filled" mark and, when it follows
+   * the rent, the figure the CURRENT rent gives. Typing drops the mark and the typed value
+   * stands (`lease-charge-defaults.ts`).
+   */
+  const chargeMark = (key: LeaseChargeDefaultKey) => <FieldMark kind={leaseChargeDefaultMark(sub, key)} />;
+  const chargeValue = (key: LeaseChargeDefaultKey) => money(resolvedLeaseChargeValue(sub, key));
+  const writeCharge = (key: LeaseChargeDefaultKey, value: string) =>
+    patch({ [key]: value, leaseChargeDefaultKeys: withoutLeaseChargeDefault(sub, key) } as Partial<ManagerListingSubmissionV1>);
   return (
     <>
       <Field label="Lease template">
@@ -2306,27 +2321,27 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Charges the lease names</p>
       <FieldRow cols={2}>
-        <Field label="Break-lease fee">
-          <Input value={money(sub.longTermBreakLeaseFee)} onChange={(e) => patch({ longTermBreakLeaseFee: e.target.value })} />
+        <Field label="Early move-out fee" labelAside={chargeMark("longTermBreakLeaseFee")}>
+          <Input value={chargeValue("longTermBreakLeaseFee")} onChange={(e) => writeCharge("longTermBreakLeaseFee", e.target.value)} data-attr="listing-v2-lease-early-move-out-fee" />
         </Field>
-        <Field label="Holdover / day">
-          <Input value={money(sub.longTermHoldoverDailyRate)} onChange={(e) => patch({ longTermHoldoverDailyRate: e.target.value })} />
-        </Field>
-      </FieldRow>
-      <FieldRow cols={2}>
-        <Field label="Returned payment fee">
-          <Input value={money(sub.longTermReturnedPaymentFee)} onChange={(e) => patch({ longTermReturnedPaymentFee: e.target.value })} />
-        </Field>
-        <Field label="Trash violation fee">
-          <Input value={money(sub.longTermTrashViolationFee)} onChange={(e) => patch({ longTermTrashViolationFee: e.target.value })} />
+        <Field label="Holdover / day" labelAside={chargeMark("longTermHoldoverDailyRate")}>
+          <Input value={chargeValue("longTermHoldoverDailyRate")} onChange={(e) => writeCharge("longTermHoldoverDailyRate", e.target.value)} />
         </Field>
       </FieldRow>
       <FieldRow cols={2}>
-        <Field label="Deposit labor rate / hour">
-          <Input value={money(sub.longTermDepositLaborRate)} onChange={(e) => patch({ longTermDepositLaborRate: e.target.value })} />
+        <Field label="Returned payment fee" labelAside={chargeMark("longTermReturnedPaymentFee")}>
+          <Input value={chargeValue("longTermReturnedPaymentFee")} onChange={(e) => writeCharge("longTermReturnedPaymentFee", e.target.value)} />
         </Field>
-        <Field label="Deposit reissue fee">
-          <Input value={money(sub.longTermDepositReissueFee)} onChange={(e) => patch({ longTermDepositReissueFee: e.target.value })} />
+        <Field label="Trash violation fee" labelAside={chargeMark("longTermTrashViolationFee")}>
+          <Input value={chargeValue("longTermTrashViolationFee")} onChange={(e) => writeCharge("longTermTrashViolationFee", e.target.value)} />
+        </Field>
+      </FieldRow>
+      <FieldRow cols={2}>
+        <Field label="Deposit labor rate / hour" labelAside={chargeMark("longTermDepositLaborRate")}>
+          <Input value={chargeValue("longTermDepositLaborRate")} onChange={(e) => writeCharge("longTermDepositLaborRate", e.target.value)} />
+        </Field>
+        <Field label="Deposit reissue fee" labelAside={chargeMark("longTermDepositReissueFee")}>
+          <Input value={chargeValue("longTermDepositReissueFee")} onChange={(e) => writeCharge("longTermDepositReissueFee", e.target.value)} />
         </Field>
       </FieldRow>
       <FieldRow cols={2}>

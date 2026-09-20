@@ -135,3 +135,17 @@ Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
 `tests/unit/listing-wizard-v2-basics-bathrooms.test.tsx`,
 `tests/unit/listing-house-defaults.test.ts`,
 `tests/unit/listing-record-defaults.test.ts`.
+
+## Partial months (PLAN-0920-0423)
+
+"Partial months" is a Default-card field like rent: an **Automatic** checkbox
+(`prorateMethod` blank/`auto`) that, unticked (`daily_rate`), reveals one /day row
+per line that prorates — Rent /day, Utilities /day only while utilities are above
+$0, and one row per monthly fee above $0 on that card (`ListingFeeRow.dailyRate`).
+A room follows the card until touched and Resets by copying. A Default-card fee is
+listed on every room card as an inherited row: ✕ takes it off that room only
+(`roomIds` = every other room), typing splits a room-only copy (labelled
+"<Fee> – <Room>" when the label is a preset's, because the normalizer recovers a
+preset from its exact label), and Reset folds it back. Specs:
+`listing-pricing-screen-behaviour.test.tsx` ("partial months"),
+`listing-wizard-v2-cards.test.tsx` ("a house-wide fee on a room card").

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { amendLeaseMoveOutDate, checkMoveOutAvailabilityForLease, hasBothLeaseSignatures, renewLease } from "@/lib/lease-amendment.server";
+import {
+  amendLeaseMoveOutDate,
+  checkMoveOutAvailabilityForLease,
+  describeMoveOutChange,
+  hasBothLeaseSignatures,
+  renewLease,
+} from "@/lib/lease-amendment.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
@@ -33,6 +39,7 @@ export async function POST(req: NextRequest) {
       leaseEnd?: string;
       monthlyRent?: number | string | null;
       rentalType?: string;
+      waiveEarlyMoveOutFee?: boolean;
     };
     const leaseId = (body.leaseId ?? "").trim();
     if (!leaseId) return NextResponse.json({ error: "leaseId is required." }, { status: 400 });
@@ -77,9 +84,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, direction: "renew" });
     }
 
-    const result = await amendLeaseMoveOutDate(db, leaseRecord, newLeaseEnd);
+    const result = await amendLeaseMoveOutDate(db, leaseRecord, newLeaseEnd, {
+      waiveEarlyMoveOutFee: body.waiveEarlyMoveOutFee === true,
+    });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-    return NextResponse.json({ ok: true, newLeaseEnd: result.newLeaseEnd, direction: result.direction });
+    return NextResponse.json({
+      ok: true,
+      newLeaseEnd: result.newLeaseEnd,
+      direction: result.direction,
+      earlyMoveOutFee: result.earlyMoveOutFee,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unexpected error.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -125,7 +139,8 @@ export async function PUT(req: NextRequest) {
     // holds the room and until when. A resident asking the same question may not.
     const availability = await checkMoveOutAvailabilityForLease(db, leaseRow, leaseRecord, newLeaseEnd, undefined, "manager");
     if (availability.ok) {
-      return NextResponse.json({ available: true, direction: availability.direction });
+      const terms = availability.direction === "decrease" ? await describeMoveOutChange(db, leaseRow, leaseRecord, newLeaseEnd) : null;
+      return NextResponse.json({ available: true, direction: availability.direction, ...(terms ?? {}) });
     }
     return NextResponse.json({
       available: false,

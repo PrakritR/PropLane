@@ -53,6 +53,10 @@ export type CompactRoomLeaseInput = {
   lastMonthDueDateLabel?: string;
   billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string; amountDue?: number; received?: number }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
+  /** Monthly fees prorated into the partial first month, as the ledger bills them. */
+  proratedFeeLines?: ReadonlyArray<{ label: string; amount: number }>;
+  /** Monthly fees prorated into the partial final month. */
+  proratedLastMonthFeeLines?: ReadonlyArray<{ label: string; amount: number }>;
   /**
    * Why the rent is higher than the base rate — a short-lease surcharge or, on a Seattle
    * listing, every monthly fee folded into rent. Rendered under the rent line; those parts
@@ -204,6 +208,14 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
       pushSigning(`<strong>${fmtUsd(input.firstPeriodUtilitiesDue ?? proratedUtilitiesAmount)}</strong> prorated utilities`);
     }
   }
+  for (const fee of input.proratedFeeLines ?? []) {
+    if (!(fee.amount > 0)) continue;
+    const label = escapeHtml(fee.label.trim() || "fee");
+    pushSchedule(`Prorated ${label}: <strong>${fmtUsd(fee.amount)}</strong>`);
+    if (!useIncludesFilter || includes.has("first_month_rent")) {
+      pushSigning(`<strong>${fmtUsd(fee.amount)}</strong> prorated ${label}`);
+    }
+  }
   // When the lease starts on the first, the selected first-month amounts are
   // full monthly charges, not prorations. They still need signing line items.
   if (firstPartialMonthPayment <= 0 && proratedRentAmount <= 0 && proratedUtilitiesAmount <= 0) {
@@ -257,6 +269,12 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
   if ((input.proratedLastMonthUtilities ?? 0) > 0) {
     pushSchedule(
       `Last month&apos;s prorated utilities${lastMonthFor}: <strong>${fmtUsd(input.proratedLastMonthUtilities ?? 0)}</strong>${lastMonthDue}`,
+    );
+  }
+  for (const fee of input.proratedLastMonthFeeLines ?? []) {
+    if (!(fee.amount > 0)) continue;
+    pushSchedule(
+      `Last month&apos;s prorated ${escapeHtml(fee.label.trim() || "fee")}${lastMonthFor}: <strong>${fmtUsd(fee.amount)}</strong>${lastMonthDue}`,
     );
   }
 
@@ -340,7 +358,7 @@ function earlyTerminationBlock(input: CompactRoomLeaseInput): string {
   const statute = earlyTerminationStatuteRef ? `, in accordance with ${earlyTerminationStatuteRef}` : "";
   return `<p>If Resident vacates prior to lease expiration or without proper notice, Resident shall be liable for:</p>
 <ul>
-  ${longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0 ? `<li>A break lease fee of <strong>${fmtUsd(longTermBreakLeaseFee)}</strong></li>` : ""}
+  ${longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0 ? `<li>An early move-out fee of <strong>${fmtUsd(longTermBreakLeaseFee)}</strong></li>` : ""}
   ${longTermLeaseUpFeePercent != null ? `<li>A prorated lease-up fee of up to <strong>${longTermLeaseUpFeePercent}% of one month&apos;s rent</strong></li>` : ""}
   <li>Ongoing rent, utilities, and recurring charges until a replacement resident takes possession or the lease term ends (whichever occurs first)${statute}</li>
   <li>Any difference between the replacement rent and the rent under this Agreement</li>
@@ -505,6 +523,9 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     proratedUtilities > 0
       ? summaryLine(`Prorated Utilities${firstMonthFor}`, fmtUsd(proratedUtilities))
       : "",
+    ...(input.proratedFeeLines ?? [])
+      .filter((fee) => fee.amount > 0)
+      .map((fee) => summaryLine(`Prorated ${escapeHtml(fee.label.trim() || "Fee")}${firstMonthFor}`, fmtUsd(fee.amount))),
     showProratedFirstMonth && proratedRent <= 0 && proratedUtilities <= 0
       ? summaryLine(termProration ? "Prorated term" : "Prorated first month", fmtUsd(firstPartialMonthPayment))
       : !showProratedFirstMonth && input.listingFeePreview
@@ -516,11 +537,16 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   ]
     .filter(Boolean)
     .join("\n  ");
+  const lastMonthFees = (input.proratedLastMonthFeeLines ?? []).filter((fee) => fee.amount > 0);
+  const lastMonthFeesTotal = lastMonthFees.reduce((sum, fee) => sum + fee.amount, 0);
   const lastMonthPaymentLines = [
     lastMonthRent > 0 ? summaryLine(`Last Month&apos;s Rent${lastMonthFor}`, fmtUsd(lastMonthRent)) : "",
     lastMonthUtilities > 0
       ? summaryLine(`Last Month&apos;s Utilities${lastMonthFor}`, fmtUsd(lastMonthUtilities))
       : "",
+    ...lastMonthFees.map((fee) =>
+      summaryLine(`Last Month&apos;s ${escapeHtml(fee.label.trim() || "Fee")}${lastMonthFor}`, fmtUsd(fee.amount)),
+    ),
     input.listingFeePreview && lastMonthRent <= 0
       ? summaryLine(
           "Last Month&apos;s Rent",
@@ -561,7 +587,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   ${paySigningIncludesNote ? `<p style="margin:0.35rem 0 0;font-size:0.92em">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
   ${
     lastMonthRent > 0 || lastMonthUtilities > 0
-      ? `<p style="margin:0.35rem 0 0;font-size:0.92em">The final month is partial${input.lastMonthDaysLabel?.trim() ? ` (${escapeHtml(input.lastMonthDaysLabel.trim())})` : ""}, so last month&apos;s rent and utilities total ${fmtUsd(input.proratedLastMonthTotal ?? lastMonthRent + lastMonthUtilities)}${input.lastMonthDueDateLabel?.trim() ? `, due ${escapeHtml(input.lastMonthDueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
+      ? `<p style="margin:0.35rem 0 0;font-size:0.92em">The final month is partial${input.lastMonthDaysLabel?.trim() ? ` (${escapeHtml(input.lastMonthDaysLabel.trim())})` : ""}, so last month&apos;s rent${lastMonthFees.length ? ", utilities and recurring charges" : " and utilities"} total ${fmtUsd(Number(((input.proratedLastMonthTotal ?? lastMonthRent + lastMonthUtilities) + lastMonthFeesTotal).toFixed(2)))}${input.lastMonthDueDateLabel?.trim() ? `, due ${escapeHtml(input.lastMonthDueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
       : ""
   }
 </div>`;

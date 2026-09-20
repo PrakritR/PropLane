@@ -535,29 +535,23 @@ export function ManagerPaymentsLedgerPanel({
 
     const email = row.residentEmail?.trim();
     let successMessage = "Payment updated.";
-    if (email) {
-      if (isStayTotalRow(row) && title) {
-        const parsed = parseShortTermStayChargeTitle(title);
-        if (parsed) {
-          const leases = syncResidentAfterStayPaymentEdit({
-            residentEmail: email,
-            managerUserId,
-            nights: parsed.nights,
-            nightlyRate: parsed.nightlyRate,
-          });
-          if (leases > 0) successMessage = "Payment and lease updated.";
-        } else {
-          void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
-        }
-      } else {
-        void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
-      }
+    const stayEdit = email && isStayTotalRow(row) && title ? parseShortTermStayChargeTitle(title) : null;
+    if (email && stayEdit) {
+      const leases = syncResidentAfterStayPaymentEdit({
+        residentEmail: email,
+        managerUserId,
+        nights: stayEdit.nights,
+        nightlyRate: stayEdit.nightlyRate,
+      });
+      if (leases > 0) successMessage = "Payment and lease updated.";
     }
     onRowsChanged?.();
     onScheduleChanged?.();
 
     // Wait for the SERVER, not the browser. Reporting success off the local write
     // is what let a refused save read as "Payment updated." and then revert.
+    // The write is bounded (see household-charges HOUSEHOLD_WRITE_TIMEOUT_MS), so a
+    // stalled request on the phone resolves "failed" instead of spinning forever.
     const outcome = await handle.confirmed;
     if (outcome === "failed") {
       // The amount has been rolled back to what the server still holds; keep the
@@ -570,6 +564,11 @@ export function ManagerPaymentsLedgerPanel({
     }
     showToast(successMessage);
     cancelEdit();
+    // Only AFTER the server confirmed: refresh draft leases so an unsigned document
+    // prints the edited figure. It used to fire before the save and race it — a full
+    // rebuild of the resident's charges pushed to the same route while the one-row
+    // confirm waited behind it. The rebuild keeps the typed amount (manualAmountOverrideAt).
+    if (email && !stayEdit) void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
   };
 
   const renderAmountOwedCell = (row: DemoManagerPaymentLedgerRow) => {

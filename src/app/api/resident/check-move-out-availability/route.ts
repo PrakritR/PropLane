@@ -3,7 +3,7 @@ import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { checkMoveOutAvailabilityForLease } from "@/lib/lease-amendment.server";
+import { checkMoveOutAvailabilityForLease, describeMoveOutChange } from "@/lib/lease-amendment.server";
 
 export const runtime = "nodejs";
 
@@ -74,7 +74,10 @@ export async function POST(req: NextRequest) {
     );
 
     if (availability.ok) {
-      return NextResponse.json({ available: true, direction: availability.direction });
+      // An earlier date names the fee the lease will charge, so the resident sees the
+      // exact amount before confirming rather than a "may result in a fee" warning.
+      const terms = availability.direction === "decrease" ? await describeMoveOutChange(db, leaseRow, leaseRecord, newLeaseEnd) : null;
+      return NextResponse.json({ available: true, direction: availability.direction, ...(terms ?? {}) });
     }
     return NextResponse.json({
       available: false,

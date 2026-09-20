@@ -85,7 +85,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true, newLeaseEnd: result.newLeaseEnd, direction: result.direction });
+    return NextResponse.json({
+      ok: true,
+      newLeaseEnd: result.newLeaseEnd,
+      direction: result.direction,
+      earlyMoveOutFee: result.earlyMoveOutFee,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unexpected error.";
     return NextResponse.json({ error: message }, { status: 500 });
