@@ -46,6 +46,7 @@ export type ManagerPortalSettingsTab =
   | "tasks"
   | "resident"
   | "payments"
+  | "payouts"
   | "services"
   | "communication"
   | "bookings"

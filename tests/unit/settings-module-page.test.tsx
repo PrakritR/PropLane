@@ -134,6 +134,7 @@ describe("SettingsModulePage — every registered tab resolves without throwing"
         "inspections",
         "lease",
         "payments",
+        "payouts",
         "resident",
         "services",
         "tasks",
