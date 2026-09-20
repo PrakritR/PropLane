@@ -17,9 +17,24 @@ import {
   assistantEmailUpsellMessage,
 } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import type { MailboxLocalCheckResult } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { WORK_CONTACT_ANNOUNCE_EVENT } from "@/lib/work-contact-announce";
 
 const ENDPOINT = "/api/manager/assistant-email";
+const ADDRESS_CHECK_DEBOUNCE_MS = 400;
+
+/** The Availability row's value, in the same vocabulary `checkWorkspaceAssistantMailboxLocal` uses. */
+function addressAvailabilityLabel(
+  check: MailboxLocalCheckResult | null,
+  checking: boolean,
+): string {
+  if (checking) return "Checking…";
+  if (!check) return "Current address";
+  if (check.ok) return check.state === "current" ? "Current address" : "Available";
+  if (check.state === "reserved") return "Reserved";
+  if (check.state === "taken") return "Taken";
+  return check.message;
+}
 
 /** The Status row — the email's answer to the work number's "Status". */
 export function workEmailStatusLabel(status: ManagerAssistantEmailStatus): string {
@@ -61,6 +76,15 @@ export function ManagerAssistantEmailSettingsPanel() {
   const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The custom-local-part editor (owner branch only). `addressLocal`/`addressDomain`
+  // are the current SAVED address, split for the input + fixed suffix.
+  const addressLocal = status?.address ? status.address.split("@")[0] ?? "" : "";
+  const addressDomain = status?.address ? status.address.split("@")[1] ?? "" : "";
+  const [localInput, setLocalInput] = useState("");
+  const [addressCheck, setAddressCheck] = useState<MailboxLocalCheckResult | null>(null);
+  const [checkingAddress, setCheckingAddress] = useState(false);
+  const [savingAddress, setSavingAddress] = useState(false);
+
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
@@ -93,6 +117,85 @@ export function ManagerAssistantEmailSettingsPanel() {
     const ok = await copyTextToClipboard(address);
     showToast(ok ? "Work email copied." : "Could not copy address.");
   }, [showToast, status?.address]);
+
+  // The saved local part is the source of truth; resync the editable input
+  // whenever it changes (initial load, workspace switch, a completed save).
+  useEffect(() => {
+    setLocalInput(addressLocal);
+    setAddressCheck(null);
+  }, [addressLocal]);
+
+  // Debounced availability check as the manager types a new local part.
+  useEffect(() => {
+    if (!status?.address) return;
+    const trimmed = localInput.trim().toLowerCase();
+    if (!trimmed || trimmed === addressLocal) {
+      setAddressCheck(null);
+      setCheckingAddress(false);
+      return;
+    }
+    setCheckingAddress(true);
+    const controller = new AbortController();
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "check_address", local: trimmed }),
+          signal: controller.signal,
+        });
+        const body = (await res.json().catch(() => null)) as MailboxLocalCheckResult | null;
+        if (body) setAddressCheck(body);
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        setAddressCheck({ ok: false, state: "invalid", message: "Could not check that address." });
+      } finally {
+        if (!controller.signal.aborted) setCheckingAddress(false);
+      }
+    }, ADDRESS_CHECK_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [localInput, addressLocal, status?.address]);
+
+  const canSaveAddress =
+    !savingAddress &&
+    addressCheck !== null &&
+    addressCheck.ok &&
+    addressCheck.state === "available";
+
+  const saveAddress = useCallback(async () => {
+    const trimmed = localInput.trim().toLowerCase();
+    setSavingAddress(true);
+    setError(null);
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_address", local: trimmed }),
+      });
+      const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(body.error ?? "Could not change your work email.");
+      }
+      setStatus(body);
+      setAddressCheck(null);
+      if (body.address) {
+        showToast(
+          `Work email changed to ${body.address}. Mail to the old address no longer reaches you.`,
+        );
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not change your work email.");
+    } finally {
+      setSavingAddress(false);
+    }
+  }, [localInput, showToast]);
 
   /**
    * Settle an unverified plan by itself, instead of behind a button. Reading
@@ -291,23 +394,61 @@ export function ManagerAssistantEmailSettingsPanel() {
       title="Work email"
     >
       <PortalSettingsGroup>
-        <PortalSettingsField
-          label="Work email"
-          value={status.address ?? "Not assigned"}
-          action={
-            status.address ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="min-h-10 px-3 text-xs"
-                onClick={() => copyAddress()}
-                data-attr="assistant-email-copy"
-              >
-                Copy
-              </Button>
-            ) : undefined
-          }
-        />
+        {status.address ? (
+          <>
+            <PortalSettingsField
+              label="Work email"
+              value={
+                <span className="flex min-w-0 flex-wrap items-center gap-1">
+                  <input
+                    aria-label="Work email address"
+                    data-attr="assistant-email-local"
+                    value={localInput}
+                    onChange={(event) => setLocalInput(event.target.value.toLowerCase())}
+                    disabled={savingAddress}
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    maxLength={32}
+                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13.5px] font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60"
+                  />
+                  <span className="shrink-0 text-[13.5px] font-semibold text-muted">
+                    @{addressDomain}
+                  </span>
+                </span>
+              }
+              action={
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-10 px-3 text-xs"
+                    onClick={() => copyAddress()}
+                    data-attr="assistant-email-copy"
+                  >
+                    Copy
+                  </Button>
+                  <Button
+                    type="button"
+                    className="min-h-10 px-3 text-xs"
+                    disabled={!canSaveAddress}
+                    loading={savingAddress}
+                    onClick={() => saveAddress()}
+                    data-attr="assistant-email-save"
+                  >
+                    Save
+                  </Button>
+                </div>
+              }
+            />
+            <PortalSettingsField
+              label="Availability"
+              value={addressAvailabilityLabel(addressCheck, checkingAddress)}
+            />
+          </>
+        ) : (
+          <PortalSettingsField label="Work email" value="Not assigned" />
+        )}
         <PortalSettingsField label="Status" value={workEmailStatusLabel(status)} />
         <PortalSettingsField label="Who can write in" value={workEmailAudienceLabel(status)} />
         <div className="space-y-4 px-4 py-4">
@@ -378,7 +519,7 @@ export function ManagerAssistantEmailSettingsPanel() {
               <p>
                 Request one address for your workspace. You and your team can email it to ask about
                 your portfolio, your residents can email it about their home, and prospects can
-                email it about your listings. It cannot be edited after assignment.
+                email it about your listings. You can change its name here after it is assigned.
               </p>
             </div>
           )}

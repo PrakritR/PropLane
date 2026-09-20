@@ -10,12 +10,17 @@ export type ProvisionPortalResult =
   | { ok: true; redirectTo: string; direct?: boolean }
   | { ok: false; error: string };
 
-async function setActivePortal(role: AuthPortalPickerId): Promise<void> {
-  await fetch("/api/auth/set-active-portal", {
+async function setActivePortal(role: AuthPortalPickerId): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch("/api/auth/set-active-portal", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role }),
   });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: body.error || "Could not open the property portal." };
+  }
+  return { ok: true };
 }
 
 function managerProvisionError(body: { error?: string; reason?: string; skipped?: boolean }): string {
@@ -46,7 +51,10 @@ export async function provisionPortalFromGetStarted(role: AuthPortalPickerId): P
     if (!res.ok || body.skipped) {
       return { ok: false, error: managerProvisionError(body) };
     }
-    await setActivePortal("manager");
+    const setResult = await setActivePortal("manager");
+    if (!setResult.ok) {
+      return { ok: false, error: setResult.error };
+    }
     // A just-provisioned manager chooses their plan (Free / Pro / Business)
     // before entering the portal — a `direct` destination, so the caller doesn't
     // let the post-auth resolver skip the step. Native shells go straight to the

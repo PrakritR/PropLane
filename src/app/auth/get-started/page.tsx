@@ -123,9 +123,11 @@ function GetStartedContent() {
   const choose = async (id: string) => {
     const role = id as AuthPortalPickerId;
     if (!pickerOptions.some((opt) => opt.id === role)) return;
+    setLoadError(null);
     setBusy(id);
     const result = await provisionPortalFromGetStarted(role);
     if (!result.ok) {
+      setLoadError(result.error);
       showToast(result.error);
       setBusy(null);
       return;

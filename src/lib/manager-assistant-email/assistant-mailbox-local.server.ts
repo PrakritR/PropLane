@@ -1,12 +1,17 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  isReservedMailboxLocal,
+  MAILBOX_LOCAL_PATTERN,
+} from "@/lib/manager-assistant-email/assistant-email-address";
 
 const MAILBOX_LOCAL_PREFIX = "assist-";
-const MAILBOX_LOCAL_PATTERN = /^assist-[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/;
 
+/** The default-allocation shape only: `assist-<slug>`, unchanged behaviour. */
 export function isAssistantMailboxLocal(local: string): boolean {
-  return MAILBOX_LOCAL_PATTERN.test(local.trim().toLowerCase());
+  const trimmed = local.trim().toLowerCase();
+  return trimmed.startsWith(MAILBOX_LOCAL_PREFIX) && MAILBOX_LOCAL_PATTERN.test(trimmed);
 }
 
 function slugifyName(value: string): string {
@@ -43,7 +48,7 @@ export async function allocateAssistantMailboxLocal(
   }
 
   for (const candidate of candidates) {
-    if (!isAssistantMailboxLocal(candidate)) continue;
+    if (!isAssistantMailboxLocal(candidate) || isReservedMailboxLocal(candidate)) continue;
     const { data, error } = await db
       .from("manager_assistant_emails")
       .select("manager_user_id")
