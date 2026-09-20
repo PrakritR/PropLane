@@ -278,8 +278,6 @@ export function ServiceRequestCard({
     showToast("Request deleted.");
   }
 
-  const feePaid = isServiceRequestFeePaid(req);
-
   return (
     <>
       {req.offerDescription ? (
@@ -297,9 +295,6 @@ export function ServiceRequestCard({
         <>
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">Price limit</p>
           <p className="mt-1 text-sm font-medium text-foreground">{req.priceLimit.trim()}</p>
-          {req.status === "pending" ? (
-            <p className="mt-1 text-xs text-muted">Your manager will confirm the final price before approving.</p>
-          ) : null}
         </>
       ) : null}
       {hasDeposit(req.deposit) ? (
@@ -313,12 +308,6 @@ export function ServiceRequestCard({
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">Notes</p>
           <p className="mt-1.5 text-sm whitespace-pre-wrap leading-relaxed">{req.notes}</p>
         </>
-      ) : null}
-
-      {req.status === "approved" && req.price?.trim() && !feePaid ? (
-        <p className="mt-3 text-xs text-muted">
-          Pay the service fee under <span className="font-medium text-foreground">Payments</span> when your manager approves the final amount.
-        </p>
       ) : null}
 
       {req.status === "returned" && req.returnPhotoDataUrl ? (
@@ -342,12 +331,10 @@ export function ServiceRequestCard({
         </>
       ) : null}
 
-      {req.status === "denied" ? (
+      {req.status === "denied" && req.managerNote ? (
         <>
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">Manager note</p>
-          <p className="mt-1.5 text-sm text-muted">
-            {req.managerNote ?? "This request was not approved. Contact your property manager for details."}
-          </p>
+          <p className="mt-1.5 text-sm text-muted">{req.managerNote}</p>
         </>
       ) : null}
 
@@ -1215,8 +1202,7 @@ export function ResidentServicesPanel({
       >
       {!servicesUnlocked ? (
         <p className={lockedEmpty ? PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS : PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
-          <span className="font-semibold">Services unlock after your lease is fully signed.</span>{" "}
-          Request add-ons and report issues once you and your manager have both signed.
+          <span className="font-semibold">Services unlock after your lease is fully signed.</span>
         </p>
       ) : null}
 

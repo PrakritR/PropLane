@@ -8,7 +8,6 @@ import { houseInfoIsEmpty } from "@/lib/house-info";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PORTAL_INLINE_UNLOCK_NOTICE_CLASS } from "@/components/portal/portal-metrics";
 import type { ResidentMoveInResolved, ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
@@ -295,22 +294,11 @@ export function ResidentMoveInShell({
   return (
     <div className="text-sm leading-relaxed text-muted">
       {locked ? (
-        <>
-          <p className={PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
-            <span className="font-semibold">Available once your lease is signed.</span> My home unlocks after
-            both you and your property manager have signed the lease.
-          </p>
-          <PortalDataTableEmpty message="Unlocks after both signatures are complete." icon="lease" />
-        </>
+        <PortalDataTableEmpty message="Unlocks after both signatures are complete." icon="lease" />
       ) : !email ? (
-        <p className={`${PORTAL_INLINE_UNLOCK_NOTICE_CLASS} portal-banner-pending`}>
-          Sign in to see house details for your placement.
-        </p>
+        <PortalDataTableEmpty icon="default" message="Sign in to see your house details." />
       ) : !resolved ? (
-        <PortalDataTableEmpty
-          icon="residents"
-          message="We could not find an approved placement tied to this account yet. Once your property manager assigns your listing room, your house details will appear here automatically."
-        />
+        <PortalDataTableEmpty icon="residents" message="No placement assigned yet." />
       ) : (
         <>
           <PortalListControlStack
