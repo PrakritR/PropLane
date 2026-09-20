@@ -8,7 +8,7 @@
  * `vendor-messaging.ts` and `vendor-check-ins.ts`; this file only draws them.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
@@ -50,7 +50,7 @@ import {
   type VendorMessaging,
 } from "@/lib/vendor-messaging";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
-import { vendorDetailHref } from "@/lib/portal-detail-routes";
+import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
 import { ArrowRight, BriefcaseBusiness, CircleDollarSign, Contact, Star } from "lucide-react";
 
@@ -224,11 +224,25 @@ function jobMoney(cents: number | null | undefined): string {
   return cents == null ? "—" : `$${(cents / 100).toFixed(2)}`;
 }
 
+/** Summary status is the only client-safe routing signal for a manager-visible job. */
+export function managerVendorSummaryJobHref(
+  basePath: string,
+  job: Pick<ManagerVendorSummary["jobs"][number], "id" | "status">,
+): string {
+  const bucket: WorkOrderBucketId = job.status === "completed" || job.status === "paid"
+    ? "completed"
+    : job.status === "scheduled"
+      ? "scheduled"
+      : "open";
+  return workOrderDetailHref(basePath, bucket, job.id);
+}
+
 export function ManagerVendorDetail({
   row,
   managerUserId,
   basePath = "/portal",
   onNavigate,
+  detailHref,
   tab: tabProp,
   extraNeedsYou = [],
   onEdit: _onEdit,
@@ -238,6 +252,8 @@ export function ManagerVendorDetail({
   managerUserId: string | null;
   basePath?: string;
   onNavigate: (href: string) => void;
+  /** Catalog profiles retain their catalog URL while showing the matched roster record. */
+  detailHref?: (tab: VendorDetailTab) => string;
   tab?: VendorDetailTab;
   extraNeedsYou?: readonly { id: string; title: string; detail: string }[];
   onEdit?: () => void;
@@ -324,19 +340,34 @@ export function ManagerVendorDetail({
   // History amounts are server-projected from stable directory identity, invoices, bids and payouts.
   const [summary, setSummary] = useState<ManagerVendorSummary | null>(null);
   const [summaryState, setSummaryState] = useState<"loading" | "ready" | "error">("loading");
-  useEffect(() => {
-    let cancelled = false;
+  const summaryRequest = useRef(0);
+  const refreshSummary = useCallback((force = false) => {
+    const request = ++summaryRequest.current;
     setSummaryState("loading");
-    void loadManagerVendorSummary(managerUserId, row.id)
-      .then((next) => { if (!cancelled) { setSummary(next); setSummaryState("ready"); } })
-      .catch(() => { if (!cancelled) { setSummary(null); setSummaryState("error"); } });
-    return () => { cancelled = true; };
+    return loadManagerVendorSummary(managerUserId, row.id, force)
+      .then((next) => {
+        if (summaryRequest.current !== request) return;
+        setSummary(next);
+        setSummaryState("ready");
+      })
+      .catch(() => {
+        if (summaryRequest.current !== request) return;
+        setSummary(null);
+        setSummaryState("error");
+      });
   }, [managerUserId, row.id]);
   useEffect(() => {
-    const invalidate = () => invalidateManagerVendorSummary(managerUserId, row.id);
-    window.addEventListener(MANAGER_WORK_ORDERS_EVENT, invalidate);
-    return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, invalidate);
-  }, [managerUserId, row.id]);
+    void refreshSummary();
+    return () => { summaryRequest.current += 1; };
+  }, [refreshSummary]);
+  useEffect(() => {
+    const reload = () => {
+      invalidateManagerVendorSummary(managerUserId, row.id);
+      void refreshSummary(true);
+    };
+    window.addEventListener(MANAGER_WORK_ORDERS_EVENT, reload);
+    return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, reload);
+  }, [managerUserId, refreshSummary, row.id]);
   const jobs = summary?.jobs ?? [];
   const openJobs = jobs.filter((job) => job.status !== "completed" && job.status !== "paid");
   const ratings = jobs.filter((job) => job.residentRating != null).map((job) => ({ id: job.id, rating: job.residentRating!, title: job.title }));
@@ -389,7 +420,7 @@ export function ManagerVendorDetail({
     <PortalIconAction
       icon={ArrowRight}
       label={`View ${title.toLowerCase()}`}
-      onClick={() => onNavigate(vendorDetailHref(basePath, row.id, destination))}
+      onClick={() => onNavigate(detailHref?.(destination) ?? vendorDetailHref(basePath, row.id, destination))}
     />
   );
 
@@ -418,6 +449,7 @@ export function ManagerVendorDetail({
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Jobs</h2>{overviewLink("Jobs", "jobs")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}</section>
           </div>
+          {summaryState === "error" ? <p role="alert" className="text-sm text-destructive">Could not load vendor history.</p> : null}
           {extraNeedsYou.length ? (
             <div className="space-y-2" data-attr="vendor-needs-you">
               {extraNeedsYou.map((item) => (
@@ -434,6 +466,7 @@ export function ManagerVendorDetail({
         <div className="grid gap-3 px-3 pb-4 sm:grid-cols-2 sm:px-4" data-attr="vendor-detail-pricing">
           <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-published"><h2 className="text-sm font-semibold">Published rates</h2>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
           <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-history"><h2 className="text-sm font-semibold">Your completed jobs</h2>{fact("Jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—")}{fact("Final invoiced", summary?.completedInvoiceTotalCents == null ? "—" : jobMoney(summary.completedInvoiceTotalCents))}{fact("Average final invoice", summary?.completedInvoiceAverageCents == null ? "—" : jobMoney(summary.completedInvoiceAverageCents))}</section>
+          {summaryState === "error" ? <p role="alert" className="sm:col-span-2 text-sm text-destructive">Could not load vendor history.</p> : null}
         </div>
       ) : null}
 
@@ -494,7 +527,8 @@ export function ManagerVendorDetail({
             <ul className="divide-y divide-border rounded-xl border border-border">
               {jobs.map((job) => {
                 return (
-                  <li key={job.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                  <li key={job.id}>
+                    <button type="button" className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" onClick={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} aria-label={`Open service ${job.title}`} data-attr="vendor-job-open">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-foreground">{job.title}</p>
                       <p className="truncate text-[13px]">
@@ -503,6 +537,7 @@ export function ManagerVendorDetail({
                       <p className="text-[13px]">Accepted quote {jobMoney(job.acceptedQuoteCents)} · Final invoice {jobMoney(job.finalInvoiceCents)} · Paid {jobMoney(job.paidCents)}</p>
                     </div>
                     <span className="shrink-0 text-[13px]">{job.status}</span>
+                    </button>
                   </li>
                 );
               })}

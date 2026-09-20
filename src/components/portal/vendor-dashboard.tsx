@@ -6,20 +6,15 @@ import { useRouter } from "next/navigation";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { PortalHomeLayout } from "@/components/portal/portal-home-layout";
 import {
-  AttentionPanel,
-  KpiCard,
-  UpcomingPanel,
   type UpcomingRow,
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
-import {
-  ManagerPortalPageShell,
-  portalDashboardWelcomeSubtitle,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
+import { CalendarDays, ListChecks } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   MANAGER_WORK_ORDERS_EVENT,
@@ -52,8 +47,73 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
   return unit && unit !== "—" ? `${row.propertyName} · ${unit}` : row.propertyName;
 }
 
+function VendorMetric({ label, value, href, dataAttr }: { label: string; value: string; href: string; dataAttr: string }) {
+  return (
+    <Link href={href} data-attr={dataAttr} className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+      <span className="text-[12.5px] font-medium text-muted">{label}</span>
+      <strong className="block whitespace-nowrap text-[1.65rem] font-semibold leading-none tracking-[-0.02em] text-foreground">{value}</strong>
+    </Link>
+  );
+}
+
+function VendorAttentionPanel({ rows }: { rows: ManagerAttentionRow[] }) {
+  return (
+    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr="vendor-dashboard-attention-panel">
+      <div className="border-b border-border/70 px-4 py-3">
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Needs attention</h2>
+      </div>
+      {rows.length === 0 ? <p className="px-4 py-6 text-center text-[13px] text-muted">No items need attention.</p> : (
+        <ul className="divide-y divide-border/70">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-center gap-3 px-4 py-2.5" data-attr={`vendor-dashboard-attention-${row.id}`}>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
+                {row.detail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
+              </span>
+              <Link href={row.href} className="inline-flex min-h-9 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary">
+                {row.actionLabel}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** The vendor keeps dashboard empty copy terse without changing the manager's shared panel. */
+function VendorUpcomingPanel({ rows, onOpenCalendar }: { rows: UpcomingRow[]; onOpenCalendar: () => void }) {
+  const sorted = [...rows].sort((left, right) => left.at - right.at).slice(0, 6);
+  return (
+    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr="vendor-dashboard-upcoming-panel">
+      <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Upcoming</h2>
+        <PortalIconAction icon={CalendarDays} label="Open calendar" onClick={onOpenCalendar} data-attr="vendor-dashboard-calendar-open" className="ml-auto" />
+      </div>
+      {sorted.length === 0 ? <p className="px-4 py-6 text-center text-[13px] text-muted">No upcoming visits.</p> : (
+        <ul className="divide-y divide-border/70">
+          {sorted.map((row) => (
+            <li key={row.id}>
+              <Link href={row.href} className="flex items-center gap-3 px-4 py-2.5 transition hover:bg-accent/30" data-attr={`vendor-dashboard-upcoming-${row.id}`}>
+                <span className="w-[76px] shrink-0 text-[12.5px] font-semibold text-foreground">
+                  {new Date(row.at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
+                  <span className="block truncate text-[12px] text-muted">{row.detail}</span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** Vendor Home — same tree as the manager dashboard with vendor numbers. */
-export function VendorDashboard({ displayName }: { displayName: string }) {
+export function VendorDashboard({ displayName: _displayName }: { displayName: string }) {
+  void _displayName;
   const router = useRouter();
   const [tick, setTick] = useState(0);
   const [nowTick] = useState(() => Date.now());
@@ -144,7 +204,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
     attentionRows.push({
       id: "phone",
       title: "Phone number not set up",
-      detail: "Set up messaging in Settings",
+      detail: "",
       actionLabel: "Set up",
       href: `${BASE}/profile`,
       tone: "pending",
@@ -197,10 +257,8 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
   return (
     <ManagerPortalPageShell
       title="Dashboard"
-      subtitle={portalDashboardWelcomeSubtitle(displayName)}
       hideTitleOnNative
       hideTitleOnMobileNav
-      welcomeSubtitle
     >
       <PortalHomeLayout
         banner={
@@ -215,35 +273,27 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
         }
         kpis={
           <>
-            <KpiCard
+            <VendorMetric
               label="Open jobs"
               value={String(openWorkOrders.length)}
-              detail={openWorkOrders.length === 0 ? "No jobs yet" : "Active services"}
-              delta={null}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-jobs"
             />
-            <KpiCard
+            <VendorMetric
               label="Quotes due"
               value={String(quotesPending.length)}
-              detail={quotesPending.length === 0 ? "Nothing waiting" : "Waiting on your price"}
-              delta={null}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-quotes"
             />
-            <KpiCard
+            <VendorMetric
               label="Upcoming visits"
               value={String(upcomingVisits.length)}
-              detail={upcomingVisits.length === 0 ? "Nothing scheduled" : "On the calendar"}
-              delta={null}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
             />
-            <KpiCard
+            <VendorMetric
               label="Unread messages"
               value={String(inboxThreads.length)}
-              detail={inboxThreads.length === 0 ? "All caught up" : "Needs a reply"}
-              delta={null}
               href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
             />
@@ -251,8 +301,8 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
         }
         split={
           <>
-            <AttentionPanel rows={attentionRows} />
-            <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
+            <VendorAttentionPanel rows={attentionRows} />
+            <VendorUpcomingPanel rows={upcomingRows} onOpenCalendar={() => router.push(`${BASE}/calendar`)} />
           </>
         }
         below={
@@ -265,13 +315,12 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
                   data-attr="vendor-dashboard-add"
                   onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "pending")}?add=1`)}
                 />
-                <Link
-                  href={vendorWorkOrderListHref(BASE, "pending")}
-                  className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"
+                <PortalIconAction
+                  icon={ListChecks}
+                  label="Manage services"
                   data-attr="vendor-dashboard-manage-jobs"
-                >
-                  Manage services →
-                </Link>
+                  onClick={() => router.push(vendorWorkOrderListHref(BASE, "pending"))}
+                />
               </div>
             </div>
             {jobCards.length === 0 ? (

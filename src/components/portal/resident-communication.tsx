@@ -394,12 +394,6 @@ function ResidentUnifiedInbox({
             data-attr="resident-inbox-search"
           />
         </div>
-        {initialListReady && merged.length > 0 ? (
-          <p className="hidden px-1 text-[11px] text-muted sm:block">
-            {merged.length} conversation{merged.length === 1 ? "" : "s"}
-            {query.trim() ? ` matching \u201C${query.trim()}\u201D` : ""}
-          </p>
-        ) : null}
       </div>
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {!initialListReady ? (
