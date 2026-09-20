@@ -20,6 +20,7 @@ re-reading solved work or "fixing" something fixed months ago.
 | 4 | `docs/website-component-standard.md` | Marketing-site counterpart to `design.md` |
 | 5 | `AGENTS.md` → Portal UI system | `PortalRecordListSurface` — every list tab copies Properties |
 | 6 | `docs/agents/send-message-compose.md` | Any send copies New message; body is auto-formatted from every collected fact |
+| 7 | `docs/agents/record-page.md` | Every record page's rail, header icons, and phone chrome come from `src/lib/portals/record-sections.ts` — never hand-build a record's section list |
 
 ### Tier 2 — point-in-time, never a rule
 

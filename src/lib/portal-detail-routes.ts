@@ -10,6 +10,11 @@ export const PROPERTY_DETAIL_TABS = [
   "requests",
   "promotion",
   "ai-info",
+  // The shared trio (PLAN-0920-1058, area 1a) — every record kind's rail ends
+  // here; see `src/lib/portals/record-sections.ts`.
+  "communication",
+  "documents",
+  "activity",
 ] as const;
 
 export type PropertyDetailTabId = (typeof PROPERTY_DETAIL_TABS)[number];
@@ -25,6 +30,9 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   requests: "Requests",
   promotion: "Promotion",
   "ai-info": "AI info",
+  communication: "Communication",
+  documents: "Documents",
+  activity: "Activity",
 };
 
 /** Property detail tabs that appear before application/lease in the manager UI. */
@@ -47,6 +55,9 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   requests: "Services",
   promotion: "Promotion",
   "ai-info": "AI info",
+  communication: "Communication",
+  documents: "Documents",
+  activity: "Activity",
 } as const;
 
 /** In-content scope chips under the Preview top tab (listing gallery vs house vs move-in). */
@@ -78,6 +89,9 @@ export const PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS: Record<PropertyDetailTopTabId
   requests: "Repairs and resident requests",
   promotion: "Share and syndicate the listing",
   "ai-info": "What the assistant says about this home",
+  communication: "Messages about this home",
+  documents: "Files about this home",
+  activity: "What changed and when",
 };
 
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
@@ -100,6 +114,9 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   if (tab === "requests") return "requests";
   if (tab === "promotion") return "promotion";
   if (tab === "ai-info") return "ai-info";
+  if (tab === "communication") return "communication";
+  if (tab === "documents") return "documents";
+  if (tab === "activity") return "activity";
   if ((PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab)) return "preview";
   return "preview";
 }
@@ -117,6 +134,8 @@ export const RESIDENT_DETAIL_TABS = [
   "services",
   "inspections",
   "communication",
+  "documents",
+  "activity",
 ] as const;
 
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
@@ -131,6 +150,8 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   services: "Services",
   inspections: "Inspections",
   communication: "Communication",
+  documents: "Documents",
+  activity: "Activity",
 };
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
@@ -144,6 +165,8 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   services: "Svc",
   inspections: "Inspect",
   communication: "Comms",
+  documents: "Docs",
+  activity: "Activity",
 };
 
 export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, string> = {
@@ -156,6 +179,8 @@ export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, strin
   services: "Repairs and requests",
   inspections: "Move-in and move-out photos",
   communication: "Messages with this person",
+  documents: "Files about this person",
+  activity: "What changed and when",
 };
 
 /** Sidebar subsection ids under Residents when viewing an applicant profile. */
@@ -974,7 +999,7 @@ export function workOrderDetailHref(
 }
 
 /** Routed tabs shared by service, task, and inspection records. */
-export const SERVICE_RECORD_TABS = ["overview", "communication", "payments", "vendor", "resident"] as const;
+export const SERVICE_RECORD_TABS = ["overview", "communication", "payments", "vendor", "resident", "documents", "activity"] as const;
 export type ServiceRecordTabId = (typeof SERVICE_RECORD_TABS)[number];
 
 export const SERVICE_RECORD_TAB_LABELS: Record<ServiceRecordTabId, string> = {
@@ -983,6 +1008,8 @@ export const SERVICE_RECORD_TAB_LABELS: Record<ServiceRecordTabId, string> = {
   payments: "Payments",
   vendor: "Vendor",
   resident: "Resident",
+  documents: "Documents",
+  activity: "Activity",
 };
 
 export const SERVICE_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
@@ -991,6 +1018,8 @@ export const SERVICE_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string>
   payments: "Outgoing and charges",
   vendor: "Who is assigned",
   resident: "Who this is for",
+  documents: "Files about this service",
+  activity: "What changed and when",
 };
 
 export const SERVICE_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
@@ -1005,6 +1034,8 @@ export const TASK_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = 
   payments: "None yet",
   vendor: "Who is assigned",
   resident: "Linked resident",
+  documents: "None yet",
+  activity: "What changed and when",
 };
 
 export const TASK_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
@@ -1019,6 +1050,8 @@ export const INSPECTION_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, stri
   payments: "None",
   vendor: "Assigned vendor",
   resident: "Whose room this is",
+  documents: "Files about this report",
+  activity: "What changed and when",
 };
 
 export const INSPECTION_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
@@ -1027,7 +1060,7 @@ export const INSPECTION_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceR
   { label: "Money", ids: ["payments"] },
 ];
 
-export const PAYMENT_RECORD_TABS = ["overview", "communication", "service", "vendor", "resident"] as const;
+export const PAYMENT_RECORD_TABS = ["overview", "communication", "service", "vendor", "resident", "documents", "activity"] as const;
 export type PaymentRecordTabId = (typeof PAYMENT_RECORD_TABS)[number];
 
 export const PAYMENT_RECORD_TAB_LABELS: Record<PaymentRecordTabId, string> = {
@@ -1036,6 +1069,8 @@ export const PAYMENT_RECORD_TAB_LABELS: Record<PaymentRecordTabId, string> = {
   service: "Service",
   vendor: "Vendor",
   resident: "Resident",
+  documents: "Documents",
+  activity: "Activity",
 };
 
 export const PAYMENT_RECORD_TAB_DESCRIPTIONS: Record<PaymentRecordTabId, string> = {
@@ -1044,6 +1079,8 @@ export const PAYMENT_RECORD_TAB_DESCRIPTIONS: Record<PaymentRecordTabId, string>
   service: "Linked service",
   vendor: "Payee",
   resident: "Who this charge is for",
+  documents: "Files about this charge",
+  activity: "What changed and when",
 };
 
 export const PAYMENT_RECORD_RAIL_GROUPS: Array<{ label: string; ids: PaymentRecordTabId[] }> = [
@@ -1114,7 +1151,7 @@ export function vendorCatalogDetailHref(basePath: string, catalogId: string): st
 }
 
 /** Routed detail tabs for a manager vendor — same chrome as a resident. */
-export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "check-ins", "communication"] as const;
+export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "check-ins", "communication", "documents", "activity"] as const;
 export type VendorDetailTabId = (typeof VENDOR_DETAIL_TABS)[number];
 
 export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
@@ -1123,6 +1160,8 @@ export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
   jobs: "Jobs",
   "check-ins": "Check-ins",
   communication: "Communication",
+  documents: "Documents",
+  activity: "Activity",
 };
 
 export const VENDOR_DETAIL_TAB_DESCRIPTIONS: Record<VendorDetailTabId, string> = {
@@ -1131,6 +1170,8 @@ export const VENDOR_DETAIL_TAB_DESCRIPTIONS: Record<VendorDetailTabId, string> =
   jobs: "Work assigned to this vendor",
   "check-ins": "Scheduled questions",
   communication: "Messages with this vendor",
+  documents: "Files about this vendor",
+  activity: "What changed and when",
 };
 
 export const VENDOR_RAIL_GROUPS: Array<{ label: string; ids: VendorDetailTabId[] }> = [

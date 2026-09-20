@@ -96,6 +96,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-claims-panel";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
@@ -352,6 +353,9 @@ const RESIDENT_RAIL_GROUPS: Array<{ label: string; ids: ResidentDetailTabId[] }>
   { label: "Resident", ids: ["overview", "application", "background-check"] },
   { label: "Home", ids: ["lease", "payments", "services", "inspections", "tours"] },
   { label: "Contact", ids: ["communication"] },
+  // The shared trio's remaining two ids (Communication already lives above,
+  // as a real per-resident inbox) — no heading, universal record chrome.
+  { label: "", ids: ["documents", "activity"] },
 ];
 
 /**
@@ -3406,6 +3410,18 @@ export function ManagerResidents({
                             </ResidentDetailTabPanel>
                             ) : null}
 
+                            {resolvedDetailTab === "documents" || resolvedDetailTab === "activity" ? (
+                              <ResidentDetailTabPanel>
+                                {renderRecordSection(resolvedDetailTab, {
+                                  role: "manager",
+                                  kind: "resident",
+                                  kindLabel: "resident",
+                                  recordId: selected.id,
+                                  recordLabel: selected.name,
+                                })}
+                              </ResidentDetailTabPanel>
+                            ) : null}
+
                             </>
                             )}
 
@@ -3555,6 +3571,8 @@ export function ManagerResidents({
         >
           <PortalRecordActions>
             <PortalIconAction
+              ring
+              ringPrimary
               icon={Pencil}
               label="Edit"
               data-attr="resident-detail-edit"
@@ -3562,6 +3580,7 @@ export function ManagerResidents({
             />
             {selectedHasPortalAccount ? null : (
             <PortalIconAction
+              ring
               icon={Mail}
               label="Send setup"
               data-attr="resident-detail-setup"
