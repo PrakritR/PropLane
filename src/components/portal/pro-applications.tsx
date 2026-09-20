@@ -110,7 +110,8 @@ import {
   resolveScreeningSubjectId,
   screeningRowForSubject,
 } from "@/lib/background-check-subjects";
-import { sortApplicationRowsForBucket } from "@/lib/manager-application-list";
+import { applicationPropertyMeta, sortApplicationRowsForBucket } from "@/lib/manager-application-list";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import {
   applicationListSortBucket,
   buildApplicationListClusters,
@@ -767,21 +768,34 @@ export function ManagerApplications({
     return propertyFilteredRows.filter((r) => tabForRow(r) === bucket);
   }, [propertyFilteredRows, bucket]);
 
+  // The search box narrows the CURRENT bucket's rows; the tab counts stay the
+  // bucket totals (docs/agents/ui-change-checklist.md → "Search box in the
+  // command bar").
+  const [listSearch, setListSearch] = useState("");
+  const visibleRows = useMemo(
+    () =>
+      rowsForBucket.filter((row) =>
+        matchesPortalListSearch(listSearch, applicantDisplayName(row), row.email, applicationPropertyMeta(row), row.property),
+      ),
+    [rowsForBucket, listSearch],
+  );
+  const searchHidesEveryRow = listSearch.trim().length > 0 && visibleRows.length === 0;
+
   const listClusters = useMemo(() => {
     const sortBucket = applicationListSortBucket(bucket);
-    const sorted = sortApplicationRowsForBucket(rowsForBucket, bucket);
+    const sorted = sortApplicationRowsForBucket(visibleRows, bucket);
     return sortApplicationListClustersForBucket(
       buildApplicationListClusters(sorted, applicationGroups, sortBucket),
       bucket,
     );
-  }, [rowsForBucket, bucket, applicationGroups]);
+  }, [visibleRows, bucket, applicationGroups]);
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(bucket);
   const listSelectedCount = selectedIds.size;
   const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
   const selectedListRows = useMemo(
-    () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
-    [rowsForBucket, selectedIds],
+    () => visibleRows.filter((row) => selectedIds.has(row.id)),
+    [visibleRows, selectedIds],
   );
   const singleListSelectedRow = useMemo(
     () =>
@@ -1823,6 +1837,7 @@ export function ManagerApplications({
         }))}
         activeDestinationId={bucket}
         destinationAriaLabel="Application status"
+        search={{ value: listSearch, onChange: setListSearch, placeholder: "Search applications", dataAttr: "applications-search" }}
         actions={applicationsListActions}
         activeFilterChips={
           propertyFilters.length > 0 ? (
@@ -1857,7 +1872,7 @@ export function ManagerApplications({
         </div>
       ) : (
         <PortalRecordListSurface
-          isEmpty={rowsForBucket.length === 0}
+          isEmpty={visibleRows.length === 0}
           add={{
             ariaLabel: "Add application",
             onClick: () => setAddApplicationOpen(true),
@@ -1865,7 +1880,14 @@ export function ManagerApplications({
             inline: true,
           }}
           emptyCard={
-            propertyFilters.length > 0
+            searchHidesEveryRow
+              ? {
+                  title: portalEmptyNoMatchTitle("applications", listSearch),
+                  section: "applications",
+                  tone: "muted",
+                  clear: { label: "Clear search", onClick: () => setListSearch(""), dataAttr: "applications-empty-clear-search" },
+                }
+              : propertyFilters.length > 0
               ? {
                   title: portalEmptyNoMatchTitle("applications"),
                   section: "applications",
@@ -1977,7 +1999,7 @@ export function ManagerApplications({
             ) : null
           }
         >
-          {rowsForBucket.length > 0 ? (
+          {visibleRows.length > 0 ? (
             <ManagerApplicationsGroupedTable
               clusters={listClusters}
               cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
