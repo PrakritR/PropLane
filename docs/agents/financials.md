@@ -82,14 +82,21 @@ Phase 3 excludes non-income accounts properly.
 
 **Stripe Dashboard:** add events `transfer.created`, `payout.*`, `charge.refunded`, `refund.*`, `charge.dispute.*`, `payment_intent.payment_failed` to the webhook destination alongside existing checkout/subscription events.
 
-## In-app payouts (PLAN-0920-0853)
+## In-app payouts (PLAN-0920-0853, consolidated under PLAN-0920-1500)
 
-**Payments → Payouts** (`/portal/payments/payouts`, vendor twin
-`/vendor/financials/payouts`) is the one payout UI — balance, a single "Pay
-out" action (Standard or Instant), the bank card, the payout schedule, and
-history. Stripe's Express Dashboard and Account Links are gone; identity and
-bank linking are Stripe's embedded `account_onboarding` /
-`account_management` components mounted inside PropLane's own modal (see
+**Settings → Payouts** (`/portal/settings/payouts`, vendor twin under
+`Vendor → Settings → Payouts`, `src/components/portal/portal-payouts-settings-page.tsx`)
+is now the one payout UI — balance with a Withdraw action (Standard or
+Instant, `payout-withdraw-sheet.tsx`), Set up steps until ready, bank
+accounts, the payout schedule, and history. `/portal/payments/payouts` and
+the vendor `financials/payouts` tab (`portal-payouts-panel.tsx`) still exist
+and share the same Withdraw sheet and API routes; every other entry point
+(the Payments setup card, the payment-settings modal's Payouts row) now
+opens Settings → Payouts instead. Stripe's Express Dashboard and Account
+Links are gone; identity and bank linking are Stripe's embedded
+`account_onboarding` / `account_management` components mounted inside
+PropLane's own modal today (a Verify/Add-bank props seam exists for the
+in-house forms PLAN-0920-1500 still has to build — see
 [`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md)).
 
 - **Pure logic** — `src/lib/stripe-payouts.ts`: Instant fee (flat 1%, no

@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarClock,
   Contact,
+  Landmark,
   Lock,
   MessageSquareText,
   Settings,
@@ -36,6 +37,7 @@ import {
   PortalSettingsSections,
 } from "@/components/portal/portal-settings-ui";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
+import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
@@ -66,6 +68,7 @@ type VendorSettingsGroupId =
   | "business"
   | "work-contacts"
   | "workspaces"
+  | "payouts"
   | "notifications"
   | "profile"
   | "capabilities"
@@ -1002,6 +1005,13 @@ export function VendorSettingsPanel() {
         group: "Business",
       },
       {
+        id: "payouts",
+        label: "Payouts",
+        description: "Balance, bank accounts, and how you withdraw what you're owed.",
+        icon: Landmark,
+        group: "Business",
+      },
+      {
         id: "profile",
         label: "Directory listing",
         description: "Language, texting consent, and payment methods on your manager directory entry.",
@@ -1137,6 +1147,8 @@ export function VendorSettingsPanel() {
         return <VendorWorkContactsPane ctx={business} />;
       case "workspaces":
         return <VendorWorkspaceAccessPane ctx={business} propertyLabel={(id) => resolvePropertyLabelForId(id)} />;
+      case "payouts":
+        return <PortalPayoutsSettingsPage portal="vendor" />;
       case "notifications":
         return <VendorNotificationsPane ctx={business} />;
       case "profile":
