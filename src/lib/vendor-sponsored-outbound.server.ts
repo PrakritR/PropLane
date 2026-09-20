@@ -17,6 +17,7 @@ import {
   type VendorDeliveryProvider,
   type VendorIdentityChannel,
 } from "@/lib/vendor-work-identity-delivery.server";
+import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 
 type Recipient = { userId: string | null; email: string; role: string; phone?: string | null };
 
@@ -165,7 +166,7 @@ export async function sendVendorSponsoredOutbound(
 
   const messageId = `vendor-sponsored:${request.sendId}`;
   if (target) {
-    await commitInboxThreadReply(db, target, {
+    const persistedDelivery = await commitInboxThreadReply(db, target, {
       fromName: actor.name || "PropLane vendor",
       text,
       attachments,
@@ -175,10 +176,15 @@ export async function sendVendorSponsoredOutbound(
       outbound: true,
       delivery,
     });
+    return {
+      ok: true,
+      providerMessageId: delivered.providerMessageId ?? null,
+      delivery: persistedDelivery ?? delivery,
+    };
   } else {
     const when = new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short", timeZone: "America/Los_Angeles" }).format(new Date());
     const preview = text.slice(0, 100).replace(/\n/g, " ");
-    await Promise.all([
+    const [sentCopy, inboxCopy] = await Promise.all([
       deliverPortalMessageThreadSide(db, {
         scope: scopeForRole("vendor"), folder: "sent", ownerUserId: actor.userId, participantEmail: null,
         otherPartyEmail: recipient.email, fallbackId: `vendor-sponsored-sent:${actor.userId}:${recipient.userId}`,
@@ -192,6 +198,12 @@ export async function sendVendorSponsoredOutbound(
         messageId, channel: request.channel, messageSubject: subject, attachments, delivery,
       }),
     ]);
+    return {
+      ok: true,
+      providerMessageId: delivered.providerMessageId ?? null,
+      delivery: aggregateVendorSponsoredDelivery(
+        [sentCopy.delivery ?? delivery, inboxCopy.delivery ?? delivery],
+      ),
+    };
   }
-  return { ok: true, providerMessageId: delivered.providerMessageId ?? null, delivery };
 }

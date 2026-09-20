@@ -68,11 +68,37 @@ export async function deliverVendorWorkIdentity(
   input: { vendorUserId: string; channel: VendorIdentityChannel; recipient: string; recipientUserId?: string | null; subject: string; text: string; idempotencyKey: string; contextFingerprint?: string; sendClass?: SmsSendClass },
   provider: VendorDeliveryProvider,
 ): Promise<{ ok: boolean; sent?: boolean; authorized?: boolean; reason?: string; providerMessageId?: string | null }> {
+  const recipient = input.channel === "email" ? input.recipient.trim().toLowerCase() : normalizeE164(input.recipient);
+  if (!recipient || (input.channel === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) || !input.idempotencyKey.trim()) return { ok: false, reason: "invalid_recipient" };
+  const contextFingerprint = input.contextFingerprint?.trim() || `recipient:${recipient}|subject:${input.subject}|body:${input.text}`;
+  type Replay = { status?: string; provider_message_id?: string | null; blocked_reason?: string | null; recipient?: string; context_fingerprint?: string; subject?: string | null; body?: string; channel?: string };
+  const replayResult = (replay: Replay) => {
+    if (
+      replay.channel !== input.channel ||
+      String(replay.recipient ?? "").trim().toLowerCase() !== recipient.toLowerCase() ||
+      String(replay.context_fingerprint ?? "") !== contextFingerprint ||
+      String(replay.subject ?? "") !== input.subject ||
+      String(replay.body ?? "") !== input.text
+    ) return { ok: false, sent: false, reason: "idempotency_mismatch" };
+    if (replay.status === "sent") return { ok: true, sent: true, providerMessageId: replay.provider_message_id ?? null };
+    if (replay.status === "reconciling" || replay.status === "authorized" || replay.status === "calling_provider") return { ok: false, sent: false, reason: "provider_outcome_unknown", providerMessageId: replay.provider_message_id ?? null, authorized: true };
+    return { ok: false, sent: false, reason: replay.blocked_reason ?? "provider_rejected", providerMessageId: replay.provider_message_id ?? null, authorized: true };
+  };
+  // A durable outbox is the authority on replay. Inspect it before mutable
+  // runtime/readiness gates so a paused provider cannot prevent repair of an
+  // already accepted message, and so Twilio is never called twice.
+  const { data: existingOutbox, error: existingOutboxError } = await db
+    .from("vendor_work_identity_outbox")
+    .select("status,provider_message_id,blocked_reason,recipient,context_fingerprint,subject,body,channel")
+    .eq("vendor_user_id", input.vendorUserId)
+    .eq("idempotency_key", input.idempotencyKey)
+    .eq("channel", input.channel)
+    .maybeSingle();
+  if (existingOutboxError) return { ok: false, reason: "replay_state_unavailable" };
+  if (existingOutbox) return replayResult(existingOutbox as Replay);
   const { data: runtime, error: runtimeError } = await db.from("vendor_work_identity_runtime").select("enabled").eq("singleton", true).maybeSingle();
   if (runtimeError || !(runtime as { enabled?: boolean } | null)?.enabled) return { ok: false, reason: "provider_disabled" };
   if (!provider.configured(input.channel)) return { ok: false, reason: "provider_unconfigured" };
-  const recipient = input.channel === "email" ? input.recipient.trim().toLowerCase() : normalizeE164(input.recipient);
-  if (!recipient || (input.channel === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) || !input.idempotencyKey.trim()) return { ok: false, reason: "invalid_recipient" };
   const { data, error } = await db.from("vendor_work_identities").select("id,email_address,phone_number,email_state,sms_state,email_send_ready,sms_send_ready,email_domain_verified").eq("vendor_user_id", input.vendorUserId).maybeSingle();
   if (error || !data) return { ok: false, reason: "identity_not_ready" };
   const row = data as Record<string, unknown>;
@@ -92,7 +118,6 @@ export async function deliverVendorWorkIdentity(
   const { data: operationData, error: operationError } = await db.rpc("claim_vendor_work_identity_operation", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_kind: kind, p_idempotency_key: input.idempotencyKey });
   const operation = (Array.isArray(operationData) ? operationData[0] : operationData) as { operation_id?: string; claimed?: boolean } | null;
   if (operationError || !operation?.operation_id) return { ok: false, reason: "operation_unavailable" };
-  const contextFingerprint = input.contextFingerprint?.trim() || `recipient:${recipient}|subject:${input.subject}|body:${input.text}`;
   const { data: outboxData, error: outboxError } = await db.rpc("claim_vendor_work_identity_outbound", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_id: operation.operation_id, p_idempotency_key: input.idempotencyKey, p_channel: input.channel, p_recipient: recipient, p_context_fingerprint: contextFingerprint, p_subject: input.subject, p_body: input.text });
   const outbox = (Array.isArray(outboxData) ? outboxData[0] : outboxData) as { outbox_id?: string; claimed?: boolean; blocked_reason?: string } | null;
   if (outboxError || !outbox?.outbox_id) {
@@ -103,17 +128,7 @@ export async function deliverVendorWorkIdentity(
   if (!operation.claimed || !outbox.claimed) {
     const { data: existing, error: replayError } = await db.from("vendor_work_identity_outbox").select("status,provider_message_id,blocked_reason,recipient,context_fingerprint,subject,body,channel").eq("id", outbox.outbox_id).maybeSingle();
     if (replayError || !existing) return { ok: false, reason: "replay_state_unavailable" };
-    const replay = existing as { status?: string; provider_message_id?: string | null; blocked_reason?: string | null; recipient?: string; context_fingerprint?: string; subject?: string | null; body?: string; channel?: string };
-    if (
-      replay.channel !== input.channel ||
-      String(replay.recipient ?? "").trim().toLowerCase() !== recipient.toLowerCase() ||
-      String(replay.context_fingerprint ?? "") !== contextFingerprint ||
-      String(replay.subject ?? "") !== input.subject ||
-      String(replay.body ?? "") !== input.text
-    ) return { ok: false, sent: false, reason: "idempotency_mismatch" };
-    if (replay.status === "sent") return { ok: true, sent: true, providerMessageId: replay.provider_message_id ?? null };
-    if (replay.status === "reconciling" || replay.status === "authorized" || replay.status === "calling_provider") return { ok: false, sent: false, reason: "provider_outcome_unknown", providerMessageId: replay.provider_message_id ?? null, authorized: true };
-    return { ok: false, sent: false, reason: replay.blocked_reason ?? "provider_rejected", providerMessageId: replay.provider_message_id ?? null, authorized: true };
+    return replayResult(existing as Replay);
   }
   const { error: callingError } = await db.from("vendor_work_identity_operations").update({ state: "calling_provider", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
   if (callingError) return { ok: false, reason: "operation_unavailable", authorized: true };
