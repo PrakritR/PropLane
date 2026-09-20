@@ -15,6 +15,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import type { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { Settings } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
@@ -280,6 +281,10 @@ export function ManagerPayments({
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
+  // The command-bar search box (AGENTS.md → Portal UI system: every list tab
+  // has one). It narrows the CURRENT bucket's rows; the tab counts stay the
+  // bucket totals.
+  const [listSearch, setListSearch] = useState("");
   const [incomingGroupMode, setIncomingGroupMode] = useState<PortalListGroupMode>(
     DEFAULT_PORTAL_LIST_GROUP_MODE,
   );
@@ -555,9 +560,21 @@ export function ManagerPayments({
   }, [outgoingRowsForCounts]);
 
   const outgoingRowsForBucket = useMemo(() => {
-    const filtered = outgoingRowsForCounts.filter((row) => row.bucket === bucket);
+    const filtered = outgoingRowsForCounts.filter(
+      (row) =>
+        row.bucket === bucket &&
+        matchesPortalListSearch(
+          listSearch,
+          row.payeeLabel,
+          row.chargeTitle,
+          row.categoryLabel,
+          row.propertyName,
+          row.dueDate,
+          row.amountLabel,
+        ),
+    );
     return sortOutgoingRows(filtered, bucket, listSort);
-  }, [outgoingRowsForCounts, bucket, listSort]);
+  }, [outgoingRowsForCounts, bucket, listSearch, listSort]);
 
   const propertyOptionsForFilter = propertyOptions;
 
@@ -577,11 +594,20 @@ export function ManagerPayments({
       if (r.bucket !== bucket) return false;
       if (!paymentRowMatchesProperty(r, propertyFilters)) return false;
       if (!paymentRowMatchesResident(r, residentFilters)) return false;
-      return true;
+      return matchesPortalListSearch(
+        listSearch,
+        r.residentName,
+        r.residentEmail,
+        r.chargeTitle,
+        r.propertyName,
+        r.roomNumber,
+        r.dueDate,
+        r.lineAmount,
+      );
     });
 
     return sortLedgerRows(filtered, bucket, listSort);
-  }, [mergedRows, bucket, propertyFilters, residentFilters, listSort]);
+  }, [mergedRows, bucket, propertyFilters, residentFilters, listSearch, listSort]);
 
   const filterTouchCount = paymentFilterTouches(
     propertyFilters,
@@ -727,7 +753,22 @@ export function ManagerPayments({
    * the muted no-match card with a Clear link when filters hide everything.
    */
   const filtersHideRows = propertyFilters.length > 0 || residentFilters.length > 0;
-  const paymentsEmptyCard: ComponentProps<typeof PortalRecordListSurface>["emptyCard"] = filtersHideRows
+  // A query that hides every row names itself, and Clear search clears only
+  // the query — the filters are still what they were.
+  const searchHidesRows =
+    listSearch.trim().length > 0 && (direction === "incoming" ? counts[bucket] : outgoingCounts[bucket]) > 0;
+  const paymentsEmptyCard: ComponentProps<typeof PortalRecordListSurface>["emptyCard"] = searchHidesRows
+    ? {
+        title: portalEmptyNoMatchTitle("payments", listSearch),
+        section: "payments",
+        tone: "muted",
+        clear: {
+          label: "Clear search",
+          onClick: () => setListSearch(""),
+          dataAttr: "payments-empty-clear-search",
+        },
+      }
+    : filtersHideRows
     ? {
         title: portalEmptyNoMatchTitle(direction === "incoming" ? "charges" : "payments"),
         section: "payments",
@@ -862,6 +903,12 @@ export function ManagerPayments({
         }))}
         activeDestinationId={bucket}
         destinationAriaLabel="Payment status"
+        search={{
+          value: listSearch,
+          onChange: setListSearch,
+          placeholder: "Search payments",
+          dataAttr: "payments-search",
+        }}
         actions={paymentsListActions}
         primary={
           direction === "incoming" ? (
