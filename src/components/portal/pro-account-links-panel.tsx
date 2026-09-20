@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Users, UserPlus, Copy } from "lucide-react";
+import { Users, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
@@ -13,8 +13,8 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalInvitePaths, type PortalInvitePath } from "@/components/portal/portal-invite-paths";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -25,7 +25,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
-import type { PortalWorkspace } from "@/lib/workspaces/types";
+import type { PortalWorkspace, WorkspaceMember } from "@/lib/workspaces/types";
 import { memberReachLabel, workspaceRightsForRole, type HouseScope } from "@/lib/workspaces/membership";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -36,7 +36,6 @@ import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
   buildAllModulesGrant,
   CO_MANAGER_PERMISSION_OPTIONS,
-  EMPTY_CO_MANAGER_PERMISSIONS,
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
   flatCoManagerPermissionsFromProperty,
@@ -70,8 +69,6 @@ import {
   teamInviteEligiblePropertyIds,
 } from "@/lib/manager-portfolio-access";
 import {
-  AXIS_ID_LABEL,
-  generateRelationshipId,
   proRelationshipRowsFromInvites,
   readProRelationships,
   writeProRelationships,
@@ -85,11 +82,7 @@ import {
   grantBelongsToWorkspace,
   teamGrantVisibleInWorkspace,
 } from "@/lib/workspaces/team-scope";
-import {
-  listOutgoingCoManagerLinks,
-  listOutgoingCoManagersForProperty,
-  resolveAssignedPropertyId,
-} from "@/lib/co-manager-property-links";
+import { resolveAssignedPropertyId } from "@/lib/co-manager-property-links";
 import { syncManagerApplicationsFromServer } from "@/lib/manager-applications-storage";
 import {
   invalidateAccountLinksCache,
@@ -97,7 +90,7 @@ import {
 } from "@/lib/portal-data-store";
 import { syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
 import { syncHouseholdChargesFromServer } from "@/lib/household-charges";
-import { Input, Select } from "@/components/ui/input";
+import { TransferOwnershipDialog } from "@/components/portal/transfer-ownership-dialog";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { teamLinkHref, teamMemberDetailHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -124,27 +117,13 @@ import {
   coManagerLinkRemovedSubject,
 } from "@/lib/co-manager-link-email";
 import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
-import { formatProplaneIdForDisplay } from "@/lib/manager-id";
-import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invite-message-body";
-import { mintInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
-import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
-  DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
   normalizeWorkspacePermissions,
   type WorkspaceCoManagerGrant,
 } from "@/lib/workspace-co-manager-permissions";
 
 type TeamRemovePreviewItem = BulkMessageCarouselItem & {
   entry: TeamListEntry;
-};
-
-type LinkInvitePreview = {
-  subject: string;
-  body: string;
-  recipientName: string;
-  recipientUserId: string | null;
-  recipientPhone?: string;
-  recipientEmail?: string;
 };
 
 const TEAM_MEMBER_ROLE_LABEL = "Team";
@@ -244,7 +223,7 @@ function HouseScopeSelect({
   );
 }
 
-function WorkspaceGrantFields({
+export function WorkspaceGrantFields({
   value,
   onChange,
   disabled,
@@ -482,7 +461,7 @@ function CoManagerRoleSelect({
   );
 }
 
-function CoManagerPermissionsEditor({
+export function CoManagerPermissionsEditor({
   value,
   onChange,
   disabled,
@@ -766,7 +745,7 @@ export function ProAccountLinksPanel({
   const workspaceName = workspaces?.active?.name ?? "this workspace";
   // The card whose Invite was pressed; its houses are what the invite picker offers.
   const [inviteWorkspaceId, setInviteWorkspaceId] = useState<string | null>(null);
-  const inviteWorkspace = byWorkspace ? (ownedWorkspaces.find((w) => w.id === inviteWorkspaceId) ?? workspaces?.active ?? null) : null;
+  const inviteWorkspace = ownedWorkspaces.find((w) => w.id === inviteWorkspaceId) ?? workspaces?.active ?? null;
   const pickerPropertyIds = useMemo(
     () => (byWorkspace ? (inviteWorkspace?.propertyIds ?? []) : workspacePropertyIds),
     [byWorkspace, inviteWorkspace, workspacePropertyIds],
@@ -817,10 +796,9 @@ export function ProAccountLinksPanel({
 
   const [teamPropertyFilters, setTeamPropertyFilters] = useState<string[]>([]);
 
-  const [transferPropertyId, setTransferPropertyId] = useState<string | null>(null);
-  const [transferCoManagerUserId, setTransferCoManagerUserId] = useState<string | null>(null);
-  const [transferPermissions, setTransferPermissions] = useState<CoManagerPermissions>(EMPTY_CO_MANAGER_PERMISSIONS);
-  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<{ workspace: PortalWorkspace; member: WorkspaceMember } | null>(
+    null,
+  );
   const [permissionsMember, setPermissionsMember] = useState<TeamListEntry | null>(null);
 
   // Named function expression so the soft-retry below can re-invoke this exact
@@ -1070,36 +1048,14 @@ export function ProAccountLinksPanel({
     [teamPropertyLabelById],
   );
 
-  const [axisInput, setAxisInput] = useState("");
+  // Controls the WorkspaceInviteSheet; inviteWorkspaceId (below) picks which
+  // workspace it opens for.
   const [linkModalOpen, setLinkModalOpen] = useState(false);
 
-  const [linkInvitePreview, setLinkInvitePreview] = useState<LinkInvitePreview | null>(null);
-  const [linkInviteBusy, setLinkInviteBusy] = useState(false);
   const [teamRemovePreview, setTeamRemovePreview] = useState<TeamRemovePreviewItem[] | null>(null);
   const [teamRemoveBusy, setTeamRemoveBusy] = useState(false);
-  const [lookupBusy, setLookupBusy] = useState(false);
-  const [draftAxisId, setDraftAxisId] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState<string | null>(null);
-  const [draftUserId, setDraftUserId] = useState<string | null>(null);
-  const [inviteeAtCap, setInviteeAtCap] = useState(false);
 
-  const [selectedProps, setSelectedProps] = useState<Record<string, boolean>>({});
-  const [propertyPermissionsDraft, setPropertyPermissionsDraft] = useState<PropertyCoManagerPermissions>({});
-  const [inviteDefaultPermissions, setInviteDefaultPermissions] = useState<CoManagerPermissions>(() =>
-    buildAllModulesGrant("read"),
-  );
-  const [inviteTeamRole, setInviteTeamRole] = useState<TeamRoleId>("viewer");
-  const [inviteHouseScope, setInviteHouseScope] = useState<HouseScope>("all");
-  const [inviteWorkspacePermissions, setInviteWorkspacePermissions] = useState<WorkspaceCoManagerGrant>(
-    DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
-  );
   const [skuTier, setSkuTier] = useState<string | null>(null);
-  const [invitePath, setInvitePath] = useState<PortalInvitePath>("link");
-  const [inviteeName, setInviteeName] = useState("");
-  const [inviteePhone, setInviteePhone] = useState("");
-  const [inviteeEmail, setInviteeEmail] = useState("");
-  const [mintedInviteUrl, setMintedInviteUrl] = useState<string | null>(null);
-  const [inviteContinueBusy, setInviteContinueBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1289,67 +1245,8 @@ export function ProAccountLinksPanel({
     );
   };
 
-  const lookup = async (): Promise<{ axisId: string; name: string; userId: string | null } | null> => {
-    const raw = axisInput.trim();
-    if (!raw) {
-      showToast(`Enter a ${AXIS_ID_LABEL}.`);
-      return null;
-    }
-    setLookupBusy(true);
-    setInviteeAtCap(false);
-    try {
-      const res = await fetch(`/api/pro/lookup-axis-id?axisId=${encodeURIComponent(raw)}`, {
-        credentials: "include",
-      });
-      const body = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        displayName?: string;
-        userId?: string;
-        role?: string;
-      };
-      if (!res.ok || !body.ok) {
-        showToast(body.error ?? "Lookup failed.");
-        setDraftAxisId(null);
-        return null;
-      }
-      const name = body.displayName ?? raw;
-      const userId = body.userId ?? null;
-      setDraftAxisId(raw);
-      setDraftName(name);
-      setDraftUserId(userId);
-      showToast("Account verified.");
-      return { axisId: raw, name, userId };
-    } catch {
-      showToast("Network error.");
-      return null;
-    } finally {
-      setLookupBusy(false);
-    }
-  };
-
-  /** Clear the whole in-progress link draft (used on cancel/close and after send). */
-  const resetLinkDraft = () => {
-    setAxisInput("");
-    setDraftAxisId(null);
-    setDraftName(null);
-    setDraftUserId(null);
-    setSelectedProps({});
-    setPropertyPermissionsDraft({});
-    setInviteeAtCap(false);
-    setInvitePath("link");
-    setInviteHouseScope("all");
-    setInviteTeamRole("viewer");
-    const viewerStamp = stampTeamRolePermissions("viewer");
-    if (viewerStamp) setInviteDefaultPermissions(viewerStamp);
-    setInviteWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
-    setInviteeName("");
-    setInviteePhone("");
-    setInviteeEmail("");
-    setMintedInviteUrl(null);
-    setInviteContinueBusy(false);
-  };
-
+  /** Opens the invite sheet for a workspace (or the active one). Gated the same
+   * way the old modal was: Team permission, seat cap, plan. */
   const openLinkModal = (workspaceId?: string) => {
     setInviteWorkspaceId(workspaceId ?? null);
     if (inviteLinkBlocked) {
@@ -1362,335 +1259,11 @@ export function ProAccountLinksPanel({
       }
       return;
     }
-    resetLinkDraft();
-    setInviteWorkspaceId(workspaceId ?? null);
     setLinkModalOpen(true);
   };
 
   const closeLinkModal = () => {
     setLinkModalOpen(false);
-    resetLinkDraft();
-  };
-
-  const linkInvitePropertySelectOptions = useMemo(() => {
-    const options: { value: string; label: string; disabled?: boolean; hint?: string }[] = [];
-    const seen = new Set<string>();
-    const eligible = (id: string) => [...teamInviteEligibleIds].some((eid) => samePropertyId(id, eid));
-
-    if (byWorkspace) {
-      // The card already listed these houses — offer every one, even when the
-      // local listing store uses a different id spelling than the workspace row.
-      for (const id of pickerPropertyIds) {
-        const fromChoices = propertyOptions.find((o) => samePropertyId(o.id, id));
-        const value = fromChoices?.id ?? id;
-        const label =
-          inviteWorkspace?.propertyLabels?.[id]?.trim() ||
-          inviteWorkspace?.propertyLabels?.[value]?.trim() ||
-          teamPropertyLabel(id) ||
-          teamPropertyLabel(value);
-        if (seen.has(value)) continue;
-        seen.add(value);
-        options.push({
-          value,
-          label,
-          disabled: Boolean(fromChoices?.notYetSynced),
-          hint: fromChoices?.notYetSynced ? "Still saving — you can assign this once it finishes." : undefined,
-        });
-      }
-      return options;
-    }
-
-    for (const p of propertyOptions) {
-      if (teamInviteEligibleIds.size > 0 && !eligible(p.id)) continue;
-      seen.add(p.id);
-      options.push({
-        value: p.id,
-        label: p.label,
-        disabled: Boolean(p.notYetSynced),
-        hint: p.notYetSynced ? "Still saving — you can assign this once it finishes." : undefined,
-      });
-    }
-    for (const property of coManagedProperties) {
-      if (teamInviteEligibleIds.size > 0 && !eligible(property.id)) continue;
-      if (seen.has(property.id) || options.some((option) => samePropertyId(option.value, property.id))) continue;
-      options.push({ value: property.id, label: property.label });
-    }
-    return options;
-  }, [propertyOptions, coManagedProperties, teamInviteEligibleIds, byWorkspace, pickerPropertyIds, inviteWorkspace, teamPropertyLabel]);
-
-  const handleLinkPropertySelectionChange = (nextIds: string[]) => {
-    const nextSet = new Set(nextIds);
-    setSelectedProps(() => {
-      const next: Record<string, boolean> = {};
-      for (const id of nextIds) next[id] = true;
-      return next;
-    });
-    setPropertyPermissionsDraft((perms) => {
-      const updated = { ...perms };
-      for (const id of nextIds) {
-        if (!updated[id]) updated[id] = inviteDefaultPermissions;
-      }
-      for (const id of Object.keys(updated)) {
-        if (!nextSet.has(id)) delete updated[id];
-      }
-      return updated;
-    });
-  };
-
-  useEffect(() => {
-    if (!linkModalOpen) return;
-    const ids = linkInvitePropertySelectOptions.filter((option) => !option.disabled).map((option) => option.value);
-    handleLinkPropertySelectionChange(ids);
-    // Default every house currently in this workspace when Invite opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- open + workspace only
-  }, [linkModalOpen, inviteWorkspaceId]);
-
-  const selectedInvitePropertyIds = () =>
-    Object.entries(selectedProps)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-
-  const inviteFacts = (inviteUrl?: string) => {
-    const ids = selectedInvitePropertyIds();
-    return {
-      kind: "workspace" as const,
-      inviterName: managerDisplayName,
-      workspaceName: inviteWorkspace?.name ?? workspaceName,
-      propertyLabels: ids.map((id) => teamPropertyLabel(id)),
-      inviteUrl,
-      proplaneCode: draftAxisId ?? undefined,
-      phone: inviteePhone.trim() || undefined,
-      email: inviteeEmail.trim() || undefined,
-    };
-  };
-
-  const mintWorkspaceInviteUrl = async (): Promise<string | null> => {
-    if (mintedInviteUrl) return mintedInviteUrl;
-    const ids = selectedInvitePropertyIds();
-    const result = await mintInviteLinkClient({
-      kind: "manager",
-      workspaceId: inviteWorkspaceId,
-      assignedPropertyIds: ids,
-      propertyPermissions: normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids),
-      propertyLabelsById: Object.fromEntries(ids.map((id) => [id, teamPropertyLabel(id)])),
-      teamRole: inviteTeamRole,
-      houseScope: inviteHouseScope,
-    });
-    if (!result.ok) {
-      showToast(result.error);
-      return null;
-    }
-    setMintedInviteUrl(result.url);
-    return result.url;
-  };
-
-  const openInviteCompose = (url: string | undefined, recipient: {
-    name: string;
-    userId: string | null;
-    phone?: string;
-    email?: string;
-  }) => {
-    const facts = inviteFacts(url);
-    setLinkInvitePreview({
-      subject: formatInviteMessageSubject(facts),
-      body: formatInviteMessageBody(facts),
-      recipientName: recipient.name,
-      recipientUserId: recipient.userId,
-      recipientPhone: recipient.phone,
-      recipientEmail: recipient.email,
-    });
-    setLinkModalOpen(false);
-  };
-
-  const continueWorkspaceInvite = async () => {
-    if (inviteLinkBlocked) {
-      showToast("You cannot send this invite on the current plan.");
-      return;
-    }
-    if (invitePath === "message") {
-      if (!inviteeName.trim() || !inviteePhone.trim()) {
-        showToast("Enter a name and phone to invite via message.");
-        return;
-      }
-    }
-    let codeId = draftAxisId;
-    let codeName = draftName;
-    let codeUserId = draftUserId;
-    if (invitePath === "code") {
-      if (!codeId || !codeUserId) {
-        const looked = await lookup();
-        if (!looked?.userId) return;
-        codeId = looked.axisId;
-        codeName = looked.name;
-        codeUserId = looked.userId;
-      }
-    }
-    setInviteContinueBusy(true);
-    try {
-      const alreadyMinted = Boolean(mintedInviteUrl);
-      const url = await mintWorkspaceInviteUrl();
-      if (!url) return;
-      if (invitePath === "link" && !alreadyMinted) return;
-      if (invitePath === "message") {
-        openInviteCompose(url, {
-          name: inviteeName.trim(),
-          userId: draftUserId,
-          phone: inviteePhone.trim(),
-          email: inviteeEmail.trim() || undefined,
-        });
-        return;
-      }
-      if (invitePath === "code") {
-        openInviteCompose(url, {
-          name: codeName ?? codeId ?? "Team member",
-          userId: codeUserId,
-          phone: inviteePhone.trim() || undefined,
-          email: inviteeEmail.trim() || undefined,
-        });
-        return;
-      }
-      openInviteCompose(url, {
-        name: inviteeName.trim() || "Recipient",
-        userId: draftUserId,
-        phone: inviteePhone.trim() || undefined,
-        email: inviteeEmail.trim() || undefined,
-      });
-    } finally {
-      setInviteContinueBusy(false);
-    }
-  };
-
-  const confirmLinkInvite = async (
-    skipMessage: boolean,
-    channels?: NotificationDeliveryChannels,
-    messageDraft?: NotificationConfirmDraft,
-  ) => {
-    if (!linkInvitePreview || linkInviteBusy) return;
-    const ids = selectedInvitePropertyIds();
-
-    const payout = 15;
-    const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids);
-
-    setLinkInviteBusy(true);
-    let pendingInviteId: string | null = null;
-    try {
-      if (draftAxisId && draftUserId && useRemote && remoteLoaded) {
-        try {
-          const res = await fetch("/api/pro/account-links", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              inviteeAxisId: draftAxisId,
-              tabKind: "manager",
-              assignedPropertyIds: ids,
-              payoutPercentForManager: payout,
-              propertyCoManagerPermissions,
-              coManagerPermissions: inviteDefaultPermissions,
-              workspaceId: inviteWorkspaceId,
-              workspacePermissions: inviteWorkspacePermissions,
-              teamRole: inviteTeamRole,
-              houseScope: inviteHouseScope,
-              skipInviteNotification: true,
-            }),
-          });
-          const data = (await res.json()) as {
-            error?: string;
-            migrationRequired?: boolean;
-            invite?: { id?: string };
-          };
-          if (!res.ok) {
-            setInviteeAtCap(Boolean(data.error?.includes("Invitee needs to upgrade")));
-            showToast(data.error ?? "Could not send invite.");
-            return;
-          }
-          pendingInviteId = data.invite?.id?.trim() || null;
-        } catch {
-          showToast("Network error.");
-          return;
-        }
-      } else if (draftAxisId && draftUserId) {
-        const all = readProRelationships(userId);
-        const dupe = all.some((r) => r.linkedAxisId === draftAxisId);
-        if (dupe) {
-          showToast("You already have a link with this account.");
-          return;
-        }
-        const row: ProRelationshipRecord = {
-          id: generateRelationshipId(),
-          linkedAxisId: draftAxisId,
-          linkedDisplayName: draftName ?? undefined,
-          linkedUserId: draftUserId,
-          linkDirection: "outgoing",
-          perspective: "manager_tab",
-          payoutPercentForManager: payout,
-          assignedPropertyIds: ids,
-          coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
-          propertyCoManagerPermissions,
-          createdAt: new Date().toISOString(),
-        };
-        writeProRelationships(userId, [...all, row]);
-        refreshLocal();
-      }
-
-      if (!skipMessage) {
-        const toUserIds = linkInvitePreview.recipientUserId ? [linkInvitePreview.recipientUserId] : undefined;
-        const email = linkInvitePreview.recipientEmail?.trim() ?? "";
-        if (toUserIds?.length || email) {
-          const result = await deliverManagerDirectoryMessage(
-            {
-              name: linkInvitePreview.recipientName,
-              email,
-              subject: linkInvitePreview.subject,
-              body: messageDraft?.body?.trim() || linkInvitePreview.body,
-            },
-            false,
-            channels,
-            messageDraft,
-            { toUserIds, eventCategory: "account" },
-          );
-          if (!result.ok) {
-            if (pendingInviteId) await cancelInvite(pendingInviteId);
-            showToast(result.message);
-            if (useRemote && remoteLoaded) {
-              await loadRemoteInvites();
-            }
-            return;
-          }
-        }
-      }
-
-      if (useRemote && remoteLoaded) {
-        await loadRemoteInvites();
-        resetLinkDraft();
-        setLinkInvitePreview(null);
-        if (pendingInviteId) {
-          await copyInviteAcceptLink(pendingInviteId);
-        }
-        showToast(
-          skipMessage
-            ? pendingInviteId
-              ? "Invite created. Invite link copied — share it so they can accept."
-              : "Invite created, but nothing was sent. Tell them to open PropLane → Teams to accept it."
-            : pendingInviteId
-              ? "Invite sent and invite link copied."
-              : "Invite sent and team member notified.",
-        );
-        return;
-      }
-
-      resetLinkDraft();
-      setLinkInvitePreview(null);
-      refreshLocal();
-      showToast(
-        skipMessage
-          ? "Link saved locally. Nothing was sent — tell them to open PropLane → Co-managers."
-          : "Link saved and team member notified.",
-      );
-    } finally {
-      setLinkInviteBusy(false);
-      syncWorkspaceRollup();
-    }
   };
 
   const patchInvite = async (
@@ -1941,37 +1514,6 @@ export function ProAccountLinksPanel({
     showToast("Property removed from this team member.");
   };
 
-  const openTransferForProperty = (propertyId: string, coManagerUserId: string) => {
-    setTransferPropertyId(propertyId);
-    setTransferCoManagerUserId(coManagerUserId);
-    setTransferPermissions(EMPTY_CO_MANAGER_PERMISSIONS);
-  };
-
-  const openTransferForCoManager = async (
-    propertyId: string,
-    axisId: string,
-    knownUserId?: string,
-  ) => {
-    let coManagerUserId = knownUserId?.trim();
-    if (!coManagerUserId) {
-      try {
-        const res = await fetch(`/api/pro/lookup-axis-id?axisId=${encodeURIComponent(axisId)}`, {
-          credentials: "include",
-        });
-        const body = (await res.json()) as { ok?: boolean; userId?: string; error?: string };
-        if (!res.ok || !body.ok || !body.userId) {
-          showToast(body.error ?? "Could not resolve team account.");
-          return;
-        }
-        coManagerUserId = body.userId;
-      } catch {
-        showToast("Network error.");
-        return;
-      }
-    }
-    openTransferForProperty(propertyId, coManagerUserId);
-  };
-
   const removeLink = async (id: string) => {
     if (useRemote && remoteLoaded) {
       const ok = await patchInvite(id, { action: "revoke" }, "Disconnected.");
@@ -2014,56 +1556,32 @@ export function ProAccountLinksPanel({
     if (ok && routeLinkId === id) navigateToList();
   };
 
-  const outgoingCoManagerLinks = useMemo(
-    () =>
-      listOutgoingCoManagerLinks({
-        useRemote,
-        remoteInvites,
-        localRows,
-        inviteDrafts,
-      }),
-    [useRemote, remoteInvites, localRows, inviteDrafts],
+  // The workspace this member belongs to, and their membership row, for the
+  // Transfer ownership dialog — only an accepted member of a workspace the
+  // viewer owns can be promoted.
+  const findWorkspaceMemberForEntry = useCallback(
+    (entry: TeamListEntry): { workspace: PortalWorkspace; member: WorkspaceMember } | null => {
+      if (entry.kind !== "remote" || entry.invite.status !== "accepted") return null;
+      const workspace = (workspaces?.workspaces ?? []).find((w) => w.id === entry.invite.workspaceId);
+      if (!workspace || !workspace.owned) return null;
+      const member =
+        (workspace.members ?? []).find((m) => m.linkId === entry.invite.id) ??
+        (workspace.members ?? []).find((m) => m.userId === entry.invite.linkedUserId);
+      if (!member) return null;
+      return { workspace, member };
+    },
+    [workspaces],
   );
 
-  const coManagersForProperty = useCallback(
-    (propertyId: string) => listOutgoingCoManagersForProperty(propertyId, outgoingCoManagerLinks),
-    [outgoingCoManagerLinks],
-  );
-
-  const submitTransfer = async () => {
-    if (!transferPropertyId || !transferCoManagerUserId) return;
-    setTransferBusy(true);
-    try {
-      const res = await fetch(
-        `/api/pro/properties/${encodeURIComponent(transferPropertyId)}/transfer-ownership`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            newManagerUserId: transferCoManagerUserId,
-            formerOwnerPermissions: transferPermissions,
-          }),
-        },
-      );
-      const data = (await res.json()) as { error?: string; propertyLabel?: string };
-      if (!res.ok) {
-        showToast(data.error ?? "Transfer failed.");
-        return;
-      }
-      showToast(`${data.propertyLabel ?? "Property"} ownership transferred.`);
-      setTransferPropertyId(null);
-      setTransferCoManagerUserId(null);
-      setTransferPermissions(EMPTY_CO_MANAGER_PERMISSIONS);
+  const onTransferDone = useCallback(() => {
+    setTransferTarget(null);
+    invalidateAccountLinksCache();
+    void (async () => {
       await loadRemoteInvites();
       await syncManagerPortfolioFromServer(userId, { force: true });
-      refreshLocal();
-    } catch {
-      showToast("Network error.");
-    } finally {
-      setTransferBusy(false);
-    }
-  };
+      void workspaces?.refresh().catch(() => undefined);
+    })();
+  }, [loadRemoteInvites, userId, workspaces]);
 
   useEffect(() => {
     if (!useRemote || activeRemote.length === 0) {
@@ -2084,10 +1602,6 @@ export function ProAccountLinksPanel({
     visibleOutgoingPending.length > 0 ||
     visibleActiveRemote.length > 0 ||
     visibleLocalRows.length > 0;
-  const selectedPropIds = Object.entries(selectedProps)
-    .filter(([, v]) => v)
-    .map(([k]) => k);
-
   const buildTeamRemovePreviewItem = useCallback(
     (entry: TeamListEntry): TeamRemovePreviewItem => {
       const propertyLabels =
@@ -2289,6 +1803,18 @@ export function ProAccountLinksPanel({
   };
 
   const renderDetailFooter = (entry: TeamListEntry) => {
+    const transferMatch = findWorkspaceMemberForEntry(entry);
+    const transferButton = transferMatch ? (
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full sm:w-auto"
+        onClick={() => setTransferTarget(transferMatch)}
+        data-attr="team-member-transfer"
+      >
+        Transfer ownership…
+      </Button>
+    ) : null;
     if (entry.kind === "remote") {
       const inv = entry.invite;
       // Pending links carry their own accept / decline / cancel affordances in
@@ -2298,19 +1824,22 @@ export function ProAccountLinksPanel({
       if (inv.status === "pending") return null;
       const readOnly = inv.status === "accepted" && inv.direction === "incoming";
       return (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${teamDangerBtnClass} w-full sm:w-auto`}
-          onClick={() => openTeamRemovePreview([entry])}
-          data-attr="co-manager-remove-link"
-        >
-          {readOnly
-            ? "Leave team"
-            : inv.workspaceId
-              ? `Remove from ${(workspaces?.workspaces ?? []).find((w) => w.id === inv.workspaceId)?.name ?? "workspace"}`
-              : "Disconnect"}
-        </Button>
+        <>
+          {transferButton}
+          <Button
+            type="button"
+            variant="outline"
+            className={`${teamDangerBtnClass} w-full sm:w-auto`}
+            onClick={() => openTeamRemovePreview([entry])}
+            data-attr="co-manager-remove-link"
+          >
+            {readOnly
+              ? "Leave team"
+              : inv.workspaceId
+                ? `Remove from ${(workspaces?.workspaces ?? []).find((w) => w.id === inv.workspaceId)?.name ?? "workspace"}`
+                : "Disconnect"}
+          </Button>
+        </>
       );
     }
     return (
@@ -2322,30 +1851,6 @@ export function ProAccountLinksPanel({
         data-attr="co-manager-remove-link"
       >
         Disconnect
-      </Button>
-    );
-  };
-
-  const renderMakeOwner = (
-    propertyIds: string[],
-    axisId: string,
-    linkedUserId?: string,
-  ) => {
-    const propertyId = propertyIds[0];
-    if (!propertyId) return null;
-    const label =
-      propertyIds.length === 1
-        ? "Make owner"
-        : `Make owner of ${teamPropertyLabel(propertyId)}`;
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        className="h-8 rounded-full px-4 text-xs"
-        onClick={() => void openTransferForCoManager(propertyId, axisId, linkedUserId)}
-        data-attr="co-manager-make-owner"
-      >
-        {label}
       </Button>
     );
   };
@@ -2505,7 +2010,6 @@ export function ProAccountLinksPanel({
             </>
           );
         })()}
-        {!readOnly ? renderMakeOwner(draft.assignedPropertyIds, inv.linkedAxisId, inv.linkedUserId) : null}
       </div>
     );
   };
@@ -2565,7 +2069,6 @@ export function ProAccountLinksPanel({
           refreshLocal();
         }}
       />
-      {renderMakeOwner(draft.assignedPropertyIds, r.linkedAxisId, r.linkedUserId)}
     </div>
     );
   };
@@ -2612,204 +2115,18 @@ export function ProAccountLinksPanel({
 
   const teamModals = (
     <>
-        <Modal
-          open={linkModalOpen}
-          title={`Invite to ${inviteWorkspace?.name ?? workspaceName}`}
-          assistantContext="Invite to workspace"
-          assistantStorageScopeKey="Invite to workspace"
-          onClose={closeLinkModal}
-          panelClassName="max-w-2xl"
-          footer={
-            <div className="flex w-full items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-full"
-                loading={inviteContinueBusy || lookupBusy}
-                disabled={inviteContinueBusy || lookupBusy || inviteLinkBlocked}
-                onClick={() => void continueWorkspaceInvite()}
-                data-attr="co-manager-link-continue"
-              >
-                Continue
-              </Button>
-            </div>
-          }
-        >
-          <div className="space-y-5">
-            <PortalInvitePaths value={invitePath} onChange={setInvitePath} disabled={inviteContinueBusy} />
-
-            {invitePath === "message" ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-semibold text-muted">Name</span>
-                  <Input
-                    className="mt-1"
-                    value={inviteeName}
-                    onChange={(e) => setInviteeName(e.target.value)}
-                    autoFocus
-                    data-attr="workspace-invite-name"
-                  />
-                </label>
-                <div>
-                  <span className="text-xs font-semibold text-muted">Phone</span>
-                  <div className="mt-1">
-                    <PhoneNumberField
-                      id="workspace-invite-phone"
-                      value={inviteePhone}
-                      onChange={setInviteePhone}
-                      dataAttr="workspace-invite-phone"
-                    />
-                  </div>
-                </div>
-                <label className="block sm:col-span-2">
-                  <span className="text-xs font-semibold text-muted">Email</span>
-                  <Input
-                    type="email"
-                    className="mt-1"
-                    value={inviteeEmail}
-                    onChange={(e) => setInviteeEmail(e.target.value)}
-                    data-attr="workspace-invite-email"
-                  />
-                </label>
-              </div>
-            ) : null}
-
-            {invitePath === "code" ? (
-              <div className="space-y-3">
-                {draftAxisId ? (
-                  <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-                    <p className="text-sm font-semibold text-foreground">{draftName}</p>
-                    <p className="mt-0.5 font-mono text-xs text-muted">
-                      {formatProplaneIdForDisplay(draftAxisId)}
-                    </p>
-                  </div>
-                ) : (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void lookup();
-                    }}
-                  >
-                    <label className="block">
-                      <span className="text-xs font-semibold text-muted">{AXIS_ID_LABEL}</span>
-                      <Input
-                        type="text"
-                        value={axisInput}
-                        onChange={(e) => setAxisInput(e.target.value)}
-                        placeholder="e.g. PROPLANE-1A2B3C4D"
-                        autoFocus
-                        className="mt-1 font-mono"
-                        data-attr="co-manager-proplane-id-input"
-                      />
-                    </label>
-                  </form>
-                )}
-              </div>
-            ) : null}
-
-            {invitePath === "link" && mintedInviteUrl ? (
-              <div className="flex items-center gap-2">
-                <Input readOnly value={mintedInviteUrl} className="font-mono text-xs" data-attr="workspace-invite-url" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0"
-                  data-attr="workspace-invite-copy"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(mintedInviteUrl).then(
-                      () => showToast("Invite link copied."),
-                      () => showToast("Could not copy. Select the link and copy it manually."),
-                    );
-                  }}
-                >
-                  <Copy className="h-4 w-4" />
-                  <span className="ml-1.5">Copy</span>
-                </Button>
-              </div>
-            ) : null}
-
-            {inviteeAtCap ? (
-              <p className="rounded-xl portal-banner-danger px-4 py-3 text-xs font-medium text-[var(--status-overdue-fg)]">
-                That account is already at its link limit and cannot accept new links.
-              </p>
-            ) : null}
-
-            <CoManagerRoleSelect
-              value={inviteTeamRole}
-              onChange={(next) => {
-                setInviteTeamRole(next);
-                const stamp = stampTeamRolePermissions(next);
-                if (stamp) {
-                  setInviteDefaultPermissions(stamp);
-                  const ids = selectedInvitePropertyIds();
-                  setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, stamp])));
-                }
-              }}
-            />
-
-            <HouseScopeSelect
-              value={inviteHouseScope}
-              onChange={(next) => {
-                setInviteHouseScope(next);
-                // "All" keeps every house selected so the message and the
-                // snapshot name them; the server pins the row to the workspace.
-                if (next === "all") {
-                  handleLinkPropertySelectionChange(
-                    linkInvitePropertySelectOptions.filter((option) => !option.disabled).map((option) => option.value),
-                  );
-                }
-              }}
-              workspaceName={inviteWorkspace?.name ?? workspaceName}
-              houseCount={linkInvitePropertySelectOptions.length}
-              dataAttr="co-manager-invite-house-scope"
-            />
-
-            {inviteHouseScope === "selected" ? (
-              linkInvitePropertySelectOptions.length === 0 ? (
-                <p className="text-sm text-muted">No houses in this workspace yet.</p>
-              ) : (
-                <CheckboxMultiSelect
-                  label="Selected houses"
-                  labelClassName="text-xs font-semibold text-muted"
-                  options={linkInvitePropertySelectOptions}
-                  selected={selectedPropIds}
-                  onChange={handleLinkPropertySelectionChange}
-                  emptyLabel="Select houses…"
-                  searchPlaceholder="Search houses…"
-                  dataAttr="co-manager-invite-properties"
-                />
-              )
-            ) : null}
-
-            {inviteTeamRole === "custom" ? (
-              <>
-                <CoManagerPermissionsEditor
-                  hideRole
-                  value={inviteDefaultPermissions}
-                  role={inviteTeamRole}
-                  onRoleChange={(next) => {
-                    setInviteTeamRole(next);
-                    const stamp = stampTeamRolePermissions(next);
-                    if (stamp) {
-                      setInviteDefaultPermissions(stamp);
-                      const ids = selectedInvitePropertyIds();
-                      setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, stamp])));
-                    }
-                  }}
-                  onChange={(next) => {
-                    setInviteDefaultPermissions(next);
-                    setInviteTeamRole(inferTeamRoleFromPermissions(next));
-                    const ids = selectedInvitePropertyIds();
-                    setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, next])));
-                  }}
-                />
-                <WorkspaceGrantFields value={inviteWorkspacePermissions} onChange={setInviteWorkspacePermissions} />
-              </>
-            ) : (
-              <RoleCanTable role={inviteTeamRole} grant={inviteDefaultPermissions} />
-            )}
-          </div>
-        </Modal>
+        {inviteWorkspace ? (
+          <WorkspaceInviteSheet
+            open={linkModalOpen}
+            workspace={inviteWorkspace}
+            onClose={closeLinkModal}
+            onChanged={() => {
+              void loadRemoteInvites();
+              syncWorkspaceRollup();
+            }}
+            onEditMember={(memberLinkId) => openMemberSheet(memberLinkId)}
+          />
+        ) : null}
 
         <Modal
           open={permissionsMember !== null}
@@ -2842,86 +2159,16 @@ export function ProAccountLinksPanel({
           )}
         </Modal>
 
-        {transferPropertyId ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 [html[data-theme=dark]_&]:bg-black/65">
-            <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-lg">
-              <p className="text-lg font-semibold text-foreground">Transfer ownership</p>
-              <p className="mt-2 text-sm text-muted">
-                Promote a team member to main manager of{" "}
-                <span className="font-medium text-foreground">
-                  {teamPropertyLabel(transferPropertyId)}
-                </span>
-                . Choose the permissions you keep as a team member.
-              </p>
-
-              <label className="mt-4 block text-xs font-semibold text-muted">
-                New main manager
-                <Select
-                  value={transferCoManagerUserId ?? ""}
-                  onChange={(e) => setTransferCoManagerUserId(e.target.value || null)}
-                  className="mt-1 h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground"
-                >
-                  {coManagersForProperty(transferPropertyId).map((cm) => (
-                    <option key={cm.id} value={cm.linkedUserId}>
-                      {cm.linkedDisplayName ?? cm.linkedAxisId}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-
-              <div className="mt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Your team permissions</p>
-                <div className="mt-2">
-                  <CoManagerPermissionsEditor value={transferPermissions} onChange={setTransferPermissions} variant="readWrite" />
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-start gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={transferBusy}
-                  onClick={() => {
-                    setTransferPropertyId(null);
-                    setTransferCoManagerUserId(null);
-                    setTransferPermissions(EMPTY_CO_MANAGER_PERMISSIONS);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button type="button" className="rounded-full" disabled={transferBusy} onClick={() => submitTransfer()}>
-                  {transferBusy ? "Transferring…" : "Confirm transfer"}
-                </Button>
-              </div>
-            </div>
-          </div>
+        {transferTarget ? (
+          <TransferOwnershipDialog
+            open
+            workspace={transferTarget.workspace}
+            member={transferTarget.member}
+            onClose={() => setTransferTarget(null)}
+            onDone={onTransferDone}
+          />
         ) : null}
 
-      <PortalNotificationPreviewModal
-        open={linkInvitePreview !== null}
-        title="New message"
-        onClose={() => setLinkInvitePreview(null)}
-        recipient={linkInvitePreview?.recipientName ?? ""}
-        recipientPhone={linkInvitePreview?.recipientPhone}
-        subject={linkInvitePreview?.subject ?? ""}
-        body={linkInvitePreview?.body ?? ""}
-        showChannelPicker
-        deliverViaKind="account"
-        dynamicSendLabel
-        emailAvailable={Boolean(linkInvitePreview?.recipientUserId || linkInvitePreview?.recipientEmail)}
-        smsAvailable={Boolean(linkInvitePreview?.recipientPhone?.trim() || linkInvitePreview?.recipientUserId)}
-        defaultViaSms={Boolean(linkInvitePreview?.recipientPhone?.trim())}
-        confirmLabel="Send invite"
-        confirmLabelWithoutMessage="Continue without sending"
-        skipMessageLabel="Don't send a message"
-        confirmBusy={linkInviteBusy}
-        confirmBusyLabel="Sending…"
-        cancelLabel="Back"
-        onConfirm={(skipMessage, channels, messageDraft) =>
-          void confirmLinkInvite(skipMessage, channels, messageDraft)
-        }
-      />
       {teamRemovePreview && teamRemovePreview.length === 1 ? (
         <PortalNotificationPreviewModal
           open
@@ -2995,12 +2242,6 @@ export function ProAccountLinksPanel({
       {skuTier != null && !planAllowsInvites ? (
         <p className="rounded-xl portal-banner-danger px-4 py-3 text-xs font-medium text-[var(--status-overdue-fg)]">
           Upgrade to Pro or Business to link team accounts. Free plans cannot send or accept co-manager invites.
-        </p>
-      ) : null}
-
-      {inviteeAtCap ? (
-        <p className="text-xs font-medium text-[var(--status-overdue-fg)]">
-          That account is already at its link limit and cannot accept new links.
         </p>
       ) : null}
     </>
@@ -3113,6 +2354,10 @@ export function ProAccountLinksPanel({
             : undefined,
         removeLabel: `Remove from ${workspace.name}`,
         onEdit: () => setPermissionsMember(entry),
+        onTransfer: (() => {
+          const target = findWorkspaceMemberForEntry(entry);
+          return target ? () => setTransferTarget(target) : undefined;
+        })(),
         onDisconnect: () => openTeamRemovePreview([entry]),
       })),
     ];

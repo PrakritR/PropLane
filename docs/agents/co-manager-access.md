@@ -61,9 +61,9 @@ the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
-**Team role is a stamp + a label, never authorization.** Invite asks three
-things — how to send it, Role, Houses (All houses in this workspace, the
-default, or Only selected) — and shows a read-only "Role can" table; the
+**Team role is a stamp + a label, never authorization.** The invite sheet's
+one access control sets Role and Houses (All houses in this workspace, the
+default, or Only selected) and shows a read-only "Role can" table; the
 13-module grid appears only on Custom. Roles: Viewer, Leasing, Property
 manager, Bookkeeper, Maintenance, Admin, Custom (`TEAM_ROLE_INVITE_OPTIONS`).
 A named role writes the permission map; Custom keeps the current map. Gates
@@ -72,13 +72,42 @@ with an empty map grants nothing. Catalog: `src/lib/co-manager-team-roles.ts`.
 Column: `account_link_invites.team_role` (copied from
 `manager_invite_links.team_role` on redeem, with `house_scope`).
 
-**Shareable invite links do not need a PropLane ID.** Workspace Invite (and
-vendor Invite) always offers three methods: **link**, **message**, and
-**PropLane code**. Email is a Send via channel on the next page (New message),
-never an invite-method tab. See `docs/agents/send-message-compose.md`.
-Houses default to every house currently in that workspace. The accept screen
-is titled **Invite to workspace**, names the workspace, and offers Message
-the inviter.
+**Shareable invite links do not need a PropLane ID.** Houses default to every
+house currently in the workspace. See `docs/agents/send-message-compose.md`
+for how Send resolves a channel. The accept screen is titled **Invite to
+workspace**, names the workspace, and offers Message the inviter.
+
+**The invite sheet (`workspace-invite-sheet.tsx`) is the one manager invite
+surface** — opened by `ProAccountLinksPanel.openLinkModal`, no separate
+chooser step or "Continue" page. It holds exactly one active manager link per
+workspace: on open it reads it (`GET /api/pro/invite-links?workspaceId=`) or
+mints one if none exists; changing Role or Houses re-mints with
+`replaceActive: true` so a URL already sent can never gain more power than
+whoever holds it agreed to, and the previous link is revoked in the same call
+(`mintInviteLink`, `docs/agents/co-manager-access.md` "Mint stores a hash..."
+above). Sending by phone or email goes out through the manager directory
+message path (`deliverManagerDirectoryMessage`) with the auto-formatted body
+from `formatInviteMessageBody`; a PropLane code recipient instead POSTs
+directly to `/api/pro/account-links` as an addressed invite (no message step).
+Every invite row this way stamps `invited_via` and `invited_at`
+(`20260920190000_invite_delivery.sql`). The old three-path chooser
+(`PortalInvitePaths`, "how to send it" step) is **gone from the manager
+invite**; it is kept only for the vendor invite modal
+(`pro-vendor-form-modal.tsx`), which still owns its own Continue → New
+message flow. Coverage: `tests/unit/workspace-invite-sheet.test.tsx`.
+
+**Transfer ownership (`transfer-ownership-dialog.tsx`)** promotes a workspace
+member to owner of one or more of that workspace's houses, opened from the
+member row's ⋯ menu or the member sheet's footer (owner only,
+`pro-team-blocks.tsx` / `renderDetailFooter`). It issues one
+`POST /api/pro/properties/[propertyId]/transfer-ownership` per selected house,
+in order, and stops at the first failure — reporting how many moved and
+naming the houses that did not, never rolling back or silently retrying.
+Submit is gated on typing the workspace's name to confirm. The former owner
+chooses what role (if any) they keep on the moved houses afterward — Admin,
+Property manager, Viewer, Custom, or **Nothing** (an empty grant, same "empty
+means no access" rule as everywhere else in this file) — and stays a member
+of those houses under that role rather than losing them outright.
 
 Mint stores a hash plus encrypted ciphertext so **Copy returns the same live
 URL**. Rotate is a separate action (`POST /api/pro/invite-links/[linkId]/link`

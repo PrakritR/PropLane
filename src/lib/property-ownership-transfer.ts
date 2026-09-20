@@ -1,11 +1,14 @@
 import "server-only";
 
 import {
+  coManagerPermissionsAreEmpty,
+  flatCoManagerPermissionsFromProperty,
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
   prunePropertyCoManagerPermissions,
   type CoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { inferInviteTeamRole } from "@/lib/co-manager-team-roles";
 import {
   notifyDemotedToCoManager,
   notifyPromotedToMainManager,
@@ -122,13 +125,19 @@ export async function transferPropertyOwnership(
 
   const propertyLabel = propertyLabelFromRow(propertyRow);
 
-  const { error: ownerUpdateErr } = await db
+  const { data: updatedPropertyRow, error: ownerUpdateErr } = await db
     .from("manager_property_records")
     .update({ manager_user_id: newManagerUserId, updated_at: new Date().toISOString() })
     .eq("id", propertyId)
-    .eq("manager_user_id", currentOwnerUserId);
+    .eq("manager_user_id", currentOwnerUserId)
+    .select("workspace_id")
+    .maybeSingle();
 
   if (ownerUpdateErr) return { ok: false, error: ownerUpdateErr.message, status: 500 };
+
+  // The property's own before-update trigger already reassigned it to the new
+  // owner's default workspace (`20260911230000_portal_workspaces.sql`).
+  const newWorkspaceId = (updatedPropertyRow as { workspace_id?: string | null } | null)?.workspace_id ?? null;
 
   const propertyTables = [
     "manager_application_records",
@@ -180,93 +189,83 @@ export async function transferPropertyOwnership(
     { [propertyId]: formerOwnerPermissions },
     [propertyId],
   );
+  const formerOwnerPerms = prunePropertyCoManagerPermissions(formerOwnerPropertyPerms, [propertyId]);
 
-  const existingPerms = normalizePropertyCoManagerPermissions(
-    (linkRow as { property_co_manager_permissions?: unknown }).property_co_manager_permissions ??
-      (linkRow as { co_manager_permissions?: unknown }).co_manager_permissions,
-    assigned,
-  );
-
-  const newManagerAssigned = assigned.filter((id) => id !== propertyId);
-  const formerOwnerAssigned = [...new Set([...assigned.filter((id) => id === propertyId), propertyId])];
-
-  const newManagerPerms = prunePropertyCoManagerPermissions(
-    Object.fromEntries(Object.entries(existingPerms).filter(([id]) => id !== propertyId)),
-    newManagerAssigned.length > 0 ? newManagerAssigned : [],
-  );
-
-  const formerOwnerPerms = prunePropertyCoManagerPermissions(
-    {
-      ...Object.fromEntries(Object.entries(existingPerms).filter(([id]) => id === propertyId)),
-      ...formerOwnerPropertyPerms,
-    },
-    [propertyId],
-  );
-
-  await db
+  // Since `20260920180000_workspace_memberships.sql`, the ownership update
+  // above already fired the workspace-propagation trigger, which pruned this
+  // property (and its permission entry) out of the old link's workspace when
+  // it was `selected`, or recomputed the row when it was `all` —
+  // `assigned_property_ids` is kept authoritative for both scopes. Re-reading
+  // it (rather than unconditionally cancelling and re-inserting a rewritten
+  // copy, the pre-workspace behavior) tells us whether the old link still
+  // reaches any house in its workspace.
+  const { data: refreshedLinkRow } = await db
     .from("account_link_invites")
-    .update({
-      status: "cancelled",
-      responded_at: new Date().toISOString(),
-    })
-    .eq("id", linkRow.id);
-
-  if (newManagerAssigned.length > 0) {
-    await db.from("account_link_invites").insert({
-      inviter_user_id: currentOwnerUserId,
-      invitee_user_id: newManagerUserId,
-      tab_kind: "manager",
-      inviter_axis_id: ownerAxisId,
-      invitee_axis_id: newManagerAxisId,
-      inviter_display_name: ownerName,
-      invitee_display_name: newManagerName,
-      assigned_property_ids: newManagerAssigned,
-      payout_percent_for_manager: Number(linkRow.payout_percent_for_manager ?? 15),
-      property_co_manager_permissions: newManagerPerms,
-      status: "accepted",
-      responded_at: new Date().toISOString(),
-    });
-  }
-
-  const { data: reverseLink } = await db
-    .from("account_link_invites")
-    .select("id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, payout_percent_for_manager")
-    .eq("status", "accepted")
-    .eq("inviter_user_id", newManagerUserId)
-    .eq("invitee_user_id", currentOwnerUserId)
+    .select("assigned_property_ids")
+    .eq("id", linkRow.id)
     .maybeSingle();
+  const oldLinkRemainingAssigned = refreshedLinkRow
+    ? asStringArray((refreshedLinkRow as { assigned_property_ids?: unknown }).assigned_property_ids)
+    : assigned; // read failed — assume unchanged rather than risk an incorrect cancel
 
-  if (reverseLink?.id) {
-    const reverseAssigned = [...new Set([...asStringArray(reverseLink.assigned_property_ids), propertyId])];
-    const reversePerms = normalizePropertyCoManagerPermissions(
-      (reverseLink as { property_co_manager_permissions?: unknown }).property_co_manager_permissions ??
-        (reverseLink as { co_manager_permissions?: unknown }).co_manager_permissions,
-      asStringArray(reverseLink.assigned_property_ids),
-    );
-    reversePerms[propertyId] = formerOwnerPerms[propertyId] ?? formerOwnerPermissions;
+  if (oldLinkRemainingAssigned.length === 0) {
     await db
       .from("account_link_invites")
       .update({
-        assigned_property_ids: reverseAssigned,
-        property_co_manager_permissions: prunePropertyCoManagerPermissions(reversePerms, reverseAssigned),
-        payout_percent_for_manager: Number(reverseLink.payout_percent_for_manager ?? 15),
+        status: "cancelled",
+        responded_at: new Date().toISOString(),
       })
-      .eq("id", reverseLink.id);
-  } else {
-    await db.from("account_link_invites").insert({
-      inviter_user_id: newManagerUserId,
-      invitee_user_id: currentOwnerUserId,
-      tab_kind: "manager",
-      inviter_axis_id: newManagerAxisId,
-      invitee_axis_id: ownerAxisId,
-      inviter_display_name: newManagerName,
-      invitee_display_name: ownerName,
-      assigned_property_ids: [propertyId],
-      payout_percent_for_manager: Number(linkRow.payout_percent_for_manager ?? 15),
-      property_co_manager_permissions: formerOwnerPerms,
-      status: "accepted",
-      responded_at: new Date().toISOString(),
-    });
+      .eq("id", linkRow.id);
+  }
+
+  if (!coManagerPermissionsAreEmpty(formerOwnerPermissions)) {
+    const { data: reverseLink } = await db
+      .from("account_link_invites")
+      .select(
+        "id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, payout_percent_for_manager",
+      )
+      .eq("status", "accepted")
+      .eq("inviter_user_id", newManagerUserId)
+      .eq("invitee_user_id", currentOwnerUserId)
+      .eq("workspace_id", newWorkspaceId)
+      .maybeSingle();
+
+    if (reverseLink?.id) {
+      const reverseAssigned = [...new Set([...asStringArray(reverseLink.assigned_property_ids), propertyId])];
+      const reversePerms = normalizePropertyCoManagerPermissions(
+        (reverseLink as { property_co_manager_permissions?: unknown }).property_co_manager_permissions ??
+          (reverseLink as { co_manager_permissions?: unknown }).co_manager_permissions,
+        asStringArray(reverseLink.assigned_property_ids),
+      );
+      reversePerms[propertyId] = formerOwnerPerms[propertyId] ?? formerOwnerPermissions;
+      await db
+        .from("account_link_invites")
+        .update({
+          assigned_property_ids: reverseAssigned,
+          property_co_manager_permissions: prunePropertyCoManagerPermissions(reversePerms, reverseAssigned),
+          payout_percent_for_manager: Number(reverseLink.payout_percent_for_manager ?? 15),
+        })
+        .eq("id", reverseLink.id);
+    } else {
+      await db.from("account_link_invites").insert({
+        inviter_user_id: newManagerUserId,
+        invitee_user_id: currentOwnerUserId,
+        tab_kind: "manager",
+        inviter_axis_id: newManagerAxisId,
+        invitee_axis_id: ownerAxisId,
+        inviter_display_name: newManagerName,
+        invitee_display_name: ownerName,
+        assigned_property_ids: [propertyId],
+        payout_percent_for_manager: Number(linkRow.payout_percent_for_manager ?? 15),
+        property_co_manager_permissions: formerOwnerPerms,
+        co_manager_permissions: flatCoManagerPermissionsFromProperty(formerOwnerPerms),
+        workspace_id: newWorkspaceId,
+        house_scope: "selected",
+        team_role: inferInviteTeamRole(formerOwnerPerms),
+        status: "accepted",
+        responded_at: new Date().toISOString(),
+      });
+    }
   }
 
   void notifyPromotedToMainManager({

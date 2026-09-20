@@ -45,28 +45,31 @@ describe("co-manager open invite token", () => {
 });
 
 describe("co-manager open invite surfaces", () => {
-  it("Add modal uses three invite paths, a role, and a house scope before any picker", () => {
+  it("Invite opens the workspace invite sheet, not the old three-path modal", () => {
     const panel = readFileSync(
       join(process.cwd(), "src/components/portal/pro-account-links-panel.tsx"),
       "utf8",
     );
-    expect(panel).toContain("PortalInvitePaths");
-    expect(panel).not.toContain("PortalInviteChoiceStep");
-    expect(panel).toContain('data-attr="co-manager-proplane-id-input"');
-    expect(panel).toContain('data-attr="co-manager-link-continue"');
-    expect(panel).toContain('dataAttr="co-manager-invite-properties"');
-    // Houses default to the whole workspace; the picker appears for "Only selected".
-    expect(panel).toContain('dataAttr="co-manager-invite-house-scope"');
-    expect(panel).toContain('label="Selected houses"');
-    expect(panel).toContain("<RoleCanTable");
-    expect(panel).not.toContain('data-attr="co-manager-invite-link-open"');
-    expect(panel).not.toContain("Select at least one property for this invite.");
+    // The old Add modal (invite paths + PropLane-ID lookup + Continue) is gone;
+    // the sheet is the one invite surface.
+    expect(panel).not.toContain("PortalInvitePaths");
+    expect(panel).not.toContain('data-attr="co-manager-proplane-id-input"');
+    expect(panel).not.toContain('data-attr="co-manager-link-continue"');
+    expect(panel).toContain("WorkspaceInviteSheet");
+    expect(panel).toContain("openLinkModal");
 
-    const modal = readFileSync(
-      join(process.cwd(), "src/components/portal/manager-invite-link-modal.tsx"),
+    const sheet = readFileSync(
+      join(process.cwd(), "src/components/portal/workspace-invite-sheet.tsx"),
       "utf8",
     );
-    expect(modal).toContain("No properties yet. You can still create a link and assign houses later.");
+    // Send by phone/email/code, copy the minted link, and set role + houses
+    // in one access control — no separate "Continue" step or path chooser.
+    expect(sheet).toContain('data-attr="workspace-invite-send"');
+    expect(sheet).toContain('data-attr="workspace-invite-copy"');
+    expect(sheet).toContain('data-attr="workspace-invite-access"');
+    expect(sheet).toContain("<CoManagerPermissionsEditor");
+    expect(sheet).toContain("<WorkspaceGrantFields");
+    expect(sheet).not.toContain("PortalInvitePaths");
   });
 
   it("allows minting a co-manager invite with zero properties (PRP-419)", () => {
@@ -101,5 +104,46 @@ describe("co-manager PropLane ID lookup eligibility", () => {
     const source = readFileSync(join(process.cwd(), "src/app/api/pro/account-links/route.ts"), "utf8");
     expect(source).toContain("userIsPropertyPortalManager(svc, inviteeProfile.id)");
     expect(source).not.toContain('ir === "manager" || ir === "owner"');
+  });
+});
+
+describe("active invite link per workspace", () => {
+  it("server exports activeInviteLinkForWorkspace", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/lib/invite-links/invite-links.server.ts"),
+      "utf8",
+    );
+    expect(source).toContain("export async function activeInviteLinkForWorkspace");
+    expect(source).toContain("actorWorkspaceStanding(db, input.actorUserId, input.workspaceId)");
+  });
+
+  it("GET route with workspaceId query param calls activeInviteLinkForWorkspace", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/app/api/pro/invite-links/route.ts"),
+      "utf8",
+    );
+    expect(source).toContain("const workspaceId = searchParams.get");
+    expect(source).toContain("activeInviteLinkForWorkspace");
+    expect(source).toContain('return NextResponse.json({ link: result.link })');
+  });
+
+  it("mintInviteLink accepts replaceActive parameter", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/lib/invite-links/invite-links.server.ts"),
+      "utf8",
+    );
+    expect(source).toContain("replaceActive?: boolean");
+    expect(source).toContain("if (input.replaceActive && kind === \"manager\" && workspaceId)");
+    expect(source).toContain("revoked_at: new Date().toISOString()");
+    expect(source).toContain("A URL already sent must never gain power when");
+  });
+
+  it("POST route passes replaceActive from body", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/app/api/pro/invite-links/route.ts"),
+      "utf8",
+    );
+    expect(source).toContain("replaceActive?: boolean");
+    expect(source).toContain("replaceActive: body.replaceActive === true");
   });
 });

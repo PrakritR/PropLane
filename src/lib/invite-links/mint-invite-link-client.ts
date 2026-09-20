@@ -10,6 +10,8 @@ export type MintInviteLinkClientInput = {
   teamRole?: string;
   /** all = every house in the workspace, now and later. */
   houseScope?: "all" | "selected";
+  /** Revoke the workspace's prior active link before minting this one. */
+  replaceActive?: boolean;
 };
 
 export type MintInviteLinkClientResult =
@@ -35,6 +37,7 @@ export async function mintInviteLinkClient(
         uses: input.uses,
         teamRole: input.teamRole,
         houseScope: input.houseScope,
+        replaceActive: input.replaceActive,
       }),
     });
     const body = (await res.json().catch(() => ({}))) as {

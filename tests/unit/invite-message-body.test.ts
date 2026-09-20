@@ -21,6 +21,18 @@ describe("formatInviteMessageBody", () => {
     expect(body).toContain("Join: https://example.test/invite/tok");
   });
 
+  it("names the role and reach when both are given", () => {
+    const body = formatInviteMessageBody({
+      kind: "workspace",
+      inviterName: "Ambika",
+      workspaceName: "Seattle houses",
+      propertyLabels: ["5257 Brooklyn"],
+      roleLabel: "Leasing",
+      reach: "All houses",
+    });
+    expect(body).toContain("Ambika invited you to Seattle houses on PropLane, as Leasing over All houses.");
+  });
+
   it("says no houses yet when the workspace has none", () => {
     const body = formatInviteMessageBody({
       kind: "workspace",

@@ -4,6 +4,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import {
+  activeInviteLinkForWorkspace,
   listInviteLinksForActor,
   mintInviteLink,
   revokeInviteLink,
@@ -20,9 +21,26 @@ async function sessionUserId(): Promise<string | null> {
 }
 
 /** The owner's own links, as metadata. The token is never returned again. */
-export async function GET() {
+export async function GET(req: Request) {
   const userId = await sessionUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const workspaceId = searchParams.get("workspaceId")?.trim();
+
+  if (workspaceId) {
+    // Get the active link for a specific workspace.
+    const result = await activeInviteLinkForWorkspace(
+      createSupabaseServiceRoleClient(),
+      { actorUserId: userId, workspaceId },
+    );
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+    return NextResponse.json({ link: result.link });
+  }
+
+  // Get all links for the actor.
   const links = await listInviteLinksForActor(createSupabaseServiceRoleClient(), userId);
   return NextResponse.json({ links });
 }
@@ -43,6 +61,7 @@ export async function POST(req: Request) {
     propertyLabelsById?: unknown;
     teamRole?: unknown;
     houseScope?: unknown;
+    replaceActive?: boolean;
   };
 
   const propertyLabelsById: Record<string, string> = {};
@@ -67,6 +86,7 @@ export async function POST(req: Request) {
     propertyLabelsById,
     teamRole: body.teamRole,
     houseScope: body.houseScope,
+    replaceActive: body.replaceActive === true,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

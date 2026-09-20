@@ -188,6 +188,8 @@ export async function mintInviteLink(
     teamRole?: unknown;
     /** Co-manager links: all = every house in `workspaceId`, now and later. */
     houseScope?: unknown;
+    /** When true and kind === "manager": revoke prior active links for this workspace before inserting. */
+    replaceActive?: boolean;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
@@ -330,6 +332,19 @@ export async function mintInviteLink(
     fromRecords,
   });
 
+  // When replaceActive is true for a manager link with a workspace, revoke prior
+  // active links for that workspace. A URL already sent must never gain power when
+  // the access changes.
+  if (input.replaceActive && kind === "manager" && workspaceId) {
+    await db
+      .from("manager_invite_links")
+      .update({ revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("owner_user_id", ownerUserId)
+      .eq("kind", "manager")
+      .eq("workspace_id", workspaceId)
+      .is("revoked_at", null);
+  }
+
   const { data, error } = await db
     .from("manager_invite_links")
     .insert({
@@ -396,6 +411,61 @@ export async function listInviteLinksForActor(db: SupabaseClient, actorUserId: s
     if (allowed) visible.push(link);
   }
   return visible;
+}
+
+/**
+ * Get the active link for a workspace.
+ *
+ * The active link is the most recently created manager link for this workspace
+ * that has not been revoked and is still usable. Returns null if none exists.
+ * Requires the actor to have members rights in the workspace.
+ */
+export async function activeInviteLinkForWorkspace(
+  db: SupabaseClient,
+  input: { actorUserId: string; workspaceId: string },
+): Promise<{ ok: true; link: InviteLinkRow | null } | { ok: false; status: number; error: string }> {
+  const standing = await actorWorkspaceStanding(db, input.actorUserId, input.workspaceId);
+  if (!standing) {
+    return { ok: false, status: 403, error: "That workspace is not yours to invite into." };
+  }
+  if (!standing.rights.members) {
+    return { ok: false, status: 403, error: "Only the workspace owner or an admin can invite into this workspace." };
+  }
+
+  const { data } = await db
+    .from("manager_invite_links")
+    .select(LINK_COLUMNS)
+    .eq("owner_user_id", standing.ownerUserId)
+    .eq("kind", "manager")
+    .eq("workspace_id", input.workspaceId)
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!data || data.length === 0) {
+    return { ok: true, link: null };
+  }
+
+  const row = data[0] as DbRow;
+  const link = toInviteLinkRow(row);
+
+  // Check if the link is unusable (expired, max uses reached, etc.).
+  const unusable = inviteLinkUnusableReason(
+    {
+      expiresAt: link.expiresAt,
+      revokedAt: link.revokedAt,
+      maxUses: link.maxUses,
+      usedCount: link.usedCount,
+    },
+    new Date(),
+  );
+
+  // Drop the link if it is unusable.
+  if (unusable) {
+    return { ok: true, link: null };
+  }
+
+  return { ok: true, link };
 }
 
 type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string };

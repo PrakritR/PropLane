@@ -18,12 +18,16 @@ describe("portal invite paths", () => {
     expect(PATHS).not.toContain('role="tablist"');
   });
 
-  it("is the workspace invite chrome, then New message compose", () => {
-    expect(PANEL).toContain("PortalInvitePaths");
+  it("manager invite is the sheet — no chooser and no separate New message compose", () => {
+    expect(PANEL).not.toContain("PortalInvitePaths");
     expect(PANEL).not.toContain("PortalInviteChoiceStep");
-    expect(PANEL).toContain('title="New message"');
-    expect(PANEL).toContain("formatInviteMessageBody");
-    expect(PANEL).toContain('dataAttr="co-manager-invite-properties"');
+    expect(PANEL).not.toContain('title="New message"');
+    expect(PANEL).not.toContain('dataAttr="co-manager-invite-properties"');
+    expect(PANEL).toContain("<WorkspaceInviteSheet");
+
+    const sheet = read("src/components/portal/workspace-invite-sheet.tsx");
+    expect(sheet).not.toContain("PortalInvitePaths");
+    expect(sheet).toContain("formatInviteMessageBody");
   });
 
   it("is the vendor invite chrome, then New message compose", () => {
