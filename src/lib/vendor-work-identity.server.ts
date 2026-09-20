@@ -207,7 +207,7 @@ async function loadIdentity(db: SupabaseClient, vendorUserId: string): Promise<I
   return (data as IdentityRow | null) ?? null;
 }
 
-function responseFor(input: { identity: IdentityRow | null; runtime: RuntimeRow | null; emailConfigured: boolean; smsConfigured: boolean; outboundUsed: number }): VendorWorkIdentityResponse {
+export function responseFor(input: { identity: IdentityRow | null; runtime: RuntimeRow | null; emailConfigured: boolean; smsConfigured: boolean; outboundUsed: number }): VendorWorkIdentityResponse {
   const { identity, runtime } = input;
   const state = identity?.lifecycle_state ?? "not_started";
   const channelBlock = (channelState: VendorWorkIdentityState, configured: boolean): VendorWorkIdentityResponse["email"]["blockedReason"] => {
