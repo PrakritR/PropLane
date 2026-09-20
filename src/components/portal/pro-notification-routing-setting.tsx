@@ -6,9 +6,15 @@ import { BellOff, BellRing, MessageCircleMore, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   PortalSettingsGroup,
+  PortalSettingsScopeTag,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import {
+  useSettingsPropertyScope,
+  type SettingsResolutionSource,
+} from "@/components/portal/settings-property-scope";
+import { scopeTagLabel } from "@/components/portal/settings-scope-bar";
 import {
   MANAGER_NOTIFICATION_CATEGORIES,
   type ManagerAttentionDigestCadence,
@@ -72,23 +78,28 @@ type LoadState = "loading" | "ready" | "error";
 
 export function ManagerNotificationRoutingSetting() {
   const { showToast } = useAppUi();
+  const { workspaceId: scopeWorkspaceId, reportSource } = useSettingsPropertyScope();
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<ManagerAutomationSettings>(
     DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   );
+  const [source, setSource] = useState<SettingsResolutionSource | null>(null);
   const [numberStatus, setNumberStatus] = useState<ManagerMessagingNumberStatus | null>(null);
 
   const load = useCallback(async () => {
     setLoadState("loading");
     try {
+      const query = scopeWorkspaceId ? `?workspaceId=${encodeURIComponent(scopeWorkspaceId)}` : "";
       const [settingsResponse, numberResponse] = await Promise.all([
-        fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
+        fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
         fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
       ]);
       if (!settingsResponse.ok) throw new Error("Could not load manager alert preferences.");
-      const body = (await settingsResponse.json()) as { settings?: unknown };
+      const body = (await settingsResponse.json()) as { settings?: unknown; source?: SettingsResolutionSource };
       setSettings(normalizeManagerAutomationSettings(body.settings));
+      setSource(body.source ?? null);
+      reportSource("automation-settings", body.source);
       setNumberStatus(
         numberResponse.ok ? ((await numberResponse.json()) as ManagerMessagingNumberStatus) : null,
       );
@@ -96,7 +107,7 @@ export function ManagerNotificationRoutingSetting() {
     } catch {
       setLoadState("error");
     }
-  }, []);
+  }, [scopeWorkspaceId, reportSource]);
 
   useEffect(() => {
     // Defer the initial state transition out of the effect body. This keeps the
@@ -133,35 +144,41 @@ export function ManagerNotificationRoutingSetting() {
           managerNotificationDestination: settings.managerNotificationDestination,
           managerNotificationCategories: settings.managerNotificationCategories,
           managerAttentionDigestCadence: settings.managerAttentionDigestCadence,
+          ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
         }),
       });
       if (!response.ok) throw new Error("Could not save manager alert preferences.");
-      const body = (await response.json()) as { settings?: unknown };
+      const body = (await response.json()) as { settings?: unknown; source?: SettingsResolutionSource };
       setSettings(normalizeManagerAutomationSettings(body.settings));
+      setSource(body.source ?? null);
+      reportSource("automation-settings", body.source);
       showToast("Manager alert preferences saved.");
     } catch {
       showToast("Could not save manager alert preferences. Try again.");
     } finally {
       setSaving(false);
     }
-  }, [settings, showToast]);
+  }, [settings, showToast, scopeWorkspaceId, reportSource]);
 
   return (
     <PortalSettingsSection
       title="Manager alerts"
       action={
         loadState === "ready" ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-10 px-4 text-[13px]"
-            disabled={saving}
-            aria-busy={saving}
-            onClick={() => void save()}
-            data-attr="manager-alert-preferences-save"
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, 0)}</PortalSettingsScopeTag> : null}
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-10 px-4 text-[13px]"
+              disabled={saving}
+              aria-busy={saving}
+              onClick={() => void save()}
+              data-attr="manager-alert-preferences-save"
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
         ) : null
       }
     >

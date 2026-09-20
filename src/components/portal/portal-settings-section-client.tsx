@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
-import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
-import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import {
@@ -25,10 +23,8 @@ import {
 import { SaveStatus } from "@/components/ui/save-status";
 import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
-import {
-  SettingsPropertyScopeBar,
-  SettingsPropertyScopeProvider,
-} from "@/components/portal/settings-property-scope";
+import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
+import { SettingsScopeBar } from "@/components/portal/settings-scope-bar";
 
 /**
  * `/portal/settings/<tab>` — the standalone page every per-section gear's "Open in Settings ↗"
@@ -61,26 +57,25 @@ export function PortalSettingsSectionClient({
     savedAt: null,
   });
   const pageRef = useRef<SettingsModulePageHandle>(null);
-  const [scopePropertyId, setScopePropertyId] = useState("");
+  const [scopePropertyIds, setScopePropertyIds] = useState<string[]>([]);
+  const [scopeWorkspaceId, setScopeWorkspaceId] = useState("");
+  const scopePropertyId = scopePropertyIds[0] ?? "";
 
   /**
-   * The Applications and Lease modules are per-property, so without these the
-   * standalone page renders an "Applies to" row with nothing in it and tells a
-   * manager who already owns properties to go and add one — the same host
-   * reached through a section's gear had the real list all along.
+   * The full account list — `SettingsScopeBar` narrows it to whichever
+   * workspace is chosen (PLAN-0920-0845 phase D), so this must NOT
+   * pre-filter to only the currently active one the way it used to; a
+   * workspace the manager picks in the bar that is not the active one still
+   * needs its own houses to choose from.
    *
    * This is the identical call `pro-applications.tsx` makes. It reads locally
    * cached portfolio state synchronously rather than fetching, so it costs
-   * nothing here and needs no loading state. Every other module ignores it.
+   * nothing here and needs no loading state.
    */
   const { userId } = useManagerUserId();
-  const workspaces = useWorkspaces();
   const propertyOptions = useMemo(
-    () =>
-      filterPropertyOptionsForActiveWorkspace(
-        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
-      ),
-    [userId, workspaces?.active?.id],
+    () => buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+    [userId],
   );
 
   useEffect(() => {
@@ -224,15 +219,17 @@ export function PortalSettingsSectionClient({
           <PortalSettingsSections className={showList ? "max-lg:hidden" : undefined}>
             {tab ? (
               <SettingsPropertyScopeProvider
-                propertyId={scopePropertyId}
-                onPropertyIdChange={setScopePropertyId}
+                workspaceId={scopeWorkspaceId}
+                onWorkspaceIdChange={setScopeWorkspaceId}
+                propertyIds={scopePropertyIds}
+                onPropertyIdsChange={setScopePropertyIds}
                 options={propertyOptions}
               >
                 <PortalSettingsSection
                   title={activeMeta?.label ?? "Settings"}
                   action={
                     <div className="flex items-center gap-2">
-                      <SettingsPropertyScopeBar />
+                      <SettingsScopeBar />
                       <SaveStatus
                         status={{
                           state: saveStatus.state,

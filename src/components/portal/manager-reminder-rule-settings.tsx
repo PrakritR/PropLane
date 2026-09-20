@@ -43,7 +43,10 @@ import {
   useFlushSettingsAutosaveOnUnmount,
   useReportSettingsSaveStatus,
 } from "@/components/portal/settings-save-status-context";
-import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
+import {
+  useSettingsPropertyScope,
+  type SettingsResolutionSource,
+} from "@/components/portal/settings-property-scope";
 
 export type ManagerReminderRuleSettingsHandle = {
   saveIfDirty: () => Promise<boolean>;
@@ -124,12 +127,16 @@ export function ManagerReminderRuleSettingsPanel({
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
-  // Per-property scope (PLAN-0916-1040). Outside an Operations pane the provider
-  // is absent and this is the no-op workspace scope, so a reminder editor in the
-  // per-tab gear modal keeps its original workspace-only behaviour.
+  // Workspace + per-property scope (PLAN-0916-1040 / PLAN-0920-0845 phase D).
+  // Outside an Operations pane the provider is absent and this is the no-op
+  // account scope, so a reminder editor in the per-tab gear modal keeps its
+  // original workspace-only behaviour.
   const {
     propertyId: scopePropertyId,
+    propertyIds: scopePropertyIds,
+    workspaceId: scopeWorkspaceId,
     reportOverriddenPropertyIds,
+    reportSource,
     reportLoading: reportScopeLoading,
     resetSignal,
   } = useSettingsPropertyScope();
@@ -158,13 +165,17 @@ export function ManagerReminderRuleSettingsPanel({
           }
           return;
         }
-        // `?propertyId=` scopes the read to the chosen house; "" reads the workspace.
-        const query = scopePropertyId ? `?propertyId=${encodeURIComponent(scopePropertyId)}` : "";
+        // `?propertyId=&workspaceId=` scopes the read; both "" reads the account.
+        const params = new URLSearchParams();
+        if (scopePropertyId) params.set("propertyId", scopePropertyId);
+        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
+        const query = params.toString() ? `?${params.toString()}` : "";
         const res = await fetch(`/api/portal/reminder-settings${query}`, { credentials: "include", cache: "no-store" });
         const body = (await res.json().catch(() => ({}))) as {
           settings?: unknown;
           error?: string;
           overriddenPropertyIds?: string[];
+          source?: SettingsResolutionSource;
         };
         if (!res.ok) throw new Error(body.error ?? "Could not load reminder settings.");
         const settings = normalizeReminderSettings(body.settings);
@@ -173,6 +184,7 @@ export function ManagerReminderRuleSettingsPanel({
           setRule(next);
           setSavedSnapshot(ruleSnapshot(next));
           reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+          reportSource("reminder-settings", body.source);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load reminder settings.");
@@ -186,7 +198,7 @@ export function ManagerReminderRuleSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [demo, kind, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds, reportScopeLoading]);
+  }, [demo, kind, showToast, scopePropertyId, scopeWorkspaceId, scopeKey, reportOverriddenPropertyIds, reportSource, reportScopeLoading]);
 
   const isDirty = useMemo(() => ruleSnapshot(rule) !== savedSnapshot, [rule, savedSnapshot]);
   const disabled = disabledProp || loading || saving;
@@ -219,7 +231,12 @@ export function ManagerReminderRuleSettingsPanel({
           headers: { "Content-Type": "application/json" },
           // A house PATCH edits that house's own override (created on first edit);
           // "" edits the workspace and never touches a house override.
-          body: JSON.stringify({ kind, rule, ...(scopePropertyId ? { propertyId: scopePropertyId } : {}) }),
+          body: JSON.stringify({
+            kind,
+            rule,
+            ...(scopePropertyId ? { propertyId: scopePropertyId } : {}),
+            ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
+          }),
           // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
           // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
           // exists to send.
@@ -229,6 +246,7 @@ export function ManagerReminderRuleSettingsPanel({
           settings?: unknown;
           error?: string;
           overriddenPropertyIds?: string[];
+          source?: SettingsResolutionSource;
         };
         if (!res.ok) throw new Error(body.error ?? "Could not save reminder settings.");
         const settings = normalizeReminderSettings(body.settings);
@@ -236,6 +254,7 @@ export function ManagerReminderRuleSettingsPanel({
         setRule(next);
         setSavedSnapshot(ruleSnapshot(next));
         reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        reportSource("reminder-settings", body.source);
         if (!options?.silent) showToast("Reminder settings saved.");
         reportSaveStatus({ type: "success" });
         return true;
@@ -250,7 +269,19 @@ export function ManagerReminderRuleSettingsPanel({
         setSaving(false);
       }
     },
-    [demo, isDirty, kind, reportSaveStatus, rule, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds],
+    [
+      demo,
+      isDirty,
+      kind,
+      reportSaveStatus,
+      rule,
+      showToast,
+      scopePropertyId,
+      scopeWorkspaceId,
+      scopeKey,
+      reportOverriddenPropertyIds,
+      reportSource,
+    ],
   );
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => save({ silent: true }), [save]);
@@ -267,28 +298,33 @@ export function ManagerReminderRuleSettingsPanel({
   useEffect(() => {
     if (resetSignal === lastResetRef.current) return;
     lastResetRef.current = resetSignal;
-    if (!scopePropertyId || demo) return;
+    const targets = scopePropertyIds.length > 0 ? scopePropertyIds : scopePropertyId ? [scopePropertyId] : [];
+    if (targets.length === 0 || demo) return;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/portal/reminder-settings", {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ propertyId: scopePropertyId, reset: true }),
-        });
-        const body = (await res.json().catch(() => ({}))) as {
-          settings?: unknown;
-          error?: string;
-          overriddenPropertyIds?: string[];
-        };
-        if (!res.ok) throw new Error(body.error ?? "Could not reset reminder settings.");
-        const settings = normalizeReminderSettings(body.settings);
-        const next = settings.rules[kind];
-        if (!cancelled) {
+        let last: { settings?: unknown; overriddenPropertyIds?: string[] } | null = null;
+        for (const target of targets) {
+          const res = await fetch("/api/portal/reminder-settings", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ propertyId: target, reset: true }),
+          });
+          const body = (await res.json().catch(() => ({}))) as {
+            settings?: unknown;
+            error?: string;
+            overriddenPropertyIds?: string[];
+          };
+          if (!res.ok) throw new Error(body.error ?? "Could not reset reminder settings.");
+          last = body;
+        }
+        if (!cancelled && last) {
+          const settings = normalizeReminderSettings(last.settings);
+          const next = settings.rules[kind];
           setRule(next);
           setSavedSnapshot(ruleSnapshot(next));
-          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+          reportOverriddenPropertyIds(scopeKey, last.overriddenPropertyIds ?? []);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not reset reminder settings.");

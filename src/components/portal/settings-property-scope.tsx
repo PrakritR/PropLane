@@ -1,42 +1,70 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
 /**
- * Per-property scope for Portfolio + Operations settings (PLAN-0918-1500).
+ * Workspace + property scope for Portfolio + Operations settings
+ * (PLAN-0918-1500 phase A/B/C; PLAN-0920-0845 phase D added the workspace
+ * rung and multi-property selection).
  *
- * One compact picker lives in the module title row (Services, Tours, …).
- * "" is the workspace default ("All properties"). Panels read the scope
- * through {@link useSettingsPropertyScope} and add `?propertyId=` to their
- * fetches. Section headers stay titles only — never a second picker.
+ * One scope bar (`settings-scope-bar.tsx`) lives at the top of a settings
+ * module. "" workspaceId is the account rung ("All workspaces"); an empty
+ * `propertyIds` is the chosen workspace's default (or the account's, when
+ * workspaceId is also ""); one or more `propertyIds` targets those houses'
+ * own values. Panels read the scope through {@link useSettingsPropertyScope}
+ * and add `?workspaceId=&propertyId=` to their fetches — `propertyId` stays
+ * the FIRST selected id for the many panels that only ever show or write one
+ * house at a time (see `propertyId`/`setPropertyId` below); a panel that
+ * fans a write out across every selected house reads `propertyIds` instead.
  *
- * The hook is safe to call OUTSIDE a provider — it returns the workspace scope
- * (`propertyId: ""`, no-op reporters) — so a panel without houses still reads
- * as the workspace default. Gear sheets that pass `propertyOptions` wrap this
- * provider the same way the Settings hub does.
+ * The hook is safe to call OUTSIDE a provider — it returns the account scope
+ * (`workspaceId: ""`, `propertyIds: []`, no-op reporters) — so a panel
+ * rendered standalone (a test, a gear sheet with no houses) still reads as
+ * the account default.
  */
 export type SettingsPropertyOption = { id: string; label: string };
 
+/** The same three-rung vocabulary the settings routes' `source` field uses (`scope-resolver.server.ts`). */
+export type SettingsResolutionSource = "account" | "workspace" | "property";
+
+/**
+ * The settings API namespaces phase A/B scoped (`docs` in the phase D brief).
+ * A fixed, well-known key per namespace lets a composite panel (Tasks,
+ * Tours, Services, …) read back the source ITS OWN child rows already
+ * fetched — `AutomationRuleRows` and `ManagerReminderRuleSettingsPanel` both
+ * read `/api/portal/reminder-settings` and therefore report the same key —
+ * without threading a prop through every one of them.
+ */
+export type SettingsSourceNamespace =
+  | "reminder-settings"
+  | "automated-messages"
+  | "service-automation-settings"
+  | "task-automation-settings"
+  | "automation-settings"
+  | "manager-application-settings"
+  | "manager-tour-settings";
+
 type ScopeContextValue = {
-  /** "" = All properties (workspace default). */
+  /** "" = All workspaces (the account rung). */
+  workspaceId: string;
+  setWorkspaceId: (id: string) => void;
+  /** Every selected house. Empty = the chosen workspace's (or account's) default. */
+  propertyIds: string[];
+  setPropertyIds: (ids: string[]) => void;
+  /** @deprecated single-target convenience — the first selected house, or "". */
   propertyId: string;
+  /** @deprecated single-target convenience — replaces the whole selection with one id (or clears it). */
   setPropertyId: (id: string) => void;
   options: SettingsPropertyOption[];
   /** A panel reports which houses have an override for its namespace(s). */
   reportOverriddenPropertyIds: (key: string, ids: string[]) => void;
   /** Union across every reporting namespace of the houses that have their own. */
   overriddenPropertyIds: string[];
-  /** Bumped when the manager asks to reset the selected house to workspace defaults. */
+  /** A panel reports the `source` its own GET resolved to, keyed by API namespace. */
+  reportSource: (namespace: SettingsSourceNamespace, source: SettingsResolutionSource | null | undefined) => void;
+  /** What each reporting namespace actually resolved to, for a composite panel's own group tags. */
+  sources: Partial<Record<SettingsSourceNamespace, SettingsResolutionSource>>;
+  /** Bumped when the manager asks to reset the selected house(s) to workspace defaults. */
   resetSignal: number;
   requestReset: () => void;
   /** True while any mounted panel is loading its settings for the current scope. */
@@ -45,11 +73,17 @@ type ScopeContextValue = {
 };
 
 const NOOP_SCOPE: ScopeContextValue = {
+  workspaceId: "",
+  setWorkspaceId: () => {},
+  propertyIds: [],
+  setPropertyIds: () => {},
   propertyId: "",
   setPropertyId: () => {},
   options: [],
   reportOverriddenPropertyIds: () => {},
   overriddenPropertyIds: [],
+  reportSource: () => {},
+  sources: {},
   resetSignal: 0,
   requestReset: () => {},
   loading: false,
@@ -63,13 +97,17 @@ export function useSettingsPropertyScope(): ScopeContextValue {
 }
 
 export function SettingsPropertyScopeProvider({
-  propertyId,
-  onPropertyIdChange,
+  workspaceId,
+  onWorkspaceIdChange,
+  propertyIds,
+  onPropertyIdsChange,
   options,
   children,
 }: {
-  propertyId: string;
-  onPropertyIdChange: (id: string) => void;
+  workspaceId: string;
+  onWorkspaceIdChange: (id: string) => void;
+  propertyIds: string[];
+  onPropertyIdsChange: (ids: string[]) => void;
   options: SettingsPropertyOption[];
   children: ReactNode;
 }) {
@@ -78,6 +116,7 @@ export function SettingsPropertyScopeProvider({
   const loadingRef = useRef<Map<string, boolean>>(new Map());
   const [loading, setLoading] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
+  const [sources, setSources] = useState<Partial<Record<SettingsSourceNamespace, SettingsResolutionSource>>>({});
 
   const reportOverriddenPropertyIds = useCallback((key: string, ids: string[]) => {
     overridesRef.current.set(key, ids);
@@ -91,6 +130,17 @@ export function SettingsPropertyScopeProvider({
     });
   }, []);
 
+  const reportSource = useCallback(
+    (namespace: SettingsSourceNamespace, source: SettingsResolutionSource | null | undefined) => {
+      setSources((prev) => {
+        if (!source) return prev;
+        if (prev[namespace] === source) return prev;
+        return { ...prev, [namespace]: source };
+      });
+    },
+    [],
+  );
+
   const reportLoading = useCallback((key: string, isLoading: boolean) => {
     loadingRef.current.set(key, isLoading);
     setLoading([...loadingRef.current.values()].some(Boolean));
@@ -98,24 +148,40 @@ export function SettingsPropertyScopeProvider({
 
   const requestReset = useCallback(() => setResetSignal((n) => n + 1), []);
 
+  const setPropertyId = useCallback(
+    (id: string) => onPropertyIdsChange(id ? [id] : []),
+    [onPropertyIdsChange],
+  );
+
   const value = useMemo<ScopeContextValue>(
     () => ({
-      propertyId,
-      setPropertyId: onPropertyIdChange,
+      workspaceId,
+      setWorkspaceId: onWorkspaceIdChange,
+      propertyIds,
+      setPropertyIds: onPropertyIdsChange,
+      propertyId: propertyIds[0] ?? "",
+      setPropertyId,
       options,
       reportOverriddenPropertyIds,
       overriddenPropertyIds,
+      reportSource,
+      sources,
       resetSignal,
       requestReset,
       loading,
       reportLoading,
     }),
     [
-      propertyId,
-      onPropertyIdChange,
+      workspaceId,
+      onWorkspaceIdChange,
+      propertyIds,
+      onPropertyIdsChange,
+      setPropertyId,
       options,
       reportOverriddenPropertyIds,
       overriddenPropertyIds,
+      reportSource,
+      sources,
       resetSignal,
       requestReset,
       loading,
@@ -125,83 +191,5 @@ export function SettingsPropertyScopeProvider({
 
   return (
     <SettingsPropertyScopeContext.Provider value={value}>{children}</SettingsPropertyScopeContext.Provider>
-  );
-}
-
-const ALL_PROPERTIES = "__all__";
-
-function SettingsPropertyScopePicker({
-  compact,
-  dataAttr,
-}: {
-  compact?: boolean;
-  dataAttr: string;
-}) {
-  const scope = useSettingsPropertyScope();
-  const pickerOptions = [
-    { value: ALL_PROPERTIES, label: "All properties" },
-    ...scope.options.map((o) => ({ value: o.id, label: o.label })),
-  ];
-  const selectAllFooter = (close: () => void) => (
-    <button
-      type="button"
-      data-attr="settings-property-scope-select-all"
-      className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
-      onClick={() => {
-        scope.setPropertyId("");
-        close();
-      }}
-    >
-      Select all
-    </button>
-  );
-
-  return (
-    <FieldSingleSelect
-      label="Property"
-      hideLabel
-      value={scope.propertyId || ALL_PROPERTIES}
-      onChange={(next) => scope.setPropertyId(next === ALL_PROPERTIES ? "" : next)}
-      options={pickerOptions}
-      disabled={scope.loading}
-      dataAttr={dataAttr}
-      variant="pill"
-      triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[15rem]`}
-      wrapperClassName={compact ? "max-w-[15rem]" : undefined}
-      menuFooter={selectAllFooter}
-    />
-  );
-}
-
-/**
- * Compact title-row property control — one picker, no "Property" label, no card.
- * Mount it in the module title row. "" is All properties.
- * "Select all" in the menu is the same pick as All properties.
- */
-export function SettingsPropertyScopeBar() {
-  const scope = useSettingsPropertyScope();
-  const { options, propertyId, overriddenPropertyIds } = scope;
-
-  if (options.length === 0) return null;
-
-  const overridden = new Set(overriddenPropertyIds);
-  const reset =
-    propertyId !== "" && overridden.has(propertyId) ? (
-      <button
-        type="button"
-        onClick={scope.requestReset}
-        disabled={scope.loading}
-        data-attr="settings-property-scope-reset"
-        className="text-[13px] font-semibold text-primary transition-colors hover:text-primary/80 disabled:opacity-50"
-      >
-        Reset to workspace default
-      </button>
-    ) : null;
-
-  return (
-    <div className="flex items-center gap-2">
-      <SettingsPropertyScopePicker compact dataAttr="settings-property-scope" />
-      {reset}
-    </div>
   );
 }
