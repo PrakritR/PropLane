@@ -9,15 +9,20 @@ function src(file: string) {
 }
 
 describe("Payment settings owns setup; Residents drop rent reminders", () => {
-  it("Payment settings chrome is Payment setup, Incoming, Outgoing, Late fees", () => {
+  it("Payment settings chrome stacks Payment setup, Processing fee, Late fees, Incoming, Outgoing reminders", () => {
+    // PLAN-0920-0845 phase E: the "Settings" area dropdown (one area shown at
+    // a time) is gone — every area is now its own always-visible, titled
+    // section, in this order.
     const panels = src("pro-portal-settings-panels.tsx");
-    expect(panels).toContain('value: "setup", label: "Payment setup"');
-    expect(panels).toContain('value: "incoming", label: "Incoming reminders"');
-    expect(panels).toContain('value: "outgoing", label: "Outgoing reminders"');
-    expect(panels).toContain('value: "late-fees", label: "Late fees"');
+    expect(panels).toContain('title="Payment setup"');
+    expect(panels).toContain('title="Processing fee"');
+    expect(panels).toContain('title="Late fees"');
+    expect(panels).toContain('title="Incoming reminders"');
+    expect(panels).toContain('title="Outgoing reminders"');
     expect(panels).not.toContain('value: "rent", label: "Rent reminders"');
+    expect(panels).not.toContain("PAYMENTS_SETTINGS_AREAS");
+    expect(panels).not.toContain('dataAttr="payments-settings-area"');
     expect(panels).toContain("ManagerPaymentSetupPanel");
-    expect(panels).toContain('dataAttr="payments-settings-area"');
   });
 
   it("Resident settings is the welcome message, not rent reminders", () => {

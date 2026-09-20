@@ -46,6 +46,7 @@ import {
 import {
   useSettingsPropertyScope,
   type SettingsResolutionSource,
+  type SettingsSourceNamespace,
 } from "@/components/portal/settings-property-scope";
 
 export type ManagerReminderRuleSettingsHandle = {
@@ -116,6 +117,7 @@ export function ManagerReminderRuleSettingsPanel({
   teamMembers,
   formRef,
   disabled: disabledProp,
+  sourceNamespace = "reminder-settings",
 }: {
   kind: ReminderSubjectKind;
   audienceMode: ReminderAudienceMode;
@@ -123,6 +125,15 @@ export function ManagerReminderRuleSettingsPanel({
   teamMembers: WorkAssignmentTeamMember[];
   formRef?: Ref<ManagerReminderRuleSettingsHandle>;
   disabled?: boolean;
+  /**
+   * Which scope-tag key this instance reports to. Defaults to the shared
+   * "reminder-settings" key every reminder screen used before phase E — safe
+   * as long as only one reminder panel using that key is mounted at a time.
+   * Payments now stacks Incoming and Outgoing reminders simultaneously, so
+   * those two callers pass distinct keys instead of racing to overwrite the
+   * same one (`settings-property-scope.tsx`).
+   */
+  sourceNamespace?: SettingsSourceNamespace;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -184,7 +195,7 @@ export function ManagerReminderRuleSettingsPanel({
           setRule(next);
           setSavedSnapshot(ruleSnapshot(next));
           reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
-          reportSource("reminder-settings", body.source);
+          reportSource(sourceNamespace, body.source);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load reminder settings.");
@@ -198,7 +209,18 @@ export function ManagerReminderRuleSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [demo, kind, showToast, scopePropertyId, scopeWorkspaceId, scopeKey, reportOverriddenPropertyIds, reportSource, reportScopeLoading]);
+  }, [
+    demo,
+    kind,
+    showToast,
+    scopePropertyId,
+    scopeWorkspaceId,
+    scopeKey,
+    sourceNamespace,
+    reportOverriddenPropertyIds,
+    reportSource,
+    reportScopeLoading,
+  ]);
 
   const isDirty = useMemo(() => ruleSnapshot(rule) !== savedSnapshot, [rule, savedSnapshot]);
   const disabled = disabledProp || loading || saving;
@@ -254,7 +276,7 @@ export function ManagerReminderRuleSettingsPanel({
         setRule(next);
         setSavedSnapshot(ruleSnapshot(next));
         reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
-        reportSource("reminder-settings", body.source);
+        reportSource(sourceNamespace, body.source);
         if (!options?.silent) showToast("Reminder settings saved.");
         reportSaveStatus({ type: "success" });
         return true;
@@ -279,6 +301,7 @@ export function ManagerReminderRuleSettingsPanel({
       scopePropertyId,
       scopeWorkspaceId,
       scopeKey,
+      sourceNamespace,
       reportOverriddenPropertyIds,
       reportSource,
     ],

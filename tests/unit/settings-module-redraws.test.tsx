@@ -181,8 +181,14 @@ describe("settings module redraws — scope tags", () => {
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
+    // PLAN-0920-0845 phase E dropped the "Settings" area dropdown — every
+    // area is now a stacked, always-visible section.
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("Payment setup")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Processing fee").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Late fees").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Incoming reminders").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Outgoing reminders").length).toBeGreaterThan(0);
     cleanup();
 
     render(withScope(<BookingsSettingsPanel teamMembers={[]} />));

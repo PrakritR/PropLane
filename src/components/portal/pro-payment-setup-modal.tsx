@@ -32,6 +32,7 @@ import {
   loadManagerSubscriptionTierClient,
 } from "@/lib/manager-subscription-client";
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
+import { useSettingsPropertyScope, type SettingsResolutionSource } from "@/components/portal/settings-property-scope";
 
 
 function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): ManagerManualPaymentSettingsView {
@@ -42,13 +43,22 @@ export function ManagerPaymentSetupPanel({
   active,
   propertyOptions,
   presetPropertyIds,
+  section = "both",
 }: {
   active: boolean;
   propertyOptions: { id: string; label: string }[];
   /** When set, scope the fee table to these ids (e.g. resident detail). */
   presetPropertyIds?: string[];
+  /**
+   * PLAN-0920-0845 phase E: the Payments settings module stacks Stripe setup
+   * and the processing-fee picker as two separately-titled, separately-tagged
+   * sections instead of one combined panel. `ManagerPaymentSetupModal` keeps
+   * the default "both" — its layout is unchanged.
+   */
+  section?: "both" | "setup" | "fee";
 }) {
   const { showToast } = useAppUi();
+  const { reportSource } = useSettingsPropertyScope();
   const demo = isDemoModeActive();
   const [draft, setDraft] = useState<ManagerManualPaymentSettingsView>(() => draftFromSettings(null));
   const [loading, setLoading] = useState(false);
@@ -177,16 +187,20 @@ export function ManagerPaymentSetupPanel({
        * reading — returning early here left a new account showing a blank
        * control it could never fill in.
        */
-      const res = await fetch(
-        propertyIdsKey
-          ? `/api/portal/manager-manual-payment-settings?propertyIds=${encodeURIComponent(propertyIdsKey)}`
-          : "/api/portal/manager-manual-payment-settings",
-        { credentials: "include" },
-      );
+      const params = new URLSearchParams();
+      if (propertyIdsKey) params.set("propertyIds", propertyIdsKey);
+      // Singular `?workspaceId=` — distinct from the plural `propertyIds` above —
+      // is what lets the route's `source` answer which rung actually resolved
+      // the processing fee (`manager-manual-payment-settings/route.ts`), so the
+      // "Processing fee" section can carry an honest Account/Workspace tag.
+      if (activeWorkspaceId) params.set("workspaceId", activeWorkspaceId);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`/api/portal/manager-manual-payment-settings${query}`, { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as {
         settings?: ManagerManualPaymentSettingsView;
         propertyServiceFeePayers?: Record<string, ServiceFeePayer | null>;
         workspacePaymentSettings?: Record<string, { serviceFeePayer?: ServiceFeePayer | null }>;
+        source?: SettingsResolutionSource;
         error?: string;
       };
       if (!res.ok) {
@@ -204,12 +218,13 @@ export function ManagerPaymentSetupPanel({
         ),
       );
       setSettingsLoaded(true);
+      reportSource("processing-fee-settings", data.source);
     } catch {
       showToast("Could not load payment setup.");
     } finally {
       setLoading(false);
     }
-  }, [demo, propertyIdsKey, showToast, visibleProperties]);
+  }, [demo, propertyIdsKey, activeWorkspaceId, showToast, visibleProperties, reportSource]);
 
   const loadTier = useCallback(async () => {
     if (demo) {
@@ -237,17 +252,22 @@ export function ManagerPaymentSetupPanel({
       cancelProplanePending();
       return;
     }
-    void loadStripeStatus();
-    void loadSettings();
-    void loadTier();
-  }, [active, loadStripeStatus, loadSettings, loadTier, cancelProplanePending]);
+    // A split instance only fetches what its own half of the panel shows —
+    // the "setup" half never needs the fee-payer read, and the "fee" half
+    // never needs Stripe's status.
+    if (section !== "fee") void loadStripeStatus();
+    if (section !== "setup") {
+      void loadSettings();
+      void loadTier();
+    }
+  }, [active, section, loadStripeStatus, loadSettings, loadTier, cancelProplanePending]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || section === "fee") return;
     const onFocus = () => void loadStripeStatus();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [active, loadStripeStatus]);
+  }, [active, section, loadStripeStatus]);
 
   async function persistSettings(
     patch: Partial<ManagerManualPaymentSettingsView> & {
@@ -486,39 +506,45 @@ export function ManagerPaymentSetupPanel({
     <div className="space-y-4">
       {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
-      <div
-        className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5"
-        data-testid="payment-setup-stripe-card"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <span className="text-sm font-semibold text-foreground">Stripe payouts</span>
-          {stripeState !== "unlinked" ? <Badge tone={stripeStatus.tone}>{stripeStatus.label}</Badge> : null}
-        </div>
-        <button
-          type="button"
-          onClick={() => void linkStripe()}
-          disabled={stripeBusy}
-          data-attr="manager-payment-stripe-link"
-          className="shrink-0 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
-        >
-          {stripeAction} →
-        </button>
-      </div>
+      {section !== "fee" ? (
+        <>
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5"
+            data-testid="payment-setup-stripe-card"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+              <span className="text-sm font-semibold text-foreground">Stripe payouts</span>
+              {stripeState !== "unlinked" && stripeState !== "incomplete" ? (
+                <Badge tone={stripeStatus.tone}>{stripeStatus.label}</Badge>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => void linkStripe()}
+              disabled={stripeBusy}
+              data-attr="manager-payment-stripe-link"
+              className="shrink-0 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+            >
+              {stripeAction} →
+            </button>
+          </div>
 
-      {stripeIssue ? (
-        <p className="text-xs leading-relaxed text-[var(--status-pending-fg)]">{stripeIssue}</p>
+          {stripeIssue && stripeState !== "incomplete" ? (
+            <p className="text-xs leading-relaxed text-[var(--status-pending-fg)]">{stripeIssue}</p>
+          ) : null}
+
+          {isCoManagerForPayout ? (
+            <p className="text-xs leading-relaxed text-muted">
+              {canEditBankAccount
+                ? "You are updating the property owner's payout bank account."
+                : "Payout bank details belong to the property owner."}
+            </p>
+          ) : null}
+        </>
       ) : null}
 
-      {isCoManagerForPayout ? (
-        <p className="text-xs leading-relaxed text-muted">
-          {canEditBankAccount
-            ? "You are updating the property owner's payout bank account."
-            : "Payout bank details belong to the property owner."}
-        </p>
-      ) : null}
-
-      {showFeePayerSection ? (
+      {section !== "setup" && showFeePayerSection ? (
         <section className="space-y-4">
           {lockPropertySelection ? (
             <p className="text-sm text-foreground">

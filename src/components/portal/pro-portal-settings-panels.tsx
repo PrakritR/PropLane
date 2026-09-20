@@ -1409,19 +1409,17 @@ export function TourSettingsPanel({
   );
 }
 
-export const PAYMENTS_SETTINGS_AREAS = [
-  { value: "setup", label: "Payment setup" },
-  { value: "incoming", label: "Incoming reminders" },
-  { value: "outgoing", label: "Outgoing reminders" },
-  { value: "late-fees", label: "Late fees" },
-] as const;
-
-export type PaymentsSettingsArea = (typeof PAYMENTS_SETTINGS_AREAS)[number]["value"];
-
 /**
- * Payment settings is workspace-scoped Stripe + processing fee, then rent
- * reminders and late fees. Household / resident-life reminders live under
- * Resident settings. Workspace comes from the portal top-left switcher.
+ * Payment settings is workspace-scoped Stripe + processing fee, then late
+ * fees and rent reminders. Household / resident-life reminders live under
+ * Resident settings. Workspace comes from the portal top-left switcher, or
+ * the module's own scope bar when it has overridden it.
+ *
+ * PLAN-0920-0845 phase E dropped the "Settings" area dropdown that used to
+ * show one of Payment setup / Incoming / Outgoing / Late fees at a time —
+ * every one of those now stacks, always visible, as its own titled, tagged
+ * section: Payment setup, Processing fee, Late fees, Incoming reminders,
+ * Outgoing reminders, in that order.
  */
 export function PaymentsSettingsPanel({
   onSaved,
@@ -1431,7 +1429,6 @@ export function PaymentsSettingsPanel({
   teamMembers = [],
   outgoingReminderFormRef,
   propertyOptions = [],
-  initialPropertyId,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
@@ -1447,8 +1444,6 @@ export function PaymentsSettingsPanel({
   const scope = useSettingsPropertyScope();
   const remindersRef = useRef<PaymentAutomationSettingsHandle | null>(null);
   const lateFeeRef = useRef<PaymentListingLateFeeHandle | null>(null);
-  const [area, setArea] = useState<PaymentsSettingsArea>(mode === "outgoing" ? "outgoing" : "setup");
-  const [houseId, setHouseId] = useState("");
 
   useImperativeHandle(
     formRef,
@@ -1468,15 +1463,37 @@ export function PaymentsSettingsPanel({
     () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
     [propertyOptions, workspaces?.active?.id],
   );
-  const firstHouseId = houses[0]?.id ?? "";
-  useEffect(() => {
-    const preferred = (scope.propertyId || initialPropertyId || "").trim();
-    setHouseId((current) => {
-      if (preferred) return preferred;
-      if (current && houses.some((house) => house.id === current)) return current;
-      return firstHouseId;
-    });
-  }, [firstHouseId, houses, initialPropertyId, scope.propertyId]);
+
+  /* Only workspaces the signed-in manager owns can have their payment setup
+     changed here — same fallback `ManagerPaymentSetupPanel` already uses for
+     the processing-fee payer: the scope bar's own pick, else the active
+     workspace (if owned), else the first owned workspace. */
+  const ownedWorkspaces = useMemo(
+    () => (workspaces?.workspaces ?? []).filter((w) => w.owned),
+    [workspaces?.workspaces],
+  );
+  const effectiveWorkspace = useMemo(() => {
+    if (scope.workspaceId) return workspaces?.workspaces.find((w) => w.id === scope.workspaceId) ?? null;
+    if (workspaces?.active?.owned) return workspaces.active;
+    return ownedWorkspaces[0] ?? null;
+  }, [scope.workspaceId, workspaces?.active, workspaces?.workspaces, ownedWorkspaces]);
+
+  /* Late fees have no workspace/account rung — every listing carries its own
+     value — so the "all properties" bucket is every house in this resolved
+     workspace, not just the ones the global switcher currently shows. */
+  const workspaceProperties = useMemo(() => {
+    if (!effectiveWorkspace) return houses;
+    const labels = effectiveWorkspace.propertyLabels ?? {};
+    return effectiveWorkspace.propertyIds
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => ({
+        id,
+        label: (labels[id] ?? "").trim() || houses.find((house) => house.id === id)?.label || "Untitled property",
+      }));
+  }, [effectiveWorkspace, houses]);
+
+  const lateFeePropertyCount = scope.propertyIds.length > 0 ? scope.propertyIds.length : workspaceProperties.length;
 
   if (mode === "outgoing") {
     return (
@@ -1491,67 +1508,60 @@ export function PaymentsSettingsPanel({
     );
   }
 
-  const workspaceName = workspaces?.active?.name;
-  const title = workspaceName ?? "Payment setup";
-
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title={title}>
+      <PortalSettingsSection title="Payment setup">
+        <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection
+        title="Processing fee"
+        action={<SettingsGroupSourceTag namespace="processing-fee-settings" />}
+      >
+        <ManagerPaymentSetupPanel active section="fee" propertyOptions={houses} />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection
+        title="Late fees"
+        action={<PortalSettingsScopeTag variant="muted">{scopeTagLabel("property", lateFeePropertyCount)}</PortalSettingsScopeTag>}
+      >
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Settings">
-            <FieldSingleSelect
-              hideLabel
-              label="Settings"
-              value={area}
-              options={PAYMENTS_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
-              onChange={(next) => {
-                if (next === "setup" || next === "incoming" || next === "outgoing" || next === "late-fees") {
-                  setArea(next);
-                }
-              }}
-              dataAttr="payments-settings-area"
-            />
-          </PortalSettingsRow>
+          <PaymentListingLateFeeSettings
+            ref={lateFeeRef}
+            propertyOptions={workspaceProperties}
+            workspaceName={effectiveWorkspace?.name}
+            workspaceId={effectiveWorkspace?.id}
+          />
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      {area === "setup" ? (
-        <ManagerPaymentSetupPanel active propertyOptions={houses} />
-      ) : null}
+      <PortalSettingsSection
+        title="Incoming reminders"
+        action={<SettingsGroupSourceTag namespace="incoming-payment-reminders" />}
+      >
+        <IncomingPaymentRemindersSettingsBundle
+          teamMembers={teamMembers}
+          onSaved={onSaved}
+          formRef={remindersRef}
+        />
+      </PortalSettingsSection>
 
-      {area === "incoming" ? (
-        <>
-          <IncomingPaymentRemindersSettingsBundle
-            teamMembers={teamMembers}
-            onSaved={onSaved}
-            formRef={remindersRef}
-          />
-          <PortalSettingsSection title="Delinquency">
-            <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
-          </PortalSettingsSection>
-          <PortalSettingsSection title="Messages sent automatically">
-            <AutomatedMessagesList area="payments" />
-          </PortalSettingsSection>
-        </>
-      ) : null}
+      <PortalSettingsSection title="Delinquency">
+        <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="payments" />
+      </PortalSettingsSection>
 
-      {area === "outgoing" ? (
+      <PortalSettingsSection
+        title="Outgoing reminders"
+        action={<SettingsGroupSourceTag namespace="outgoing-payment-reminders" />}
+      >
         <OutgoingPaymentRemindersSettingsBundle
           teamMembers={teamMembers}
           formRef={outgoingReminderFormRef}
         />
-      ) : null}
-
-      {area === "late-fees" ? (
-        <PortalSettingsGroup>
-          <PaymentListingLateFeeSettings
-            ref={lateFeeRef}
-            propertyOptions={houses}
-            initialPropertyId={houseId}
-            hideAppliesTo
-          />
-        </PortalSettingsGroup>
-      ) : null}
+      </PortalSettingsSection>
     </div>
   );
 }
