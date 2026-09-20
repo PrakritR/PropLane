@@ -33,6 +33,7 @@ import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@
 import { filterListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
 import { roomAvailabilityTone } from "@/lib/room-availability-style";
 import { residentCreateAccountHref } from "@/lib/resident-public-nav";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 /**
  * The listing detail page (PLAN-0914-2124), in the order a renter reads it:
@@ -76,7 +77,7 @@ function ShareButton({ property }: { property: MockProperty }) {
   const [copied, setCopied] = useState(false);
   const share = useCallback(async () => {
     if (typeof window === "undefined") return;
-    const url = window.location.href;
+    const url = `${resolveEmailLinkBaseUrl()}/rent/listings/${encodeURIComponent(property.id)}`;
     const title = propertyDisplayLabel(property) ?? "PropLane listing";
     try {
       if (typeof navigator.share === "function") {
@@ -326,8 +327,8 @@ export function ListingDetailSections({
   const heroUrls = rich.heroHousePhotoUrls ?? [];
   const propertyLabel = propertyDisplayLabel(property);
   const facts = useMemo(
-    () => deriveListingKeyFacts(rich, property, managerPreviewChrome ? { photoCount: heroUrls.length } : {}),
-    [rich, property, managerPreviewChrome, heroUrls.length],
+    () => deriveListingKeyFacts(rich, property),
+    [rich, property],
   );
   const hasAbout = Boolean(rich.heroTagline?.trim() || rich.heroOverview?.trim());
   // The tiles already say rooms, baths and pets; the ledger keeps only what they do not.

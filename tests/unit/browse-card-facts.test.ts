@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { MockProperty } from "@/data/types";
 import {
   aggregateRoomRowsToPropertyCards,
+  browseCardMatchesQuery,
   buildPropertyBrowseCards,
   classifyRoomAvailability,
   shortBathHint,
@@ -154,6 +155,39 @@ function mockProperty(overrides: Partial<MockProperty> & Pick<MockProperty, "id"
     ...overrides,
   };
 }
+
+describe("browse search", () => {
+  it("carries the whole address onto the card so a city search finds the home", () => {
+    const [card] = aggregateRoomRowsToPropertyCards([
+      row({ roomId: "r1", fullAddress: "812 Birch St, Seattle, WA 98103", headlineAddress: "812 Birch St", neighborhood: "Ballard" }),
+    ]);
+    expect(card!.fullAddress).toBe("812 Birch St, Seattle, WA 98103");
+    expect(browseCardMatchesQuery(card!, "seattle")).toBe(true);
+    expect(browseCardMatchesQuery(card!, "Ballard")).toBe(true);
+    expect(browseCardMatchesQuery(card!, "birch")).toBe(true);
+    expect(browseCardMatchesQuery(card!, "Fremont")).toBe(false);
+  });
+
+  it("never throws on a card with no address and treats a blank query as a match", () => {
+    const bare = { fullAddress: "", headlineAddress: "", neighborhood: "" };
+    expect(browseCardMatchesQuery(bare, "seattle")).toBe(false);
+    expect(browseCardMatchesQuery(bare, "   ")).toBe(true);
+    expect(browseCardMatchesQuery({ ...bare, headlineAddress: "9 Spruce Ln" }, "spruce")).toBe(true);
+  });
+
+  it("does not count a room dated 'from' a future day as available now", () => {
+    expect(classifyRoomAvailability("Available from Oct 1, 2099")).toBe("later");
+    expect(classifyRoomAvailability("Available Oct 1, 2099")).toBe("later");
+    expect(classifyRoomAvailability("Available after Oct 1, 2001")).toBe("now");
+    const [card] = aggregateRoomRowsToPropertyCards([
+      row({ roomId: "r1", availabilityRaw: "Available from Oct 1, 2099" }),
+      row({ roomId: "r2", availabilityRaw: "Available after Dec 1, 2099" }),
+    ]);
+    expect(card!.availableNowCount).toBe(0);
+    expect(card!.availabilityKind).toBe("later");
+    expect(card!.availabilityLabel).toBe("Available from Oct 1, 2099");
+  });
+});
 
 describe("buildPropertyBrowseCards minBudgetNum", () => {
   it("drops homes whose every room rents below the floor and keeps them above it", () => {
