@@ -28,13 +28,15 @@ export function PortalRecordShareHost({ children }: { children: ReactNode }) {
   return (
     <PortalRecordShareHostContext.Provider value={value}>
       {children}
-      <PortalRecordShareModal
-        open={Boolean(request)}
-        onClose={() => setRequest(null)}
-        kind={request?.kind ?? "application"}
-        recordId={request?.recordId ?? ""}
-        recordTitle={request?.recordTitle}
-      />
+      {request ? (
+        <PortalRecordShareModal
+          open
+          onClose={() => setRequest(null)}
+          kind={request.kind}
+          recordId={request.recordId}
+          recordTitle={request.recordTitle}
+        />
+      ) : null}
     </PortalRecordShareHostContext.Provider>
   );
 }

@@ -34,6 +34,7 @@ import {
   ambikaSeattlePropertyId,
   exclusiveCheckoutAfterLastNight,
   isLockedLiveListingId,
+  leasePdfFileNameFor,
   residentEmailFor,
   roomIdForNumber,
   type AmbikaSeattleResident,
@@ -326,26 +327,6 @@ async function slimAmbikaLeasePayloads() {
   console.log(`${APPLY ? "Slimmed" : "Would slim"} ${heavyApps} application row(s).`);
 }
 
-const EXTRA_LEASE_PDFS: Record<string, string> = {
-  aaron: "Lease Aaron6.pdf",
-  akshaya: "Lease Akshaya Room3.pdf",
-  sohan: "Lease Sohan Room2.pdf",
-  grace: "Lease Agreement Room1.pdf",
-  vivek: "Lease Vivek Room4.pdf",
-};
-
-function pdfFileForResident(name: string): string | null {
-  const key = name.trim().toLowerCase();
-  if (key.includes("armbrister")) return null;
-  const stay = AMBIKA_SEATTLE_RESIDENTS.find((row) => namesOverlap(row.name, name) && row.pdfFileName);
-  if (stay?.pdfFileName) return stay.pdfFileName;
-  for (const [needle, file] of Object.entries(EXTRA_LEASE_PDFS)) {
-    if (needle === "aaron" && key !== "aaron") continue;
-    if (key.includes(needle)) return file;
-  }
-  return null;
-}
-
 async function restoreAmbikaLeaseDocuments() {
   const { data: profile, error: pErr } = await db
     .from("profiles")
@@ -373,7 +354,7 @@ async function restoreAmbikaLeaseDocuments() {
       console.log(`KEEP ${rec.id} ${row.residentName ?? "—"} already filed`);
       continue;
     }
-    const fileName = pdfFileForResident(String(row.residentName ?? ""));
+    const fileName = leasePdfFileNameFor(String(row.residentName ?? ""), rec.resident_email);
     if (!fileName) {
       console.log(`SKIP ${rec.id} ${row.residentName ?? "—"} no local PDF`);
       continue;

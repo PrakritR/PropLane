@@ -8,6 +8,7 @@ import {
   ambikaSeattlePropertyId,
   bookingGetsOnboard,
   isLockedLiveListingId,
+  leasePdfFileNameFor,
   occupancyPlaceholderEmail,
   residentEmailFor,
   roomIdForNumber,
@@ -51,6 +52,19 @@ describe("Ambika Seattle occupancy roster (PLAN-0918-1909)", () => {
     expect(AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "daniel-5259-r2")?.roomNumber).toBe(2);
     expect(AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "baljinnyam-5259-r6")?.roomNumber).toBe(6);
     expect(AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "dagvadorj-5259-r8")?.roomNumber).toBe(8);
+  });
+
+  it("files each signed lease PDF on its own resident, never by substring", () => {
+    const sohan = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "sohan-4709a-r2");
+    const vivek = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "vivek-5259-r4");
+    expect(sohan?.pdfFileName).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Vivek")).toBe("Lease Vivek Room4.pdf");
+    expect(leasePdfFileNameFor("Vivek", residentEmailFor(vivek!))).toBe("Lease Vivek Room4.pdf");
+    expect(leasePdfFileNameFor("Sohan Vivek Naik")).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Sohan", residentEmailFor(sohan!))).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Someone Else", residentEmailFor(sohan!))).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Daniel Armbrister")).toBeNull();
+    expect(leasePdfFileNameFor("")).toBeNull();
   });
 
   it("uses Vivek $1,000 and files Prakrit as a resident without charges", () => {

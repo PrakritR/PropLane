@@ -81,7 +81,6 @@ export function PortalRecordShareLinkButton({
             e.preventDefault();
             openShare();
           }}
-          onClick={() => openShare()}
         >
           {label}
         </DropdownMenuItem>

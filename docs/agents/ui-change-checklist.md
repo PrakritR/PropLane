@@ -82,6 +82,7 @@ row, field, or choice.
 - Guard: `tests/unit/no-subtext-listing-wizard.test.ts` reads the wizard
   source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
   sentence of grey text. Billing: `tests/unit/pro-plan-no-subtext.test.ts`.
+  Inspections list: `tests/unit/inspections-no-progress-subtext.test.ts`.
   Do not site-sweep existing copy unless the surface is in scope.
 
 ## Icon chrome
