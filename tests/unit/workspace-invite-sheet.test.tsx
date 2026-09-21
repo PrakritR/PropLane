@@ -3,13 +3,22 @@
  * Workspace invite sheet: opening the sheet only READS the workspace's
  * active link (hydrating role/houses/permissions from it) and never mints as
  * a side effect. Copy link and Send are the only two actions that can mint —
- * and only when the on-screen access chip no longer matches the held link's
- * terms, always with `replaceActive: true`, so an already-shared URL never
- * gains power and the emailed/texted invite always carries the URL it
+ * and only when the on-screen Role / Houses fields no longer match the held
+ * link's terms, always with `replaceActive: true`, so an already-shared URL
+ * never gains power and the emailed/texted invite always carries the URL it
  * describes.
+ *
+ * The Role and Houses controls are the same `WorkspacePermissionsFields`
+ * system Edit permissions renders (two `FieldSingleSelect` dropdowns, not a
+ * single combined chip), so these tests drive them the way
+ * `field-select-listbox-pick.test.tsx` drives any other `FieldSingleSelect`:
+ * click the trigger by its `data-attr`, then tap an option in the resulting
+ * listbox.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 
 const showToast = vi.fn();
@@ -103,7 +112,7 @@ function mockFetch(overrides: {
  * listener armed in a way that swallows the next pointerdown on the very
  * trigger it belongs to — a jsdom-only quirk. Awaiting real fetch/json
  * promises through this loop settles the sheet's mount effect without
- * crossing that boundary, so the access menu still opens right after.
+ * crossing that boundary, so the Role field still opens right after.
  */
 async function flushMicrotasks(times = 12) {
   for (let i = 0; i < times; i++) await Promise.resolve();
@@ -123,8 +132,30 @@ function renderSheet(props: Partial<Parameters<typeof WorkspaceInviteSheet>[0]> 
   );
 }
 
-function accessChipText() {
-  return document.querySelector('[data-attr="workspace-invite-access"]')?.textContent ?? "";
+function roleFieldText() {
+  return document.querySelector('[data-attr="workspace-invite-role"]')?.textContent ?? "";
+}
+
+function housesFieldText() {
+  return document.querySelector('[data-attr="workspace-invite-houses"]')?.textContent ?? "";
+}
+
+/** Tap (pointerdown + pointerup, no drag) — the gesture `FieldSingleSelect`'s listbox requires to pick. */
+function tapOption(target: Element | Node) {
+  fireEvent.pointerDown(target, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
+}
+
+function pickRole(label: string) {
+  fireEvent.click(document.querySelector('[data-attr="workspace-invite-role"]') as HTMLElement);
+  const listbox = screen.getByRole("listbox");
+  tapOption(within(listbox).getByText(label));
+}
+
+function pickHouseScope(matcher: string | RegExp) {
+  fireEvent.click(document.querySelector('[data-attr="workspace-invite-houses"]') as HTMLElement);
+  const listbox = screen.getByRole("listbox");
+  tapOption(within(listbox).getByText(matcher));
 }
 
 function clickCopy() {
@@ -145,8 +176,8 @@ describe("WorkspaceInviteSheet", () => {
     const getCall = calls.find((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="));
     expect(getCall?.url).toContain("workspaceId=ws-1");
     expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
-    expect(accessChipText()).toContain("Viewer");
-    expect(accessChipText()).toContain("All houses");
+    expect(roleFieldText()).toContain("Viewer");
+    expect(housesFieldText()).toContain("All houses");
   });
 
   it("hydrates role, houses and permissions from an existing link on open, and mints nothing", async () => {
@@ -161,13 +192,13 @@ describe("WorkspaceInviteSheet", () => {
     });
     renderSheet();
 
-    await waitFor(() => expect(accessChipText()).toContain("Admin"));
-    expect(accessChipText()).toContain("Only selected houses");
+    await waitFor(() => expect(roleFieldText()).toContain("Admin"));
+    expect(housesFieldText()).toContain("Only selected houses");
     expect(screen.getByText("Selected houses")).toBeTruthy();
     expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
   });
 
-  it("Copy link reuses the held link through the reveal path when the access chip has not changed", async () => {
+  it("Copy link reuses the held link through the reveal path when the Role/Houses fields have not changed", async () => {
     const { calls } = mockFetch({
       existingLink: {
         id: "link-existing",
@@ -210,14 +241,10 @@ describe("WorkspaceInviteSheet", () => {
     renderSheet();
     await flushMicrotasks();
 
-    const trigger = document.querySelector('[data-attr="workspace-invite-access"]') as HTMLElement;
-    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, isPrimary: true });
-    fireEvent.pointerUp(trigger, { button: 0, pointerId: 1, isPrimary: true });
-    const roleOption = screen.getByRole("menuitem", { name: "Admin" });
-    fireEvent.click(roleOption);
+    pickRole("Admin");
     await flushMicrotasks();
 
-    // Changing the access chip alone never mints.
+    // Changing the Role field alone never mints.
     expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
 
     clickCopy();
@@ -298,7 +325,7 @@ describe("WorkspaceInviteSheet", () => {
       revealResult: { url: "https://proplane.test/invite/revealed" },
     });
     renderSheet({ inviterName: "Jamie Rivera" });
-    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+    await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
 
     const input = screen.getByLabelText("Add people");
     fireEvent.change(input, { target: { value: "someone@example.com" } });
@@ -315,7 +342,7 @@ describe("WorkspaceInviteSheet", () => {
     expect(preview.body).toContain("Join: https://proplane.test/invite/revealed");
   });
 
-  it("mints a fresh link before emailing when the access chip no longer matches the held link", async () => {
+  it("mints a fresh link before emailing when the Role/Houses fields no longer match the held link", async () => {
     const { calls } = mockFetch({
       existingLink: {
         id: "link-existing",
@@ -329,10 +356,7 @@ describe("WorkspaceInviteSheet", () => {
     renderSheet();
     await flushMicrotasks();
 
-    const trigger = document.querySelector('[data-attr="workspace-invite-access"]') as HTMLElement;
-    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, isPrimary: true });
-    fireEvent.pointerUp(trigger, { button: 0, pointerId: 1, isPrimary: true });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Admin" }));
+    pickRole("Admin");
     await flushMicrotasks();
 
     const input = screen.getByLabelText("Add people");
@@ -359,7 +383,7 @@ describe("WorkspaceInviteSheet", () => {
       revealResult: { url: "https://proplane.test/invite/revealed" },
     });
     renderSheet();
-    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+    await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
 
     const input = screen.getByLabelText("Add people");
     fireEvent.change(input, { target: { value: "(206) 555-1212" } });
@@ -396,7 +420,7 @@ describe("WorkspaceInviteSheet", () => {
       revealResult: { url: "https://proplane.test/invite/revealed" },
     });
     renderSheet();
-    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+    await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
 
     const input = screen.getByLabelText("Add people");
     fireEvent.change(input, { target: { value: "2065551212" } });
@@ -422,7 +446,7 @@ describe("WorkspaceInviteSheet", () => {
       mintResult: { url: "https://proplane.test/invite/fresh-grant", link: { id: "link-fresh-grant" } },
     });
     renderSheet();
-    await waitFor(() => expect(accessChipText()).toContain("Custom"));
+    await waitFor(() => expect(roleFieldText()).toContain("Custom"));
     await flushMicrotasks();
 
     const addPropertiesCheckbox = document.querySelector(
@@ -459,7 +483,7 @@ describe("WorkspaceInviteSheet", () => {
       revealResult: { url: "https://proplane.test/invite/revealed-custom" },
     });
     renderSheet();
-    await waitFor(() => expect(accessChipText()).toContain("Custom"));
+    await waitFor(() => expect(roleFieldText()).toContain("Custom"));
     await flushMicrotasks();
 
     clickCopy();
@@ -473,38 +497,13 @@ describe("WorkspaceInviteSheet", () => {
 });
 
 /**
- * The link action ("Invite link", still `[data-attr="workspace-invite-copy"]`)
- * no longer copies on its own — it resolves the URL then advances to a second
- * view of the SAME sheet (`view: "link"`). Copy is the icon action inside
- * that view; Back returns to the form with state untouched; Done closes.
+ * "Copy link" ([data-attr="workspace-invite-copy"]) resolves the URL, copies
+ * it to the clipboard, THEN advances to a second view of the SAME sheet
+ * (`view: "link"`) — Back returns to the form with state untouched, Done
+ * closes.
  */
 describe("WorkspaceInviteSheet — invite link view", () => {
-  it("the link action advances to the link view, showing the URL and hiding the recipient field", async () => {
-    mockFetch({
-      existingLink: {
-        id: "link-existing",
-        teamRole: "viewer",
-        houseScope: "all",
-        assignedPropertyIds: ["prop-a", "prop-b"],
-        propertyPermissions: {},
-      },
-      revealResult: { url: "https://proplane.test/invite/revealed" },
-    });
-    renderSheet();
-    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
-    expect(screen.getByLabelText("Add people")).toBeTruthy();
-
-    clickCopy();
-    await waitFor(() =>
-      expect((screen.getByLabelText("Invite link") as HTMLInputElement).value).toBe(
-        "https://proplane.test/invite/revealed",
-      ),
-    );
-    expect(screen.queryByLabelText("Add people")).toBeNull();
-    expect(document.querySelector('[data-attr="workspace-invite-access"]')).toBeNull();
-  });
-
-  it("the Copy icon in the link view writes the URL to the clipboard", async () => {
+  it("Copy link writes the URL to the clipboard and advances to the link view, hiding the recipient field", async () => {
     const writeText = vi.fn(async () => undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     mockFetch({
@@ -518,7 +517,8 @@ describe("WorkspaceInviteSheet — invite link view", () => {
       revealResult: { url: "https://proplane.test/invite/revealed" },
     });
     renderSheet();
-    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+    await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
+    expect(screen.getByLabelText("Add people")).toBeTruthy();
 
     clickCopy();
     await waitFor(() =>
@@ -526,6 +526,60 @@ describe("WorkspaceInviteSheet — invite link view", () => {
         "https://proplane.test/invite/revealed",
       ),
     );
+    expect(writeText).toHaveBeenCalledWith("https://proplane.test/invite/revealed");
+    expect(showToast).toHaveBeenCalledWith("Invite link copied.");
+    expect(screen.queryByLabelText("Add people")).toBeNull();
+    expect(document.querySelector('[data-attr="workspace-invite-role"]')).toBeNull();
+  });
+
+  it("the link view's Joins as row reads the same role/houses the form held", async () => {
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "admin",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() => expect(roleFieldText()).toContain("Admin"));
+
+    clickCopy();
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="workspace-invite-link-access"]')?.textContent).toContain(
+        "Admin",
+      ),
+    );
+    expect(document.querySelector('[data-attr="workspace-invite-link-access"]')?.textContent).toContain(
+      "All houses",
+    );
+  });
+
+  it("the Copy icon in the link view writes the URL to the clipboard again", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
+
+    clickCopy();
+    await waitFor(() =>
+      expect((screen.getByLabelText("Invite link") as HTMLInputElement).value).toBe(
+        "https://proplane.test/invite/revealed",
+      ),
+    );
+    writeText.mockClear();
 
     fireEvent.click(document.querySelector('[data-attr="workspace-invite-copy-link"]') as HTMLElement);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.test/invite/revealed"));
@@ -533,6 +587,7 @@ describe("WorkspaceInviteSheet — invite link view", () => {
   });
 
   it("Back returns to the form view with the previously chosen role still selected", async () => {
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => undefined) } });
     mockFetch({
       existingLink: {
         id: "link-existing",
@@ -546,10 +601,7 @@ describe("WorkspaceInviteSheet — invite link view", () => {
     renderSheet();
     await flushMicrotasks();
 
-    const trigger = document.querySelector('[data-attr="workspace-invite-access"]') as HTMLElement;
-    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, isPrimary: true });
-    fireEvent.pointerUp(trigger, { button: 0, pointerId: 1, isPrimary: true });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Admin" }));
+    pickRole("Admin");
     await flushMicrotasks();
 
     clickCopy();
@@ -559,10 +611,11 @@ describe("WorkspaceInviteSheet — invite link view", () => {
     await flushMicrotasks();
 
     expect(screen.getByLabelText("Add people")).toBeTruthy();
-    expect(accessChipText()).toContain("Admin");
+    expect(roleFieldText()).toContain("Admin");
   });
 
   it("Done in the link view calls onClose", async () => {
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => undefined) } });
     const onClose = vi.fn();
     mockFetch({
       existingLink: {
@@ -575,7 +628,7 @@ describe("WorkspaceInviteSheet — invite link view", () => {
       revealResult: { url: "https://proplane.test/invite/revealed" },
     });
     renderSheet({ onClose });
-    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+    await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
 
     clickCopy();
     await waitFor(() => expect(screen.getByLabelText("Invite link")).toBeTruthy());
@@ -584,7 +637,8 @@ describe("WorkspaceInviteSheet — invite link view", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("pressing the link action with matching terms twice mints only once", async () => {
+  it("pressing Copy link with matching terms twice mints only once", async () => {
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => undefined) } });
     const { calls } = mockFetch({ existingLink: null });
     renderSheet();
     await waitFor(() =>
@@ -606,5 +660,62 @@ describe("WorkspaceInviteSheet — invite link view", () => {
 
     const mintCalls = calls.filter((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
     expect(mintCalls).toHaveLength(1);
+  });
+});
+
+describe("WorkspaceInviteSheet — Who has access", () => {
+  it("renders member rows as plain fact text, never a role/reach pill, with a ⋯ trigger", async () => {
+    mockFetch({ existingLink: { id: "link-existing" } });
+    renderSheet({
+      workspace: {
+        ...workspace,
+        members: [
+          {
+            linkId: "member-1",
+            userId: "user-1",
+            name: "manager2",
+            email: "manager2@test.proplane.local",
+            role: "admin",
+            houseScope: "all",
+            propertyIds: workspace.propertyIds,
+            modules: [],
+            status: "accepted",
+            joinedAt: "2026-09-01T00:00:00.000Z",
+            legacyRights: false,
+          },
+        ],
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/manager2/)).toBeTruthy());
+    const fact = document.querySelector('[data-attr="workspace-invite-member-fact"]');
+    expect(fact?.textContent).toContain("manager2");
+    expect(fact?.textContent).toContain("Admin");
+    expect(fact?.textContent).toContain("All houses");
+    // No pill/chip element wraps the role or reach text on this row.
+    expect(document.querySelector('[data-attr="workspace-invite-member-chip"]')).toBeNull();
+    expect(document.querySelector('[data-attr="workspace-invite-member-actions"]')).toBeTruthy();
+  });
+
+  it("the ⋯ menu item calls onEditMember with the row's link id (source wiring)", () => {
+    // A Radix dropdown nested inside this Modal does not reliably open under
+    // jsdom's synthetic pointer/keyboard events once the sheet's own async
+    // hydration has re-rendered the tree (a jsdom+Radix FocusScope timing
+    // quirk, not a behavior of this component) — see `docs/agents/co-manager-access.md`
+    // and the sibling `workspace-permissions-fields.tsx` interactive coverage
+    // for the same limitation. Assert the wiring at the source instead.
+    const sheet = readFileSync(join(process.cwd(), "src/components/portal/workspace-invite-sheet.tsx"), "utf8");
+    expect(sheet).toContain('data-attr="workspace-invite-member-edit"');
+    expect(sheet).toContain('onSelect={() => onEditMember(m.linkId)}');
+  });
+
+  it("the owner row reads as plain fact text too", async () => {
+    mockFetch({ existingLink: { id: "link-existing" } });
+    renderSheet();
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="workspace-invite-owner-fact"]')?.textContent).toContain(
+        "Owner",
+      ),
+    );
   });
 });

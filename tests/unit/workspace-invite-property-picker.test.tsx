@@ -9,7 +9,7 @@ describe("workspace invite property picker", () => {
   const SHEET = read("src/components/portal/workspace-invite-sheet.tsx");
 
   it("shows a house picker for 'Only selected houses', defaulting to every house in the workspace", () => {
-    expect(SHEET).toContain('dataAttr="workspace-invite-selected-houses"');
+    expect(SHEET).toContain('selectedHousesDataAttr="workspace-invite-selected-houses"');
     expect(SHEET).toContain('houseScope === "all" ? workspace.propertyIds : selectedHouseIds');
     expect(SHEET).not.toContain("No properties available for team invites yet.");
   });
