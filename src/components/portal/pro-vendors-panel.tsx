@@ -768,19 +768,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 scope: row.catalogId,
                 clear: () => {},
                 actions: (
-                  <>
-                    <Button type="button" data-attr="vendor-catalog-row-view" onClick={openProfile}>
-                      View
-                    </Button>
-                    <Button
-                      type="button"
-                      data-attr="vendor-catalog-row-add"
-                      disabled={Boolean(existing)}
-                      onClick={add}
-                    >
-                      {existing ? "Added" : "Add to your vendors"}
-                    </Button>
-                  </>
+                  <Button
+                    type="button"
+                    data-attr="vendor-catalog-row-add"
+                    disabled={Boolean(existing)}
+                    onClick={add}
+                  >
+                    {existing ? "Added" : "Add to your vendors"}
+                  </Button>
                 ),
               }}
             >
