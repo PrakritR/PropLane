@@ -272,7 +272,18 @@ export async function loadReceipts(db: SupabaseClient, importId: string): Promis
 // Pure helpers shared by the routes and the agent tool.
 // ---------------------------------------------------------------------------
 
-/** Merge PATCH/create-time answers and skips into a proposal, recomputing status/summary. */
+/**
+ * Merge PATCH/create-time answers and skips into a proposal, recomputing
+ * status/summary.
+ *
+ * `skips` keys a property, a resident, OR a room — an empty room (no
+ * resident tied to it) the manager marks "Skip" on the review screen is
+ * dropped from `property.rooms` here so it is never created as an unoccupied
+ * room in the draft (`docs/agents/portfolio-import.md`). A room that still
+ * has a resident is never dropped even if its key is passed, defensively —
+ * skipping THAT room happens by skipping the resident instead, never by
+ * silently discarding their room.
+ */
 export function applyAnswersAndSkips(
   proposal: PortfolioImportProposal,
   input: { answers?: Record<string, Partial<ImportResidentProposal>>; skips?: string[] },
@@ -283,6 +294,11 @@ export function applyAnswersAndSkips(
   const properties: ImportPropertyProposal[] = proposal.properties.map((property) => {
     const propertySkipped = skips.has(property.key);
     const hasMultipleRooms = property.rooms.length > 1;
+    const rooms = property.rooms.filter((room) => {
+      if (!skips.has(room.key)) return true;
+      const hasResident = property.residents.some((r) => r.roomKey === room.key);
+      return hasResident;
+    });
     const residents: ImportResidentProposal[] = property.residents.map((resident) => {
       const answer = answers[resident.key];
       const merged: ImportResidentProposal = answer ? { ...resident, ...answer, key: resident.key } : resident;
@@ -292,7 +308,7 @@ export function applyAnswersAndSkips(
       return { ...merged, status, gaps };
     });
     const status: ImportItemStatus = propertySkipped ? "skip" : residents.some((r) => r.status === "needs") ? "needs" : "ready";
-    return { ...property, residents, status };
+    return { ...property, rooms, residents, status };
   });
 
   return { ...proposal, properties, summary: summarize(properties) };

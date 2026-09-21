@@ -94,7 +94,7 @@ const MANAGER = { role: "manager" as const, userId: "mgr-1", email: "m@test.prop
 
 function upload(files: { name: string; body: string | Uint8Array; type?: string }[], hint?: string) {
   const form = new FormData();
-  for (const f of files) form.append("files", new File([f.body], f.name, { type: f.type ?? "text/csv" }));
+  for (const f of files) form.append("files[]", new File([f.body], f.name, { type: f.type ?? "text/csv" }));
   if (hint) form.set("hint", hint);
   return new Request("http://localhost/api/portal/portfolio-import", { method: "POST", body: form });
 }
@@ -117,6 +117,25 @@ beforeEach(() => {
 });
 
 describe("POST /api/portal/portfolio-import", () => {
+  it("reads the files field the real browser client sends (`files[]`), not a bare `files`", async () => {
+    // `portfolio-import.client.ts` appends every File under `files[]` (this
+    // route's own documented contract). A field-name mismatch here 400s
+    // every real upload "At least one file is required." even with a file
+    // attached — invisible to a test that (wrongly) matches the field name
+    // to whatever the route happens to read instead of what the client sends.
+    const form = new FormData();
+    form.append("files[]", new File(["a,b\n1,2"], "roll.csv", { type: "text/csv" }));
+    const res = await postUpload(new Request("http://localhost/x", { method: "POST", body: form }));
+    expect(res.status).toBe(200);
+    expect(readPropertyImportFile).toHaveBeenCalledTimes(1);
+
+    const wrongField = new FormData();
+    wrongField.append("files", new File(["a,b\n1,2"], "roll.csv", { type: "text/csv" }));
+    const wrongRes = await postUpload(new Request("http://localhost/x", { method: "POST", body: wrongField }));
+    expect(wrongRes.status).toBe(400);
+    expect((await wrongRes.json()).error).toBe("At least one file is required.");
+  });
+
   it("401s signed out and 404s a resident", async () => {
     getReportsAuthContext.mockResolvedValueOnce(null);
     expect((await postUpload(upload([{ name: "roll.csv", body: "a,b\n1,2" }]))).status).toBe(401);
@@ -136,7 +155,7 @@ describe("POST /api/portal/portfolio-import", () => {
     expect((await postUpload(empty)).status).toBe(400);
 
     const form = new FormData();
-    for (let i = 0; i < 51; i += 1) form.append("files", new File(["a,b\n1,2"], `f${i}.csv`, { type: "text/csv" }));
+    for (let i = 0; i < 51; i += 1) form.append("files[]", new File(["a,b\n1,2"], `f${i}.csv`, { type: "text/csv" }));
     expect((await postUpload(new Request("http://localhost/x", { method: "POST", body: form }))).status).toBe(400);
     expect(readPropertyImportFile).not.toHaveBeenCalled();
   });

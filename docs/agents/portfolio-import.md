@@ -105,10 +105,23 @@ listing drafts) through the real per-domain creation paths.
   partial failure upserts the same rows rather than duplicating them. A
   property that throws partway is unwound with best-effort compensating
   deletes of what that attempt created before moving to the next property.
-  **Known limitation:** `createManagerTaskRow` always appends rather than
-  upserting by id, so a literal retry of the same create call CAN duplicate
-  tasks (never properties, residents, or charges, which are all
-  deterministic upserts).
+  Manager tasks are stored one JSON array per manager
+  (`manager-tasks.server.ts`) and `createManagerTaskRow` always appends
+  rather than upserting by id, so `create.server.ts` guards retry-safety
+  itself: every import task gets a deterministic id
+  (`task_import_<shortHash(task key)>`, same convention as charges), loaded
+  once per `create()` call against this manager's current tasks, and skipped
+  when that id is already present — a literal retry of the same `create()`
+  call never duplicates a task (or a property, resident, or charge, which
+  were already deterministic upserts).
+- **A room skip is a real server-side skip.** `PortfolioImportUpdateRequest`/
+  `PortfolioImportCreateRequest`'s `skips` accepts a property key, a resident
+  key, OR a room key. `applyAnswersAndSkips` drops a skipped room from
+  `property.rooms` entirely (defensively, only when no resident is tied to
+  it), so it is never created as an unoccupied room in the draft. The review
+  screen's `EmptyRoomRow` "Skip" button (only ever shown for a room no
+  resident occupies) round-trips through the same `PATCH` a resident skip
+  does — never local-only UI state.
 - **Caps.** 50 files per upload, 5 MB each, 8 uploads/minute/manager (same
   budget as `property-import/read`). Under `NODE_ENV=test` or without
   `ANTHROPIC_API_KEY` both model passes refuse rather than inventing a

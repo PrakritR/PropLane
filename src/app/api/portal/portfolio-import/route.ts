@@ -47,7 +47,11 @@ export async function POST(req: Request) {
   } catch {
     return fail(400, "Send the files as multipart form data.");
   }
-  const files = form.getAll("files").filter((f): f is File => f instanceof File);
+  // The client (`portfolio-import.client.ts`) appends every file under
+  // `files[]`, matching this route's own documented contract above — read
+  // that exact field name, not `files` (a mismatch here means every real
+  // upload 400s "At least one file is required." even with files attached).
+  const files = form.getAll("files[]").filter((f): f is File => f instanceof File);
   if (files.length === 0) return fail(400, "At least one file is required.");
   if (files.length > PORTFOLIO_IMPORT_MAX_FILES) return fail(400, `Send at most ${PORTFOLIO_IMPORT_MAX_FILES} files.`);
   for (const file of files) {

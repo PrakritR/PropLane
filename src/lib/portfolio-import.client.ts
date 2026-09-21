@@ -60,13 +60,17 @@ export async function uploadPortfolioImport(
   if (hint?.trim()) form.append("hint", hint.trim());
   const outcome = await request("/api/portal/portfolio-import", { method: "POST", body: form });
   if (isErr(outcome)) return outcome;
-  return { ok: true, proposal: outcome.payload as unknown as PortfolioImportProposal };
+  // The route answers `{ ok: true, proposal }` — unwrap the nested field
+  // rather than casting the whole envelope AS the proposal (that silently
+  // produced a `proposal` whose OWN `.proposal`/`.files`/etc. were one level
+  // too deep, and every reader crashed on `proposal.files[0]`).
+  return { ok: true, proposal: outcome.payload.proposal as unknown as PortfolioImportProposal };
 }
 
 export async function getPortfolioImport(importId: string): Promise<PortfolioImportResult<{ proposal: PortfolioImportProposal }>> {
   const outcome = await request(`/api/portal/portfolio-import/${encodeURIComponent(importId)}`);
   if (isErr(outcome)) return outcome;
-  return { ok: true, proposal: outcome.payload as unknown as PortfolioImportProposal };
+  return { ok: true, proposal: outcome.payload.proposal as unknown as PortfolioImportProposal };
 }
 
 /** Saves gap answers and/or skip marks; the server returns the recomputed proposal. */
@@ -80,7 +84,7 @@ export async function patchPortfolioImport(
     body: JSON.stringify(body),
   });
   if (isErr(outcome)) return outcome;
-  return { ok: true, proposal: outcome.payload as unknown as PortfolioImportProposal };
+  return { ok: true, proposal: outcome.payload.proposal as unknown as PortfolioImportProposal };
 }
 
 export async function createFromPortfolioImport(
@@ -93,5 +97,9 @@ export async function createFromPortfolioImport(
     body: JSON.stringify(body),
   });
   if (isErr(outcome)) return outcome;
-  return { ok: true, result: outcome.payload as unknown as PortfolioImportCreateResult };
+  // The route answers `{ ok: true, created, failures }` (spread, not
+  // nested) — read those two fields out rather than casting the whole
+  // envelope (which also carries `ok`) as the result.
+  const { created, failures } = outcome.payload as unknown as PortfolioImportCreateResult;
+  return { ok: true, result: { created, failures } };
 }

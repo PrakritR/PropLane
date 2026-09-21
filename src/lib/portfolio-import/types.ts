@@ -125,7 +125,11 @@ export type PortfolioImportProposal = {
 export type PortfolioImportUpdateRequest = {
   /** Keyed by resident (or property) key; merges into that item's proposed fields. */
   answers?: Record<string, Partial<ImportResidentProposal>>;
-  /** Resident or property keys to mark "skip". */
+  /**
+   * Resident, property, or (empty) room keys to mark "skip". A skipped room
+   * is dropped from its property's `rooms` entirely — see
+   * `applyAnswersAndSkips` in store.server.ts.
+   */
   skips?: string[];
 };
 
@@ -134,7 +138,7 @@ export type PortfolioImportCreateRequest = {
   sendInvites: boolean;
   /** Keyed by resident (or property) key; merges into that item's proposed fields before create. */
   answers?: Record<string, Partial<ImportResidentProposal>>;
-  /** Resident or property keys to leave out of creation. */
+  /** Resident, property, or (empty) room keys to leave out of creation. */
   skips?: string[];
 };
 

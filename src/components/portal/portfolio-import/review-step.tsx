@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import type {
   ImportGap,
   ImportResidentProposal,
+  ImportRoomProposal,
   PortfolioImportProposal,
 } from "@/lib/portfolio-import/types";
 
@@ -51,9 +52,19 @@ function formatDate(value: string | null): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function statusLabel(status: ImportResidentProposal["status"]): { text: string; icon: typeof CheckCircle2 } {
-  if (status === "ready") return { text: "Ready", icon: CheckCircle2 };
-  if (status === "needs") return { text: "Needs end date", icon: AlertCircle };
+const GAP_FIELD_LABEL: Record<string, string> = {
+  leaseEnd: "Needs end date",
+  contact: "Needs contact",
+  rent: "Needs rent",
+  room: "Needs room",
+};
+
+function statusLabel(resident: Pick<ImportResidentProposal, "status" | "gaps">): { text: string; icon: typeof CheckCircle2 } {
+  if (resident.status === "ready") return { text: "Ready", icon: CheckCircle2 };
+  if (resident.status === "needs") {
+    const first = resident.gaps[0]?.field;
+    return { text: (first && GAP_FIELD_LABEL[first]) || "Needs answer", icon: AlertCircle };
+  }
   return { text: "Skip", icon: EyeOff };
 }
 
@@ -71,13 +82,43 @@ function initialsFor(name: string): string {
 function GapField({
   gap,
   value,
+  rooms,
   onChange,
 }: {
   gap: ImportGap;
   value: string;
+  /** Only used for the `room` gap — a real pick from the property's actual rooms, never free text. */
+  rooms: ImportRoomProposal[];
   onChange: (next: string) => void;
 }) {
   const isDate = /date/i.test(gap.field);
+
+  if (gap.field === "room") {
+    return (
+      <div>
+        <label htmlFor={`gap-${gap.field}`} className="mb-1 block text-[12.5px] font-semibold text-foreground">
+          {gap.question}
+        </label>
+        <select
+          id={`gap-${gap.field}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          data-attr={`portfolio-import-gap-${gap.field}`}
+          className="min-h-10 w-full max-w-xs rounded-lg border border-border bg-card px-2.5 text-[13px] text-foreground outline-none focus:border-primary"
+        >
+          <option value="" disabled>
+            Pick a room…
+          </option>
+          {rooms.map((room) => (
+            <option key={room.key} value={room.key}>
+              {room.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
   return (
     <div>
       <label htmlFor={`gap-${gap.field}`} className="mb-1 block text-[12.5px] font-semibold text-foreground">
@@ -97,24 +138,47 @@ function GapField({
 
 function ResidentRow({
   resident,
+  rooms,
   onAnswer,
   onSetIncluded,
 }: {
   resident: ImportResidentProposal;
+  /** The property's actual rooms — only ever needed to answer a `room` gap. */
+  rooms: ImportRoomProposal[];
   onAnswer: (residentKey: string, patch: Partial<ImportResidentProposal>) => void;
   onSetIncluded: (residentKey: string, included: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const status = statusLabel(resident.status);
+  const status = statusLabel(resident);
   const citation = formatSource(resident.source);
   const expandable = resident.status === "needs" && resident.gaps.length > 0;
 
+  /**
+   * `residentGaps` (propose.ts) keys a gap "leaseEnd" | "contact" | "rent" |
+   * "room" — none of those but "leaseEnd" is a real `ImportResidentProposal`
+   * field name, so this maps each to the field(s) that actually clear it:
+   * "room" sets `roomKey` (never free text — the field is a `<select>` of
+   * the property's real rooms), "contact" sets `email` or `phone` depending
+   * on which shape the manager typed, and "rent" is parsed to a number (the
+   * type is `number | null`, never a string).
+   */
   const commit = (field: string, value: string) => {
     setDraft((prev) => ({ ...prev, [field]: value }));
-    const patch: Partial<ImportResidentProposal> =
-      field === "leaseEnd" || field === "leaseStart" ? { [field]: value || null } : { [field]: value };
-    onAnswer(resident.key, patch as Partial<ImportResidentProposal>);
+    let patch: Partial<ImportResidentProposal>;
+    if (field === "leaseEnd" || field === "leaseStart") {
+      patch = { [field]: value || null };
+    } else if (field === "room") {
+      patch = { roomKey: value || null };
+    } else if (field === "contact") {
+      patch = value.includes("@") ? { email: value || null } : { phone: value || null };
+    } else if (field === "rent") {
+      const parsed = value.trim() ? Number(value.replace(/[^0-9.]/g, "")) : null;
+      patch = { rent: parsed != null && Number.isFinite(parsed) ? parsed : null };
+    } else {
+      patch = { [field]: value } as Partial<ImportResidentProposal>;
+    }
+    onAnswer(resident.key, patch);
   };
 
   return (
@@ -187,6 +251,7 @@ function ResidentRow({
               key={gap.field}
               gap={gap}
               value={draft[gap.field] ?? ""}
+              rooms={rooms}
               onChange={(next) => commit(gap.field, next)}
             />
           ))}
@@ -235,8 +300,6 @@ export function PortfolioImportReviewStep({
     0,
   );
 
-  const [dismissedRooms, setDismissedRooms] = useState<Set<string>>(new Set());
-
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-0">
       <h1 className="mb-1 text-[20px] font-bold tracking-tight text-foreground md:text-[22px]">Review what the agent found</h1>
@@ -267,15 +330,19 @@ export function PortfolioImportReviewStep({
             </div>
             <div>
               {property.residents.map((resident) => (
-                <ResidentRow key={resident.key} resident={resident} onAnswer={onAnswer} onSetIncluded={onSkipToggle} />
+                <ResidentRow key={resident.key} resident={resident} rooms={property.rooms} onAnswer={onAnswer} onSetIncluded={onSkipToggle} />
               ))}
               {property.rooms
-                .filter((room) => !property.residents.some((r) => r.roomKey === room.key) && !dismissedRooms.has(room.key))
+                .filter((room) => !property.residents.some((r) => r.roomKey === room.key))
                 .map((room) => (
                   <EmptyRoomRow
                     key={room.key}
                     roomName={room.name}
-                    onSkip={() => setDismissedRooms((prev) => new Set(prev).add(room.key))}
+                    // Skipping an empty room is a real server-side skip
+                    // (`applyAnswersAndSkips` drops it from `property.rooms`
+                    // so it is never created) — same PATCH round trip a
+                    // resident skip takes, not local-only UI state.
+                    onSkip={() => onSkipToggle(room.key, false)}
                   />
                 ))}
             </div>

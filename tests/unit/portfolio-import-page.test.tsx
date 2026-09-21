@@ -130,6 +130,91 @@ describe("PortfolioImportReviewStep", () => {
     const included = FIXTURE.properties.reduce((sum, p) => sum + p.residents.filter((r) => r.status !== "skip").length, 0);
     expect(screen.getByRole("button", { name: `Create ${included}…` })).toBeTruthy();
   });
+
+  /**
+   * `residentGaps` (propose.ts) keys a gap "room" | "contact" | "rent" |
+   * "leaseEnd" — only "leaseEnd" is a real `ImportResidentProposal` field
+   * name. A resident with a real rent-roll (multiple rooms, no name match)
+   * ALWAYS gets a "room" gap, so this proves the other three actually clear
+   * their status, not just render a field.
+   */
+  const GAP_FIXTURE: PortfolioImportProposal = {
+    importId: "imp-gaps",
+    files: [{ name: "roll.csv", kind: "spreadsheet" }],
+    properties: [
+      {
+        key: "p1",
+        address: "1 Test St",
+        source: { file: "roll.csv", rows: [2] },
+        status: "ready",
+        rooms: [
+          { key: "p1:room:a", name: "Room A", rent: 1000, source: { file: "roll.csv", rows: [2] } },
+          { key: "p1:room:b", name: "Room B", rent: 1200, source: { file: "roll.csv", rows: [3] } },
+        ],
+        residents: [
+          {
+            key: "p1:resident:0",
+            roomKey: null,
+            name: "Robin Vale",
+            email: null,
+            phone: null,
+            leaseStart: "2026-01-01",
+            leaseEnd: "2026-12-31",
+            rent: null,
+            deposit: null,
+            balance: null,
+            status: "needs",
+            gaps: [
+              { field: "room", question: "Which room does Robin Vale live in?" },
+              { field: "contact", question: "What's the best email or phone for Robin Vale?" },
+              { field: "rent", question: "What does Robin Vale pay in rent?" },
+            ],
+            source: { file: "roll.csv", rows: [2] },
+          },
+        ],
+        charges: [],
+        tasks: [],
+      },
+    ],
+    summary: { properties: 1, rooms: 2, residents: 1, charges: 0, tasks: 0, gaps: 3 },
+  };
+
+  it("answers the room gap with a real pick from the property's rooms, never free text", () => {
+    const onAnswer = vi.fn();
+    render(
+      <PortfolioImportReviewStep proposal={GAP_FIXTURE} saving={false} onAnswer={onAnswer} onSkipToggle={vi.fn()} onContinue={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText("Robin Vale"));
+    const select = screen.getByLabelText("Which room does Robin Vale live in?") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["", "p1:room:a", "p1:room:b"]);
+    fireEvent.change(select, { target: { value: "p1:room:b" } });
+    expect(onAnswer).toHaveBeenCalledWith("p1:resident:0", { roomKey: "p1:room:b" });
+  });
+
+  it("answers the contact gap into email or phone depending on what was typed", () => {
+    const onAnswer = vi.fn();
+    render(
+      <PortfolioImportReviewStep proposal={GAP_FIXTURE} saving={false} onAnswer={onAnswer} onSkipToggle={vi.fn()} onContinue={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText("Robin Vale"));
+    const input = screen.getByLabelText("What's the best email or phone for Robin Vale?") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "robin@example.com" } });
+    expect(onAnswer).toHaveBeenCalledWith("p1:resident:0", { email: "robin@example.com" });
+    fireEvent.change(input, { target: { value: "512-555-0100" } });
+    expect(onAnswer).toHaveBeenCalledWith("p1:resident:0", { phone: "512-555-0100" });
+  });
+
+  it("answers the rent gap as a number, never a string", () => {
+    const onAnswer = vi.fn();
+    render(
+      <PortfolioImportReviewStep proposal={GAP_FIXTURE} saving={false} onAnswer={onAnswer} onSkipToggle={vi.fn()} onContinue={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText("Robin Vale"));
+    const input = screen.getByLabelText("What does Robin Vale pay in rent?") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1250" } });
+    expect(onAnswer).toHaveBeenCalledWith("p1:resident:0", { rent: 1250 });
+  });
 });
 
 describe("PortfolioImportCreateStep", () => {

@@ -5,6 +5,7 @@
  * OWN orchestration: per-property rollback names the failing row, no invite
  * fires without explicit opt-in, and every write carries `source: import`.
  */
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ImportPropertyProposal,
@@ -23,6 +24,7 @@ const {
   sealApplicantRow,
   syncLedgerChargeEntry,
   createManagerTaskRow,
+  loadManagerTasks,
   loadImportProposal,
   setImportStatus,
 } = vi.hoisted(() => ({
@@ -36,6 +38,7 @@ const {
   sealApplicantRow: vi.fn((row: unknown) => row),
   syncLedgerChargeEntry: vi.fn(),
   createManagerTaskRow: vi.fn(),
+  loadManagerTasks: vi.fn(),
   loadImportProposal: vi.fn(),
   setImportStatus: vi.fn(),
 }));
@@ -48,7 +51,7 @@ vi.mock("@/lib/auth/provision-approved-resident", () => ({ provisionApprovedResi
 vi.mock("@/lib/existing-resident-onboarding.server", () => ({ runExistingResidentOnboarding }));
 vi.mock("@/lib/security/applicant-identity", () => ({ sealApplicantRow }));
 vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerChargeEntry }));
-vi.mock("@/lib/manager-tasks.server", () => ({ createManagerTaskRow }));
+vi.mock("@/lib/manager-tasks.server", () => ({ createManagerTaskRow, loadManagerTasks }));
 vi.mock("@/lib/portfolio-import/store.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/portfolio-import/store.server")>();
   return { ...actual, loadImportProposal, setImportStatus };
@@ -135,6 +138,11 @@ function proposal(properties: ImportPropertyProposal[]): PortfolioImportProposal
 const ACTOR = { userId: "mgr-1", email: "manager@test.proplane.local" };
 const REQUEST: PortfolioImportCreateRequest = { sendInvites: false };
 
+/** Mirrors create.server.ts's own `shortHash` — the documented `task_import_<shortHash(key)>` convention. */
+function importTaskId(taskKey: string): string {
+  return `task_import_${createHash("sha256").update(taskKey).digest("hex").slice(0, 12)}`;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   submissionFromImportedProperty.mockReturnValue({ rooms: [{ id: "room-real-abc" }] });
@@ -144,6 +152,7 @@ beforeEach(() => {
   buildImportedResidentRow.mockImplementation((args: { id: string; email: string }) => ({ id: args.id, email: args.email, manuallyAdded: true, bucket: "approved" }));
   provisionApprovedResidentAccount.mockResolvedValue({ ok: true, userId: "auth-user-1", created: true });
   runExistingResidentOnboarding.mockResolvedValue({ ok: true, leaseId: "lease_app_p1resident0", welcomeEmailSent: false, axisId: "PROPLANE-IMP1", row: {} });
+  loadManagerTasks.mockResolvedValue([]);
 });
 
 describe("createPortfolioImportRecords", () => {
@@ -239,5 +248,39 @@ describe("createPortfolioImportRecords", () => {
     const result = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", { sendInvites: false, skips: ["p-skip"] });
     expect(result.created.properties).toBe(0);
     expect(result.failures).toEqual([]);
+  });
+
+  it("retry safety: does not duplicate a task whose deterministic id already exists for this manager", async () => {
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    const taskId = importTaskId("p1:resident:0:task:unsigned_lease");
+    // Simulate a re-run of create() on the same import: the earlier attempt's
+    // task already landed in this manager's task list.
+    loadManagerTasks.mockResolvedValue([{ id: taskId } as never]);
+
+    const result = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
+
+    expect(result.failures).toEqual([]);
+    expect(createManagerTaskRow).not.toHaveBeenCalled();
+    expect(result.created.tasks).toBe(0);
+  });
+
+  it("creates the task with its deterministic id, and two create() calls in a row never duplicate it", async () => {
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    const taskId = importTaskId("p1:resident:0:task:unsigned_lease");
+    loadManagerTasks.mockResolvedValue([]);
+
+    const first = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
+    expect(first.created.tasks).toBe(1);
+    expect(createManagerTaskRow).toHaveBeenCalledTimes(1);
+    expect((createManagerTaskRow.mock.calls[0]![2] as { id: string }).id).toBe(taskId);
+
+    // A literal retry: same import, a fresh fakeDb (a new create() call),
+    // but the task this manager already has now includes the one just made.
+    createManagerTaskRow.mockClear();
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    loadManagerTasks.mockResolvedValue([{ id: taskId } as never]);
+    const second = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
+    expect(second.created.tasks).toBe(0);
+    expect(createManagerTaskRow).not.toHaveBeenCalled();
   });
 });

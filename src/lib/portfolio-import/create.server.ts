@@ -13,7 +13,7 @@ import type { ResidentWelcomeActor } from "@/lib/resident-welcome.server";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import type { HouseholdCharge, HouseholdChargeKind } from "@/lib/household-charges";
-import { createManagerTaskRow } from "@/lib/manager-tasks.server";
+import { createManagerTaskRow, loadManagerTasks } from "@/lib/manager-tasks.server";
 import { placeholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 import { loadImportProposal, setImportStatus, applyAnswersAndSkips } from "@/lib/portfolio-import/store.server";
 import type {
@@ -82,11 +82,15 @@ import type {
  * available from the service-role JS client without a dedicated RPC, and
  * every other write path in this codebase (see `commit.server.ts`'s
  * pre-rebuild history) uses the same idempotent-upsert-plus-compensation
- * shape rather than one. Manager TASKS are the one exception: `createManagerTaskRow`
- * always appends rather than upserting by id, so a literal retry of the same
- * create() call can duplicate tasks (not properties, residents, or charges).
- * This is a known, documented limitation — see the report handed back to the
- * caller of this build.
+ * shape rather than one. Manager TASKS are stored one JSON array per manager
+ * (`manager-tasks.server.ts`) and `createManagerTaskRow` always appends
+ * rather than upserting by id, so THIS module guards retry-safety itself:
+ * `createTask` gives every import task a deterministic id
+ * (`task_import_<shortHash(task.key)>`, same convention as charges) and
+ * checks it against this manager's current tasks before calling
+ * `createManagerTaskRow`, skipping the append when a task with that id
+ * already exists — a literal retry of the same create() call therefore never
+ * duplicates a task.
  */
 
 export class PortfolioImportNotFoundError extends Error {
@@ -289,6 +293,14 @@ async function createCharge(
   return id;
 }
 
+/**
+ * Creates one imported task, unless a task with this deterministic id was
+ * already created by an earlier call (a retry of the same `create()` call on
+ * this import) — `existingTaskIds` is loaded once per `createPortfolioImportRecords`
+ * call and updated in place so two tasks in the SAME call never race each
+ * other either. Returns whether a task was actually created (for the caller's
+ * count).
+ */
 async function createTask(
   db: SupabaseClient,
   landlordId: string,
@@ -296,9 +308,12 @@ async function createTask(
   propertyLabel: string,
   importId: string,
   task: ImportTaskProposal,
-): Promise<void> {
+  existingTaskIds: Set<string>,
+): Promise<boolean> {
+  const id = `task_import_${shortHash(task.key)}`;
+  if (existingTaskIds.has(id)) return false;
   await createManagerTaskRow(db, landlordId, {
-    id: `task_import_${shortHash(task.key)}`,
+    id,
     title: task.title,
     propertyId,
     propertyTitle: propertyLabel,
@@ -308,6 +323,8 @@ async function createTask(
     dedupKey: `portfolio-import:${task.key}`,
     notes: `Imported from ${task.source.file}${task.source.sheet ? ` (${task.source.sheet})` : ""}.`,
   });
+  existingTaskIds.add(id);
+  return true;
 }
 
 async function rollbackProperty(db: SupabaseClient, landlordId: string, undo: Array<() => Promise<void>>): Promise<void> {
@@ -331,6 +348,11 @@ export async function createPortfolioImportRecords(
 
   const created: PortfolioImportCreateCounts = { properties: 0, rooms: 0, residents: 0, leases: 0, charges: 0, tasks: 0, invites: 0 };
   const failures: PortfolioImportCreateFailure[] = [];
+  // Loaded ONCE, up front, and kept current in place by `createTask` — see
+  // `createTask`'s own comment and this module's header for why tasks (never
+  // properties, residents, or charges) need this instead of a deterministic
+  // upsert.
+  const existingTaskIds = new Set((await loadManagerTasks(db, actor.userId)).map((t) => t.id));
 
   for (const property of proposal.properties) {
     if (property.status === "skip") continue;
@@ -389,8 +411,8 @@ export async function createPortfolioImportRecords(
         }
 
         for (const task of property.tasks.filter((t) => t.residentKey === resident.key)) {
-          await createTask(db, actor.userId, propertyId, property.address, importId, task);
-          local.tasks += 1;
+          const wasCreated = await createTask(db, actor.userId, propertyId, property.address, importId, task, existingTaskIds);
+          if (wasCreated) local.tasks += 1;
         }
       }
 
