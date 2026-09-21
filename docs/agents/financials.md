@@ -283,7 +283,11 @@ modules' header comments carry the full rationale.
   settings filters nothing.
 
 Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`,
-`tests/unit/manager-payments-upcoming.test.tsx`.
+`tests/unit/manager-payments-upcoming.test.tsx`,
+`tests/unit/tools/charges-upcoming-visibility.test.ts` (the `upcoming` tool flag), and the
+browser regression `npm run test:payments-upcoming`
+(`tests/browser/payments-upcoming/README.md` — list, Filter sheet, settings dialog,
+record header actions, resident window; real components, no dev server).
 
 ## Sales migration, utility allocations and statement intake
 

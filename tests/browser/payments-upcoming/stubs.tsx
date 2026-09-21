@@ -43,6 +43,8 @@ export const useSearchParams = () => new URLSearchParams();
 export const useParams = () => ({});
 /** `next/link` → plain anchor routed through the same stub. */
 export default function Link(props: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; prefetch?: boolean; scroll?: boolean }) {
+  // `prefetch` / `scroll` are Next-only: pulled out so they never reach the <a>.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { href, prefetch: _p, scroll: _s, children, onClick, ...rest } = props;
   return (
     <a

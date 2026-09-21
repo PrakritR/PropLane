@@ -407,7 +407,9 @@ reconcile (`reconcileChargeWithLocal`) both carry a stored stamp through a clien
 that predates it. The manager-side Upcoming group is a different rule
 ([financials.md](financials.md) § Manager charge counts). Coverage:
 `tests/unit/household-charge-visibility.test.ts`,
-`tests/unit/resident-payments-visibility.test.ts`.
+`tests/unit/resident-payments-visibility.test.ts`,
+`tests/unit/tools/charges-upcoming-visibility.test.ts` (`list_my_charges`), and the
+browser regression `npm run test:payments-upcoming` (`tests/browser/payments-upcoming/`).
 
 ## Paid is reconciled against the ledger, and receipts are named from it
 
