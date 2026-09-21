@@ -39,6 +39,19 @@ function fakeDb() {
           },
         };
       }
+      if (table === "test_workspace_members") {
+        // The webhook now checks test-workspace classification before every
+        // financial mutation. No fixture here is a member, so every account
+        // resolves to a normal (non-test) workspace and the real assertions
+        // below are unaffected.
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };

@@ -10,7 +10,15 @@ vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => actor }))
 vi.mock("@/hooks/use-is-client", () => ({ useIsClient: () => false }));
 vi.mock("@/hooks/use-is-native-app", () => ({ useNativeChrome: () => false }));
 vi.mock("@/hooks/use-visual-viewport-bottom-inset", () => ({ useVisualViewportBottomInset: () => 0 }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast: vi.fn() }),
+  useConfirm: () => async () => true,
+}));
+// The resident services row now navigates to a record page (PLAN-0920-1058)
+// via usePortalNavigate; this suite renders the panel directly with no
+// Next.js router context, so the real hook throws. A no-op navigator keeps
+// the panel rendering without touching the actual scoping assertions below.
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 vi.mock("@/lib/axis-assistant/assistant-conversation-context", () => ({
   AssistantConversationProvider: ({ children }: { children: ReactNode }) => children,
   useOptionalAssistantConversation: () => ({ messages: [], attachments: [], threads: [], hydrateArchive: vi.fn() }),

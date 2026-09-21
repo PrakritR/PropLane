@@ -98,6 +98,8 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: () => {} }),
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
+  isBookingResidencyRow: (row: unknown) =>
+    (row as { bookingResidency?: unknown } | null)?.bookingResidency === true,
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   // The real sync RESOLVES TO THE ROWS and the panel pipes it straight into
   // `setRows`. Resolving to undefined here wiped the list the panel had just
