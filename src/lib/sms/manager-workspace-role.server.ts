@@ -234,11 +234,43 @@ export async function resolveViewerWorkNumber(
 }
 
 /**
+ * A number the TARGET workspace holds via `workspace_work_numbers` — its own
+ * home number when it has one, else a number shared in from a sibling
+ * workspace of the SAME owner (primary hold first). Never a guess at an
+ * unrelated workspace's line. Returns `columns` as selected, unmapped, so
+ * callers keep their own row type. Used only as a fallback when the owner's
+ * home-row disambiguation below cannot place the message's workspace.
+ */
+async function resolveHeldNumberRow<T>(
+  db: SupabaseClient,
+  columns: string,
+  workspaceId: string,
+): Promise<T | null> {
+  const id = workspaceId.trim();
+  if (!id) return null;
+  const { data: holds } = await db
+    .from("workspace_work_numbers")
+    .select("number_id, is_primary")
+    .eq("workspace_id", id)
+    .order("is_primary", { ascending: false });
+  const numberIds = [...new Set((holds ?? []).map((h) => String(h.number_id ?? "").trim()).filter(Boolean))];
+  for (const numberId of numberIds) {
+    const { data: row, error } = await db.from("manager_sms_numbers").select(columns).eq("id", numberId).maybeSingle();
+    if (!error && row) return row as T;
+  }
+  return null;
+}
+
+/**
  * The number row an OWNER sends from for one message: the line of the
  * workspace that holds the house the message is about; a house-less message
- * goes out from the owner's default workspace's line. A legacy row the
- * migration could not place still answers when nothing else does. Returns
- * `columns` as selected, unmapped, so the dispatcher keeps its own row type.
+ * goes out from the owner's default workspace's line. When that workspace has
+ * no HOME number of its own, a number it holds via sharing
+ * (`workspace_work_numbers`) is used before ever falling back to an unrelated
+ * workspace's line — a workspace never sends from a number it does not hold.
+ * A legacy row the migration could not place still answers when nothing else
+ * does. Returns `columns` as selected, unmapped, so the dispatcher keeps its
+ * own row type.
  */
 export async function resolveOwnerSendNumberRow<T extends { workspace_id?: string | null }>(
   db: SupabaseClient,
@@ -254,15 +286,39 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   if (error) return { data: null, error };
   const list = Array.isArray(data) ? data : data ? [data] : [];
   const rows = (list as unknown as T[]).filter(Boolean);
-  if (rows.length === 0) return { data: null, error: null };
-  if (rows.length === 1) return { data: rows[0], error: null };
+
   const propertyId = opts.propertyId?.trim();
+  let houseWorkspaceId = "";
   if (propertyId) {
     const { data: house } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
-    const houseWorkspace = String(house?.workspace_id ?? "").trim();
-    const match = houseWorkspace ? rows.find((r) => String(r.workspace_id ?? "") === houseWorkspace) : null;
-    if (match) return { data: match, error: null };
+    houseWorkspaceId = String(house?.workspace_id ?? "").trim();
   }
+
+  if (rows.length === 0) {
+    // No home number anywhere for this owner. The only safe send is a number
+    // the TARGET workspace holds via sharing — never a guess.
+    let workspaceId = houseWorkspaceId;
+    if (!workspaceId) {
+      const { data: def } = await db
+        .from("portal_workspaces")
+        .select("id")
+        .eq("owner_user_id", ownerUserId)
+        .eq("is_default", true)
+        .maybeSingle();
+      workspaceId = String(def?.id ?? "").trim();
+    }
+    const held = workspaceId ? await resolveHeldNumberRow<T>(db, columns, workspaceId) : null;
+    return { data: held, error: null };
+  }
+  if (houseWorkspaceId) {
+    const match = rows.find((r) => String(r.workspace_id ?? "") === houseWorkspaceId);
+    if (match) return { data: match, error: null };
+    // The target workspace has no home number of its own — try a number it
+    // holds via sharing before ever falling back to another workspace's line.
+    const held = await resolveHeldNumberRow<T>(db, columns, houseWorkspaceId);
+    if (held) return { data: held, error: null };
+  }
+  if (rows.length === 1) return { data: rows[0], error: null };
   const placedIds = rows.map((r) => String(r.workspace_id ?? "").trim()).filter(Boolean);
   if (placedIds.length > 0) {
     const { data: workspaces } = await db.from("portal_workspaces").select("id, is_default").in("id", placedIds);

@@ -10,6 +10,7 @@ import { getStripe } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
 import { isStripeConnectAccountAccessError } from "@/lib/stripe-connect";
 import { createAccountSession, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
+import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
 
@@ -86,10 +87,9 @@ export async function POST(req: Request) {
           { status: 409 },
         );
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("stripe/connect/account-session POST", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("stripe/connect/account-session POST", e);
   }
 }

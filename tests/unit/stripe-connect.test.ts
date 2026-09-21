@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  AXIS_CONNECT_CONTROLLER,
   connectAccountReadyForAchPayouts,
   connectAccountTransfersActive,
+  isApplicationCollected,
   managerConnectValidationError,
   resolveAndValidateManagerConnectForPayments,
 } from "@/lib/stripe-connect";
@@ -44,6 +46,31 @@ describe("stripe-connect", () => {
     expect(managerConnectValidationError(mockAccount({ capabilities: { transfers: "inactive" } }))).toMatch(
       /additional information/i,
     );
+  });
+});
+
+describe("AXIS_CONNECT_CONTROLLER — new accounts are application-collected, no Stripe-hosted dashboard", () => {
+  it("PLAN-0920-1500: PropLane owns requirement collection and there is no dashboard", () => {
+    expect(AXIS_CONNECT_CONTROLLER.requirement_collection).toBe("application");
+    expect(AXIS_CONNECT_CONTROLLER.stripe_dashboard.type).toBe("none");
+  });
+});
+
+describe("isApplicationCollected", () => {
+  it("is true for a new account (stripe_dashboard.type: none)", () => {
+    expect(
+      isApplicationCollected(mockAccount({ controller: { type: "application", stripe_dashboard: { type: "none" } } as never })),
+    ).toBe(true);
+  });
+
+  it("is false for a legacy express account", () => {
+    expect(
+      isApplicationCollected(mockAccount({ controller: { type: "application", stripe_dashboard: { type: "express" } } as never })),
+    ).toBe(false);
+  });
+
+  it("is false when the account carries no controller at all (defensive default)", () => {
+    expect(isApplicationCollected(mockAccount({}))).toBe(false);
   });
 });
 

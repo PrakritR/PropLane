@@ -45,6 +45,7 @@ import {
   handleAutopayPaymentIntentFailed,
   handleAutopayPaymentIntentSucceeded,
   handleConnectPayoutEvent,
+  handleExternalAccountEvent,
   handlePaymentIntentFailed,
   handleStripeAccountUpdated,
   handleStripeDisputeEvent,
@@ -334,6 +335,16 @@ export async function POST(req: Request) {
           throw new Error("SMS entitlement reconciliation failed after subscription event.");
         }
       }
+    }
+
+    if (
+      event.type === "account.external_account.created" ||
+      event.type === "account.external_account.updated" ||
+      event.type === "account.external_account.deleted"
+    ) {
+      await handleExternalAccountEvent(stripe, db, event.account).catch((e) => {
+        console.error("[stripe webhook] account.external_account event", e);
+      });
     }
 
     if (event.type === "transfer.created") {

@@ -361,7 +361,15 @@ export function normalizePayoutHistoryRow(
 // Create-payout request validation
 // ---------------------------------------------------------------------------
 
-export type CreatePayoutInput = { amountCents: number; method: PayoutMethod };
+/**
+ * `destinationId` is optional — omitted, the payout goes to the account's
+ * default external account, same as before this field existed. Given, the
+ * server (`createInAppPayout`) re-validates it is actually one of the
+ * account's own destinations (`listPayoutDestinations`/
+ * `resolvePayoutsReadiness`) and, for Instant, that it is a debit card —
+ * never trusted as-is.
+ */
+export type CreatePayoutInput = { amountCents: number; method: PayoutMethod; destinationId?: string };
 export type ValidateCreatePayoutResult =
   | { ok: true; input: CreatePayoutInput }
   | { ok: false; error: string };
@@ -370,13 +378,21 @@ export function validateCreatePayoutRequestBody(body: unknown): ValidateCreatePa
   if (!body || typeof body !== "object") return { ok: false, error: "Invalid request." };
   const amountCents = Number((body as Record<string, unknown>).amountCents);
   const method = (body as Record<string, unknown>).method;
+  const destinationIdRaw = (body as Record<string, unknown>).destinationId;
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
     return { ok: false, error: "Enter an amount greater than $0." };
   }
   if (method !== "standard" && method !== "instant") {
     return { ok: false, error: "Choose Standard or Instant." };
   }
-  return { ok: true, input: { amountCents: Math.round(amountCents), method } };
+  if (destinationIdRaw !== undefined && (typeof destinationIdRaw !== "string" || !destinationIdRaw.trim())) {
+    return { ok: false, error: "Invalid destination." };
+  }
+  const destinationId = typeof destinationIdRaw === "string" ? destinationIdRaw.trim() : undefined;
+  return {
+    ok: true,
+    input: { amountCents: Math.round(amountCents), method, ...(destinationId ? { destinationId } : {}) },
+  };
 }
 
 /**

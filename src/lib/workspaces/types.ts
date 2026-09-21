@@ -22,9 +22,12 @@ export const WORKSPACE_PLAN_ENTITLEMENTS: Record<
 > = {
   free: { label: "Free", workspaces: 1, properties: 1, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 0, vendors: null },
   // Round 3 plan model: Pro includes ONE workspace; a second and third are
-  // the "extra workspace" add-on. Business includes three.
+  // the "extra workspace" add-on. Business includes two (PLAN-0920 add-ons
+  // decision); an existing Business account already holding a third
+  // workspace keeps it — `loadWorkspacePlan` grandfathers `workspaceLimit` up
+  // to the account's current workspace count, never below it.
   pro: { label: "Pro", workspaces: 1, properties: 2, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 2, vendors: null },
-  business: { label: "Business", workspaces: 3, properties: 20, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 20, vendors: null },
+  business: { label: "Business", workspaces: 2, properties: 20, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 20, vendors: null },
 };
 
 export type WorkspaceMember = {

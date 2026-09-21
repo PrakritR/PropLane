@@ -79,18 +79,25 @@ describe("POST /api/property-records — preserves operationsSettings on a rowDa
     expect(rowData.title).toBe("House 1 (edited)");
   });
 
-  it("an explicit operationsSettings in the body still wins (never overridden by the carry-over)", async () => {
-    const explicit = { reminderRules: { tour: { enabled: false } } };
+  it("security-review: a body-supplied operationsSettings is ignored — the stored value is kept, not the client's", async () => {
+    // `operationsSettings` is the store behind house overrides for reminders /
+    // automated messages / task automation, each gated by its own co-manager
+    // module check in the dedicated PATCH routes. This route must never take
+    // that key from a client body, even when the body names it explicitly —
+    // otherwise a caller with only `properties` write access could smuggle an
+    // override past those other routes' gates.
+    const attackerSupplied = { reminderRules: { tour: { enabled: false } } };
     const res = await post({
       action: "upsert",
       id: PROPERTY_ID,
       status: "live",
-      rowData: { title: "House 1", operationsSettings: explicit },
+      rowData: { title: "House 1", operationsSettings: attackerSupplied },
       propertyData: {},
     });
     expect(res.status).toBe(200);
     const rowData = UPSERTS[0]!.row_data as Record<string, unknown>;
-    expect(rowData.operationsSettings).toEqual(explicit);
+    expect(rowData.operationsSettings).toEqual(OPERATIONS_SETTINGS);
+    expect(rowData.operationsSettings).not.toEqual(attackerSupplied);
   });
 
   it("a create (no existing row) writes exactly what the body sends, nothing to carry over", async () => {

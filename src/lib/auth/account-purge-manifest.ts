@@ -506,12 +506,33 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Display-only Connect identity-verification status cache
+    // (PLAN-0920-1500 Part C). `owner_user_id` is whichever role's profile
+    // holds the Connect account — a manager's own or a vendor's own, never
+    // both for the same row — so both scopes key off the same column.
+    table: "payout_identity_status",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "stripe_payouts",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
     // Set only for a vendor-initiated in-app payout (PLAN-0920-0853); a
     // manager row leaves this null.
     vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    // Display cache of a Connect account's bank accounts / debit cards
+    // (PLAN-0920-1500 part B). `owner_user_id` is generic — a manager's own
+    // id for a manager account, a vendor's own id for a vendor account, the
+    // same pattern `profiles.stripe_connect_account_id` already uses — so it
+    // is classified under both scopes; a given row only ever matches one.
+    table: "payout_destinations_cache",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
   },
   {
     table: "external_calendar_connections",
@@ -899,6 +920,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",
   application_document_storage_aliases:
     "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
+  workspace_work_numbers:
+    "Workspace <-> work-number assignment join table; keyed on workspace_id/number_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged.",
 };
 
 /**

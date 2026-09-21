@@ -168,8 +168,10 @@ export const DELETE_ORDER = [
   "manager_tour_followup_controls",
   "manager_purchases",
   "chart_of_accounts",
+  "payout_identity_status",
   "stripe_disputes",
   "stripe_payouts",
+  "payout_destinations_cache",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.

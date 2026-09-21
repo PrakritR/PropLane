@@ -6,7 +6,6 @@ import { ManagerLeases } from "@/components/portal/pro-leases";
 import { ManagerPayments } from "@/components/portal/pro-payments";
 import { ManagerPromotion } from "@/components/portal/pro-promotion";
 import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
-import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
@@ -938,13 +937,11 @@ export async function renderPortalSection(
     }
 
     if (section === "payments") {
+      // Payouts is one page now, mounted at Settings → Payouts
+      // (`portal-payouts-settings-page.tsx`) — this legacy path is a door to
+      // it, never its own render (PLAN-0920-1500).
       if (tabParts?.length === 1 && tabParts[0] === "payouts") {
-        return subscriptionGated(
-          <PortalPayoutsPanel portal="manager" />,
-          kind,
-          "payments",
-          managerOwnerSubscriptionTier,
-        );
+        redirect(`${def.basePath}/settings/payouts`);
       }
 
       const PAYMENT_DIRECTIONS = ["incoming", "outgoing"] as const;
@@ -1701,6 +1698,13 @@ export async function renderPortalSection(
       // (PLAN-0920-1058, area 1c).
       if (tabParts.length > 3) notFound();
       if (tabParts.length === 1) {
+        // Payouts is one page now, mounted at Settings → Payouts (vendor twin
+        // of the manager redirect above) — the bare Finances tab is a door to
+        // it, never its own render (PLAN-0920-1500). A payout record below
+        // still renders here.
+        if (finTab === "payouts") {
+          redirect(`${def.basePath}/profile?tab=payouts`);
+        }
         return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
       }
       if (tabParts.length === 2 && tabParts[1] === "pending") {

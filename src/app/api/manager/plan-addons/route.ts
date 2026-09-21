@@ -7,11 +7,13 @@ import {
   isPlanAddonId,
   planAddonsMonthlyTotalCents,
   planTierCanHoldAddons,
+  type PlanAddonId,
 } from "@/lib/plan-addons";
 import {
   describePlanAddons,
   loadManagerPlanAddonQuantities,
-  setManagerPlanAddonQuantity,
+  setManagerPlanAddonQuantities,
+  type PlanAddonChangeInput,
 } from "@/lib/plan-addons.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -23,8 +25,13 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
  * Plan add-ons for the signed-in manager (Settings → Billing & plan).
  *
  * GET: the catalogue with this account's quantities and monthly add-on total.
- * POST `{ addonId, quantity }`: purchase changes currently return a stable
- * unavailable response. A co-manager has no spending authority on the
+ * Add-ons are always purchasable — a missing Stripe Price is created from the
+ * catalog before the first charge, so no row is ever disabled.
+ *
+ * PATCH `{ changes: [{ addonId, quantity }] }` (or the older single-item
+ * `{ addonId, quantity }` body): applies the whole set as ONE Stripe
+ * subscription update, all-or-nothing. POST accepts the same bodies for
+ * backward compatibility. A co-manager has no spending authority on the
  * owner's plan: add-ons follow the authenticated manager's own purchase row.
  */
 export async function GET() {
@@ -66,20 +73,42 @@ export async function GET() {
   );
 }
 
-export async function POST(req: Request) {
+/** Accepts `{ changes: [...] }` or the older single-item `{ addonId, quantity }` shape. */
+function parseChanges(body: unknown): PlanAddonChangeInput[] | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as { changes?: unknown; addonId?: unknown; quantity?: unknown };
+  if (Array.isArray(record.changes)) {
+    const out: PlanAddonChangeInput[] = [];
+    for (const raw of record.changes) {
+      if (!raw || typeof raw !== "object") return null;
+      const addonId = (raw as { addonId?: unknown }).addonId;
+      const quantity = Number((raw as { quantity?: unknown }).quantity);
+      if (!isPlanAddonId(addonId) || !Number.isFinite(quantity)) return null;
+      out.push({ addonId, quantity });
+    }
+    return out;
+  }
+  if (isPlanAddonId(record.addonId)) {
+    const quantity = Number(record.quantity);
+    if (!Number.isFinite(quantity)) return null;
+    return [{ addonId: record.addonId as PlanAddonId, quantity }];
+  }
+  return null;
+}
+
+async function handleAddonMutation(req: Request) {
   const auth = await requireManagerRouteUser();
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  let body: { addonId?: unknown; quantity?: unknown };
+  let body: unknown;
   try {
-    body = (await req.json()) as typeof body;
+    body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  if (!isPlanAddonId(body.addonId)) return NextResponse.json({ error: "Unknown add-on." }, { status: 400 });
-  const quantity = Number(body.quantity);
-  if (!Number.isFinite(quantity)) return NextResponse.json({ error: "Choose a quantity." }, { status: 400 });
+  const changes = parseChanges(body);
+  if (!changes) return NextResponse.json({ error: "Choose a quantity for a known add-on." }, { status: 400 });
 
-  const result = await setManagerPlanAddonQuantity({ managerUserId: auth.userId, addonId: body.addonId, quantity });
+  const result = await setManagerPlanAddonQuantities({ managerUserId: auth.userId, changes });
   if (!result.ok) {
     return NextResponse.json({ error: result.error, code: result.code }, { status: result.status, headers: NO_STORE });
   }
@@ -95,4 +124,13 @@ export async function POST(req: Request) {
     },
     { headers: NO_STORE },
   );
+}
+
+export async function PATCH(req: Request) {
+  return handleAddonMutation(req);
+}
+
+/** Back-compat: earlier callers POST the same bodies PATCH now accepts. */
+export async function POST(req: Request) {
+  return handleAddonMutation(req);
 }

@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
   getEffectiveManagerSmsEntitlement: vi.fn(),
   reconcileManagerSmsEntitlement: vi.fn(),
   getManagerPortalNavSubscriptionTier: vi.fn(),
+  // Named for the old direct call; now mocks the route's actual call target,
+  // work-numbers.server's provisionNumberForWorkspace (same call shape).
   provisionManagerNumber: vi.fn(),
+  listWorkspaceNumbers: vi.fn(),
   track: vi.fn(),
   rateLimit: vi.fn<typeof import("@/lib/rate-limit").rateLimit>(),
 }));
@@ -23,8 +26,11 @@ vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
   getEffectiveManagerSmsEntitlement: mocks.getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement: mocks.reconcileManagerSmsEntitlement,
 }));
-vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
-  provisionManagerNumber: mocks.provisionManagerNumber,
+vi.mock("@/lib/sms/work-numbers.server", () => ({
+  provisionNumberForWorkspace: mocks.provisionManagerNumber,
+  listWorkspaceNumbers: mocks.listWorkspaceNumbers,
+  assignNumberToWorkspace: vi.fn(),
+  unassignNumber: vi.fn(),
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
@@ -115,6 +121,7 @@ beforeEach(() => {
     source: "stripe",
   });
   mocks.getManagerPortalNavSubscriptionTier.mockResolvedValue("paid");
+  mocks.listWorkspaceNumbers.mockResolvedValue([]);
 });
 
 afterEach(() => {

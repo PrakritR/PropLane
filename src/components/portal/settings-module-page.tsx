@@ -45,6 +45,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/pro-portal-automation-settings-panel";
+import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
@@ -475,7 +476,7 @@ export const SettingsModulePage = forwardRef<
   // moved here so every host gets the right answer without re-deriving it.
   useEffect(() => {
     const suppressed =
-      tab === "applications" || tab === "lease" || tab === "resident";
+      tab === "applications" || tab === "lease" || tab === "resident" || tab === "payouts";
     onFooterChange?.(suppressed ? null : panelFooter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, panelFooter]);
@@ -568,6 +569,8 @@ export const SettingsModulePage = forwardRef<
           initialPropertyId={initialPropertyId}
         />
       ) : null}
+
+      {active && tab === "payouts" ? <PortalPayoutsSettingsPage portal="manager" /> : null}
 
       {active && tab === "services" ? (
         <ServicesSettingsPanel

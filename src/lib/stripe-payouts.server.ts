@@ -1,5 +1,6 @@
 import "server-only";
 
+import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -11,7 +12,6 @@ import {
   netCentsForPayout,
   normalizePayoutHistoryRow,
   normalizePayoutStatus,
-  resolveSetupState,
   toStripePayoutSchedule,
   validatePayoutAgainstBalance,
   type CreatePayoutInput,
@@ -24,6 +24,7 @@ import {
   type StripePayoutDbRow,
   type VendorPayoutCandidate,
 } from "@/lib/stripe-payouts";
+import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
 
 const CURRENCY = "usd";
 
@@ -65,10 +66,6 @@ export function emptyPayoutSnapshot(): PayoutSnapshot {
 
 function currencyAmount(rows: Array<{ amount: number; currency: string }> | undefined, currency: string): number {
   return rows?.find((r) => r.currency === currency)?.amount ?? 0;
-}
-
-function requirementList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
 /** Picks the bank account payouts should describe: default-for-currency first, else the first bank account. */
@@ -377,12 +374,7 @@ export async function readPayoutSnapshot(
   ]);
 
   const bank = bankInfoFromAccount(account);
-  const setup = resolveSetupState({
-    detailsSubmitted: Boolean(account.details_submitted),
-    currentlyDue: requirementList(account.requirements?.currently_due),
-    pendingVerification: requirementList(account.requirements?.pending_verification),
-    hasExternalAccount: bank !== null,
-  });
+  const setup = resolvePayoutsReadiness(account);
 
   const schedule = fromStripePayoutSchedule(account.settings?.payouts?.schedule ?? null);
   const availableCents = currencyAmount(balance.available, CURRENCY);
@@ -426,19 +418,32 @@ export async function createInAppPayout(
     stripe.balance.retrieve({}, { stripeAccount: opts.accountId }),
   ]);
   const bank = bankInfoFromAccount(account);
-  const setup = resolveSetupState({
-    detailsSubmitted: Boolean(account.details_submitted),
-    currentlyDue: requirementList(account.requirements?.currently_due),
-    pendingVerification: requirementList(account.requirements?.pending_verification),
-    hasExternalAccount: bank !== null,
-  });
+  const setup = resolvePayoutsReadiness(account);
+
+  // A `destinationId` names a specific external account/card off THIS
+  // account's own live destination list — never trusted as-is. Omitted, the
+  // payout goes to the account's default external account (unchanged
+  // behavior). Instant specifically needs a debit CARD destination (the
+  // Withdraw sheet's own "needs a debit card" copy); a bank account's own
+  // `instant_available_payout_methods` is the fallback signal only for the
+  // no-destination (default-account) path below.
+  let destination: (typeof setup.destinations)[number] | null = null;
+  if (opts.input.destinationId) {
+    destination = setup.destinations.find((d) => d.id === opts.input.destinationId) ?? null;
+    if (!destination) {
+      return { ok: false, status: 400, error: "That destination is not on this account." };
+    }
+    if (opts.input.method === "instant" && destination.kind !== "card") {
+      return { ok: false, status: 400, error: "Instant payouts need a debit card destination." };
+    }
+  }
 
   const validation = validatePayoutAgainstBalance(
     opts.input,
     {
       availableCents: currencyAmount(balance.available, CURRENCY),
       instantAvailableCents: currencyAmount(balance.instant_available, CURRENCY),
-      bankInstantEligible: bank?.instantEligible ?? false,
+      bankInstantEligible: destination ? destination.kind === "card" : (bank?.instantEligible ?? false),
     },
     setup,
   );
@@ -493,7 +498,12 @@ export async function createInAppPayout(
 
   try {
     const payout = await stripe.payouts.create(
-      { amount: stripeAmount, currency: CURRENCY, method: opts.input.method },
+      {
+        amount: stripeAmount,
+        currency: CURRENCY,
+        method: opts.input.method,
+        ...(destination ? { destination: destination.id } : {}),
+      },
       { stripeAccount: opts.accountId, idempotencyKey: `in-app-payout:${claimId}` },
     );
 
@@ -542,4 +552,26 @@ export async function writePayoutSchedule(
   });
   const schedule = fromStripePayoutSchedule(account.settings?.payouts?.schedule ?? null);
   return { ...schedule, nextPayoutAt: computeNextPayoutDate(schedule) };
+}
+
+/**
+ * Security-review follow-up: a caught Stripe (or other library) error's OWN
+ * message must never reach the client. Stripe's account-access error embeds
+ * the Connect account id verbatim ("This API key does not have access to
+ * account acct_123... (or that account does not exist)."), and other thrown
+ * errors can carry equally internal detail — neither belongs in a payout
+ * response body. Log the real message server-side (still diagnosable from
+ * logs) and answer with one generic message instead.
+ *
+ * This is only for the UNEXPECTED-error fallback in a route's catch block.
+ * It is never the right call for a validation failure — those already carry
+ * our own crafted message (`validateCreatePayoutRequestBody`,
+ * `validateScheduleRequestBody`, `STRIPE_NOT_CONFIGURED`, the payout-owner
+ * resolution errors, etc.) and must keep returning that message verbatim, at
+ * their own status code, without going through this helper.
+ */
+export function stripePayoutErrorResponse(context: string, e: unknown): NextResponse {
+  const message = e instanceof Error ? e.message : String(e);
+  console.error(`[${context}]`, message);
+  return NextResponse.json({ error: "Something went wrong processing that request. Please try again." }, { status: 500 });
 }

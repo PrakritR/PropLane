@@ -32,7 +32,6 @@ import {
   FilterFieldsAccordion,
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
-import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PORTAL_DETAIL_BTN, PortalDataTableEmpty, PortalTableDetailActions } from "@/components/portal/portal-data-table";
@@ -1002,24 +1001,18 @@ export function VendorFinancesPanel({
     );
   }
 
-  if (tabId === "payouts") {
-    if (recordId) {
-      return (
-        <VendorPayoutRecordPage
-          payoutId={recordId}
-          detailTab={(recordDetailTab as VendorPayoutDetailTabId) ?? "overview"}
-          basePath={basePath}
-        />
-      );
-    }
-    // The Payouts page owns its own command bar (search + settings), balance,
-    // bank and history — the old CSV export / reminder / payment-methods
-    // toolbar and the shared "Request payment" primary moved off this tab
-    // (PLAN-0920-0853); Payments still export from Invoices.
+  // The bare "payouts" tab never reaches this component — `render-portal-section.tsx`
+  // redirects it straight to Settings → Payouts (PLAN-0920-1500) before
+  // `VendorFinancesPanel` is mounted with that tabId. The pill stays in
+  // `VENDOR_FINANCE_TABS` as a door to it. Only a payout *record*
+  // (/financials/payouts/<id>/<tab>, PLAN-0920-1058) renders here.
+  if (tabId === "payouts" && recordId) {
     return (
-      <VendorFinancesChrome tabId={tabId} tabItems={financeTabItems}>
-        <PortalPayoutsPanel portal="vendor" />
-      </VendorFinancesChrome>
+      <VendorPayoutRecordPage
+        payoutId={recordId}
+        detailTab={(recordDetailTab as VendorPayoutDetailTabId) ?? "overview"}
+        basePath={basePath}
+      />
     );
   }
 
