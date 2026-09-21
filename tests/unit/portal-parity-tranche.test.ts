@@ -12,7 +12,8 @@ describe("vendor profile parity", () => {
     expect(panel).toContain('data-attr="vendor-catalog-matched-profile"');
     expect(panel).toContain("row={catalogRosterMatch}");
     expect(panel).toContain("detailHref={(tab) => vendorCatalogDetailHref(basePath, catalogDetailId, tab)}");
-    expect(panel).toContain("{catalogRosterMatch ? \"Added\" : \"Add\"}");
+    // A matched catalog vendor swaps the header's Add for Open (record page), never a second Add.
+    expect(panel).toContain('action.id === "add" ? { id: "open", label: "Open"');
   });
 
   it("routes summary jobs to the existing manager service detail buckets", () => {
