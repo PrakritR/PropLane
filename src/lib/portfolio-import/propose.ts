@@ -14,7 +14,6 @@
 
 import type { PropertyImportProperty, PropertyImportUnderstanding } from "@/lib/property-import/types";
 import type { UnderstoodResident } from "@/lib/portfolio-import/understand-residents.server";
-import { placeholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 import type {
   ImportChargeProposal,
   ImportGap,
@@ -156,15 +155,18 @@ export function proposePortfolioImport(input: {
       const residentProposals: ImportResidentProposal[] = propertyResidents.map((r, i) => {
         const room = matchRoom(r, rooms);
         const residentKey = `${propertyKey}:resident:${i}:${slug(r.name, 24)}`;
-        const email = r.email || (r.name ? placeholderImportEmail(slug(r.name, 24), residentKey.slice(-8)) : null);
-        const base = { name: r.name, leaseEnd: r.leaseEnd, email, phone: r.phone, rent: r.rent, roomKey: room?.key ?? null };
+        // Honest here: a resident the file gives no email keeps `email: null`
+        // so the review screen shows the real gap. `create.server.ts` fills
+        // the deterministic `@import.proplane.local` placeholder only at
+        // creation time, for whichever residents still have none then.
+        const base = { name: r.name, leaseEnd: r.leaseEnd, email: r.email, phone: r.phone, rent: r.rent, roomKey: room?.key ?? null };
         const gaps = residentGaps(base, hasMultipleRooms);
         const status: ImportItemStatus = gaps.length > 0 ? "needs" : "ready";
         return {
           key: residentKey,
           roomKey: room?.key ?? null,
           name: r.name,
-          email,
+          email: r.email,
           phone: r.phone,
           leaseStart: r.leaseStart,
           leaseEnd: r.leaseEnd,

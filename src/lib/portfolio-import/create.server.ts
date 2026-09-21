@@ -147,7 +147,7 @@ async function createPropertyDraft(
   db: SupabaseClient,
   landlordId: string,
   property: ImportPropertyProposal,
-): Promise<{ propertyId: string; roomIdByKey: Map<string, string> }> {
+): Promise<{ propertyId: string; roomIdByKey: Map<string, string>; wholePlaceRoomId: string | undefined }> {
   const importedProperty = toPropertyImportProperty(property);
   const submission = submissionFromImportedProperty(importedProperty);
   const legacy = deriveLegacyFields(submission);
@@ -167,7 +167,13 @@ async function createPropertyDraft(
     const roomId = submission.rooms[i]?.id;
     if (roomId) roomIdByKey.set(r.key, roomId);
   });
-  return { propertyId, roomIdByKey };
+  // A whole-place property the file never broke into rooms proposes zero
+  // `ImportRoomProposal`s (nothing to name), but `submissionFromImportedProperty`
+  // still creates at least one room slot with a REAL, randomly generated id
+  // (`emptyRoom`/`rid("room")` — never a predictable "room-1"). Residents with
+  // no `roomKey` fall back to that slot's actual id, never a guessed string.
+  const wholePlaceRoomId = submission.rooms[0]?.id;
+  return { propertyId, roomIdByKey, wholePlaceRoomId };
 }
 
 type ResidentCreateResult = {
@@ -344,17 +350,18 @@ export async function createPortfolioImportRecords(
     const local: PortfolioImportCreateCounts = { properties: 0, rooms: 0, residents: 0, leases: 0, charges: 0, tasks: 0, invites: 0 };
     try {
       const fileName = property.source.file;
-      const { propertyId, roomIdByKey } = await createPropertyDraft(db, actor.userId, property);
+      const { propertyId, roomIdByKey, wholePlaceRoomId } = await createPropertyDraft(db, actor.userId, property);
       undo.push(async () => {
         await db.from("manager_property_records").delete().eq("id", propertyId).eq("manager_user_id", actor.userId);
       });
       local.properties += 1;
       local.rooms += property.rooms.length;
 
-      const fallbackRoomId = property.rooms[0] ? roomIdByKey.get(property.rooms[0].key) : undefined;
+      const fallbackRoomId = (property.rooms[0] ? roomIdByKey.get(property.rooms[0].key) : undefined) ?? wholePlaceRoomId;
 
       for (const resident of residentsToCreate) {
-        const roomId = (resident.roomKey && roomIdByKey.get(resident.roomKey)) || fallbackRoomId || "room-1";
+        const roomId = (resident.roomKey && roomIdByKey.get(resident.roomKey)) || fallbackRoomId;
+        if (!roomId) throw new Error("Could not resolve a room for this resident.");
         const result = await createResident(db, actor, fileName, propertyId, property.address, roomId, resident, {
           sendInvites: request.sendInvites,
         });
