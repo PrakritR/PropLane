@@ -6,6 +6,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { CreditCard, Landmark, Link2 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { cn } from "@/lib/utils";
 
 /**
@@ -301,19 +302,18 @@ function BankSheetContent({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-muted" htmlFor="bank-account-type">
-              Type
-            </label>
-            <select
-              id="bank-account-type"
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Type</p>
+            <FieldSingleSelect
+              label="Account type"
+              hideLabel
               value={accountType}
-              onChange={(e) => setAccountType(e.target.value === "savings" ? "savings" : "checking")}
-              data-attr="bank-account-type"
-              className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none"
-            >
-              <option value="checking">Checking</option>
-              <option value="savings">Savings</option>
-            </select>
+              onChange={(next) => setAccountType(next === "savings" ? "savings" : "checking")}
+              options={[
+                { value: "checking", label: "Checking" },
+                { value: "savings", label: "Savings" },
+              ]}
+              dataAttr="bank-account-type"
+            />
           </div>
         </div>
       ) : null}

@@ -6,6 +6,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { AlertCircle, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
@@ -75,21 +76,15 @@ function FieldControl({
 }) {
   if (field.type === "select") {
     return (
-      <select
+      <FieldSingleSelect
+        label={field.label}
+        hideLabel
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        data-attr={`verify-field-${field.key}`}
-        className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none"
-      >
-        <option value="" disabled>
-          Select…
-        </option>
-        {(field.options ?? []).map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        onChange={onChange}
+        options={(field.options ?? []).map((opt) => ({ value: opt.value, label: opt.label }))}
+        placeholder="Select…"
+        dataAttr={`verify-field-${field.key}`}
+      />
     );
   }
   if (field.type === "date") {
