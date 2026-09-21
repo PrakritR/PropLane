@@ -96,6 +96,8 @@ export type DemoApplicantRow = {
     notes?: string;
     /** ISO timestamp when the existing-resident portal welcome email was sent. */
     onboardingWelcomeSentAt?: string;
+    /** ISO timestamp `create.server.ts` stamps when this resident came from a portfolio import — paired with `detail`'s "Imported from <file>." for the Activity entry. */
+    importedAt?: string;
     /** Signed lease PDF uploaded by manager for off-platform leases. */
     signedLeaseFileName?: string;
     signedLeaseDataUrl?: string;
@@ -188,6 +190,10 @@ export type DemoManagerPaymentLedgerRow = {
   householdChargeId?: string;
   cancelledReminders?: Array<"7d" | "5d" | "3d" | "12h" | "overdue_daily">;
   residentChargeMessages?: ResidentChargeMessage[];
+  /** Mirrors `HouseholdCharge.migrationSourceId` — the import file name, when this charge came from a portfolio import. */
+  migrationSourceId?: string;
+  /** Mirrors `HouseholdCharge.createdAt` — paired with `migrationSourceId` for the Activity entry. */
+  createdAt?: string;
 };
 
 export type DemoManagerOutgoingPaymentRow = {

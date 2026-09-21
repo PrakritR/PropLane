@@ -58,6 +58,7 @@ import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { importedActivity } from "@/lib/portfolio-import/activity";
 import {
   propertyDetailHref,
   propertyListHref,
@@ -1329,6 +1330,7 @@ function ManagerPropertyInlineDetails({
             kindLabel: "home",
             recordId: propertyRouteKey,
             recordLabel: propertyShareLabel,
+            activity: importedActivity(row?.importFile, row?.importedAt),
           })
         : null}
 

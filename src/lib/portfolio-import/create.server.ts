@@ -173,7 +173,16 @@ async function createPropertyDraft(
   // create() calls for the same import produced two draft listings for the
   // same address, with residents re-pointed at whichever one ran last.
   const propertyId = `mgr-import-${shortHash(`${landlordId}:${property.key}`)}`;
-  const row = submissionToDraftAdminRow(submission, landlordId, propertyId, {});
+  // Additive fields on the draft's own `row_data` (no new column, no new
+  // table) — the draft had no provenance stamp at all before this; residents
+  // and charges already had one (`detail` / `migrationSourceId`). Read by
+  // the Activity entry, `src/lib/portfolio-import/activity.ts`.
+  const row = {
+    ...submissionToDraftAdminRow(submission, landlordId, propertyId, {}),
+    source: "import" as const,
+    importFile: property.source.file,
+    importedAt: new Date().toISOString(),
+  };
 
   const { error } = await db
     .from("manager_property_records")
@@ -236,8 +245,11 @@ async function createResident(
   // `DemoApplicantRow.detail` is a free-text note surfaced on the resident's
   // card; stamping it is the cheapest honest "where this came from" — the
   // type has no dedicated import-source field the way `HouseholdCharge` does
-  // (`migrationSourceId`) or `ManagerTask` does (`sourceId`).
+  // (`migrationSourceId`) or `ManagerTask` does (`sourceId`). The paired
+  // `importedAt` gives the Activity entry (`src/lib/portfolio-import/activity.ts`)
+  // its date without a new top-level field.
   row.detail = `Imported from ${fileName}.`;
+  row.manualResidentDetails = { ...row.manualResidentDetails, importedAt: new Date().toISOString() };
 
   const sealed = sealApplicantRow(row, row.id, actor.userId);
   const { error: upsertError } = await db.from("manager_application_records").upsert(
