@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { HouseholdCharge } from "@/lib/household-charges";
 import { residentCanSeeCharge, residentVisibleCharges, type HouseholdChargeWithVisibility } from "@/lib/household-charge-visibility";
 
 /**

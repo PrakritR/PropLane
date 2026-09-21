@@ -250,9 +250,9 @@ modules' header comments carry the full rationale.
   once past due. Bucketing on `status === "pending"` alone is what dropped
   clearing-ACH rows from the dashboard while Payments counted them.
 - **`src/lib/manager-payments-scope.ts` is the ONE Payments-ledger scoping.**
-  `readChargesForManager` is narrowed by two extra rules, and **each is
-  deliberately as narrow as it can be — money a manager cannot see is money they
-  never chase**:
+  `readChargesForManager` is narrowed by two extra rules (plus the manager's own
+  Upcoming choice, below), and **each is deliberately as narrow as it can be —
+  money a manager cannot see is money they never chase**:
   - **Internal payer accounts are matched EXACTLY, email first**
     (`shouldExcludePaymentAccount`) — never as a substring on name-or-email,
     which swallowed every real resident whose name or address merely contained
@@ -266,8 +266,24 @@ modules' header comments carry the full rationale.
 
   The rules live in that module rather than being copied into each caller, and
   **Payments is the authority**: align a new counter to it, not the reverse.
+- **A not-yet-due charge is "Upcoming", and the manager can hide it.**
+  `isUpcomingHouseholdCharge` (`src/lib/household-charge-visibility.ts`) is the ONE
+  decision: an outstanding charge whose `rentMonth` — else the month of its due
+  date — is a later calendar month than now. The Pending bucket renders those in a
+  trailing **Upcoming** group (`pro-payments-ledger-panel.tsx`), and the manager
+  `list_charges` tool reports the same flag as `upcoming`. The manager automation
+  setting `showUpcomingCharges` (default Show) is ONE saved value with two entry
+  points — Payment settings → Payment setup and the list's Filter sheet, both
+  `PATCH /api/portal/automation-settings` — and Hide drops those charges from the
+  list AND from the Pending count. `readManagerPaymentsLedgerCharges` is
+  synchronous, so it reads the setting from a `sessionStorage` mirror
+  (`cacheShowUpcomingChargesSetting` / `readCachedShowUpcomingChargesSetting` in
+  `payment-automation-settings.ts`) that every loader and saver of the real
+  settings refreshes; nothing cached means Show, so a surface that never loaded
+  settings filters nothing.
 
-Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`.
+Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`,
+`tests/unit/manager-payments-upcoming.test.tsx`.
 
 ## Sales migration, utility allocations and statement intake
 
