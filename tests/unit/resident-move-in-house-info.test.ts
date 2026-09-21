@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 import { emptyHouseInfo, setHouseInfoValue } from "@/lib/house-info";
+import { emptyRoom } from "@/lib/manager-listing-submission";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { MockProperty } from "@/data/types";
 
@@ -85,5 +86,93 @@ describe("resolveResidentMoveInFromApplications house info", () => {
     expect(resolved?.houseRulesText).toBe("Quiet hours 10pm–8am.");
     expect(resolved?.houseInfo.access.doorCode ?? "").toBe("");
     expect(resolved?.wifiNetworkName).toBeNull();
+  });
+});
+
+describe("resolveResidentMoveInFromApplications resident section (per-slot move-in)", () => {
+  const room = {
+    ...emptyRoom(0),
+    id: "room-1",
+    name: "Room 1",
+    occupancyCapacity: 2,
+    moveInResidentDetails: [
+      { moveInInstructions: "Resident 1: your bed is by the window.", moveInPhotoDataUrls: [], moveInVideoDataUrl: null },
+      { moveInInstructions: "Resident 2: your bed is by the closet.", moveInPhotoDataUrls: ["https://cdn.example/r2.jpg"], moveInVideoDataUrl: null },
+    ],
+  };
+
+  function applicationForSlot(residentSlot?: number): DemoApplicantRow[] {
+    return [
+      {
+        id: "app-1",
+        bucket: "approved",
+        email: "resident@example.com",
+        propertyId: "mgr-4709a",
+        assignedPropertyId: "mgr-4709a",
+        assignedRoomChoice: "mgr-4709a::room-1",
+        property: "4709A 8th Ave NE",
+        application: {
+          propertyId: "mgr-4709a",
+          roomChoice1: "mgr-4709a::room-1",
+          ...(residentSlot !== undefined ? { residentSlot } : {}),
+        },
+      } as DemoApplicantRow,
+    ];
+  }
+
+  it("resolves the resident's own slot and never a roommate's", () => {
+    const resolved = resolveResidentMoveInFromApplications(
+      "resident@example.com",
+      applicationForSlot(2),
+      propertyWith({ rooms: [room] }),
+    );
+
+    expect(resolved?.residentSection).toEqual({
+      slot: 2,
+      instructions: "Resident 2: your bed is by the closet.",
+      photoDataUrls: ["https://cdn.example/r2.jpg"],
+      videoDataUrl: null,
+    });
+    expect(resolved?.residentSection?.instructions).not.toContain("Resident 1");
+  });
+
+  it("is null when the application carries no residentSlot", () => {
+    const resolved = resolveResidentMoveInFromApplications(
+      "resident@example.com",
+      applicationForSlot(undefined),
+      propertyWith({ rooms: [room] }),
+    );
+
+    expect(resolved?.residentSection).toBeNull();
+  });
+
+  it("is null when the resident's own slot entry is empty", () => {
+    const roomWithOneEmptySlot = {
+      ...room,
+      moveInResidentDetails: [
+        { moveInInstructions: "Resident 1: your bed is by the window.", moveInPhotoDataUrls: [], moveInVideoDataUrl: null },
+        { moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null },
+      ],
+    };
+
+    const resolved = resolveResidentMoveInFromApplications(
+      "resident@example.com",
+      applicationForSlot(2),
+      propertyWith({ rooms: [roomWithOneEmptySlot] }),
+    );
+
+    expect(resolved?.residentSection).toBeNull();
+  });
+
+  it("is null when the slot falls outside the room's normalized capacity", () => {
+    // Capacity is 2, so a resident recorded in slot 3 (e.g. after a manager
+    // lowered capacity) has no surviving entry to read.
+    const resolved = resolveResidentMoveInFromApplications(
+      "resident@example.com",
+      applicationForSlot(3),
+      propertyWith({ rooms: [room] }),
+    );
+
+    expect(resolved?.residentSection).toBeNull();
   });
 });

@@ -186,11 +186,23 @@ function AmenitiesTabContent({ resolved }: { resolved: ResidentMoveInResolved })
  * which key opens Room 3 — and the house level used to be written by the manager
  * and read by nobody (AXI-163).
  */
-function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
+function InstructionsTabContent({
+  resolved,
+  focusRoomId,
+}: {
+  resolved: ResidentMoveInResolved;
+  focusRoomId?: string;
+}) {
+  // A room link (e.g. from a manager share) that names THIS resident's own
+  // room skips the house section — it is asking to see the room, not the whole
+  // house. A focusRoomId that does not match the viewer's own room is ignored
+  // entirely: it never redacts or redirects to a room that is not theirs.
+  const focused = Boolean(focusRoomId) && focusRoomId === resolved.roomId;
   const hasHouse =
-    Boolean(resolved.houseInstructions) ||
-    resolved.houseMoveInPhotoDataUrls.length > 0 ||
-    Boolean(resolved.houseMoveInVideoDataUrl);
+    !focused &&
+    (Boolean(resolved.houseInstructions) ||
+      resolved.houseMoveInPhotoDataUrls.length > 0 ||
+      Boolean(resolved.houseMoveInVideoDataUrl));
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
@@ -207,7 +219,7 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
         </section>
       ) : null}
 
-      <section data-attr="resident-move-in-room-section">
+      <section className="mb-6" data-attr="resident-move-in-room-section">
         {hasHouse ? (
           <h3 className="mb-1.5 text-sm font-semibold text-foreground">
             {resolved.roomLabel.trim() ? resolved.roomLabel : "Your room"}
@@ -223,6 +235,21 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
           videoDataUrl={resolved.moveInVideoDataUrl}
         />
       </section>
+
+      {resolved.residentSection ? (
+        <section data-attr="resident-move-in-resident-section">
+          <h3 className="mb-1.5 text-sm font-semibold text-foreground">
+            Your spot · Resident {resolved.residentSection.slot}
+          </h3>
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {resolved.residentSection.instructions}
+          </div>
+          <ResidentMoveInMediaGallery
+            photoDataUrls={resolved.residentSection.photoDataUrls}
+            videoDataUrl={resolved.residentSection.videoDataUrl}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -231,9 +258,11 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
 function ResidentMoveInTabContent({
   activeTab,
   resolved,
+  focusRoomId,
 }: {
   activeTab: ResidentMoveInTabId;
   resolved: ResidentMoveInResolved;
+  focusRoomId?: string;
 }) {
   switch (activeTab) {
     case "placement":
@@ -246,7 +275,7 @@ function ResidentMoveInTabContent({
       return (
         <div className="space-y-6">
           <InfoTabContent resolved={resolved} />
-          <InstructionsTabContent resolved={resolved} />
+          <InstructionsTabContent resolved={resolved} focusRoomId={focusRoomId} />
         </div>
       );
     case "amenities":
@@ -263,12 +292,15 @@ export function ResidentMoveInShell({
   email,
   locked = false,
   activeTab = "placement",
+  focusRoomId,
 }: {
   activeTab?: string;
   basePath?: string;
   resolved: ResidentMoveInResolved | null;
   email: string;
   locked?: boolean;
+  /** A `room` search param naming a structured room id. Ignored unless it matches the viewer's OWN room. */
+  focusRoomId?: string;
 }) {
   const tabId = parseResidentMoveInTab(activeTab);
 
@@ -311,7 +343,7 @@ export function ResidentMoveInShell({
             destinationItemLayout="equal"
             destinationDenseEqualRow
           />
-          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} />
+          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} />
         </>
       )}
     </div>

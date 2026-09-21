@@ -200,7 +200,6 @@ describe("PortalDialog adoption — source guard", () => {
     { file: "src/components/portal/resident-payments-panel.tsx" },
     { file: "src/components/portal/pro-payments-ledger-panel.tsx" },
     { file: "src/components/portal/pro-applications.tsx" },
-    { file: "src/components/portal/workspace-invite-sheet.tsx" },
     { file: "src/components/portal/uploaded-lease-review-modal.tsx" },
   ];
 

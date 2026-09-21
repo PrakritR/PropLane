@@ -19,4 +19,13 @@ describe("House details Copy/Share are header icons", () => {
     expect(panel).toMatch(/title="The whole house"/);
     expect(panel).toMatch(/actions=\{/);
   });
+
+  it("room rows get the same bare Copy/Share icon actions as the house row", () => {
+    expect(panel).toContain('data-attr="property-move-in-room-copy"');
+    expect(panel).toContain('data-attr="property-move-in-room-share"');
+    expect(panel).not.toMatch(/>\s*Copy\s*</);
+    // Each room-row PortalIconAction pairs its icon with its own data-attr, in prop order.
+    expect(panel).toMatch(/<PortalIconAction[\s\S]{0,60}icon=\{Copy\}[\s\S]{0,200}?data-attr="property-move-in-room-copy"/);
+    expect(panel).toMatch(/<PortalIconAction[\s\S]{0,60}icon=\{Share2\}[\s\S]{0,200}?data-attr="property-move-in-room-share"/);
+  });
 });

@@ -48,9 +48,19 @@ export function isRoommatePlacement(self: RoommatePlacement, peer: RoommatePlace
   return a === b;
 }
 
+/** The resident's own per-slot move-in extra — their bed, their closet — on top of the room-level fields. */
+export type ResidentMoveInResidentSection = {
+  slot: number;
+  instructions: string | null;
+  photoDataUrls: string[];
+  videoDataUrl: string | null;
+};
+
 export type ResidentMoveInResolved = {
   propertyLabel: string;
   addressLine: string;
+  /** The matched listing room's structured id, or null when the resident's room did not resolve to one. */
+  roomId: string | null;
   roomLabel: string;
   earliestMoveInDateLabel: string | null;
   /** The resident's OWN space — their room, or the home on an entire-home listing. */
@@ -84,6 +94,12 @@ export type ResidentMoveInResolved = {
   wifiPassword: string | null;
   /** Other approved residents on the same property (for house details / messaging). */
   housemates: ResidentMoveInHousemate[];
+  /**
+   * The resident's OWN per-slot move-in extra, resolved from their application's
+   * `residentSlot` against the matched room's `moveInResidentDetails`. Never the
+   * whole array — only the viewer's own entry, and only when it carries content.
+   */
+  residentSection: ResidentMoveInResidentSection | null;
 };
 
 export function asObject(value: unknown): Record<string, unknown> | null {
@@ -249,6 +265,8 @@ export function resolveResidentMoveInFromApplications(
   let houseInstructions: string | null = null;
   let houseMoveInPhotoDataUrls: string[] = [];
   let houseMoveInVideoDataUrl: string | null = null;
+  let roomId: string | null = null;
+  let residentSection: ResidentMoveInResidentSection | null = null;
   if (sub) {
     // A room listing has two levels of move-in detail and the resident needs
     // both: the shared house one (door code, bins) and their own room's. Before
@@ -272,6 +290,7 @@ export function resolveResidentMoveInFromApplications(
       (manualRoomName ? sub.rooms.find((r) => r.name.trim().toLowerCase() === manualRoomName) : undefined);
 
     if (room) {
+      roomId = room.id;
       const rn = room.name.trim();
       if (rn && !isPropertyFallbackLabel(rn)) roomLabel = rn;
       if (!isEntireHomeListing(sub)) {
@@ -283,6 +302,25 @@ export function resolveResidentMoveInFromApplications(
         roomLevelInstructions = room.moveInInstructions?.trim() || null;
         if (roomLevelPhotoDataUrls.length === 0) roomLevelPhotoDataUrls = room.moveInPhotoDataUrls ?? [];
         if (!roomLevelVideoDataUrl) roomLevelVideoDataUrl = room.moveInVideoDataUrl ?? null;
+      }
+
+      // The resident's own per-slot extra, on top of the room-level fields
+      // above. Only the viewer's own slot is ever read — never the whole array.
+      const residentSlot = row.application?.residentSlot;
+      if (Number.isInteger(residentSlot) && (residentSlot as number) >= 1) {
+        const entry = room.moveInResidentDetails?.[(residentSlot as number) - 1];
+        const slotInstructions = entry?.moveInInstructions?.trim() || null;
+        const slotPhotoDataUrls = entry?.moveInPhotoDataUrls ?? [];
+        const slotVideoDataUrl = entry?.moveInVideoDataUrl ?? null;
+        const hasContent = Boolean(slotInstructions) || slotPhotoDataUrls.length > 0 || Boolean(slotVideoDataUrl);
+        if (entry && hasContent) {
+          residentSection = {
+            slot: residentSlot as number,
+            instructions: slotInstructions,
+            photoDataUrls: slotPhotoDataUrls,
+            videoDataUrl: slotVideoDataUrl,
+          };
+        }
       }
     }
   }
@@ -310,6 +348,7 @@ export function resolveResidentMoveInFromApplications(
       row.property?.trim() ||
       "Your property",
     addressLine: sub ? [sub.address, sub.zip].filter(Boolean).join(", ").trim() : property?.address?.trim() || "",
+    roomId,
     roomLabel,
     earliestMoveInDateLabel,
     instructions,
@@ -325,5 +364,6 @@ export function resolveResidentMoveInFromApplications(
     wifiNetworkName,
     wifiPassword,
     housemates: [],
+    residentSection,
   };
 }

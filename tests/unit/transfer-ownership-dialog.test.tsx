@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * Transfer ownership: submit stays gated on typing the workspace name, a
- * "Nothing" role afterwards sends an empty grant, and a multi-house transfer
- * goes out one house at a time in order and stops at the first failure
- * rather than pressing on or rolling back what already moved.
+ * Transfer ownership hands the WHOLE workspace to an accepted member — no
+ * house picker any more. Submit stays gated on typing the workspace name,
+ * a "Nothing" role afterwards sends an empty grant, and the dialog issues
+ * exactly one request to the workspace transfer route.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -84,55 +84,86 @@ describe("TransferOwnershipDialog", () => {
     expect(submitButton()).not.toBeDisabled();
   });
 
-  it("sends an empty grant when the kept role is Nothing", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+  it("renders no house pickers", () => {
+    renderDialog();
+    expect(document.querySelector('[data-attr="transfer-houses"]')).toBeNull();
+    expect(document.querySelector('[data-attr="transfer-selected-houses"]')).toBeNull();
+    expect(screen.getByText(/all 2 houses/i)).toBeInTheDocument();
+  });
+
+  it("resets the role and confirm text on reopen for a different member", () => {
+    const { rerender } = renderDialog();
+    pickOption("transfer-keep-role", "Your role afterwards", "Nothing");
+    typeConfirm("Acme Portfolio");
+    expect(submitButton()).not.toBeDisabled();
+
+    const otherMember: WorkspaceMember = { ...member, userId: "user-3", name: "Casey Kim" };
+    rerender(
+      <TransferOwnershipDialog open onClose={() => {}} workspace={workspace} member={otherMember} onDone={() => {}} />,
+    );
+    expect(submitButton()).toBeDisabled();
+    expect(document.querySelector('[data-attr="transfer-confirm"]')).toHaveValue("");
+  });
+
+  it("sends an empty grant and leaves-entirely notice when the kept role is Nothing", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     renderDialog();
 
     pickOption("transfer-keep-role", "Your role afterwards", "Nothing");
+    expect(screen.getByText(/You leave Acme Portfolio entirely\./)).toBeInTheDocument();
     typeConfirm("Acme Portfolio");
     fireEvent.click(submitButton());
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    for (const call of fetchMock.mock.calls) {
-      const body = JSON.parse(String(call[1]?.body));
-      expect(body.formerOwnerPermissions).toEqual({});
-      expect(body.newManagerUserId).toBe("user-2");
-    }
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/pro/workspaces/ws-1/transfer-ownership");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toEqual({
+      newOwnerUserId: "user-2",
+      formerOwnerRole: "nothing",
+      formerOwnerPermissions: {},
+    });
   });
 
-  it("transfers every selected house in order", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+  it("sends one request with the exact body and shows the success toast", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    renderDialog();
+    const onDone = vi.fn();
+    renderDialog(onDone);
 
     typeConfirm("Acme Portfolio");
     fireEvent.click(submitButton());
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/pro/properties/prop-a/transfer-ownership");
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/api/pro/properties/prop-b/transfer-ownership");
-    expect(showToast).toHaveBeenCalledWith("2 houses transferred to Jordan Lee.");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("/api/pro/workspaces/ws-1/transfer-ownership");
+    expect(init?.method).toBe("POST");
+    const body = JSON.parse(String(init?.body));
+    expect(body.newOwnerUserId).toBe("user-2");
+    expect(body.formerOwnerRole).toBe("admin");
+    expect(body.formerOwnerPermissions).toBeTruthy();
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Acme Portfolio transferred to Jordan Lee."));
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it("stops after a failed first house, names it, and includes the server's reason in the toast", async () => {
+  it("keeps the dialog open and shows the server's error on failure", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ error: "Plan limit reached for this workspace." }), { status: 403 }),
+      async () => new Response(JSON.stringify({ error: "That person isn't a member of this workspace." }), { status: 404 }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    renderDialog();
+    const onDone = vi.fn();
+    renderDialog(onDone);
 
     typeConfirm("Acme Portfolio");
     fireEvent.click(submitButton());
 
-    await waitFor(() => expect(showToast).toHaveBeenCalled());
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(showToast).toHaveBeenCalledWith(
-      "0 of 2 transferred. Not moved: House A, House B. Plan limit reached for this workspace.",
-    );
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("That person isn't a member of this workspace."));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("falls back to no reason when the failed response carries none (network error, empty body)", async () => {
+  it("falls back to a generic error when the failed response carries none", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
     renderDialog();
@@ -140,7 +171,6 @@ describe("TransferOwnershipDialog", () => {
     typeConfirm("Acme Portfolio");
     fireEvent.click(submitButton());
 
-    await waitFor(() => expect(showToast).toHaveBeenCalled());
-    expect(showToast).toHaveBeenCalledWith("0 of 2 transferred. Not moved: House A, House B.");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Could not transfer ownership."));
   });
 });
