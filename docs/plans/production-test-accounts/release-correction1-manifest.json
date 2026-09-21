@@ -1,0 +1,340 @@
+{
+  "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
+  "branch": "akhil/test-workspace-release-20260919",
+  "inputManifest": "docs/plans/production-test-accounts/release-review-manifest.json",
+  "inputManifestSha256": "2054c78d522f5bed4b386937762784bfc756392d8ef2601e4a531aa9e8722fc9",
+  "fileCount": 66,
+  "scope": "Correction-cycle source, test, and forward-additive SQL files whose bytes differ from the frozen 203-file input manifest. Review/evidence HTML and JSON files are recorded in the execution handoff and intentionally excluded from this source manifest.",
+  "files": [
+    {
+      "path": "src/app/api/listing-photos/route.ts",
+      "sha256": "a3b011c482bb57aa2ec21341f7798721e67c2f98263b626e355edf0399d74b5f",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal-promotions/route.ts",
+      "sha256": "b9a99f5f02b5ffdc9f2d3d92693f8b21e464e09a83b265b7e97aca0265ac650e",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal-service-requests/route.ts",
+      "sha256": "21f3684e66ec1486e778402d23b9cfb340806041afc05bf26d0aef4650aa1d62",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal-vendors/route.ts",
+      "sha256": "7a9e9c9c12e4e6986382e833130c763efca5b327b0406535ef31a489976d8864",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/connect/route.ts",
+      "sha256": "a444c287e6aec6c25a417abe62615470331a1921fbb60bd38c443c2d7cc6c800",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/events/route.ts",
+      "sha256": "e5c8dbbab9f7d5f22aabc1ce87b02f4cd8ed32ac1046b8acbd65332705f35a08",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/link-session/route.ts",
+      "sha256": "a6302f42e706436cb7908591cc3a2e052eca17982a794f9e4cb2dd5f9f054f46",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/route.ts",
+      "sha256": "a587e8cca2604304a1c79a83244e20993ea5929f32473d85e97701d429b303ef",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/work-order-bids/route.ts",
+      "sha256": "e1e1fcd20d2d4c6f93c06d85ee8ca44351cdbf007ce47fefc9843b0456404eba",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/work-order-vendor-offers/route.ts",
+      "sha256": "de2ac4ddce65a62626b4d98ad53e4dc5c3cf4f4d0c6ecea494f13c7ce68c8f76",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/work-orders/en-route/route.ts",
+      "sha256": "1369017163cd67fa8cc9cf6e8c6428da61187a5d4e5df14c13a402dde2da0849",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/work-orders/mark-done/route.ts",
+      "sha256": "3191e19bc2f20ef91ca96f36d35efe5d50fc430794391c3236ca6b28c9df8cd5",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/work-orders/set-vendor-price/route.ts",
+      "sha256": "e130abb0230695517c2a3b4489982ef4df8d7a6a5afc1ab7ceec2ac8cee9f227",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/portal/work-orders/visit-scheduled/route.ts",
+      "sha256": "cfd4db7311c53c20f89078e6a94aabdd272f1a440c8643454142724c848a282a",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/property-records/public/route.ts",
+      "sha256": "a4bca6dc0d7295a34616c2e302b5a99b8494db4001bb376433aa66b9c887c5e4",
+      "inputSha256": "f24e86ca255a9052da74fc64bdd74d3b636c18fdd51e884f129506c3f13d12be"
+    },
+    {
+      "path": "src/app/api/property-records/route.ts",
+      "sha256": "735486f4c3c3f8dccecb3cc96d6661c5d572ba5603566958f7e0296b676653ae",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/screening/checkout/route.ts",
+      "sha256": "0d274a276c0bc43b87f1fc6982bc60eb90e864f48581c5e575ff06b106b09c3c",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/stripe/checkout-portal/route.ts",
+      "sha256": "a1da69d3c6ecfb54fd564c6dd3e509c5eed9ed2e12c2563e1dfda01eee9141a7",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/stripe/connect/account-session/route.ts",
+      "sha256": "9277ba9d99dc7d052eb856924f9d2e00e192bcb068b9bed6de70f85618ec36c8",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/stripe/resident-payment-methods/route.ts",
+      "sha256": "bf0c996a5f211740a69a2bc4bba66ff869842592816113d9701e741ee48b9dbb",
+      "inputSha256": null
+    },
+    {
+      "path": "src/app/api/workspaces/route.ts",
+      "sha256": "872f078413c9b4cf2a11b9afde171e7e1d882fbdfdf41bb516b4a7db310c6741",
+      "inputSha256": null
+    },
+    {
+      "path": "src/components/portal/axis-assistant.tsx",
+      "sha256": "f547cb37f6e327dff905166957124ab6e2f9db988b64639f266c339779a6d000",
+      "inputSha256": "210e5526f3efef41928e34ece872875c7cac883a7fe57b1cc474e686af8cd5ba"
+    },
+    {
+      "path": "src/components/portal/pro-add-listing-form.tsx",
+      "sha256": "136ab98dea8068c0f4223e014b98c33830eb0054c7c00fe8d5349d421f9c17ef",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/auth/workspace-add-property.server.ts",
+      "sha256": "ed828cff2d64d75e1240e92cce68b236150a844b3f26706149062c14f9da3677",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/axis-assistant/sms-test-turn-state.ts",
+      "sha256": "dac8d3fb2bec25909b475d2f060a237a16193b20a1cf1a1926431ad8ea8b588f",
+      "inputSha256": "8510ec2eb07bc0e44ddcfb7e19d7c4240f75fcb235fa59816e21ecb8bb857456"
+    },
+    {
+      "path": "src/lib/axis-assistant/use-assistant-conversation.ts",
+      "sha256": "3af685c49b579131e5636815bc75a239c604c032ee8624adb3f31adbc356e294",
+      "inputSha256": "f496600ca1329dfc1c500d59f91fd443d1099092750f9dcc2bcc6fe7b5bb7a3b"
+    },
+    {
+      "path": "src/lib/comms-billing/credit-purchase.server.ts",
+      "sha256": "813d207df790c4c20ab4d1a7b793896a02eebc7059e1a39283809ba11de04f2c",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/demo-property-pipeline.ts",
+      "sha256": "62217555b9556d7e49a164030c467b7dc968ae90029a9cd2ab6c40880d70586f",
+      "inputSha256": "7c4b996143bf05abbe34413b7e26ead8aa5c178506e9a942a9ef98f9bb7abbbb"
+    },
+    {
+      "path": "src/lib/google-calendar/api.server.ts",
+      "sha256": "2015c6b3045dec430d8237ec29fc7b4d96c8544866bd2f47d8b4873c3c9c81ab",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/listing-media-client.ts",
+      "sha256": "d2a29c45c947242efa18d9c2babc6f51045a4e50681b3cba07451b5cc5668f6d",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/listing-media-storage.ts",
+      "sha256": "10f2fb5efcdd4bd74880f831f4d1596581d4f79208a6a081e10aedc642b58cdc",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/manager-route-guard.server.ts",
+      "sha256": "4c44f1b8713e04cd183e19699068e03f390cd47afdf0c0f39be11f30db1606a9",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/manager-stripe-customer.server.ts",
+      "sha256": "61f50a32e9fb318bd638cb1173c8537559208540fcf285f210faaeb03c730954",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/portal-record-api.ts",
+      "sha256": "ac749932a8b0c052e18813978d353cfa18424b7406f7d542de9951e34d6dd30a",
+      "inputSha256": "e063728ccbd5feb104e5f47aeacd280bf4e05bc6c5a96e132cf1d61f161b2312"
+    },
+    {
+      "path": "src/lib/stripe-connect-account.ts",
+      "sha256": "bc3db00a80c5f356aaade5772e1c76a6b34ad4d92d04270de3b4f9721ed87c67",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/stripe-resident-customer.ts",
+      "sha256": "8eeaac41258fb3c868c1bb80b8e4fecd89d9c5c9110d0641a680795713ec484b",
+      "inputSha256": null
+    },
+    {
+      "path": "src/lib/test-workspaces/effects.server.ts",
+      "sha256": "87b7be1f976758b7ca3c3e934ff98c54f03bd8fd407ee1741dfb5b070e9b5932",
+      "inputSha256": "83e0ab9ce9da5857a279e81b0570ca7b69b651ebd0c8b000ef8a762d1b9ba7ee"
+    },
+    {
+      "path": "src/lib/test-workspaces/index.server.ts",
+      "sha256": "61d7f440a8f102f1acd21c7446b121b71a41308b38ecf192411b2915e83d49e9",
+      "inputSha256": "96650d030b340b5a1e20fd761c82472085f85e6d87eab4efa90d48f0ad75e1f9"
+    },
+    {
+      "path": "src/lib/test-workspaces/schedule-route.server.ts",
+      "sha256": "5d2d6e227046ddc5fd9ac4e8dd14cf3f9f404c6246b6e0eb04a4a4bdcc6d3709",
+      "inputSha256": "27d3d573f5d20a31d364a2df95af401bbe0113587218c69f7b72a9c5313e2f74"
+    },
+    {
+      "path": "src/lib/tools/context.ts",
+      "sha256": "5add2b1fa391dad8d12e1cfef0ca29e53785d38e881cc29540c92323b83695c2",
+      "inputSha256": "9cfa175379498b997268e0fd3e7269da41eeda2b6534f0fd95e8533fc7fc96b6"
+    },
+    {
+      "path": "src/lib/tools/domains/calendar.ts",
+      "sha256": "35c0d850e701b6c058464b40b2e301e3d72635b33781c4763f8f639d8641aa10",
+      "inputSha256": "1e08fce897cd32b27b52f74d920bc727f5d7edb826951107e2ce59e35229abe1"
+    },
+    {
+      "path": "supabase/migrations/20260919123000_revoke_classified_test_workspace_direct_access.sql",
+      "sha256": "52c4f59995d8812cbb504db4485aa18076fc53050904d0d1a814bfd5c82f8d80",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/integration/portal/scheduled-inbox-messages.test.ts",
+      "sha256": "8d637466598b5be43414089198747db32f0e7d089be020466a3e79d71edc79df",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/integration/portal/scheduled-messages.test.ts",
+      "sha256": "81acd154def371123167074a7966adb11213e01179efb191759def35f35491ee",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/assistant-conversation-context-send.test.tsx",
+      "sha256": "9cd4c49cc3acf2604de1cda8d42739229a4c7bc412630842d5ad1dbf67420baa",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/assistant-conversation-history.test.tsx",
+      "sha256": "4e6c9f66d8ea1199c5edd64eb186430f674a5aa8efe67ab8499b8454e60cea4d",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/listing-media-shared-uploader-contract.test.ts",
+      "sha256": "22c7fa29831ae175a203e51e7145c66ec3c8745ee2355ccb25f4e109678a08fa",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/property-records-delete-missing-row.test.ts",
+      "sha256": "f93e200e44dd7ac3e6a6fef9d80dbd4670aaea567e8d1b056482a9bb251aac95",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/property-records-draft-skips-waiver-validation.test.ts",
+      "sha256": "02b7b3ab7b2d4babc5e5f70ca8f2e536ac78a5c1b321e887e7fa38efeec0b72d",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/property-records-owner-not-reassignable.test.ts",
+      "sha256": "b34ca6a79b0c7a9f0539960ef86d2470cf8f1a8478f18c3c6cdf9eeaddf898d4",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/property-records-plan-property-limit.test.ts",
+      "sha256": "16d19ff363a471baebaee45c000882792b545f3968bcf2fd2d29939dd1eeaa23",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/scheduled-inbox-messages.test.ts",
+      "sha256": "439652e6a30ec9eba2880c53ed5e087e05cc98ec0909fad967f3e4948eba8329",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/sms-test-turn-state.test.ts",
+      "sha256": "959850775f9781893d427e4ae25f8065f6e9af0777cdb31976d6fbcf15151772",
+      "inputSha256": "696f2506485c7aef761e0948e48849b74f41a3af41ace3d428bd5220010918c2"
+    },
+    {
+      "path": "tests/unit/test-workspace-classification.test.ts",
+      "sha256": "b83eca59c20c7cb40fe99d206baceca480801cd1398351a9961e6bb4cd446d98",
+      "inputSha256": "77a539f72f7fedc340061898bfe7123543e8902840b55fd4647bfd580c282d0b"
+    },
+    {
+      "path": "tests/unit/test-workspace-effect-boundary.test.ts",
+      "sha256": "b0243011e3f5217a1d7b51455ceaaa11807528b100a10a42bcb1d056f23c2883",
+      "inputSha256": "0ca9480e4c0d587fb2426303bc65f02b0b45ef869cdb2602681cc6f6e2a0dce6"
+    },
+    {
+      "path": "tests/unit/test-workspace-listing-media-route.test.ts",
+      "sha256": "68ee89ee7a83e57583d94b00f9f5c7e148079af0d0dd85213c9261f0900bfe3c",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/test-workspace-migration-contract.test.ts",
+      "sha256": "970f5374f6f140658d96fc54d4844804f93b2226879cfa111866c36718c77f41",
+      "inputSha256": "ec88123aa91b4fbbe973b7c311008a21ede49bfc4fb13ee10019d4c740c3f134"
+    },
+    {
+      "path": "tests/unit/test-workspace-property-records-route.test.ts",
+      "sha256": "987a71f97dbc4275018b158daef956dc67a9b219310905eb4781de63f3deca5c",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/test-workspace-provider-route-boundary.test.ts",
+      "sha256": "2079ceb4bdd99457b2db412cb25c9a667d70128b4577778e80e8c0cc75c93dbe",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/test-workspace-public-catalog-cache.test.ts",
+      "sha256": "8688e588480eeb6bdc8281a672753fc86bae0284fd1ab1d80bae683a3068a694",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/test-workspace-schedule-route.test.ts",
+      "sha256": "3c264ff9538971f8f3d27e42f6a49a3425b7cc639d583044f38006bd15b67856",
+      "inputSha256": "1b006e4e83c4dda400629d96943a2cffcb5e066c6e27d0e168787330b69d6f14"
+    },
+    {
+      "path": "tests/unit/tools/inbox-calendar.test.ts",
+      "sha256": "5d88c8a9ed94e56a41717dd2327090b7be073711e7811efc4f4afce72366932b",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/vendor-catalog-privacy.test.ts",
+      "sha256": "9d23930b39f6b6d37760150a89475c5794a634d0fbdece5bbf39bd64f6809f90",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/workspace-add-property-owner.test.ts",
+      "sha256": "e67fa05f39d8c7652fdd7ef87405a862b237d0d1b5d32679c5de3defcb72e809",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/workspaces-create-route-contract.test.ts",
+      "sha256": "925640ffa03199ee233b18fbd8c10f7e9acaa2edf055079f30007f5ab88c034e",
+      "inputSha256": null
+    },
+    {
+      "path": "tests/unit/workspaces-delete-route-contract.test.ts",
+      "sha256": "e698c7121e7a4eec961dbce6bc4c3c277bc1be8ae9bbcd876c65c38a830b5246",
+      "inputSha256": null
+    }
+  ]
+}

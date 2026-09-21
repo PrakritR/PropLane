@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Listing publish correction handoff 1</title>
+<style>body{font:16px/1.55 system-ui;max-width:900px;margin:36px auto;padding:0 20px;color:#172033}code{overflow-wrap:anywhere}h1,h2{line-height:1.2}</style>
+<h1>Listing publish correction handoff 1</h1>
+<p><strong>Correction plan:</strong> <code>docs/plans/listing-save-publish-release/correction-plan-1.html</code><br>
+<strong>Branch:</strong> <code>codex/listing-save-publish-release</code><br>
+<strong>Starting HEAD:</strong> <code>9e77b5b8f2a8dc99f27b87dbf866774fc9cf5e89</code></p>
+
+<h2>Corrected behavior</h2>
+<ul>
+  <li>Publish readiness now follows the lease tabs actually offered by Listing Wizard V2.</li>
+  <li>Enabled short-term and Airbnb stays accept positive nightly or weekly V2 prices, including values inherited from the Default room, with monthly rent left at zero.</li>
+  <li>Enabled monthly lease terms accept their own term price, the applicable default or inherited monthly price, and supported legacy explicit daily or weekly basis pricing.</li>
+  <li>Prices stored only on disabled terms, stale stay prices on a long-term-only listing, negative prices, missing lease terms and truly unpriced listings remain blocked.</li>
+  <li>The existing pricing-step navigation and visible rent-field focus are preserved, as are ownership checks, server validation and whole-lifecycle serialization.</li>
+</ul>
+
+<h2>Correction files</h2>
+<ul>
+  <li><code>src/components/portal/listing-wizard-v2/listing-editor.tsx</code></li>
+  <li><code>tests/unit/listing-wizard-v2-publish-pricing.test.tsx</code></li>
+</ul>
+
+<h2>Validation status</h2>
+<p>Delegates ran no tests, builds, typechecks, browsers or servers because root owned the heavy-validation slot. Delegate <code>git diff --check</code> was clean. Root's first focused run passed the existing save/publish and preparation suites and exposed the two anticipated pre-final failures for Airbnb and negative prices; both production corrections were applied after that run, so the focused pricing suite requires a rerun. Root owns final focused tests, lint, build, seeded browser QA, CI, preflight, review and release evidence.</p>
+
+<h2>Next session</h2>
+<p>Rerun <code>tests/unit/listing-wizard-v2-publish-pricing.test.tsx</code> after the final source and test import changes, then continue the root-owned validation and release ladder. No database, schema, production data, push or deployment action was performed by this correction session.</p>
+</html>

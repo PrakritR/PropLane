@@ -7,6 +7,8 @@ import { createTwilioRestClient, twilioErrorFields } from "@/lib/twilio-client.s
 import { normalizeE164 } from "@/lib/phone-e164";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -126,11 +128,20 @@ async function requireUser() {
   return user;
 }
 
+function unavailable() {
+  return NextResponse.json({ error: "This action is unavailable." }, { status: 403 });
+}
+
+async function resolvePhoneAccess(userId: string, db: ReturnType<typeof createSupabaseServiceRoleClient>) {
+  return resolveAuthenticatedBusinessAccess(userId, db);
+}
+
 /** GET — current phone settings for the signed-in user. */
 export async function GET() {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const db = createSupabaseServiceRoleClient();
+  if ((await resolvePhoneAccess(user.id, db)).kind === "denied") return unavailable();
   const { data } = await db
     .from("profiles")
     .select("phone, phone_verified_at, sms_forward_inbound, sms_from_number")
@@ -195,11 +206,15 @@ export async function POST(req: Request) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
+  const db = createSupabaseServiceRoleClient();
+  // Test identities never verify against the real phone provider. This gate
+  // deliberately precedes the throttle row as well as Twilio Verify so a
+  // classified or revoked session cannot leave ordinary business state.
+  if ((await resolvePhoneAccess(user.id, db)).kind !== "normal") return unavailable();
+
   const body = (await req.json().catch(() => ({}))) as { phone?: string };
   const phone = normalizeUsPhone(body.phone);
   if (!phone) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
-
-  const db = createSupabaseServiceRoleClient();
 
   const { data: existing } = await db
     .from("phone_verifications")
@@ -266,6 +281,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not start phone verification." }, { status: 500 });
   }
 
+  const workspaceCapture = await captureTestWorkspaceEffectForUser({
+    userId: user.id,
+    kind: "sms",
+    summary: "Phone verification SMS captured in the test workspace.",
+    metadata: { purpose: "phone_verification" },
+    db,
+  });
+  if (workspaceCapture.captured) return NextResponse.json({ ok: true });
+
   if (usingVerify) {
     const client = twilioRestClient();
     if (!client) {
@@ -321,7 +345,7 @@ export async function POST(req: Request) {
     phone,
     `Your PropLane verification code is ${code}. It expires in 10 minutes.`,
     String(fromNumber),
-    { skipOptOutCheck: true, purpose: "phone_verification" },
+    { skipOptOutCheck: true, purpose: "phone_verification", actorUserId: user.id },
   );
   if (!sent.sent) {
     console.error("legacy phone verification SMS failed", { userId: user.id, reason: sent.error });
@@ -339,11 +363,15 @@ export async function PUT(req: Request) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
+  const db = createSupabaseServiceRoleClient();
+  // Resolve durable classification before reading the pending verification or
+  // asking Twilio to check a code. Feature flag state never widens this path.
+  if ((await resolvePhoneAccess(user.id, db)).kind !== "normal") return unavailable();
+
   const body = (await req.json().catch(() => ({}))) as { code?: string };
   const code = String(body.code ?? "").trim();
   if (!/^\d{6}$/.test(code)) return NextResponse.json({ error: "Enter the 6-digit code." }, { status: 400 });
 
-  const db = createSupabaseServiceRoleClient();
   const { data: row } = await db.from("phone_verifications").select("*").eq("user_id", user.id).maybeSingle();
   if (!row) return NextResponse.json({ error: "No verification in progress." }, { status: 400 });
   if (Date.parse(String(row.expires_at)) < Date.now()) {
@@ -406,11 +434,13 @@ export async function PATCH(req: Request) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
+  const db = createSupabaseServiceRoleClient();
+  if ((await resolvePhoneAccess(user.id, db)).kind === "denied") return unavailable();
+
   const body = (await req.json().catch(() => ({}))) as { forwardInbound?: boolean };
   if (typeof body.forwardInbound !== "boolean") {
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
   }
-  const db = createSupabaseServiceRoleClient();
   const { error } = await db
     .from("profiles")
     .update({ sms_forward_inbound: body.forwardInbound })

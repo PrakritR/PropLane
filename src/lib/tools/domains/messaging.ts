@@ -35,7 +35,7 @@ import {
   generateScheduledInboxMessageId,
   isResidentOriginatedScheduledRow,
   updateScheduledInboxMessage,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 
 const PREVIEW_LINE_CAP = 8;
 

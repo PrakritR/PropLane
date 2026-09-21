@@ -7,6 +7,25 @@ export const LISTING_MEDIA_BUCKET = "listing-photos";
 
 const PUBLIC_OBJECT_MARKER = `/storage/v1/object/public/${LISTING_MEDIA_BUCKET}/`;
 
+async function shouldUseServerListingCleanup(): Promise<boolean> {
+  const response = await fetch("/api/listing-photos", { credentials: "same-origin" });
+  if (!response.ok) return false;
+  const body = await response.json().catch(() => null) as { serverUpload?: unknown } | null;
+  return body?.serverUpload === true;
+}
+
+async function deleteClassifiedListingMedia(paths: string[]): Promise<void> {
+  const response = await fetch("/api/listing-photos", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "Could not remove listing media.");
+  }
+}
+
 /**
  * Object path inside `listing-photos` for a public storage URL, or null when the
  * URL points somewhere else (a still-unuploaded `data:` URL, a demo asset, or a
@@ -100,6 +119,10 @@ export async function deleteSubmissionMediaObjects(
   const paths = Array.from(collectSubmissionMediaPaths(sub)).filter((p) => !retained.has(p));
   if (paths.length === 0) return;
   try {
+    if (await shouldUseServerListingCleanup()) {
+      await deleteClassifiedListingMedia(paths);
+      return;
+    }
     const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser");
     const db = createSupabaseBrowserClient();
     // Storage RLS scopes removal to the owner's `${userId}/` prefix, so a path

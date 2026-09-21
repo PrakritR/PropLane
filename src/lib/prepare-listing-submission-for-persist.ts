@@ -19,7 +19,7 @@ export type PrepareListingSubmissionResult = {
  */
 export async function prepareListingSubmissionForPersist(
   sub: ManagerListingSubmissionV1,
-  opts?: { accountPaymentWaiverGranted?: boolean },
+  opts?: { accountPaymentWaiverGranted?: boolean; validateWaiverCode?: boolean },
 ): Promise<PrepareListingSubmissionResult> {
   const normalized = normalizeManagerListingSubmissionV1(sub, {
     accountPaymentWaiverGranted: opts?.accountPaymentWaiverGranted,
@@ -28,7 +28,10 @@ export async function prepareListingSubmissionForPersist(
   const ready = withBaths.ok ? withBaths.sub : normalized;
 
   const waiverCode = ready.applicationFeeWaiverCode?.trim() ?? "";
-  if (waiverCode && !isValidWaiverCodeFormat(waiverCode)) {
+  // A draft is deliberately partial. The records route applies this same
+  // distinction, so a manager can keep an incomplete promo code and finish it
+  // later without losing the rest of the listing.
+  if (opts?.validateWaiverCode !== false && waiverCode && !isValidWaiverCodeFormat(waiverCode)) {
     throw new Error("Application fee waive code must be 4–32 letters, numbers, or hyphens.");
   }
 

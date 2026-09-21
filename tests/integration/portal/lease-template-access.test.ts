@@ -12,9 +12,13 @@ vi.mock("@/lib/resident-manager-scope", () => ({
   residentHasApprovedResidency: vi.fn(),
 }));
 vi.mock("@/lib/reports/auth", () => ({ getReportsAuthContext: vi.fn() }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 
 import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { leaseTemplateUrlForPath } from "@/lib/lease-template-storage";
+import { getReportsAuthContext } from "@/lib/reports/auth";
 import { residentHasApprovedResidency, resolveResidentFilingScope } from "@/lib/resident-manager-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -87,6 +91,12 @@ function signedInAs(userId: string | null) {
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
     auth: { getUser: async () => ({ data: { user: userId ? { id: userId, email: "r@example.com" } : null } }) },
   } as never);
+  vi.mocked(getReportsAuthContext).mockImplementation(async () => userId ? ({
+    db: createSupabaseServiceRoleClient(),
+    userId,
+    email: "r@example.com",
+    role: "manager",
+  }) as never : null);
 }
 
 function get(path: string): Promise<Response> {

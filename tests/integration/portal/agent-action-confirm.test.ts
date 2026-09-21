@@ -72,6 +72,7 @@ function makeFakeServiceDb(opts: {
   function matches(row: Row, filters: [string, string, unknown][]): boolean {
     return filters.every(([op, col, val]) => {
       if (op === "eq") return row[col] === val;
+      if (op === "is") return (row[col] ?? null) === val;
       if (op === "gt") return String(row[col] ?? "") > String(val ?? "");
       return true;
     });
@@ -119,6 +120,10 @@ function makeFakeServiceDb(opts: {
       },
       eq: (col: string, val: unknown) => {
         filters.push(["eq", col, val]);
+        return chain;
+      },
+      is: (col: string, val: unknown) => {
+        filters.push(["is", col, val]);
         return chain;
       },
       gt: (col: string, val: unknown) => {

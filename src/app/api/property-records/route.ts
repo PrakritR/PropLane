@@ -13,6 +13,7 @@ import {
   sameApplicationFeeWaiverCodeText,
   upsertPropertyApplicationFeeWaiverCode,
 } from "@/lib/application-fee-waiver";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
@@ -53,8 +54,11 @@ export async function GET() {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const admin = await isAdminUser(user.id);
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Property access is unavailable for this account." }, { status: 403 });
+    }
+    const admin = await isAdminUser(user.id);
     const baseQuery = db
       .from("manager_property_records")
       .select("id, manager_user_id, status, row_data, property_data, edit_request_note")
@@ -153,8 +157,11 @@ export async function POST(req: Request) {
     const id = body.id?.trim();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    const admin = await isAdminUser(user.id);
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Property access is unavailable for this account." }, { status: 403 });
+    }
+    const admin = await isAdminUser(user.id);
 
     // Look up the stored row's owner ONCE. All authorization anchors on this
     // server-read value, never on body.managerUserId (which a caller controls).

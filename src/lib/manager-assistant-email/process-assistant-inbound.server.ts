@@ -251,6 +251,7 @@ export async function processManagerAssistantInboundEmail(
   let replied = false;
   if (replyText && mailbox) {
     const send = await deliverManagerEmailReply({
+      managerUserId,
       toEmail: senderEmail,
       subject: replySubject(parsed.subject),
       text: replyText,

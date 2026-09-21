@@ -11,6 +11,7 @@ import {
   type StripeBilling,
 } from "@/lib/stripe-price-ids";
 import { META_SCHEDULED_BILLING, META_SCHEDULED_TIER } from "@/lib/stripe-subscription-metadata";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 function clearScheduleMetadata(meta: Record<string, string>): Record<string, string | null> {
   return {
@@ -29,6 +30,23 @@ export async function applyScheduledDowngradeAfterInvoicePaid(
   billingReason: string | null | undefined,
 ): Promise<void> {
   if (billingReason !== "subscription_cycle") return;
+
+  const supabase = createSupabaseServiceRoleClient();
+  const { data: owner, error: ownerError } = await supabase
+    .from("manager_purchases")
+    .select("user_id")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+  if (ownerError) throw new Error("Could not resolve subscription ownership.");
+  const ownerUserId = String((owner as { user_id?: string | null } | null)?.user_id ?? "").trim();
+  if (!ownerUserId) throw new Error("Could not resolve subscription ownership.");
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: ownerUserId,
+    kind: "payment",
+    summary: "Stripe subscription downgrade was refused for a test workspace.",
+    metadata: { operation: "scheduled_subscription_downgrade" },
+    db: supabase,
+  })).captured) return;
 
   const stripe = getStripe();
   let sub: Stripe.Subscription;
@@ -74,14 +92,15 @@ export async function reconcileManagerPurchaseByStripeSubscriptionId(subscriptio
   if (!sid) return;
 
   const supabase = createSupabaseServiceRoleClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("manager_purchases")
     .select("user_id")
     .eq("stripe_subscription_id", sid)
     .maybeSingle();
+  if (error) throw new Error("Could not resolve subscription ownership.");
 
   const uid = data?.user_id != null ? String(data.user_id) : "";
-  if (!uid) return;
+  if (!uid) throw new Error("Could not resolve subscription ownership.");
 
   await reconcileManagerPurchaseWithStripe(uid);
 }
@@ -105,6 +124,14 @@ export function isDefinitiveStripeSubscriptionMissingError(err: unknown): boolea
  */
 export async function reconcileManagerPurchaseWithStripe(userId: string): Promise<void> {
   const supabase = createSupabaseServiceRoleClient();
+  if ((await captureTestWorkspaceEffectForUser({
+    userId,
+    kind: "payment",
+    summary: "Stripe subscription reconciliation was refused for a test workspace.",
+    metadata: { operation: "subscription_reconciliation" },
+    db: supabase,
+  })).captured) return;
+
   const { data: purchase } = await supabase
     .from("manager_purchases")
     .select("stripe_subscription_id, stripe_checkout_session_id")

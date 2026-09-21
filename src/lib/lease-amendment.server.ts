@@ -18,6 +18,7 @@ import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1, ManagerRoomUnavailableRange } from "@/lib/manager-listing-submission";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 function asObject(v: unknown): Record<string, unknown> | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
@@ -492,7 +493,7 @@ export async function amendLeaseMoveOutDate(
   if (applicationError || !applicationRecord) return { ok: false, error: "The residency could not be loaded. Refresh before changing dates." };
   const { error: commitError } = await db.rpc("commit_room_lease_extension", {
     p_owner: ownerId, p_application_id: applicationRecord.id, p_expected_application: applicationRecord.row_data,
-    p_lease_id: leaseRecord.id, p_expected_lease: leaseRecord.row_data, p_next_lease: updatedRow, p_end: newLeaseEnd,
+    p_lease_id: leaseRecord.id, p_expected_lease: leaseRecord.row_data, p_next_lease: stampSmsTestProvenance(updatedRow as unknown as Record<string, unknown>), p_end: newLeaseEnd,
   });
   if (commitError) return { ok: false, error: commitError.code === "P4001" ? "No bed is available in this room for the requested dates." : "The lease changed or could not be saved. Refresh and retry." };
 
@@ -700,7 +701,7 @@ export async function renewLease(
     resident_email: leaseRow.residentEmail.trim().toLowerCase(),
     property_id: leaseRecord.property_id ?? null,
     status: "manager",
-    row_data: updatedRow,
+    row_data: stampSmsTestProvenance(updatedRow as unknown as Record<string, unknown>),
     updated_at: iso,
   });
   if (upsertError) return { ok: false, error: upsertError.message };

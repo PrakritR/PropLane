@@ -15,6 +15,7 @@ import { orderScreeningForApplication } from "@/lib/screening/order-screening";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 /** Server-side read of the landlord's applications, scoped by manager_user_id. */
 async function loadManagerApplications(ctx: AgentContext): Promise<DemoApplicantRow[]> {
@@ -231,12 +232,12 @@ export const updateApplicationBucketTool = defineWriteTool({
     const { error } = await ctx.db
       .from("manager_application_records")
       .update({
-        row_data: sealApplicantRow({
+        row_data: sealApplicantRow(stampSmsTestProvenance({
           ...rowData,
           bucket,
           stage: stageLabelForApplicationBucket(bucket),
           ...(bucket === "approved" ? { managerUserId: r.managerUserId ?? ctx.landlordId } : {}),
-        }, rec.id, ctx.landlordId),
+        }), rec.id, ctx.landlordId),
         updated_at: new Date().toISOString(),
       })
       .eq("id", rec.id)

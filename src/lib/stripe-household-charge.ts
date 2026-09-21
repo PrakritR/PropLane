@@ -8,6 +8,17 @@ import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+
+async function householdChargeProviderRefused(db: SupabaseClient, managerUserId: string, operation: string) {
+  return (await captureTestWorkspaceEffectForUser({
+    userId: managerUserId,
+    kind: "payment",
+    summary: "Household payment webhook mutation was refused for a test workspace.",
+    metadata: { operation },
+    db,
+  })).captured;
+}
 
 export const HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE = "household_charge";
 
@@ -77,6 +88,8 @@ export async function markHouseholdChargeProcessingFromStripeSession(
       .maybeSingle();
     const charge = row?.row_data as HouseholdCharge | null;
     if (!charge?.id) continue;
+    const managerUserId = charge.managerUserId?.trim() ?? "";
+    if (!managerUserId || await householdChargeProviderRefused(db, managerUserId, "charge_processing")) continue;
     if (charge.status !== "pending" && charge.status !== "failed" && charge.status !== "partially_paid") continue;
     const nextCharge: HouseholdCharge = { ...charge, status: "processing" };
     const { error } = await db.from("portal_household_charge_records").upsert(
@@ -135,6 +148,8 @@ export async function revertHouseholdChargeProcessingFromStripeSession(
       .maybeSingle();
     const charge = row?.row_data as HouseholdCharge | null;
     if (!charge?.id || charge.status !== "processing") continue;
+    const managerUserId = charge.managerUserId?.trim() ?? "";
+    if (!managerUserId || await householdChargeProviderRefused(db, managerUserId, "charge_processing_revert")) continue;
     const nextCharge: HouseholdCharge = { ...charge, status: "pending" };
     const { error } = await db.from("portal_household_charge_records").upsert(
       {
@@ -192,6 +207,11 @@ async function markOneHouseholdChargePaid(
 
   const charge = row.row_data as HouseholdCharge | null;
   if (!charge?.id) return { marked: false, alreadyPaid: false };
+
+  const durableManagerUserId = charge.managerUserId?.trim() ?? "";
+  if (durableManagerUserId && await householdChargeProviderRefused(db, durableManagerUserId, "charge_paid")) {
+    return { marked: false, alreadyPaid: false };
+  }
 
   const now = new Date().toISOString();
 

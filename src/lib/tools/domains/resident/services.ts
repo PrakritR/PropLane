@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { residentManagerIds } from "../../resident-context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../../audit";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -228,7 +229,7 @@ export const createServiceRequestTool = defineWriteTool({
         resident_email: ctx.email,
         property_id: routing.propertyId || null,
         status: row.status,
-        row_data: row,
+        row_data: stampSmsTestProvenance(row as unknown as Record<string, unknown>),
         updated_at: now,
       },
       { onConflict: "id" },
@@ -335,7 +336,7 @@ export const addServiceRequestNoteTool = defineWriteTool({
         resident_email: record.resident_email,
         property_id: record.property_id,
         status: record.status,
-        row_data: { ...current, notes: appended },
+        row_data: stampSmsTestProvenance({ ...current, notes: appended } as Record<string, unknown>),
         updated_at: now,
       },
       { onConflict: "id" },

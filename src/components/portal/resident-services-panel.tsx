@@ -11,7 +11,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { residentServiceDetailHref, type ResidentServiceDetailTabId } from "@/lib/portal-detail-routes";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Textarea } from "@/components/ui/input";
@@ -55,6 +55,9 @@ import { readManagerApplicationRows, syncManagerApplicationsFromServer } from "@
 import {
   PROPERTY_PIPELINE_EVENT,
   loadResidentPropertyFromServer,
+  propertyCatalogScopeKey,
+  subscribePropertyCatalogScope,
+  type ResidentPropertyHydration,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import type { ManagerListingServiceOption } from "@/lib/manager-listing-submission";
@@ -89,6 +92,8 @@ import {
   hasBothLeaseSignatures,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
+
+const EMPTY_SERVICE_OPTIONS: ManagerListingServiceOption[] = [];
 
 const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
   { id: "open", label: "Open" },
@@ -549,6 +554,7 @@ export function ResidentServicesPanel({
   const navigate = usePortalNavigate();
   const [pendingCompose, setPendingCompose] = useState(false);
   const session = usePortalSession();
+  const catalogScopeKey = useSyncExternalStore(subscribePropertyCatalogScope, propertyCatalogScopeKey, () => "server");
 
   const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
   const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
@@ -576,13 +582,16 @@ export function ResidentServicesPanel({
   const [leaseTick, setLeaseTick] = useState(0);
   const [appTick, setAppTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
-  /** Catalog from `/api/portal/resident-property` — authoritative for resident offers. */
-  const [serverCatalogOffers, setServerCatalogOffers] = useState<ManagerListingServiceOption[] | null>(null);
-  /** Authoritative manager/property from the same hydrate (beats local app-row order). */
-  const [serverFilingScope, setServerFilingScope] = useState<{
-    managerUserId: string;
-    propertyId: string;
+  /** Bind both offers and filing destination to the same authenticated lifetime. */
+  const [serverHydration, setServerHydration] = useState<{
+    scopeKey: string;
+    loaded: ResidentPropertyHydration | null;
   } | null>(null);
+  const currentHydration = serverHydration?.scopeKey === catalogScopeKey ? serverHydration.loaded : null;
+  const serverCatalogOffers = currentHydration?.serviceRequestOptions ?? (isDemoModeActive() ? null : EMPTY_SERVICE_OPTIONS);
+  const serverFilingScope = useMemo(() => currentHydration?.managerUserId && currentHydration.propertyId
+    ? { managerUserId: currentHydration.managerUserId, propertyId: currentHydration.propertyId }
+    : null, [currentHydration]);
 
   const residentEmail = session.email?.trim().toLowerCase() ?? "";
 
@@ -645,8 +654,8 @@ export function ResidentServicesPanel({
     return o.residentEmails.some((e) => e.trim().toLowerCase() === residentEmail);
   };
 
-  // Prefer server catalog (includes unpublished properties); fall back to local
-  // cached property lookup while the hydrate is in flight.
+  // Authenticated offers come only from this lifetime's server hydrate. The
+  // scripted demo retains its local property lookup.
   const offersForResident = useMemo(() => {
     void propertyTick;
     let catalog: ManagerListingServiceOption[] = [];
@@ -671,48 +680,45 @@ export function ResidentServicesPanel({
 
   const availableOffers = offersForResident;
 
-  // Initial data sync — fire syncs sequentially to avoid overwhelming the server/browser
+  // Keep every completion tied to the actor/workspace lifetime, including the
+  // returned own-property payload. Unpublished resident data stays out of public caches.
   useEffect(() => {
     if (!session.ready || !session.userId) return;
-    const sync = () => setAllRows(readManagerWorkOrderRows());
-    const onProperty = () => setPropertyTick((t) => t + 1);
-    queueMicrotask(() => sync());
-    void syncManagerWorkOrdersFromServer()
-      .then(sync)
-      .then(() => syncManagerApplicationsFromServer())
-      .then(() => setAppTick((t) => t + 1))
-      .then(() => syncPropertyPipelineFromServer())
-      .then(() => setPropertyTick((t) => t + 1))
-      .then(() => syncLeasePipelineFromServer())
-      // The resident/admin-scoped sync above never returns a resident's own
-      // property (it's scoped to properties the caller manages), so hydrate
-      // it separately — needed for e.g. manager-offered add-on service requests.
-      .then(() => loadResidentPropertyFromServer())
-      .then((loaded) => {
-        if (loaded) {
-          setServerCatalogOffers(loaded.serviceRequestOptions);
-          if (loaded.managerUserId && loaded.propertyId) {
-            setServerFilingScope({
-              managerUserId: loaded.managerUserId,
-              propertyId: loaded.propertyId,
-            });
-          } else {
-            setServerFilingScope(null);
-          }
-        } else {
-          setServerCatalogOffers([]);
-          setServerFilingScope(null);
+    let active = true;
+    const isCurrent = () => active && propertyCatalogScopeKey() === catalogScopeKey;
+    const sync = () => { if (isCurrent()) setAllRows(readManagerWorkOrderRows()); };
+    const onProperty = () => { if (isCurrent()) setPropertyTick((t) => t + 1); };
+    queueMicrotask(sync);
+    void (async () => {
+      try {
+        for (const refresh of [
+          syncManagerWorkOrdersFromServer,
+          syncManagerApplicationsFromServer,
+          syncPropertyPipelineFromServer,
+          syncLeasePipelineFromServer,
+        ]) {
+          if (!isCurrent()) return;
+          await refresh();
         }
+        if (!isCurrent()) return;
+        sync();
+        setAppTick((t) => t + 1);
+        const loaded = await loadResidentPropertyFromServer();
+        if (!isCurrent()) return;
+        setServerHydration({ scopeKey: catalogScopeKey, loaded });
         setPropertyTick((t) => t + 1);
-      });
-
+      } catch {
+        if (isCurrent()) setServerHydration({ scopeKey: catalogScopeKey, loaded: null });
+      }
+    })();
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, sync);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperty);
     return () => {
+      active = false;
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, sync);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProperty);
     };
-  }, [session.ready, session.userId]);
+  }, [session.ready, session.userId, catalogScopeKey]);
 
   useEffect(() => {
     if (!session.ready || !session.userId) return;
@@ -957,9 +963,11 @@ export function ResidentServicesPanel({
   }
 
   function resolveFilingIds(): { propertyId: string; managerUserId: string } {
+    if (propertyCatalogScopeKey() !== catalogScopeKey) return { propertyId: "", managerUserId: "" };
     if (serverFilingScope?.propertyId && serverFilingScope.managerUserId) {
       return serverFilingScope;
     }
+    if (!isDemoModeActive()) return { propertyId: "", managerUserId: "" };
     const application = getApplication();
     const propertyId =
       application?.assignedPropertyId?.trim() ||

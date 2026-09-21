@@ -17,6 +17,7 @@ import {
 import { loadAllManagerRows } from "./load-manager-rows";
 import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 /**
  * Residents are approved applicants. They live in the same
@@ -420,11 +421,11 @@ export const recordMoveOutTool = defineWriteTool({
     const { error } = await ctx.db
       .from("manager_application_records")
       .update({
-        row_data: sealApplicantRow({
+        row_data: sealApplicantRow(stampSmsTestProvenance({
           ...rowData,
           application: { ...application, leaseEnd: input.moveOutDate },
           manualResidentDetails: { ...manual, moveOutDate: input.moveOutDate },
-        }, rec.id, ctx.landlordId),
+        }), rec.id, ctx.landlordId),
         updated_at: new Date().toISOString(),
       })
       .eq("id", rec.id)

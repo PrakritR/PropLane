@@ -3,6 +3,7 @@ import { patchLeasePacketForManagerReview } from "@/lib/lease-packet-edit.server
 import { applicationPatchFromLeasePacketInput, type UpdateLeasePacketInput } from "@/lib/tools/domains/leases-logic";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -65,6 +66,9 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Lease access is unavailable for this account." }, { status: 403 });
+    }
     const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
     const role = String(profile?.role ?? "").toLowerCase();
     if (role !== "manager" && role !== "admin") {

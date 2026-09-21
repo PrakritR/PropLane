@@ -31,6 +31,11 @@ vi.mock("@/lib/twilio", () => ({
   sendSms: vi.fn().mockResolvedValue({ sent: false }),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+  resolveTestWorkspaceClassification: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { rateLimit } from "@/lib/rate-limit";

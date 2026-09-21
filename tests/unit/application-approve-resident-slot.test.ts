@@ -49,9 +49,13 @@ function makeDb() {
         eqId: string | null;
         eqManagerUserId: string | null;
         eqBucket: string | null;
-      } = { ids: null, eqId: null, eqManagerUserId: null, eqBucket: null };
+        selectCols: string | null;
+      } = { ids: null, eqId: null, eqManagerUserId: null, eqBucket: null, selectCols: null };
       const builder: Record<string, unknown> = {
-        select: () => builder,
+        select: (cols?: string) => {
+          state.selectCols = cols ?? null;
+          return builder;
+        },
         update: () => builder,
         insert: () => Promise.resolve({ error: null }),
         upsert(values: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }) {
@@ -75,6 +79,13 @@ function makeDb() {
         maybeSingle() {
           if (table === "profiles") return Promise.resolve({ data: PROFILE, error: null });
           if (table === "manager_property_records") {
+            // The workspace gate's own `test_workspace_id`-only read is a
+            // separate concern from the per-resident pricing lookup below —
+            // `PROPERTY_READ_ERROR` targets only the latter, the one
+            // `resolveApprovedResidentSlot` fails closed on.
+            if (state.selectCols === "test_workspace_id") {
+              return Promise.resolve({ data: null, error: null });
+            }
             if (PROPERTY_READ_ERROR) {
               return Promise.resolve({ data: null, error: { message: "read failed" } });
             }

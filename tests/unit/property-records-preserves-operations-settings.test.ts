@@ -25,6 +25,9 @@ vi.mock("@/lib/auth/clear-property-housing-access", () => ({
   clearHousingAccessForDeletedProperty: async () => {},
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: () => {} }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));

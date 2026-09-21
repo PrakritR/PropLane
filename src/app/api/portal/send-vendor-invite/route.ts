@@ -3,6 +3,7 @@ import { resolveAppOrigin } from "@/lib/app-url";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorInvite } from "@/lib/vendor-invite.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,9 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
+    }
     const { data: profile } = await db.from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle();
     if (!canSendVendorInvite(profile?.role)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });

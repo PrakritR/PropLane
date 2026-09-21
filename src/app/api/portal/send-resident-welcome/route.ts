@@ -6,6 +6,7 @@ import {
 } from "@/lib/resident-welcome.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
     }
 
     const svc = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
+      return NextResponse.json({ error: "Resident access is unavailable for this account." }, { status: 403 });
+    }
     const { data: requestor, error: requestorError } = await svc
       .from("profiles")
       .select("role")

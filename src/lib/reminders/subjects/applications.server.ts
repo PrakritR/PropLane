@@ -20,6 +20,7 @@ import {
   inProgressApplicationResumeUrl,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 const MAX_ROWS = 500;
 /** Ignore stale drafts that have not moved in months. */
@@ -80,6 +81,7 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
 
   const candidates = rows
     .map((record) => {
+      if (hasSmsTestProvenance(record.row_data)) return null;
       const row = hydrateApplicationRow(record);
       const managerUserId = String(record.manager_user_id ?? row.managerUserId ?? "").trim();
       const anchorIso = applicationAnchorIso(record);
@@ -243,6 +245,7 @@ export async function sweepApplicationPostTourReminders(
   const endedTours = events.filter((event) => {
     if (!event || typeof event !== "object") return false;
     const row = event as Record<string, unknown>;
+    if (hasSmsTestProvenance(row)) return false;
     if (row.kind !== "tour") return false;
     if (String(row.canceledAt ?? "").trim()) return false;
     if (!String(row.managerUserId ?? "").trim()) return false;

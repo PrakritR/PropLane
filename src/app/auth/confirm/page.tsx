@@ -20,7 +20,9 @@ function parseEmailOtpType(raw: string | null): EmailOtpType | null {
  * redirect somewhere else.
  */
 function destinationForType(type: EmailOtpType): string {
-  return type === "recovery" ? PASSWORD_RESET_NEXT_PATH : "/auth/continue";
+  if (type === "recovery") return PASSWORD_RESET_NEXT_PATH;
+  if (type === "invite") return "/auth/test-workspace-setup";
+  return "/auth/continue";
 }
 
 /**

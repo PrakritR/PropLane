@@ -227,7 +227,9 @@ export function ChannelCalendarLinkFields({
   };
 
   const onFooterStateRef = useRef(onFooterState);
-  onFooterStateRef.current = onFooterState;
+  useEffect(() => {
+    onFooterStateRef.current = onFooterState;
+  }, [onFooterState]);
   useEffect(() => {
     onFooterStateRef.current?.({
       canSave,

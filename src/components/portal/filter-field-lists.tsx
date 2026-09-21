@@ -329,6 +329,7 @@ export function PortalFormSingleSelect({
   dataAttr,
   labelClassName = FILTER_FIELD_LABEL_CLASS,
   onPick,
+  keepMenuWithinModalTree = false,
 }: {
   label: string;
   value: string;
@@ -339,6 +340,8 @@ export function PortalFormSingleSelect({
   dataAttr?: string;
   labelClassName?: string;
   onPick?: () => void;
+  /** For modal surfaces whose pointer isolation would sit over a body portal. */
+  keepMenuWithinModalTree?: boolean;
 }) {
   const filterSheetScrollLock = useContext(FilterSheetScrollLockContext);
   const [open, setOpen] = useState(false);
@@ -364,6 +367,7 @@ export function PortalFormSingleSelect({
     preferOpenDown: true,
     matchTriggerWidth: true,
     closeOnOutsidePointerDown: filterSheetScrollLock === null,
+    keepWithinModalTree: keepMenuWithinModalTree,
   });
 
   const closeMenu = useCallback(() => {

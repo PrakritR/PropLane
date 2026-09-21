@@ -22,6 +22,7 @@ import { stampTeamRolePermissions, teamRoleListLabel } from "@/lib/co-manager-te
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -166,6 +167,15 @@ export async function POST(req: Request) {
     );
     if (isCrossSandboxPortalPair(emailByUserId.get(row.inviter_user_id) ?? "", emailByUserId.get(user.id) ?? "")) {
       return NextResponse.json({ error: CROSS_SANDBOX_PORTAL_PAIR_ERROR }, { status: 400 });
+    }
+    try {
+      await assertTestWorkspacePrincipalCompatibility({
+        actorUserId: user.id,
+        relatedUserIds: [row.inviter_user_id],
+        db: svc,
+      });
+    } catch {
+      return NextResponse.json({ error: "Co-managers must belong to the same workspace." }, { status: 400 });
     }
 
     const { data: existingLink, error: existingErr } = await svc

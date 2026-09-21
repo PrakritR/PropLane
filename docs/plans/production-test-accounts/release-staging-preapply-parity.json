@@ -1,0 +1,71 @@
+{
+  "missing": [
+    {
+      "version": "20260917010000",
+      "name": "invite_workspace"
+    },
+    {
+      "version": "20260917120000",
+      "name": "authenticated_sms_test_identity"
+    },
+    {
+      "version": "20260917193000",
+      "name": "authenticated_sms_test_tour_context"
+    },
+    {
+      "version": "20260917201500",
+      "name": "sms_test_pending_action_and_delivery_provenance"
+    },
+    {
+      "version": "20260918130000",
+      "name": "sms_test_tour_wrapper_failed_replace_guard"
+    },
+    {
+      "version": "20260918131500",
+      "name": "test_workspaces"
+    },
+    {
+      "version": "20260918133000",
+      "name": "remove_raw_live_listing_read_policy"
+    },
+    {
+      "version": "20260918153000",
+      "name": "workspace_permissions"
+    },
+    {
+      "version": "20260918180000",
+      "name": "account_link_team_role"
+    },
+    {
+      "version": "20260919010000",
+      "name": "booking_com_calendar_provider"
+    },
+    {
+      "version": "20260919113000",
+      "name": "reconcile_sms_test_google_cleanup_claim_fence"
+    },
+    {
+      "version": "20260919120000",
+      "name": "harden_test_workspace_schedule_slice"
+    },
+    {
+      "version": "20260919123000",
+      "name": "revoke_classified_test_workspace_direct_access"
+    },
+    {
+      "version": "20260919124500",
+      "name": "harden_late_test_workspace_direct_access"
+    }
+  ],
+  "extra": [
+    {
+      "name": "resident_invite_links_legacy_20260907073044",
+      "version": "20260907073044"
+    },
+    {
+      "name": "comms_billing_rollout",
+      "version": "20260911161000"
+    }
+  ],
+  "problems": []
+}

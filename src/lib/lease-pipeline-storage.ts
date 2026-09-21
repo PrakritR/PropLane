@@ -14,7 +14,6 @@ import {
   leaseTemplateVersionForContext,
   type LeaseGenerationContext,
 } from "@/lib/generated-lease";
-import type { MockProperty } from "@/data/types";
 import {
   LEASE_ESIGN_CONSENT_TEXT,
   LEASE_ESIGN_CONSENT_VERSION,
@@ -90,7 +89,11 @@ import {
   type BundleGroupRowInput,
 } from "@/lib/bundle-group/bundle-group-application";
 import { applyLeaseBillingToContext } from "@/lib/lease-billing-snapshot";
-import { isLeaseGenerationSupported, resolveLeaseJurisdiction } from "@/lib/lease-jurisdiction";
+import {
+  isLeaseGenerationSupported,
+  resolveLeaseJurisdiction,
+  type LeaseJurisdictionInput,
+} from "@/lib/lease-jurisdiction";
 import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { buildJointLeaseMembers, buildJointLeasePipelineRow, jointLeaseRowIncludesMember } from "@/lib/bundle-group/joint-lease";
 import type { JointLeaseMember, LeaseKind } from "@/lib/bundle-group/types";
@@ -1170,7 +1173,8 @@ function leasePipelineSessionKey(scopeUserId?: string | null): string {
 }
 
 function ensureLeasePipelineScope(scopeUserId?: string | null) {
-  const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? portalSessionViewerId() ?? undefined;
+  const explicitScope = scopeUserId?.trim() || null;
+  const nextScope = isDemoModeActive() ? undefined : explicitScope ?? portalSessionViewerId() ?? undefined;
   if (activeLeasePipelineScopeUserId !== nextScope) {
     activeLeasePipelineScopeUserId = nextScope;
     leaseScopeGeneration++;
@@ -2775,22 +2779,20 @@ function leaseGenerationContextForRow(
     };
   }
   const billed = applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
+  const jurisdictionInput: LeaseJurisdictionInput = billed;
   // Close-save / unfinished listings often have no address. Add-resident still
   // has to produce a document — default those to Washington rather than leaving
   // a Draft stub. A real non-CA/WA state stays unsupported.
-  if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(billed))) {
-    // A listing carries its state as loose address data, not on MockProperty.
-    const stateOf = (value: unknown): string =>
-      value && typeof value === "object" && typeof (value as { state?: unknown }).state === "string"
-        ? (value as { state: string }).state.trim()
-        : "";
+  if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(jurisdictionInput))) {
     const hasState = Boolean(
-      stateOf(billed.listingProperty) || stateOf(billed.leasedRoom) || billed.submission?.state?.trim(),
+      jurisdictionInput.listingProperty?.state?.trim() ||
+      jurisdictionInput.leasedRoom?.state?.trim() ||
+      jurisdictionInput.submission?.state?.trim(),
     );
-    if (!hasState && billed.listingProperty) {
+    if (!hasState && billed.submission) {
       return {
         ...billed,
-        listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" } as unknown as MockProperty,
+        submission: { ...billed.submission, state: "WA" },
       };
     }
   }

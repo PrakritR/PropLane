@@ -22,6 +22,7 @@ import {
 } from "@/lib/comms-billing/eligibility.server";
 import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
 import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_request_received",
@@ -277,6 +278,19 @@ export async function enqueueOwnerSms(
   | { ok: false; error: string }
 > {
   const body = input.body.trim();
+  if (body && captureSmsTestDelivery({
+    kind: "sms",
+    summary: "Queued SMS delivery captured in the test conversation.",
+    status: "captured",
+    metadata: { purpose: input.purpose.trim() || "unspecified", sendClass: input.sendClass },
+  })) {
+    return {
+      ok: true,
+      outboxId: `in_app_test:${randomUUID()}`,
+      status: "captured",
+      deduplicated: false,
+    };
+  }
   const recipient = normalizeE164(input.recipientPhone);
   if (!body || body.length > 1600 || !recipient) return { ok: false, error: "invalid_message" };
   if (!input.managerUserId.trim() || !input.actorUserId.trim() || !input.purpose.trim()) {
@@ -621,6 +635,16 @@ export async function dispatchOwnerSmsOutbox(
   unknown: number;
   infrastructureErrors: string[];
 }> {
+  if (options.outboxId?.startsWith("in_app_test:")) {
+    return {
+      ok: true,
+      claimed: 1,
+      submitted: 1,
+      blocked: 0,
+      unknown: 0,
+      infrastructureErrors: [],
+    };
+  }
   const workerId = options.workerId?.trim() || `sms-${randomUUID()}`;
   // A process can die after the no-retry boundary but before persisting a SID.
   // Make those rows explicitly operator-reviewable instead of leaving them in

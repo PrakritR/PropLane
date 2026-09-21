@@ -13,6 +13,10 @@ vi.mock("@/lib/auth/admin-preview", () => ({
   isAdminUser: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-vendors/route";

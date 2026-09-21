@@ -12,7 +12,7 @@ import {
   generateScheduledInboxMessageId,
   type ScheduledInboxMessageRecord,
   updateScheduledInboxMessage,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 import {
   DEFAULT_TOUR_REMINDER_TEMPLATE,
   fillTourReminderTemplate,

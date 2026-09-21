@@ -53,7 +53,9 @@ describe("vendors catalog list chrome", () => {
     // The band never carries a ✕ (docs/agents/ui-change-checklist.md); catalog vs
     // "yours" is reachable through the tab destinations instead.
     expect(panel).not.toContain("vendors-catalog-close");
-    expect(panel).toContain("View profile");
+    // The row menu is View (from the row's own onOpen) + Add: no second View, no "View profile".
+    expect(panel).not.toContain("View profile");
+    expect(panel).not.toContain("vendor-catalog-row-view");
     expect(panel).toContain("Add to your vendors");
     expect(panel).toContain("onSelectedChange");
     expect(panel).not.toContain("trailing={<RecordActionMenu");

@@ -43,6 +43,8 @@ function stubBrowserSession() {
       }),
     },
     dispatchEvent: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
   });
 }
 

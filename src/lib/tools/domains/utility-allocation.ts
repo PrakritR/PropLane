@@ -11,6 +11,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import { track } from "@/lib/analytics/posthog";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { assertFinancialsTier } from "@/lib/reports/auth";
 
 const inputSchema = z.object({
@@ -95,7 +96,7 @@ export const allocateUtilityBillTool = defineWriteTool({
       if (savedError) throw new Error(savedError.message);
       const charge: HouseholdCharge = saved?.row_data ?? { id: chargeId, createdAt: new Date().toISOString(), applicationId: line.applicationId, residentName: line.residentName, residentEmail: line.residentEmail, residentUserId: line.residentUserId, managerUserId: ctx.landlordId, propertyId: snapshot.propertyId, propertyLabel: snapshot.propertyId, kind: "utilities", title: `Utilities ${input.serviceStart} – ${input.serviceEnd}`, amountLabel: usd(line.amountCents), balanceLabel: usd(line.amountCents), status: "pending", blocksLeaseUntilPaid: false, sourceUtilityBillId: input.billId, utilityAllocationId: id };
       if (!saved) {
-        const { error } = await ctx.db.from("portal_household_charge_records").insert({ id: chargeId, manager_user_id: ctx.landlordId, resident_email: line.residentEmail, resident_user_id: line.residentUserId, property_id: snapshot.propertyId, status: charge.status, row_data: charge });
+        const { error } = await ctx.db.from("portal_household_charge_records").insert({ id: chargeId, manager_user_id: ctx.landlordId, resident_email: line.residentEmail, resident_user_id: line.residentUserId, property_id: snapshot.propertyId, status: charge.status, row_data: stampSmsTestProvenance(charge as unknown as Record<string, unknown>) });
         if (error) throw new Error(error.message);
       }
       await syncLedgerChargeEntry(ctx.db, charge);

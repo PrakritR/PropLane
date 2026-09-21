@@ -314,19 +314,22 @@ export type ListOpenTourSlotsResult =
  */
 export async function listOpenTourSlots(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  args: { propertyId: string; buildingName?: string | null; address?: string | null; publishedOnly?: boolean },
+  args: { propertyId: string; buildingName?: string | null; address?: string | null; publishedOnly?: boolean; workspaceId?: string | null },
 ): Promise<ListOpenTourSlotsResult> {
   const propertyId = args.propertyId.trim();
+  const workspaceId = args.workspaceId?.trim() || null;
   if (!propertyId) return { ok: false, error: "propertyId required" };
   try {
     const requestedHouseKey = houseKeyFromParts(args.buildingName, args.address);
     const safeId = safePropertyId(propertyId);
 
-    const { data: directPropertyRow, error: directPropertyError } = await db
+    let directPropertyQuery = db
       .from("manager_property_records")
       .select("manager_user_id, status, property_data")
-      .eq("id", propertyId)
-      .maybeSingle();
+      .eq("id", propertyId);
+    if (workspaceId) directPropertyQuery = directPropertyQuery.eq("test_workspace_id", workspaceId);
+    else directPropertyQuery = directPropertyQuery.is("test_workspace_id", null);
+    const { data: directPropertyRow, error: directPropertyError } = await directPropertyQuery.maybeSingle();
 
     if (directPropertyError) return { ok: false, error: directPropertyError.message };
 
@@ -343,11 +346,14 @@ export async function listOpenTourSlots(
     }
 
     if (propertyRecords.length === 0 && requestedHouseKey !== "::") {
-      const { data: liveRows, error: propertyError } = await db
+      let liveRowsQuery = db
         .from("manager_property_records")
         .select("manager_user_id, status, property_data")
         .eq("status", "live")
         .limit(200);
+      if (workspaceId) liveRowsQuery = liveRowsQuery.eq("test_workspace_id", workspaceId);
+      else liveRowsQuery = liveRowsQuery.is("test_workspace_id", null);
+      const { data: liveRows, error: propertyError } = await liveRowsQuery;
 
       if (propertyError) return { ok: false, error: propertyError.message };
 
@@ -446,18 +452,24 @@ export async function listOpenTourSlots(
     // two ways that filter can match: the property's own managers, and a row
     // whose `property_id` IS the requested property (a manager who publishes
     // availability for a house whose record they do not own).
-    const [byManager, byProperty] = await Promise.all([
-      db
+    let byManagerQuery = db
         .from("portal_schedule_records")
         .select("id, manager_user_id, property_id, record_type, row_data")
         .eq("record_type", "manager_property_availability")
-        .in("manager_user_id", managerIds.length > 0 ? managerIds : ["__none__"]),
-      db
+        .in("manager_user_id", managerIds.length > 0 ? managerIds : ["__none__"]);
+    let byPropertyQuery = db
         .from("portal_schedule_records")
         .select("id, manager_user_id, property_id, record_type, row_data")
         .eq("record_type", "manager_property_availability")
-        .in("property_id", [...requestedPropertyIds]),
-    ]);
+        .in("property_id", [...requestedPropertyIds]);
+    if (workspaceId) {
+      byManagerQuery = byManagerQuery.eq("test_workspace_id", workspaceId);
+      byPropertyQuery = byPropertyQuery.eq("test_workspace_id", workspaceId);
+    } else {
+      byManagerQuery = byManagerQuery.is("test_workspace_id", null);
+      byPropertyQuery = byPropertyQuery.is("test_workspace_id", null);
+    }
+    const [byManager, byProperty] = await Promise.all([byManagerQuery, byPropertyQuery]);
 
     if (byManager.error) return { ok: false, error: byManager.error.message };
     if (byProperty.error) return { ok: false, error: byProperty.error.message };
@@ -470,11 +482,14 @@ export async function listOpenTourSlots(
     }
     const propertyAvailabilityRows = { data: [...propertyAvailabilityById.values()] };
 
-    const { data: globalData, error } = await db
+    let globalQuery = db
       .from("portal_schedule_records")
       .select("id, manager_user_id, property_id, record_type, row_data")
       .eq("record_type", "manager_availability")
       .in("manager_user_id", managerIds.length > 0 ? managerIds : ["__none__"]);
+    if (workspaceId) globalQuery = globalQuery.eq("test_workspace_id", workspaceId);
+    else globalQuery = globalQuery.is("test_workspace_id", null);
+    const { data: globalData, error } = await globalQuery;
 
     if (error) return { ok: false, error: error.message };
 
@@ -547,11 +562,14 @@ export async function listOpenTourSlots(
     const availabilityManagerIds = [...new Set(offerings.map((offering) => offering.managerUserId))];
     const blockedSlotsByManager = new Map<string, TourBlock[]>();
     if (availabilityManagerIds.length > 0) {
-      const { data: pendingRows, error: pendingError } = await db
+      let pendingQuery = db
         .from("portal_schedule_records")
         .select("manager_user_id, row_data")
         .eq("record_type", "partner_inquiry_request")
         .in("manager_user_id", availabilityManagerIds);
+      if (workspaceId) pendingQuery = pendingQuery.eq("test_workspace_id", workspaceId);
+      else pendingQuery = pendingQuery.is("test_workspace_id", null);
+      const { data: pendingRows, error: pendingError } = await pendingQuery;
 
       if (pendingError) return { ok: false, error: pendingError.message };
 
@@ -565,11 +583,10 @@ export async function listOpenTourSlots(
         blockedSlotsByManager.set(managerUserId, blocks);
       }
 
-      const { data: plannedRow, error: plannedError } = await db
-        .from("portal_schedule_records")
-        .select("row_data")
-        .eq("id", "axis_admin_planned_events_v1")
-        .maybeSingle();
+      const plannedSource = workspaceId
+        ? await db.from("test_workspace_schedule_records").select("row_data").eq("workspace_id", workspaceId).eq("record_key", "planned_events").maybeSingle()
+        : await db.from("portal_schedule_records").select("row_data").eq("id", "axis_admin_planned_events_v1").is("test_workspace_id", null).maybeSingle();
+      const { data: plannedRow, error: plannedError } = plannedSource;
 
       if (plannedError) return { ok: false, error: plannedError.message };
 
@@ -615,7 +632,9 @@ export async function listOpenTourSlots(
       // this route never read it, so a manager's busy morning stayed bookable.
       const busyWindowMin = new Date().toISOString();
       const busyWindowMax = new Date(googleBusyWindowEndMs(offerings.flatMap((o) => o.slots))).toISOString();
-      const busyByManager = await Promise.all(
+      // A test workspace has no access to its manager's real Google Calendar.
+      // Its own confirmed events and pending rows above are the complete block set.
+      const busyByManager = workspaceId ? [] : await Promise.all(
         availabilityManagerIds.map(async (managerUserId) => ({
           managerUserId,
           blocks: await googleBusyBlocks(db, managerUserId, busyWindowMin, busyWindowMax),

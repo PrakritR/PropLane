@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
@@ -52,6 +53,14 @@ async function upsertGoogleCalendarEvent(
   beforeWrite?: () => Promise<boolean>,
   validateCurrent?: () => Promise<boolean>,
 ): Promise<GoogleCalendarUpsertResult> {
+  if (captureSmsTestDelivery({
+    kind: "calendar",
+    summary: "Google Calendar sync captured in the test conversation.",
+    status: "captured",
+    metadata: { operation: input.googleCalendarEventId?.trim() ? "update" : "create" },
+  })) {
+    return { googleCalendarEventId: null, created: false };
+  }
   const connection = await loadGoogleCalendarConnection(db, managerUserId);
   if (!connection.connected || !connection.syncEnabled) return { googleCalendarEventId: null, created: false };
   if (beforeWrite && !await beforeWrite()) return { googleCalendarEventId: null, created: false };
@@ -749,7 +758,13 @@ export async function deleteProplaneGoogleCalendarEvent(
 ): Promise<void> {
   const eventId = googleEventId.trim();
   if (!eventId) return;
-  await deleteGoogleCalendarEvent(db, managerUserId, eventId);
+  const captured = captureSmsTestDelivery({
+    kind: "calendar",
+    summary: "Google Calendar deletion captured in the test conversation.",
+    status: "captured",
+    metadata: { operation: "delete" },
+  });
+  if (!captured) await deleteGoogleCalendarEvent(db, managerUserId, eventId);
   const { data: plannedRecord } = await db.from("portal_schedule_records")
     .select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
   const plannedEventId = String(rowsFromPlannedRecord(plannedRecord?.row_data)

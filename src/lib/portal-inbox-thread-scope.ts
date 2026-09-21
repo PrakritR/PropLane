@@ -2,6 +2,10 @@ import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  assertTestWorkspacePrincipalCompatibility,
+  resolveAuthenticatedBusinessAccess,
+} from "@/lib/test-workspaces/index.server";
 
 export const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 export const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -71,6 +75,7 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
   if (!authUser) return null;
 
   const db = createSupabaseServiceRoleClient();
+  if ((await resolveAuthenticatedBusinessAccess(authUser.id, db)).kind === "denied") return null;
   const { data: profile } = await db.from("profiles").select("email, role").eq("id", authUser.id).maybeSingle();
   const admin = await isAdminUser(authUser.id);
 
@@ -83,6 +88,11 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
     if (portal) {
       const effectiveId = await getEffectiveUserIdForPortal(portal);
       if (effectiveId && effectiveId !== authUser.id) {
+        await assertTestWorkspacePrincipalCompatibility({
+          actorUserId: authUser.id,
+          relatedUserIds: [effectiveId],
+          db,
+        });
         actorId = effectiveId;
         const { data: effectiveProfile } = await db.from("profiles").select("email").eq("id", effectiveId).maybeSingle();
         actorEmail = (effectiveProfile?.email ?? "").trim().toLowerCase() || null;

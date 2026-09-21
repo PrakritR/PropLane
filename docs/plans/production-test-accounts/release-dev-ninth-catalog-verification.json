@@ -1,0 +1,13 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "checks": {
+    "read_only": "on",
+    "allocator_anon": false,
+    "allocator_auth": false,
+    "helper_invoker": true,
+    "public_policies": 146,
+    "storage_policies": 1,
+    "allocator_service": true,
+    "migration_applied": true
+  }
+}

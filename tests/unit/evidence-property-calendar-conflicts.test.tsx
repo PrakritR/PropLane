@@ -9,7 +9,7 @@
 // This renders the REAL availability modal against a stubbed
 // `/api/portal/google-calendar/events` and counts the blocked cells on the grid.
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startOfWeekMonday } from "@/lib/demo-admin-scheduling";
@@ -106,7 +106,7 @@ afterAll(() => {
 function blockedSlots(root: HTMLElement): string[] {
   const slots = new Set<string>();
   for (const el of Array.from(root.querySelectorAll("button"))) {
-    if (!/· Blocked ·/.test(el.getAttribute("title") ?? "")) continue;
+    if (!/^Blocked ·/.test(el.getAttribute("title") ?? "")) continue;
     const label = el.getAttribute("aria-label") ?? "";
     const match = /Open details for (.+)$/.exec(label);
     if (match) slots.add(match[1]);

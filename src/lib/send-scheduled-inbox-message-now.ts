@@ -3,7 +3,7 @@ import {
   isResidentOriginatedScheduledMessage,
   loadScheduledInboxMessageForDelivery,
   type ScheduledInboxMessageRecord,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Channel = "inbox" | "email" | "sms";
@@ -34,6 +34,9 @@ export async function sendScheduledInboxMessageNow(
   db: SupabaseClient,
   message: ScheduledInboxMessageRecord,
 ): Promise<{ ok: boolean; pending?: boolean; error?: string; channels?: Record<Channel, Outcome> }> {
+  if (message.smsTestSessionId) {
+    return { ok: false, error: "SMS test scheduled messages cannot enter live delivery." };
+  }
   if (message.status === "sent") return { ok: true };
   if (message.status !== "scheduled" && message.status !== "sending") {
     return { ok: false, error: "Only scheduled messages can be sent now." };

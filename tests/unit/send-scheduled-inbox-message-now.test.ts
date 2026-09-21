@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: vi.fn() }));
-vi.mock("@/lib/scheduled-inbox-messages", () => ({
+vi.mock("@/lib/scheduled-inbox-messages.server", () => ({
   isResidentOriginatedScheduledMessage: vi.fn(() => false),
   loadScheduledInboxMessageForDelivery: vi.fn(),
 }));
 
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { loadScheduledInboxMessageForDelivery, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
+import { loadScheduledInboxMessageForDelivery } from "@/lib/scheduled-inbox-messages.server";
+import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { sendScheduledInboxMessageNow } from "@/lib/send-scheduled-inbox-message-now";
 
 function message(status: "scheduled" | "sending" = "scheduled"): ScheduledInboxMessageRecord {

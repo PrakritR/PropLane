@@ -6,6 +6,7 @@ import {
   persistManagerConnectAccountId,
   retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
+import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 
 /** Returns a Connect account id for the given user, creating one or clearing stale ids when
  * needed. Column is generic (keyed by userId only) — reused as-is for vendor payout accounts. */
@@ -28,6 +29,12 @@ export async function ensureManagerConnectAccountId(
     allowClearStale?: boolean;
   },
 ): Promise<string> {
+  await assertTestWorkspaceProviderEffectAllowed({
+    userId: opts.userId,
+    kind: "payment",
+    summary: "Stripe Connect setup refused for a test workspace.",
+    db,
+  });
   const { data: profile } = await db
     .from("profiles")
     .select("stripe_connect_account_id")

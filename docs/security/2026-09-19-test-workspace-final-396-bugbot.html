@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Final 396 source union bugbot and release regression review</title>
+  <style>
+    :root { color-scheme: light; --ink:#172331; --muted:#536273; --line:#ccd3da; --panel:#f6f8fa; --ok:#126b37; --warn:#8a4b08; --bad:#9b241b; --link:#174ea6; }
+    * { box-sizing: border-box; }
+    body { max-width: 1080px; margin: 36px auto; padding: 0 24px 56px; font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+    h1, h2, h3 { line-height: 1.2; }
+    h1 { margin-bottom: 8px; }
+    h2 { margin-top: 32px; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
+    h3 { margin-bottom: 6px; }
+    p { margin: 8px 0 14px; }
+    code { overflow-wrap: anywhere; }
+    a { color: var(--link); }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; }
+    th, td { border: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .summary, .finding, .limit { padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin: 14px 0; }
+    .p2 { border-left: 5px solid var(--bad); }
+    .p3 { border-left: 5px solid var(--warn); }
+    .ok { color: var(--ok); font-weight: 650; }
+    .bad { color: var(--bad); font-weight: 650; }
+    .muted { color: var(--muted); }
+    ul { margin-top: 8px; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>Final 396 source union bugbot and release regression review</h1>
+  <p class="muted">Independent read-only review completed 2026-09-19 for Akhil's test-workspace release.</p>
+
+  <div class="summary">
+    <p><strong>Current disposition after the scoped correction addenda:</strong> <span class="ok">approved with no release blocker</span>. The trusted-origin runtime boundary and model contract are aligned after the exact follow-ups reviewed below. The original P2 stale SMS evidence issue and P3 attachment mode race remain closed, and the listing-menu correction remains approved. The retained local envelope P3 is unchanged and non-blocking.</p>
+    <p><strong>Final reviewed manifest SHA-256:</strong> <code>865ac025b1c849a585fd927626d004d635d7d1c6b74dcc17629d15f66123b093</code>. The earlier <code>b5b1b14a21562c474a5246304594d35b081b9174c0ff3dab286b27c8e80dfc3a</code> manifest and the later <code>278f...</code> intermediate lineage are superseded history after the bounded runtime-alias corrections.</p>
+    <p><strong>Reviewed source:</strong> commit <code>a6b67cdf8b9ec33ef8e5e38b27b161c5dba695b4</code> plus the manifest-bound working-tree additions and refinements described below.</p>
+  </div>
+
+  <h2>Manifest integrity and coverage</h2>
+  <table>
+    <tr><th>Check</th><th>Result</th></tr>
+    <tr><td>Manifest identity</td><td class="ok">The final JSON file itself hashes to <code>865ac025b1c849a585fd927626d004d635d7d1c6b74dcc17629d15f66123b093</code>. The requested <code>b5b1b14a...</code> snapshot was verified before the authorized post-freeze alias changes, then correctly superseded rather than reused for changed bytes.</td></tr>
+    <tr><td>Entry integrity</td><td class="ok">Declared count 396, parsed count 396, unique path count 396, duplicate paths 0, missing files 0, and all 396 recorded SHA-256 values match current file bytes.</td></tr>
+    <tr><td>Prior union continuity</td><td class="ok">All 333 paths from commit <code>64f410caa</code> remain. The union adds 63 paths. Eighteen retained paths changed hashes, producing an 81-path fresh path/hash delta for this review.</td></tr>
+    <tr><td>Current release-source coverage</td><td class="ok">The union covers all 393 tracked changed paths in <code>.github</code>, <code>scripts</code>, <code>src</code>, <code>tests</code>, and <code>supabase</code>, plus the two untracked release-source paths. It also intentionally retains <code>tests/unit/dropdown-menu-callers-use-default.test.ts</code>. This is 395 current changed/untracked paths plus one retained coverage path, with no gap.</td></tr>
+  </table>
+
+  <h2>Findings</h2>
+
+  <div class="finding p2">
+    <h3>P2, medium, original finding closed in the scoped addendum: a failed SMS turn can leave the previous turn's delivery evidence presented as current</h3>
+    <p><strong>Trigger:</strong> complete one successful SMS test turn that reports captured or refused effects, then issue another turn in the same selected listing and session that returns a non-2xx response or throws a network error.</p>
+    <p><strong>Evidence:</strong> <code>use-assistant-conversation.ts</code> clears the ordinary error and tool state when a send begins, but does not clear <code>lastSmsTestTurn</code>. It updates that value only in the success branch. The non-2xx branch restores attachments and sets an error without clearing SMS metadata; the catch path also leaves it intact. <code>assistant-sms-test-control.tsx</code> considers metadata current whenever its target and session still match, then continues to render the prior effects under the unqualified heading “Test delivery evidence.”</p>
+    <p><strong>Impact:</strong> a tester can see an error for the newest request while the control still displays “Captured” evidence from the preceding successful request. This can misattribute an earlier email or SMS capture to the failed turn and weaken the release evidence the feature is intended to provide.</p>
+    <p><strong>Correction:</strong> clear the current SMS-turn metadata when a new request begins, or associate metadata with a client turn/request id and render it only beside that completed turn. Add a focused success-then-failure test for the same target and session.</p>
+  </div>
+
+  <div class="finding p3">
+    <h3>P3, low, original finding closed by the scoped one-file follow-up: asynchronous attachment preparation is not invalidated when SMS mode becomes text-only</h3>
+    <p><strong>Trigger:</strong> begin processing an image or PDF in ordinary assistant mode, then activate SMS test mode before <code>prepareChatAttachmentsFromFiles</code> resolves.</p>
+    <p><strong>Evidence:</strong> <code>assistant-chat-composer.tsx</code> checks <code>allowAttachments</code> before the await, but does not recheck a generation or current-mode ref after the await. The stale closure can therefore call <code>onAttachmentsChange</code> or report an attachment error after SMS mode has become active. The passive cleanup effect normally removes the late attachment, and the SMS route independently rejects non-empty attachment payloads.</p>
+    <p><strong>Impact:</strong> this is fail-closed on the server, but it can briefly repopulate stale state or turn a valid SMS text attempt into a 400 response if submission interleaves before cleanup. It can also surface an irrelevant attachment error in SMS mode.</p>
+    <p><strong>Correction:</strong> increment an attachment-preparation generation when <code>allowAttachments</code> changes and discard prepared results from older generations. Cover the deferred-preparation mode switch in a client unit test.</p>
+  </div>
+
+  <div class="finding p3">
+    <h3>P3, low, retained: envelope validation has a local lstat/read race</h3>
+    <p><strong>Evidence:</strong> <code>decrypt-local-qa-build.mjs</code> validates <code>manifest.json</code> with <code>lstat</code>, then opens it independently through <code>readFile</code>. A same-user process with write access to the task-owned artifact directory could replace the file between those operations. This finding was already recorded in the fresh encrypted-artifact review and is unchanged by the runtime-alias refinement.</p>
+    <p><strong>Impact:</strong> the envelope remains bounded to 4 KiB, exact-schema checked, SHA-bound, and its values feed AES-GCM authentication, so this does not create an authentication bypass. It is a local robustness gap in a task-private workflow.</p>
+    <p><strong>Correction:</strong> open once with <code>O_NOFOLLOW</code>, validate the opened handle, read at most 4097 bytes from that handle, and compare the opened identity rather than doing a path-based second read.</p>
+  </div>
+
+  <h2>Fresh delta disposition</h2>
+  <table>
+    <tr><th>Area</th><th>Disposition</th></tr>
+    <tr><td>CI source and test corrections</td><td>No new blocker. Unit, lint, integration, build, full browser, and aggregation jobs remain independent as documented. The required <code>check</code> still aggregates unit, lint, and build. The manual keeper build binds <code>NEXT_PUBLIC_APP_URL</code> before build and packages only after a successful exact-branch dispatch. Actual fresh CI completion remains external execution evidence, not a conclusion of this source-only review.</td></tr>
+    <tr><td>Server and client collection</td><td>No new blocker. The catalog's server initialization now checks the browser boundary before consulting client session state. Capability state is synchronously masked across actor, workspace, catalog, and endpoint scope changes. The P2 and P3 above are the remaining client freshness issues found.</td></tr>
+    <tr><td>SMS metadata and cache headers</td><td>No metadata exposure found. The wire payload is limited to mode, stage, target listing id, session id, and effect kind/status/summary. Success responses apply <code>private, no-store</code>, with <code>no-transform</code> for SSE; history helpers also apply private no-store headers. The route rejects attachments and direct action ids. The P2 concerns presentation lifetime, not server authorization.</td></tr>
+    <tr><td>Encrypted artifact and decryption</td><td>No new blocker beyond the retained P3 envelope race. Packaging is streamed and bounded, scans the configured server key and encryption key, publishes ciphertext plus a bounded public envelope, binds commit SHA as AAD, and removes partial output. Decryption verifies size, ciphertext digest, SHA, GCM tag, and AAD, creates plaintext exclusively with mode 0600, and removes a partial plaintext on failure. Safe archive validation and extraction remain operator steps after authenticated decryption.</td></tr>
+    <tr><td>Post-freeze pg/sharp alias refinement</td><td class="ok">Approved as scoped. Final exact hashes: package <code>7f7df7c54c7e9d42029cb4e3208c6c40e5ca85205056e24734e731993d6b82f0</code>; decrypt <code>403fdc623a611b6304c6fe6eb1803588357865e27601f6522e3504c8a2520f49</code>; fixture <code>1cd30818d0176a07c6191547f14db09a03e31bbde9903b1894f38868707887ef</code>. The packer accepts only <code>pg</code> or <code>sharp</code> plus exactly 16 lowercase hex characters, permits no more than two total aliases and no duplicate package alias, requires the exact relative target to the same package, bounds the version string consistently with the consumer, verifies installed and lockfile versions, and places alias metadata only inside the encrypted private manifest. Links never enter the tar. Post-auth restoration validates the manifest schema and destination, rechecks package and lock versions, and removes aliases created earlier in the same failed restoration. All other links remain refused. The supplied actual-build evidence that compiled chunks import both aliases and that the 76,316,114-byte stream package/decrypt and cleanup completed is consistent with the reviewed code. I did not rerun that evidence.</td></tr>
+    <tr><td>Fixture fidelity</td><td>No new mocked-contract blocker. Delivery fixtures now model the normal capture helper result as <code>{ captured: false }</code>; query fixtures include the added builder methods; SMS route tests exercise the real streaming response instead of replacing it with a JSON-only mock. The alias fixture covers authenticated manifest round trip and restore behavior, while the supplied real-build evidence covers the two-alias generated shape.</td></tr>
+    <tr><td>Rehearsal and apply tooling</td><td>No new blocker. Both paths retain fail-closed exact target, source, artifact, bundle, backup, ledger, and table bindings. The apply path owns and bounds its dedicated connections, destroys its own socket on timeout, closes before independent readback, distinguishes unchanged from installed state, and cleans up again in <code>finally</code>. The rehearsal validates ownership before stopping its cluster, tracks descendants, requires process exit, and removes only its owned temporary tree.</td></tr>
+  </table>
+
+  <h2>Cumulative prior evidence used</h2>
+  <ul>
+    <li><a href="2026-09-19-test-workspace-final-frozen-bugbot.html">Final frozen 333 bugbot review</a> and the matching security review: no source blocker for keeper CI; browser, native, and release execution withheld.</li>
+    <li><a href="2026-09-19-test-workspace-ci-correction-bugbot.html">CI correction bugbot review</a> and matching security review: no blocker in the then-current correction; client scope, fixture fidelity, redacted metadata, and private cache headers reviewed.</li>
+    <li><a href="2026-09-19-test-workspace-server-boundary-review.html">Server boundary review</a>: approved the Node collection guard and admin route import correction.</li>
+    <li><a href="2026-09-19-test-workspace-encrypted-qa-ci-fresh-review.html">Encrypted QA CI fresh review</a>: no blocker, with the envelope read race retained here.</li>
+    <li><a href="2026-09-19-test-workspace-combined-rehearsal-review.html">Combined rehearsal review</a>: corrected read-only snapshot evidence and owned-process cleanup approved.</li>
+    <li><a href="2026-09-19-test-workspace-apply-transport-review.html">Apply transport review</a>: no blocker in the exact reviewed transport, no apply authorization inferred.</li>
+  </ul>
+
+  <h2>Review limits and release gates</h2>
+  <div class="limit">
+    <p>This was a source and artifact review only. Per instruction, I did not run tests, lint, typecheck, build, CI, network calls, database commands, a browser, or a localhost server. I made no source or git mutation; this HTML report is the only created file. Reported 29/29 alias tests, focused ESLint, actual 76,316,114-byte package/decrypt, and cleanup results are supplied evidence and were not independently executed in this pass.</p>
+    <p>Fresh keeper CI, authenticated artifact download and safe extraction, real DEV browser coverage, staging application deployment and QA, effective Vercel Node runtime verification, production preflight/apply authorization, fast-forward promotion, deployment, and iOS verification remain separate gates. The reviewed source does not itself authorize a production mutation.</p>
+  </div>
+
+  <h2>Scoped six-file correction addendum</h2>
+  <p class="muted">This addendum reviews only the bounded follow-up correction. It does not repeat or extend the 396-file manifest verification above.</p>
+  <table>
+    <tr><th>File</th><th>Exact reviewed SHA-256</th></tr>
+    <tr><td><code>.github/workflows/test.yml</code></td><td><code>6baecdfddd80112c6f14189d222a54cbe4dda0b95ebe5d5f75b86787eb7b6fc6</code></td></tr>
+    <tr><td><code>tests/unit/ci-test-workflow.test.ts</code></td><td><code>fcd60227aa98d69a9325e18cfca32920dad2108923ef8e9ca8efa2823ed0e14c</code></td></tr>
+    <tr><td><code>src/lib/axis-assistant/use-assistant-conversation.ts</code></td><td><code>378e8d04d71270e195099ae4dd2b259a8a054a8d650dac17380c9db4e49fe40d</code></td></tr>
+    <tr><td><code>src/components/portal/assistant-chat-composer.tsx</code></td><td><code>8beb60fccbc45d3398b1a806dfe0189a39d2f12ef34064442bda627840c42cf6</code> after the one-file synchronous invalidation follow-up; this supersedes the intermediate <code>554a0dc...</code> byte set.</td></tr>
+    <tr><td><code>tests/unit/assistant-conversation-context-send.test.tsx</code></td><td><code>bb579e42155acd033f799cf1d39294df19379f220ddf633dc87f31d5a9168047</code></td></tr>
+    <tr><td><code>tests/unit/assistant-chat-composer-attachment-mode.test.tsx</code></td><td><code>c91362b37856ab32245e011863500196484581e889c506510c9c1a83dc159964</code></td></tr>
+  </table>
+
+  <div class="summary">
+    <p><strong>Addendum disposition:</strong> approved with no release blocker. The prior P2 stale SMS evidence finding and P3 attachment mode race are closed. The workflow change is correctly limited to an explicit boolean <code>build_only</code> dispatch on the exact release keeper.</p>
+  </div>
+
+  <h3>P2 closure: stale SMS delivery evidence</h3>
+  <p class="ok">Closed.</p>
+  <p>The send path now clears <code>lastSmsTestTurn</code> after accepting a new authored turn and before starting transport. Therefore a non-2xx result and the network-error path both retain a null evidence value instead of the preceding turn's effects. Empty sends, blocked duplicates, and typed pending-action confirmation returns happen before this clear, so actions that do not start a new assistant turn do not erase evidence. A successful transport still installs only that completed turn's <code>smsTest</code> payload.</p>
+  <p>The new test is meaningful: it completes a first SMS turn with captured email evidence, verifies the session metadata, returns a 503 for the next turn in the same hook and endpoint, then asserts both the new error and null SMS evidence. The clear occurs before fetch, so the same invariant also covers a thrown network request.</p>
+
+  <h3>P3 closure: attachment mode invalidation</h3>
+  <p class="ok">Closed by the exact one-file follow-up.</p>
+  <p>The composer now changes its current-mode ref and preparation generation in <code>useLayoutEffect</code>. React runs that layout effect synchronously during the commit that makes <code>allowAttachments=false</code> active and before control returns to queued promise continuations or browser events. An in-flight preparation that resumes after the text-only commit therefore observes either the false mode ref or a changed generation, revokes every prepared preview, clears the file input, and returns without publishing attachments or an obsolete error.</p>
+  <p>A preparation that finishes before the mode-change commit still belongs to the prior attachment-enabled state; the existing text-only attachment cleanup removes that state when the false-mode render commits. Together these paths establish the required ordering without mutating refs during render. The deferred test remains meaningful for the discard, revocation, state-suppression, error-suppression, and control-hiding outcomes; the layout-effect source change supplies the synchronous commit boundary that the prior passive effect lacked.</p>
+
+  <h3>Keeper-only build dispatch</h3>
+  <p class="ok">Approved.</p>
+  <p>The new input is typed boolean, optional, and defaults to false. Unit, integration, lint, full E2E, and the aggregate check skip only when all three conditions are true: manual dispatch, the exact <code>akhil/test-workspace-release-20260919</code> branch ref, and <code>build_only == true</code>. The build job stays enabled. Its existing package and upload steps already require a successful manual dispatch on that exact keeper, so the narrowed run produces only the intended build and encrypted artifact path.</p>
+  <p>Push and pull-request runs cannot satisfy the event predicate. Scheduled runs retain the unconditional schedule side of the full-E2E expression. A default or false manual input retains all prior manual jobs. A true input on any other ref also retains the normal jobs and cannot upload the keeper artifact. The workflow test parses executable YAML and asserts the input schema, exact branch/event/input predicate, unchanged build job, and default gating. These are meaningful source-contract assertions rather than comment matching.</p>
+
+  <h3>Addendum validation limits</h3>
+  <p>This follow-up remained read-only apart from updating this requested report. I verified the five unchanged supplied hashes plus the final composer hash <code>8beb60fccbc45d3398b1a806dfe0189a39d2f12ef34064442bda627840c42cf6</code> and inspected their exact source and test behavior. I did not run tests, ESLint, diff-check, CI, a build, network access, a database, or a browser. The reported 23/23 focused client cases, 30/30 workflow/artifact cases, scoped ESLint, and diff-check passes are supplied execution evidence.</p>
+
+  <h2>Scoped four-file assistant listing-menu QA addendum</h2>
+  <p class="muted">This addendum reviews only the reproduced popup-menu blocker and its bounded correction. It does not repeat the source-union review.</p>
+  <table>
+    <tr><th>File</th><th>Exact reviewed SHA-256</th></tr>
+    <tr><td><code>src/components/ui/field-select-menu.tsx</code></td><td><code>a1c54653e30a974a0d0e1e05368203cbbb2212f349b32dbdc0b28bc5e8ebfe47</code></td></tr>
+    <tr><td><code>src/components/portal/filter-field-lists.tsx</code></td><td><code>ab5cd85dc653278ad5dec4bf4796bb7c0d59b59c6b41a38f985a84c70e1f04ee</code></td></tr>
+    <tr><td><code>src/components/portal/assistant-sms-test-control.tsx</code></td><td><code>afc6020d96d1112c1043111e75488097174831960e9e017e03d406a5e5a3b034</code></td></tr>
+    <tr><td><code>tests/unit/filter-field-lists.test.tsx</code></td><td><code>ab0b0525d5ce5beaa5baec493f62ef1f4f26a80a2ad4aa92d193b532e2347d23</code></td></tr>
+  </table>
+
+  <div class="summary">
+    <p><strong>Addendum disposition:</strong> <span class="ok">approved; reproduced popup QA blocker closed with no new blocker</span>. The new portal choice is opt-in at the shared hook and form-select layers and enabled only for the assistant SMS listing selector. Existing select callers keep their prior behavior.</p>
+  </div>
+
+  <h3>Popup and dock behavior</h3>
+  <p>In the popup, the trigger has the assistant's <code>data-slot="modal-radix-dialog"</code> content as its nearest modal ancestor. With the opt-in enabled, the hook selects that ancestor through <code>fieldSelectOverflowSafePortalHost</code> and skips the legacy modal branch that forces the menu to <code>document.body</code>. The resulting portal is a descendant of the same Radix content that owns pointer isolation, so option pointer events no longer land outside the dialog tree.</p>
+  <p>The assistant panel is itself the portal host, has a fixed viewport box, and clips overflow. The existing host-relative positioning path recognizes the dialog ancestor, matches the trigger width, prefers downward placement, enforces strict host containment, and returns absolute coordinates relative to that host. The menu's <code>10060</code> local z-index places it above sibling assistant chrome while containment keeps it inside the visible panel. This avoids both the original body-portal interception and an off-panel stacking escape.</p>
+  <p>In the dock, the trigger has no modal ancestor. The opt-in therefore falls back to the existing resolved portal host, preserving the already-working dock interaction. The new option defaults to false in both <code>useFieldSelectMenu</code> and <code>PortalFormSingleSelect</code>; no other form select passes it, so their body, filter-panel, Vaul, placement, and outside-dismiss rules are unchanged.</p>
+
+  <h3>Regression fidelity</h3>
+  <p>The focused test is meaningful for the structural cause. Its trigger sits below a matching Radix dialog slot, opens the real <code>PortalFormSingleSelect</code>, asserts that the rendered option is contained by that modal tree, performs the same pointer-down and pointer-up gesture used by the shared list, and asserts the listing value callback. The containment assertion would fail the prior body-portal implementation even though jsdom does not reproduce Radix's browser-level pointer isolation.</p>
+  <p>The test does not independently emulate Radix <code>DismissableLayer</code>, visual stacking, clipping, or the assistant's exact geometry. Those limits are covered here through the source path and existing shared positioning contracts; the supplied real QA reproduction establishes the original popup failure. A final popup browser retest remains execution evidence rather than part of this source-only approval.</p>
+
+  <h3>Four-file addendum validation limits</h3>
+  <p>I verified all four exact hashes and reviewed source behavior, portal targeting, positioning, stacking, default-call-site preservation, and the regression fixture. I did not run tests, ESLint, diff-check, a browser, CI, network access, or a database. The reported complete focused file result of 63/63, scoped ESLint result of zero errors with two preexisting warnings, and diff-check pass are supplied evidence.</p>
+
+  <h2>Scoped trusted-origin correctness addendum</h2>
+  <p class="muted">This addendum reviews only the exact trusted-origin source and test delta supplied before keeper push. The approved four-file listing-menu correction above is byte-for-byte unchanged and was not re-reviewed.</p>
+  <table>
+    <tr><th>File</th><th>Exact reviewed SHA-256</th></tr>
+    <tr><td><code>src/lib/app-url.ts</code></td><td><code>cd2dfc924efa4ccc90ef7df7ff8c71153479fa9edb1c3e6ed6326b466c854894</code></td></tr>
+    <tr><td><code>src/lib/sms/sms-test-transport.server.ts</code></td><td><code>b9b8e9716bb757e26eb2118195435de26c63ea4d65e2dfbc243b1c96392d09fe</code></td></tr>
+    <tr><td><code>src/lib/agent/sms-test-runner.server.ts</code></td><td><code>fc906f1d96d4818b8d5a163c926785e5a74e386d904a949502d46b7005703b95</code></td></tr>
+    <tr><td><code>src/app/api/agent/sms-test/route.ts</code></td><td><code>a60daf42b7194269eda0cf6e5aa597eec34d972eaf0ccc1012e94776f96fb809</code></td></tr>
+    <tr><td><code>src/lib/tools/domains/leasing-sms.ts</code></td><td><code>3d5bba557da021efce72b3877ca4750eff4ca3961097af10ea966cb6f4006f96</code>; supersedes the reviewed intermediate <code>4ec0cbef...</code> and <code>47c505ef...</code> bytes.</td></tr>
+    <tr><td><code>src/lib/agent/leasing-sms-system-prompt.ts</code></td><td><code>9ffcc8e04a54faf2c348392ced642bb2a8e7585137a12db78604aa6fad30fc2b</code></td></tr>
+    <tr><td><code>tests/unit/app-url.test.ts</code></td><td><code>6b13a4623c0fc484f9da37d54666cfe2bbc30295cc85e83e99d24ff9ea2e16e6</code></td></tr>
+    <tr><td><code>tests/unit/sms-test-route.test.ts</code></td><td><code>a997faf944c10d0d4901fb7ada7f21793af95a63222e45484f9c5b1459e5c8a2</code></td></tr>
+    <tr><td><code>tests/unit/sms-test-runner.test.ts</code></td><td><code>879a6f0f8b82d5424e139e7faf2e41bb6a303b6289cff975392226fdac13d05c</code></td></tr>
+    <tr><td><code>tests/unit/agent-link-origins.test.ts</code></td><td><code>eaf298c6d500e5b0f5444e4c239378f55540563c8d0f029d7e71ee5ccae0b768</code></td></tr>
+    <tr><td><code>tests/unit/leasing-sms-agent.test.ts</code></td><td><code>6004660dcf894a6fce413eb4930f078a1673b3e204e9a8a01e4360f6cdcfa4d2</code>; supersedes the reviewed intermediate <code>aab444c5...</code>, <code>c17e7ef3...</code> bytes.</td></tr>
+  </table>
+
+  <div class="summary">
+    <p><strong>Addendum disposition:</strong> <span class="ok">approved with no keeper-push blocker</span>. Origin validation, precedence, context isolation, ordinary carrier SMS behavior, model-facing instructions, and all general link destinations now agree.</p>
+  </div>
+
+  <div class="finding p2">
+    <h3>P2, medium, closed: model instructions and general resident handoffs initially contradicted the authenticated test origin</h3>
+    <p><strong>Original triggers:</strong> a classified local or preview SMS test asked for a matched property link, or asked where to sign in, sign a lease, or pay rent through <code>get_site_links</code>.</p>
+    <p><strong>First correction:</strong> the active leasing SMS system prompt, <code>build_prospect_links</code> description, <code>get_site_links</code> description, and adjacent source comment now state the same rule: carrier SMS uses production; an authenticated classified SMS test uses the server-authorized deployment returned by the tool. Semantic assertions bind all three active model instructions.</p>
+    <p><strong>Second correction:</strong> source review found that the general builder still mixed origins because its resident handoffs called production-pinned <code>residentPortalUrl</code>. The final <code>proplaneSiteLinks</code> now composes <code>residentPortal</code>, <code>residentSignup</code>, <code>signLease</code>, and <code>payRent</code> from the supplied base plus the shared route-only <code>residentPortalPath</code>. In an ordinary carrier turn the supplied base remains canonical production; in a classified test every link stays on the authenticated local or preview deployment.</p>
+    <p><strong>Closure evidence:</strong> the final focused test asserts every classified <code>get_site_links</code> value begins with <code>http://localhost:3010</code>, checks the four exact resident paths, and separately asserts every ordinary link begins with <code>https://prop-lane.space</code>. The matched-property tool retains its own classified-local and ordinary-production assertions. This closes both the model-contract drift and the mixed-origin runtime gap.</p>
+  </div>
+
+  <h3>Origin validation, precedence, and runtime isolation</h3>
+  <p class="ok">Approved.</p>
+  <p><code>resolveSmsTestAppOrigin</code> ignores request and forwarded hosts. Production always resolves to <code>https://prop-lane.space</code>. Development accepts only the exact normalized <code>http://localhost:3010</code> public app URL and fails closed otherwise. Preview considers the branch URL, deployment URL, public app URL, and canonical app URL in that order, accepting only an HTTPS, non-local origin with no credentials, path, query, or fragment. A malformed higher-priority candidate is skipped in favor of the next trusted deployment variable; absence of any valid candidate fails closed.</p>
+  <p>The authenticated route resolves the origin server-side and passes it to the runner; request JSON cannot supply or override it. The runner places actor, manager, session, workspace, and origin into one <code>AsyncLocalStorage</code> context for each manager, resident, or prospect execution. <code>publicOrigin</code> uses the contextual origin only when both a classified workspace id and app origin are present. Calls outside that context, including ordinary carrier SMS, still return the canonical production origin. The early stage-transition response invokes no link tool and does not create a bypass.</p>
+
+  <h3>Test fidelity</h3>
+  <p>The focused tests meaningfully cover the source boundary: exact local-port acceptance and rejection, production canonical precedence over hostile environment values, preview precedence and HTTPS/local rejection, route-side origin resolution, ignored body-forged actor and workspace ids, runner propagation, classified local links, ordinary production links, and rejection of an origin-only unclassified context. They exercise the real link tool results rather than only a mocked resolver.</p>
+  <p>The final semantic test asserts the active system prompt and both link-tool descriptions. The classified general-link test asserts every returned URL, including all resident handoffs, remains on the authorized local deployment and checks their exact paths. Its paired ordinary regression asserts every general URL remains on canonical production. These tests fail both intermediate defects found during this review.</p>
+
+  <h3>Trusted-origin addendum validation limits</h3>
+  <p>I verified the eight unchanged supplied hashes plus the final three corrected hashes and inspected the exact source, call sites, active leasing prompt wiring, and focused tests. I did not run tests, ESLint, diff-check, a browser, CI, network access, or a database. The reported 134/134 focused cases, final corrected wording and link batch of 43/43, scoped ESLint result of zero errors with two preexisting warnings, and diff-check pass are supplied execution evidence.</p>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadResidentApplicationAutofillProfile } from "@/lib/rental-application/resident-application-autofill.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,9 @@ export async function GET() {
     }
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Application access is unavailable for this account." }, { status: 403 });
+    }
     const profile = await loadResidentApplicationAutofillProfile(db, user.email);
     if (!profile) {
       return NextResponse.json({ profile: null });

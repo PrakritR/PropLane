@@ -5,6 +5,7 @@ import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
     const purgeData = body?.purgeData === true;
 
     const svc = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
+      return NextResponse.json({ error: "Resident access is unavailable for this account." }, { status: 403 });
+    }
     let email = emailInput;
     if (!email && applicationId) {
       const { data: appRow } = await svc

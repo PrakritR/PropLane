@@ -4,6 +4,7 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { managerOwnsResident } from "@/lib/auth/resident-relationship";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 
 /** Shared singleton holding every manager's tour inquiries (see tour-inquiry.server). */
 const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -385,6 +386,47 @@ function partition<T>(items: T[], keep: boolean[]): { allowed: T[]; blocked: T[]
   return { allowed, blocked };
 }
 
+async function namespaceCompatible(
+  db: SupabaseClient,
+  actorUserId: string,
+  related: { userId?: string | null; email: string },
+): Promise<boolean> {
+  try {
+    await assertTestWorkspacePrincipalCompatibility({
+      actorUserId,
+      relatedUserIds: [related.userId],
+      relatedEmails: [related.email],
+      db,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function enforceRecipientNamespace<T extends InboxScopeRecipient>(
+  db: SupabaseClient,
+  actorUserId: string,
+  result: { allowed: T[]; blocked: T[] },
+): Promise<{ allowed: T[]; blocked: T[] }> {
+  const compatible = await Promise.all(
+    result.allowed.map((recipient) => namespaceCompatible(db, actorUserId, recipient)),
+  );
+  const scoped = partition(result.allowed, compatible);
+  return { allowed: scoped.allowed, blocked: [...result.blocked, ...scoped.blocked] };
+}
+
+async function enforceContactNamespace(
+  db: SupabaseClient,
+  actorUserId: string,
+  contacts: InboxScopedContact[],
+): Promise<InboxScopedContact[]> {
+  const compatible = await Promise.all(
+    contacts.map((contact) => namespaceCompatible(db, actorUserId, { email: contact.email })),
+  );
+  return contacts.filter((_, index) => compatible[index]);
+}
+
 /**
  * Split recipients into those the sender is authorized to message and those they
  * are not. Admin ops (PRIMARY_ADMIN_EMAIL) is always allowed. Defaults closed.
@@ -441,7 +483,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         });
       }),
     );
-    return partition(recipients, keep);
+    return enforceRecipientNamespace(db, sender.id, partition(recipients, keep));
   }
 
   // Vendor sender → may message the manager(s) who invited/own them plus their co-managers.
@@ -468,7 +510,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
       if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
       return false;
     });
-    return partition(recipients, keep);
+    return enforceRecipientNamespace(db, sender.id, partition(recipients, keep));
   }
 
   // Resident (and any other non-staff) sender.
@@ -494,7 +536,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
     if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
     return Boolean(email) && housemateEmails.has(email);
   });
-  return partition(recipients, keep);
+  return enforceRecipientNamespace(db, sender.id, partition(recipients, keep));
 }
 
 /**
@@ -604,7 +646,7 @@ export async function listEligibleInboxContacts(
     } catch {
       /* ignore */
     }
-    return out;
+    return enforceContactNamespace(db, sender.id, out);
   }
 
   // Vendor sender → the manager(s) who invited/own them.
@@ -627,7 +669,7 @@ export async function listEligibleInboxContacts(
         });
       }
     }
-    return out;
+    return enforceContactNamespace(db, sender.id, out);
   }
 
   // Resident sender → their own manager(s) plus those managers' co-managers.
@@ -649,7 +691,7 @@ export async function listEligibleInboxContacts(
     }
     await pushCoManagers(db, managerIds, push);
   }
-  return out;
+  return enforceContactNamespace(db, sender.id, out);
 }
 
 async function pushCoManagers(

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staging test-workspace fixture plan</title><style>body{max-width:980px;margin:36px auto;padding:0 24px;font:16px/1.55 system-ui;color:#192532}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd3da;padding:9px;text-align:left;vertical-align:top}li{margin:.55rem 0}code{overflow-wrap:anywhere}.stop{background:#fff6e8;padding:14px}.ok{background:#edf7f0;padding:14px}</style></head><body>
+<h1>Staging test-workspace fixture plan</h1>
+<p class="ok"><strong>Use a bounded staging bootstrap for identities, then the deployed product for business rows.</strong> The existing broad DEV seed is not safe to aim at staging. The admin invitation route deliberately sends its auth invitation through Resend and is therefore excluded from provider-free fixture creation. Bootstrap one synthetic normal admin operator and four classified identities with the staging service API, preserving the route's banned-until-durable ordering; then create business rows through their real portal routes.</p>
+
+<h2>Fixed target and private output</h2>
+<table><tr><th>Item</th><th>Requirement</th></tr>
+<tr><td>Supabase</td><td>Staging project <code>xwszcafaontidfgznlxd</code> only. Require an exact <code>ALLOW_PROBE_TARGET</code> match before any write. Refuse production <code>qahnczmilgptcedaqype</code>.</td></tr>
+<tr><td>Application</td><td>Staging branch deployment uses preview mode with <code>PROPLANE_TEST_WORKSPACES_ENABLED=true</code> and <code>PROPLANE_TEST_WORKSPACE_OPERATOR_IDS</code> containing only the synthetic staging operator UUID. Compiled local QA remains on the existing DEV fixtures and uses <code>VERCEL_ENV=development</code>; it must not load staging fixture credentials or staging configuration. <code>NODE_ENV=production</code> remains the compiled Next runtime mode.</td></tr>
+<tr><td>Secrets</td><td>Generate random passwords locally. Write credentials and created UUIDs to a new 0600 file under <code>/Users/akhilvemuri/.local/state/proplane-release-backups/20260919-staging-test-workspace/</code>. Never print passwords, tokens, invite hashes, service keys or complete row bodies. Keep the earlier DEV <code>/private/tmp/test-workspace-fixture.json</code> untouched.</td></tr>
+<tr><td>Effects</td><td>No Stripe, Twilio, Resend, Google Calendar, webhook, screening or number-provisioning operation. Classified invitation and business effects must be captured or refused and then verified from stored evidence.</td></tr></table>
+
+<h2>Fixture identities and rows</h2>
+<table><tr><th>Fixture</th><th>Purpose</th></tr>
+<tr><td>Normal operator</td><td>A new staging-only confirmed auth user with a normal profile and <code>profile_roles.admin</code>. It has no <code>test_workspace_members</code> row and its UUID is the sole staging operator allowlist value. Do not use <code>ensure-admin-account.mjs</code>; that helper is primary-admin-specific and can demote other admins.</td></tr>
+<tr><td>Workspace A</td><td>Create the workspace through the authenticated admin route. For Manager A, Co-manager A and Resident A, create each auth user banned with a random password, then insert the profile, role, membership and audit rows with a short future expiry. Read back durable classification before removing the ban. Do not call the auth-invitation delivery route.</td></tr>
+<tr><td>Workspace B</td><td>Create the workspace through the same route. Provision Manager B with the same banned-until-durable service sequence. It supplies the second namespace and cross-workspace refusal control.</td></tr>
+<tr><td>Prospective listing</td><td>Sign in as Manager A and create a synthetic property/listing through the normal portal/API. Use an unmistakable staging-only title and address, no real resident/vendor/contact data, no image URL and no provider identifiers. Publish it only inside Workspace A and record its id.</td></tr>
+<tr><td>Co-manager grant</td><td>From Manager A's real Settings → Team flow, create and accept the link to Co-manager A, assign only the prospective property, and explicitly grant the modules needed by the acceptance matrix, including calendar view/edit. Verify the accepted link, property assignment and property-scoped permission JSON all carry Workspace A provenance.</td></tr>
+<tr><td>Prospect lifecycle</td><td>Use Resident A against the private listing to exercise inquiry/tour/application stages. Keep all delivery effects captured. Do not create an ordinary public/customer listing as a shortcut.</td></tr></table>
+
+<h2>Provisioning sequence</h2>
+<ol>
+<li>Take one certificate-verified read-only staging snapshot and assert the feature schema is present, the target is exact, and no intended fixture email or id already exists. Reuse an existing fixture only if every identity, workspace and provenance field matches; otherwise stop on collision.</li>
+<li>Create the synthetic normal operator with the staging service role, then insert its minimal profile and admin role in one bounded, recorded operation. Read back that it is admin, normal-classified and absent from membership. Set the branch-scoped feature flag and exact UUID allowlist, then deploy the candidate.</li>
+<li>Sign in as the operator and use the admin Test accounts UI/API to create both empty workspaces. Provision the four classified auth identities with a fixed staging-only service script: create banned user; insert profile and <code>profile_roles</code>; insert membership and matching <code>test_workspace_member_fixture_created</code> audit row; read back the exact workspace/role/state/expiry; then unban. On any failure leave the user banned and stop. The script must never generate or deliver an auth link.</li>
+<li>Sign in as Manager A to create the listing and co-manager link through normal product routes. Accept the co-manager invitation as Co-manager A and verify the assigned property plus explicit module levels. Use Manager B only as an isolation control.</li>
+<li>Write a redacted fixture manifest containing target, deployment SHA, auth UUIDs, workspace ids, membership ids, property id, co-manager link id, expiration, and row/effect counts. Hash it and retain the full credential file privately.</li>
+</ol>
+
+<h2>Pre-QA refusal checks</h2>
+<ul>
+<li>The operator is normal and cannot appear in any classified workspace.</li>
+<li>Every classified profile, manager/application/property/link/schedule row carries exactly its workspace id; no row has customer provenance or crosses A/B.</li>
+<li>The Workspace A listing is absent from anonymous and normal-account public catalogs, visible to the intended active Workspace A actors, and absent from Manager B.</li>
+<li>Co-manager A can use only the assigned property and granted module levels. An ungranted module and Workspace B property both refuse.</li>
+<li>Fixture audit evidence exists without an auth invitation or real provider call. Provider ids, remote-message ids and external calendar/payment identifiers remain absent. Exercise the real admin invitation delivery separately only if an explicitly controlled Resend acceptance test is authorized.</li>
+<li>Suspending one member with an existing session denies business access while durable classification remains. Reactivation restores only the same workspace.</li>
+</ul>
+
+<h2>Ownership and cleanup</h2>
+<p>Root owns the staging configuration, service-role bootstrap, browser sessions and validation slot. Keep fixture rows for the duration of staging QA so failures are reproducible. At release close, disable the feature flag or remove the operator UUID as required by the rollout decision; do not delete membership rows merely to make identities appear normal. Any cleanup must use the product/account deletion contract and preserve durable classification and audit evidence.</p>
+<p class="stop"><strong>This plan authorizes no production identity, seed or provider call.</strong> The production operator account remains a user decision. Never copy staging credentials, UUID allowlists or fixture rows to production.</p>
+</body></html>

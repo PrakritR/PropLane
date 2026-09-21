@@ -7,6 +7,7 @@ import { resolveListingCtaEmail } from "@/lib/listing-cta-email.server";
 import { isSandboxPublicListing } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveTestWorkspaceRequestScope } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -24,11 +25,16 @@ export async function GET(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const { data, error } = await db
+    const scope = await resolveTestWorkspaceRequestScope();
+    if (scope.kind === "denied") return NextResponse.json({ error: "Property not found." }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    let propertyQuery = db
       .from("manager_property_records")
-      .select("id, manager_user_id, status, property_data")
-      .eq("id", propertyId)
-      .maybeSingle();
+      .select("id, manager_user_id, status, property_data, test_workspace_id")
+      .eq("id", propertyId);
+    propertyQuery = scope.kind === "active"
+      ? propertyQuery.eq("test_workspace_id", scope.workspaceId)
+      : propertyQuery.is("test_workspace_id", null);
+    const { data, error } = await propertyQuery.maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data || data.status !== "live") {
@@ -94,8 +100,13 @@ export async function GET(req: Request) {
     // the SAME anonymous audience, so a projection on only one of the two is
     // trivially bypassed by asking for the property by id.
     return NextResponse.json(
-      { property: publicListingProjection(resolved) },
-      { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=600" } },
+      {
+        property: publicListingProjection(resolved),
+        ...(scope.kind === "active" ? { testWorkspaceId: scope.workspaceId } : {}),
+      },
+      { headers: scope.kind === "active"
+        ? { "Cache-Control": "private, no-store" }
+        : { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=600" } },
     );
   } catch (error) {
     return NextResponse.json(

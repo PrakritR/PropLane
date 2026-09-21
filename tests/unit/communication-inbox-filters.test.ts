@@ -139,7 +139,7 @@ describe("communication-inbox-filters", () => {
     expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId: "user-1" })).toBe(1);
   });
 
-  it("counts an inbound-SMS-like unread row too, since the SMS UI defaults off and it falls through into this list", () => {
+  it("counts SMS-like unread rows that remain visible while the SMS UI is hidden", () => {
     const rows = [
       thread({ id: "sms-ghost", from: "+15105550100", unread: true }),
       thread({ id: "email-open", from: "Alex", email: "alex@example.test", unread: true }),

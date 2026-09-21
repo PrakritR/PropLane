@@ -81,6 +81,7 @@ import {
   type RoomMediaScore,
 } from "@/lib/listing-room-media-quality";
 import { uploadLeaseTemplateDataUrl } from "@/lib/lease-template-storage";
+import { uploadListingDataUrl, uploadListingVideoFile } from "@/lib/listing-media-client";
 import { getPortalListingNote } from "@/lib/portal-listing-notes";
 import {
   managerPropertyLimitMessage,
@@ -1292,125 +1293,12 @@ async function fileToDataUrl(file: File, maxBytes: number): Promise<string | nul
   });
 }
 
-const TUS_CHUNK = 6 * 1024 * 1024; // 6 MB per chunk
-
-async function uploadViaTus(file: File, path: string, mime: string, token: string, supabaseUrl: string): Promise<void> {
-  const b64 = (s: string) => btoa(unescape(encodeURIComponent(s)));
-  const metadata = [
-    `bucketName ${b64("listing-photos")}`,
-    `objectName ${b64(path)}`,
-    `contentType ${b64(mime)}`,
-    // Filenames are timestamp+random and never overwritten, so the object is
-    // immutable — cache for a year to avoid re-fetching media on every view.
-    `cacheControl ${b64("31536000")}`,
-  ].join(",");
-
-  const createRes = await fetch(`${supabaseUrl}/storage/v1/upload/resumable`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Length": "0",
-      "Upload-Length": String(file.size),
-      "Upload-Metadata": metadata,
-      "Tus-Resumable": "1.0.0",
-      "x-upsert": "false",
-    },
-  });
-  if (!createRes.ok) {
-    const body = await createRes.text().catch(() => "");
-    throw new Error(`TUS session failed (${createRes.status}): ${body}`);
-  }
-  const rawLoc = createRes.headers.get("Location");
-  if (!rawLoc) throw new Error("TUS: no Location header in response");
-  const location = rawLoc.startsWith("http") ? rawLoc : `${supabaseUrl}${rawLoc}`;
-
-  let offset = 0;
-  while (offset < file.size) {
-    const end = Math.min(offset + TUS_CHUNK, file.size);
-    const chunk = file.slice(offset, end);
-    const patchRes = await fetch(location, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/offset+octet-stream",
-        "Content-Length": String(end - offset),
-        "Upload-Offset": String(offset),
-        "Tus-Resumable": "1.0.0",
-      },
-      body: chunk,
-    });
-    if (!patchRes.ok) {
-      const body = await patchRes.text().catch(() => "");
-      throw new Error(`TUS chunk failed at offset ${offset} (${patchRes.status}): ${body}`);
-    }
-    offset = end;
-  }
-}
-
-async function uploadToBucket(input: File | string): Promise<string> {
-  const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser");
-  const db = createSupabaseBrowserClient();
-  const { data: { session } } = await db.auth.getSession();
-  if (!session) throw new Error("Not signed in.");
-
-  const userId = session.user.id;
-  let body: Blob;
-  let mime: string;
-  let ext: string;
-
-  if (typeof input === "string") {
-    body = await fetch(input).then((r) => r.blob());
-    mime = body.type || "image/jpeg";
-    ext = mime.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
-  } else {
-    body = input;
-    ext = input.name.split(".").pop()?.toLowerCase() ?? "mp4";
-    mime = input.type || extToMime(ext);
-  }
-
-  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-
-  // Use TUS resumable upload for large files (videos) to avoid Supabase's single-request size limit
-  if (input instanceof File && input.size >= 10 * 1024 * 1024) {
-    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
-    const token = session.access_token;
-    await uploadViaTus(input, path, mime, token, supabaseUrl);
-    return db.storage.from("listing-photos").getPublicUrl(path).data.publicUrl;
-  }
-
-  const { error } = await db.storage.from("listing-photos").upload(path, body, {
-    contentType: mime,
-    cacheControl: "31536000", // immutable object (unique filename); cache 1 year
-    upsert: false,
-    duplex: "half",
-  });
-  if (error) {
-    const msg = error.message ?? "";
-    if (msg.includes("Payload too large") || msg.includes("413") || msg.includes("exceeded")) {
-      throw new Error("File is too large. Try splitting the video into shorter clips.");
-    }
-    throw new Error(msg || "Upload failed.");
-  }
-  return db.storage.from("listing-photos").getPublicUrl(path).data.publicUrl;
-}
-
-function extToMime(ext: string): string {
-  const map: Record<string, string> = {
-    mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v",
-    webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska",
-    wmv: "video/x-ms-wmv", flv: "video/x-flv",
-    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-    webp: "image/webp", gif: "image/gif", heic: "image/heic",
-  };
-  return map[ext] ?? "application/octet-stream";
-}
-
 async function uploadDataUrl(dataUrl: string): Promise<string> {
   if (!dataUrl.startsWith("data:")) return dataUrl;
   // /demo has no signed-in Supabase session to upload against — keep the
   // data URL as-is so demo photos and lease templates round-trip locally.
   if (isDemoModeActive()) return dataUrl;
-  return uploadToBucket(dataUrl);
+  return uploadListingDataUrl(dataUrl);
 }
 
 type SubmissionMediaUpload = {
@@ -1522,7 +1410,7 @@ async function uploadSubmissionMedia(
 }
 
 async function uploadVideoFile(file: File): Promise<string> {
-  return uploadToBucket(file);
+  return uploadListingVideoFile(file);
 }
 
 /**

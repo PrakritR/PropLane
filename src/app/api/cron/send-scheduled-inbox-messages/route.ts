@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isProductionRuntime } from "@/lib/server-env";
-import { loadDueScheduledInboxMessages } from "@/lib/scheduled-inbox-messages";
+import { loadDueScheduledInboxMessages } from "@/lib/scheduled-inbox-messages.server";
 import { sendScheduledInboxMessageNow } from "@/lib/send-scheduled-inbox-message-now";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 

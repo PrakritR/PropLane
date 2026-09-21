@@ -18,6 +18,9 @@ import {
   type PendingActionActor,
 } from "./pending-actions";
 import { traceAgentAction } from "@/lib/observability/langfuse";
+import { currentSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { sameSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
+import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export type ConfirmGateResult =
   | {
@@ -57,6 +60,24 @@ export async function runConfirmedPendingActionForPortal<Ctx extends PendingActi
   }
   if (peeked.state === "found" && peeked.portal !== portal) {
     return { ok: false, status: 400, error: "This action could not be executed." };
+  }
+  const currentTestProvenance = currentSmsTestProvenance();
+  if (currentTestProvenance?.workspaceId) {
+    const classification = await resolveTestWorkspaceClassification(ctx.userId, ctx.db);
+    if (
+      !isTestWorkspaceFeatureEnabled() ||
+      classification.kind !== "classified" ||
+      classification.state !== "active" ||
+      classification.workspaceId !== currentTestProvenance.workspaceId
+    ) {
+      return { ok: false, status: 410, error: "This action is no longer available. Ask the assistant again." };
+    }
+  }
+  if (peeked.state === "found" && (
+    Boolean(peeked.smsTestProvenance) !== Boolean(currentTestProvenance) ||
+    (peeked.smsTestProvenance !== null && !sameSmsTestProvenance(peeked.smsTestProvenance, currentTestProvenance))
+  )) {
+    return { ok: false, status: 410, error: "This action is no longer available. Ask the assistant again." };
   }
   const claimed = await claimPendingAction(ctx, actionId);
   if (!claimed) {

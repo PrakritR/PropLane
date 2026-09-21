@@ -3,6 +3,10 @@ import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
 import { managerPropertyLimitMessage } from "@/lib/manager-access";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import type { AgentContext } from "@/lib/tools/context";

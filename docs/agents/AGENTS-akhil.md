@@ -40,6 +40,20 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
   only unless that slot is explicitly transferred; never duplicate a
   whole-project typecheck, build, or broad test suite in the same worktree.
   After interruption, verify child processes exited instead of leaving Node workers.
+- Treat laptop memory and disk headroom as a prerequisite for expensive work.
+  Other agents may be running outside this task. Before starting a build,
+  whole-project typecheck, broad test suite, browser, development server, or
+  large dependency/cache operation, inspect current memory pressure, process
+  memory use, and free disk space. Proceed only when usage is low enough to
+  leave comfortable headroom for other work; never assume an idle task means
+  an idle machine. If headroom is uncertain or pressure is elevated, defer
+  heavy work and continue lightweight work instead.
+- Reuse valid validation evidence, bound test workers, and avoid concurrent
+  heavy commands across agents and worktrees. Do not raise heap limits to
+  consume most of the laptop's RAM. Monitor expensive commands and stop only
+  verified task-owned processes if pressure rises. Close task browsers and
+  servers promptly, avoid duplicate dependencies/build caches, and never
+  delete another task's files or stop its processes to free resources.
 - Act as a collaborator: when scoping something big, name alternatives and
   drawbacks, then pick. Approach the problem from more than one angle.
 - Prefer quality, simplicity, robustness, scalability, and long-term
