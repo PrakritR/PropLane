@@ -4,6 +4,12 @@ import { loadManagerBillingSettings } from "@/lib/manager-billing-settings";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import { track } from "@/lib/analytics/posthog";
 
+/** Deterministic NSF-fee charge id for one failed charge — shared with the caller so it can
+ *  read-before-write and skip a duplicate fee for a redelivered failure webhook. */
+export function nsfFeeIdForCharge(chargeId: string): string {
+  return `hc_nsf_${chargeId}`;
+}
+
 export async function createNsfFeeForFailedPayment(
   db: SupabaseClient,
   failedCharge: HouseholdCharge,
@@ -12,7 +18,11 @@ export async function createNsfFeeForFailedPayment(
   const settings = await loadManagerBillingSettings(db, managerUserId);
   if (!settings.nsfFeeEnabled || settings.nsfFeeAmountCents <= 0) return null;
 
-  const id = `nsf-${failedCharge.id}-${Date.now()}`;
+  // Deterministic, per-failed-charge id (no `Date.now()`) so a redelivered
+  // `payment_intent.payment_failed` webhook for the same failed charge can never
+  // mint a second NSF fee — the caller reads this id before writing to skip the
+  // duplicate outright, and even a race lands on the same `onConflict: "id"` row.
+  const id = nsfFeeIdForCharge(failedCharge.id);
   const now = new Date().toISOString();
   const amountLabel = `$${(settings.nsfFeeAmountCents / 100).toFixed(2)}`;
 

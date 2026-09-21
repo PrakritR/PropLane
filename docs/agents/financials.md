@@ -34,6 +34,11 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
+**Deleting a charge deletes its ledger line.** `deleteLedgerEntriesForCharge`
+(`ledger-sync.ts`) removes every `ledger_entries` row with that `source_charge_id`;
+the `deleteCharge` action in `/api/portal-household-charges` calls it right after the
+charge row delete, or income/delinquency reports keep reading a ledger row for a
+charge no one can see any more. Coverage: `tests/unit/household-charge-delete-ledger.test.ts`.
 The batched sweep logic (`backfillLedgerFromCharges` in `ledger-sync.ts`) still exists,
 but only as an explicit, admin-gated, one-time historical repair — it is invoked solely
 via `POST /api/admin/backfill-ledger` (optionally scoped to one `managerUserId` in the
@@ -213,6 +218,10 @@ correct for both. Writing here too would double-count every return. Coverage:
 **Charge status** — `HouseholdCharge.status` extended: `pending|partially_paid|paid|cancelled|refunded|failed` + optional `paidAmountCents`; `applyPartialPaymentCents` in `nsf-fees.ts`.
 
 **NSF** — `payment_intent.payment_failed` webhook marks charge `failed` and `createNsfFeeForFailedPayment` when `manager_billing_settings.nsfFeeEnabled` (default $35).
+**The NSF fee id is per failed charge** (`nsfFeeIdForCharge`, `hc_nsf_<chargeId>` —
+no `Date.now()`), and `handlePaymentIntentFailed` reads that id before writing, so a
+redelivered failure webhook for the same charge never mints a second fee. Coverage:
+`tests/unit/nsf-fee-idempotent.test.ts`.
 
 **Settings** — `src/lib/manager-billing-settings.ts` (`paymentApplicationOrder`, NSF toggle/amount).
 
@@ -259,7 +268,13 @@ Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`.
 
 See [Sales migration](sales-migration.md) for version-2 canonical imports,
 source provenance, billing holds, actual-bill utility allocation, inspection-backed
-deposit review, and bank CSV intake. Ordinary and imported deposit dispositions
+deposit review, and bank CSV intake. **Financial-fact ids are workbook-independent**
+(`resolveFinancialFactId` in `sales-migration/server.ts`) — a re-imported workbook
+with a corrected `workbookId` lands on the same income/expense/charge id it did the
+first time instead of duplicating it, falling back to the legacy workbook-scoped id
+only when one already exists there (an in-progress import stays on the id it
+started with). Coverage: `tests/unit/sales-migration-reimport-idempotent.test.ts`.
+Ordinary and imported deposit dispositions
 share the atomic `commit_security_deposit_disposition` RPC; do not post a journal
 and update its held balance in separate transactions. Itemization is cumulative,
 with current refund journals distinguished from prior refunds in the PDF.

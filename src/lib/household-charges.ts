@@ -2550,6 +2550,21 @@ function syncAllRecurringRentCharges(): boolean {
       const hasUpfrontLastUtil =
         isPartialLastMonth && hasUpfrontProratedLastCharge(profile.residentEmail, profile.propertyId, "prorated_last_month_utilities");
 
+      // A migrated month's imported row is all-in (rent + utilities combined), so a
+      // migrated rent charge for this resident/property/month covers the generator for
+      // BOTH rent and utilities that month. `chargeBusinessKey` deliberately makes a
+      // migrated row's key unique per charge id, so it can never dedupe here — check
+      // `migrationSourceId` directly against `activeExisting` instead.
+      const hasMigratedRentMonth = activeExisting.some(
+        (c) =>
+          c.managerUserId === profile.managerUserId &&
+          !!c.migrationSourceId &&
+          c.kind === "rent" &&
+          c.rentMonth === rentMonth &&
+          c.propertyId === profile.propertyId &&
+          c.residentEmail.trim().toLowerCase() === emailLower,
+      );
+
       // Bundle-group members store the FULL household amounts on the profile, so
       // every amount below is divided the same way the move-in charges were.
       // Null for every ordinary profile, which leaves that path byte-identical.
@@ -2559,7 +2574,7 @@ function syncAllRecurringRentCharges(): boolean {
         typeof profile.dailyRentPrice === "number" && profile.dailyRentPrice > 0 ? profile.dailyRentPrice : 0;
       const profileWeeklyRate =
         typeof profile.weeklyRentPrice === "number" && profile.weeklyRentPrice > 0 ? profile.weeklyRentPrice : 0;
-      if ((profile.monthlyRent > 0 || profileDailyRate > 0 || profileWeeklyRate > 0) && !hasUpfrontLastRent) {
+      if ((profile.monthlyRent > 0 || profileDailyRate > 0 || profileWeeklyRate > 0) && !hasUpfrontLastRent && !hasMigratedRentMonth) {
         const chargeKey = `rent|${emailLower}|${profile.propertyId}|${rentMonth}`;
         const alreadyExists =
           activeExisting.some((c) => chargeBusinessKey(c) === chargeKey) ||
@@ -2614,7 +2629,7 @@ function syncAllRecurringRentCharges(): boolean {
       }
 
       const utilAmt = profile.monthlyUtilities ?? 0;
-      if (utilAmt > 0 && !hasUpfrontLastUtil) {
+      if (utilAmt > 0 && !hasUpfrontLastUtil && !hasMigratedRentMonth) {
         const utilKey = `utilities_recurring|${emailLower}|${profile.propertyId}|${rentMonth}`;
         const alreadyUtil =
           activeExisting.some((c) => chargeBusinessKey(c) === utilKey) ||
@@ -4900,6 +4915,13 @@ export function createManagerCharge(input: {
   blocksLeaseUntilPaid?: boolean;
   dueDateLabel?: string;
   initialStatus?: "pending" | "paid";
+  /**
+   * Caller-supplied charge id — pass the SAME id across a retried submit (e.g. a
+   * double-click before the button's disabled state lands) so the server's
+   * `onConflict: "id"` upsert makes the retry idempotent instead of minting a
+   * second charge. Omit to generate a fresh id as before.
+   */
+  id?: string;
 }): HouseholdCharge | null {
   const email = input.residentEmail.trim();
   if (!email || !Number.isFinite(input.amount) || input.amount <= 0) return null;
@@ -4912,7 +4934,7 @@ export function createManagerCharge(input: {
   const paymentSnapshots = paymentSnapshotsFromListing(sub);
   const managerUserId = input.managerUserId?.trim() || HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE;
   const charge = ensureChargeDueDateForReminders({
-    id: `hc_mgr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
+    id: input.id?.trim() || `hc_mgr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     createdAt: new Date().toISOString(),
     applicationId: input.applicationId?.trim() || undefined,
     residentEmail: email,

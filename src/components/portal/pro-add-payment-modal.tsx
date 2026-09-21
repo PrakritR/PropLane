@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -146,6 +146,20 @@ export function ManagerAddPaymentModal({
   const [bucket, setBucket] = useState<ManagerPaymentBucket>("pending");
   const [noticePreview, setNoticePreview] = useState<PaymentPreview | null>(null);
   const [noticeBusy, setNoticeBusy] = useState(false);
+  // Guards a double-submit: React's `noticeBusy` state update is batched, so two
+  // clicks landing before the disabled prop re-renders could both pass a
+  // state-only busy check. A ref updates synchronously, so the second call is
+  // always rejected regardless of render timing.
+  const submittingRef = useRef(false);
+  // Minted once per modal open (not once per render) so a retried submit reuses
+  // the SAME charge id — the server upsert is `onConflict: "id"`, so a retry is
+  // idempotent instead of creating a second charge.
+  const chargeIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    chargeIdRef.current = `hc_mgr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -274,7 +288,8 @@ export function ManagerAddPaymentModal({
     channels?: { viaEmail: boolean; viaSms: boolean },
     draft?: { subject: string; body: string },
   ) => {
-    if (!noticePreview || noticeBusy) return;
+    if (!noticePreview || submittingRef.current) return;
+    submittingRef.current = true;
     setNoticeBusy(true);
     try {
       const result = createManagerCharge({
@@ -288,6 +303,7 @@ export function ManagerAddPaymentModal({
         amount: noticePreview.amount,
         dueDateLabel: noticePreview.dueDateLabel,
         initialStatus: noticePreview.bucket === "paid" ? "paid" : "pending",
+        id: chargeIdRef.current ?? undefined,
       });
       if (!result) {
         showToast("Could not add charge. Check all fields.");
@@ -336,6 +352,7 @@ export function ManagerAddPaymentModal({
         showToast(notice.error ? `Payment added, but notice failed: ${notice.error}` : "Payment added, but notice could not be sent.");
       }
     } finally {
+      submittingRef.current = false;
       setNoticeBusy(false);
       setNoticePreview(null);
     }
@@ -410,7 +427,7 @@ export function ManagerAddPaymentModal({
                 confirmBusy={noticeBusy}
                 confirmBusyLabel="Adding…"
                 cancelLabel="Back"
-                onConfirm={(skipMessage, channels, draft) => void confirmPayment(skipMessage, channels, draft)}
+                onConfirm={(skipMessage, channels, draft) => confirmPayment(skipMessage, channels, draft)}
               />
             ) : null
           }

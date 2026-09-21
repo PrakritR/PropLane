@@ -19,6 +19,7 @@ import {
 } from "@/lib/payment-automation-settings";
 import { ensureChargeDueDateForReminders } from "@/lib/payment-reminder-bootstrap";
 import {
+  deleteLedgerEntriesForCharge,
   householdChargeLedgerFingerprint,
   reconcileDuplicateChargeList,
   syncLedgerChargeEntry,
@@ -148,12 +149,12 @@ export async function POST(req: Request) {
     if (body.action === "deleteCharge") {
       const id = body.id?.trim();
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const { data: existing } = await db
+        .from("portal_household_charge_records")
+        .select("manager_user_id, property_id")
+        .eq("id", id)
+        .maybeSingle();
       if (user.role !== "admin") {
-        const { data: existing } = await db
-          .from("portal_household_charge_records")
-          .select("manager_user_id, property_id")
-          .eq("id", id)
-          .maybeSingle();
         if (existing && existing.manager_user_id !== user.id) {
           // Foreign row: a co-manager may delete a linked owner's charge only
           // with the payments DELETE grant on its property.
@@ -165,6 +166,13 @@ export async function POST(req: Request) {
         }
       }
       await db.from("portal_household_charge_records").delete().eq("id", id);
+      // A deleted charge must stop contributing to the ledger it was mirrored into —
+      // otherwise income/delinquency reports keep reading a row for a charge no one
+      // can see any more.
+      const ownerId = existing?.manager_user_id ? String(existing.manager_user_id) : null;
+      await deleteLedgerEntriesForCharge(db, ownerId, id).catch((err) => {
+        console.error("[portal-household-charges] failed to delete ledger entries for charge", id, err);
+      });
       return NextResponse.json({ ok: true });
     }
 

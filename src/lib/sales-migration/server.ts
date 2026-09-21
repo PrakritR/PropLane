@@ -30,6 +30,54 @@ export function migrationRecordId(...parts: string[]) {
   const h = migrationDigest(parts);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
+/**
+ * Financial-fact ids (income/expense facts and `importCharge` rows) used to include
+ * `workbookId`, so a workbook re-imported after a correction — same owner, same
+ * property, same source cell, but a new `workbookId` — generated a brand-new id for
+ * every one of its facts and reimported them a second time. A fact's real identity is
+ * (owner, property, recordKey); the workbook that carried it is incidental. New ids
+ * drop the workbook id.
+ *
+ * An id already completed under the OLD (workbook-scoped) formula must keep landing on
+ * that same id, or an import already in progress under it would restart from scratch —
+ * `legacyRowExists` is the caller's answer to "does a `sales_migration_records` row
+ * already exist under the legacy id". Pure (takes that answer rather than reading the
+ * database itself) so the id choice is unit-testable without a database.
+ */
+export function resolveFinancialFactId(
+  owner: string,
+  workbookId: string,
+  propertyId: string,
+  recordKey: string,
+  legacyRowExists: boolean,
+): string {
+  return legacyRowExists
+    ? migrationRecordId(owner, workbookId, propertyId, "financial", recordKey)
+    : migrationRecordId(owner, propertyId, "financial", recordKey);
+}
+
+/** Legacy (workbook-scoped) financial-fact id — the only formula ids were ever minted
+ *  under before this fix, so it is what a completed-row lookup must check for. */
+function legacyFinancialFactId(owner: string, workbookId: string, propertyId: string, recordKey: string): string {
+  return migrationRecordId(owner, workbookId, propertyId, "financial", recordKey);
+}
+
+/** Resolves one financial fact's id against the database: reuse the legacy id when an
+ *  import already completed (or is in progress) under it, otherwise use the new
+ *  workbook-independent id. Shared by the financial-facts loop and the deposit-history
+ *  step, which must resolve the SAME id for the same receipt fact. */
+async function financialFactId(
+  db: SupabaseClient,
+  owner: string,
+  workbookId: string,
+  propertyId: string,
+  recordKey: string,
+): Promise<string> {
+  const legacyId = legacyFinancialFactId(owner, workbookId, propertyId, recordKey);
+  const { data } = await db.from("sales_migration_records").select("id").eq("id", legacyId).eq("manager_user_id", owner).maybeSingle();
+  return resolveFinancialFactId(owner, workbookId, propertyId, recordKey, Boolean(data));
+}
+
 function check(error: { message: string } | null) { if (error) throw new Error(error.message); }
 function submission(record: PropertyRecord): ManagerListingSubmissionV1 {
   const raw = record.property_data?.listingSubmission ?? record.row_data?.submission;
@@ -83,8 +131,10 @@ export async function previewSalesMigration(db: SupabaseClient, owner: string, r
  * Each canonical operation below uses a deterministic id and is safe after an uncertain write.
  */
 async function step(db: SupabaseClient, owner: string, plan: SalesMigration, property: PropertyPlan,
-  kind: string, source: FinancialFact["source"], payload: unknown, run: (id: string) => Promise<string>, result: MigrationResult) {
-  const id = migrationRecordId(owner, plan.workbookId, property.propertyId, kind, source.recordKey);
+  kind: string, source: FinancialFact["source"], payload: unknown, run: (id: string) => Promise<string>, result: MigrationResult, idOverride?: string) {
+  // `idOverride` carries a financial fact's already-resolved id (see `financialFactId`)
+  // instead of recomputing it here with the still-workbook-scoped default formula.
+  const id = idOverride ?? migrationRecordId(owner, plan.workbookId, property.propertyId, kind, source.recordKey);
   const hash = migrationDigest(payload);
   const { error: insertError } = await db.from("sales_migration_records").upsert({ id, manager_user_id: owner, workbook_id: plan.workbookId, property_id: property.propertyId, record_kind: kind, source_key: source.recordKey, source_sheet: source.sheet, source_range: source.range, payload_hash: hash }, { onConflict: "id", ignoreDuplicates: true });
   check(insertError);
@@ -202,6 +252,7 @@ export async function executeSalesMigration(
     }
     for (const fact of property.facts.filter(f => !f.depositRecordKey)) {
       try {
+        const financialId = await financialFactId(db, owner, plan.workbookId, property.propertyId, fact.source.recordKey);
         await step(db, owner, plan, property, "financial", fact.source, fact, async id => {
           if (fact.kind === "income" || fact.kind === "expense") {
             const expense = fact.kind === "expense";
@@ -223,7 +274,7 @@ export async function executeSalesMigration(
           const row = residents.get(fact.tenancyKey!);
           if (!row) throw new Error("Resolve tenancy before importing its money");
           return importCharge(db, owner, property, fact, row, id);
-        }, result);
+        }, result, financialId);
       } catch (e) { result.blocked.push({ key: fact.source.recordKey, reason: String(e instanceof Error ? e.message : e) }); }
     }
     for (const receipt of property.facts.filter(f => f.kind === "deposit_held")) {
@@ -231,7 +282,9 @@ export async function executeSalesMigration(
       if (!adjustments.length) continue;
       try {
         await step(db, owner, plan, property, "deposit-history", receipt.source, adjustments, async () => {
-          const chargeId = migrationRecordId(owner, plan.workbookId, property.propertyId, "financial", receipt.source.recordKey);
+          // Must resolve to the SAME id the receipt's own "financial" fact landed on
+          // above — legacy or new — not the (now possibly different) default formula.
+          const chargeId = await financialFactId(db, owner, plan.workbookId, property.propertyId, receipt.source.recordKey);
           const deposit = await getSecurityDepositByChargeId(db, owner, chargeId);
           if (!deposit) throw new Error("Deposit receipt is not reconciled");
           const itemization = adjustments.map(f => ({ label: `${f.description} [${f.source.range}]`, amountCents: f.amountCents, kind: f.kind === "deposit_refund" ? "refund" as const : "deduction" as const, date: f.date, sourceId: migrationRecordId(owner, plan.workbookId, property.propertyId, "deposit-history", f.source.recordKey) }));

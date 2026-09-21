@@ -500,6 +500,13 @@ The rules that hold it closed:
 Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
 `tests/unit/current-resident.test.ts`.
 
+**A migrated month covers the generator.** A sales-migration import's rent charge
+(`migrationSourceId` set) is all-in — `syncAllRecurringRentCharges` skips generating
+BOTH the recurring rent and utilities charges for a resident/property/month that
+already has one, instead of keying off `chargeBusinessKey` (which deliberately returns
+a unique key per migrated row and so never dedupes here). Coverage:
+`tests/unit/household-charges-migrated-month.test.ts`.
+
 ### Signature freezes the money terms
 
 Signing never used to write the signed rent onto the resident's record, so every
