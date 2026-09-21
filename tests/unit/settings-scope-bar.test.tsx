@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 /**
- * `SettingsScopeBar` (PLAN-0920-0845 phase D) — one workspace + properties
- * picker per settings module, and the tag that reads what is actually
- * selected: Account (all workspaces, no houses), Workspace (one workspace,
- * no houses), or "Own values on N properties" once houses are picked.
- * Picking a real workspace calls the same global `select()` the top-left
- * `WorkspaceSwitcher` uses, so the two stay in sync (AGENTS.md § Icon
- * chrome: one property control in module chrome, never a second picker).
+ * `SettingsScopeBar` (PLAN-0920-0845 phase D, PLAN-0920-1944) — workspace +
+ * properties picker per settings module. The workspace select is Settings-only:
+ * it never calls the portal header `WorkspaceSwitcher`'s `select()`. Houses
+ * come from the workspace payload even when the local property store is empty.
+ * The properties menu has no Select all / Clear footer.
  */
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +18,11 @@ const mockWorkspaces = {
       name: "Ash Flats",
       propertyIds: ["prop-1", "prop-2"],
       propertyLabels: { "prop-1": "Ballard House", "prop-2": "Fremont Duplex" },
+    },
+    {
+      id: "ws-empty",
+      name: "Empty workspace",
+      propertyIds: [],
     },
   ],
   active: null,
@@ -44,7 +47,16 @@ function tap(target: HTMLElement) {
   fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
 }
 
-function Harness({ initialWorkspaceId = "" }: { initialWorkspaceId?: string }) {
+function Harness({
+  initialWorkspaceId = "",
+  options = [
+    { id: "prop-1", label: "Ballard House" },
+    { id: "prop-2", label: "Fremont Duplex" },
+  ],
+}: {
+  initialWorkspaceId?: string;
+  options?: { id: string; label: string }[];
+}) {
   const [workspaceId, setWorkspaceId] = useState(initialWorkspaceId);
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   return (
@@ -53,10 +65,7 @@ function Harness({ initialWorkspaceId = "" }: { initialWorkspaceId?: string }) {
       onWorkspaceIdChange={setWorkspaceId}
       propertyIds={propertyIds}
       onPropertyIdsChange={setPropertyIds}
-      options={[
-        { id: "prop-1", label: "Ballard House" },
-        { id: "prop-2", label: "Fremont Duplex" },
-      ]}
+      options={options}
     >
       <SettingsScopeBar />
     </SettingsPropertyScopeProvider>
@@ -76,16 +85,16 @@ describe("SettingsScopeBar", () => {
     expect(screen.queryByRole("button", { name: "Reset to workspace" })).toBeNull();
   });
 
-  it("picking a workspace tags Workspace and calls the global switcher's own select()", () => {
+  it("picking a workspace tags Workspace and never calls the portal switcher", () => {
     render(<Harness />);
     const listbox = openMenu("Workspace");
     tap(within(listbox).getByRole("option", { name: "Ash Flats" }));
     expect(screen.getByRole("button", { name: "Workspace" }).textContent).toContain("Ash Flats");
     expect(screen.getByText("Workspace")).toBeTruthy();
-    expect(mockSelect).toHaveBeenCalledWith("ws-1", { href: false });
+    expect(mockSelect).not.toHaveBeenCalled();
   });
 
-  it("picking All workspaces never calls select() — there is no real 'no workspace' global state", () => {
+  it("picking All workspaces never calls select()", () => {
     render(<Harness initialWorkspaceId="ws-1" />);
     expect(screen.getByText("Workspace")).toBeTruthy();
     const listbox = openMenu("Workspace");
@@ -120,12 +129,28 @@ describe("SettingsScopeBar", () => {
     expect(screen.getByText("Account")).toBeTruthy();
   });
 
-  it("property menu has no Select all or Clear", () => {
+  it("properties menu has no Select all or Clear", () => {
     render(<Harness />);
     const listbox = openMenu("Properties");
     expect(within(listbox).queryByText("Select all")).toBeNull();
     expect(within(listbox).queryByText("Clear")).toBeNull();
     expect(within(listbox).getByText("Ballard House")).toBeTruthy();
+  });
+
+  it("lists houses from the workspace payload when the local store is empty", () => {
+    render(<Harness initialWorkspaceId="ws-1" options={[]} />);
+    const listbox = openMenu("Properties");
+    expect(within(listbox).getByRole("option", { name: "Ballard House" })).toBeTruthy();
+    expect(within(listbox).getByRole("option", { name: "Fremont Duplex" })).toBeTruthy();
+  });
+
+  it("an empty workspace keeps the properties pill and says there are no houses", () => {
+    render(<Harness initialWorkspaceId="ws-empty" options={[]} />);
+    expect(screen.getByRole("button", { name: "Properties" })).toBeTruthy();
+    const listbox = openMenu("Properties");
+    expect(within(listbox).getByText("No houses in this workspace")).toBeTruthy();
+    expect(screen.queryByText("Select all")).toBeNull();
+    expect(screen.queryByText("Clear")).toBeNull();
   });
 
   it("workspace-only variant has no properties picker or Reset", () => {

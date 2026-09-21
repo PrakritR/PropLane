@@ -84,6 +84,31 @@ export async function resolveActiveWorkspaceFromRequest(
 }
 
 /**
+ * Settings bar scope: honor `workspaceId` from the body or `?workspaceId=`,
+ * otherwise the cookie. A named id the viewer cannot see falls through the
+ * same way the cookie does — `resolveActiveWorkspace` ignores it.
+ */
+export async function resolveWorkspaceFromSettingsRequest(
+  db: SupabaseClient,
+  viewerUserId: string,
+  request: Request | undefined,
+  bodyWorkspaceId?: string | null,
+): Promise<ActiveWorkspace> {
+  const fromBody = bodyWorkspaceId?.trim() || "";
+  let fromQuery = "";
+  if (request) {
+    try {
+      fromQuery = new URL(request.url).searchParams.get("workspaceId")?.trim() || "";
+    } catch {
+      fromQuery = "";
+    }
+  }
+  const selected = fromBody || fromQuery;
+  if (selected) return resolveActiveWorkspace(db, viewerUserId, selected);
+  return resolveActiveWorkspaceFromRequest(db, viewerUserId);
+}
+
+/**
  * The workspace a WORKSPACE-KEYED identity row (a number, an address) answers
  * for: its owner and whether the viewer holds it. Null when the row is not
  * placed in any workspace (a legacy row the migration could not backfill).

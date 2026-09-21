@@ -29,7 +29,7 @@ import {
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
-import { resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
+import { resolveWorkspaceFromSettingsRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 
 export const runtime = "nodejs";
 
@@ -161,13 +161,13 @@ async function buildStatus(
   };
 }
 
-export async function GET() {
+export async function GET(req?: Request) {
   const actor = await requireManagerRouteUser();
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   let workspace: ActiveWorkspace;
   try {
-    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+    workspace = await resolveWorkspaceFromSettingsRequest(actor.db, actor.userId, req);
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
 
   const parsedBody = await req.json().catch(() => ({}) as unknown);
   const body = parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)
-    ? (parsedBody as { action?: unknown; local?: unknown })
+    ? (parsedBody as { action?: unknown; local?: unknown; workspaceId?: unknown })
     : {};
   const action = body.action === undefined ? "request_address" : body.action;
   if (
@@ -194,7 +194,12 @@ export async function POST(req: Request) {
   }
   let workspace: ActiveWorkspace;
   try {
-    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+    workspace = await resolveWorkspaceFromSettingsRequest(
+      actor.db,
+      actor.userId,
+      req,
+      typeof body.workspaceId === "string" ? body.workspaceId : null,
+    );
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
