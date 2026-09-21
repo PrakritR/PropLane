@@ -1,22 +1,35 @@
 /** @vitest-environment jsdom */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
-vi.mock("@/lib/demo-property-pipeline", () => ({
+const { updateExtraListingFromSubmission, updatePendingManagerProperty } = vi.hoisted(() => ({
   updateExtraListingFromSubmission: vi.fn(() => true),
   updatePendingManagerProperty: vi.fn(() => true),
+}));
+
+vi.mock("@/lib/demo-property-pipeline", () => ({
+  updateExtraListingFromSubmission,
+  updatePendingManagerProperty,
 }));
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   updateRequestChangeProperty: vi.fn(() => true),
 }));
 
-afterEach(() => {
-  cleanup();
+beforeEach(() => {
+  updateExtraListingFromSubmission.mockClear();
+  updatePendingManagerProperty.mockClear();
+  vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(() => Promise.resolve()) } });
 });
 
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+/** Room A: capacity 1, no saved move-in details. Room B: capacity 2, saved details incl. one resident. */
 function roomListing() {
   const sub = createDefaultListingSubmission();
   sub.rooms = [
@@ -26,6 +39,7 @@ function roomListing() {
       name: "Room A",
       floor: "2nd floor",
       moveInInstructions: "",
+      occupancyCapacity: 1,
     },
     {
       ...sub.rooms[0]!,
@@ -33,135 +47,128 @@ function roomListing() {
       name: "Room B",
       floor: "3rd floor",
       moveInInstructions: "Lockbox on porch",
+      occupancyCapacity: 2,
+      moveInResidentDetails: [
+        { moveInInstructions: "Your bed is by the window", moveInPhotoDataUrls: [], moveInVideoDataUrl: null },
+        { moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null },
+      ],
     },
   ];
   return sub;
 }
 
-describe("ManagerPropertyRoomMoveInPanel", () => {
-  it("opens a drill-in editor when a room row is clicked", () => {
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={roomListing()}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
+function renderPanel(sub = roomListing()) {
+  return render(
+    <ManagerPropertyRoomMoveInPanel
+      sub={sub}
+      saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+      managerUserId="mgr-1"
+      canEdit
+      onUpdated={() => {}}
+      showToast={() => {}}
+    />,
+  );
+}
 
-    expect(screen.getByText(/The whole house/i)).toBeTruthy();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+function openRoomCard(container: HTMLElement, roomId: string) {
+  const summary = container.querySelector(`[data-attr="property-move-in-room-${roomId}"] summary`);
+  expect(summary, `summary for ${roomId} not found`).toBeTruthy();
+  fireEvent.click(summary!);
+}
 
-    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
-
-    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
-    expect(screen.getByRole("button", { name: /Back/i })).toBeTruthy();
+describe("ManagerPropertyRoomMoveInPanel — room Copy/Share icon actions", () => {
+  it("renders bare Copy and Share icon actions on every room row", () => {
+    renderPanel();
+    expect(screen.getByRole("button", { name: "Copy Room A move-in info" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share Room A move-in info" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy Room B move-in info" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share Room B move-in info" })).toBeTruthy();
   });
 
-  it("returns to the list when back is clicked from the editor", () => {
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={roomListing()}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
-    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /Back/i }));
-    expect(screen.queryByDisplayValue("Lockbox on porch")).toBeNull();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+  it("disables Copy until the room has SAVED details", () => {
+    renderPanel();
+    expect(screen.getByRole("button", { name: "Copy Room A move-in info" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Copy Room B move-in info" })).not.toBeDisabled();
   });
 
-  it("shows edit and share for the room whose menu is open", async () => {
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={roomListing()}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
-
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Room B" }), { key: "ArrowDown" });
-    await screen.findByRole("menuitem", { name: /^Edit$/i });
-    expect(screen.getByRole("menuitem", { name: /^Edit$/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /^Share$/i })).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
+  it("Copy writes the saved room text, including a resident with content, and never a data URL", async () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Copy Room B move-in info" }));
+    await Promise.resolve();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    const text = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(text).toContain("Lockbox on porch");
+    expect(text).toContain("Resident 1");
+    expect(text).toContain("Your bed is by the window");
+    expect(text).not.toContain("Resident 2");
+    expect(text).not.toContain("data:");
   });
 
-  it("opens the house editor from the house row without inline fields on the list", () => {
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={roomListing()}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
+  it("Share writes a URL ending in /resident/move-in?room=<id>", async () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Share Room B move-in info" }));
+    await Promise.resolve();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    const url = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(url).toContain("/resident/move-in?room=room-b");
+  });
+});
 
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /^The whole house/i }));
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
+describe("ManagerPropertyRoomMoveInPanel — per-resident instructions tick", () => {
+  it("shows the tick only on a capacity-2+ room", () => {
+    const { container } = renderPanel();
+    openRoomCard(container, "room-a");
+    openRoomCard(container, "room-b");
+    const roomACard = container.querySelector('[data-attr="property-move-in-room-room-a"]')!;
+    const roomBCard = container.querySelector('[data-attr="property-move-in-room-room-b"]')!;
+    expect(roomACard.querySelector('[data-attr="property-move-in-per-resident"]')).toBeNull();
+    expect(roomBCard.querySelector('[data-attr="property-move-in-per-resident"]')).toBeTruthy();
   });
 
-  /**
-   * A whole-home listing has no room rows, but the house itself is still a
-   * selectable row — Edit and Share live in the bulk bar, so without the tick box
-   * those actions were unreachable on an entire-home property.
-   */
-  it("offers whole-house actions on an entire-home listing", async () => {
-    const sub = createDefaultListingSubmission();
-    sub.listingPlaceCategoryId = "entire_home";
+  it("ticking on shows one block per resident slot, and saving writes moveInResidentDetails", () => {
+    const sub = roomListing();
+    // Start room-b without any resident details yet, so ticking on seeds fresh empty entries.
+    sub.rooms[1]!.moveInResidentDetails = undefined;
+    const { container } = renderPanel(sub);
+    openRoomCard(container, "room-b");
 
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={sub}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
+    const roomBCard = container.querySelector('[data-attr="property-move-in-room-room-b"]')!;
+    const checkbox = roomBCard.querySelector('[data-attr="property-move-in-per-resident"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
 
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: /^Share$/ })).toBeNull();
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for the whole house" }), { key: "ArrowDown" });
-    expect(await screen.findByRole("menuitem", { name: /^Edit$/ })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /^Share$/ })).toBeTruthy();
+    const blocks = roomBCard.querySelectorAll('[data-attr="property-move-in-resident-block"]');
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.getAttribute("data-slot")).toBe("1");
+    expect(blocks[1]!.getAttribute("data-slot")).toBe("2");
+
+    const firstTextarea = blocks[0]!.querySelector("textarea")!;
+    fireEvent.change(firstTextarea, { target: { value: "Bed near the door" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(updateExtraListingFromSubmission).toHaveBeenCalledTimes(1);
+    const nextSub = updateExtraListingFromSubmission.mock.calls[0]![2] as ReturnType<typeof roomListing>;
+    const savedRoomB = nextSub.rooms.find((r) => r.id === "room-b")!;
+    expect(savedRoomB.moveInResidentDetails).toHaveLength(2);
+    expect(savedRoomB.moveInResidentDetails![0]!.moveInInstructions).toBe("Bed near the door");
+    expect(savedRoomB.moveInResidentDetails![1]!.moveInInstructions).toBe("");
   });
+});
 
-  it("omits whole-house edit actions when the manager cannot edit", () => {
-    const sub = createDefaultListingSubmission();
-    sub.listingPlaceCategoryId = "entire_home";
+describe("ManagerPropertyRoomMoveInPanel — copy house details to rooms", () => {
+  it("leaves a room's moveInResidentDetails intact", () => {
+    const sub = roomListing();
+    sub.houseMoveInInstructions = "Front door code 4821.";
+    sub.houseMoveInPhotoDataUrls = ["data:image/png;base64,house"];
+    sub.houseMoveInVideoDataUrl = null;
 
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={sub}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit={false}
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
+    renderPanel(sub);
+    fireEvent.click(screen.getByRole("button", { name: "Copy house details to rooms" }));
 
-    expect(screen.queryByLabelText("Select the whole house")).toBeNull();
-    expect(screen.getByText(/The whole house/i)).toBeTruthy();
+    expect(updateExtraListingFromSubmission).toHaveBeenCalledTimes(1);
+    const nextSub = updateExtraListingFromSubmission.mock.calls[0]![2] as ReturnType<typeof roomListing>;
+    const roomB = nextSub.rooms.find((r) => r.id === "room-b")!;
+    expect(roomB.moveInInstructions).toBe("Front door code 4821.");
+    expect(roomB.moveInResidentDetails).toEqual(sub.rooms[1]!.moveInResidentDetails);
   });
 });

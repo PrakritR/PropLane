@@ -9,11 +9,13 @@ export async function ResidentMoveInPanel({
   basePath = RESIDENT_PORTAL_BASE_PATH,
   tabId = "placement",
   tabs: _tabs,
+  focusRoomId,
 }: {
   residentEmail?: string | null;
   basePath?: string;
   tabId?: string;
   tabs?: PortalTab[];
+  focusRoomId?: string;
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
   const resolved = email ? await loadResidentMoveInForEmail(email) : null;
@@ -25,6 +27,7 @@ export async function ResidentMoveInPanel({
         resolved={resolved}
         email={email}
         activeTab={tabId}
+        focusRoomId={focusRoomId}
       />
     </ManagerPortalPageShell>
   );

@@ -1474,6 +1474,7 @@ export async function renderPortalSection(
         basePath={def.basePath}
         tabId={moveInTab}
         tabs={meta.tabs}
+        focusRoomId={typeof searchParams?.room === "string" ? searchParams.room : undefined}
       />
     );
   }
