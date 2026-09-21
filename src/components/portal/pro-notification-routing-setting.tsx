@@ -11,6 +11,8 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
+  fetchAcrossScopeTargets,
+  saveAcrossScopeTargets,
   useSettingsPropertyScope,
   type SettingsResolutionSource,
 } from "@/components/portal/settings-property-scope";
@@ -78,28 +80,36 @@ type LoadState = "loading" | "ready" | "error";
 
 export function ManagerNotificationRoutingSetting() {
   const { showToast } = useAppUi();
-  const { workspaceId: scopeWorkspaceId, reportSource } = useSettingsPropertyScope();
+  const { targets, reportSource } = useSettingsPropertyScope();
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<ManagerAutomationSettings>(
     DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   );
   const [source, setSource] = useState<SettingsResolutionSource | null>(null);
+  /** True when the selected workspaces disagree — the fields below show the FIRST one's values; saving overwrites every selected workspace with them. */
+  const [mixed, setMixed] = useState(false);
   const [numberStatus, setNumberStatus] = useState<ManagerMessagingNumberStatus | null>(null);
 
   const load = useCallback(async () => {
     setLoadState("loading");
     try {
-      const query = scopeWorkspaceId ? `?workspaceId=${encodeURIComponent(scopeWorkspaceId)}` : "";
-      const [settingsResponse, numberResponse] = await Promise.all([
-        fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
+      const [settingsResult, numberResponse] = await Promise.all([
+        fetchAcrossScopeTargets(
+          targets,
+          (query) => `/api/portal/automation-settings${query}`,
+          (body) => {
+            const typed = body as { settings?: unknown; source?: SettingsResolutionSource };
+            return { settings: normalizeManagerAutomationSettings(typed.settings), source: typed.source ?? null };
+          },
+          { isEqual: (a, b) => JSON.stringify(a.settings) === JSON.stringify(b.settings) },
+        ),
         fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
       ]);
-      if (!settingsResponse.ok) throw new Error("Could not load manager alert preferences.");
-      const body = (await settingsResponse.json()) as { settings?: unknown; source?: SettingsResolutionSource };
-      setSettings(normalizeManagerAutomationSettings(body.settings));
-      setSource(body.source ?? null);
-      reportSource("automation-settings", body.source);
+      setSettings(settingsResult.value.settings);
+      setSource(settingsResult.value.source);
+      setMixed(settingsResult.mixed);
+      reportSource("automation-settings", settingsResult.value.source);
       setNumberStatus(
         numberResponse.ok ? ((await numberResponse.json()) as ManagerMessagingNumberStatus) : null,
       );
@@ -107,7 +117,7 @@ export function ManagerNotificationRoutingSetting() {
     } catch {
       setLoadState("error");
     }
-  }, [scopeWorkspaceId, reportSource]);
+  }, [targets, reportSource]);
 
   useEffect(() => {
     // Defer the initial state transition out of the effect body. This keeps the
@@ -133,32 +143,39 @@ export function ManagerNotificationRoutingSetting() {
     return "PropLane Assistant will keep receiving alerts until your personal phone and work number are ready.";
   }, [numberStatus, textConnectionReady, workNumberAssigned]);
 
+  /**
+   * Fans the write out across every selected target (one PATCH per
+   * workspace, each re-authorized server-side on its own `workspaceId` —
+   * see `saveAcrossScopeTargets`). When `mixed` was true, this overwrites
+   * every selected workspace with the ONE value shown on screen (the first
+   * target's) — the accepted bulk-edit behavior once a manager edits a
+   * "Mixed" field.
+   */
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      const response = await fetch("/api/portal/automation-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          managerNotificationDestination: settings.managerNotificationDestination,
-          managerNotificationCategories: settings.managerNotificationCategories,
-          managerAttentionDigestCadence: settings.managerAttentionDigestCadence,
-          ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
-        }),
+      const result = await saveAcrossScopeTargets(targets, "/api/portal/automation-settings", "PATCH", {
+        managerNotificationDestination: settings.managerNotificationDestination,
+        managerNotificationCategories: settings.managerNotificationCategories,
+        managerAttentionDigestCadence: settings.managerAttentionDigestCadence,
       });
-      if (!response.ok) throw new Error("Could not save manager alert preferences.");
-      const body = (await response.json()) as { settings?: unknown; source?: SettingsResolutionSource };
-      setSettings(normalizeManagerAutomationSettings(body.settings));
-      setSource(body.source ?? null);
-      reportSource("automation-settings", body.source);
-      showToast("Manager alert preferences saved.");
-    } catch {
-      showToast("Could not save manager alert preferences. Try again.");
+      if (!result.ok) throw new Error(result.failed[0]?.error || "Could not save manager alert preferences.");
+      // Every target just got its own workspace row upserted (or, with no
+      // workspace at all, the account row) — resolve the tag the same way
+      // the write itself just landed rather than trusting stale GET state.
+      const savedSource: SettingsResolutionSource = targets.every((t) => t.workspaceId) ? "workspace" : "account";
+      setSource(savedSource);
+      setMixed(false);
+      reportSource("automation-settings", savedSource);
+      showToast(
+        targets.length > 1 ? `Manager alert preferences saved to ${targets.length} workspaces.` : "Manager alert preferences saved.",
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not save manager alert preferences. Try again.");
     } finally {
       setSaving(false);
     }
-  }, [settings, showToast, scopeWorkspaceId, reportSource]);
+  }, [settings, showToast, targets, reportSource]);
 
   return (
     <PortalSettingsSection
@@ -166,7 +183,13 @@ export function ManagerNotificationRoutingSetting() {
       action={
         loadState === "ready" ? (
           <div className="flex items-center gap-2">
-            {source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, 0)}</PortalSettingsScopeTag> : null}
+            {mixed ? (
+              <PortalSettingsScopeTag variant="muted" dataAttr="manager-alerts-mixed">
+                Mixed across {targets.length} workspaces
+              </PortalSettingsScopeTag>
+            ) : source ? (
+              <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, 0)}</PortalSettingsScopeTag>
+            ) : null}
             <Button
               type="button"
               variant="outline"

@@ -58,8 +58,10 @@ export function PortalSettingsSectionClient({
   });
   const pageRef = useRef<SettingsModulePageHandle>(null);
   const [scopePropertyIds, setScopePropertyIds] = useState<string[]>([]);
-  const [scopeWorkspaceId, setScopeWorkspaceId] = useState("");
+  const [scopeWorkspaceIds, setScopeWorkspaceIds] = useState<string[]>([]);
   const scopePropertyId = scopePropertyIds[0] ?? "";
+  /** Communication is scoped to exactly one workspace — see `SettingsScopeBar`'s `single-workspace` variant. */
+  const isSingleWorkspaceTab = tab === "communication";
 
   /**
    * The full account list — `SettingsScopeBar` narrows it to whichever
@@ -224,8 +226,8 @@ export function PortalSettingsSectionClient({
           <PortalSettingsSections className={showList ? "max-lg:hidden" : undefined}>
             {tab ? (
               <SettingsPropertyScopeProvider
-                workspaceId={scopeWorkspaceId}
-                onWorkspaceIdChange={setScopeWorkspaceId}
+                workspaceIds={scopeWorkspaceIds}
+                onWorkspaceIdsChange={setScopeWorkspaceIds}
                 propertyIds={scopePropertyIds}
                 onPropertyIdsChange={setScopePropertyIds}
                 options={propertyOptions}
@@ -234,7 +236,7 @@ export function PortalSettingsSectionClient({
                   title={activeMeta?.label ?? "Settings"}
                   action={
                     <div className="flex items-center gap-2">
-                      <SettingsScopeBar />
+                      <SettingsScopeBar variant={isSingleWorkspaceTab ? "single-workspace" : "full"} />
                       <SaveStatus
                         status={{
                           state: saveStatus.state,

@@ -200,14 +200,17 @@ export function PortalSettingsScopeTag({
   label,
   variant = "default",
   className,
+  dataAttr,
 }: {
   children?: ReactNode;
   label?: string;
   variant?: "default" | "muted";
   className?: string;
+  dataAttr?: string;
 }) {
   return (
     <span
+      data-attr={dataAttr}
       className={cn(
         "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-[-0.01em]",
         SCOPE_TAG_VARIANT_CLASS[variant],
