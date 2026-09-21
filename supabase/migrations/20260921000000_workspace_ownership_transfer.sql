@@ -119,8 +119,16 @@ begin
 
   -- 3. Every related table `transferPropertyOwnership` rewrites, across
   --    every house in the workspace at once.
+  -- A table is rewritten only when it exists AND carries the join column —
+  -- the TypeScript twin swallows "does not exist" errors per table, and three
+  -- of these tables (screening_orders, cosigner_submission_records,
+  -- portal_scheduled_inbox_message_records) key by manager only, with no
+  -- property_id column at all.
   foreach v_table in array v_property_tables loop
-    if to_regclass('public.' || v_table) is not null then
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = v_table and column_name = 'property_id'
+    ) then
       execute format(
         'update public.%I set manager_user_id = $1 where manager_user_id = $2 and property_id in (select id from public.manager_property_records where workspace_id = $3)',
         v_table
@@ -128,7 +136,10 @@ begin
     end if;
   end loop;
   foreach v_table in array v_assigned_property_id_tables loop
-    if to_regclass('public.' || v_table) is not null then
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = v_table and column_name = 'assigned_property_id'
+    ) then
       execute format(
         'update public.%I set manager_user_id = $1 where manager_user_id = $2 and assigned_property_id in (select id from public.manager_property_records where workspace_id = $3)',
         v_table
