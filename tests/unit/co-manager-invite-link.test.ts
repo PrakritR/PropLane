@@ -67,7 +67,7 @@ describe("co-manager open invite surfaces", () => {
     // separate "Continue" step or path chooser. Send is the PortalDialog
     // footer's primary action now, so its data-attr is a `dataAttr:` object
     // property rather than a literal JSX attribute.
-    expect(sheet).toContain('dataAttr: "workspace-invite-send"');
+    expect(sheet).toContain('data-attr="workspace-invite-send"');
     expect(sheet).toContain('data-attr="workspace-invite-copy"');
     expect(sheet).toContain("<WorkspacePermissionsFields");
     expect(sheet).toContain("<CoManagerPermissionsEditor");
