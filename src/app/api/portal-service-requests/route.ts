@@ -5,6 +5,7 @@ import { fetchRowsForManagerWithLinked, linkedPropertyIdsForModule } from "@/lib
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { resolveResidentFilingScope } from "@/lib/resident-manager-scope";
 import {
   repairServiceRequestScopesForManager,
@@ -56,6 +57,9 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Test workspace access is unavailable." }, { status: 403 });
+    }
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const role = await resolveResidentScopedActorRole(db, {
@@ -219,6 +223,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Test workspace access is unavailable." }, { status: 403 });
+    }
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const role = await resolveResidentScopedActorRole(db, {

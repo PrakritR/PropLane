@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Test workspace release correction 1 execution</title><style>body{font:16px/1.55 system-ui,sans-serif;max-width:1080px;margin:40px auto;padding:0 24px;color:#18202a}code,pre{background:#eef1f4;border-radius:4px}code{padding:.1rem .3rem}pre{padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}h1,h2{line-height:1.2}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd3da;padding:9px;text-align:left;vertical-align:top}.ok{color:#126b37}.blocked{color:#a32222}.note{background:#fff4dc;padding:16px}.block{background:#fff0e9;padding:18px}li{margin:.45rem 0}</style></head><body>
+<h1>Test workspace release correction 1 execution</h1>
+<p class="block"><strong>Status: frozen for independent review, release blocked.</strong> The correction closes the reported provider, chat, calendar, cache, metadata, scheduled-test, direct PostgREST/storage, and several concrete same-session service-route defects. A bounded service-role inventory found additional independent business routes that do not share the corrected guards. Those exact residual routes remain a P1 release blocker. No database migration was applied and no staging, production, commit, push, deployment, PR, browser QA, or broad CI operation occurred.</p>
+<h2>Candidate identity and ownership</h2><table><tr><th>Worktree</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/7/AXIS-2</code></td></tr><tr><th>Branch</th><td><code>akhil/test-workspace-release-20260919</code></td></tr><tr><th>Base and HEAD</th><td><code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code></td></tr><tr><th>Frozen input</th><td>203 files; manifest SHA-256 <code>2054c78d522f5bed4b386937762784bfc756392d8ef2601e4a531aa9e8722fc9</code>.</td></tr><tr><th>Correction source manifest</th><td>66 source/test/SQL files in <code>release-correction1-manifest.json</code>; SHA-256 <code>4f511e7fbb16d06992d4219fa5d0ba6140005a6a1b2afba12da0bb3a912f9884</code>.</td></tr><tr><th>Ownership</th><td>Sol: integration, chat/calendar/cache, validation and handoff. Terra: provider, access, service routes and listing media. Luna: scheduled persistence tests and SMS turn state. Root: read-only DEV catalog evidence and release operations only.</td></tr></table>
+<h2>Finding disposition</h2><table><tr><th>Finding</th><th>Disposition</th></tr>
+<tr><td>S1, ordinary Stripe/provider escape</td><td class="ok">Corrected. Durable server-derived classification now precedes saved-payment customer/session creation, Connect work, subscription checkout, communication credit checkout and screening checkout. Shared Stripe helpers also refuse classified actors. Effect evidence is recorded before refusal; normal actors retain the existing flow.</td></tr>
+<tr><td>S2, Google Calendar escape</td><td class="ok">Corrected. OAuth initiation/linking and Google API/synchronization boundaries use durable owner classification rather than SMS AsyncLocalStorage. Existing classified connections and delayed operations refuse real Google effects.</td></tr>
+<tr><td>S3, direct access and revoked sessions</td><td class="blocked">Partially corrected and still release-blocking. Forward SQL covers all 146 non-exception tables from the 153-table DEV catalog, blocks direct authenticated storage, and closes the exact SMS allocator RPC. Generic portal records, services, workspaces, property records, promotions, vendors and assigned work-order routes now refuse denied classified sessions before service-role access. Independent route residuals remain below.</td></tr>
+<tr><td>B1, conversation switching</td><td class="ok">Corrected. Identity includes endpoint, actor and workspace/archive key. Switching clears session, messages, pending actions, attachments, metadata, loading and in-flight state; generation fences reject stale send/archive/thread results.</td></tr>
+<tr><td>B2, client-observed calendar CAS</td><td class="ok">Corrected. Requests carry <code>expectedPayloadKnown</code> and the client-observed payload. Missing/stale baselines conflict instead of using a fresh server reread; hidden/revoked/tour rows remain reconciled.</td></tr>
+<tr><td>B3, calendar namespace</td><td class="ok">Corrected. Classified agent contexts carry <code>testWorkspaceId</code>; calendar reads use the matching private schedule table and workspace scope. Ordinary users retain the normal table and lifecycle.</td></tr>
+<tr><td>B4/B5, cache/races</td><td class="ok">Corrected. Private catalog state is keyed by actor/workspace/generation, never merges public extras, and rejects late prior-identity results. Ordinary public coalescing remains separate.</td></tr>
+<tr><td>B6/B7, feedback/target</td><td class="ok">Corrected. Successful ordinary sends store <code>data.smsTest</code>; empty/null manager targets normalize consistently; identity and target changes clear stale evidence.</td></tr>
+<tr><td>B8, scheduled tests</td><td class="ok">Corrected. Unit/integration tests import and mock the server-only persistence module directly; no client runtime re-export was added.</td></tr></table>
+<h2>Direct-access SQL candidate</h2><p>New unapplied forward migration: <code>supabase/migrations/20260919123000_revoke_classified_test_workspace_direct_access.sql</code>, SHA-256 <code>52c4f59995d8812cbb504db4485aa18076fc53050904d0d1a814bfd5c82f8d80</code>.</p><ul>
+<li>Root audited exact DEV project <code>emstjswhotsnyksqhqyf</code> inside an explicit read-only transaction. Authoritative 153-table catalog: <code>release-dev-direct-access-catalog.json</code>, SHA-256 <code>4a9de2859978a924d5daa522ae5bfd828ab2fa83e1e624d3f34c7b7f1b44e114</code>. All catalogued public tables already had RLS.</li>
+<li>The 146-table restrictive list excludes only <code>profiles</code>, <code>profile_roles</code>, <code>test_workspaces</code>, <code>test_workspace_members</code>, and public <code>site_content_records</code>, <code>site_config_records</code>, <code>site_preset_records</code>.</li>
+<li>The predicate uses durable membership, never server environment state, and is SELECT-wrapped for per-query initplan behavior on large normal-user tables.</li>
+<li>Direct authenticated storage is denied. Active classified listing image/video uploads use <code>/api/listing-photos</code>, including the formerly duplicated <code>pro-add-listing-form.tsx</code> uploader.</li>
+<li>Exact RPC closure: revoke <code>allocate_sms_proxy_number(uuid)</code> from PUBLIC/anon/authenticated and grant service_role. There is no blanket SECURITY DEFINER revoke; password recovery, own classification and trigger execution are preserved.</li></ul>
+<p class="note"><strong>Before apply:</strong> independent SQL/source review, exact-target backup/apply plan, actual DEV view/materialized-view privilege audit, and postcondition audit. Root's view audit failed before connecting; source search alone found no view definitions. Existing signed URLs/downloaded bytes keep their normal lifetime.</p>
+<h2>Exact residual S3 blocker</h2><p>There is no safe common route choke point: service-role construction cannot infer the caller, while blanket API middleware would incorrectly cover operator, setup, recovery, public, webhook and test-control paths. Route-specific role semantics are required. The bounded correction froze rather than weakening the contract. These session-authenticated service-role business routes remain unmodified and require audit plus durable denial:</p>
+<pre>src/app/api/manager/amend-lease/route.ts
+src/app/api/manager/phone/provision/route.ts
+src/app/api/manager/phone/route.ts
+src/app/api/manager/pricing-oauth-continue/route.ts
+src/app/api/manager/subscription/route.ts
+src/app/api/manager/update-lease-packet/route.ts
+src/app/api/portal/applicant-ids/route.ts
+src/app/api/portal/application-photos/route.ts
+src/app/api/portal/co-manager-calendar/route.ts
+src/app/api/portal/data-export/route.ts
+src/app/api/portal/delete-resident-access/route.ts
+src/app/api/portal/deposit-return/route.ts
+src/app/api/portal/inbox-attachments/route.ts
+src/app/api/portal/inbox-draft-reply/route.ts
+src/app/api/portal/inbox-eligible-contacts/route.ts
+src/app/api/portal/lease-template/route.ts
+src/app/api/portal/onboard-existing-resident/route.ts
+src/app/api/portal/property-access-info/route.ts
+src/app/api/portal/property-import/read/route.ts
+src/app/api/portal/purge-orphaned-records/route.ts
+src/app/api/portal/record-share-link/route.ts
+src/app/api/portal/record-share-link/send/route.ts
+src/app/api/portal/resident-application-autofill/route.ts
+src/app/api/portal/resident-property/route.ts
+src/app/api/portal/resident-service-fee/route.ts
+src/app/api/portal/scheduled-inbox-messages/[id]/send-now/route.ts
+src/app/api/portal/scheduled-messages/[id]/send-now/route.ts
+src/app/api/portal/send-application-completion-reminder/route.ts
+src/app/api/portal/send-application-started/route.ts
+src/app/api/portal/send-application-submitted/route.ts
+src/app/api/portal/send-inbox-message/route.ts
+src/app/api/portal/send-lead-invite/route.ts
+src/app/api/portal/send-manager-application-started/route.ts
+src/app/api/portal/send-payment-reminder/route.ts
+src/app/api/portal/send-resident-welcome/route.ts
+src/app/api/portal/send-task-reminder/route.ts
+src/app/api/portal/send-vendor-invite/route.ts
+src/app/api/portal/send-vendor-visit-email/route.ts
+src/app/api/portal/service-requests/send-reminder/route.ts
+src/app/api/portal/work-orders/send-reminder/route.ts
+src/app/api/portal-tour-inquiries/accept/route.ts
+src/app/api/portal-tour-inquiries/cancel/route.ts
+src/app/api/portal-tour-inquiries/delete-planned/route.ts
+src/app/api/portal-tour-inquiries/delete/route.ts
+src/app/api/portal-tour-inquiries/proposals/route.ts
+src/app/api/portal-tour-inquiries/propose-reschedule/route.ts
+src/app/api/portal-tour-inquiries/reschedule/route.ts</pre>
+<p>This bounded list does not assert every path is exploitable in every role. It does establish that S3 cannot yet be claimed closed.</p>
+<h2>Validation evidence</h2><table><tr><th>Check</th><th>Result</th></tr>
+<tr><td>Final explicit Node 22.23.0, <code>NODE_OPTIONS=--max-old-space-size=512</code>, 27 individually enumerated Vitest files, <code>--maxWorkers=1</code>.</td><td class="ok">Exit 0: 27 files, 218 tests passed in 9.23 s.</td></tr>
+<tr><td>Preceding identical batch.</td><td>Exit 1: 26 files/216 tests passed; 2 vendor privacy tests failed because the legacy test omitted the new normal-access mock. Test fixed; production code unchanged.</td></tr>
+<tr><td>Earlier integrated batch.</td><td class="ok">Exit 0: 13 files/104 tests. First run exposed one stale private-catalog assertion, which was corrected.</td></tr>
+<tr><td>Delegate focused batches under Node 22/512/worker 1.</td><td class="ok">Provider/access 8 files/79; final route/uploader 6/31; scheduled imports 3/12; SMS turn state 1/5; baseline owner helper 1/5, all passed.</td></tr>
+<tr><td>Selected ESLint over all 66 correction TS/TSX files under Node 22/512.</td><td class="ok">Exit 0: 0 errors, 11 existing warnings, all in <code>pro-add-listing-form.tsx</code>.</td></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0.</td></tr>
+<tr><td><code>npx --no-install graphify hook-rebuild</code> under Node 22/512</td><td>Exit 1: npm could not determine an executable. An earlier installed CLI attempt said <code>hook-rebuild</code> is unknown. No graph freshness claim.</td></tr></table>
+<p>The original evidence remains 29 files/128 tests plus 9 files/73 tests and changed-source lint with 0 errors/32 warnings. This cycle did not run a broad build, full typecheck/unit suite, browser/server or staging QA. At final validation start disk free was 8.9 GiB at 96% usage and system memory was 36% free. No task-owned server was started.</p>
+<h2>Additional baseline repair and remaining gates</h2><p><code>workspace-add-property.server.ts</code> now returns 403 for an explicit foreign owner even with no selected workspace; 5/5 focused tests passed. This is separate from correction proof. The lease-row short generated-HTML projection defect remains deferred.</p><ul>
+<li class="blocked">Close and independently review the residual S3 routes above.</li><li class="blocked">Independent review of the 66-file manifest and unapplied SQL, including actual view privileges.</li><li class="blocked">Root-owned DEV apply after review, then direct PostgREST/storage/RPC and same-session state probes.</li><li class="blocked">Full baseline remains red and unwaived: 11 TypeScript, 3 lint, and 36 unit failures across 21 files.</li><li>Seeded browser/provider-spy acceptance, broad CI, staging QA, preflight and any production operation remain pending. Conditional production authorization does not bypass them.</li></ul>
+<p><strong>Freeze:</strong> source is frozen at <code>release-correction1-manifest.json</code>. Any source edit requires a new manifest.</p></body></html>

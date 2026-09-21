@@ -21,6 +21,7 @@ import {
   resolvePaymentReminderCapability,
 } from "@/lib/payment-reminder-capability.server";
 import { paymentReminderSnapshotMatches } from "@/lib/payment-reminder-workspace";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -32,11 +33,16 @@ async function requireManager() {
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const { data: roles } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
+  const [{ data: profile }, { data: roles }] = await Promise.all([
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    db.from("profile_roles").select("role").eq("user_id", user.id),
+  ]);
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const isManager = roleList.includes("manager") || roleList.includes("admin");
+  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const isManager = roleList.includes("manager") || roleList.includes("admin") || legacy === "manager" || legacy === "admin";
   if (!isManager) return null;
-  return { db, userId: user.id, admin: roleList.includes("admin") };
+  return { db, userId: user.id, admin: roleList.includes("admin") || legacy === "admin" };
 }
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {

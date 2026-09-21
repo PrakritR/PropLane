@@ -22,6 +22,7 @@ import {
 import { META_SCHEDULED_BILLING, META_SCHEDULED_TIER } from "@/lib/stripe-subscription-metadata";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { syncManagerPurchaseTierState } from "@/lib/manager-tier-sync";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -90,19 +91,29 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    try {
-      await syncManagerPurchaseTierState(user.id);
-    } catch {
-      /* Stripe not configured or transient error — serve last known DB state */
+    const serviceDb = createSupabaseServiceRoleClient();
+    const businessAccess = await resolveAuthenticatedBusinessAccess(user.id, serviceDb);
+    if (businessAccess.kind === "denied") {
+      return NextResponse.json({ error: "This action is unavailable." }, { status: 403 });
+    }
+
+    if (businessAccess.kind === "normal") {
+      try {
+        await syncManagerPurchaseTierState(user.id);
+      } catch {
+        /* Stripe not configured or transient error — serve last known DB state */
+      }
     }
 
     const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, paidAt, promoCode, readFailed } =
       await getManagerPurchaseSku(user.id);
     let stripeManaged = false;
-    try {
-      stripeManaged = await stripeSubscriptionIsBillable(stripeSubscriptionId);
-    } catch {
-      /* Stripe not configured or transient error — treat as not Stripe-managed */
+    if (businessAccess.kind === "normal") {
+      try {
+        stripeManaged = await stripeSubscriptionIsBillable(stripeSubscriptionId);
+      } catch {
+        /* Stripe not configured or transient error — treat as not Stripe-managed */
+      }
     }
     // Apple-billed grant → the plan is managed in the App Store: on native we
     // don't re-offer IAP, on web we hide Stripe checkout (report §3.4).
@@ -137,7 +148,7 @@ export async function GET() {
       }
     }
 
-    const paymentSettings = await Promise.resolve().then(() => loadManagerManualPaymentSettings(createSupabaseServiceRoleClient(), user.id)).catch(() => null);
+    const paymentSettings = await Promise.resolve().then(() => loadManagerManualPaymentSettings(serviceDb, user.id)).catch(() => null);
     return NextResponse.json({
       ...base,
       isFree,
@@ -169,6 +180,10 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    const businessAccess = await resolveAuthenticatedBusinessAccess(user.id);
+    if (businessAccess.kind === "denied") {
+      return NextResponse.json({ error: "This action is unavailable." }, { status: 403 });
     }
 
     const body = (await req.json().catch(() => null)) as

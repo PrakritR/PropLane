@@ -13,6 +13,7 @@ import {
   buildVendorInviteMailtoHref,
   vendorInviteSubject,
 } from "@/lib/vendor-invite-email";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 /**
@@ -129,10 +130,12 @@ export async function sendVendorInvite(
   }
 
   const from = await managerOutboundFromHeader(db, opts.managerUserId);
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [opts.vendorEmail], subject: draft.subject, text: draft.text, html: draft.html }),
+  const res = await postResendEmail({
+    apiKey,
+    actorUserId: opts.managerUserId,
+    payload: { from, to: [opts.vendorEmail], subject: draft.subject, text: draft.text, html: draft.html },
+    effectSummary: `Vendor invite email to ${opts.vendorName || opts.vendorEmail} was captured for SMS test mode.`,
+    metadata: { tool: "invite_vendor", vendorId: opts.vendorId },
   });
   const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
   if (!res.ok) {

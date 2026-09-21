@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PropLane Assistant Markdown - Bug Review</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f5f6fa; color: #172033; }
+    main { max-width: 860px; margin: 40px auto; padding: 32px; background: white; border: 1px solid #dfe3ec; border-radius: 16px; box-shadow: 0 12px 40px rgba(24, 34, 56, .08); }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin: 28px 0 10px; font-size: 18px; }
+    p, li { line-height: 1.6; }
+    .meta { color: #5c667a; }
+    .pass { display: inline-block; padding: 5px 10px; border-radius: 999px; background: #e7f8ef; color: #17613a; font-weight: 700; }
+    code { padding: 2px 5px; border-radius: 5px; background: #eef1f6; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; border: 1px solid #dfe3ec; text-align: left; vertical-align: top; }
+    th { background: #f3f5f8; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #111522; color: #edf1fb; }
+      main { background: #191f2d; border-color: #333c50; box-shadow: none; }
+      .meta { color: #aeb7ca; }
+      .pass { background: #173c2b; color: #9ce0b9; }
+      code, th { background: #272f40; }
+      th, td { border-color: #3b455a; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PropLane Assistant Markdown - Bug Review</h1>
+  <p class="meta">Reviewed 2026-09-20 against base <code>9e77b5b8f2a8dc99f27b87dbf866774fc9cf5e89</code>.</p>
+  <p><span class="pass">PASS - no bug findings</span></p>
+
+  <h2>Scope</h2>
+  <p>The review was limited to the current uncommitted changes in:</p>
+  <ul>
+    <li><code>src/components/portal/portal-inbox-ui.tsx</code></li>
+    <li><code>tests/unit/inbox-bubble-alignment.test.tsx</code></li>
+  </ul>
+
+  <h2>Assessment</h2>
+  <p>The change routes only messages whose direction is <code>assistant</code> through the existing shared <code>AssistantMarkdown</code> renderer. User, inbound, and ordinary outbound message bodies retain their existing plain-text rendering. This fixes the reported literal <code>**</code> markers and dash-prefixed list text while preserving the established assistant bubble alignment, metadata, subject, and attachment behavior.</p>
+  <p>The shared renderer uses <code>react-markdown</code> with GFM support and does not enable raw HTML rendering. Existing tests cover bold text, lists, tables, links, header downgrading, and raw HTML injection. The new integration test confirms that the inbox bubble itself now emits a <code>strong</code> element and list items with no literal markdown markers.</p>
+
+  <h2>Validation</h2>
+  <table>
+    <thead><tr><th>Check</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td><code>git diff --check</code> for both reviewed files</td><td>Passed</td></tr>
+      <tr><td><code>npx vitest run tests/unit/inbox-bubble-alignment.test.tsx tests/unit/assistant-markdown.test.tsx --maxWorkers=2</code></td><td>Passed - 2 files, 12 tests</td></tr>
+      <tr><td>Security review of markdown rendering</td><td>No raw HTML rendering introduced; links retain the shared renderer's safe new-tab attributes</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Conclusion</h2>
+  <p>No correctness, regression, security, or accessibility defect was found in the reviewed two-file change. It is suitable to proceed through the repository's remaining ship gates.</p>
+</main>
+</body>
+</html>

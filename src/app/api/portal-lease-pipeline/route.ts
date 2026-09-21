@@ -343,7 +343,9 @@ export async function GET(req?: Request) {
       records = await fetchLeasesForManagerUser(ctx.db, ctx.user.id);
     }
 
-    const rows = records.map((record) => projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record))));
+    const rows = records.map((record) =>
+      projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record)) as LeasePipelineRow),
+    );
 
     return NextResponse.json({ rows });
   } catch (e) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { assertTestWorkspacePrincipalCompatibility, resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,9 @@ export async function GET(req: Request) {
     }
 
     const svc = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const { data: requestor } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
     if (!canLookUpApplicants(requestor?.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -32,9 +36,17 @@ export async function GET(req: Request) {
 
     const { data: profile } = await svc
       .from("profiles")
-      .select("manager_id")
+      .select("id, manager_id")
       .eq("email", email)
       .maybeSingle();
+
+    // Normal accounts never discover private identities, while a classified
+    // manager may look up only a member of its own namespace.
+    await assertTestWorkspacePrincipalCompatibility({
+      actorUserId: user.id,
+      relatedUserIds: profile?.id ? [String(profile.id)] : [],
+      db: svc,
+    });
 
     const axisId = profile?.manager_id?.trim() || null;
     return NextResponse.json({ axisId });

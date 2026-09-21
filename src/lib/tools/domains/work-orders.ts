@@ -6,6 +6,7 @@ import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-port
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { suggestVendorsForWorkOrder } from "@/lib/work-order-auto-match";
 import { resolveOwnedVendor } from "@/lib/work-order-vendor.server";
 import { acceptWorkOrderBid, vendorNamesById, type WorkOrderActor } from "@/lib/work-order-bids.server";
@@ -456,7 +457,7 @@ export const createWorkOrderTool = defineWriteTool({
       manager_user_id: ctx.landlordId,
       property_id: property?.id ?? null,
       resident_email: residentEmail ?? null,
-      row_data: row,
+      row_data: stampSmsTestProvenance(row as unknown as Record<string, unknown>),
       updated_at: nowIso,
     });
     if (error) {
@@ -544,7 +545,7 @@ export const assignVendorTool = defineWriteTool({
     };
     const { error } = await ctx.db
       .from("portal_work_order_records")
-      .update({ vendor_user_id: vendor.vendorUserId, row_data: nextRowData, updated_at: now })
+      .update({ vendor_user_id: vendor.vendorUserId, row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
       .eq("id", owned.id)
       .eq("manager_user_id", ctx.landlordId);
     if (error) {
@@ -748,7 +749,7 @@ export const scheduleVendorVisitTool = defineWriteTool({
     };
     const { error } = await ctx.db
       .from("portal_work_order_records")
-      .update({ row_data: nextRowData, updated_at: new Date().toISOString() })
+      .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: new Date().toISOString() })
       .eq("id", owned.id)
       .eq("manager_user_id", ctx.landlordId);
     if (error) {
@@ -760,7 +761,7 @@ export const scheduleVendorVisitTool = defineWriteTool({
     if (syncedRow.googleCalendarEventId !== nextRowData.googleCalendarEventId) {
       await ctx.db
         .from("portal_work_order_records")
-        .update({ row_data: syncedRow, updated_at: new Date().toISOString() })
+        .update({ row_data: stampSmsTestProvenance(syncedRow as unknown as Record<string, unknown>), updated_at: new Date().toISOString() })
         .eq("id", owned.id)
         .eq("manager_user_id", ctx.landlordId);
     }
@@ -1002,7 +1003,7 @@ export const completeWorkOrderTool = defineWriteTool({
       const merged = mergeWorkOrderCompletion(owned.row, completion, expenseEntryIds);
       const { error } = await ctx.db
         .from("portal_work_order_records")
-        .update({ row_data: merged, updated_at: new Date().toISOString() })
+        .update({ row_data: stampSmsTestProvenance(merged as unknown as Record<string, unknown>), updated_at: new Date().toISOString() })
         .eq("id", owned.id)
         .eq("manager_user_id", ctx.landlordId);
       if (error) throw new Error(error.message);

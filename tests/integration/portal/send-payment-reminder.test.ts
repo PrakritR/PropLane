@@ -33,6 +33,9 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({
 }));
 
 vi.mock("@/lib/manual-payment-reminder-delivery.server", () => ({ deliverManualPaymentReminder: vi.fn() }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";

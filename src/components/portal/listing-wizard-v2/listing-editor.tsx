@@ -22,7 +22,9 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
+import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
 import { cn } from "@/lib/utils";
@@ -84,6 +86,8 @@ import {
   bedsLine,
   parseBedsLine,
   isRoomSlotRemovable,
+  entireHomeMonthlyRentAmount,
+  isEntireHomeListing,
 } from "@/lib/manager-listing-submission";
 import {
   AIRBNB_LEASE_TERM,
@@ -93,11 +97,10 @@ import {
   SHORT_TERM_LEASE_TERM,
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
-import {
-} from "@/lib/listing-room-derived-pricing";
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
 import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import { useConfirm, useOptionalAppUi } from "@/components/providers/app-ui-provider";
+import { isValidZipInput } from "@/lib/listing-form-inputs";
 import {
   applyBathroomDefaults,
   BATHROOM_INHERIT_FIELDS,
@@ -121,7 +124,9 @@ import {
   sharedSpaceAccessOptions,
   sharedSpaceAccessTriggerLabel,
 } from "@/lib/listing-shared-space-access";
-import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
+import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
+import { isStayLeaseTerm } from "@/lib/listing-quote";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import {
@@ -135,6 +140,7 @@ import {
   applyHouseDefaultsToRooms,
   houseDefaultsForSubmission,
   roomInheritsDefault,
+  roomFollowsTermDefault,
   type ListingHouseDefaults,
   type ListingHouseDefaultField,
 } from "@/lib/listing-house-defaults";
@@ -743,13 +749,13 @@ function StepBasics({
         <FoundOnlineCard sub={sub} patch={patch} lookup={lookup} onHouseDefaults={onHouseDefaults} />
         <FieldRow cols={4}>
           <Field label="City" required>
-            <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
+            <Input aria-label="City" data-wizard-field="city" value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
           </Field>
           <Field label="State" required>
-            <Input value={sub.state} onChange={(e) => patch({ state: e.target.value })} />
+            <Input aria-label="State" data-wizard-field="state" value={sub.state} onChange={(e) => patch({ state: e.target.value })} />
           </Field>
           <Field label="ZIP" required>
-            <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
+            <Input aria-label="ZIP" data-wizard-field="zip" value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
           </Field>
           <Field label="Neighborhood">
             <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
@@ -2971,15 +2977,73 @@ function ZillowSyndicationRow({
   );
 }
 
+/**
+ * The two doors a renter has to the manager, as the listing will print them.
+ *
+ * Neither is a field on the listing: the work number and the work email are
+ * resolved from the OWNING manager's account, server-side, and the stored
+ * listing blob is never trusted for them (see `listing-contact-card.tsx`). So
+ * the editor cannot ask for a phone or an email here — it shows what the
+ * listing will carry, and points at Settings when a door is missing.
+ */
+export type ListingContactDoors = {
+  /** The work number, E.164, or null when the listing prints no Text button. */
+  phone: string | null;
+  /** The work email, or null when the listing prints no Email button. */
+  email: string | null;
+  /** Saves the draft and opens Settings → Messaging, where the doors are set up. */
+  onSetUp?: () => void;
+};
+
+function ReachYouCard({ contact }: { contact: ListingContactDoors }) {
+  const phoneLabel = contact.phone ? formatSmsPhoneLabel(contact.phone) : null;
+  const setUp = contact.onSetUp ? (
+    <button
+      type="button"
+      onClick={contact.onSetUp}
+      data-attr="listing-v2-contact-set-up"
+      className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
+    >
+      Set up
+    </button>
+  ) : (
+    <span className="text-[13px] text-muted">Not set</span>
+  );
+  const value = (text: string | null) =>
+    text ? (
+      <span className="flex min-w-0 items-center gap-2 text-[13px] text-foreground">
+        <span className="truncate">{text}</span>
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-extrabold text-emerald-700">
+          ✓
+        </span>
+      </span>
+    ) : (
+      setUp
+    );
+  return (
+    <div className="mt-8 max-w-[620px]" data-attr="listing-v2-reach-you">
+      <b className="text-[13px] font-bold text-foreground">How renters reach you</b>
+      <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
+        <FactRow label="Text" first>
+          {value(phoneLabel)}
+        </FactRow>
+        <FactRow label="Email">{value(contact.email)}</FactRow>
+      </div>
+    </div>
+  );
+}
+
 function StepReview({
   sub,
   patch,
   onJump,
+  contact,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   /** Take the manager to the step that closes a gap, rather than describing it. */
   onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
+  contact?: ListingContactDoors;
 }) {
   const checks = listingReadiness(sub);
   const done = checks.filter((c) => c.state === "done").length;
@@ -3033,6 +3097,7 @@ function StepReview({
           })}
         </ul>
       </div>
+      {contact ? <ReachYouCard contact={contact} /> : null}
       <div className="mt-6 max-w-[620px]">
         <ZillowSyndicationRow sub={sub} patch={patch} onJump={onJump} />
       </div>
@@ -3042,41 +3107,84 @@ function StepReview({
 
 /* ─────────────────────────── orchestrator ─────────────────────────── */
 
+const hasPositiveMoney = (value: string | number | undefined | null): boolean => {
+  const amount = typeof value === "number" ? value : Number(String(value ?? "").trim().replace(/[,$\s]/g, ""));
+  return Number.isFinite(amount) && amount > 0;
+};
+
+/**
+ * Publish asks whether the manager has an offering a renter can actually take.
+ * Pricing is term-scoped: a short-stay rate cannot make a long-term-only
+ * listing publishable, and a price stored on a disabled term is not an offer.
+ */
+function hasOfferedListingRent(submission: ManagerListingSubmissionV1): boolean {
+  const offeredTerms = listingPricingLeaseTabs(submission).map(listingPricingTabToLeaseTerm);
+  const rooms = submission.rooms ?? [];
+  const defaults = houseDefaultsForSubmission(submission);
+
+  return offeredTerms.some((term) => {
+    if (isEntireHomeListing(submission)) return entireHomeMonthlyRentAmount(submission) > 0;
+
+    if (isStayLeaseTerm(term)) {
+      return rooms.some(
+        (room) =>
+          hasPositiveMoney(room.shortTermRent) ||
+          hasPositiveMoney(room.weeklyRentPrice) ||
+          (roomInheritsDefault(room, defaults, "shortTermRent") && hasPositiveMoney(defaults.shortTermRent)) ||
+          (roomInheritsDefault(room, defaults, "weeklyRentPrice") && hasPositiveMoney(defaults.weeklyRentPrice)),
+      );
+    }
+
+    return rooms.some((room) => {
+      const termDefault = submission.houseTermPricing?.[term]?.monthlyRent;
+      return (
+        hasPositiveMoney(room.termPricing?.[term]?.monthlyRent) ||
+        (hasPositiveMoney(termDefault) && roomFollowsTermDefault(room, term, "monthlyRent", submission.houseTermPricing)) ||
+        hasPositiveMoney(room.monthlyRent) ||
+        (roomInheritsDefault(room, defaults, "monthlyRent") && hasPositiveMoney(defaults.monthlyRent)) ||
+        (room.rentBasis === "daily" && hasPositiveMoney(room.dailyRentPrice)) ||
+        (room.rentBasis === "weekly" && hasPositiveMoney(room.weeklyRentPrice))
+      );
+    });
+  });
+}
+
 export function ListingEditorV2({
   submission,
   propertyId = null,
   onChange,
   onClose,
+  onSave,
   onSaveExit,
   onPublish,
   onStepChange,
   title,
   busy = false,
+  actionError,
   isEdit = false,
   saveState,
   leadingStep,
   headerCenter,
   basicsLead,
   initialStep,
+  contact,
 }: {
   submission: ManagerListingSubmissionV1;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
   propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
-  /**
-   * The Review step's explicit Save. Closing and typing already save
-   * themselves in the parent; this is the visible commit a manager reaches for
-   * on the last step — it writes whatever is unsaved and then leaves the
-   * editor, and on a failed write it stays open rather than dropping the work.
-   */
-  onSaveExit?: (stepIndex: number) => void;
+  /** Explicitly save the current step without closing the editor. */
+  onSave?: (stepIndex: number) => unknown;
+  /** @deprecated Compatibility for callers that have not moved to `onSave`. */
+  onSaveExit?: (stepIndex: number) => unknown;
   /** Receives the step the manager left on, so a flush can keep the resume point. */
   onClose: (stepIndex: number) => void;
   /** Keep the parent's autosave resume point in sync while they stay in the editor. */
   onStepChange?: (stepIndex: number) => void;
-  onPublish: () => void;
+  onPublish: () => void | Promise<boolean>;
   title: string;
   busy?: boolean;
+  actionError?: string | null;
   /** Editing a listing that is already public, rather than building a new one. */
   isEdit?: boolean;
   /** Autosave status, stated once in the header. */
@@ -3094,11 +3202,17 @@ export function ListingEditorV2({
   basicsLead?: ReactNode;
   /** Open on this listing step — Import jumps to Rooms / Review without walking Basics. */
   initialStep?: ListingV2StepId;
+  /** The doors a renter reaches the manager through, shown on Review. */
+  contact?: ListingContactDoors;
 }) {
   // Save and Publish share one `busy`; remember which was pressed so only that
   // button reads as in flight. The flag is read only while busy, so a stale
   // true after the write lands is harmless and the next press resets it.
   const [savePressed, setSavePressed] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  useEffect(() => {
+    setPublishError(null);
+  }, [submission]);
 
   const [step, setStep] = useState(() => listingV2StepIndex(initialStep));
   useEffect(() => {
@@ -3127,6 +3241,31 @@ export function ListingEditorV2({
     const target = LISTING_V2_STEPS[Math.max(0, Math.min(last, index))]!;
     setStep(LISTING_V2_STEPS.indexOf(target));
     setVisited((prev) => (prev.has(target.id) ? prev : new Set(prev).add(target.id)));
+  };
+
+  const publishBlocker = () => {
+    const focus = (stepId: ListingV2StepId, selector: string, message: string) => ({ stepId, selector, message });
+    if (!submission.address.trim()) return focus("basics", 'input[autocomplete="street-address"]', "Add a street address before publishing.");
+    if (!submission.city.trim()) return focus("basics", '[data-wizard-field="city"]', "Add a city before publishing.");
+    if (!validateStateAbbrev(submission.state).ok) return focus("basics", '[data-wizard-field="state"]', "Add a valid two-letter state before publishing.");
+    if (!isValidZipInput(submission.zip)) return focus("basics", '[data-wizard-field="zip"]', "Add a valid ZIP before publishing.");
+    if (!submission.listingPlaceCategoryId) return focus("basics", '[data-attr="listing-v2-rent-model-shared"]', "Choose how you rent this home before publishing.");
+    if (resolveAllowedLeaseTerms(submission).length === 0) return focus("pricing", '[data-attr="lease-type"] button, [data-attr="lease-type"]', "Choose a lease type before publishing.");
+    if (!hasOfferedListingRent(submission)) return focus("pricing", '[aria-label^="Rent"]', "Add a rent before publishing.");
+    if (submission.serviceFeePayer === "proplane" && submission.serviceFeeWaiverCode && !isProcessingCoverageCodeShape(submission.serviceFeeWaiverCode)) return focus("pricing", '[data-attr="listing-v2-service-fee-code"]', "Enter a valid promo code before publishing.");
+    return null;
+  };
+
+  const publishFromCurrentStep = async (): Promise<boolean> => {
+    const blocker = publishBlocker();
+    if (blocker) {
+      setPublishError(blocker.message);
+      goTo(LISTING_V2_STEPS.findIndex((candidate) => candidate.id === blocker.stepId));
+      requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(blocker.selector)?.focus()));
+      return false;
+    }
+    setPublishError(null);
+    return (await onPublish()) !== false;
   };
 
   // The short path (see listingV2PathStepIds). A step reached from the rail
@@ -3238,11 +3377,12 @@ export function ListingEditorV2({
             sub={submission}
             patch={patch}
             onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))}
+            contact={contact}
           />
         );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, submission, defaults, isEdit, basicsLead]);
+  }, [stepId, submission, defaults, isEdit, basicsLead, contact]);
 
   /**
    * The right-hand panel for this step.
@@ -3303,10 +3443,15 @@ export function ListingEditorV2({
       sidePanel={sidePanel}
       footer={
         <>
+          {publishError || actionError ? (
+            <p role="alert" className="basis-full text-[13px] font-semibold text-destructive" data-testid="listing-v2-persistence-error">
+              {publishError ?? actionError}
+            </p>
+          ) : null}
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={prevStep == null && !leadingStep}
+              disabled={busy || (prevStep == null && !leadingStep)}
               onClick={() => {
                 if (prevStep != null) goTo(prevStep);
                 else leadingStep?.onOpen();
@@ -3324,48 +3469,26 @@ export function ListingEditorV2({
           <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">
             {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
-          {nextStep == null ? (
-            <div className="flex items-center gap-2">
-              {/* Review is Save + Publish — a draft stays a draft, a live
-                  listing writes in place. ✕ still writes on close; this Save
-                  is the explicit pair the Review step shows. */}
-              <button
-                type="button"
-                onClick={() => {
-                  setSavePressed(true);
-                  onSaveExit?.(step);
-                }}
-                disabled={busy}
-                data-attr={isEdit ? "listing-v2-save" : "listing-v2-save-draft"}
-                className="min-h-[44px] rounded-full px-3 text-[14px] font-bold text-primary disabled:opacity-60 sm:border sm:border-border sm:bg-card sm:px-6 sm:text-foreground"
-              >
-                {busy && savePressed ? "Saving…" : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSavePressed(false);
-                  onPublish();
-                }}
-                disabled={busy}
-                data-attr="listing-v2-publish"
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-              >
-                {busy && !savePressed ? "Publishing…" : "Publish"}
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => goTo(nextStep)}
-              data-attr="listing-v2-next"
-              aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
-              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
-            >
-              <span className="sm:hidden">Continue</span>
-              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <Button variant="outline" disabled={busy} loading={busy && savePressed} onClick={() => {
+              setSavePressed(true);
+              setPublishError(null);
+              return onSave?.(step) ?? onSaveExit?.(step);
+            }} data-attr={isEdit ? "listing-v2-save" : "listing-v2-save-draft"} className="px-3 sm:px-5">
+              Save
+            </Button>
+            <Button disabled={busy} loading={busy && !savePressed} onClick={() => {
+              setSavePressed(false);
+              return publishFromCurrentStep();
+            }} data-attr="listing-v2-publish" className="px-3 sm:px-5">
+              Publish
+            </Button>
+            {nextStep != null ? (
+              <Button variant="outline" disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
+                Continue
+              </Button>
+            ) : null}
+          </div>
         </>
       }
     >

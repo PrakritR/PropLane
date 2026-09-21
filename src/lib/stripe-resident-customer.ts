@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 
 /** Resolve or create the Stripe Customer id stored on the resident profile. */
 export async function ensureResidentStripeCustomerId(
@@ -9,6 +10,12 @@ export async function ensureResidentStripeCustomerId(
   email: string,
   name?: string | null,
 ): Promise<string> {
+  await assertTestWorkspaceProviderEffectAllowed({
+    userId,
+    kind: "payment",
+    summary: "Stripe customer setup refused for a test workspace.",
+    db,
+  });
   const { data: profile, error } = await db
     .from("profiles")
     .select("stripe_customer_id, full_name")

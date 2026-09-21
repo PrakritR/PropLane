@@ -45,7 +45,7 @@ describe("ManagerPropertyLeasePanel", () => {
     );
 
     // Record editing appears only inside that record’s menu.
-    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Lease settings" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
 
     expect(screen.queryByRole("checkbox")).toBeNull();
@@ -54,7 +54,7 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lease settings" }));
     expect(screen.getByTestId("lease-settings-modal")).toBeTruthy();
   });
 });

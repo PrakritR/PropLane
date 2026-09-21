@@ -11,6 +11,7 @@ import { paymentWaiverCodeMatches } from "@/lib/server-env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { MANAGER_PORTAL_ENTRY_PATH } from "@/lib/auth/manager-google-services-onboarding";
+import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Sign in with Google first." }, { status: 401 });
     }
 
+    const supabase = createSupabaseServiceRoleClient();
+    // Pricing provisions ordinary manager rows and paid tiers create a real
+    // Stripe session. Durable test identities never enter either path, even if
+    // their workspace is active or the feature flag is later disabled.
+    if ((await resolveTestWorkspaceClassification(user.id, supabase)).kind !== "normal") {
+      return NextResponse.json({ error: "This action is unavailable." }, { status: 403 });
+    }
+
     const body = (await req.json()) as Body;
     const tierRaw = typeof body.tier === "string" ? body.tier.toLowerCase().trim() : "";
     const billingRaw = typeof body.billing === "string" ? body.billing.toLowerCase().trim() : "";
@@ -69,7 +78,6 @@ export async function POST(req: Request) {
     const email = user.email.trim().toLowerCase();
     const fullName = oauthFullName(user.user_metadata);
 
-    const supabase = createSupabaseServiceRoleClient();
     const prepared = await ensureProvisionedManagerForPricing(supabase, {
       userId: user.id,
       email,

@@ -8,6 +8,7 @@
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -38,10 +39,12 @@ export async function sendVendorNotification(
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal</p>`;
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [vendorEmail], subject: params.subject, text: params.body, html }),
+    const res = await postResendEmail({
+      apiKey,
+      actorUserId: actor.userId,
+      payload: { from, to: [vendorEmail], subject: params.subject, text: params.body, html },
+      effectSummary: `Vendor notification email to ${vendorEmail} was captured for SMS test mode.`,
+      metadata: { vendorDirectoryId: params.vendorDirectoryId ?? null },
     });
     emailSent = res.ok;
   }

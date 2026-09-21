@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
-import { mockStripeCheckoutRoutes } from "../helpers/auth";
+import { mockStripeCheckoutRoutes, signInAsResident } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
 import { RESIDENT_PORTAL_SMOKE_PATHS } from "@/lib/portals/resident-sections";
 
@@ -30,11 +30,21 @@ async function gotoTolerantly(page: Page, route: string) {
 }
 
 async function assertNoHorizontalOverflow(page: Page, label: string) {
-  const overflow = await page.evaluate(() => {
-    const doc = document.documentElement;
-    return doc.scrollWidth > doc.clientWidth + 2;
-  });
-  expect(overflow, `horizontal overflow on ${label}`).toBe(false);
+  await expect.poll(
+    async () => {
+      try {
+        return await page.evaluate(() => {
+          const doc = document.documentElement;
+          return doc.scrollWidth > doc.clientWidth + 2;
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/execution context was destroyed|cannot find context with specified id/i.test(message)) return null;
+        throw error;
+      }
+    },
+    { message: `horizontal overflow on ${label}`, timeout: 15_000 },
+  ).toBe(false);
 }
 
 test.describe("Resident portal UI bug hunt", () => {
@@ -42,6 +52,7 @@ test.describe("Resident portal UI bug hunt", () => {
 
   test.beforeEach(async ({ page }) => {
     await mockStripeCheckoutRoutes(page);
+    await signInAsResident(page);
   });
 
   test("desktop: smoke paths render without horizontal overflow", async ({ page }) => {
@@ -54,8 +65,11 @@ test.describe("Resident portal UI bug hunt", () => {
       await expect(page.getByRole("heading").first().or(page.locator("main")).first()).toBeVisible({
         timeout: 25_000,
       });
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
-      if (overflow) overflowing.push(`${label} (${route})`);
+      try {
+        await assertNoHorizontalOverflow(page, `${label} (${route})`);
+      } catch {
+        overflowing.push(`${label} (${route})`);
+      }
     }
     expect(overflowing, `horizontal overflow on: ${overflowing.join(", ")}`).toEqual([]);
   });
@@ -73,8 +87,11 @@ test.describe("Resident portal UI bug hunt", () => {
       await expect(page.getByRole("heading").first().or(page.locator("main")).first()).toBeVisible({
         timeout: 25_000,
       });
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
-      if (overflow) overflowing.push(`${label} (${route})`);
+      try {
+        await assertNoHorizontalOverflow(page, `${label} (${route})`);
+      } catch {
+        overflowing.push(`${label} (${route})`);
+      }
     }
     expect(overflowing, `horizontal overflow on: ${overflowing.join(", ")}`).toEqual([]);
   });

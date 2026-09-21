@@ -36,6 +36,7 @@ export type InspectionRecord = {
   property_label: string; room_label: string; kind: InspectionKind; status: InspectionStatus;
   inspection_date: string; baseline_id: string | null; revision: number;
   document: InspectionDocument; created_at: string; updated_at: string;
+  sms_test_session_id?: string | null;
 };
 /**
  * Where a residency sits on the move-in / move-out timeline. The Inspections page is a roster
@@ -202,4 +203,3 @@ export function applyInspectionObservations(report: InspectionRecord, role: Insp
   }
   return document;
 }
-

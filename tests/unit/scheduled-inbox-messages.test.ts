@@ -3,8 +3,8 @@ import {
   RESIDENT_SCHEDULED_MESSAGE_CONTENT_FORBIDDEN,
   isUpcomingScheduledInboxMessage,
   isResidentOriginatedScheduledRow,
-  updateScheduledInboxMessage,
 } from "@/lib/scheduled-inbox-messages";
+import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages.server";
 
 function mockDbForUpdate(rowData: Record<string, unknown>) {
   const update = vi.fn().mockReturnValue({

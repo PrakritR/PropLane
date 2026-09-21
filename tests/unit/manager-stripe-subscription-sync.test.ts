@@ -10,6 +10,10 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 import {
   isDefinitiveStripeSubscriptionMissingError,
   reconcileManagerPurchaseWithStripe,

@@ -6,6 +6,7 @@
  */
 import { track } from "@/lib/analytics/posthog";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { notifyWorkOrderEvent } from "@/lib/work-order-notification.server";
 import { buildVendorBidOfferEmail } from "@/lib/vendor-visit-email";
@@ -134,7 +135,7 @@ export async function sendWorkOrderVendorOffers(
     };
     await db
       .from("portal_work_order_records")
-      .update({ row_data: nextRowData, updated_at: new Date().toISOString() })
+      .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: new Date().toISOString() })
       .eq("id", workOrderId);
 
     const offeredVendors = sent.map((id) => vendors.get(id)).filter((vendor): vendor is VendorDirectorySummary => Boolean(vendor));

@@ -44,6 +44,9 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: () => {} }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: async () => ({ kind: "normal" }),
+}));
 vi.mock("@/lib/manager-access-server", () => ({
   getEffectiveManagerSkuTier: async () => ({ ok: true, tier: "pro" }),
 }));

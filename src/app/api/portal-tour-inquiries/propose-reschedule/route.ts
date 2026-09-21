@@ -4,6 +4,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourRescheduled } from "@/lib/tour-notification-delivery.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -77,6 +78,7 @@ export async function POST(req: Request) {
       data: { user },
     } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if ((await resolveAuthenticatedBusinessAccess(user.id)).kind === "denied") return NextResponse.json({ error: "Tour access is unavailable for this account." }, { status: 403 });
 
     const body = (await req.json()) as {
       id?: unknown;

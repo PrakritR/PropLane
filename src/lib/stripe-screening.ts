@@ -12,6 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runBackgroundCheck, runCosignerBackgroundCheck } from "@/lib/checkr/background-check";
 import { getStripe } from "@/lib/stripe";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 export const SCREENING_CHECKOUT_PURPOSE = "application_screening";
 
@@ -33,6 +34,23 @@ export async function runScreeningFromStripeSession(
     console.error("[stripe webhook] screening checkout missing metadata", { sessionId: session.id });
     return;
   }
+  const { data: application, error: ownerError } = await db
+    .from("manager_application_records")
+    .select("manager_user_id")
+    .eq("id", applicationId)
+    .maybeSingle();
+  if (ownerError) throw new Error("Screening ownership could not be verified.");
+  const storedManagerUserId = String(application?.manager_user_id ?? "").trim();
+  if (!storedManagerUserId || storedManagerUserId !== managerUserId) {
+    throw new Error("Screening ownership could not be verified.");
+  }
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: storedManagerUserId,
+    kind: "payment",
+    summary: "Screening fulfillment was refused for a test workspace.",
+    metadata: { operation: "screening_fulfillment" },
+    db,
+  })).captured) return;
   const paymentIntentId =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
 

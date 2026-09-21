@@ -1,0 +1,31 @@
+{
+  "scope": "resumed correction for correction2 final findings",
+  "branch": "akhil/test-workspace-release-20260919",
+  "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
+  "fileCount": 23,
+  "files": [
+    { "path": "src/app/api/stripe/checkout/route.ts", "sha256": "07313007f5e5c6a1240720543222b516ca65757a722f94a94295fd69883aa9c4" },
+    { "path": "src/lib/stripe/manager-checkout.ts", "sha256": "7c2c3ac601a20b8a9aad64f76e1ed162951e7c4a4a928692a4594bc7060b92c4" },
+    { "path": "src/lib/manager-purchase-from-session.ts", "sha256": "d7bfe2fc903bdc0205696e6c8634e2e4ff3247f59df18d243711f10573e937bf" },
+    { "path": "src/lib/comms-billing/credit-purchase.server.ts", "sha256": "8a6316d7a61cf2edf27fe5bf12d6505e834d721aea8e9e849368e11d714df830" },
+    { "path": "src/app/api/stripe/webhook/route.ts", "sha256": "3f5c01fe4d4282c13bdc2c37a58205ced0b4b074cbbd4a75d7e7a844652a6e83" },
+    { "path": "src/app/api/portal/lease-template/route.ts", "sha256": "38ea5feffd993ce15c89ae0dbdb0e890b66978d5a35a568c9ca71386610f22df" },
+    { "path": "src/app/api/portal/co-manager-calendar/route.ts", "sha256": "2535eb1a0e82d152ac1ff28bc3becdce82510a58bf1e6d87ae66473906a7f959" },
+    { "path": "src/app/api/portal/resident-property/route.ts", "sha256": "9c585ad24a6eebe188f531fda729b768455440db1d62a597ec637953a2ab19e2" },
+    { "path": "src/app/api/portal/send-application-started/route.ts", "sha256": "546277f19e39b4ee1f19e8be61a13ce9255c98784679a841d79f73344f4002b4" },
+    { "path": "src/app/api/portal/send-application-submitted/route.ts", "sha256": "d4a07d773f401a4875d8345cf2b95090c551b8b7181d26a09c0dd2dc368610e9" },
+    { "path": "src/lib/portal-record-share-links.server.ts", "sha256": "44a7641564de00efe739d8e6d52399264bdc3e74bfa6c92ad27fd156fd3e5d5d" },
+    { "path": "src/lib/inbox-recipient-scope.ts", "sha256": "0d47756d50365486761e74bab6023e0cced783b238946ef33dba1346b0e84e35" },
+    { "path": "src/lib/axis-assistant/use-assistant-conversation.ts", "sha256": "cea54447d7e16ef04954e82ab47dd225dc114658ca045680138ca9183a68b236" },
+    { "path": "tests/unit/test-workspace-checkout-boundaries.test.ts", "sha256": "e2074bb862605970d8f9275d34b3643fb33bb5ec2f5eb5bdd316767d890d2ba0" },
+    { "path": "tests/unit/comms-credit-purchase.test.ts", "sha256": "531f6b650b5fbc3cd2a987fcd3f260c27cb139769a17d488c99b9831d3a86bf1" },
+    { "path": "tests/unit/manager-purchase-from-session.test.ts", "sha256": "4eb0b5081db3c287b6a728ed6a76cc102f0e564e6c53b4681e9277ded61f5d3d" },
+    { "path": "tests/unit/test-workspace-lease-template-route.test.ts", "sha256": "dcec7e59128a22729323d333f58b5c7c730296d591aca131618e8dac87d05d38" },
+    { "path": "tests/unit/test-workspace-private-read-routes.test.ts", "sha256": "e1e68a5d583fb207074cbbda608afc6863a771638b452419c51d7f9aaf32e17b" },
+    { "path": "tests/unit/assistant-conversation-history.test.tsx", "sha256": "fb704bfb71ced369b584a081eec7be5191c12eb5cc0b70a86b5d9234963845c9" },
+    { "path": "tests/unit/test-workspace-client-scope-races.test.tsx", "sha256": "3b77534405495a8495ae1674fe7ae82c0ff8115ed85799f6f95ad9562e4b025d" },
+    { "path": "tests/unit/portal-record-share-links.test.ts", "sha256": "a98e3a22a134edd967844554163fb75896e4d29e35b0593ebbaba93edcebfec4" },
+    { "path": "tests/unit/inbox-recipient-scope.test.ts", "sha256": "25eba4d5718a338894285ce572888318d21ed3fe77788d5530fab360020480a6" },
+    { "path": "tests/unit/send-application-submitted-handoff-route.test.ts", "sha256": "69de868c17919d3a0045eabf2eaaf90f71ed2530450b1ae05ec6c11fd88c8a28" }
+  ]
+}

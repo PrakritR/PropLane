@@ -28,6 +28,7 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -127,6 +128,14 @@ export async function approveAndPayWorkOrder(
   const existingRow = (existing.row_data ?? {}) as DemoManagerWorkOrderRow;
 
   const ownerManagerUserId = String(existing.manager_user_id ?? actor.userId);
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: ownerManagerUserId,
+    kind: "payment",
+    summary: "Vendor payout refused for a test workspace.",
+    db,
+  })).captured) {
+    return { ok: false, status: 403, error: "Vendor payouts are unavailable for test accounts." };
+  }
 
   const paymentChannel = "ach" as const;
 

@@ -1,0 +1,26 @@
+{
+  "scope": "inherited release baseline repair",
+  "branch": "akhil/test-workspace-release-20260919",
+  "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
+  "fileCount": 18,
+  "files": [
+    { "path": "src/lib/lease-pipeline-list-projection.ts", "sha256": "19b92de1a9caa2a4809b4d83e926dee647313c3638ca9693696d02522acdbd77" },
+    { "path": "src/components/portal/pro-team-blocks.tsx", "sha256": "719bc4ca9461ad1d880df1503cfd37d219e0c01d4c1f5a9909b18e8c42444ddc" },
+    { "path": "tests/unit/lease-pipeline-list-projection.test.ts", "sha256": "9ac2125e4225af5b768a441cade6c8a5c49634847644b1c9a66da2d6e8e83ea1" },
+    { "path": "tests/unit/lease-document-preview-scroll.test.tsx", "sha256": "32cce388b994ec4378abad325209ff76fbe26f79dfab5589bb25c39fd17c56da" },
+    { "path": "tests/unit/lease-bulk-bar-actions.test.ts", "sha256": "390b28a089f611b93207de2a1b6b4d18f721b7112fa39304e5a67cad0e9e3d45" },
+    { "path": "tests/unit/manager-property-application-questions-panel.test.tsx", "sha256": "ab422d0ef3f7b7431b11445f3b5c0031594bc11a767cdfc5a37fc1d94bb02f8d" },
+    { "path": "tests/unit/manager-property-lease-panel.test.tsx", "sha256": "f04e429aa2f98934e29c7263fa13589c882794b240e341faa2107349cc721045" },
+    { "path": "tests/unit/manager-applications-incomplete-reminder.test.tsx", "sha256": "d2d71208adb83bd1787ad59edf407f47511ce8f0af64a4a254c153275baa5e48" },
+    { "path": "tests/unit/withdrawn-approval-ui.test.tsx", "sha256": "fb34fde4a346fad34c845243be13239c5c9937d69dcd5d25a52c75e707214a91" },
+    { "path": "tests/unit/calendar-meeting-search.test.ts", "sha256": "d7cfd8d2595a9bcacbb697d8f1270edc7e31d0bbebbc4bd007431147387d55a5" },
+    { "path": "tests/unit/calendar-shows-scheduled-work.test.ts", "sha256": "7a82d69bba0aef22e1032574744e85b62e8b2b4529b4e85cdef4cc688a6d9103" },
+    { "path": "tests/unit/dropdown-menu-callers-use-default.test.ts", "sha256": "c7c9f330bbfa0e02131ff0b5f52af98d254c0f9691453113ee636b82c415dadb" },
+    { "path": "tests/unit/listing-room-detail-rent.test.tsx", "sha256": "dacfd133b2784407527be710ff23d5f0c57b7c75a2cd48c04e545d615de532f3" },
+    { "path": "tests/unit/evidence-property-calendar-conflicts.test.tsx", "sha256": "5f0f5354c3d4e0098a318f6efd3e105f3a6ef1a41a4c488202c4fb0b56f301cb" },
+    { "path": "tests/unit/settings-module-redraws.test.tsx", "sha256": "65fb73547ff412f92e22248f7fde405b162f07c2a0be31f33c14708da79f9493" },
+    { "path": "tests/unit/tour-settings-redraw.test.tsx", "sha256": "eeccf82d5652119f52aaf73b3a1bd63455225a12261a89372fb24e6e74c1c049" },
+    { "path": "tests/unit/manager-property-room-move-in-panel.test.tsx", "sha256": "bd9dae04eb90e0240f1b3280e47f1fd188cc3247063093f8165cdfe3dd72cb97" },
+    { "path": "tests/unit/inbox-initial-loading-readiness.test.tsx", "sha256": "b2dff6a1cf1df8ba65483225e5af7f1148b6d41926039d644dc6610855f5c2bd" }
+  ]
+}

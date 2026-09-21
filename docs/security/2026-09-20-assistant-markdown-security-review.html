@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PropLane Assistant inbox markdown security review - 20 September 2026</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f8fa; --card: #fff; --ink: #1d2733; --muted: #5d6875; --line: #d8dee6; --pass: #176b45; --info: #245c9f; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #11151a; --card: #191f26; --ink: #edf1f5; --muted: #aeb8c3; --line: #35404b; --pass: #65d39c; --info: #8abaff; } }
+    * { box-sizing: border-box; }
+    body { max-width: 980px; margin: 0 auto; padding: 40px 24px 64px; background: var(--bg); color: var(--ink); font: 16px/1.58 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: clamp(1.65rem, 4vw, 2.3rem); line-height: 1.15; }
+    h2 { margin-top: 30px; font-size: 1.2rem; }
+    p, li { max-width: 82ch; }
+    code { padding: .12rem .3rem; border-radius: 4px; background: color-mix(in srgb, var(--line) 45%, transparent); overflow-wrap: anywhere; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .verdict { margin: 24px 0; padding: 18px 20px; border-left: 5px solid var(--pass); background: color-mix(in srgb, var(--pass) 9%, transparent); }
+    .pass { color: var(--pass); font-weight: 750; }
+    .info { color: var(--info); font-weight: 700; }
+    .meta { color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PropLane Assistant inbox markdown security review</h1>
+  <p class="meta">20 September 2026 · Branch <code>akhil/assistant-markdown-format-20260920</code> · Isolated worktree <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/10/AXIS-2</code></p>
+
+  <div class="verdict">
+    <strong class="pass">PASS - no security blocker found.</strong>
+    The current two-file uncommitted diff is suitable to proceed through the remaining production gates. This is a source-security verdict only; it does not replace tests, lint, build, preflight, staging-branch promotion, deployment verification, or TestFlight verification owned by the release operator.
+  </div>
+
+  <h2>Reviewed state</h2>
+  <table>
+    <tr><th>Base</th><td><code>9e77b5b8f2a8dc99f27b87dbf866774fc9cf5e89</code> (also current <code>HEAD</code> and merge base with <code>origin/main</code>)</td></tr>
+    <tr><th>Uncommitted product change</th><td><code>src/components/portal/portal-inbox-ui.tsx</code>: import the existing <code>AssistantMarkdown</code> component and use it only when <code>message.direction === "assistant"</code>; all other message bodies retain the existing plain React text rendering.</td></tr>
+    <tr><th>Uncommitted test change</th><td><code>tests/unit/inbox-bubble-alignment.test.tsx</code>: assert that assistant bold syntax and list syntax become semantic elements and literal asterisks are absent.</td></tr>
+    <tr><th>Diff size</th><td>Two modified files, 26 insertions, 1 deletion. <code>git diff --check</code> completed without output.</td></tr>
+    <tr><th>Dependency state</th><td><code>package.json</code> and <code>package-lock.json</code> are byte-identical to the base. The renderer and its pinned dependencies already existed before this change.</td></tr>
+  </table>
+
+  <h2>Findings by severity</h2>
+  <table>
+    <thead><tr><th>Severity</th><th>Finding</th><th>Resolution and blocking status</th></tr></thead>
+    <tbody>
+      <tr><td>Critical</td><td>None.</td><td>Not blocking.</td></tr>
+      <tr><td>High</td><td>None.</td><td>Not blocking.</td></tr>
+      <tr><td>Medium</td><td>None.</td><td>Not blocking.</td></tr>
+      <tr><td>Low</td><td>None.</td><td>Not blocking.</td></tr>
+      <tr>
+        <td><span class="info">Informational</span></td>
+        <td>The inbox now exposes the same established Markdown presentation path already used by the assistant panel, dock, general assistant, and demo assistant. This broadens where formatted assistant output appears, but does not create a new parser or trust boundary.</td>
+        <td>Accepted. Existing renderer controls apply unchanged. Not blocking.</td>
+      </tr>
+      <tr>
+        <td><span class="info">Informational</span></td>
+        <td>Assistant-produced links remain clickable and open in a new tab. The existing renderer relies on <code>react-markdown</code> 10.1.0's default URL transform, which permits relative URLs and the <code>http</code>, <code>https</code>, <code>irc</code>, <code>ircs</code>, <code>mailto</code>, and <code>xmpp</code> schemes while converting unsafe schemes such as <code>javascript:</code> to an empty target. Links also receive <code>rel="noreferrer"</code>.</td>
+        <td>Accepted inherited behavior. No unsafe scheme execution was found. Not blocking.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Security analysis</h2>
+  <p><strong>Injection and XSS.</strong> <code>AssistantMarkdown</code> does not install <code>rehype-raw</code> or use <code>dangerouslySetInnerHTML</code>. In the installed renderer, raw HTML nodes are converted to text. The existing focused test confirms that model output containing an <code>&lt;img onerror&gt;</code> payload and a <code>&lt;script&gt;</code> tag creates neither an image nor script element. React continues to escape ordinary text. GFM formatting adds structural elements only.</p>
+  <p><strong>Links and navigation.</strong> URL-bearing properties pass through the package's safe default transformation. Non-allowlisted protocols are blanked. The custom anchor component adds <code>target="_blank"</code> and <code>rel="noreferrer"</code>, preventing opener access in supported browsers and suppressing referrer disclosure. HTTP(S) destinations can still be untrusted, as with any assistant-authored link, but navigation requires a user click and this behavior already exists across other assistant surfaces.</p>
+  <p><strong>Role and data boundaries.</strong> The diff changes rendering after a message has already been selected for the current thread. It adds no fetch, route, query, database call, cache, persistence path, identity input, role branch, tenant selector, or authorization decision. Manager, resident, vendor, and assistant-message classification remain in their existing callers. No cross-tenant or privilege-escalation path was introduced.</p>
+  <p><strong>Writes and external effects.</strong> The change is client-side presentation only. It cannot invoke an assistant tool, confirm a pending action, send a message, mutate a record, or alter the server-side confirmation lifecycle. Markdown links are ordinary anchors and do not execute application writes.</p>
+  <p><strong>Supply chain.</strong> There is no manifest or lockfile change. <code>react-markdown</code> 10.1.0 and <code>remark-gfm</code> 4.0.1 were already locked at the base commit. The reviewed change reuses the existing component, so it adds no package, install script, remote asset, runtime download, or new third-party code.</p>
+
+  <h2>Evidence and limits</h2>
+  <p>Review used the exact Git diff and status, base/HEAD/merge-base checks, the existing <code>AssistantMarkdown</code> implementation, its focused injection test, the installed <code>react-markdown</code> URL and raw-node handling source, dependency manifest and lockfile hashes, and inbox call sites. The repository's configured graph was unavailable in this isolated worktree, so the attempted semantic query returned “graph file not found”; the required scope was verified directly from the narrow diff and referenced source.</p>
+  <p>No heavy validation, browser session, server, database operation, dependency installation, product-code edit, commit, push, or deployment was performed. The only added file is this review report.</p>
+
+  <h2>Release decision</h2>
+  <p><strong class="pass">Security gate: cleared.</strong> No correction is required from this review. The release must still stop if later runtime validation, preflight, staging/deployment verification, or protected-branch fast-forward checks fail.</p>
+</main>
+</body>
+</html>

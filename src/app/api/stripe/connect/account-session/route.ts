@@ -8,7 +8,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
-import { isStripeConnectAccountAccessError } from "@/lib/stripe-connect";
+import {
+  ensureConnectAccountTransfersRequested,
+  isStripeConnectAccountAccessError,
+} from "@/lib/stripe-connect";
 import { createAccountSession, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
 
 export const runtime = "nodejs";
@@ -64,6 +67,7 @@ export async function POST(req: Request) {
         email: ownerProfile?.email ?? user.email ?? undefined,
         allowClearStale: false,
       });
+      await ensureConnectAccountTransfersRequested(stripe, accountId);
 
       const session = await createAccountSession(stripe, accountId, component);
       return NextResponse.json(session);

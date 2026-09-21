@@ -5,21 +5,23 @@
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { buildPortalApplicationOpenHref } from "@/lib/manager-applications-storage";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
 type Db = ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceRoleClient>;
 
-async function deliverEmail(to: string[], subject: string, text: string): Promise<void> {
+async function deliverEmail(to: string[], subject: string, text: string, actorUserId: string): Promise<void> {
   const recipients = to.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
   if (recipients.length === 0) return;
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return;
   const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: recipients, subject, text }),
+  await postResendEmail({
+    apiKey,
+    actorUserId,
+    payload: { from, to: recipients, subject, text },
+    effectSummary: "Cosigner submission email captured for the test workspace.",
   }).catch(() => undefined);
 }
 
@@ -83,7 +85,7 @@ export async function notifyManagerCosignerSubmitted(input: {
     "— PropLane",
   ].join("\n");
 
-  await deliverEmail([managerEmail], subject, body);
+  await deliverEmail([managerEmail], subject, body, input.managerUserId);
   await upsertManagerInbox(db, input.managerUserId, {
     subject,
     body,

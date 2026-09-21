@@ -25,10 +25,11 @@ export type ManagerBill = {
   approvedAt: string | null;
   paidAt: string | null;
   createdAt: string;
+  smsTestSessionId: string | null;
 };
 
 export const MANAGER_BILL_SELECT =
-  "id, vendor_id, work_order_id, property_id, vendor_invoice_id, bill_number, description, amount_cents, due_date, status, category_code, paid_expense_entry_id, approved_at, paid_at, created_at";
+  "id, manager_user_id, vendor_id, work_order_id, property_id, vendor_invoice_id, bill_number, description, amount_cents, due_date, status, category_code, paid_expense_entry_id, approved_at, paid_at, created_at, sms_test_session_id, sms_test_actor_user_id, sms_test_manager_user_id";
 
 export function managerBillBadgeTone(status: ManagerBillStatus): "pending" | "approved" | "confirmed" | "overdue" {
   switch (status) {
@@ -62,6 +63,7 @@ export function mapManagerBillRow(row: Record<string, unknown>): ManagerBill {
     approvedAt: row.approved_at ? String(row.approved_at) : null,
     paidAt: row.paid_at ? String(row.paid_at) : null,
     createdAt: String(row.created_at),
+    smsTestSessionId: row.sms_test_session_id ? String(row.sms_test_session_id) : null,
   };
 }
 

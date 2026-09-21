@@ -6,10 +6,17 @@ import {
 } from "@/lib/prepare-listing-submission-for-persist";
 
 describe("prepareListingSubmissionForPersist", () => {
-  it("refuses an invalid application-fee waive code before the server sees it", async () => {
+  it("allows an incomplete application-fee waive code while saving a draft", async () => {
     const sub = createNewListingWizardSubmission();
     sub.applicationFeeWaiverCode = "E.G.BAD";
-    await expect(prepareListingSubmissionForPersist(sub)).rejects.toThrow(
+    const prepared = await prepareListingSubmissionForPersist(sub, { validateWaiverCode: false });
+    expect(prepared.submission.applicationFeeWaiverCode).toBe("E.G.BAD");
+  });
+
+  it("refuses an invalid application-fee waive code before publishing", async () => {
+    const sub = createNewListingWizardSubmission();
+    sub.applicationFeeWaiverCode = "E.G.BAD";
+    await expect(prepareListingSubmissionForPersist(sub, { validateWaiverCode: true })).rejects.toThrow(
       "Application fee waive code must be 4–32 letters, numbers, or hyphens.",
     );
   });
@@ -17,7 +24,7 @@ describe("prepareListingSubmissionForPersist", () => {
   it("normalizes a valid waive code", async () => {
     const sub = createNewListingWizardSubmission();
     sub.applicationFeeWaiverCode = "welcome 50";
-    const prepared = await prepareListingSubmissionForPersist(sub);
+    const prepared = await prepareListingSubmissionForPersist(sub, { validateWaiverCode: true });
     expect(prepared.submission.applicationFeeWaiverCode).toBe("WELCOME50");
   });
 });

@@ -8,6 +8,9 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () =
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: mocks.db }));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedOwnerScopeForModule: mocks.scope }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: async () => ({ kind: "normal" }),
+}));
 import { GET } from "@/app/api/portal-vendors/route";
 
 const row = { id: "vendor", managerUserId: "owner", name: "Sam", trade: "Plumbing", phone: "123", email: "sam@example.test", active: true, sharedWithManagers: true,

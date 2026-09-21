@@ -19,7 +19,7 @@ const ACTION_ID = "act_1";
 function makeDb(rows: Row[], opts: { peekFails?: boolean } = {}) {
   const matches = (row: Row, filters: [string, string, unknown][]) =>
     filters.every(([op, col, val]) =>
-      op === "eq" ? row[col] === val : String(row[col] ?? "") > String(val ?? ""),
+      op === "eq" || op === "is" ? row[col] === val : String(row[col] ?? "") > String(val ?? ""),
     );
   return {
     from() {
@@ -42,6 +42,10 @@ function makeDb(rows: Row[], opts: { peekFails?: boolean } = {}) {
         },
         gt: (col: string, val: unknown) => {
           filters.push(["gt", col, val]);
+          return chain;
+        },
+        is: (col: string, val: unknown) => {
+          filters.push(["is", col, val]);
           return chain;
         },
         maybeSingle: () =>
@@ -80,6 +84,10 @@ function proposedRow(portal: string): Row {
     input: { body: "hi" },
     status: "proposed",
     session_id: null,
+    sms_test_actor_user_id: null,
+    sms_test_manager_user_id: null,
+    sms_test_session_id: null,
+    test_workspace_id: null,
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   };
 }

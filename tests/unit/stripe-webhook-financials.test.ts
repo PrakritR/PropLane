@@ -1,11 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleStripeTransferReversed } from "@/lib/stripe-webhook-financials";
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 describe("handleStripeTransferReversed", () => {
   it("clears stripe_transfer_id on matching ledger payment rows", async () => {
-    const update = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnThis(), error: null });
+    const update = vi.fn(() => {
+      const chain = {
+        eq: vi.fn(() => chain),
+        error: null,
+      };
+      return chain;
+    });
+    const select = vi.fn(() => {
+      const chain = {
+        eq: vi.fn(() => chain),
+        maybeSingle: vi.fn().mockResolvedValue({ data: { manager_user_id: "mgr_1" }, error: null }),
+      };
+      return chain;
+    });
     const db = {
-      from: vi.fn().mockReturnValue({ update }),
+      from: vi.fn().mockReturnValue({ select, update }),
     };
 
     await handleStripeTransferReversed(db as never, {

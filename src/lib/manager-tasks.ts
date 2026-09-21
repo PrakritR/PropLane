@@ -132,6 +132,8 @@ export type ManagerTask = {
   reminderSentAt?: string;
   /** Reminder offsets (minutes before due) already emailed for this task. */
   advanceReminderSentOffsets?: number[];
+  smsTestSessionId?: string;
+  smsTestProvenance?: { actorUserId: string; managerUserId: string; sessionId: string };
   createdAt: string;
   updatedAt: string;
 };
@@ -331,6 +333,11 @@ function normalizeTask(raw: unknown): ManagerTask | null {
           .filter((n): n is number => typeof n === "number" && Number.isFinite(n))
           .map((n) => Math.round(n))
       : undefined,
+    smsTestSessionId: typeof row.smsTestSessionId === "string" ? row.smsTestSessionId.trim() || undefined : undefined,
+    smsTestProvenance:
+      row.smsTestProvenance && typeof row.smsTestProvenance === "object" && !Array.isArray(row.smsTestProvenance)
+        ? row.smsTestProvenance as ManagerTask["smsTestProvenance"]
+        : undefined,
     createdAt: String(row.createdAt ?? new Date().toISOString()),
     updatedAt: String(row.updatedAt ?? new Date().toISOString()),
   };

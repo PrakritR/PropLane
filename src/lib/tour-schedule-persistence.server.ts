@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -38,6 +39,7 @@ export async function mutateConfirmedTourSchedule(
   db: Db,
   mutation: ScheduleMutation,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const event = stampSmsTestProvenance(mutation.event);
   // Old unit fixtures and pre-migration local databases do not expose RPCs.
   // Production always takes the RPC path; this compatibility path preserves
   // the former single-process behavior while a migration is being applied.
@@ -47,7 +49,7 @@ export async function mutateConfirmedTourSchedule(
     if (error) return { ok: false, reason: error.message };
     const rowData = data?.row_data as { payload?: unknown } | undefined;
     const rows = Array.isArray(rowData?.payload) ? rowData.payload.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object")) : [];
-    const id = String(mutation.event.id ?? "");
+    const id = String(event.id ?? "");
     if (mutation.operation === "replace") {
       const current = rows.find((row) => row.id === id);
       if (!current || typeof current.canceledAt === "string" && current.canceledAt) {
@@ -59,11 +61,11 @@ export async function mutateConfirmedTourSchedule(
       }
     }
     const next = mutation.operation === "append" || mutation.operation === "append_event"
-      ? [...rows, mutation.event]
+      ? [...rows, event]
       : mutation.operation === "delete"
         ? rows.filter((row) => row.id !== id)
       : rows.map((row) => row.id === id
-        ? mutation.operation === "cancel" ? { ...row, canceledAt: new Date().toISOString() } : mutation.event
+        ? mutation.operation === "cancel" ? { ...event, canceledAt: new Date().toISOString() } : event
         : row);
     const write = await client.from("portal_schedule_records").upsert([{
       id: "axis_admin_planned_events_v1", manager_user_id: null, property_id: null,
@@ -92,7 +94,7 @@ export async function mutateConfirmedTourSchedule(
   }
   const { data, error } = await db.rpc("mutate_confirmed_tour_schedule", {
     p_operation: mutation.operation,
-    p_event: mutation.event,
+    p_event: event,
     p_remove_inquiry_ids: mutation.removeInquiryIds ?? [],
     p_allow_conflict: mutation.allowConflict === true,
     p_expected_start: mutation.expected?.start ?? null,
@@ -106,13 +108,18 @@ export async function mutateConfirmedTourSchedule(
   return { ok: false, reason: typeof result?.reason === "string" ? result.reason : "Tour schedule unavailable." };
 }
 
+
+type ProspectTourIdentity =
+  | { trustedPhoneE164: string; testActorUserId?: never }
+  | { trustedPhoneE164?: null; testActorUserId: string };
+
+
 export async function confirmProspectSmsTourOffer(
   db: Db,
   args: {
     managerUserId: string;
     conversationKey: string;
     propertyId: string;
-    trustedPhoneE164: string;
     contactName: string;
     contactEmail?: string | null;
     offer: Record<string, unknown>;
@@ -125,19 +132,20 @@ export async function confirmProspectSmsTourOffer(
      * the database rejects as an incomplete claimed snapshot. */
     claimedSourceIds?: string[];
     workerId: string;
-  },
+  } & ProspectTourIdentity,
 ): Promise<{ ok: true; idempotent: boolean; plannedEventId: string; status: string } | { ok: false; reason: string }> {
   const rpcArgs: Record<string, unknown> = {
     p_manager_user_id: args.managerUserId,
     p_conversation_key: args.conversationKey,
     p_property_id: args.propertyId,
-    p_trusted_phone_e164: args.trustedPhoneE164,
     p_contact_name: args.contactName,
     p_contact_email: args.contactEmail?.trim() || null,
     p_offer: args.offer,
-    p_event: args.event,
+    p_event: stampSmsTestProvenance(args.event),
     p_idempotency_key: args.idempotencyKey,
   };
+  if (args.testActorUserId) rpcArgs.p_test_actor_user_id = args.testActorUserId;
+  else rpcArgs.p_trusted_phone_e164 = args.trustedPhoneE164;
   if (args.burstId && args.burstRevision !== undefined && args.agreementSourceMessageId && args.workerId) {
     Object.assign(rpcArgs, {
       p_burst_id: args.burstId,
@@ -147,7 +155,10 @@ export async function confirmProspectSmsTourOffer(
       p_worker_id: args.workerId,
     });
   }
-  const { data, error } = await db.rpc("confirm_prospect_sms_tour_offer", rpcArgs);
+  const { data, error } = await db.rpc(
+    args.testActorUserId ? "confirm_authenticated_sms_test_tour_offer" : "confirm_prospect_sms_tour_offer",
+    rpcArgs,
+  );
   if (error) return { ok: false, reason: error.message };
   const result = data as { ok?: unknown; reason?: unknown; idempotent?: unknown; plannedEventId?: unknown; status?: unknown } | null;
   if (result?.ok !== true || typeof result.plannedEventId !== "string") {
@@ -167,27 +178,31 @@ export async function prepareProspectSmsTourOffer(
     managerUserId: string;
     conversationKey: string;
     propertyId: string;
-    trustedPhoneE164: string;
     contactName: string;
     contactEmail?: string | null;
     offer: Record<string, unknown>;
     burstId: string;
     burstRevision: number;
     workerId: string;
-  },
+  } & ProspectTourIdentity,
 ): Promise<{ ok: true; stateId: string; stateRevision: number } | { ok: false; reason: string }> {
-  const { data, error } = await db.rpc("prepare_prospect_sms_tour_offer", {
+  const { data, error } = await db.rpc(
+    args.testActorUserId ? "prepare_authenticated_sms_test_tour_offer" : "prepare_prospect_sms_tour_offer",
+    {
     p_manager_user_id: args.managerUserId,
     p_conversation_key: args.conversationKey,
     p_property_id: args.propertyId,
-    p_trusted_phone_e164: args.trustedPhoneE164,
+    ...(args.testActorUserId
+      ? { p_test_actor_user_id: args.testActorUserId }
+      : { p_trusted_phone_e164: args.trustedPhoneE164 }),
     p_contact_name: args.contactName,
     p_contact_email: args.contactEmail?.trim() || null,
     p_offer: args.offer,
     p_burst_id: args.burstId,
     p_burst_revision: args.burstRevision,
     p_worker_id: args.workerId,
-  });
+    },
+  );
   if (error) return { ok: false, reason: error.message };
   const result = data as { ok?: unknown; reason?: unknown; stateId?: unknown; stateRevision?: unknown } | null;
   if (result?.ok !== true || typeof result.stateId !== "string") {

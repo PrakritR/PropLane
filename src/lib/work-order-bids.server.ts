@@ -20,6 +20,7 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -488,7 +489,7 @@ export async function acceptWorkOrderBid(
     };
     await db
       .from("portal_work_order_records")
-      .update({ vendor_user_id: record.vendor_user_id, row_data: nextRowData, updated_at: now })
+      .update({ vendor_user_id: record.vendor_user_id, row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
       .eq("id", record.work_order_id);
 
     const propertyLabel = rowData.propertyName || "";
@@ -628,7 +629,7 @@ export async function setVendorPriceForWorkOrder(
 
   const { error } = await db
     .from("portal_work_order_records")
-    .update({ row_data: nextRowData, updated_at: now })
+    .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
     .eq("id", workOrderId);
   if (error) return { ok: false, status: 500, error: error.message };
 
@@ -695,7 +696,7 @@ export async function markWorkOrderDoneByVendor(
 
   const { error } = await db
     .from("portal_work_order_records")
-    .update({ row_data: nextRowData, updated_at: now })
+    .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
     .eq("id", workOrderId);
   if (error) return { ok: false, status: 500, error: error.message };
 

@@ -6,6 +6,7 @@ import { resolveStripePriceIdForPaidTier } from "@/lib/stripe/resolve-manager-pr
 import { buildManagerSubscriptionCheckoutBase } from "@/lib/stripe/subscription-checkout-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
+import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 import {
   MANAGER_PLAN_CHECKOUT_CANCELLED_PATH,
   MANAGER_PLAN_CHECKOUT_SUCCESS_PATH,
@@ -41,6 +42,12 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+
+    await assertTestWorkspaceProviderEffectAllowed({
+      userId: user.id,
+      kind: "payment",
+      summary: "Subscription checkout refused for a test workspace.",
+    });
 
     const actor = await requireManagerRouteUser();
     if (!actor || actor.userId !== user.id) {

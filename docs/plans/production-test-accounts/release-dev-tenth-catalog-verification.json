@@ -1,0 +1,25 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "read_only": "on",
+  "table_shapes": [
+    {
+      "rls": true,
+      "name": "agent_user_preferences",
+      "permissive_policies": 0
+    },
+    {
+      "rls": true,
+      "name": "webhook_deliveries",
+      "permissive_policies": 0
+    },
+    {
+      "rls": true,
+      "name": "webhook_subscriptions",
+      "permissive_policies": 0
+    }
+  ],
+  "title_column": true,
+  "public_tables": 156,
+  "protected_public": 149,
+  "three_ledger_entries": 3
+}

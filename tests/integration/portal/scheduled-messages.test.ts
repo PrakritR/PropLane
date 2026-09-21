@@ -23,7 +23,7 @@ vi.mock("@/lib/payment-automation-settings", async (importOriginal) => {
   };
 });
 
-vi.mock("@/lib/scheduled-inbox-messages", () => ({
+vi.mock("@/lib/scheduled-inbox-messages.server", () => ({
   updateScheduledInboxMessage: vi.fn(),
 }));
 
@@ -34,7 +34,7 @@ import {
   parseScheduledMessageListId,
 } from "@/lib/payment-automation-server";
 import { upsertScheduledMessageOverride } from "@/lib/payment-automation-settings";
-import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages";
+import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages.server";
 import { GET } from "@/app/api/portal/scheduled-messages/route";
 import { PATCH } from "@/app/api/portal/scheduled-messages/[id]/route";
 import { encodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";

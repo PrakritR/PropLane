@@ -24,6 +24,9 @@ vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
   cancelFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
   restoreFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
 
 describe("stripe-application-fee", () => {
   it("identifies application fee sessions", () => {
@@ -77,6 +80,15 @@ describe("markApplicationFeePaidFromStripeSession", () => {
     const ledgerEq2 = vi.fn().mockReturnValue({ maybeSingle });
     const ledgerEq1 = vi.fn().mockReturnValue({ eq: ledgerEq2 });
     const from = vi.fn((table: string) => {
+      if (table === "manager_property_records") {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { manager_user_id: paidCharge.managerUserId }, error: null }),
+            }),
+          }),
+        };
+      }
       if (table === "portal_household_charge_records") {
         return { select: vi.fn().mockReturnValue({ eq: chargeEq }) };
       }
@@ -146,6 +158,15 @@ describe("markApplicationFeePaidFromStripeSession", () => {
     const ledgerEq2 = vi.fn().mockReturnValue({ maybeSingle });
     const ledgerEq1 = vi.fn().mockReturnValue({ eq: ledgerEq2 });
     const from = vi.fn((table: string) => {
+      if (table === "manager_property_records") {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { manager_user_id: pending.managerUserId }, error: null }),
+            }),
+          }),
+        };
+      }
       if (table === "portal_household_charge_records") {
         return { select: vi.fn().mockReturnValue({ eq: chargeEq }), upsert };
       }
@@ -209,6 +230,15 @@ describe("markApplicationDepositPaidFromStripeSession", () => {
       return { select: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: { id: "ledger-1" }, error: null }) }) };
     });
     const from = vi.fn((table: string) => {
+      if (table === "manager_property_records") {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { manager_user_id: row.managerUserId }, error: null }),
+            }),
+          }),
+        };
+      }
       if (table === "portal_household_charge_records") {
         return { select: vi.fn().mockReturnValue({ eq: chargeEq }), upsert };
       }

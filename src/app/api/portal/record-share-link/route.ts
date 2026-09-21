@@ -9,6 +9,7 @@ import {
 } from "@/lib/portal-record-share-links.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,13 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
+    const db = createSupabaseServiceRoleClient();
+    // Public bearer links are deliberately unavailable for private workspace
+    // records. Internal private links retain their own scoped paths.
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind !== "normal") {
+      return NextResponse.json({ error: "Public share links are unavailable for this account." }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as {
       kind?: string;
       recordId?: string;
@@ -61,7 +69,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "kind and recordId are required." }, { status: 400 });
     }
 
-    const db = createSupabaseServiceRoleClient();
     const authz = await authorizePortalRecordShare(db, user.id, kind, recordId, "edit");
     if (!authz.ok) return NextResponse.json({ error: authz.error }, { status: authz.status });
 
@@ -91,6 +98,11 @@ export async function DELETE(req: Request) {
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
+    const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind !== "normal") {
+      return NextResponse.json({ error: "Public share links are unavailable for this account." }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as {
       kind?: string;
       recordId?: string;
@@ -101,7 +113,6 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "kind and recordId are required." }, { status: 400 });
     }
 
-    const db = createSupabaseServiceRoleClient();
     const authz = await authorizePortalRecordShare(db, user.id, kind, recordId, "edit");
     if (!authz.ok) return NextResponse.json({ error: authz.error }, { status: authz.status });
 

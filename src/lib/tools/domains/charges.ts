@@ -11,6 +11,8 @@ import { formatChargeDueDateLabel } from "@/lib/payment-reminder-bootstrap";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 /** Every charge kind the site models (mirrors HouseholdChargeKind exactly). */
 const CHARGE_KINDS = [
@@ -251,7 +253,8 @@ export const createChargeTool = defineWriteTool({
       .maybeSingle();
     const residentUserId = typeof profile?.id === "string" ? profile.id : null;
 
-    const charge: HouseholdCharge = {
+    const smsTest = currentSmsTestTransport();
+    const charge: HouseholdCharge & { smsTestSessionId?: string } = {
       id: `hc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAt: new Date().toISOString(),
       residentEmail: target.residentEmail,
@@ -267,6 +270,7 @@ export const createChargeTool = defineWriteTool({
       status: "pending",
       ...(dueLabel ? { dueDateLabel: dueLabel } : {}),
       blocksLeaseUntilPaid: false,
+      ...stampSmsTestProvenance({}),
     };
 
     try {
@@ -274,6 +278,14 @@ export const createChargeTool = defineWriteTool({
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "charge_upsert_failed" }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "The charge could not be created.");
+    }
+    if (smsTest) {
+      captureSmsTestDelivery({
+        kind: "reminder",
+        summary: "Automatic charge reminders were captured for SMS test mode.",
+        status: "captured",
+        metadata: { chargeId: charge.id },
+      });
     }
 
     await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id });
@@ -357,17 +369,27 @@ export const updateChargeTool = defineWriteTool({
 
     // Read-merge-write: start from the CURRENT stored row_data, never rebuild.
     const amountLabel = input.amountUsd != null ? formatUsd(input.amountUsd) : null;
-    const merged: HouseholdCharge = {
+    const smsTest = currentSmsTestTransport();
+    const merged: HouseholdCharge & { smsTestSessionId?: string } = {
       ...charge,
       ...(amountLabel ? { amountLabel, balanceLabel: amountLabel } : {}),
       ...(input.title != null ? { title: input.title.trim() } : {}),
       ...(dueLabel ? { dueDateLabel: dueLabel } : {}),
+      ...stampSmsTestProvenance({}),
     };
     try {
       await upsertManagerCharges(ctx.db, ctx.landlordId, [merged]);
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "charge_upsert_failed" }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "The charge could not be updated.");
+    }
+    if (smsTest) {
+      captureSmsTestDelivery({
+        kind: "reminder",
+        summary: "Automatic charge reminders were captured for SMS test mode.",
+        status: "captured",
+        metadata: { chargeId: charge.id },
+      });
     }
 
     await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id });

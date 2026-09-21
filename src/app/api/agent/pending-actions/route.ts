@@ -27,6 +27,9 @@ export async function GET() {
     .eq("user_id", ctx.userId)
     .eq("portal", "manager")
     .eq("status", "proposed")
+    .is("sms_test_actor_user_id", null)
+    .is("sms_test_manager_user_id", null)
+    .is("sms_test_session_id", null)
     .gt("expires_at", nowIso)
     .order("created_at", { ascending: false })
     .limit(20);

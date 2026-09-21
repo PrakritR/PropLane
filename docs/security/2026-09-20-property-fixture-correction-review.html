@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Property fixture correction source review</title>
+<style>body{max-width:900px;margin:40px auto;padding:24px;font:16px/1.6 system-ui;color:#172033}code{background:#f1f4f8;padding:2px 4px}h1,h2{line-height:1.2}.status{padding:16px;border-left:4px solid #26834a;background:#f2faf4}</style>
+<h1>Property fixture correction source review</h1>
+<p class="status"><strong>Source verdict: PASS. Runtime validation pending.</strong> No blocking correctness, security, cleanup, or test-efficacy finding identified in the reviewed single-file correction.</p>
+<p>Reviewed on September 20, 2026 against base <code>546fef73b</code> in <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>, branch <code>akhil/ship-property-preservation-20260920</code>. Scope was the uncommitted diff and complete resulting <code>tests/e2e/property-metadata-omission-preservation.spec.ts</code>, with the repository instructions, correction plan, and handoff. This is a fresh independent source review, not approval of unexecuted runtime behavior.</p>
+<h2>Findings</h2>
+<p>No actionable source blocker found. The implementation matches the bounded fixture plan. No application implementation was changed or independently re-reviewed in this pass.</p>
+<h2>Evidence inspected</h2>
+<ul>
+<li><strong>Target guard, lines 29-53 and 245-246:</strong> the service-role client is constructed only after requiring HTTPS and the exact dev/test hostname <code>emstjswhotsnyksqhqyf.supabase.co</code>, with no alternate port, credentials, path, query, or fragment. Missing credentials fail before fixture mutation.</li>
+<li><strong>Bounded setup, lines 70-112 and 247-277:</strong> the manager is resolved from the seeded account; existing workspaces are owner-scoped. The fixture uses a random property ID and marker. Capacity selection checks fewer than ten properties per workspace and creates one workspace only below the three-workspace cap. Full capacity fails instead of deleting other records or altering entitlements. These are setup snapshot checks, not a concurrency reservation; run the root-owned fixture job without competing fixture creation for that account.</li>
+<li><strong>Write scope, lines 115-141 and 268-277:</strong> direct fixture mutation inserts the new marked property and, only if needed, a new marked workspace. Existing fixture rows are not directly updated or deleted. Workspace selection uses the authenticated application route. A real page load necessarily exercises normal application background synchronization.</li>
+<li><strong>Test efficacy, lines 279-311:</strong> observers precede Properties navigation, matching the POST route, upsert action, and exact generated ID. The test requires a real HTTP 200, a propertyData field, omitted rowData, and deep equality of the complete stored row_data against the original inserted object. It cannot pass merely because a row exists or because navigation renders successfully.</li>
+<li><strong>Cleanup fencing, lines 145-218:</strong> deletion requires matching property ID, manager, workspace, and marker, both during ownership verification and in the deletion predicate. A newly created workspace requires its exact ID, owner, and name and a successful empty-property check. Existing workspaces are never deleted. Mutation results are checked and cleanup failures propagate.</li>
+<li><strong>Teardown ordering, lines 221-234 and 312-343:</strong> navigation to about:blank or page closure is required before restoration and deletion. If neither succeeds, cleanup is skipped and the test fails. Restoration failure does not silently prevent the separately guarded cleanup attempt. Multiple teardown errors are retained.</li>
+</ul>
+<h2>Limits and required runtime gate</h2>
+<p>No Node command, tests, browser, server, database operation, build, install, graph rebuild, Git mutation, or sub-agent was run by this reviewer. Read-only inspection completed successfully. The earlier unit, lint, build, integration, and preflight evidence reported by root predates this correction and does not validate it.</p>
+<p>Root remains the sole runtime owner. The corrected CI browser job must demonstrate fixture insertion, successful workspace selection, actual property-only background upsert with HTTP 200, complete metadata preservation, workspace restoration where applicable, and successful cleanup. If the underlying regression clears the marker, cleanup intentionally refuses deletion and reports a failure; that bounded leftover requires separate ownership-verified handling. Source approval does not waive the release validation gates.</p>
+</html>

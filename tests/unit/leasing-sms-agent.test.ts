@@ -20,6 +20,7 @@ import { LEASING_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { buildDurableSmsHistory, mergeDurableToolContext } from "@/lib/agent/leasing-sms-agent.server";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import type { AgentContext } from "@/lib/tools/context";
+import { runWithSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import {
   __resetLeasingCatalogCache,
   buildProspectLinksTool,
@@ -245,6 +246,18 @@ describe("leasing SMS system prompt", () => {
   it("carries product knowledge and never says Axis", () => {
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/get_site_links/);
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).not.toMatch(/\bAxis\b/);
+  });
+
+  it("accepts tool-built deployment links only for authenticated private SMS tests", () => {
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(
+      /Carrier SMS uses the real production domain; an authenticated private-workspace SMS test uses the authorized deployment returned by the tool/i,
+    );
+    expect(buildProspectLinksTool.description).toMatch(
+      /production for carrier SMS and the authorized deployment for an authenticated private-workspace SMS test/i,
+    );
+    expect(getSiteLinksTool.description).toMatch(
+      /production for carrier SMS; the authenticated private-workspace deployment for an SMS test/i,
+    );
   });
 });
 
@@ -615,7 +628,25 @@ describe("proplaneSiteLinks", () => {
     expect(links.pricing).toBe(`${PROD_ORIGIN}/pricing`);
     for (const url of Object.values(links)) {
       expect(url).not.toMatch(/localhost|127\.0\.0\.1/);
+      expect(url).toMatch(new RegExp(`^${PROD_ORIGIN}`));
     }
+  });
+
+  it("get_site_links keeps every classified SMS-test handoff on the authorized deployment", async () => {
+    const { result } = await runWithSmsTestTransport({
+      actorUserId: "test-actor",
+      managerUserId: "test-manager",
+      workspaceId: "test-workspace",
+      appOrigin: "http://localhost:3010",
+    }, () => getSiteLinksTool.handler(ctxFor({ crossCatalog: false }), {}));
+
+    for (const url of Object.values(result.links)) {
+      expect(url).toMatch(/^http:\/\/localhost:3010(?:\/|$)/);
+    }
+    expect(result.links.residentPortal).toBe("http://localhost:3010/auth/sign-in");
+    expect(result.links.residentSignup).toBe("http://localhost:3010/auth/resident-setup");
+    expect(result.links.signLease).toBe("http://localhost:3010/resident/lease");
+    expect(result.links.payRent).toBe("http://localhost:3010/resident/payments/pending");
   });
 });
 
@@ -659,6 +690,24 @@ describe("cross-catalog listing resolution (shared PropLane line)", () => {
     expect(links.tourUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne`);
     expect(links.messageUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne&tab=message`);
     expect(links.browseUrl).toBe(`${PROD_ORIGIN}/rent/browse`);
+  });
+
+  it("build_prospect_links uses the trusted classified SMS-test deployment origin", async () => {
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([catalogListing()]);
+    const ctx = ctxFor({ crossCatalog: true, prospectPhone: "+12065559999" });
+    const { result: links } = await runWithSmsTestTransport({
+      actorUserId: "test-actor",
+      managerUserId: "test-manager",
+      workspaceId: "test-workspace",
+      appOrigin: "http://localhost:3010",
+    }, () => buildProspectLinksTool.handler(ctx, {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+    }));
+
+    expect(links.ok).toBe(true);
+    expect(links.listingUrl).toBe("http://localhost:3010/rent/listings/mgr-seed-4709a-8th-ave-ne");
+    expect(links.tourUrl).toBe("http://localhost:3010/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne");
+    expect(links.applyUrl).toContain("http://localhost:3010/rent/apply?");
   });
 });
 

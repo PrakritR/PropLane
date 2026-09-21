@@ -51,6 +51,16 @@ describe("POST /api/public/property-lead-message", () => {
       from: vi.fn().mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
+            is: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                  id: "prop-1",
+                  manager_user_id: "mgr-1",
+                  property_data: { title: "Test Property" },
+                },
+                error: null,
+              }),
+            }),
             maybeSingle: vi.fn().mockResolvedValue({
               data: {
                 id: "prop-1",

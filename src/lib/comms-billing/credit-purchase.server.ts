@@ -5,6 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { COMMS_CREDIT_PURPOSE, isCommsCreditPack } from "./credit-packs";
+import {
+  assertTestWorkspaceProviderEffectAllowed,
+  captureTestWorkspaceEffectForUser,
+} from "@/lib/test-workspaces/effects.server";
 
 export async function createCommsCreditCheckout(
   db: SupabaseClient,
@@ -13,6 +17,14 @@ export async function createCommsCreditCheckout(
   creditCents: number,
   req: Request,
 ) {
+  // This precedes the pending-purchase insert so a refused test account leaves
+  // neither a wallet purchase nor a provider checkout session behind.
+  await assertTestWorkspaceProviderEffectAllowed({
+    userId: owner,
+    kind: "payment",
+    summary: "Communication credit checkout refused for a test workspace.",
+    db,
+  });
   if (!isCommsCreditPack(creditCents))
     throw new Error("Choose an available credit amount.");
   const { error: insertError } = await db
@@ -147,16 +159,31 @@ export async function recordCommsCreditPaymentReview(
   eventId: string,
   reason: string,
 ): Promise<void> {
-  const owner = session.metadata?.manager_user_id;
+  const claimedOwner = session.metadata?.manager_user_id;
   const purchase = session.metadata?.purchase_id;
   console.error("[comms credit] payment held for manual review", {
     session: session.id,
     event: eventId,
-    owner,
+    owner: claimedOwner,
     purchase,
     reason,
   });
-  if (!owner || !purchase) return;
+  if (!claimedOwner || !purchase) return;
+  const { data: stored, error: storedError } = await db
+    .from("manager_comms_credit_purchases")
+    .select("manager_user_id")
+    .eq("id", purchase)
+    .maybeSingle();
+  if (storedError) throw new Error("Credit purchase review ownership could not be verified.");
+  const owner = String((stored as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
+  if (!owner || owner !== claimedOwner) return;
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: owner,
+    kind: "payment",
+    summary: "Communication credit payment review was refused for a test workspace.",
+    metadata: { operation: "credit_payment_review" },
+    db,
+  })).captured) return;
   const { error } = await db
     .from("manager_comms_credit_adjustments")
     .insert({
@@ -209,6 +236,23 @@ export async function fulfillCommsCreditPurchase(
       "Communication payment did not match the purchase.",
     );
   }
+  const { data: stored, error: storedError } = await db
+    .from("manager_comms_credit_purchases")
+    .select("manager_user_id")
+    .eq("id", purchase)
+    .maybeSingle();
+  if (storedError) throw new Error("Communication credit ownership could not be verified.");
+  const storedOwner = String((stored as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
+  if (!storedOwner || storedOwner !== owner) {
+    throw new CommsCreditValidationError("Communication payment did not match a purchase on this account.");
+  }
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: storedOwner,
+    kind: "payment",
+    summary: "Communication credit fulfillment was refused for a test workspace.",
+    metadata: { operation: "credit_fulfillment" },
+    db,
+  })).captured) return false;
   const { data, error } = await db.rpc("fulfill_comms_credit_purchase", {
     p_purchase: purchase,
     p_owner: owner,
@@ -248,6 +292,9 @@ export async function reverseCommsCreditForCharge(
   return reverseCommsCreditForPaymentIntent(db, paymentId, eventId, {
     dispute,
     loadCharge: async () => charge,
+    // This is an inline Stripe event payload, so it does not make a provider
+    // call while deciding whether an unmatched refund must be retried.
+    onUnmatched: "inspect_charge",
   });
 }
 
@@ -256,14 +303,16 @@ export async function reverseCommsCreditForCharge(
  * charge is fetched through `loadCharge` when the reconciliation needs it.
  *
  * When no purchase matches the payment intent there are two possibilities: the
- * money is unrelated to communication credit (most refunds — application fees,
+ * money is unrelated to communication credit (most refunds - application fees,
  * rent), or a communication purchase was refunded before its own fulfillment
- * landed. Telling them apart needs `charge.metadata.purpose`, which is a Stripe
- * round-trip on events that only carry ids. `onUnmatched` decides:
+ * landed. Only an inline charge can distinguish those safely. `onUnmatched`
+ * decides:
  *
- * - `"inspect_charge"` — load it and, if it IS a communication purchase, throw
- *   so Stripe redelivers instead of the credit being granted after the money
- *   left. Disputes must always do this.
+ * - `"inspect_charge"` - inspect a charge already supplied by Stripe and, if
+ *   it IS a communication purchase, throw so Stripe redelivers instead of the
+ *   credit being granted after the money left. This mode is only safe for the
+ *   inline `charge.refunded` payload; an unmatched id alone is never authority
+ *   to query Stripe.
  * - `"defer"` — return without loading. Only correct for `refund.*` events,
  *   because Stripe emits the companion `charge.refunded` with the charge inline,
  *   and `reverseCommsCreditForCharge` runs that same check there for free.
@@ -279,24 +328,39 @@ export async function reverseCommsCreditForPaymentIntent(
   },
 ) {
   const dispute = opts.dispute === true;
-  const onUnmatched = dispute ? "inspect_charge" : (opts.onUnmatched ?? "inspect_charge");
+  const onUnmatched = opts.onUnmatched ?? "defer";
   // An event that carries no payment intent still gets reconciled: fall back to
   // the charge rather than silently skipping a refund of purchased credit.
-  const paymentId = (paymentIntentId ?? "").trim() || chargePaymentIntentId(await opts.loadCharge());
-  if (!paymentId) return false;
+  const paymentId = (paymentIntentId ?? "").trim();
+  // A provider fetch cannot precede durable purchase ownership. Events without
+  // a payment-intent id are retried instead of probing Stripe first.
+  if (!paymentId) throw new Error("Credit reversal ownership could not be verified.");
   const { data: purchase, error: readError } = await db
     .from("manager_comms_credit_purchases")
-    .select("id, credit_cents")
+    .select("id, credit_cents, manager_user_id")
     .eq("stripe_payment_intent_id", paymentId)
     .maybeSingle();
   if (readError) throw new Error("Credit reversal could not be verified.");
   if (!purchase) {
+    // A final dispute can race the Checkout completion that binds this intent
+    // to its pending purchase. Fail retryably without fetching Stripe. A later
+    // delivery will find the durable owner and reverse any granted credit.
+    if (dispute) throw new Error("Credit dispute ownership is pending.");
     if (onUnmatched === "defer") return false;
     const charge = await opts.loadCharge();
     if (charge.metadata?.purpose === COMMS_CREDIT_PURPOSE)
       throw new Error("Credit purchase fulfillment is pending.");
     return false;
   }
+  const owner = String(purchase.manager_user_id ?? "").trim();
+  if (!owner) throw new Error("Credit reversal ownership could not be verified.");
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: owner,
+    kind: "payment",
+    summary: "Communication credit reversal was refused for a test workspace.",
+    metadata: { operation: dispute ? "credit_dispute" : "credit_refund" },
+    db,
+  })).captured) return false;
   const reversed = dispute
     ? purchase.credit_cents
     : Math.min(

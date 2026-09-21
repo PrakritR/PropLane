@@ -9,6 +9,7 @@ import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import { reminderAnchorMatches } from "@/lib/reminders/current.server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { VendorDocumentRecord } from "@/lib/vendor-documents";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 async function loadWorkOrder(db: SupabaseClient, id: string, managerUserId: string) {
   const { data, error } = await db
@@ -18,6 +19,7 @@ async function loadWorkOrder(db: SupabaseClient, id: string, managerUserId: stri
     .maybeSingle();
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== managerUserId) return null;
+  if (hasSmsTestProvenance(data.row_data)) return null;
   return { createdAt: String(data.created_at ?? ""), row: (data.row_data ?? {}) as DemoManagerWorkOrderRow };
 }
 
@@ -79,6 +81,7 @@ export async function serviceReminderIsCurrent(
       if (error) throw error;
       if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
       const request = (data.row_data ?? {}) as Record<string, unknown>;
+      if (hasSmsTestProvenance(request)) return false;
       if (row.kind === "service_request_decision") {
         return request.status === "pending" && reminderAnchorMatches(expectedAnchor, request.requestedAt ?? data.created_at);
       }

@@ -609,6 +609,7 @@ export function useFieldSelectMenu({
   filterDropdownAlign = "end",
   closeOnOutsidePointerDown = true,
   closeOnEscape = true,
+  keepWithinModalTree = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -634,6 +635,8 @@ export function useFieldSelectMenu({
   closeOnOutsidePointerDown?: boolean;
   /** When false, Escape does not call `onOpenChange(false)` (portal filter shell). */
   closeOnEscape?: boolean;
+  /** Keep this menu inside its Radix/Vaul tree when that modal owns pointer isolation. */
+  keepWithinModalTree?: boolean;
 }) {
   const listId = useId();
   const isClient = useIsClient();
@@ -665,8 +668,13 @@ export function useFieldSelectMenu({
       portalHostRef.current = null;
       return;
     }
-    portalHostRef.current = fieldSelectOverflowSafePortalHost(resolveFieldSelectMenuPortal());
-  }, [open]);
+    const modalPanel = buttonRef.current?.closest<HTMLElement>(
+      '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]',
+    );
+    portalHostRef.current = keepWithinModalTree && modalPanel
+      ? fieldSelectOverflowSafePortalHost(modalPanel)
+      : fieldSelectOverflowSafePortalHost(resolveFieldSelectMenuPortal());
+  }, [keepWithinModalTree, open]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -685,7 +693,7 @@ export function useFieldSelectMenu({
       const modalPanel = button.closest<HTMLElement>(
         '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]',
       );
-      if (modalPanel && align !== "end") {
+      if (modalPanel && align !== "end" && !keepWithinModalTree) {
         setPortalHost(document.body);
         setMenuRect(
           computeFieldSelectMenuRectForModalPanel(button, contentPx, modalPanel, {
@@ -774,6 +782,7 @@ export function useFieldSelectMenu({
     constrainToTitleBand,
     filterDropdownAlign,
     insets,
+    keepWithinModalTree,
   ]);
 
   useEffect(() => {

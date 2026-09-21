@@ -24,6 +24,54 @@ function isUsableEmailLinkHost(hostname: string): boolean {
 /** Canonical, user-facing production domain — the only host outbound emails link to. */
 export const PRODUCTION_APP_ORIGIN = "https://prop-lane.space";
 
+function configuredOrigin(raw: string | undefined, allowBareVercelHost = false): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(allowBareVercelHost && !value.includes("://") ? `https://${value}` : value);
+    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Trusted app origin for authenticated private-workspace SMS tests.
+ *
+ * This deliberately ignores request Host / forwarded headers. Those are caller
+ * controlled and must not choose links emitted by an agent. Production stays on
+ * the canonical public origin; local compiled QA is pinned to its reserved port;
+ * staging uses Vercel's deployment configuration (branch URL first).
+ */
+export function resolveSmsTestAppOrigin(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.VERCEL_ENV === "production") return PRODUCTION_APP_ORIGIN;
+
+  if (env.VERCEL_ENV === "development") {
+    const origin = configuredOrigin(env.NEXT_PUBLIC_APP_URL);
+    if (origin === "http://localhost:3010") return origin;
+    throw new Error("SMS test app origin is unavailable for this development runtime.");
+  }
+
+  if (env.VERCEL_ENV === "preview") {
+    const candidates = [
+      configuredOrigin(env.VERCEL_BRANCH_URL, true),
+      configuredOrigin(env.VERCEL_URL, true),
+      configuredOrigin(env.NEXT_PUBLIC_APP_URL),
+      configuredOrigin(env.NEXT_PUBLIC_CANONICAL_APP_URL),
+    ];
+    const origin = candidates.find((candidate) => {
+      if (!candidate) return false;
+      const url = new URL(candidate);
+      return url.protocol === "https:" && !isLocalHost(url.hostname);
+    });
+    if (origin) return origin;
+    throw new Error("SMS test app origin is unavailable for this preview runtime.");
+  }
+
+  throw new Error("SMS test app origin is unavailable for this runtime.");
+}
+
 /** Live web origins that serve the same Vercel deployment (multi-domain production). */
 const DEFAULT_PRODUCTION_WEB_ORIGINS = [
   PRODUCTION_APP_ORIGIN,

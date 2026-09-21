@@ -19,6 +19,7 @@ test.describe("Resident login and application flow", () => {
   test("public tours-contact page loads with form", async ({ page }) => {
     await page.goto(e2eToursContactUrl());
     await expect(page.getByRole("heading", { name: /schedule tour/i })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: /schedule as a guest/i }).click();
     await expect(page.getByRole("searchbox").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: /^continue$/i })).toBeVisible({ timeout: 10_000 });
   });

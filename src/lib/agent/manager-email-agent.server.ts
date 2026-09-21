@@ -14,6 +14,7 @@ import {
   type SmsAgentSurface,
   type SmsAgentTurn,
 } from "@/lib/agent/sms-agent-turn.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 type Db = SupabaseClient;
 
@@ -83,6 +84,7 @@ export async function runManagerEmailAgentTurn(
 }
 
 export async function deliverManagerEmailReply(args: {
+  managerUserId: string;
   toEmail: string;
   subject: string;
   text: string;
@@ -99,16 +101,17 @@ export async function deliverManagerEmailReply(args: {
     ? args.fromAddress
     : `PropLane Assistant <${args.fromAddress.trim().toLowerCase()}>`;
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const res = await postResendEmail({
+    apiKey,
+    actorUserId: args.managerUserId,
+    effectSummary: "Manager assistant email reply captured for the test workspace.",
+    payload: {
       from,
       to: [to],
       subject: args.subject.trim() || "PropLane Assistant",
       text: args.text,
       ...(args.replyTo?.trim() ? { reply_to: args.replyTo.trim() } : {}),
-    }),
+    },
   });
   const payload = (await res.json().catch(() => ({}))) as { message?: string };
   if (!res.ok) return { ok: false, error: payload.message ?? "Email send failed." };

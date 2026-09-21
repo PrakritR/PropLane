@@ -23,6 +23,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
+import { postResendEmail } from "@/lib/resend-delivery.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -36,6 +38,11 @@ export async function POST(req: Request) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+    const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind !== "normal") {
+      return NextResponse.json({ error: "Public share links are unavailable for this account." }, { status: 403 });
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
       kind?: string;
@@ -73,7 +80,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Enter a valid phone number for SMS." }, { status: 400 });
     }
 
-    const db = createSupabaseServiceRoleClient();
     const authz = await authorizePortalRecordShare(db, user.id, kind, recordId, "edit");
     if (!authz.ok) return NextResponse.json({ error: authz.error }, { status: authz.status });
 
@@ -106,10 +112,12 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Email delivery is not configured." }, { status: 503 });
       }
       const from = await managerOutboundFromHeader(db, user.id);
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [to], subject, text, html }),
+      const res = await postResendEmail({
+        apiKey,
+        actorUserId: authz.recordOwnerUserId,
+        payload: { from, to: [to], subject, text, html },
+        effectSummary: "Portal record-share email captured for the test workspace.",
+        metadata: { recordKind: kind, recordId: authz.canonicalRecordId },
       });
       const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
       if (!res.ok) {

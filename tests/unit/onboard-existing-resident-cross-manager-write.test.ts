@@ -29,6 +29,9 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => makeServiceClient(),
 }));
 vi.mock("@/lib/existing-resident-onboarding.server", () => ({ runExistingResidentOnboarding }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+}));
 
 import { POST as onboardExistingResident } from "@/app/api/portal/onboard-existing-resident/route";
 

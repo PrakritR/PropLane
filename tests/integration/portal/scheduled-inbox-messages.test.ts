@@ -9,8 +9,8 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
-vi.mock("@/lib/scheduled-inbox-messages", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/scheduled-inbox-messages")>();
+vi.mock("@/lib/scheduled-inbox-messages.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/scheduled-inbox-messages.server")>();
   return {
     ...actual,
     updateScheduledInboxMessage: vi.fn(),
@@ -23,7 +23,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   RESIDENT_SCHEDULED_MESSAGE_CONTENT_FORBIDDEN,
   updateScheduledInboxMessage,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 import { PATCH } from "@/app/api/portal/scheduled-inbox-messages/[id]/route";
 
 function mockManagerAuth(userId = "mgr-a") {
