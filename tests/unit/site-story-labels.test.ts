@@ -10,7 +10,12 @@ import { STORY_PORTAL_LABELS } from "@/components/marketing/site/story";
  * drift.
  */
 describe("site story mirrors the portal's labels", () => {
-  const inbox = readFileSync("src/components/portal/portal-inbox-ui.tsx", "utf8");
+  // "Ask PropLane" and the channel menu now live in the composer's own ✦
+  // tools (`inbox-composer-tools.tsx`), split out of this file — read both
+  // so the check still covers the whole inbox surface, not just one file.
+  const inbox =
+    readFileSync("src/components/portal/portal-inbox-ui.tsx", "utf8") +
+    readFileSync("src/components/portal/inbox-composer-tools.tsx", "utf8");
   const dashboard = readFileSync("src/components/portal/pro-dashboard.tsx", "utf8");
 
   it("uses the inbox's AI and channel labels", () => {

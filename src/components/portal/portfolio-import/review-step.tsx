@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -95,27 +96,15 @@ function GapField({
 
   if (gap.field === "room") {
     return (
-      <div>
-        <label htmlFor={`gap-${gap.field}`} className="mb-1 block text-[12.5px] font-semibold text-foreground">
-          {gap.question}
-        </label>
-        <select
-          id={`gap-${gap.field}`}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          data-attr={`portfolio-import-gap-${gap.field}`}
-          className="min-h-10 w-full max-w-xs rounded-lg border border-border bg-card px-2.5 text-[13px] text-foreground outline-none focus:border-primary"
-        >
-          <option value="" disabled>
-            Pick a room…
-          </option>
-          {rooms.map((room) => (
-            <option key={room.key} value={room.key}>
-              {room.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <FieldSingleSelect
+        label={gap.question}
+        value={value}
+        onChange={onChange}
+        placeholder="Pick a room…"
+        dataAttr={`portfolio-import-gap-${gap.field}`}
+        wrapperClassName="max-w-xs"
+        options={rooms.map((room) => ({ value: room.key, label: room.name }))}
+      />
     );
   }
 
