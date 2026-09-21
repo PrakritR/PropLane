@@ -770,7 +770,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 actions: (
                   <>
                     <Button type="button" data-attr="vendor-catalog-row-view" onClick={openProfile}>
-                      View profile
+                      View
                     </Button>
                     <Button
                       type="button"

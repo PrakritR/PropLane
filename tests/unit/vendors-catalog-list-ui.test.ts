@@ -51,7 +51,7 @@ describe("vendors catalog list chrome", () => {
     expect(panel).not.toContain("vendors-empty-proplane");
     expect(panel).not.toContain("vendors-add-footer");
     expect(panel).toContain("vendors-catalog-close");
-    expect(panel).toContain("View profile");
+    expect(panel).toContain("View");
     expect(panel).toContain("Add to your vendors");
     expect(panel).toContain("onSelectedChange");
     expect(panel).not.toContain("trailing={<RecordActionMenu");
