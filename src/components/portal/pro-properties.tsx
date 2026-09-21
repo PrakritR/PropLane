@@ -619,7 +619,7 @@ export function ManagerProperties({
                */
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction label="Create" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                  <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
