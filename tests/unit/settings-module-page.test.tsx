@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * `SettingsModulePage` is the seam this task exists to cut: one component that renders any of
- * the eleven manager settings modules, portable between `ProPortalSettingsModal` (the sheet
- * every section's gear opens) and the standalone `/portal/settings/<tab>` page. This suite tests
+ * the manager settings modules, portable between `ProPortalSettingsModal` (the sheet
+ * every section's gear opens) and the Profile hub pane. This suite tests
  * ITS OWN dispatch/registration/flush contract — that every tab resolves to a real panel without
  * throwing, and that the exposed `flushPendingSaves` handle collects whatever that panel
  * registers — not each panel's own internals, which belong to their own suites. Every real panel

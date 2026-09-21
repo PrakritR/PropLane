@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 const scope = readFileSync("src/components/portal/settings-property-scope.tsx", "utf8");
 const panels = readFileSync("src/components/portal/pro-portal-settings-panels.tsx", "utf8");
 const hub = readFileSync("src/components/portal/portal-profile-client.tsx", "utf8");
-const standalone = readFileSync("src/components/portal/portal-settings-section-client.tsx", "utf8");
 const modal = readFileSync("src/components/portal/pro-portal-settings-modal.tsx", "utf8");
 
 describe("Settings property scope appears once", () => {
@@ -29,8 +28,6 @@ describe("Settings property scope appears once", () => {
   it("mounts the one picker in module chrome, not a sticky card", () => {
     expect(scope).not.toContain("sticky top-0");
     expect(hub).toContain("SettingsScopeBar");
-    expect(standalone).toContain("SettingsScopeBar");
     expect(modal).toContain("SettingsScopeBar");
-    expect(standalone).toMatch(/action=\{\s*<div className="flex items-center gap-2">/);
   });
 });

@@ -232,7 +232,7 @@ describe("settings module redraws — scope tags", () => {
 
 describe("a section is never titled the same as the module that contains it", () => {
   /**
-   * Both hosts already name the module: the standalone `/portal/settings/<area>`
+   * Both hosts already name the module: the Profile hub pane
    * page renders the rail label as its own heading, and the gear sheet's dialog
    * title comes from the settings registry. So a panel whose first section
    * repeats that name draws the word twice, one line apart -- which is exactly

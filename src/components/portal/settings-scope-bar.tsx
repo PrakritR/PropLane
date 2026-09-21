@@ -42,11 +42,11 @@ export function SettingsGroupSourceTag({ namespace }: { namespace: SettingsSourc
  * One scope bar per settings module (AGENTS.md § Icon chrome: "one property
  * control in module chrome … never repeat it on each section header").
  *
- * `variant="full"` (the eleven Portfolio + Operations modules) is a workspace
- * select, a properties multi-select scoped to that workspace, a bar-level tag
- * describing the CURRENT SELECTION, and a Reset control once houses are
- * picked. `variant="workspace-only"` (Notifications) drops the properties
- * picker entirely — manager alert routing has no per-house rung.
+ * `variant="full"` (the Portfolio + Operations modules, including Payouts) is a
+ * workspace select, a properties multi-select scoped to that workspace, a
+ * bar-level tag describing the CURRENT SELECTION, and a Reset control once
+ * houses are picked. `variant="workspace-only"` (Notifications) drops the
+ * properties picker entirely — manager alert routing has no per-house rung.
  *
  * The workspace select is Settings-only. It does not call the portal header
  * `WorkspaceSwitcher`'s `select()` — All workspaces can mean the account

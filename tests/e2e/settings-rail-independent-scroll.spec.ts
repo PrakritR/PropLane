@@ -16,7 +16,7 @@ test.describe("Settings rail — independent scroll", () => {
     async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await signInAsManager(page);
-      await page.goto("/portal/settings?tab=inspections", { waitUntil: "domcontentloaded" });
+      await page.goto("/portal/profile?tab=inspections", { waitUntil: "domcontentloaded" });
 
       const rail = page.locator('nav[aria-label="Settings sections"]');
       await expect(rail).toBeVisible();
