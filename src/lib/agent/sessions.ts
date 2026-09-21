@@ -25,7 +25,7 @@ type SessionActor = {
   landlordId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any;
-  workspace?: { id: string };
+  workspace?: { id: string; isDefault?: boolean };
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -62,16 +62,27 @@ export async function ensureAgentSession(
   try {
     const kind = opts.kind?.trim() || PORTAL_CHAT_SESSION_KIND;
     const candidate = String(opts.sessionId ?? "").trim();
+    const workspaceId = "workspace" in actor && actor.workspace?.id ? actor.workspace.id : undefined;
     if (candidate && UUID_RE.test(candidate)) {
-      const { data, error } = await actor.db
-        .from("agent_sessions")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", candidate)
-        .eq("user_id", actor.userId)
-        .eq("portal", portal)
-        .eq("kind", kind)
-        .select("id")
-        .maybeSingle();
+      const reuse = async (includeWorkspace: boolean) => {
+        let query = actor.db
+          .from("agent_sessions")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", candidate)
+          .eq("user_id", actor.userId)
+          .eq("portal", portal)
+          .eq("kind", kind);
+        if (includeWorkspace && workspaceId) {
+          query = actor.workspace?.isDefault
+            ? query.or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
+            : query.eq("workspace_id", workspaceId);
+        }
+        return query.select("id").maybeSingle();
+      };
+      let { data, error } = await reuse(true);
+      if (error && isMissingColumn(error, "workspace_id")) {
+        ({ data, error } = await reuse(false));
+      }
       if (error) {
         reportPersistenceFailure("reuse session", error);
         return null;
@@ -84,7 +95,6 @@ export async function ensureAgentSession(
       portal,
       kind,
     };
-    const workspaceId = "workspace" in actor && actor.workspace?.id ? actor.workspace.id : undefined;
     if (workspaceId) sessionValues.workspace_id = workspaceId;
     let { data: created, error } = await actor.db
       .from("agent_sessions")
@@ -106,7 +116,8 @@ export async function ensureAgentSession(
         .single());
     }
     if (error && isMissingColumn(error, "workspace_id")) {
-      const { workspace_id: _drop, ...withoutWorkspace } = sessionValues;
+      const withoutWorkspace = { ...sessionValues };
+      delete withoutWorkspace.workspace_id;
       ({ data: created, error } = await actor.db
         .from("agent_sessions")
         .insert({

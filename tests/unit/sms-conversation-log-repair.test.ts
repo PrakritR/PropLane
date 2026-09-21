@@ -86,6 +86,14 @@ describe("submitted SMS conversation-log repair", () => {
     expect(crashedSubmission).toMatchObject({ conversation_log_status: "persisted", conversation_log_attempts: 1 });
   });
 
+  it("marks an authorized mirror as persisted without creating a Communication row", async () => {
+    const mirrored = row({ suppress_conversation_log: true });
+    const { db, messages } = fakeDb([mirrored]);
+    await expect(reconcileSubmittedSmsConversationLogs(db, 10)).resolves.toEqual({ ok: true, attempted: 1, persisted: 1, failed: 0 });
+    expect(messages).toHaveLength(0);
+    expect(mirrored).toMatchObject({ conversation_log_status: "persisted", conversation_log_attempts: 2 });
+  });
+
   it("does not let an expired repair finalizer regress a newer persisted projection", async () => {
     const staleCandidate = row();
     const { db } = fakeDb([staleCandidate], () => {

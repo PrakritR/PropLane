@@ -395,6 +395,7 @@ export async function POST(req: Request) {
       managerUserId: managerInbound.workNumberOwnerId,
       actorUserId: managerInbound.actorUserId,
       access: managerInbound.access,
+      workspaceId: ownedNumber?.workspaceId ?? null,
     });
     const turn = managerIdentity.ok
       ? await runManagerSmsAgentTurn(db, {
@@ -402,6 +403,17 @@ export async function POST(req: Request) {
           managerPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
           inboundText: body,
           inboundMessageSid: messageSid,
+          onInboundPersisted: async () => {
+            const { error } = await db
+              .from("inbound_sms_log")
+              .delete()
+              .eq("message_sid", messageSid)
+              .eq("manager_user_id", managerId);
+            return !error;
+          },
+        }).catch((error: unknown) => {
+          console.error("twilio inbound manager assistant turn failed", error instanceof Error ? error.message : error);
+          return null;
         })
       : null;
     if (!managerIdentity.ok) {
@@ -410,8 +422,18 @@ export async function POST(req: Request) {
         actorUserId: managerInbound.actorUserId,
         reason: managerIdentity.reason,
       });
+      if (managerIdentity.reason !== "lookup_failed") {
+        const { error: cleanupError } = await db
+          .from("inbound_sms_log")
+          .delete()
+          .eq("message_sid", messageSid)
+          .eq("manager_user_id", managerId);
+        if (!cleanupError && await finishInboundClaim(db, messageSid, inboundWorkerId, "completed")) {
+          return twimlOk();
+        }
+      }
     }
-    if (turn) {
+    if (turn?.reply) {
       const prepared = await prepareInboundReply(db, {
         messageSid,
         workerId: inboundWorkerId,
@@ -454,23 +476,14 @@ export async function POST(req: Request) {
       );
       if (finished.status !== 200) return finished;
     }
-    await db
-      .from("inbound_sms_log")
-      .update({
-        manager_user_id: managerId,
-        from_phone: fromPhone,
-        to_phone: toPhone,
-        matched_sender_user_id: managerInbound.actorUserId,
-        body,
-        message_sid: messageSid,
-        ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "manager", fromPhone }),
-      }).eq("message_sid", messageSid).eq("manager_user_id", managerId)
-      .then(() => undefined, () => undefined);
-    if (turn) return twimlOk();
-    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
-      return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+    if (turn) {
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
     }
-    return twimlOk();
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: "Manager assistant turn unavailable." }, { status: 503 });
   }
 
   // The destination work number scopes vendor sessions before a prospect fallback.

@@ -28,8 +28,8 @@ export type AgentContext = {
   roles: string[];
   isAdmin: boolean;
   /**
-   * Active manager workspace for portal turns. Absent on SMS/vendor/leasing
-   * contexts so those surfaces keep account-wide tools.
+   * Active manager workspace for portal and manager-SMS turns. Vendor and
+   * leasing contexts omit it because they use their own narrower scopes.
    */
   workspace?: AgentWorkspaceScope;
   /** Durable private schedule/data namespace for classified test actors. */

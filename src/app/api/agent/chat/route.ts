@@ -6,7 +6,7 @@ import { agentRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { runAgentTurn } from "@/lib/agent/loop";
 import type { ActionPreview } from "@/lib/tools/registry";
 import { MANAGER_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
-import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
+import { sanitizeChatMessages, lastUserText, applyChatAttachments, mergePersistedChatHistory } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
 import { agentChatRateLimitResponse, handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
 import { ensureAgentSession, appendAgentMessages } from "@/lib/agent/sessions";
@@ -136,6 +136,25 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "We couldn't start a saved conversation. Please try again." },
       { status: 503 },
+    );
+  }
+  if (sessionKind === PORTAL_CHAT_SESSION_KIND && sessionId) {
+    const currentUserMessage = messages.at(-1)!;
+    const { data: persistedRows, error: historyError } = await ctx.db
+      .from("agent_messages")
+      .select("role, content")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: false })
+      .limit(47);
+    if (historyError) {
+      return NextResponse.json(
+        { error: "We couldn't refresh this conversation. Please try again." },
+        { status: 503 },
+      );
+    }
+    messages = mergePersistedChatHistory(
+      ((persistedRows ?? []) as { role: string; content: string }[]).reverse(),
+      currentUserMessage,
     );
   }
   const customInstructions = await loadAgentCustomInstructions(ctx.db, ctx.userId);

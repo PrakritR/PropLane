@@ -109,6 +109,53 @@ describe("manager SMS prospect proposal lifecycle", () => {
       portal: "manager",
     }));
   });
+
+  it("replays the persisted reply for a duplicate provider SID without rerunning the model", async () => {
+    const { ctx, store } = makeWritableCtx({
+      agent_sessions: [],
+      agent_messages: [],
+      agent_pending_actions: [],
+    }, { landlordId: managerId, userId: managerId });
+    mocks.runAgentTurn.mockResolvedValueOnce({
+      reply: "Your rent summary is ready.",
+      toolTrace: [{ tool: "list_charges", ok: true }],
+      pendingAction: null,
+    });
+
+    const args = {
+      ctx,
+      managerPhoneE164: "+12065550999",
+      inboundText: "What is due this month?",
+      inboundMessageSid: "SM-idempotent",
+      onInboundPersisted: vi.fn(async () => true),
+    };
+    const first = await runManagerSmsAgentTurn(ctx.db as never, args);
+    const replay = await runManagerSmsAgentTurn(ctx.db as never, args);
+
+    expect(first?.reply).toBe("Your rent summary is ready.");
+    expect(replay?.reply).toBe(first?.reply);
+    expect(replay?.sessionId).toBe(first?.sessionId);
+    expect(mocks.runAgentTurn).toHaveBeenCalledTimes(1);
+    expect(store.agent_messages).toHaveLength(2);
+    expect(store.agent_messages?.map((row) => row.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("fails before model work when the duplicate Communication projection cannot be removed", async () => {
+    const { ctx } = makeWritableCtx({
+      agent_sessions: [],
+      agent_messages: [],
+      agent_pending_actions: [],
+    }, { landlordId: managerId, userId: managerId });
+
+    await expect(runManagerSmsAgentTurn(ctx.db as never, {
+      ctx,
+      managerPhoneE164: "+12065550999",
+      inboundText: "Show my balance.",
+      inboundMessageSid: "SM-cleanup-failure",
+      onInboundPersisted: async () => false,
+    })).rejects.toThrow("sms_inbound_projection_cleanup_failed");
+    expect(mocks.runAgentTurn).not.toHaveBeenCalled();
+  });
 });
 
 vi.mock("@/lib/comms-billing/wallet.server", () => ({reserveCommsCredit:vi.fn(async()=>({allowed:true,duplicate:false,state:"reserved"})),finishCommsCredit:vi.fn(async()=>{})}));

@@ -50,7 +50,7 @@ import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-t
 
 type Db = SupabaseClient;
 
-const SESSION_COLUMNS = "id, landlord_id, kind, vendor_phone_e164, status, user_id";
+const SESSION_COLUMNS = "id, landlord_id, kind, vendor_phone_e164, status, user_id, workspace_id";
 const HISTORY_LIMIT = 24;
 const MAX_INBOUND_PER_HOUR = 30;
 /** Texts are read on a phone; keep replies inside a couple of segments. */
@@ -102,6 +102,7 @@ export type SmsAgentSessionRow = {
   vendor_phone_e164: string | null;
   status: string;
   user_id: string | null;
+  workspace_id?: string | null;
 };
 
 /**
@@ -140,6 +141,10 @@ export type SmsAgentSurface = {
   maxReplyChars?: number;
   /** Analytics + persistence channel label. */
   messageChannel?: "sms" | "voice";
+  /** Manager self-SMS continues the newest saved portal assistant thread so
+   * SMS and in-site turns share one transcript instead of creating a parallel
+   * manager_sms conversation. Other SMS agents remain phone-keyed. */
+  sharePortalChatSession?: boolean;
 };
 
 /** Merge consecutive same-role rows; drop a leading assistant turn for API alternation. */
@@ -226,6 +231,62 @@ export async function findOrCreateSmsAgentSession(
   return (created as SmsAgentSessionRow | null) ?? null;
 }
 
+/**
+ * Resolve the manager's channel-neutral PropLane Assistant conversation.
+ *
+ * The newest portal thread is the only honest default when an SMS has no
+ * browser-supplied session id. Once selected, later web turns append to the
+ * same row without sending anything back over SMS. The manager's verified
+ * identity and work-number workspace are resolved before this function is
+ * called, so every lookup remains actor + workspace scoped.
+ */
+export async function findOrCreatePortalAssistantSmsSession(
+  db: Db,
+  args: { actorUserId: string; workspaceId?: string | null },
+): Promise<SmsAgentSessionRow | null> {
+  const actorUserId = args.actorUserId.trim();
+  const workspaceId = args.workspaceId?.trim() || null;
+  if (!actorUserId) return null;
+
+  let lookup = db
+    .from("agent_sessions")
+    .select(SESSION_COLUMNS)
+    .eq("kind", "portal_chat")
+    .eq("portal", "manager")
+    .eq("landlord_id", actorUserId)
+    .eq("user_id", actorUserId)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  lookup = workspaceId ? lookup.eq("workspace_id", workspaceId) : lookup.is("workspace_id", null);
+  const { data: existing, error: lookupError } = await lookup.maybeSingle();
+  if (lookupError) {
+    console.error("manager assistant portal session lookup failed", lookupError.message);
+    return null;
+  }
+  if (existing) return existing as SmsAgentSessionRow;
+
+  const { data: sessionId, error: createError } = await db.rpc(
+    "find_or_create_manager_sms_portal_session",
+    { p_actor_user_id: actorUserId, p_workspace_id: workspaceId },
+  );
+  if (createError || !sessionId) {
+    console.error("manager assistant portal session create failed", createError?.message ?? "missing session id");
+    return null;
+  }
+  let createdLookup = db.from("agent_sessions").select(SESSION_COLUMNS)
+    .eq("id", String(sessionId))
+    .eq("kind", "portal_chat")
+    .eq("portal", "manager")
+    .eq("landlord_id", actorUserId)
+    .eq("user_id", actorUserId);
+  createdLookup = workspaceId
+    ? createdLookup.eq("workspace_id", workspaceId)
+    : createdLookup.is("workspace_id", null);
+  const { data: created, error: createdLookupError } = await createdLookup.maybeSingle();
+  if (createdLookupError) return null;
+  return (created as SmsAgentSessionRow | null) ?? null;
+}
+
 /** Create or resume an authenticated SMS test session without a phone identity. */
 export async function findOrCreateSmsAgentTestSession(
   db: Db,
@@ -289,8 +350,9 @@ async function recordAssistantReply(
   reply: string,
   toolTrace: unknown = [],
   traceId?: string | null,
+  sourceMessageSid?: string | null,
 ): Promise<string | null> {
-  const { data } = await db.from("agent_messages").insert({
+  const { data, error } = await db.from("agent_messages").insert({
     session_id: session.id,
     landlord_id: session.landlord_id,
     role: "assistant",
@@ -298,7 +360,17 @@ async function recordAssistantReply(
     channel: "agent",
     tool_trace: toolTrace,
     trace_id: traceId ?? null,
+    source_message_sid: sourceMessageSid?.trim() || null,
   }).select("id").maybeSingle();
+  if (error?.code === "23505" && sourceMessageSid?.trim()) {
+    const { data: existing } = await db.from("agent_messages")
+      .select("id")
+      .eq("source_message_sid", sourceMessageSid.trim())
+      .eq("role", "assistant")
+      .maybeSingle();
+    if (existing?.id) return String(existing.id);
+  }
+  if (error || !data?.id) throw new Error("sms_assistant_reply_persistence_failed");
   await db.from("agent_sessions").update({ updated_at: new Date().toISOString() }).eq("id", session.id);
   return data?.id ? String(data.id) : null;
 }
@@ -321,6 +393,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     traceMetadata: Record<string, unknown>;
     maxReplyChars: number;
     skipBilling?: boolean;
+    sourceMessageSid?: string | null;
   },
 ): Promise<SmsAgentTurn | null> {
   const { ctx, session, surface } = args;
@@ -333,16 +406,23 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     sessionId: session.id,
   });
   if (open.status === "unavailable") {
-    return { reply: "I could not check that just now. Please try again in a moment.", sessionId: session.id };
+    const reply = "I could not check that just now. Please try again in a moment.";
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
+    return { reply, sessionId: session.id, assistantMessageId };
   }
   if (open.status === "none") {
     // A bare yes/no with nothing pending is conversation, not an authorization.
     return null;
   }
   if (open.status === "ambiguous") {
+    const reply = "I have more than one request open, so I do not want to guess. Tell me which one to go ahead with.";
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
     return {
-      reply: "I have more than one request open, so I do not want to guess. Tell me which one to go ahead with.",
+      reply,
       sessionId: session.id,
+      assistantMessageId,
     };
   }
 
@@ -357,7 +437,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     const reply = decision.kind === "denied" && decision.known
       ? "No problem, I have cancelled that. Anything else?"
       : "I could not cancel that just now. Please try again.";
-    const assistantMessageId = await recordAssistantReply(db, session, reply);
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
     await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
     return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
   }
@@ -371,7 +451,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     });
     await denyOpenSmsProposal(db, { userId: ctx.userId, actionId: open.actionId });
     const reply = "That action is unavailable in SMS test mode because it could contact a live provider or create a future live delivery. Nothing was changed.";
-    const assistantMessageId = await recordAssistantReply(db, session, reply, [{ tool: open.toolName, ok: false }]);
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [{ tool: open.toolName, ok: false }], null, args.sourceMessageSid);
     return {
       reply,
       sessionId: session.id,
@@ -396,7 +476,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
   const reply = executed.ok
     ? [executed.reply, executed.checkoutUrl].filter(Boolean).join("\n\n").slice(0, args.maxReplyChars)
     : executed.error;
-  const assistantMessageId = await recordAssistantReply(db, session, reply);
+  const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
   await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
   return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
 }
@@ -419,6 +499,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     phoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
+    /** Runs after the inbound turn is durable but before any model/tool work. */
+    onInboundPersisted?: () => Promise<boolean>;
     /** Optional deterministic response for a scoped lookup miss/ambiguity. */
     precomputedReply?: string | null;
     /** Tool-grounded context resolved before intent classification. */
@@ -426,6 +508,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     traceActor: TraceActor;
     /** Langfuse metadata for confirm/deny decisions; the session id is merged in. */
     traceMetadata: Record<string, unknown>;
+    /** Work-number workspace. Required to keep portal archives isolated. */
+    workspaceId?: string | null;
     renderActionPreview?: (preview: ActionPreview) => string;
     testActor?: {
       userId: string;
@@ -446,7 +530,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   const messageChannel = surface.messageChannel ?? "sms";
   const renderPreview = args.renderActionPreview ?? renderPreviewForSms;
 
-  const session = args.testActor
+  let session = args.testActor
     ? await findOrCreateSmsAgentTestSession(db, {
         kind: args.testActor.sessionKind,
         managerUserId: args.testActor.managerUserId,
@@ -456,12 +540,17 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         sessionId: args.testActor.sessionId,
         targetListingId: args.testActor.targetListingId,
       })
-    : await findOrCreateSmsAgentSession(db, {
-        kind: surface.sessionKind,
-        landlordId: args.sessionLandlordId,
-        actorUserId: ctx.userId,
-        phoneE164: args.phoneE164 ?? "",
-      });
+    : surface.sharePortalChatSession
+      ? await findOrCreatePortalAssistantSmsSession(db, {
+          actorUserId: ctx.userId,
+          workspaceId: args.workspaceId,
+        })
+      : await findOrCreateSmsAgentSession(db, {
+          kind: surface.sessionKind,
+          landlordId: args.sessionLandlordId,
+          actorUserId: ctx.userId,
+          phoneE164: args.phoneE164 ?? "",
+        });
   if (!session) return null;
   const testTransport = currentSmsTestTransport();
   const traceMetadata = {
@@ -474,18 +563,6 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       testWorkspaceId: testTransport?.workspaceId ?? null,
     } : {}),
   };
-
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count } = await db
-    .from("agent_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("session_id", session.id)
-    .eq("role", "user")
-    .gte("created_at", oneHourAgo);
-  if ((count ?? 0) >= MAX_INBOUND_PER_HOUR) {
-    console.error(`${surface.sessionKind} turn suppressed: hourly cap`, session.id);
-    return null;
-  }
 
   const inboundMessageSid = args.inboundMessageSid?.trim() || null;
   const { data: insertedInbound, error: inboundInsertError } = await db.from("agent_messages").insert({
@@ -500,11 +577,31 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   if (inboundInsertError?.code === "23505" && inboundMessageSid) {
     const { data: existingInbound } = await db
       .from("agent_messages")
-      .select("id")
+      .select("id, session_id")
       .eq("source_message_sid", inboundMessageSid)
       .eq("role", "user")
       .maybeSingle();
     inboundMessageId = existingInbound?.id ? String(existingInbound.id) : null;
+    const existingSessionId = existingInbound?.session_id ? String(existingInbound.session_id) : "";
+    if (!existingSessionId) return null;
+    let canonicalSessionQuery = db.from("agent_sessions")
+      .select(SESSION_COLUMNS)
+      .eq("id", existingSessionId)
+      .eq("user_id", ctx.userId)
+      .eq("kind", surface.sharePortalChatSession ? "portal_chat" : surface.sessionKind);
+    if (surface.sharePortalChatSession) {
+      canonicalSessionQuery = canonicalSessionQuery.eq("portal", surface.portal);
+      canonicalSessionQuery = args.workspaceId?.trim()
+        ? canonicalSessionQuery.eq("workspace_id", args.workspaceId.trim())
+        : canonicalSessionQuery.is("workspace_id", null);
+    } else {
+      canonicalSessionQuery = canonicalSessionQuery
+        .eq("landlord_id", args.sessionLandlordId)
+        .eq("vendor_phone_e164", args.phoneE164 ?? "");
+    }
+    const { data: canonicalSession } = await canonicalSessionQuery.maybeSingle();
+    if (!canonicalSession) return null;
+    session = canonicalSession as SmsAgentSessionRow;
   } else if (inboundInsertError) {
     console.error(`${surface.sessionKind} inbound message persistence failed`, session.id, inboundInsertError.message);
     return null;
@@ -519,6 +616,43 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   track(surface.analytics.messageIn, ctx.userId, { channel: messageChannel });
 
   if (!inboundMessageId) return null;
+  if (inboundInsertError?.code === "23505" && inboundMessageSid) {
+    const { data: existingReply } = await db.from("agent_messages")
+      .select("id, content, trace_id")
+      .eq("source_message_sid", inboundMessageSid)
+      .eq("role", "assistant")
+      .maybeSingle();
+    if (existingReply?.id && String(existingReply.content ?? "").trim()) {
+      if (args.onInboundPersisted && !(await args.onInboundPersisted())) {
+        throw new Error("sms_inbound_projection_cleanup_failed");
+      }
+      return {
+        reply: String(existingReply.content),
+        sessionId: session.id,
+        inboundMessageId,
+        assistantMessageId: String(existingReply.id),
+        traceId: existingReply.trace_id ? String(existingReply.trace_id) : null,
+      };
+    }
+  }
+  if (args.onInboundPersisted && !(await args.onInboundPersisted())) {
+    throw new Error("sms_inbound_projection_cleanup_failed");
+  }
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count } = await db
+    .from("agent_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", session.id)
+    .eq("role", "user")
+    .eq("channel", messageChannel)
+    .gte("created_at", oneHourAgo);
+  if ((count ?? 0) > MAX_INBOUND_PER_HOUR) {
+    const reply = "You have reached the hourly assistant text limit. Please try again later.";
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, inboundMessageSid);
+    console.error(`${surface.sessionKind} turn rate limited: hourly cap`, session.id);
+    return { reply, sessionId: session.id, inboundMessageId, assistantMessageId };
+  }
   const execute = async (): Promise<SmsAgentTurn | null> => {
   const confirmation = await handleConfirmationReply(db, {
     ctx,
@@ -529,12 +663,13 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     traceMetadata,
     maxReplyChars,
     skipBilling: Boolean(args.testActor),
+    sourceMessageSid: inboundMessageSid,
   });
   if (confirmation) return { ...confirmation, inboundMessageId };
 
   const precomputedReply = args.precomputedReply?.trim().slice(0, maxReplyChars);
   if (precomputedReply) {
-    const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null);
+    const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null, inboundMessageSid);
     track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
     await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
     return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId, toolTrace: [] };
@@ -592,7 +727,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     // Stay audible. Returning null here acks Twilio with empty TwiML, so the
     // person sees silence and a slow turn becomes 11200 retries.
     const reply = formatSmsAgentTurnError(e).slice(0, maxReplyChars);
-    const assistantMessageId = await recordAssistantReply(db, session, reply, [], traceId);
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], traceId, inboundMessageSid);
     track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
     await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
     return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId };
@@ -606,9 +741,14 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       sessionId: session.id,
     });
     if (!cleared.ok) {
+      const reply = "I could not set that up just now. Please try again in a moment.";
+      const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId, inboundMessageSid);
+      await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
       return {
-        reply: "I could not set that up just now. Please try again in a moment.",
+        reply,
         sessionId: session.id,
+        assistantMessageId,
+        traceId,
       };
     }
     const actionId = await createPendingActionForUser(db, {
@@ -623,16 +763,21 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       proposalTraceId: traceId,
     });
     if (!actionId) {
+      const reply = "I could not set that up just now. Please try again in a moment.";
+      const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId, inboundMessageSid);
+      await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
       return {
-        reply: "I could not set that up just now. Please try again in a moment.",
+        reply,
         sessionId: session.id,
+        assistantMessageId,
+        traceId,
       };
     }
     const reply = [result.reply.trim(), renderPreview(result.pendingAction.preview)]
       .filter(Boolean)
       .join("\n\n")
       .slice(0, maxReplyChars);
-    const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId);
+    const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId, inboundMessageSid);
     track(surface.analytics.actionProposed, ctx.userId, {
       channel: messageChannel,
       tool: result.pendingAction.toolName,
@@ -653,7 +798,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
 
   const reply = result.reply.trim().slice(0, maxReplyChars);
   if (!reply) return null;
-  const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId);
+  const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId, inboundMessageSid);
   track(surface.analytics.messageOut, ctx.userId, {
     channel: messageChannel,
     tools: result.toolTrace.length,

@@ -314,8 +314,9 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const archiveLoadInFlight = useRef<Promise<void> | null>(null);
   const archiveKeyRef = useRef(conversationIdentity);
   const hydrateArchive = useCallback(async () => {
-    if (!multiThread || archiveHydrated.current) return;
+    if (!multiThread || requestInFlight.current) return;
     if (archiveLoadInFlight.current) return archiveLoadInFlight.current;
+    const wasHydrated = archiveHydrated.current;
     const requestedIdentity = conversationIdentity;
     const requestedGeneration = conversationGeneration.current;
     const isCurrentLoad = () =>
@@ -325,10 +326,12 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       const initialThreads = await fetchThreadList();
       if (!isCurrentLoad()) return;
       archiveHydrated.current = true;
-      if (hasInteractedWithConversation.current || initialThreads.length === 0) return;
+      const refreshThreadId = activeThreadId
+        || (!wasHydrated && !hasInteractedWithConversation.current ? initialThreads[0]?.id : undefined);
+      if (!refreshThreadId) return;
       try {
-        const conversation = await fetchTranscript(initialThreads[0]!.id);
-        if (!isCurrentLoad() || hasInteractedWithConversation.current || !conversation) return;
+        const conversation = await fetchTranscript(refreshThreadId);
+        if (!isCurrentLoad() || requestInFlight.current || !conversation) return;
         setActiveThreadId(conversation.id);
         setMessages(visibleConversationMessages(conversation.messages));
         setPendingAction(conversation.pendingAction ?? null);
@@ -346,7 +349,20 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       // hydration, but this request still owns its own ref after it settles.
       if (archiveLoadInFlight.current === load) archiveLoadInFlight.current = null;
     }
-  }, [conversationIdentity, fetchThreadList, fetchTranscript, multiThread]);
+  }, [activeThreadId, conversationIdentity, fetchThreadList, fetchTranscript, multiThread]);
+
+  useEffect(() => {
+    if (!multiThread) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") void hydrateArchive();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [hydrateArchive, multiThread]);
 
   useEffect(() => {
     if (archiveKeyRef.current === conversationIdentity) return;
