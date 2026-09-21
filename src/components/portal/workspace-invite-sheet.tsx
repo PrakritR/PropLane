@@ -1,52 +1,47 @@
 "use client";
 
 /**
- * Invite to a workspace: one sheet, three rows — send by phone/email/code,
- * get the shareable link, and see who already has access. Opened by
- * `ProAccountLinksPanel`'s `openLinkModal(workspaceId)`.
+ * Invite to a workspace: one view, same width and field kit as "Edit
+ * permissions" (`ProAccountLinksPanel`'s member sheet) — Recipient, Role,
+ * Houses, the effective grant, and (only for terms that currently resolve to
+ * a link) the invite link box. Opened by `ProAccountLinksPanel`'s
+ * `openLinkModal(workspaceId)`.
  *
  * The link and the send box share ONE access setting (role + houses). Opening
  * the sheet only READS the workspace's active link (hydrating role/houses/
- * permissions from it) and never mints as a side effect. Changing the access
- * chip only updates local state. A link is minted or re-minted — always with
- * `replaceActive: true` — only at the moment the "Invite link" action or Send
- * is pressed, and only when the on-screen terms differ from the held link's
- * terms, so an already-shared URL never gains power without the sender
- * re-confirming it (see `docs/agents/co-manager-access.md`).
+ * permissions from it) and never mints as a side effect. Changing Role or
+ * Houses only updates local state. A link is minted or re-minted — always
+ * with `replaceActive: true` — only at the moment the "Invite link" action or
+ * Send is pressed, and only when the on-screen terms differ from the held
+ * link's terms, so an already-shared URL never gains power without the
+ * sender re-confirming it (see `docs/agents/co-manager-access.md`).
  *
- * Pressing "Invite link" resolves that URL and advances to a SECOND VIEW of
- * this same sheet (`view: "link"`) — the form (recipient field, Send, the
- * access chip) is gone, replaced by the read-only URL, a "Joins as" line, and
- * Copy / Share / Back / Done. It never copies on its own; Back returns to the
- * form with role/houses untouched, Done closes the sheet.
+ * The link box renders ONLY while `linkUrl` is in hand AND its terms still
+ * match what is on screen (`termsMatchHeldLink`). The moment Role or Houses
+ * changes after a link was shown, the box disappears and a single line asks
+ * for "Invite link" to be pressed again — never a stale URL for terms nobody
+ * confirmed.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Link2 } from "lucide-react";
+import { Copy, Link2, Share2 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { parseInviteRecipient, inviteRecipientHint } from "@/lib/invite-recipient";
+import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
   CoManagerPermissionsEditor,
+  CoManagerRoleSelect,
+  HouseScopeSelect,
+  RoleCanTable,
   WorkspaceGrantFields,
 } from "@/components/portal/pro-account-links-panel";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 import { memberReachLabel, parseHouseScope, type HouseScope } from "@/lib/workspaces/membership";
 import {
-  TEAM_ROLE_INVITE_OPTIONS,
   TEAM_ROLE_LABELS,
   parseTeamRole,
   stampTeamRolePermissions,
@@ -66,17 +61,6 @@ import {
 import { mintInviteLinkClient, revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
 import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invite-message-body";
 import { deliverManagerDirectoryMessage, sendWorkspaceInviteSms } from "@/lib/manager-vendor-invite-client";
-import type { AccountLinkInviteDto } from "@/lib/account-links";
-import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
-
-type LocalSentInvite = {
-  id: string;
-  label: string;
-  channel: "phone" | "email";
-  at: string;
-  roleLabel: string;
-  reach: string;
-};
 
 function roleLabelFor(role: TeamRoleId): string {
   return TEAM_ROLE_LABELS[role === "full" ? "admin" : role];
@@ -93,77 +77,6 @@ function reachLabelFor(input: {
     houseCount: input.selectedHouseIds.length,
     workspaceHouseCount: input.workspace.propertyIds.length,
   });
-}
-
-/** Role + houses, one control, one trigger — a single-select cannot hold two independent decisions at once. */
-function AccessChip({
-  role,
-  onRoleChange,
-  houseScope,
-  onHouseScopeChange,
-  workspace,
-  disabled,
-}: {
-  role: TeamRoleId;
-  onRoleChange: (next: TeamRoleId) => void;
-  houseScope: HouseScope;
-  onHouseScopeChange: (next: HouseScope) => void;
-  workspace: PortalWorkspace;
-  disabled?: boolean;
-}) {
-  const houseLabel = houseScope === "all" ? `All houses in ${workspace.name}` : "Only selected houses";
-  return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger
-        type="button"
-        disabled={disabled}
-        data-attr="workspace-invite-access"
-        className="flex min-h-11 flex-1 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3.5 text-left text-[13.5px] font-medium text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <span className="truncate">
-          Joins as {roleLabelFor(role)} · {houseLabel}
-        </span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" aria-label="Access" data-attr="workspace-invite-access-menu">
-        <DropdownMenuLabel>Role</DropdownMenuLabel>
-        {TEAM_ROLE_INVITE_OPTIONS.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            data-attr={`workspace-invite-role-${option.value}`}
-            onSelect={(e) => {
-              e.preventDefault();
-              onRoleChange(option.value);
-            }}
-          >
-            {role === option.value ? <Check /> : <span className="size-4 shrink-0" aria-hidden />}
-            {option.label}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>Houses</DropdownMenuLabel>
-        <DropdownMenuItem
-          data-attr="workspace-invite-houses-all"
-          onSelect={(e) => {
-            e.preventDefault();
-            onHouseScopeChange("all");
-          }}
-        >
-          {houseScope === "all" ? <Check /> : <span className="size-4 shrink-0" aria-hidden />}
-          All houses in {workspace.name}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          data-attr="workspace-invite-houses-selected"
-          onSelect={(e) => {
-            e.preventDefault();
-            onHouseScopeChange("selected");
-          }}
-        >
-          {houseScope === "selected" ? <Check /> : <span className="size-4 shrink-0" aria-hidden />}
-          Only selected houses…
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 }
 
 /** The access terms a held link was minted or hydrated with, for comparison against the live UI. */
@@ -207,11 +120,12 @@ export function WorkspaceInviteSheet({
   workspace: PortalWorkspace;
   onClose: () => void;
   onChanged: () => void;
-  /** Opens the existing member's permissions sheet (the panel already owns this flow). */
+  /** Accepted for the panel's call site; this single-view sheet has no member row of its own to edit. */
   onEditMember: (linkId: string) => void;
   /** The manager sending the invite — used in the emailed/texted message body, never the workspace name. */
   inviterName: string;
 }) {
+  void onEditMember;
   const { showToast } = useAppUi();
 
   const [role, setRole] = useState<TeamRoleId>("viewer");
@@ -227,19 +141,8 @@ export function WorkspaceInviteSheet({
   const [linkLoading, setLinkLoading] = useState(false);
   /** The terms the held link (`linkId`) actually carries — null until one is hydrated or minted. */
   const [heldTerms, setHeldTerms] = useState<HeldLinkTerms | null>(null);
-  /**
-   * `"form"` is the send + access chip sheet. `"link"` is a second view of the
-   * SAME sheet reached only by pressing the link action — the link is shown
-   * read-only, Copy/Share/Back/Done replace the form, and Back returns here
-   * with role/houses untouched (see `docs/agents/co-manager-access.md`).
-   */
-  const [view, setView] = useState<"form" | "link">("form");
-
-  const [pendingInvites, setPendingInvites] = useState<AccountLinkInviteDto[]>([]);
-  const [sentThisSession, setSentThisSession] = useState<LocalSentInvite[]>([]);
 
   const [sendValue, setSendValue] = useState("");
-  const [sendFocused, setSendFocused] = useState(false);
   const [sending, setSending] = useState(false);
 
   const recipient = useMemo(() => parseInviteRecipient(sendValue), [sendValue]);
@@ -272,15 +175,14 @@ export function WorkspaceInviteSheet({
     [role, houseScope, houseIds, effectivePermissions, effectiveWorkspacePermissions],
   );
 
-  /** The on-screen access chip exactly describes the link Copy/Send would hand out. */
+  /** The on-screen Role + Houses exactly describe the link Copy/Send would hand out. */
   const termsMatchHeldLink = heldTerms != null && termsMatch(heldTerms, currentTerms);
 
   // Reset and read the workspace's existing link every time the sheet opens
-  // for a (possibly new) workspace. This never mints — Copy link and Send own
-  // that, at the moment the manager actually shares something.
+  // for a (possibly new) workspace. This never mints — Invite link and Send
+  // own that, at the moment the manager actually shares something.
   useEffect(() => {
     if (!open) return;
-    setView("form");
     setRole("viewer");
     setHouseScope("all");
     setSelectedHouseIds([]);
@@ -290,7 +192,6 @@ export function WorkspaceInviteSheet({
     setLinkUrl(null);
     setHeldTerms(null);
     setSendValue("");
-    setSentThisSession([]);
     let cancelled = false;
     setLinkLoading(true);
     void (async () => {
@@ -354,25 +255,6 @@ export function WorkspaceInviteSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open + workspace only
   }, [open, workspace.id]);
 
-  const loadPendingInvites = useMemo(
-    () => async () => {
-      try {
-        const res = await fetch("/api/pro/account-links", { credentials: "include" });
-        const data = (await res.json().catch(() => ({}))) as { invites?: AccountLinkInviteDto[] };
-        const invites = Array.isArray(data.invites) ? data.invites : [];
-        setPendingInvites(invites.filter((inv) => inv.status === "pending" && inv.workspaceId === workspace.id));
-      } catch {
-        /* best-effort — the panel's own list stays authoritative */
-      }
-    },
-    [workspace.id],
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    void loadPendingInvites();
-  }, [open, loadPendingInvites]);
-
   const changeRole = (next: TeamRoleId) => setRole(next);
   const changeHouseScope = (next: HouseScope) => setHouseScope(next);
   const changeSelectedHouseIds = (next: string[]) => setSelectedHouseIds(next);
@@ -422,20 +304,14 @@ export function WorkspaceInviteSheet({
     return { ok: true, url: result.url, linkId: result.linkId };
   };
 
-  /**
-   * The link action: resolve (reuse-or-mint) the URL for what is on screen,
-   * then advance to the read-only link view. It never copies on its own —
-   * Copy is the icon action inside that view.
-   */
+  /** The link action: resolve (reuse-or-mint) the URL for what is on screen and let the link box render. */
   const openInviteLink = async () => {
     setLinkLoading(true);
     try {
       const result = await resolveLinkForCurrentTerms();
       if (!result.ok) {
         showToast(result.error);
-        return;
       }
-      setView("link");
     } finally {
       setLinkLoading(false);
     }
@@ -505,7 +381,6 @@ export function WorkspaceInviteSheet({
         showToast(`Invite sent to ${recipient.label} · ${roleLabel} · ${reach}`);
         setSendValue("");
         onChanged();
-        void loadPendingInvites();
         return;
       }
 
@@ -564,237 +439,127 @@ export function WorkspaceInviteSheet({
       showToast(
         `Invite ${recipient.kind === "phone" ? "texted" : "emailed"} to ${recipient.label} · ${roleLabel} · ${reach}`,
       );
-      setSentThisSession((prev) => [
-        {
-          id: `${Date.now()}`,
-          label: recipient.label,
-          channel: recipient.kind,
-          at: new Date().toISOString(),
-          roleLabel,
-          reach,
-        },
-        ...prev,
-      ]);
       setSendValue("");
     } finally {
       setSending(false);
     }
   };
 
-  const owner = workspace.owned ? "You" : "Workspace owner";
-  const acceptedMembers = workspace.members?.filter((m) => m.status === "accepted") ?? [];
-
-  const resendCodeInvite = async (inviteId: string) => {
-    try {
-      const res = await fetch(`/api/pro/account-links/${encodeURIComponent(inviteId)}/link`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = (await res.json().catch(() => ({}))) as { inviteUrl?: string; error?: string };
-      if (!res.ok || !data.inviteUrl) {
-        showToast(data.error ?? "Could not prepare a fresh invite link.");
-        return;
-      }
-      await navigator.clipboard.writeText(data.inviteUrl);
-      showToast("Invite link copied — share it again.");
-    } catch {
-      showToast("Could not prepare a fresh invite link.");
-    }
-  };
-
-  if (view === "link") {
-    return (
-      <Modal
-        open={open}
-        title={`Invite link · ${workspace.name}`}
-        onClose={onClose}
-        panelClassName="max-w-lg"
-        dataAttr="workspace-invite-sheet"
-        footer={
-          <ModalFooter>
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => setView("form")} data-attr="workspace-invite-back">
-              Back
-            </Button>
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => void shareLink()} data-attr="workspace-invite-share">
-              Share
-            </Button>
-            <Button type="button" variant="primary" className="rounded-full" onClick={onClose} data-attr="workspace-invite-done">
-              Done
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="space-y-4">
-          {/* Modal's own header has no action slot for a call site — Copy lives
-              here, top-right of this view's content, per the icon-chrome rule. */}
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Invite link</p>
-            <PortalIconAction icon={Copy} label="Copy link" onClick={() => void copyLinkUrl()} data-attr="workspace-invite-copy-link" />
-          </div>
-          <Input
-            readOnly
-            value={linkUrl ?? ""}
-            aria-label="Invite link"
-            className="truncate font-mono text-xs"
-            onFocus={(e) => e.currentTarget.select()}
-            data-attr="workspace-invite-link-url"
-          />
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5">
-            <span className="text-[13px] font-medium text-muted">Joins as</span>
-            <span className="truncate text-[13.5px] font-semibold text-foreground" data-attr="workspace-invite-link-access">
-              {roleLabelFor(role)} · {reach}
-            </span>
-          </div>
-        </div>
-      </Modal>
-    );
-  }
+  /** A link has been resolved for exactly the Role + Houses on screen. */
+  const showLinkBox = linkUrl != null && termsMatchHeldLink;
+  /** A link is held, but Role or Houses changed since it was minted or hydrated. */
+  const showLinkStale = linkId != null && !termsMatchHeldLink;
 
   return (
-    <Modal open={open} title={`Invite to ${workspace.name}`} onClose={onClose} panelClassName="max-w-lg" dataAttr="workspace-invite-sheet">
-      <div className="space-y-5">
-        {/* 1. Send */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
+    <Modal
+      open={open}
+      title={`Invite to ${workspace.name}`}
+      onClose={onClose}
+      panelClassName="max-w-2xl"
+      dataAttr="workspace-invite-sheet"
+      footer={
+        <ModalFooter className="justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full"
+            loading={linkLoading}
+            onClick={() => openInviteLink()}
+            data-attr="workspace-invite-copy"
+          >
+            <Link2 className="h-4 w-4" />
+            <span className="ml-1.5">Invite link</span>
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className="rounded-full"
+            disabled={!canSend}
+            loading={sending}
+            onClick={() => send()}
+            data-attr="workspace-invite-send"
+          >
+            Send
+          </Button>
+        </ModalFooter>
+      }
+    >
+      <div className="space-y-4">
+        <Input
+          aria-label="Add people"
+          placeholder="Phone, email or PropLane code"
+          value={sendValue}
+          onChange={(e) => setSendValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canSend) void send();
+          }}
+          data-attr="workspace-invite-add"
+        />
+
+        <CoManagerRoleSelect value={role} onChange={changeRole} />
+
+        <HouseScopeSelect
+          value={houseScope}
+          onChange={changeHouseScope}
+          workspaceName={workspace.name}
+          houseCount={workspace.propertyIds.length}
+          dataAttr="workspace-invite-houses"
+        />
+
+        {houseScope === "selected" ? (
+          <CheckboxMultiSelect
+            label="Selected houses"
+            labelClassName="text-xs font-semibold text-foreground"
+            options={workspace.propertyIds.map((id) => ({
+              value: id,
+              label: workspace.propertyLabels?.[id]?.trim() || id,
+            }))}
+            selected={selectedHouseIds}
+            onChange={changeSelectedHouseIds}
+            emptyLabel="Select houses…"
+            searchPlaceholder="Search houses…"
+            dataAttr="workspace-invite-selected-houses"
+          />
+        ) : null}
+
+        {role === "custom" ? (
+          <>
+            <CoManagerPermissionsEditor hideRole value={customPermissions} onChange={changeCustomPermissions} />
+            <WorkspaceGrantFields value={workspacePermissions} onChange={setWorkspacePermissions} />
+          </>
+        ) : (
+          <RoleCanTable role={role} grant={effectivePermissions} />
+        )}
+
+        {showLinkBox ? (
+          <div className="space-y-3 rounded-xl border border-border bg-card p-3.5" data-attr="workspace-invite-link-box">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Invite link</p>
+              <div className="flex items-center gap-1">
+                <PortalIconAction icon={Copy} label="Copy link" onClick={() => void copyLinkUrl()} data-attr="workspace-invite-copy-link" />
+                <PortalIconAction icon={Share2} label="Share link" onClick={() => void shareLink()} data-attr="workspace-invite-share" />
+              </div>
+            </div>
             <Input
-              aria-label="Add people"
-              placeholder="Phone, email or PropLane code"
-              value={sendValue}
-              onChange={(e) => setSendValue(e.target.value)}
-              onFocus={() => setSendFocused(true)}
-              onBlur={() => setSendFocused(false)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && canSend) void send();
-              }}
-              data-attr="workspace-invite-add"
+              readOnly
+              value={linkUrl ?? ""}
+              aria-label="Invite link"
+              className="truncate font-mono text-xs"
+              onFocus={(e) => e.currentTarget.select()}
+              data-attr="workspace-invite-link-url"
             />
-            <Button
-              type="button"
-              variant="primary"
-              className="shrink-0 rounded-full"
-              disabled={!canSend}
-              loading={sending}
-              onClick={() => void send()}
-              data-attr="workspace-invite-send"
-            >
-              Send
-            </Button>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[13px] font-medium text-muted">This link joins as</span>
+              <span className="truncate text-[13.5px] font-semibold text-foreground" data-attr="workspace-invite-link-access">
+                {roleLabelFor(role)} · {reach}
+              </span>
+            </div>
           </div>
-          {sendFocused || sendValue ? (
-            <p className="text-xs text-muted" data-attr="workspace-invite-hint">
-              {inviteRecipientHint(recipient)}
-            </p>
-          ) : null}
-        </div>
-
-        {/* 2. Link */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="shrink-0 rounded-full"
-              loading={linkLoading}
-              onClick={() => void openInviteLink()}
-              data-attr="workspace-invite-copy"
-            >
-              <Link2 className="h-4 w-4" />
-              <span className="ml-1.5">Invite link</span>
-            </Button>
-            <AccessChip
-              role={role}
-              onRoleChange={changeRole}
-              houseScope={houseScope}
-              onHouseScopeChange={changeHouseScope}
-              workspace={workspace}
-            />
-          </div>
-
-          {houseScope === "selected" ? (
-            <CheckboxMultiSelect
-              label="Selected houses"
-              options={workspace.propertyIds.map((id) => ({
-                value: id,
-                label: workspace.propertyLabels?.[id]?.trim() || id,
-              }))}
-              selected={selectedHouseIds}
-              onChange={changeSelectedHouseIds}
-              emptyLabel="Select houses…"
-              searchPlaceholder="Search houses…"
-              dataAttr="workspace-invite-selected-houses"
-            />
-          ) : null}
-
-          {role === "custom" ? (
-            <>
-              <CoManagerPermissionsEditor hideRole value={customPermissions} onChange={changeCustomPermissions} />
-              <WorkspaceGrantFields value={workspacePermissions} onChange={setWorkspacePermissions} />
-            </>
-          ) : null}
-        </div>
-
-        {/* 3. Who has access */}
-        <div className="space-y-2" data-attr="workspace-invite-access-list">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Who has access</p>
-          <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
-            <li className="flex items-center gap-2.5 px-3 py-2.5">
-              <InboxAvatar name={owner} className="h-8 w-8 shrink-0 text-[11px]" />
-              <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-foreground">{owner}</span>
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">Owner</span>
-            </li>
-            {acceptedMembers.map((m) => (
-              <li key={m.linkId} className="flex items-center gap-2.5 px-3 py-2.5">
-                <InboxAvatar name={m.name} className="h-8 w-8 shrink-0 text-[11px]" />
-                <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-foreground">{m.name}</span>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-semibold text-muted transition hover:bg-accent/60"
-                  data-attr="workspace-invite-member-chip"
-                  onClick={() => onEditMember(m.linkId)}
-                >
-                  {roleLabelFor(m.role)} ·{" "}
-                  {memberReachLabel({
-                    houseScope: m.houseScope,
-                    houseCount: m.propertyIds.length,
-                    workspaceHouseCount: workspace.propertyIds.length,
-                  })}
-                </button>
-              </li>
-            ))}
-            {pendingInvites.map((inv) => (
-              <li key={inv.id} className="flex items-center gap-2.5 px-3 py-2.5" data-attr="workspace-invite-pending-row">
-                <InboxAvatar name={inv.linkedDisplayName ?? inv.linkedAxisId} className="h-8 w-8 shrink-0 text-[11px]" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
-                  <span className="block truncate font-medium">{inv.linkedDisplayName ?? inv.linkedAxisId}</span>
-                  <span className="block truncate text-[11.5px] text-muted">
-                    code · {new Date(inv.createdAt).toLocaleDateString()}
-                    {inv.teamRole ? ` · ${teamRoleListLabel(inv.teamRole)}` : ""}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 text-[12px] font-semibold text-primary"
-                  data-attr="workspace-invite-resend"
-                  onClick={() => void resendCodeInvite(inv.id)}
-                >
-                  Resend
-                </button>
-              </li>
-            ))}
-            {sentThisSession.map((s) => (
-              <li key={s.id} className="flex items-center gap-2.5 px-3 py-2.5" data-attr="workspace-invite-session-row">
-                <InboxAvatar name={s.label} className="h-8 w-8 shrink-0 text-[11px]" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
-                  <span className="block truncate font-medium">{s.label}</span>
-                  <span className="block truncate text-[11.5px] text-muted">
-                    {s.channel} · {new Date(s.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ·{" "}
-                    {s.roleLabel}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        ) : showLinkStale ? (
+          <p className="text-[13px] text-muted" data-attr="workspace-invite-link-stale">
+            Access changed — press Invite link again for a link with these terms.
+          </p>
+        ) : null}
       </div>
     </Modal>
   );

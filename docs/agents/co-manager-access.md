@@ -84,27 +84,37 @@ workspace**, names the workspace, and offers Message the inviter.
 
 **The invite sheet (`workspace-invite-sheet.tsx`) is the one manager invite
 surface** — opened by `ProAccountLinksPanel.openLinkModal`, no separate
-chooser step or "Continue" page. It holds exactly one active manager link per
-workspace, but **opening the sheet and changing the access chip never mint
-anything**: on open it only READS the workspace's active link
-(`GET /api/pro/invite-links?workspaceId=`) to hydrate Role, Houses, and (for
-Custom) the workspace-level grant, and changing any of those only updates
-local state. Minting or reusing a link happens ONLY at the moment Copy or
-Send is pressed, through `resolveLinkForCurrentTerms`: when the on-screen
-terms still match the held link, it reuses that link's URL (revealing it if
-not already in hand); otherwise it mints a fresh one with
-`replaceActive: true` so a URL already sent can never gain more power than
-whoever holds it agreed to, and the previous link is revoked in the same call
-(`mintInviteLink`, `docs/agents/co-manager-access.md` "Mint stores a hash..."
-above). The reveal call is `POST /api/pro/invite-links/[linkId]/link` with no
-body, which **reveals** the stored ciphertext rather than rotating (rotate is
-the separate `{ rotate: true }` call two sections below).
-Pressing the link action ("Invite link") does not copy — it resolves the URL
-through `resolveLinkForCurrentTerms` and advances to a SECOND VIEW of the same
-sheet (`view: "link"`), titled "Invite link · <workspace>", with the form
-gone and only the read-only URL, a "Joins as" line, and Copy (a `PortalIconAction`
-icon, per the icon-chrome rule) / Share / Back / Done; Back returns to the form
-with role/houses untouched, Done closes the sheet.
+chooser step or "Continue" page. It is ONE view, the same width and field kit
+as the member sheet's "Edit permissions" (`max-w-2xl`): a recipient field,
+then Role (`CoManagerRoleSelect`) and Houses (`HouseScopeSelect`) — the same
+components the member sheet uses, exported from `pro-account-links-panel.tsx`
+— then the effective grant (`RoleCanTable` for a named role, the full
+`CoManagerPermissionsEditor` + `WorkspaceGrantFields` for Custom). It holds
+exactly one active manager link per workspace, but **opening the sheet and
+changing Role or Houses never mint anything**: on open it only READS the
+workspace's active link (`GET /api/pro/invite-links?workspaceId=`) to hydrate
+Role, Houses, and (for Custom) the workspace-level grant, and changing any of
+those only updates local state. Minting or reusing a link happens ONLY at the
+moment the footer's "Invite link" action or Send is pressed, through
+`resolveLinkForCurrentTerms`: when the on-screen terms still match the held
+link, it reuses that link's URL (revealing it if not already in hand);
+otherwise it mints a fresh one with `replaceActive: true` so a URL already
+sent can never gain more power than whoever holds it agreed to, and the
+previous link is revoked in the same call (`mintInviteLink`,
+`docs/agents/co-manager-access.md` "Mint stores a hash..." above). The reveal
+call is `POST /api/pro/invite-links/[linkId]/link` with no body, which
+**reveals** the stored ciphertext rather than rotating (rotate is the
+separate `{ rotate: true }` call two sections below).
+Pressing "Invite link" does not copy or navigate anywhere — it resolves the
+URL through `resolveLinkForCurrentTerms` and an inline link box appears
+UNDER the form (`linkUrl && termsMatchHeldLink`): the read-only URL, a "This
+link joins as <role> · <reach>" line, and Copy (a `PortalIconAction` icon,
+per the icon-chrome rule) / Share in the box's own header. The box is gated
+on the SAME terms comparison the mint/reuse decision uses, so the moment Role
+or Houses changes after a link was shown, the box disappears and is replaced
+by one line — "Access changed — press Invite link again for a link with
+these terms." — rather than leaving a URL on screen that no longer describes
+what pressing Send would hand out.
 Sending by email goes out through the manager directory message path
 (`deliverManagerDirectoryMessage`) with the auto-formatted body from
 `formatInviteMessageBody`; that path only ever resolves an existing account or
@@ -122,13 +132,13 @@ instead POSTs directly to `/api/pro/account-links` as an addressed invite (no
 message step) and is the ONLY one of the three that creates an
 `account_link_invites` row before redemption — it alone stamps `invited_via`
 ("code") and `invited_at` (`20260920190000_invite_delivery.sql`). Phone and
-email sends carry no such row (the invite lives entirely in the link until
-redeemed), so "Who has access" shows them only for the current sheet session
-(`sentThisSession`, cleared on reopen), never durably. The old three-path
-chooser (`PortalInvitePaths`, "how to send it" step) is **gone from the
-manager invite**; it is kept only for the vendor invite modal
-(`pro-vendor-form-modal.tsx`), which still owns its own Continue → New
-message flow. Coverage: `tests/unit/workspace-invite-sheet.test.tsx`.
+email sends carry no such row — the invite lives entirely in the link until
+redeemed — and the sheet itself no longer lists who was sent what; that stays
+on the workspace card's own Members list once a link is redeemed or a pending
+row exists. The old three-path chooser (`PortalInvitePaths`, "how to send it"
+step) is **gone from the manager invite**; it is kept only for the vendor
+invite modal (`pro-vendor-form-modal.tsx`), which still owns its own
+Continue → New message flow. Coverage: `tests/unit/workspace-invite-sheet.test.tsx`.
 
 **Transfer ownership (`transfer-ownership-dialog.tsx`)** promotes a workspace
 member to owner of one or more of that workspace's houses, opened from the
