@@ -2062,6 +2062,7 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
       const saved = normalizeManagerAutomationSettings(body.settings);
       cacheShowUpcomingChargesSetting(saved.showUpcomingCharges);
       setValue(saved[field]);
+      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save settings.";

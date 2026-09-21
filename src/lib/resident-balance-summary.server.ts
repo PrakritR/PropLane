@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { householdChargeDueDate } from "@/lib/household-charges";
+import { residentVisibleCharges } from "@/lib/household-charge-visibility";
 import { centsToUsd } from "@/lib/reports/money";
 import type { ReportResult } from "@/lib/reports/types";
 import { householdChargeAmountCents } from "@/lib/stripe-household-charge";
@@ -67,7 +68,9 @@ export async function queryResidentBalance(
   ]);
 
   const charges = ((chargeRows ?? []) as { row_data: unknown }[]).map((r) => r.row_data as HouseholdCharge);
-  const outstanding = charges.filter((c) => String(c.status ?? "") === "pending");
+  // Same visibility set as the resident's Payments tab and dashboard: a
+  // not-yet-due recurring charge is not owed yet as far as the resident is told.
+  const outstanding = residentVisibleCharges(charges).filter((c) => String(c.status ?? "") === "pending");
   const balanceCents = outstanding.reduce((sum, c) => sum + householdChargeAmountCents(c), 0);
   const paidCents = charges
     .filter((c) => String(c.status ?? "") === "paid")

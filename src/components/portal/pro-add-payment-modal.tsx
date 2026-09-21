@@ -151,14 +151,19 @@ export function ManagerAddPaymentModal({
   // state-only busy check. A ref updates synchronously, so the second call is
   // always rejected regardless of render timing.
   const submittingRef = useRef(false);
-  // Minted once per modal open (not once per render) so a retried submit reuses
-  // the SAME charge id — the server upsert is `onConflict: "id"`, so a retry is
-  // idempotent instead of creating a second charge.
+  // Minted once per modal open and again by `reset()` after every successful
+  // submit (not once per render) so a retried submit reuses the SAME charge id —
+  // the server upsert is `onConflict: "id"`, so a retry is idempotent instead of
+  // creating a second charge — while a parent that keeps the modal open for a
+  // second charge can never upsert it over the first.
   const chargeIdRef = useRef<string | null>(null);
+  const mintChargeId = () => {
+    chargeIdRef.current = `hc_mgr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+  };
 
   useEffect(() => {
     if (!open) return;
-    chargeIdRef.current = `hc_mgr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    mintChargeId();
   }, [open]);
 
   useEffect(() => {
@@ -239,6 +244,7 @@ export function ManagerAddPaymentModal({
     setNoticeBusy(false);
     setStepIdx(0);
     setStepError(null);
+    mintChargeId();
   };
 
   const handleClose = () => {

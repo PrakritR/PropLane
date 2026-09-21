@@ -84,17 +84,30 @@ describe("deleteLedgerEntriesForCharge", () => {
     expect(db.from).toHaveBeenCalledWith("ledger_entries");
     expect(eqCalls).toEqual([
       ["source_charge_id", "hc_1"],
+      ["entry_type", "charge"],
       ["manager_user_id", "mgr-1"],
     ]);
   });
 
-  it("scopes only by source_charge_id when no owner is known", async () => {
+  it("only ever removes the charge line — payment and refund lines stay on the books", async () => {
+    const { builder, eqCalls } = makeLedgerBuilder({ error: null });
+    const db = { from: vi.fn().mockReturnValue({ delete: vi.fn().mockReturnValue(builder) }) };
+
+    await deleteLedgerEntriesForCharge(db as never, "mgr-1", "hc_paid");
+
+    expect(eqCalls).toContainEqual(["entry_type", "charge"]);
+  });
+
+  it("scopes only by source_charge_id and entry type when no owner is known (admin)", async () => {
     const { builder, eqCalls } = makeLedgerBuilder({ error: null });
     const db = { from: vi.fn().mockReturnValue({ delete: vi.fn().mockReturnValue(builder) }) };
 
     await deleteLedgerEntriesForCharge(db as never, null, "hc_1");
 
-    expect(eqCalls).toEqual([["source_charge_id", "hc_1"]]);
+    expect(eqCalls).toEqual([
+      ["source_charge_id", "hc_1"],
+      ["entry_type", "charge"],
+    ]);
   });
 
   it("does nothing for an empty charge id", async () => {
@@ -131,11 +144,12 @@ describe("POST /api/portal-household-charges deleteCharge removes the ledger lin
     expect(res.status).toBe(200);
     expect(ledgerEqCalls).toEqual([
       ["source_charge_id", "hc_1"],
+      ["entry_type", "charge"],
       ["manager_user_id", "mgr-1"],
     ]);
   });
 
-  it("still deletes the ledger entries by charge id when the charge row was already gone", async () => {
+  it("pins the delete to the calling manager when the charge row was already gone — never unscoped for a non-admin", async () => {
     existingRow = null;
     const res = await deleteChargeRoute(
       jsonRequest("http://localhost/api/portal-household-charges", {
@@ -144,6 +158,10 @@ describe("POST /api/portal-household-charges deleteCharge removes the ledger lin
       }),
     );
     expect(res.status).toBe(200);
-    expect(ledgerEqCalls).toEqual([["source_charge_id", "hc_missing"]]);
+    expect(ledgerEqCalls).toEqual([
+      ["source_charge_id", "hc_missing"],
+      ["entry_type", "charge"],
+      ["manager_user_id", "mgr-1"],
+    ]);
   });
 });

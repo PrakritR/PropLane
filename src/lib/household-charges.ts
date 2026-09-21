@@ -200,6 +200,11 @@ export type HouseholdCharge = {
   cancelledReminders?: Array<"7d" | "5d" | "3d" | "12h" | "overdue_daily">;
   /** Late fee assessed against this original charge id. */
   sourceChargeId?: string;
+  /** ISO timestamp stamped server-side when a manager sends a manual reminder for a
+   *  not-yet-due charge — the resident sees it from then on, ahead of the normal
+   *  visibility window (`residentCanSeeCharge`). Server-owned: the local-wins
+   *  merge carries it through so a manager's next mirror write never clears it. */
+  residentVisibleAt?: string;
   /** Bundle group cost split metadata (equal shares of household totals). */
   bundleGroupId?: string;
   bundleId?: string;
@@ -302,19 +307,21 @@ function persistHouseholdStateToSession() {
 
 function reconcileChargeWithLocal(serverCharge: HouseholdCharge, local: HouseholdCharge | undefined): HouseholdCharge {
   if (!local) return serverCharge;
+  const residentVisibleAt = local.residentVisibleAt ?? serverCharge.residentVisibleAt;
+  const localWithServerFields: HouseholdCharge = residentVisibleAt ? { ...local, residentVisibleAt } : local;
   // Local mark-paid must win over stale server pending rows (including duplicate ids for the same bill).
   if (local.status === "paid") {
     return {
-      ...local,
+      ...localWithServerFields,
       status: "paid",
       paidAt: local.paidAt ?? serverCharge.paidAt,
       balanceLabel: "$0.00",
     };
   }
   if (serverCharge.status === "paid") {
-    return { ...local, status: "paid", paidAt: serverCharge.paidAt, balanceLabel: "$0.00" };
+    return { ...localWithServerFields, status: "paid", paidAt: serverCharge.paidAt, balanceLabel: "$0.00" };
   }
-  return local;
+  return localWithServerFields;
 }
 
 /** Exported for unit tests — merges server rows with in-session manager edits. */

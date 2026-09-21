@@ -5,38 +5,47 @@
  *   1. Household charge rows the recurring-rent generator wrote a second
  *      time on top of a sales-migration import (same property, resident,
  *      and rent month) — `selectDuplicateGeneratedCharges`.
- *   2. Ledger lines belonging to those duplicate charges.
- *   3. Ledger lines left on the two deleted seed properties
+ *   2. Ledger lines belonging to those duplicate charges — every line of an
+ *      unpaid duplicate, but only the `charge` line of a duplicate that was
+ *      marked paid (its `payment` / `refund` lines stay unless
+ *      ALLOW_PAID_DUPLICATE_DELETE=1) — `selectDuplicateChargeLedgerEntriesToDelete`.
+ *   3. Ledger lines left on exactly the three deleted seed properties
  *      (mgr-seed-4709a-8th-ave-ne, mgr-seed-5259-brooklyn-ave-ne,
- *      mgr--9-rooms-b1wf3z) — `selectDeadPropertyLedgerEntries`.
+ *      mgr--9-rooms-b1wf3z; `AMBIKA_DEAD_SEED_PROPERTY_IDS`) —
+ *      `selectDeadPropertyLedgerEntries`. A line with no property is never
+ *      selected.
  *   4. Orphan "charge" ledger lines on live properties with no linked
  *      charge row, created since 2026-09-19 — a charge-delete path that
  *      dropped the charge but left its ledger line —
  *      `selectOrphanChargeLedgerEntries`.
  *
  * Never touches `manager_property_records` and never deletes a charge row
- * that carries `row_data.migrationSourceId` (an imported row).
+ * that carries `row_data.migrationSourceId` (an imported row). Paid
+ * duplicates, and any duplicate with a Stripe Checkout session or a card
+ * payment method, are printed separately; the script refuses to apply while
+ * a Stripe/card-settled duplicate exists unless ALLOW_PAID_DUPLICATE_DELETE=1.
  *
  * Named production waiver:
  *   docs/waivers/2026-09-21-ambika-payments-cleanup.md
  *
  * Dry-run (default):
- *   node --env-file=.env.production.local \
- *     scripts/cleanup-ambika-payments-production.mjs
+ *   npx tsx --env-file=.env.production.local \
+ *     scripts/cleanup-ambika-payments-production.ts
  *
  * Apply (writes a JSON backup first, then deletes):
  *   ALLOW_PRODUCTION_AMBIKA_PAYMENTS_CLEANUP=1 \
- *     node --env-file=.env.production.local \
- *       scripts/cleanup-ambika-payments-production.mjs --apply
+ *     npx tsx --env-file=.env.production.local \
+ *       scripts/cleanup-ambika-payments-production.ts --apply
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { AMBIKA_MANAGER_EMAIL, AMBIKA_MANAGER_ID, PRODUCTION_PROJECT_REF } from "@/lib/ambika-seattle-occupancy";
 import {
+  partitionPaidDuplicates,
   selectDeadPropertyLedgerEntries,
+  selectDuplicateChargeLedgerEntriesToDelete,
   selectDuplicateGeneratedCharges,
-  selectLedgerEntriesForCharges,
   selectOrphanChargeLedgerEntries,
   summarize,
   type ChargeRow,
@@ -44,6 +53,7 @@ import {
 } from "@/lib/ambika-payments-cleanup";
 
 const APPLY = process.argv.includes("--apply");
+const ALLOW_PAID_DUPLICATE_DELETE = process.env.ALLOW_PAID_DUPLICATE_DELETE === "1";
 const BACKUP_DIR = process.env.AMBIKA_CLEANUP_BACKUP_DIR?.trim() || "/Users/prakrit/Downloads";
 
 function stripQuotes(value: string): string {
@@ -127,7 +137,9 @@ async function main() {
 
   const { data: ledgerRowsRaw, error: ledgerErr } = await db
     .from("ledger_entries")
-    .select("id, resident_email, property_id, entry_type, source_charge_id, amount_cents, due_date, created_at, description")
+    .select(
+      "id, resident_email, property_id, entry_type, source_charge_id, amount_cents, due_date, created_at, description, stripe_checkout_session_id",
+    )
     .eq("manager_user_id", AMBIKA_MANAGER_ID);
   check(ledgerErr);
   const ledgerRows = (ledgerRowsRaw ?? []) as LedgerRow[];
@@ -135,7 +147,17 @@ async function main() {
   const duplicateChargeIds = selectDuplicateGeneratedCharges(charges);
   const deadPropertyLedgerIds = selectDeadPropertyLedgerEntries(ledgerRows, livePropertyIds);
   const orphanChargeLedgerIds = selectOrphanChargeLedgerEntries(ledgerRows, livePropertyIds);
-  const duplicateChargeLedgerIds = selectLedgerEntriesForCharges(ledgerRows, duplicateChargeIds);
+  const { paidIds: paidDuplicateIds, settledIds: settledDuplicateIds } = partitionPaidDuplicates(
+    charges,
+    duplicateChargeIds,
+    ledgerRows,
+  );
+  const duplicateChargeLedgerIds = selectDuplicateChargeLedgerEntriesToDelete(
+    ledgerRows,
+    duplicateChargeIds,
+    paidDuplicateIds,
+    ALLOW_PAID_DUPLICATE_DELETE,
+  );
 
   // Refuse to touch an imported row, no matter how it was selected.
   const chargeById = new Map(charges.map((c) => [c.id, c]));
@@ -166,6 +188,28 @@ async function main() {
     const row = chargeById.get(id)!;
     const rentMonth = row.row_data?.rentMonth ?? "?";
     console.log(`  ${id} · ${row.resident_email ?? "?"} · ${row.kind ?? "?"} · ${rentMonth} · ${row.status ?? "?"}`);
+  }
+
+  console.log(
+    `\nDuplicates marked paid (${paidDuplicateIds.length}) — payment/refund ledger lines ${
+      ALLOW_PAID_DUPLICATE_DELETE ? "WILL be deleted (ALLOW_PAID_DUPLICATE_DELETE=1)" : "are kept"
+    }:`,
+  );
+  for (const id of paidDuplicateIds) {
+    const row = chargeById.get(id)!;
+    console.log(
+      `  ${id} · ${row.resident_email ?? "?"} · ${row.kind ?? "?"} · ${row.row_data?.rentMonth ?? "?"} · paidMethod ${row.row_data?.paidMethod ?? "?"}`,
+    );
+  }
+
+  console.log(`\nDuplicates settled through Stripe or a card (${settledDuplicateIds.length}):`);
+  for (const id of settledDuplicateIds) {
+    const row = chargeById.get(id)!;
+    const session =
+      row.row_data?.stripeCheckoutSessionId ??
+      ledgerRows.find((l) => l.source_charge_id === id && l.stripe_checkout_session_id)?.stripe_checkout_session_id ??
+      "?";
+    console.log(`  ${id} · ${row.resident_email ?? "?"} · session ${session} · paidMethod ${row.row_data?.paidMethod ?? "?"}`);
   }
 
   console.log(
@@ -206,6 +250,13 @@ async function main() {
     console.log("\nDRY RUN — pass --apply with ALLOW_PRODUCTION_AMBIKA_PAYMENTS_CLEANUP=1 to delete.");
     console.log("No manager_property_records writes, ever.");
     return;
+  }
+
+  if (settledDuplicateIds.length > 0 && !ALLOW_PAID_DUPLICATE_DELETE) {
+    throw new Error(
+      `Refusing: ${settledDuplicateIds.length} duplicate charge(s) show a Stripe Checkout session or a card payment. ` +
+        "Review them above; set ALLOW_PAID_DUPLICATE_DELETE=1 to delete anyway.",
+    );
   }
 
   const backupPayload = {

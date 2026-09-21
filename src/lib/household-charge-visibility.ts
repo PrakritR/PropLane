@@ -1,13 +1,18 @@
-import { householdChargeDueDate, isHouseholdChargeOverdue, type HouseholdCharge } from "@/lib/household-charges";
+import {
+  householdChargeDueDate,
+  isHouseholdChargeOverdue,
+  isPendingUpfrontMoveInCharge,
+  type HouseholdCharge,
+} from "@/lib/household-charges";
 import { isMoveInScheduleCharge, moveInGroupKey } from "@/lib/move-in-charge-group";
 
 /**
- * `residentVisibleAt` is a new optional row_data field: an ISO timestamp set the moment a
+ * `residentVisibleAt` (declared on `HouseholdCharge`) is an ISO timestamp set the moment a
  * manager sends a resident a manual reminder about a not-yet-due charge, so the charge
  * becomes visible to that resident immediately regardless of the visibility window below.
- * `household-charges.ts` does not declare this field yet, so it is typed locally here.
+ * Kept as a named alias for the callers that read the field by this name.
  */
-export type HouseholdChargeWithVisibility = HouseholdCharge & { residentVisibleAt?: string };
+export type HouseholdChargeWithVisibility = HouseholdCharge;
 
 /** How many days out a future charge becomes visible to the resident before it is due. */
 export const RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS = 7;
@@ -54,7 +59,21 @@ export function isUpcomingDueDateMs(dueDateSortMs: number | null | undefined, no
 }
 
 /**
- * Whether a resident should be shown a given charge at all. Overdue, processing,
+ * Money the resident must pay to move in is never hidden from them: every upfront
+ * move-in line (deposit, first/prorated month, move-in and one-time fees — see
+ * {@link isPendingUpfrontMoveInCharge}), the legacy `payment_at_signing` line, and any
+ * charge that blocks lease signing until paid. The visibility window below applies only
+ * to recurring rent/utilities/monthly fees and other ordinary dated charges.
+ */
+export function isAlwaysResidentVisibleCharge(charge: HouseholdCharge): boolean {
+  if (charge.blocksLeaseUntilPaid) return true;
+  if (isMoveInScheduleCharge(charge)) return true;
+  return isPendingUpfrontMoveInCharge(charge);
+}
+
+/**
+ * Whether a resident should be shown a given charge at all. Move-in / upfront charges
+ * ({@link isAlwaysResidentVisibleCharge}) are always visible; overdue, processing,
  * partially-paid, and paid charges are always visible; a charge with no parseable due
  * date is always visible; a charge a manager has explicitly surfaced early
  * (`residentVisibleAt`) is always visible; otherwise a charge is visible only once its
@@ -65,6 +84,7 @@ export function residentCanSeeCharge(
   now = new Date(),
   windowDays: number = RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS,
 ): boolean {
+  if (isAlwaysResidentVisibleCharge(charge)) return true;
   if (isHouseholdChargeOverdue(charge, now)) return true;
   if (charge.status === "processing" || charge.status === "partially_paid" || charge.status === "paid") return true;
   if (charge.residentVisibleAt) return true;
@@ -91,15 +111,15 @@ export function residentVisibleCharges<T extends HouseholdChargeWithVisibility>(
   now = new Date(),
   windowDays: number = RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS,
 ): T[] {
+  const inMoveInGroup = (charge: T) =>
+    isMoveInScheduleCharge(charge) && Boolean(charge.residentEmail?.trim()) && Boolean(charge.propertyId);
   const groupHasVisibleLine = new Set<string>();
   for (const charge of charges) {
-    if (!isMoveInScheduleCharge(charge) || !charge.residentEmail.trim() || !charge.propertyId) continue;
+    if (!inMoveInGroup(charge)) continue;
     if (residentCanSeeCharge(charge, now, windowDays)) groupHasVisibleLine.add(moveInGroupKey(charge));
   }
   return charges.filter((charge) => {
-    if (isMoveInScheduleCharge(charge) && charge.residentEmail.trim() && charge.propertyId) {
-      if (groupHasVisibleLine.has(moveInGroupKey(charge))) return true;
-    }
+    if (inMoveInGroup(charge) && groupHasVisibleLine.has(moveInGroupKey(charge))) return true;
     return residentCanSeeCharge(charge, now, windowDays);
   });
 }

@@ -66,6 +66,7 @@ import {
   cacheShowUpcomingChargesSetting,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   normalizeManagerAutomationSettings,
+  PAYMENT_AUTOMATION_SETTINGS_EVENT,
 } from "@/lib/payment-automation-settings";
 import {
   buildManagerOutgoingPaymentRows,
@@ -346,6 +347,7 @@ export function ManagerPayments({
         const normalized = normalizeManagerAutomationSettings(body.settings);
         setReminderSettings(normalized);
         cacheShowUpcomingChargesSetting(normalized.showUpcomingCharges);
+        window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
       } catch (e) {
         setReminderSettings(previous ?? null);
         if (previous) cacheShowUpcomingChargesSetting(previous.showUpcomingCharges);

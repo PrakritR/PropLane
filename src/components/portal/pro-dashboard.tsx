@@ -68,6 +68,7 @@ import {
   readManagerPaymentsLedgerCharges,
   unpaidManagerPaymentCharges,
 } from "@/lib/manager-payments-scope";
+import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import {
   applicationVisibleToPortalUser,
@@ -798,8 +799,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     window.addEventListener(SERVICE_REQUESTS_EVENT, bump);
     window.addEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, bump);
     window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
+    window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
+      window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
       window.removeEventListener(LEASE_PIPELINE_EVENT, bump);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);

@@ -245,18 +245,28 @@ export async function POST(req: Request) {
     });
     // A manual reminder is the manager choosing to surface a charge early —
     // stamp every covered charge so the resident sees it immediately, ahead of
-    // the normal 7-day visibility window (`residentCanSeeCharge`). Merges into
-    // the existing row_data rather than replacing it; best-effort, since a
-    // failure here should never fail an otherwise-sent reminder.
+    // the normal 7-day visibility window (`residentCanSeeCharge`). The row is
+    // re-read right before the write and only `residentVisibleAt` is merged in,
+    // so a status change that landed during delivery (a Stripe webhook marking
+    // it paid, an autopay update) is never overwritten with the pre-send copy.
+    // Best-effort, since a failure here should never fail an otherwise-sent
+    // reminder.
     if (accepted) {
       const residentVisibleAt = new Date().toISOString();
       await Promise.all(
         [...coveredChargesById.entries()].map(async ([id, charge]) => {
           if (charge.residentVisibleAt) return;
           try {
+            const { data: fresh } = await db
+              .from("portal_household_charge_records")
+              .select("row_data")
+              .eq("id", id)
+              .maybeSingle();
+            const current = (fresh?.row_data ?? null) as HouseholdChargeWithVisibility | null;
+            if (!current || current.residentVisibleAt) return;
             await db
               .from("portal_household_charge_records")
-              .update({ row_data: { ...charge, residentVisibleAt } })
+              .update({ row_data: { ...current, residentVisibleAt } })
               .eq("id", id);
           } catch {
             /* best-effort visibility stamp; the reminder itself already sent */

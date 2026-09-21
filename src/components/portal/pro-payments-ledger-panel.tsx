@@ -2025,11 +2025,22 @@ export function ManagerPaymentsLedgerPanel({
       >
         {(() => {
           const recordTab = parsePaymentRecordTab(paymentTabProp);
-          const sections = recordSections("manager", "payment", {
+          const allSections = recordSections("manager", "payment", {
             basePath: listBasePath ?? "/portal",
             direction,
             bucket: activeBucket,
           });
+          // A lock is not a dead click: a row with nothing left to pay does not
+          // offer "Record payment" at all (the phone primary falls back to
+          // "Send reminder"), instead of a header button that silently no-ops.
+          const sections = isMarkableAsPaid(detailRow)
+            ? allSections
+            : {
+                ...allSections,
+                headerActions: allSections.headerActions.filter((action) => action.id !== "record-payment"),
+                phonePrimary: "send-reminder",
+                phonePrimaryLabel: "Send reminder",
+              };
           // Every action `record-sections.ts` still lists for this record kind
           // (record-payment, send-reminder, delete) now has a real handler,
           // reusing the same reversible paths the detail page's own buttons use

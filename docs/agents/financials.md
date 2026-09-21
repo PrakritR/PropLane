@@ -34,11 +34,14 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
-**Deleting a charge deletes its ledger line.** `deleteLedgerEntriesForCharge`
-(`ledger-sync.ts`) removes every `ledger_entries` row with that `source_charge_id`;
-the `deleteCharge` action in `/api/portal-household-charges` calls it right after the
-charge row delete, or income/delinquency reports keep reading a ledger row for a
-charge no one can see any more. Coverage: `tests/unit/household-charge-delete-ledger.test.ts`.
+**Deleting a charge deletes its ledger line — and only that line.**
+`deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
+`ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`
+lines (money that actually moved stays on the books). The `deleteCharge` action in
+`/api/portal-household-charges` calls it right after the charge row delete, scoped to
+the charge's owner (or the calling non-admin manager when the row is already gone), or
+income/delinquency reports keep reading a ledger row for a charge no one can see any
+more. Coverage: `tests/unit/household-charge-delete-ledger.test.ts`.
 The batched sweep logic (`backfillLedgerFromCharges` in `ledger-sync.ts`) still exists,
 but only as an explicit, admin-gated, one-time historical repair — it is invoked solely
 via `POST /api/admin/backfill-ledger` (optionally scoped to one `managerUserId` in the
@@ -218,9 +221,11 @@ correct for both. Writing here too would double-count every return. Coverage:
 **Charge status** — `HouseholdCharge.status` extended: `pending|partially_paid|paid|cancelled|refunded|failed` + optional `paidAmountCents`; `applyPartialPaymentCents` in `nsf-fees.ts`.
 
 **NSF** — `payment_intent.payment_failed` webhook marks charge `failed` and `createNsfFeeForFailedPayment` when `manager_billing_settings.nsfFeeEnabled` (default $35).
-**The NSF fee id is per failed charge** (`nsfFeeIdForCharge`, `hc_nsf_<chargeId>` —
-no `Date.now()`), and `handlePaymentIntentFailed` reads that id before writing, so a
-redelivered failure webhook for the same charge never mints a second fee. Coverage:
+**The NSF fee id is per failed payment attempt** (`nsfFeeIdForCharge`,
+`hc_nsf_<chargeId>_<paymentIntentId>`, falling back to `hc_nsf_<chargeId>` with no
+intent id — no `Date.now()`), and `handlePaymentIntentFailed` reads that id before
+writing, so a redelivered failure webhook for the same attempt never mints a second
+fee while a retry that fails on a new intent is fee'd again. Coverage:
 `tests/unit/nsf-fee-idempotent.test.ts`.
 
 **Settings** — `src/lib/manager-billing-settings.ts` (`paymentApplicationOrder`, NSF toggle/amount).

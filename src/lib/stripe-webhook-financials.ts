@@ -507,17 +507,18 @@ export async function handlePaymentIntentFailed(
 
     if (managerUserId) {
       // Read before write: a redelivered `payment_intent.payment_failed` for the same
-      // charge must never mint a second NSF fee. The id is deterministic per failed
-      // charge (`nsfFeeIdForCharge`), so an existing row here is that same fee already
-      // charged, not a coincidence.
-      const nsfFeeId = nsfFeeIdForCharge(chargeId);
+      // attempt must never mint a second NSF fee. The id is deterministic per failed
+      // attempt — charge + PaymentIntent (`nsfFeeIdForCharge`) — so an existing row
+      // here is that same fee already charged, not a coincidence, while a fresh
+      // retry that fails on a new intent is fee'd on its own.
+      const nsfFeeId = nsfFeeIdForCharge(chargeId, paymentIntent.id);
       const { data: existingNsfFee } = await db
         .from("portal_household_charge_records")
         .select("id")
         .eq("id", nsfFeeId)
         .maybeSingle();
       if (!existingNsfFee) {
-        await createNsfFeeForFailedPayment(db, charge, managerUserId).catch(() => undefined);
+        await createNsfFeeForFailedPayment(db, charge, managerUserId, paymentIntent.id).catch(() => undefined);
       }
       await emitHouseholdChargeTransition(db, {
         managerUserId,

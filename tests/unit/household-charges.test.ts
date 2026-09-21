@@ -301,6 +301,24 @@ describe("syncHouseholdChargesFromServer", () => {
 });
 
 describe("mergeHouseholdChargesWithServer", () => {
+  it("carries the server-stamped residentVisibleAt through the local-wins merge", () => {
+    const server = makeCharge({ id: "chg-1", status: "pending", residentVisibleAt: "2026-09-20T18:00:00.000Z" });
+    const local = makeCharge({ id: "chg-1", status: "pending", title: "Edited locally" });
+
+    const { merged } = mergeHouseholdChargesWithServer([server], [local]);
+    expect(merged[0]?.title).toBe("Edited locally");
+    expect(merged[0]?.residentVisibleAt).toBe("2026-09-20T18:00:00.000Z");
+  });
+
+  it("keeps the server-stamped residentVisibleAt when local mark-paid wins", () => {
+    const server = makeCharge({ id: "chg-1", status: "pending", residentVisibleAt: "2026-09-20T18:00:00.000Z" });
+    const local = makeCharge({ id: "chg-1", status: "paid", paidAt: "2026-09-21T00:00:00.000Z", balanceLabel: "$0.00" });
+
+    const { merged } = mergeHouseholdChargesWithServer([server], [local]);
+    expect(merged[0]?.status).toBe("paid");
+    expect(merged[0]?.residentVisibleAt).toBe("2026-09-20T18:00:00.000Z");
+  });
+
   it("keeps local paid status when server still has pending for the same charge id", () => {
     const server = makeCharge({ id: "chg-1", status: "pending" });
     const local = makeCharge({

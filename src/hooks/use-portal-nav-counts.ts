@@ -40,6 +40,7 @@ import { prefetchPortalData } from "@/lib/portal-data-store";
 import type { PortalKind } from "@/lib/portal-types";
 import { countManagerManagedPropertiesInWorkspace } from "@/lib/demo-property-pipeline";
 import { managerPaymentBucketCounts, readManagerPaymentsLedgerCharges } from "@/lib/manager-payments-scope";
+import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
 import { MANAGER_TASKS_EVENT, readManagerTasksLocal } from "@/lib/manager-tasks";
 import { buildManagerTourRows, countManagerTourRowsByBucket } from "@/lib/manager-tour-list";
 import {
@@ -86,12 +87,14 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
     window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
     window.addEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, bump);
+    window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener(MANAGER_TASKS_EVENT, bump);
       window.removeEventListener(WORKSPACE_SELECTION_EVENT, bump);
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
       window.removeEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, bump);
+      window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
       window.removeEventListener(ADMIN_UI_EVENT, bump);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);

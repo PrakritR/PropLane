@@ -178,6 +178,9 @@ async function importCharge(db: SupabaseClient, owner: string, property: Propert
     residentEmail: row.email!, residentName: row.name, residentUserId: row.residentUserId ?? null,
     propertyId: property.propertyId, propertyLabel: property.propertyKey, managerUserId: owner,
     kind: fact.kind === "deposit_held" ? "security_deposit" : fact.chargeKind ?? "other_cost",
+    // A migrated rent row names its month so `syncAllRecurringRentCharges` treats it as
+    // covering that resident/property/month (rent and utilities) instead of billing again.
+    rentMonth: fact.kind !== "deposit_held" && fact.chargeKind === "rent" ? fact.date.slice(0, 7) : undefined,
     title: fact.description, amountLabel: `$${(fact.amountCents / 100).toFixed(2)}`, balanceLabel: paid ? "$0.00" : `$${(fact.amountCents / 100).toFixed(2)}`,
     status: paid ? "paid" : "pending", paidAt: paid ? `${fact.date}T12:00:00Z` : undefined,
     paidAmountCents: paid ? fact.amountCents : 0, blocksLeaseUntilPaid: false, dueDateLabel: fact.date,

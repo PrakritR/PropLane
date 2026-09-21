@@ -500,11 +500,14 @@ The rules that hold it closed:
 Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
 `tests/unit/current-resident.test.ts`.
 
-**A migrated month covers the generator.** A sales-migration import's rent charge
-(`migrationSourceId` set) is all-in — `syncAllRecurringRentCharges` skips generating
-BOTH the recurring rent and utilities charges for a resident/property/month that
-already has one, instead of keying off `chargeBusinessKey` (which deliberately returns
-a unique key per migrated row and so never dedupes here). Coverage:
+**A migrated month covers the generator.** A migrated rent charge
+(`migrationSourceId` set, `kind: "rent"`, and a `rentMonth`) is all-in —
+`syncAllRecurringRentCharges` skips generating BOTH the recurring rent and utilities
+charges for that resident/property/month, instead of keying off `chargeBusinessKey`
+(which deliberately returns a unique key per migrated row and so never dedupes here).
+The match is on `rentMonth`: the sales-migration `importCharge` stamps it (`YYYY-MM` of
+the fact date) on `chargeKind: "rent"` rows and the Ambika occupancy script sets it
+too; a migrated rent row imported without one does not cover the generator. Coverage:
 `tests/unit/household-charges-migrated-month.test.ts`.
 
 ### Signature freezes the money terms

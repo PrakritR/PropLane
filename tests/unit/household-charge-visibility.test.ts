@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import {
+  isAlwaysResidentVisibleCharge,
   isUpcomingHouseholdCharge,
   RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS,
   residentCanSeeCharge,
+  residentVisibleCharges,
   type HouseholdChargeWithVisibility,
 } from "@/lib/household-charge-visibility";
 
@@ -130,5 +132,69 @@ describe("residentCanSeeCharge", () => {
     const c = charge({ id: "a", dueDateLabel: dueLabelDaysFromNow(14) });
     expect(residentCanSeeCharge(c, NOW, 3)).toBe(false);
     expect(residentCanSeeCharge(c, NOW, 14)).toBe(true);
+  });
+
+  it("never hides money the resident must pay to move in, however far out it is due", () => {
+    const farOut = dueLabelDaysFromNow(60);
+    for (const kind of ["security_deposit", "first_month_rent", "prorated_rent", "move_in_fee", "other_cost", "payment_at_signing"] as const) {
+      const c = charge({ id: kind, kind, dueDateLabel: farOut });
+      expect(isAlwaysResidentVisibleCharge(c), kind).toBe(true);
+      expect(residentCanSeeCharge(c, NOW), kind).toBe(true);
+    }
+  });
+
+  it("never hides a charge that blocks lease signing until paid", () => {
+    const c = charge({ id: "a", kind: "rent", blocksLeaseUntilPaid: true, dueDateLabel: dueLabelDaysFromNow(60) });
+    expect(residentCanSeeCharge(c, NOW)).toBe(true);
+  });
+
+  it("still applies the window to a recurring rent or utilities month", () => {
+    const rent = charge({ id: "r", kind: "rent", recurringRentProfileId: "rrp-1", rentMonth: "2026-11", dueDateLabel: dueLabelDaysFromNow(40) });
+    const utilities = charge({ id: "u", kind: "utilities", recurringRentProfileId: "rrp-1", rentMonth: "2026-11", dueDateLabel: dueLabelDaysFromNow(40) });
+    const monthlyFee = charge({ id: "f", kind: "other_cost", customFeeId: "fee-parking", recurringRentProfileId: "rrp-1", rentMonth: "2026-11", dueDateLabel: dueLabelDaysFromNow(40) });
+    expect(isAlwaysResidentVisibleCharge(rent)).toBe(false);
+    expect(residentCanSeeCharge(rent, NOW)).toBe(false);
+    expect(residentCanSeeCharge(utilities, NOW)).toBe(false);
+    expect(residentCanSeeCharge(monthlyFee, NOW)).toBe(false);
+  });
+});
+
+describe("residentVisibleCharges — a lease starting 30 days out", () => {
+  // Every move-in line the signature bills carries `dueDateLabel = "Before <lease start>"`,
+  // which parses to the lease-start date — 30 days out, well past the 7-day window.
+  const leaseStart = dueLabelDaysFromNow(30);
+  const deposit = charge({ id: "deposit", kind: "security_deposit", title: "Security deposit", dueDateLabel: leaseStart });
+  const firstMonth = charge({ id: "first", kind: "first_month_rent", title: "First month's rent", dueDateLabel: leaseStart });
+  const nextMonthRent = charge({
+    id: "next-rent",
+    kind: "rent",
+    recurringRentProfileId: "rrp-1",
+    rentMonth: "2026-11",
+    title: "Rent — November",
+    dueDateLabel: dueLabelDaysFromNow(60),
+  });
+
+  it("keeps the deposit and first month visible while next month's recurring rent stays hidden", () => {
+    const visible = residentVisibleCharges([deposit, firstMonth, nextMonthRent], NOW).map((c) => c.id);
+    expect(visible).toEqual(["deposit", "first"]);
+  });
+
+  it("shows the recurring month once it is inside the window", () => {
+    // A rent row's due date derives from `rentMonth` + `dueDay` (see
+    // `householdChargeDueDate`): October 1 is 10 days past Sep 21, so it is
+    // hidden from NOW but visible one week before the 1st.
+    const october = { ...nextMonthRent, rentMonth: "2026-10", dueDay: 1 };
+    expect(residentVisibleCharges([deposit, firstMonth, october], NOW).map((c) => c.id)).toEqual(["deposit", "first"]);
+    const oneWeekBefore = new Date(2026, 8, 24);
+    expect(residentVisibleCharges([deposit, firstMonth, october], oneWeekBefore).map((c) => c.id)).toEqual([
+      "deposit",
+      "first",
+      "next-rent",
+    ]);
+  });
+
+  it("tolerates a raw row without a resident email", () => {
+    const raw = { ...deposit, residentEmail: undefined } as unknown as HouseholdCharge;
+    expect(() => residentVisibleCharges([raw], NOW)).not.toThrow();
   });
 });

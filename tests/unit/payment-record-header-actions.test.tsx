@@ -126,6 +126,14 @@ describe("payment record page header actions", () => {
     expect(navigate).toHaveBeenCalled();
   });
 
+  it("omits Record payment on a paid row — a lock is not a dead click", () => {
+    renderDetail(sampleRow({ bucket: "paid", statusLabel: "Paid", amountPaid: "$1,850.00", balanceDue: "$0.00" }));
+    expect(document.querySelector('[data-attr="record-header-action-record-payment"]')).toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-send-reminder"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="record-header-action-delete"]')).toBeTruthy();
+    expect(markHouseholdChargePaid).not.toHaveBeenCalled();
+  });
+
   it("still wires Send reminder — unaffected by the record-payment/delete rewiring", () => {
     renderDetail(sampleRow());
     const button = document.querySelector('[data-attr="record-header-action-send-reminder"]');

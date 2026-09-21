@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  AMBIKA_DEAD_SEED_PROPERTY_IDS,
+  partitionPaidDuplicates,
   selectDeadPropertyLedgerEntries,
+  selectDuplicateChargeLedgerEntriesToDelete,
   selectDuplicateGeneratedCharges,
   selectLedgerEntriesForCharges,
   selectOrphanChargeLedgerEntries,
@@ -173,19 +176,39 @@ describe("selectDuplicateGeneratedCharges", () => {
 });
 
 describe("selectDeadPropertyLedgerEntries", () => {
-  it("selects ledger rows whose property is not in the live set", () => {
-    const rows = [
-      ledger({ id: "l1", property_id: "live-1" }),
-      ledger({ id: "l2", property_id: "dead-seed-1" }),
-      ledger({ id: "l3", property_id: "dead-seed-2" }),
-    ];
-    const live = new Set(["live-1"]);
-    expect(selectDeadPropertyLedgerEntries(rows, live).sort()).toEqual(["l2", "l3"]);
+  it("pins the allowlist to exactly the three deleted seed properties", () => {
+    expect([...AMBIKA_DEAD_SEED_PROPERTY_IDS]).toEqual([
+      "mgr-seed-4709a-8th-ave-ne",
+      "mgr-seed-5259-brooklyn-ave-ne",
+      "mgr--9-rooms-b1wf3z",
+    ]);
   });
 
-  it("selects a row with a null property id", () => {
-    const rows = [ledger({ id: "l1", property_id: null })];
-    expect(selectDeadPropertyLedgerEntries(rows, new Set(["live-1"]))).toEqual(["l1"]);
+  it("selects ledger rows on the allowlisted dead seed properties only", () => {
+    const rows = [
+      ledger({ id: "l1", property_id: "live-1" }),
+      ledger({ id: "l2", property_id: "mgr-seed-4709a-8th-ave-ne" }),
+      ledger({ id: "l3", property_id: "mgr-seed-5259-brooklyn-ave-ne" }),
+      ledger({ id: "l4", property_id: "mgr--9-rooms-b1wf3z" }),
+      ledger({ id: "l5", property_id: "some-other-deleted-property" }),
+    ];
+    const live = new Set(["live-1"]);
+    expect(selectDeadPropertyLedgerEntries(rows, live).sort()).toEqual(["l2", "l3", "l4"]);
+  });
+
+  it("never selects a row with a null or empty property id", () => {
+    const rows = [ledger({ id: "l1", property_id: null }), ledger({ id: "l2", property_id: "" })];
+    expect(selectDeadPropertyLedgerEntries(rows, new Set(["live-1"]))).toEqual([]);
+  });
+
+  it("leaves an allowlisted property alone when it is live again", () => {
+    const rows = [ledger({ id: "l1", property_id: "mgr--9-rooms-b1wf3z" })];
+    expect(selectDeadPropertyLedgerEntries(rows, new Set(["mgr--9-rooms-b1wf3z"]))).toEqual([]);
+  });
+
+  it("honours an explicit allowlist override", () => {
+    const rows = [ledger({ id: "l1", property_id: "dead-x" }), ledger({ id: "l2", property_id: "mgr--9-rooms-b1wf3z" })];
+    expect(selectDeadPropertyLedgerEntries(rows, new Set(), ["dead-x"])).toEqual(["l1"]);
   });
 });
 
@@ -284,6 +307,59 @@ describe("selectLedgerEntriesForCharges", () => {
   it("returns nothing when no charge ids match", () => {
     const rows = [ledger({ id: "l1", source_charge_id: "charge-9" })];
     expect(selectLedgerEntriesForCharges(rows, ["charge-1"])).toEqual([]);
+  });
+});
+
+describe("partitionPaidDuplicates", () => {
+  const duplicates = ["dup-pending", "dup-paid-hand", "dup-paid-card", "dup-stripe-row", "dup-stripe-ledger"];
+  const charges = [
+    charge({ id: "dup-pending", status: "pending" }),
+    charge({ id: "dup-paid-hand", status: "paid", row_data: { paidMethod: "check" } }),
+    charge({ id: "dup-paid-card", status: "paid", row_data: { paidMethod: "Card" } }),
+    charge({ id: "dup-stripe-row", status: "paid", row_data: { stripeCheckoutSessionId: "cs_1" } }),
+    charge({ id: "dup-stripe-ledger", status: "pending" }),
+    charge({ id: "not-a-duplicate", status: "paid", row_data: { paidMethod: "card" } }),
+  ];
+  const ledgerRows = [
+    ledger({ id: "l1", entry_type: "payment", source_charge_id: "dup-stripe-ledger", stripe_checkout_session_id: "cs_2" }),
+    ledger({ id: "l2", entry_type: "charge", source_charge_id: "dup-paid-hand" }),
+  ];
+
+  it("lists paid duplicates and Stripe/card-settled duplicates separately", () => {
+    const { paidIds, settledIds } = partitionPaidDuplicates(charges, duplicates, ledgerRows);
+    expect(paidIds.sort()).toEqual(["dup-paid-card", "dup-paid-hand", "dup-stripe-row"]);
+    expect(settledIds.sort()).toEqual(["dup-paid-card", "dup-stripe-ledger", "dup-stripe-row"]);
+  });
+
+  it("ignores charges outside the duplicate set", () => {
+    const { paidIds, settledIds } = partitionPaidDuplicates(charges, duplicates, ledgerRows);
+    expect(paidIds).not.toContain("not-a-duplicate");
+    expect(settledIds).not.toContain("not-a-duplicate");
+  });
+});
+
+describe("selectDuplicateChargeLedgerEntriesToDelete", () => {
+  const rows = [
+    ledger({ id: "pending-charge", entry_type: "charge", source_charge_id: "dup-pending" }),
+    ledger({ id: "pending-payment", entry_type: "payment", source_charge_id: "dup-pending" }),
+    ledger({ id: "paid-charge", entry_type: "charge", source_charge_id: "dup-paid" }),
+    ledger({ id: "paid-payment", entry_type: "payment", source_charge_id: "dup-paid" }),
+    ledger({ id: "paid-refund", entry_type: "refund", source_charge_id: "dup-paid" }),
+    ledger({ id: "other", entry_type: "charge", source_charge_id: "not-a-duplicate" }),
+  ];
+
+  it("keeps a paid duplicate's payment and refund lines by default", () => {
+    expect(selectDuplicateChargeLedgerEntriesToDelete(rows, ["dup-pending", "dup-paid"], ["dup-paid"], false).sort()).toEqual([
+      "paid-charge",
+      "pending-charge",
+      "pending-payment",
+    ]);
+  });
+
+  it("deletes every line of every duplicate when ALLOW_PAID_DUPLICATE_DELETE is set", () => {
+    expect(selectDuplicateChargeLedgerEntriesToDelete(rows, ["dup-pending", "dup-paid"], ["dup-paid"], true).sort()).toEqual(
+      selectLedgerEntriesForCharges(rows, ["dup-pending", "dup-paid"]).sort(),
+    );
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { residentCanSeeCharge, type HouseholdChargeWithVisibility } from "@/lib/household-charge-visibility";
+import { residentCanSeeCharge, residentVisibleCharges, type HouseholdChargeWithVisibility } from "@/lib/household-charge-visibility";
 
 /**
  * PLAN-0920-2357 stream B: the resident Payments screen (and the assistant's
@@ -46,6 +46,15 @@ describe("resident Payments visibility window — the October 1 rent charge", ()
     const now = new Date(2026, 8, 21);
     const charge = chargeDueOct1({ residentVisibleAt: "2026-09-20T18:00:00.000Z" });
     expect(residentCanSeeCharge(charge, now)).toBe(true);
+  });
+
+  it("never hides the move-in schedule for a lease starting 30 days out", () => {
+    const now = new Date(2026, 8, 21);
+    const leaseStart = "Before Oct 21, 2026";
+    const deposit = chargeDueOct1({ id: "hc_deposit", kind: "security_deposit", rentMonth: undefined, dueDateLabel: leaseStart });
+    const firstMonth = chargeDueOct1({ id: "hc_first", kind: "first_month_rent", rentMonth: undefined, dueDateLabel: leaseStart });
+    const november = chargeDueOct1({ id: "hc_rent_nov", recurringRentProfileId: "rrp-1", rentMonth: "2026-11", dueDateLabel: "Nov 1, 2026" });
+    expect(residentVisibleCharges([deposit, firstMonth, november], now).map((c) => c.id)).toEqual(["hc_deposit", "hc_first"]);
   });
 
   it("is visible any time once it is overdue, even far outside the normal window logic", () => {

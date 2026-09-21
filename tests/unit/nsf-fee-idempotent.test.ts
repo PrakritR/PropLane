@@ -1,9 +1,11 @@
 /**
  * `handlePaymentIntentFailed` (src/lib/stripe-webhook-financials.ts) creates an NSF fee
  * for a declined payment. Stripe redelivers webhooks, so the same
- * `payment_intent.payment_failed` event can arrive twice for the same failed charge.
- * The NSF fee id is now deterministic (`nsfFeeIdForCharge`, no `Date.now()`), and the
- * handler reads that id before writing so a redelivery skips creating a second fee.
+ * `payment_intent.payment_failed` event can arrive twice for the same failed attempt.
+ * The NSF fee id is deterministic per ATTEMPT (`nsfFeeIdForCharge`: charge id +
+ * PaymentIntent id, no `Date.now()`), and the handler reads that id before writing so a
+ * redelivery skips creating a second fee — while a retry that fails on a new intent is
+ * fee'd again.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
@@ -88,9 +90,9 @@ function makeDb() {
   };
 }
 
-function makePaymentIntent(): Stripe.PaymentIntent {
+function makePaymentIntent(id = "pi_test_1"): Stripe.PaymentIntent {
   return {
-    id: "pi_test_1",
+    id,
     object: "payment_intent",
     metadata: { charge_id: CHARGE_ID },
     last_payment_error: { message: "Your card was declined." },
@@ -116,9 +118,36 @@ describe("NSF fee idempotency", () => {
     await handlePaymentIntentFailed(db as never, makePaymentIntent());
     await handlePaymentIntentFailed(db as never, makePaymentIntent());
 
-    const nsfFeeId = nsfFeeIdForCharge(CHARGE_ID);
+    const nsfFeeId = nsfFeeIdForCharge(CHARGE_ID, "pi_test_1");
     expect(db.rows.has(nsfFeeId)).toBe(true);
     const nsfRows = [...db.rows.values()].filter((r) => (r.row_data as HouseholdCharge).kind === "nsf_fee");
     expect(nsfRows).toHaveLength(1);
+  });
+
+  it("charges a second NSF fee when a retry fails on a new payment intent", async () => {
+    const db = makeDb();
+    db.rows.set(CHARGE_ID, {
+      id: CHARGE_ID,
+      manager_user_id: MANAGER_ID,
+      resident_email: RESIDENT_EMAIL,
+      status: "pending",
+      row_data: makeCharge(),
+      updated_at: new Date().toISOString(),
+    });
+
+    await handlePaymentIntentFailed(db as never, makePaymentIntent("pi_test_1"));
+    await handlePaymentIntentFailed(db as never, makePaymentIntent("pi_test_2"));
+    await handlePaymentIntentFailed(db as never, makePaymentIntent("pi_test_2"));
+
+    expect(db.rows.has(nsfFeeIdForCharge(CHARGE_ID, "pi_test_1"))).toBe(true);
+    expect(db.rows.has(nsfFeeIdForCharge(CHARGE_ID, "pi_test_2"))).toBe(true);
+    const nsfRows = [...db.rows.values()].filter((r) => (r.row_data as HouseholdCharge).kind === "nsf_fee");
+    expect(nsfRows).toHaveLength(2);
+  });
+
+  it("falls back to the charge-only id when no payment intent id is known", () => {
+    expect(nsfFeeIdForCharge(CHARGE_ID)).toBe(`hc_nsf_${CHARGE_ID}`);
+    expect(nsfFeeIdForCharge(CHARGE_ID, "")).toBe(`hc_nsf_${CHARGE_ID}`);
+    expect(nsfFeeIdForCharge(CHARGE_ID, "pi_1")).toBe(`hc_nsf_${CHARGE_ID}_pi_1`);
   });
 });

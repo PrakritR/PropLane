@@ -4,25 +4,32 @@ import { loadManagerBillingSettings } from "@/lib/manager-billing-settings";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import { track } from "@/lib/analytics/posthog";
 
-/** Deterministic NSF-fee charge id for one failed charge — shared with the caller so it can
- *  read-before-write and skip a duplicate fee for a redelivered failure webhook. */
-export function nsfFeeIdForCharge(chargeId: string): string {
-  return `hc_nsf_${chargeId}`;
+/**
+ * Deterministic NSF-fee charge id for one failed payment ATTEMPT: the charge plus the
+ * Stripe PaymentIntent that failed. One fee per attempt — a resident who retries and
+ * fails again owes a second fee — while a redelivered webhook for the same intent lands
+ * on the same id, so the caller can read-before-write and skip the duplicate. Falls back
+ * to the charge-only id when no intent id is known.
+ */
+export function nsfFeeIdForCharge(chargeId: string, paymentIntentId?: string | null): string {
+  const intent = paymentIntentId?.trim();
+  return intent ? `hc_nsf_${chargeId}_${intent}` : `hc_nsf_${chargeId}`;
 }
 
 export async function createNsfFeeForFailedPayment(
   db: SupabaseClient,
   failedCharge: HouseholdCharge,
   managerUserId: string,
+  paymentIntentId?: string | null,
 ): Promise<string | null> {
   const settings = await loadManagerBillingSettings(db, managerUserId);
   if (!settings.nsfFeeEnabled || settings.nsfFeeAmountCents <= 0) return null;
 
-  // Deterministic, per-failed-charge id (no `Date.now()`) so a redelivered
-  // `payment_intent.payment_failed` webhook for the same failed charge can never
-  // mint a second NSF fee — the caller reads this id before writing to skip the
-  // duplicate outright, and even a race lands on the same `onConflict: "id"` row.
-  const id = nsfFeeIdForCharge(failedCharge.id);
+  // Deterministic, per-attempt id (no `Date.now()`) so a redelivered
+  // `payment_intent.payment_failed` webhook for the same attempt can never mint a
+  // second NSF fee — the caller reads this id before writing to skip the duplicate
+  // outright, and even a race lands on the same `onConflict: "id"` row.
+  const id = nsfFeeIdForCharge(failedCharge.id, paymentIntentId);
   const now = new Date().toISOString();
   const amountLabel = `$${(settings.nsfFeeAmountCents / 100).toFixed(2)}`;
 

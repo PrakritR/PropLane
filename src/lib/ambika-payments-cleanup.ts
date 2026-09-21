@@ -14,6 +14,8 @@ export type ChargeRowData = {
   recurringRentProfileId?: string | null;
   migrationSourceId?: string | null;
   rentMonth?: string | null;
+  paidMethod?: string | null;
+  stripeCheckoutSessionId?: string | null;
 };
 
 export type ChargeRow = {
@@ -35,7 +37,20 @@ export type LedgerRow = {
   due_date: string | null;
   created_at: string | null;
   description: string | null;
+  stripe_checkout_session_id?: string | null;
 };
+
+/**
+ * The exact three deleted seed properties whose ledger lines this cleanup may
+ * remove. `selectDeadPropertyLedgerEntries` selects nothing outside this list —
+ * a ledger line with an empty/null `property_id` (a manual one-off charge filed
+ * under no property) is a live line, not a dead one.
+ */
+export const AMBIKA_DEAD_SEED_PROPERTY_IDS: readonly string[] = [
+  "mgr-seed-4709a-8th-ave-ne",
+  "mgr-seed-5259-brooklyn-ave-ne",
+  "mgr--9-rooms-b1wf3z",
+];
 
 const GENERATED_KINDS = new Set(["rent", "utilities"]);
 
@@ -74,10 +89,23 @@ export function selectDuplicateGeneratedCharges(rows: ChargeRow[]): string[] {
   return duplicateIds;
 }
 
-/** Ledger lines on properties that are no longer in the manager's portfolio. */
-export function selectDeadPropertyLedgerEntries(ledgerRows: LedgerRow[], livePropertyIds: Set<string>): string[] {
+/**
+ * Ledger lines on the named deleted seed properties. Pinned to an explicit
+ * allowlist (`AMBIKA_DEAD_SEED_PROPERTY_IDS` by default) rather than "anything
+ * not live", and a property that is somehow live again is left alone.
+ */
+export function selectDeadPropertyLedgerEntries(
+  ledgerRows: LedgerRow[],
+  livePropertyIds: Set<string>,
+  deadPropertyIds: Iterable<string> = AMBIKA_DEAD_SEED_PROPERTY_IDS,
+): string[] {
+  const dead = new Set(deadPropertyIds);
   return ledgerRows
-    .filter((row) => !livePropertyIds.has(row.property_id ?? ""))
+    .filter((row) => {
+      const propertyId = row.property_id?.trim() ?? "";
+      if (!propertyId) return false;
+      return dead.has(propertyId) && !livePropertyIds.has(propertyId);
+    })
     .map((row) => row.id);
 }
 
@@ -110,6 +138,70 @@ export function selectLedgerEntriesForCharges(ledgerRows: LedgerRow[], chargeIds
   const chargeIdSet = new Set(chargeIds);
   return ledgerRows
     .filter((row) => row.source_charge_id != null && chargeIdSet.has(row.source_charge_id))
+    .map((row) => row.id);
+}
+
+export type PaidDuplicatePartition = {
+  /** Duplicate charges whose row is `paid` (hand-marked or otherwise). */
+  paidIds: string[];
+  /** Duplicate charges that show real settlement: a Stripe Checkout session on the
+   *  charge or on any of its ledger lines, or `paidMethod: "card"`. */
+  settledIds: string[];
+};
+
+/**
+ * Splits the duplicate generated charges into the ones that were marked paid and
+ * the ones that carry evidence of money actually moving through Stripe / a card.
+ * The script prints both groups separately and refuses to apply while a settled
+ * duplicate exists unless `ALLOW_PAID_DUPLICATE_DELETE=1`.
+ */
+export function partitionPaidDuplicates(
+  charges: ChargeRow[],
+  duplicateChargeIds: Iterable<string>,
+  ledgerRows: LedgerRow[],
+): PaidDuplicatePartition {
+  const duplicateSet = new Set(duplicateChargeIds);
+  const chargesWithStripeLedgerLine = new Set<string>();
+  for (const row of ledgerRows) {
+    if (row.source_charge_id && duplicateSet.has(row.source_charge_id) && row.stripe_checkout_session_id) {
+      chargesWithStripeLedgerLine.add(row.source_charge_id);
+    }
+  }
+  const paidIds: string[] = [];
+  const settledIds: string[] = [];
+  for (const row of charges) {
+    if (!duplicateSet.has(row.id)) continue;
+    if (row.status === "paid") paidIds.push(row.id);
+    const data = row.row_data;
+    const settled =
+      Boolean(data?.stripeCheckoutSessionId) ||
+      (typeof data?.paidMethod === "string" && data.paidMethod.trim().toLowerCase() === "card") ||
+      chargesWithStripeLedgerLine.has(row.id);
+    if (settled) settledIds.push(row.id);
+  }
+  return { paidIds, settledIds };
+}
+
+/**
+ * The ledger lines to delete for the duplicate charges: every line of an unpaid
+ * duplicate, but only the `charge` line of a paid duplicate — its `payment` /
+ * `refund` lines are kept unless `allowPaidDuplicateDelete` is set.
+ */
+export function selectDuplicateChargeLedgerEntriesToDelete(
+  ledgerRows: LedgerRow[],
+  duplicateChargeIds: Iterable<string>,
+  paidDuplicateChargeIds: Iterable<string>,
+  allowPaidDuplicateDelete: boolean,
+): string[] {
+  const duplicateSet = new Set(duplicateChargeIds);
+  const paidSet = new Set(paidDuplicateChargeIds);
+  return ledgerRows
+    .filter((row) => {
+      if (row.source_charge_id == null || !duplicateSet.has(row.source_charge_id)) return false;
+      if (allowPaidDuplicateDelete) return true;
+      if (!paidSet.has(row.source_charge_id)) return true;
+      return row.entry_type === "charge";
+    })
     .map((row) => row.id);
 }
 
