@@ -8,13 +8,13 @@ import { roomMoveInClipboardText, roomMoveInShareUrl } from "@/lib/move-in-share
 describe("roomMoveInShareUrl", () => {
   it("builds a resident move-in link scoped to the room", () => {
     expect(roomMoveInShareUrl("https://proplane.example", "room-1")).toBe(
-      "https://proplane.example/resident/move-in?room=room-1",
+      "https://proplane.example/resident/move-in/info?room=room-1",
     );
   });
 
   it("encodes a room id with special characters", () => {
     expect(roomMoveInShareUrl("https://proplane.example", "room a/b")).toBe(
-      "https://proplane.example/resident/move-in?room=room%20a%2Fb",
+      "https://proplane.example/resident/move-in/info?room=room%20a%2Fb",
     );
   });
 });

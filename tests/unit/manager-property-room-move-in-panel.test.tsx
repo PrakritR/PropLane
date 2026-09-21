@@ -104,13 +104,13 @@ describe("ManagerPropertyRoomMoveInPanel — room Copy/Share icon actions", () =
     expect(text).not.toContain("data:");
   });
 
-  it("Share writes a URL ending in /resident/move-in?room=<id>", async () => {
+  it("Share writes a URL ending in /resident/move-in/info?room=<id>", async () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Share Room B move-in info" }));
     await Promise.resolve();
     expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
     const url = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-    expect(url).toContain("/resident/move-in?room=room-b");
+    expect(url).toContain("/resident/move-in/info?room=room-b");
   });
 });
 

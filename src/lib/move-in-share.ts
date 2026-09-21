@@ -6,7 +6,7 @@
 
 /** The resident-facing move-in link for one room, scoped by `?room=`. */
 export function roomMoveInShareUrl(origin: string, roomId: string): string {
-  return `${origin}/resident/move-in?room=${encodeURIComponent(roomId)}`;
+  return `${origin}/resident/move-in/info?room=${encodeURIComponent(roomId)}`;
 }
 
 function mediaLine(photoCount: number, hasVideo: boolean): string | null {

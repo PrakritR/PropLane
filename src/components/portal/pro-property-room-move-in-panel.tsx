@@ -370,7 +370,7 @@ export function ManagerPropertyRoomMoveInPanel({
               const shareRoom = (r: ManagerRoomSubmission) => () => {
                 const url =
                   typeof window === "undefined"
-                    ? "/resident/move-in"
+                    ? "/resident/move-in/info"
                     : roomMoveInShareUrl(window.location.origin, r.id);
                 void navigator.clipboard.writeText(url).then(
                   () => showToast(`${label} move-in link copied.`),
