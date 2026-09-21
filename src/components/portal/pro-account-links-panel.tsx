@@ -157,7 +157,7 @@ type InviteDraft = {
 };
 
 /** Role → the row's chips: what the person can do in each module, read-only. */
-function RoleCanTable({ role, grant }: { role: TeamRoleId; grant: CoManagerPermissions }) {
+export function RoleCanTable({ role, grant }: { role: TeamRoleId; grant: CoManagerPermissions }) {
   const rights = workspaceRightsForRole(role);
   const rows: { label: string; value: string; on: boolean }[] = [
     { label: "Invite and edit members", value: rights.members ? "Yes" : "No", on: rights.members },
@@ -193,7 +193,7 @@ function RoleCanTable({ role, grant }: { role: TeamRoleId; grant: CoManagerPermi
   );
 }
 
-function HouseScopeSelect({
+export function HouseScopeSelect({
   value,
   onChange,
   workspaceName,
@@ -439,7 +439,7 @@ function accessToLevels(access: ModuleAccessLevel, notification: boolean | undef
  * property never grants a module by itself. The grant written is the same
  * `{ read, edit, delete, notification }` shape every server gate reads.
  */
-function CoManagerRoleSelect({
+export function CoManagerRoleSelect({
   value,
   onChange,
   disabled,
