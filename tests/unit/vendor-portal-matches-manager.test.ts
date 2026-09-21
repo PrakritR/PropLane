@@ -93,13 +93,15 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/lib/vendor-availability.ts")).toContain("convertFlexibleWeeklyRulesToWindows");
   });
 
-  it("finances uses a filter sheet, request payment, and doors the Payouts tab to Settings", () => {
+  it("finances uses a filter sheet, request payment, payout setup, and doors the Payouts tab to Settings", () => {
     const finances = read("src/components/portal/vendor-finances-panel.tsx");
     expect(finances).toContain("PortalFilterSortSheet");
     expect(finances).toContain("Request payment");
+    expect(finances).toContain("Payout setup");
     // Payouts is one page now, mounted at Settings → Payouts
     // (PLAN-0920-1500) — the Finances "payouts" tabId never reaches this
-    // component; `render-portal-section.tsx` redirects it first.
+    // component; `render-portal-section.tsx` redirects it first. Income still
+    // keeps a quick "Payout setup" door into payment methods.
     expect(finances).not.toContain("PortalPayoutsPanel");
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('finTab === "payouts"');
