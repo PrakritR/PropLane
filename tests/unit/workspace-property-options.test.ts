@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   activeWorkspacePropertyOptions,
+  allWorkspacePropertyOptions,
+  propertyOptionsFromWorkspacePayload,
   setWorkspaceSelection,
+  unionLabeledPropertyOptions,
 } from "@/lib/workspaces/selection";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import * as propertyPipeline from "@/lib/demo-property-pipeline";
@@ -89,5 +92,53 @@ describe("workspace property options", () => {
     const options = buildManagerPropertyFilterOptions(USER);
     expect(options.some((option) => option.id === "draft-1")).toBe(true);
     expect(options.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("propertyOptionsFromWorkspacePayload uses payload labels, not the pipeline", () => {
+    expect(
+      propertyOptionsFromWorkspacePayload({
+        propertyIds: ["a", "b"],
+        propertyLabels: { a: "Alpha" },
+      }),
+    ).toEqual([
+      { id: "a", label: "Alpha" },
+      { id: "b", label: "Untitled property" },
+    ]);
+  });
+
+  it("allWorkspacePropertyOptions unions every workspace, first-seen wins", () => {
+    expect(
+      allWorkspacePropertyOptions([
+        { propertyIds: ["a"], propertyLabels: { a: "From first" } },
+        { propertyIds: ["a", "b"], propertyLabels: { a: "From second", b: "Bravo" } },
+      ]),
+    ).toEqual([
+      { id: "a", label: "From first" },
+      { id: "b", label: "Bravo" },
+    ]);
+  });
+
+  it("unionLabeledPropertyOptions keeps primary labels and appends extras", () => {
+    expect(
+      unionLabeledPropertyOptions(
+        [{ id: "a", label: "Primary" }],
+        [
+          { id: "a", label: "Ignored" },
+          { id: "b", label: "Extra" },
+        ],
+      ),
+    ).toEqual([
+      { id: "a", label: "Primary" },
+      { id: "b", label: "Extra" },
+    ]);
+  });
+
+  it("unionLabeledPropertyOptions upgrades untitled payload labels from the store", () => {
+    expect(
+      unionLabeledPropertyOptions(
+        [{ id: "a", label: "Untitled property" }],
+        [{ id: "a", label: "Ballard House" }],
+      ),
+    ).toEqual([{ id: "a", label: "Ballard House" }]);
   });
 });

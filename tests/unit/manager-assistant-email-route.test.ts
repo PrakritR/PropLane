@@ -64,6 +64,26 @@ vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
 
 vi.mock("@/lib/workspaces/active.server", () => ({
   resolveActiveWorkspaceFromRequest: async () => mocks.activeWorkspace ?? MY_WS,
+  resolveWorkspaceFromSettingsRequest: async (
+    _db: unknown,
+    _userId: string,
+    request?: Request,
+    bodyWorkspaceId?: string | null,
+  ) => {
+    const fromBody = bodyWorkspaceId?.trim() || "";
+    let fromQuery = "";
+    if (request) {
+      try {
+        fromQuery = new URL(request.url).searchParams.get("workspaceId")?.trim() || "";
+      } catch {
+        fromQuery = "";
+      }
+    }
+    const selected = fromBody || fromQuery;
+    if (selected === SHARED_WS.id) return SHARED_WS;
+    if (selected === MY_WS.id) return MY_WS;
+    return mocks.activeWorkspace ?? MY_WS;
+  },
 }));
 
 vi.mock("@/lib/analytics/posthog", () => ({

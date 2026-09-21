@@ -82,6 +82,62 @@ export function activeWorkspacePropertyIds(): string[] | null {
   return active.propertyIds.map((id) => id.trim()).filter(Boolean);
 }
 
+export type WorkspacePropertySource = {
+  propertyIds: readonly string[];
+  propertyLabels?: Record<string, string> | null;
+};
+
+/** Houses one workspace payload already knows about — never the pipeline cache. */
+export function propertyOptionsFromWorkspacePayload(
+  workspace: WorkspacePropertySource,
+): { id: string; label: string }[] {
+  const labels = workspace.propertyLabels ?? {};
+  return workspace.propertyIds
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((id) => {
+      const label = (labels[id] ?? "").trim();
+      return { id, label: label || "Untitled property" };
+    });
+}
+
+/** Union of every workspace's houses, first-seen wins. Settings "All workspaces". */
+export function allWorkspacePropertyOptions(
+  workspaces: readonly WorkspacePropertySource[],
+): { id: string; label: string }[] {
+  const seen = new Set<string>();
+  const out: { id: string; label: string }[] = [];
+  for (const workspace of workspaces) {
+    for (const option of propertyOptionsFromWorkspacePayload(workspace)) {
+      if (seen.has(option.id)) continue;
+      seen.add(option.id);
+      out.push(option);
+    }
+  }
+  return out;
+}
+
+/** Workspace-payload labels first, then any extra ids the local store still knows.
+ *  A payload house whose label is still the untitled fallback takes a real store name. */
+export function unionLabeledPropertyOptions<T extends { id: string; label: string }>(
+  primary: readonly T[],
+  extra: readonly T[],
+): T[] {
+  const byId = new Map<string, T>();
+  for (const option of primary) byId.set(option.id, option);
+  for (const option of extra) {
+    const existing = byId.get(option.id);
+    if (!existing) {
+      byId.set(option.id, option);
+      continue;
+    }
+    if (existing.label === "Untitled property" && option.label.trim() && option.label !== "Untitled property") {
+      byId.set(option.id, { ...existing, label: option.label });
+    }
+  }
+  return [...byId.values()];
+}
+
 /**
  * Houses the active workspace holds, with the labels the server already
  * attached to the workspace payload. List pickers seed from this so an empty
@@ -90,14 +146,7 @@ export function activeWorkspacePropertyIds(): string[] | null {
 export function activeWorkspacePropertyOptions(): { id: string; label: string }[] {
   const active = activeWorkspace();
   if (!active) return [];
-  const labels = active.propertyLabels ?? {};
-  return active.propertyIds
-    .map((id) => id.trim())
-    .filter(Boolean)
-    .map((id) => {
-      const label = (labels[id] ?? "").trim();
-      return { id, label: label || "Untitled property" };
-    });
+  return propertyOptionsFromWorkspacePayload(active);
 }
 
 /** Property ids on workspaces this account owns — not the pipeline cache. */

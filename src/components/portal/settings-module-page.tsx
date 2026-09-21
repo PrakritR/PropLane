@@ -49,8 +49,9 @@ import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-se
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
-  activeWorkspacePropertyIds,
-  filterPropertyOptionsForActiveWorkspace,
+  allWorkspacePropertyOptions,
+  propertyOptionsFromWorkspacePayload,
+  unionLabeledPropertyOptions,
 } from "@/lib/workspaces/selection";
 import { shouldMountTourSettings } from "@/lib/portal-settings-module-visibility";
 import {
@@ -162,10 +163,20 @@ export const SettingsModulePage = forwardRef<
   const [waiverCode, setWaiverCode] = useState("");
   const [applicationSource, setApplicationSource] = useState<SettingsResolutionSource | null>(null);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
-  const scopedPropertyOptions = useMemo(
-    () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
-    [propertyOptions, workspaces?.active?.id],
-  );
+  const scopedPropertyOptions = useMemo(() => {
+    const listed = workspaces?.workspaces ?? [];
+    if (!scope.workspaceId) {
+      return unionLabeledPropertyOptions(allWorkspacePropertyOptions(listed), propertyOptions);
+    }
+    const workspace = listed.find((item) => item.id === scope.workspaceId);
+    if (!workspace) return propertyOptions;
+    const fromPayload = propertyOptionsFromWorkspacePayload(workspace);
+    const allowed = new Set(fromPayload.map((option) => option.id));
+    return unionLabeledPropertyOptions(
+      fromPayload,
+      propertyOptions.filter((option) => allowed.has(option.id)),
+    );
+  }, [propertyOptions, scope.workspaceId, workspaces?.workspaces]);
   const showApplications = tab === "applications";
   const showLease = tab === "lease";
   const showTours = shouldMountTourSettings(active, tab);
@@ -275,7 +286,11 @@ export const SettingsModulePage = forwardRef<
   const saveApplicationAutomationSettings = useCallback(
     async (fields: { automation?: ApplicationAutomationPreferences; waiverCode?: string }, targetPropertyIds: string[]) => {
       if (demo) return;
-      const allowed = activeWorkspacePropertyIds();
+      const allowed = scope.workspaceId
+        ? (workspaces?.workspaces.find((item) => item.id === scope.workspaceId)?.propertyIds ?? [])
+            .map((id) => id.trim())
+            .filter(Boolean)
+        : null;
       const ids = targetPropertyIds
         .map((id) => id.trim())
         .filter(Boolean)
@@ -337,7 +352,7 @@ export const SettingsModulePage = forwardRef<
         setSaving(false);
       }
     },
-    [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource],
+    [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource, workspaces?.workspaces],
   );
 
   const commitWaiverCode = useCallback(() => {

@@ -6,6 +6,11 @@ import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-s
 import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
+  allWorkspacePropertyOptions,
+  propertyOptionsFromWorkspacePayload,
+  unionLabeledPropertyOptions,
+} from "@/lib/workspaces/selection";
+import {
   useSettingsPropertyScope,
   type SettingsResolutionSource,
   type SettingsSourceNamespace,
@@ -43,14 +48,9 @@ export function SettingsGroupSourceTag({ namespace }: { namespace: SettingsSourc
  * picked. `variant="workspace-only"` (Notifications) drops the properties
  * picker entirely — manager alert routing has no per-house rung.
  *
- * The workspace select is bound to the SAME global selection the top-left
- * `WorkspaceSwitcher` reads (`useWorkspaces()`): picking a real workspace here
- * calls the same `select()` the switcher itself calls, so the two stay in
- * sync. "All workspaces" has no equivalent global state — a switch always
- * stands in exactly one workspace — so picking it is a local-only override
- * for this module's fetches; it never forces the global switcher into an
- * impossible "no workspace" state, and switching workspaces globally always
- * still shows here.
+ * The workspace select is Settings-only. It does not call the portal header
+ * `WorkspaceSwitcher`'s `select()` — All workspaces can mean the account
+ * while Inbox / Properties stay on whichever workspace the header last picked.
  */
 export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "workspace-only" }) {
   const scope = useSettingsPropertyScope();
@@ -64,17 +64,24 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
     [workspaces?.workspaces],
   );
 
-  // Properties scoped to whichever workspace is chosen — "All workspaces" falls
-  // back to the full account list the host already computed for the provider.
+  // Houses from the workspace payload first (even when the local pipeline is
+  // empty), then any extra labels the host already computed.
   const propertyOptions = useMemo(() => {
-    if (!scope.workspaceId) return scope.options;
-    const active = workspaces?.workspaces.find((w) => w.id === scope.workspaceId);
-    if (!active) return scope.options;
-    const labels = active.propertyLabels ?? {};
-    return active.propertyIds
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => ({ id, label: (labels[id] ?? "").trim() || "Untitled property" }));
+    const listed = workspaces?.workspaces ?? [];
+    const fromPayload = scope.workspaceId
+      ? (() => {
+          const active = listed.find((w) => w.id === scope.workspaceId);
+          return active ? propertyOptionsFromWorkspacePayload(active) : [];
+        })()
+      : allWorkspacePropertyOptions(listed);
+    if (scope.workspaceId) {
+      const allowed = new Set(fromPayload.map((option) => option.id));
+      return unionLabeledPropertyOptions(
+        fromPayload,
+        scope.options.filter((option) => allowed.has(option.id)),
+      );
+    }
+    return unionLabeledPropertyOptions(fromPayload, scope.options);
   }, [scope.workspaceId, scope.options, workspaces?.workspaces]);
 
   const selectionSource: SettingsResolutionSource =
@@ -84,7 +91,6 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
     const id = next === ALL_WORKSPACES ? "" : next;
     scope.setWorkspaceId(id);
     scope.setPropertyIds([]);
-    if (id) void workspaces?.select(id, { href: false });
   };
 
   return (
@@ -110,35 +116,9 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
           options={propertyOptions.map((o) => ({ value: o.id, label: o.label }))}
           disabled={scope.loading}
           emptyLabel={scope.workspaceId ? "All properties in workspace" : "All properties"}
+          emptyMenuText={scope.workspaceId ? "No houses in this workspace" : "No houses"}
           dataAttr="settings-scope-properties"
           className="max-w-[15rem]"
-          menuFooter={(close) => (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="text-xs font-semibold text-primary hover:underline"
-                data-attr="settings-scope-properties-select-all"
-                onClick={() => {
-                  scope.setPropertyIds(propertyOptions.map((o) => o.id));
-                  close();
-                }}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="text-xs font-semibold text-muted hover:underline"
-                data-attr="settings-scope-properties-clear"
-                disabled={scope.propertyIds.length === 0}
-                onClick={() => {
-                  scope.setPropertyIds([]);
-                  close();
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          )}
         />
       ) : null}
       <PortalSettingsScopeTag>{scopeTagLabel(selectionSource, scope.propertyIds.length)}</PortalSettingsScopeTag>

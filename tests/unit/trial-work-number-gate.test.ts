@@ -46,17 +46,20 @@ vi.mock("next/headers", () => ({
 }));
 
 const MY_WS = "ws-manager";
+const workspace = {
+  id: MY_WS,
+  name: "Main",
+  owned: true,
+  isDefault: true,
+};
 
-// The route resolves the active workspace through this helper; stubbing it
-// directly keeps this test focused on the entitlement gate rather than
-// reproducing the workspace-resolution table shape.
+// The route resolves the settings-bar workspace through this helper; stubbing
+// it keeps this test focused on the entitlement gate rather than reproducing
+// the workspace-resolution table shape.
 vi.mock("@/lib/workspaces/active.server", () => ({
-  resolveActiveWorkspaceFromRequest: vi.fn(async () => ({
-    id: MY_WS,
-    name: "Main",
-    owned: true,
-    isDefault: true,
-  })),
+  resolveActiveWorkspace: vi.fn(async () => workspace),
+  resolveActiveWorkspaceFromRequest: vi.fn(async () => workspace),
+  resolveWorkspaceFromSettingsRequest: vi.fn(async () => workspace),
 }));
 
 import { POST } from "@/app/api/manager/messaging-number/route";

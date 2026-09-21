@@ -59,7 +59,10 @@ import { SettingsScopeBar } from "@/components/portal/settings-scope-bar";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
-import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
+import {
+  allWorkspacePropertyOptions,
+  unionLabeledPropertyOptions,
+} from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
@@ -208,10 +211,11 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
   const workspaces = useWorkspaces();
   const propertyOptions = useMemo(
     () =>
-      filterPropertyOptionsForActiveWorkspace(
+      unionLabeledPropertyOptions(
+        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
         buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
       ),
-    [userId, workspaces?.active?.id],
+    [userId, workspaces?.workspaces],
   );
 
   return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
@@ -238,6 +242,7 @@ export function PortalProfileClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const workspaces = useWorkspaces();
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
   const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
   /** Per-field outcome, so a failure is reported on the row it happened to. */
@@ -539,23 +544,34 @@ export function PortalProfileClient({
   );
 
   // The workspace + property scope for Portfolio/Operations settings rides in
-  // the URL beside `?tab=` (PLAN-0920-0845 phase D) so a reload and the browser
-  // back button keep the chosen scope. pushState is the same history mechanism
-  // `openGroup` uses (Next syncs it into useSearchParams). No `?workspace=` is
-  // "All workspaces" (the account rung); no `?property=` is that workspace's
-  // (or the account's) own default.
+  // the URL beside `?tab=` so a reload and the browser back button keep the
+  // chosen scope. React state is the live source of truth: `history.pushState`
+  // updates the address bar, but Next does not always re-render `useSearchParams`
+  // from that write — which is how the pill stayed on All workspaces while Work
+  // number titled the last portal workspace.
   const { userId: managerUserId, ready: managerReady } = useManagerUserId();
-  const scopeWorkspaceId = searchParams.get("workspace") ?? "";
-  const scopePropertyIds = useMemo(() => {
+  const urlWorkspaceId = searchParams.get("workspace") ?? "";
+  const urlPropertyIds = useMemo(() => {
     const raw = searchParams.get("property") ?? "";
     return raw
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean);
   }, [searchParams]);
-  // The picker options come from the client property store, which hydrates
-  // asynchronously from /api/property-records; recompute when the pipeline syncs
-  // (the same tick pattern pro-bookings uses) or the options are empty on load.
+  const [scopeWorkspaceId, setScopeWorkspaceIdState] = useState(urlWorkspaceId);
+  const [scopePropertyIds, setScopePropertyIdsState] = useState<string[]>(urlPropertyIds);
+  useEffect(() => {
+    setScopeWorkspaceIdState(urlWorkspaceId);
+  }, [urlWorkspaceId]);
+  useEffect(() => {
+    setScopePropertyIdsState((current) =>
+      current.length === urlPropertyIds.length && current.every((id, index) => id === urlPropertyIds[index])
+        ? current
+        : urlPropertyIds,
+    );
+  }, [urlPropertyIds]);
+  // The picker options come from workspace payloads plus the client property
+  // store, which hydrates asynchronously from /api/property-records.
   const [propertyTick, setPropertyTick] = useState(0);
   useEffect(() => {
     if (!managerReady || !managerUserId || variant !== "manager") return;
@@ -572,12 +588,18 @@ export function PortalProfileClient({
   // The FULL account list — `SettingsScopeBar` narrows it to whichever workspace
   // is chosen, so this must not pre-filter to only the currently active one.
   const scopeOptions = useMemo(
-    () => buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
+    () =>
+      unionLabeledPropertyOptions(
+        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [managerUserId, propertyTick],
+    [managerUserId, propertyTick, workspaces?.workspaces],
   );
   const setScopeWorkspaceId = useCallback(
     (id: string) => {
+      setScopeWorkspaceIdState(id);
+      setScopePropertyIdsState([]);
       const params = new URLSearchParams(searchParams.toString());
       if (id) params.set("workspace", id);
       else params.delete("workspace");
@@ -589,6 +611,7 @@ export function PortalProfileClient({
   );
   const setScopePropertyIds = useCallback(
     (ids: string[]) => {
+      setScopePropertyIdsState(ids);
       const params = new URLSearchParams(searchParams.toString());
       if (ids.length > 0) params.set("property", ids.join(","));
       else params.delete("property");

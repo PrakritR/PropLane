@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import {
+  allWorkspacePropertyOptions,
+  unionLabeledPropertyOptions,
+} from "@/lib/workspaces/selection";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import {
@@ -73,9 +78,14 @@ export function PortalSettingsSectionClient({
    * nothing here and needs no loading state.
    */
   const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
   const propertyOptions = useMemo(
-    () => buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
-    [userId],
+    () =>
+      unionLabeledPropertyOptions(
+        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+      ),
+    [userId, workspaces?.workspaces],
   );
 
   useEffect(() => {
