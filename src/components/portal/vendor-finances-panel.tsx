@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Download } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CreditCard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
@@ -33,6 +33,7 @@ import {
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
 import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
+import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PORTAL_DETAIL_BTN, PortalDataTableEmpty, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
@@ -66,7 +67,6 @@ type VendorLinkedManagerOption = {
 const VENDOR_FINANCE_TABS = [
   { id: "income", label: "Income" },
   { id: "invoices", label: "Invoices" },
-  { id: "payouts", label: "Payouts" },
 ] as const;
 
 function VendorFinancesChrome({
@@ -931,6 +931,7 @@ export function VendorFinancesPanel({
     [basePath],
   );
 
+  const payoutsRef = useRef<VendorPaymentsPanelHandle>(null);
   const defaults = defaultFilters();
   const filterTouchCount =
     propertyIds.length +
@@ -1022,6 +1023,7 @@ export function VendorFinancesPanel({
     );
   }
 
+
   const incomeEmpty = portalEmptyCopy("finances.income");
   const filtersHideRows = allRows.length > 0 && filteredRows.length === 0;
 
@@ -1037,6 +1039,7 @@ export function VendorFinancesPanel({
         dataAttr: "vendor-income-search",
       }}
       activeFilterChips={<PortalActiveFilterChips chips={filterChips} />}
+      actions={<PortalIconAction icon={CreditCard} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
       primary={requestPayment}
     >
       {filteredRows.length === 0 ? (
@@ -1067,6 +1070,7 @@ export function VendorFinancesPanel({
         <VendorIncomeTable rows={filteredRows} />
       )}
       {requestWizard}
+      <VendorPaymentsPanel ref={payoutsRef} setupOnly />
     </VendorFinancesChrome>
   );
 }

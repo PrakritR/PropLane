@@ -62,6 +62,10 @@
       "schedule": "15 3 * * *"
     },
     {
+      "path": "/api/cron/release-vendor-work-identities",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/report-rent-monthly",
       "schedule": "0 9 5 * *"
     },

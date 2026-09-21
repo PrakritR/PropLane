@@ -565,6 +565,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "scheduled_inbox_channel_deliveries",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "portal_scheduled_inbox_message_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
@@ -582,6 +587,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
     resident: { emails: ["recipient_email"] },
     vendor: { emails: ["recipient_email"] },
+  },
+  {
+    table: "payment_reminder_occurrences",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["recipient_email"] },
   },
   {
     table: "portal_outbound_mail_records",
@@ -836,6 +847,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 3,
     manager: { ids: ["manager_user_id"] },
   },
+  {
+    table: "vendor_work_identities",
+    phase: 3,
+    vendor: { ids: ["vendor_user_id"] },
+  },
 ];
 
 /**
@@ -843,7 +859,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",
+  vendor_work_identity_operations: "Child of vendor_work_identities; removed by identity cascade after release is queued.",
+  vendor_work_identity_outbox: "Child of vendor_work_identities; removed by identity cascade after release is queued.",
+  vendor_work_identity_delivery_attempts: "Child of vendor_work_identity_outbox; removed by outbox cascade.",
+  vendor_work_identity_usage_events: "Child of vendor_work_identities; removed by identity cascade and never used for billing.",
+  vendor_work_identity_reply_bindings: "Child of vendor_work_identities; service-role reply authorization facts are removed by identity cascade after release is queued.",
+  vendor_work_identity_release_queue: "Retained provider-release work with copied external IDs; it must survive account deletion until reconciled.",
   listing_prefill_cache: "Provider answers keyed by normalized street address; holds no account data.",
+  payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
+  payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",

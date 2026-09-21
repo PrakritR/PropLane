@@ -24,8 +24,8 @@ export type VendorIssueSearchHit = {
   alreadyOwned: boolean;
   email?: string;
   description?: string;
-  hourlyCents?: number;
-  serviceCents?: number;
+  hourlyCents?: number | null;
+  serviceCents?: number | null;
 };
 
 export type VendorIssueSearchRosterRow = {

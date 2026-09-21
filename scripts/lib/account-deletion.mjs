@@ -109,6 +109,7 @@ export const DELETE_ORDER = [
   "vendor_business_profiles",
   "vendor_availability_rules",
   "vendor_invites",
+  "vendor_work_identities",
   "action_event_deliveries",
   "webhook_deliveries",
   "prospect_sms_ingress",
@@ -132,6 +133,7 @@ export const DELETE_ORDER = [
   "inbound_sms_log",
   "property_utility_allocations",
   "manager_assistant_email_inbound",
+  "scheduled_inbox_channel_deliveries",
   // 2. the account's own rows
   "manager_property_access",
   "manager_property_owners",
@@ -175,6 +177,7 @@ export const DELETE_ORDER = [
   "portal_pro_relationship_records",
   "portal_household_charge_records",
   "portal_recurring_rent_profile_records",
+  "payment_reminder_occurrences",
   "portal_lease_pipeline_records",
   "portal_resident_lease_upload_records",
   "portal_service_request_records",

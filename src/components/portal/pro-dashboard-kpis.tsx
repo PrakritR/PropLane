@@ -103,8 +103,8 @@ export function KpiCard({
   value: string;
   /** A small unit after the figure — "%", "/ 42". */
   unit?: string;
-  detail: string;
-  delta: KpiDelta | null;
+  detail?: string;
+  delta?: KpiDelta | null;
   /** Eight values, oldest first. Omit when the source has no history. */
   series?: readonly number[];
   seriesLabels?: readonly string[];
@@ -131,8 +131,9 @@ export function KpiCard({
           <Sparkline values={series} labels={seriesLabels ?? []} format={format ?? String} />
         ) : null}
       </span>
-      <span className="-mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-snug">
-        {delta ? (
+      {delta || detail ? (
+        <span className="-mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-snug">
+          {delta ? (
           <span
             className={cn(
               "inline-flex shrink-0 items-center gap-0.5 font-semibold",
@@ -146,10 +147,11 @@ export function KpiCard({
             <Arrow className="size-3" aria-hidden />
             {delta.label}
           </span>
-        ) : (
-          <span className="truncate text-muted">{detail}</span>
-        )}
-      </span>
+          ) : (
+            <span className="truncate text-muted">{detail}</span>
+          )}
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -198,11 +200,21 @@ function PanelShell({
  * it. Replaces the single "next step" banner, which could only ever say one
  * thing while five things waited.
  */
-export function AttentionPanel({ rows }: { rows: AttentionRow[] }) {
+export function AttentionPanel({
+  rows,
+  hideRowDetail = false,
+  emptyCopy = "Nothing is waiting on you. Nice.",
+}: {
+  rows: AttentionRow[];
+  /** Vendor metrics already carry the relevant status in their title. */
+  hideRowDetail?: boolean;
+  /** Surface-specific, factual empty state; manager copy remains the default. */
+  emptyCopy?: string;
+}) {
   return (
     <PanelShell title="Needs attention" count={rows.length} dataAttr="dashboard-attention-panel">
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[13px] text-muted">Nothing is waiting on you. Nice.</p>
+        <p className="px-4 py-6 text-center text-[13px] text-muted">{emptyCopy}</p>
       ) : (
         <ul className="divide-y divide-border/70">
           {rows.map((row) => (
@@ -210,7 +222,7 @@ export function AttentionPanel({ rows }: { rows: AttentionRow[] }) {
               <span className={cn("size-2 shrink-0 rounded-full", ROW_DOT[row.tone])} aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
-                <span className="block truncate text-[12px] text-muted">{row.detail}</span>
+                {!hideRowDetail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
               </span>
               <Link
                 href={row.href}
@@ -254,20 +266,34 @@ function dayLabel(ms: number, nowMs: number): { day: string; time: string } {
 }
 
 /** Upcoming — tours, inspections and lease ends in the next 14 days, from the Calendar's rows. */
-export function UpcomingPanel({ rows, nowMs, calendarHref }: { rows: UpcomingRow[]; nowMs: number; calendarHref: string }) {
+export function UpcomingPanel({
+  rows,
+  nowMs,
+  calendarHref,
+  emptyCopy = "Nothing scheduled in the next two weeks.",
+  aside,
+}: {
+  rows: UpcomingRow[];
+  nowMs: number;
+  calendarHref: string;
+  /** Surface-specific, factual empty state; manager copy remains the default. */
+  emptyCopy?: string;
+  /** Replaces the default text Calendar link while preserving shared row behavior. */
+  aside?: React.ReactNode;
+}) {
   const sorted = [...rows].sort((a, b) => a.at - b.at).slice(0, 6);
   return (
     <PanelShell
       title="Upcoming"
-      aside={
+      aside={aside ?? (
         <Link href={calendarHref} className="text-[12.5px] font-semibold text-primary hover:underline">
           Calendar →
         </Link>
-      }
+      )}
       dataAttr="dashboard-upcoming-panel"
     >
       {sorted.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[13px] text-muted">Nothing scheduled in the next two weeks.</p>
+        <p className="px-4 py-6 text-center text-[13px] text-muted">{emptyCopy}</p>
       ) : (
         <ul className="divide-y divide-border/70">
           {sorted.map((row) => {

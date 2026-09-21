@@ -19,12 +19,14 @@ import {
   useVendorBusinessProfile,
   VendorBusinessProfilePane,
   VendorNotificationsPane,
+  VendorWorkIdentityPane,
   VendorWorkContactsPane,
   VendorWorkspaceAccessPane,
 } from "@/components/portal/vendor-business-settings";
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
   PortalSettingsFormBody,
@@ -65,6 +67,8 @@ const SETTINGS_TAB_PARAM = "tab";
 type VendorSettingsGroupId =
   | "business"
   | "work-contacts"
+  | "work-number"
+  | "work-email"
   | "workspaces"
   | "notifications"
   | "profile"
@@ -79,7 +83,7 @@ type VendorSettingsGroupId =
 type VendorSettingsGroup = {
   id: VendorSettingsGroupId;
   label: string;
-  description: string;
+  description?: string;
   icon: ComponentType<{ className?: string }>;
   group: "Business" | "Availability" | "Account";
 };
@@ -136,6 +140,7 @@ function todayDateInputValue(): string {
 let demoAvailabilityRuleCounter = 0;
 
 export const VENDOR_AVAILABILITY_CHANGED_EVENT = "axis:vendor-availability-changed";
+export const VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT = "axis:vendor-availability-edit-request";
 
 function notifyAvailabilityChanged(rules?: VendorAvailabilityRule[]) {
   if (typeof window !== "undefined") {
@@ -143,8 +148,8 @@ function notifyAvailabilityChanged(rules?: VendorAvailabilityRule[]) {
   }
 }
 
-/** Weekly recurring hours + one-off blocked dates, editable inline. */
-export function VendorAvailabilityEditor() {
+/** Weekly recurring hours + one-off blocked dates, inline in Settings or in the calendar dialog. */
+export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [rules, setRules] = useState<VendorAvailabilityRule[]>([]);
@@ -160,17 +165,38 @@ export function VendorAvailabilityEditor() {
   const [blockEditingId, setBlockEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const reload = async () => {
     if (demo) return;
     const next = await fetchVendorAvailability();
     setRules(next);
     setLoaded(true);
-    notifyAvailabilityChanged();
+    notifyAvailabilityChanged(next);
   };
 
   useEffect(() => {
     void reload();
+  }, []);
+
+  useEffect(() => {
+    const openCanonicalEditor = (event: Event) => {
+      const detail = (event as CustomEvent<{ date?: string; slotIdx?: number }>).detail;
+      if (!detail?.date) return;
+      const minutes = typeof detail.slotIdx === "number" ? detail.slotIdx * 30 : null;
+      setOpenEditingId(null);
+      setOpenDraft({
+        date: detail.date,
+        allDay: minutes === null,
+        start: minutes === null ? "09:00" : minuteOfDayToTimeInputValue(minutes),
+        end: minutes === null ? "17:00" : minuteOfDayToTimeInputValue(Math.min(24 * 60, minutes + 30)),
+        note: "",
+      });
+      setOpenFormOpen(true);
+      if (dialog) setDialogOpen(true);
+    };
+    window.addEventListener(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, openCanonicalEditor);
+    return () => window.removeEventListener(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, openCanonicalEditor);
   }, []);
 
   const weeklyByDay = useMemo(() => {
@@ -244,6 +270,7 @@ export function VendorAvailabilityEditor() {
       notifyAvailabilityChanged(next);
       setWeeklyFormOpen(false);
       resetWeeklyForm();
+      if (dialog) setDialogOpen(false);
       showToast(editingId ? "Weekly window updated." : "Weekly window added.");
       return;
     }
@@ -256,6 +283,7 @@ export function VendorAvailabilityEditor() {
     }
     setWeeklyFormOpen(false);
     resetWeeklyForm();
+    if (dialog) setDialogOpen(false);
     showToast(editingId ? "Weekly window updated." : "Weekly window added.");
     await reload();
   };
@@ -321,6 +349,7 @@ export function VendorAvailabilityEditor() {
       }
       setBlockFormOpen(false);
       resetBlockForm();
+      if (dialog) setDialogOpen(false);
       showToast(editingId ? "Blocked date updated." : "Date blocked.");
       return;
     }
@@ -339,6 +368,7 @@ export function VendorAvailabilityEditor() {
     }
     setBlockFormOpen(false);
     resetBlockForm();
+    if (dialog) setDialogOpen(false);
     showToast(editingId ? "Blocked date updated." : "Date blocked.");
     await reload();
   };
@@ -417,6 +447,7 @@ export function VendorAvailabilityEditor() {
       }
       setOpenFormOpen(false);
       resetOpenForm();
+      if (dialog) setDialogOpen(false);
       showToast(editingId ? "Open date updated." : "Date opened.");
       return;
     }
@@ -435,6 +466,7 @@ export function VendorAvailabilityEditor() {
     }
     setOpenFormOpen(false);
     resetOpenForm();
+    if (dialog) setDialogOpen(false);
     showToast(editingId ? "Open date updated." : "Date opened.");
     await reload();
   };
@@ -502,7 +534,7 @@ export function VendorAvailabilityEditor() {
     await reload();
   };
 
-  return (
+  const editor = (
     <div className="space-y-4">
       <PortalCollapsibleSection
         title="Weekly hours"
@@ -637,7 +669,6 @@ export function VendorAvailabilityEditor() {
 
       <PortalCollapsibleSection
         title="Open specific dates"
-        subtitle="Open a one-off date for visits, even outside your weekly hours."
         surfaceMuted={false}
         contentClassName="px-4 pb-4"
         toggleDataAttr="vendor-availability-open-dates-toggle"
@@ -861,6 +892,20 @@ export function VendorAvailabilityEditor() {
       {!loaded ? <p className="text-xs text-muted">Loading availability…</p> : null}
     </div>
   );
+
+  if (!dialog) return editor;
+
+  return (
+    <Modal
+      open={dialogOpen}
+      onClose={() => setDialogOpen(false)}
+      title="Set availability"
+      panelClassName="w-full max-w-xl"
+      dataAttr="vendor-calendar-availability-dialog"
+    >
+      {editor}
+    </Modal>
+  );
 }
 
 /** Vendor's own Settings — business profile, work capabilities (feeds auto-match), availability, and feedback. */
@@ -991,6 +1036,18 @@ export function VendorSettingsPanel() {
         id: "work-contacts",
         label: "Work contacts",
         description: "The work number and email managers and residents reach you at.",
+        icon: Contact,
+        group: "Business",
+      },
+      {
+        id: "work-number",
+        label: "Work number",
+        icon: Smartphone,
+        group: "Business",
+      },
+      {
+        id: "work-email",
+        label: "Work email",
         icon: Contact,
         group: "Business",
       },
@@ -1135,6 +1192,10 @@ export function VendorSettingsPanel() {
         return <VendorBusinessProfilePane ctx={business} />;
       case "work-contacts":
         return <VendorWorkContactsPane ctx={business} />;
+      case "work-number":
+        return <VendorWorkIdentityPane channel="sms" />;
+      case "work-email":
+        return <VendorWorkIdentityPane channel="email" />;
       case "workspaces":
         return <VendorWorkspaceAccessPane ctx={business} propertyLabel={(id) => resolvePropertyLabelForId(id)} />;
       case "notifications":

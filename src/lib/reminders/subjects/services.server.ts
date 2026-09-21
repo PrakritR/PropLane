@@ -572,7 +572,7 @@ export async function sweepVendorDocumentExpiry(db: SupabaseClient, now: Date = 
           title: label,
           counterpartyName: vendorName ?? "The vendor",
           whenLabel: new Date(anchorIso).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" }),
-          url: `${origin()}/vendor/documents/mine`,
+          url: `${origin()}/vendor/documents/all`,
           notificationCategory: "account",
         },
       },

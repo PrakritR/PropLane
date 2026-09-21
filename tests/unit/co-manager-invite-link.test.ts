@@ -10,7 +10,7 @@ import {
   generateCoManagerInviteToken,
   hashCoManagerInviteToken,
   isCoManagerInvitePath,
-} from "@/lib/co-manager-invite-token";
+} from "@/lib/co-manager-invite-token.server";
 
 describe("co-manager invite accept link", () => {
   it("builds a manager team deep link for an invite id", () => {

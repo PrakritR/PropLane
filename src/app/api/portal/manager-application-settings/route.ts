@@ -3,7 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   listApplicationFeeWaiverCodes,
+  pickPortfolioApplicationFeeWaiverCode,
   pickPrimaryApplicationFeeWaiverCode,
+  previewApplicationFeeWaiverCodeWrite,
   setPrimaryApplicationFeeWaiverCode,
   upsertPropertyApplicationFeeWaiverCode,
   listingWaiverLabel,
@@ -93,14 +95,22 @@ async function loadCurrentAutomation(
  * redemption (which looks codes up under the property's owner) could never find
  * it. An unowned or unknown property falls back to the caller, which is exactly
  * the previous behaviour and exposes nothing new.
+ *
+ * A co-manager holding `{}` on this property must not read or rewrite the
+ * owner's waiver code, which is why `assertCoManagerModuleAccess` resolves
+ * through `coManagerModuleAllowed` rather than the retired empty-means-full
+ * sentinel.
  */
 async function resolveWaiverCodeScope(
   db: SupabaseClient,
   callerUserId: string,
   propertyId: string,
   level: "read" | "edit",
-): Promise<{ ok: true; ownerUserId: string } | { ok: false; status: number; error: string }> {
-  if (!propertyId) return { ok: true, ownerUserId: callerUserId };
+): Promise<
+  | { ok: true; ownerUserId: string; callerIsOwner: boolean }
+  | { ok: false; status: number; error: string }
+> {
+  if (!propertyId) return { ok: true, ownerUserId: callerUserId, callerIsOwner: true };
   const { data } = await db
     .from("manager_property_records")
     .select("manager_user_id")
@@ -108,14 +118,14 @@ async function resolveWaiverCodeScope(
     .maybeSingle();
   const ownerUserId = String((data as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
   if (!ownerUserId || ownerUserId === callerUserId) {
-    return { ok: true, ownerUserId: ownerUserId || callerUserId };
+    return { ok: true, ownerUserId: ownerUserId || callerUserId, callerIsOwner: true };
   }
   const access = await assertCoManagerModuleAccess(db as never, callerUserId, propertyId, "applications", {
     ownerManagerUserId: ownerUserId,
     level,
   });
   if (!access.ok) return { ok: false, status: access.status, error: access.error };
-  return { ok: true, ownerUserId };
+  return { ok: true, ownerUserId, callerIsOwner: false };
 }
 
 export async function GET(req: Request) {
@@ -156,6 +166,15 @@ export async function GET(req: Request) {
             (c.propertyId === propertyId || (c.propertyId == null && c.label === listingWaiverLabel(propertyId))),
         )?.code ?? null
       : pickPrimaryApplicationFeeWaiverCode(codes)?.code ?? null;
+    // A legacy portfolio-wide code stays redeemable on THIS property (the row
+    // lookup matches `property_id is null or property_id = p_property_id`), so
+    // omitting it entirely shows an empty field over a live waiver. Reported
+    // separately, and only to the owner, because the property-scoped field
+    // cannot revoke it.
+    const portfolioWaiverCode =
+      propertyId && waiverScope.callerIsOwner
+        ? pickPortfolioApplicationFeeWaiverCode(codes)?.code ?? null
+        : null;
     return NextResponse.json({
       settings,
       automation,
@@ -164,6 +183,7 @@ export async function GET(req: Request) {
       landlord,
       suggestedFeeCents,
       waiverCode: propertyWaiverCode,
+      portfolioWaiverCode,
       scope: propertyId ? "property" : "workspace",
       inherited: Boolean(propertyId) && source !== "property",
       overriddenPropertyIds,
@@ -187,6 +207,30 @@ export async function PATCH(req: Request) {
     const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
     const { ownerUserId, propertyId, workspaceId } = scopeAccess;
+
+    // Authorize AND pre-validate the waiver portion of this PATCH before ANYTHING
+    // is written. A mixed payload (`{ propertyId, applicationFeeCents, waiverCode }`)
+    // used to persist the fee settings and only then discover the caller has no
+    // `applications` edit on that property, or that the code collides — leaving a
+    // partial save behind the 403/400. A rejected save must change nothing.
+    let waiverWrite:
+      | { raw: string; propertyId: string; ownerUserId: string; callerIsOwner: boolean }
+      | null = null;
+    if ("waiverCode" in body) {
+      const raw = body.waiverCode == null ? "" : String(body.waiverCode);
+      const waiverScope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId ?? "", "edit");
+      if (!waiverScope.ok) return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
+      const preview = await previewApplicationFeeWaiverCodeWrite(ctx.db, waiverScope.ownerUserId, propertyId ?? "", raw, {
+        allowPortfolioConversion: waiverScope.callerIsOwner,
+      });
+      if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 400 });
+      waiverWrite = {
+        raw,
+        propertyId: propertyId ?? "",
+        ownerUserId: waiverScope.ownerUserId,
+        callerIsOwner: waiverScope.callerIsOwner,
+      };
+    }
 
     // The automation flags share this route because they share the settings surface AND the
     // underlying row. A PATCH that names ONLY `automation` must leave the fee untouched: the
@@ -262,19 +306,19 @@ export async function PATCH(req: Request) {
     });
     const saved = await saveManagerApplicationSettings(ctx.db, ownerUserId, nextSettings);
 
-    if (!("waiverCode" in body)) {
+    if (!waiverWrite) {
       return NextResponse.json({ settings: saved, ...automationFields, taskAutomation });
     }
 
-    const raw = body.waiverCode == null ? "" : String(body.waiverCode);
-    const waiverPropertyId = propertyId ?? "";
-    const waiverScope = await resolveWaiverCodeScope(ctx.db, ctx.userId, waiverPropertyId, "edit");
-    if (!waiverScope.ok) {
-      return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
-    }
-    const result = waiverPropertyId
-      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, waiverPropertyId, raw)
-      : await setPrimaryApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, raw);
+    const result = waiverWrite.propertyId
+      ? await upsertPropertyApplicationFeeWaiverCode(
+          ctx.db,
+          waiverWrite.ownerUserId,
+          waiverWrite.propertyId,
+          waiverWrite.raw,
+          { allowPortfolioConversion: waiverWrite.callerIsOwner },
+        )
+      : await setPrimaryApplicationFeeWaiverCode(ctx.db, waiverWrite.ownerUserId, waiverWrite.raw);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

@@ -64,7 +64,10 @@ vi.mock("@/hooks/use-unified-communication-bulk", () => ({
   }),
 }));
 vi.mock("@/lib/portal-api-error", () => ({ readPortalApiError: vi.fn(async () => "error") }));
-vi.mock("@/lib/inbox-scheduled-thread", () => ({ scheduledItemsForRecipient: () => [] }));
+vi.mock("@/lib/inbox-scheduled-thread", () => ({
+  scheduledItemsForRecipient: () => [],
+  automationChannelDefaultsFromSettings: () => undefined,
+}));
 vi.mock("@/components/portal/payment-schedule-ui", () => ({
   useScheduledPaymentMessages: () => ({ messages: [], reload: vi.fn() }),
   patchScheduledMessage: vi.fn(),

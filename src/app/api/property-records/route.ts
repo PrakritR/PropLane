@@ -8,7 +8,11 @@ import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRo
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { upsertPropertyApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
+import {
+  previewApplicationFeeWaiverCodeWrite,
+  sameApplicationFeeWaiverCodeText,
+  upsertPropertyApplicationFeeWaiverCode,
+} from "@/lib/application-fee-waiver";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
@@ -169,6 +173,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
     const existingOwnerId = existing ? String(existing.manager_user_id ?? "").trim() : "";
+    const existingStatus = (existing as { status?: string } | null)?.status ?? null;
     const isDelete = body.action === "delete";
 
     // A delete of a row that is not there is NOT FOUND — never a create.
@@ -251,6 +256,10 @@ export async function POST(req: Request) {
       // Co-manager acting on a linked owner's listing: require the `properties`
       // module at edit (write) or delete level on THIS property. The owner is
       // preserved on write so a co-manager can never reassign ownership.
+      // This write also sets or clears the property's application-fee promo
+      // code under the owner's id, so an assignment carrying no checked
+      // permissions must confer nothing — which the gate enforces, along with
+      // pairing the grant to the owner who issued it.
       const access = await assertCoManagerModuleAccess(db, user.id, id, "properties", {
         ownerManagerUserId: existingOwnerId,
         level: isDelete ? "delete" : "edit",
@@ -258,14 +267,12 @@ export async function POST(req: Request) {
       if (!access.ok) {
         return NextResponse.json({ error: access.error }, { status: access.status });
       }
-      // Preserve the stored owner verbatim, INCLUDING an absent one. The grant
-      // that authorized this write is the accepted link's
-      // `assigned_property_ids` — `assertCoManagerModuleAccess` never consults
-      // the owner — so an ownerless listing stays ownerless and the co-manager
-      // keeps their access through that grant. Writing `user.id` here instead
-      // would let a linked co-manager silently ADOPT an orphaned listing, which
-      // is exactly the transfer this route was hardened to prevent; ownership
-      // still has one door, `transferPropertyOwnership`.
+      // Preserve the stored owner verbatim, INCLUDING an absent one. An
+      // ownerless listing has no owner to pair the grant with, so the property
+      // grant alone carries it and the row stays ownerless. Writing `user.id`
+      // here instead would let a linked co-manager silently ADOPT an orphaned
+      // listing, which is exactly the transfer this route was hardened to
+      // prevent; ownership still has one door, `transferPropertyOwnership`.
       ownerForWrite = existingOwnerId || null;
     }
 
@@ -308,7 +315,7 @@ export async function POST(req: Request) {
       ownerUserId: managerUserIdForWrite,
       recordId: id,
       nextStatus: body.status,
-      existingStatus: (existing as { status?: string } | null)?.status ?? null,
+      existingStatus,
     });
     if (!quota.ok) {
       return NextResponse.json(
@@ -375,6 +382,65 @@ export async function POST(req: Request) {
       });
 
     const newWorkspaceId = !existing ? createWorkspaceId : undefined;
+    // A draft is unvalidated by contract (docs/agents/property-drafts.md): it is
+    // saved on every wizard step, including on close, with whatever is typed so
+    // far, so a half-typed code must never refuse the save. A LISTING carries a
+    // code the manager committed to, and two of its refusals — the text already
+    // living on another listing, and a portfolio-wide code only the owner may
+    // re-point — are knowable before anything is written. Answering them here
+    // means the manager is told why instead of finding the listing published
+    // and the save reported as failed. It is a read, not a lock: the write
+    // below still returns its own refusal if the rows moved in between.
+    //
+    // Only a field the request actually CHANGES is a waiver write. Applications
+    // settings writes the codes table without rewriting this listing's stored
+    // submission, so every later listing save replays whatever text the wizard
+    // last stored — which would re-point the code away from the newer settings
+    // value, or (once that text has been retired) refuse an edit that has
+    // nothing to do with the promo code. The persisted submission is the
+    // baseline for "did the manager touch this field", and it is read from the
+    // same server row every other decision here anchors on.
+    //
+    // FIRST PUBLICATION is the exception, and it is not optional: a draft save
+    // stores the typed code but deliberately never touches the codes table, so
+    // on the draft -> listing transition the stored text is a record of what was
+    // typed, never of a code that exists. Comparing against it there would
+    // publish a listing advertising a code no applicant can redeem. An empty
+    // field still writes nothing — there is no code to create, and a blank
+    // wizard field must not revoke one set from Applications settings.
+    const submittedWaiverCode =
+      managerUserIdForWrite && body.status !== "draft"
+        ? listingApplicationFeeWaiverCodeFromPayload(body.rowData, body.propertyData)
+        : null;
+    const storedWaiverCode = listingApplicationFeeWaiverCodeFromPayload(
+      existing?.row_data,
+      existing?.property_data,
+    );
+    const publishingDraftWaiverCode =
+      existingStatus === "draft" && body.status !== "draft" && Boolean(submittedWaiverCode);
+    const waiverCodeForWrite =
+      submittedWaiverCode != null &&
+      (publishingDraftWaiverCode ||
+        !sameApplicationFeeWaiverCodeText(submittedWaiverCode, storedWaiverCode))
+        ? submittedWaiverCode
+        : null;
+    const allowPortfolioConversion = managerUserIdForWrite === user.id;
+    if (managerUserIdForWrite && waiverCodeForWrite != null) {
+      const preview = await previewApplicationFeeWaiverCodeWrite(
+        db,
+        managerUserIdForWrite,
+        id,
+        waiverCodeForWrite,
+        { allowPortfolioConversion },
+      );
+      if (!preview.ok) {
+        return NextResponse.json(
+          { error: `Application-fee promo code: ${preview.error}` },
+          { status: 400 },
+        );
+      }
+    }
+
     const { error } = await db.from("manager_property_records").upsert(
       {
         id,
@@ -427,28 +493,23 @@ export async function POST(req: Request) {
       }
     }
 
-    // A draft is unvalidated by contract (docs/agents/property-drafts.md): it is
-    // saved on every wizard step, including on close, with whatever is typed so
-    // far. Validating the application-fee promo code here refused the WHOLE
-    // draft save for a half-typed code — after the record upsert above had
-    // already landed — so the wizard reported a save failure it could not
-    // explain and would not close. The code is applied when the draft is
-    // published through this same route with a listing status.
-    if (managerUserIdForWrite && body.status !== "draft") {
-      const waiverCode = listingApplicationFeeWaiverCodeFromPayload(body.rowData, body.propertyData);
-      if (waiverCode != null) {
-        const waiverResult = await upsertPropertyApplicationFeeWaiverCode(
-          db,
-          managerUserIdForWrite,
-          id,
-          waiverCode,
+    if (managerUserIdForWrite && waiverCodeForWrite != null) {
+      const waiverResult = await upsertPropertyApplicationFeeWaiverCode(
+        db,
+        managerUserIdForWrite,
+        id,
+        waiverCodeForWrite,
+        // A co-manager saves under the OWNER's id here, so the owner check has
+        // to happen at this layer: converting a portfolio-wide code into a
+        // per-listing one un-waives the fee on every other listing, which is
+        // the owner's call alone.
+        { allowPortfolioConversion },
+      );
+      if (!waiverResult.ok) {
+        return NextResponse.json(
+          { error: `Application-fee promo code: ${waiverResult.error}` },
+          { status: 400 },
         );
-        if (!waiverResult.ok) {
-          return NextResponse.json(
-            { error: `Application-fee promo code: ${waiverResult.error}` },
-            { status: 400 },
-          );
-        }
       }
     }
 

@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { SlidersHorizontal } from "lucide-react";
-import { PORTAL_FILTER_ICON_CLASS } from "@/components/portal/filter-field-lists";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
 import {
   ManagerPortalPageShell,
@@ -678,11 +678,6 @@ export function ResidentDashboard({
   return (
     <ManagerPortalPageShell
       title={leaseSigned ? `Welcome home${welcomeName ? `, ${welcomeName}` : ""}.` : `Welcome${welcomeName ? `, ${welcomeName}` : ""}.`}
-      subtitle={
-        leaseSigned
-          ? "Everything you need for your home, in one place."
-          : "Your tour, application, and next step, in one place."
-      }
       hideTitleOnNative
       hideTitleOnMobileNav
     >
@@ -794,15 +789,12 @@ export function ResidentDashboard({
                 {openCount} open
               </span>
             ) : null}
-            <button
-              type="button"
+            <PortalIconAction
+              icon={SlidersHorizontal}
+              label="Customize"
               onClick={() => setCustomizeOpen(true)}
               data-attr="resident-dashboard-customize-open"
-              className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-[11px] font-semibold text-muted transition-colors hover:border-primary/40 hover:text-foreground"
-            >
-              <SlidersHorizontal className={PORTAL_FILTER_ICON_CLASS} aria-hidden />
-              <span className="[html[data-native]_&]:sr-only">Customize</span>
-            </button>
+            />
           </div>
 
           {visibility.tours ? (

@@ -2787,7 +2787,7 @@ function leaseGenerationContextForRow(
     const hasState = Boolean(
       stateOf(billed.listingProperty) || stateOf(billed.leasedRoom) || billed.submission?.state?.trim(),
     );
-    if (!hasState) {
+    if (!hasState && billed.listingProperty) {
       return {
         ...billed,
         listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" } as unknown as MockProperty,

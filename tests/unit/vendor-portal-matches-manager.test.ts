@@ -21,7 +21,6 @@ describe("vendor portal matches manager chrome", () => {
     expect(vendorPortal.sections.find((s) => s.section === "financials")?.tabs.map((t) => t.id)).toEqual([
       "income",
       "invoices",
-      "payouts",
     ]);
   });
 
@@ -62,11 +61,11 @@ describe("vendor portal matches manager chrome", () => {
     expect(dash).toContain("KpiCard");
   });
 
-  it("calendar and payouts fold into the shared surfaces", () => {
+  it("calendar and finance setup fold into the shared surfaces", () => {
     expect(read("src/components/portal/portal-calendar.tsx")).toContain('portal === "vendor"');
     expect(read("src/lib/render-portal-section.tsx")).toContain('portal="vendor"');
-    expect(read("src/lib/render-portal-section.tsx")).toContain("/financials/payouts");
-    expect(vendorLinkPaths().payments).toBe("/vendor/financials/payouts");
+    expect(read("src/lib/render-portal-section.tsx")).toContain("/financials/income");
+    expect(vendorLinkPaths().payments).toBe("/vendor/financials/income");
   });
 
   it("has no Tasks nav and redirects /vendor/tasks to services", () => {
@@ -78,11 +77,15 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar paints manager availability and drops Flexible / Add work / Tasks", () => {
+  it("vendor calendar exposes list, day, week, and month with the shared availability editor", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
     expect(calendar).toContain("vendorViewer");
-    expect(calendar).toContain("All");
-    expect(calendar).toContain("Services");
+    expect(calendar).toContain('label: "List"');
+    expect(calendar).toContain('label: "Day"');
+    expect(calendar).toContain('label: "Week"');
+    expect(calendar).toContain('label: "Month"');
+    expect(calendar).toContain("VendorAvailabilityEditor");
+    expect(read("src/lib/portal-detail-routes.ts")).toContain('["list", "day", "week", "month"]');
     expect(calendar).not.toContain("vendorDayFlexibility");
     expect(calendar).not.toContain("Add work");
     expect(calendar).not.toContain("Mark day as flexible");
@@ -90,12 +93,14 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/lib/vendor-availability.ts")).toContain("convertFlexibleWeeklyRulesToWindows");
   });
 
-  it("finances uses a filter sheet, request payment, and the redesigned Payouts panel", () => {
+  it("finances uses a filter sheet, request payment, payout setup, and the redesigned Payouts panel", () => {
     const finances = read("src/components/portal/vendor-finances-panel.tsx");
     expect(finances).toContain("PortalFilterSortSheet");
     expect(finances).toContain("Request payment");
+    expect(finances).toContain("Payout setup");
     // The Payouts tab moved its bank/reminder/export toolbar into the
-    // redesigned Payouts page itself (PLAN-0920-0853) — Income keeps its own.
+    // redesigned Payouts page itself (PLAN-0920-0853) — Income keeps its own
+    // quick "Payout setup" action for payment methods.
     expect(finances).toContain("PortalPayoutsPanel");
     expect(finances).not.toContain("ReportFilterBar");
     expect(finances).toContain("VendorQuoteWizard");

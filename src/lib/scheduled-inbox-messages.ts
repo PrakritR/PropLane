@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type ScheduledInboxMessageStatus = "scheduled" | "sent" | "cancelled";
+export type ScheduledInboxMessageStatus = "scheduled" | "sending" | "sent" | "cancelled";
 
 export function isUpcomingScheduledInboxMessage(sendAt: string, status: string): boolean {
+  if (status === "sending") return true;
   if (status === "sent") return false;
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -133,7 +134,7 @@ export async function loadDueScheduledInboxMessages(
   const { data, error } = await db
     .from("portal_scheduled_inbox_message_records")
     .select("id, manager_user_id, send_at, status, row_data, created_at")
-    .eq("status", "scheduled")
+    .in("status", ["scheduled", "sending"])
     .lte("send_at", now.toISOString())
     .order("send_at", { ascending: true })
     .limit(200);
@@ -141,6 +142,21 @@ export async function loadDueScheduledInboxMessages(
   return (data ?? []).map((row) =>
     rowFromDb(row as { id: string; manager_user_id: string; send_at: string; status: string; row_data: unknown; created_at: string }),
   );
+}
+
+/** Read the row after its first channel claim has frozen its payload. */
+export async function loadScheduledInboxMessageForDelivery(
+  db: SupabaseClient,
+  managerUserId: string,
+  id: string,
+): Promise<ScheduledInboxMessageRecord | null> {
+  const { data, error } = await db.from("portal_scheduled_inbox_message_records")
+    .select("id, manager_user_id, send_at, status, row_data, created_at")
+    .eq("id", id).eq("manager_user_id", managerUserId).maybeSingle();
+  if (error) throw error;
+  return data ? rowFromDb(data as {
+    id: string; manager_user_id: string; send_at: string; status: string; row_data: unknown; created_at: string;
+  }) : null;
 }
 
 export async function createScheduledInboxMessage(

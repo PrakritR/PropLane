@@ -77,8 +77,8 @@ export function vendorLinkPaths() {
     inbox: "/vendor/communication/active",
     income: "/vendor/financials/income",
     invoices: "/vendor/financials/invoices",
-    payments: "/vendor/financials/payouts",
-    documents: "/vendor/documents/mine",
+    payments: "/vendor/financials/income",
+    documents: "/vendor/documents/all",
     /** Bank payout setup, W-9, insurance, licensing. */
     profile: "/vendor/profile",
     signIn: "/auth/sign-in",

@@ -359,7 +359,7 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "payments") {
-    redirect(`${def.basePath}/financials/payouts`);
+    redirect(`${def.basePath}/financials/income`);
   }
 
   if (kind === "vendor" && section === "tasks") {
@@ -465,6 +465,17 @@ export async function renderPortalSection(
     const raw = tabParts?.[0] ?? null;
     const tab = raw ? parseManagerSettingsAreaTab(raw) : DEFAULT_MANAGER_SETTINGS_TAB;
     return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
+  }
+
+  // Account entry remains reachable from the top-right profile control, but it
+  // is intentionally absent from resident and vendor sidebars/registries.
+  if (kind === "resident" && section === "profile") {
+    if (tabParts?.length) notFound();
+    return <ResidentProfileSection />;
+  }
+  if (kind === "vendor" && section === "profile") {
+    if (tabParts?.length) notFound();
+    return <VendorSettingsPanel />;
   }
 
   const meta = findSection(def, section);
@@ -1331,11 +1342,6 @@ export async function renderPortalSection(
     return <ResidentTourPanel basePath={def.basePath} inquiryId={legacyInquiryId} />;
   }
 
-  if (kind === "resident" && section === "profile") {
-    if (tabParts?.length) notFound();
-    return <ResidentProfileSection />;
-  }
-
   if (kind === "resident" && section === "payments") {
     const PAY_BUCKETS = ["pending", "overdue", "paid"] as const;
     if (!tabParts?.length) {
@@ -1623,7 +1629,7 @@ export async function renderPortalSection(
     } = await import("@/lib/portal-detail-routes");
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0];
-    if (raw === "tasks" || raw === "tours") {
+    if (raw === "tasks" || raw === "tours" || raw === "all" || raw === "services") {
       redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
     }
     if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
@@ -1743,19 +1749,15 @@ export async function renderPortalSection(
       notFound();
     }
     const documentsTab = tabParts[0]!;
-    // The three category tabs collapsed into one "Mine" list. A vendor's
+    // The category and former source tabs collapsed into one source-filtered list. A vendor's
     // bookmark, or a manager's emailed link, must still land somewhere.
-    if (documentsTab === "tax" || documentsTab === "insurance" || documentsTab === "licensing") {
-      redirect(`${def.basePath}/${section}/mine`);
+    if (["tax", "insurance", "licensing", "mine", "shared"].includes(documentsTab)) {
+      redirect(`${def.basePath}/${section}/all`);
     }
     if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
     return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
   }
 
-  if (kind === "vendor" && section === "profile") {
-    if (tabParts?.length) notFound();
-    return <VendorSettingsPanel />;
-  }
 
   if (!meta.tabs.length) {
     if (tabParts?.length) notFound();

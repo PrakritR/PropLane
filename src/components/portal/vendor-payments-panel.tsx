@@ -207,8 +207,8 @@ export type VendorPaymentsPanelHandle = {
 };
 
 /** Vendor Payments — payout history from completed work orders + Stripe Connect bank linking. */
-export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embedded?: boolean }>(
-  function VendorPaymentsPanel({ embedded = false }, ref) {
+export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embedded?: boolean; setupOnly?: boolean }>(
+  function VendorPaymentsPanel({ embedded = false, setupOnly = false }, ref) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
 
@@ -573,6 +573,10 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
       />
     </>
   );
+
+  if (setupOnly) {
+    return <VendorPaymentMethodsModal open={paymentMethodsOpen} onClose={() => setPaymentMethodsOpen(false)} profile={vendorProfile} onSaved={setVendorProfile} />;
+  }
 
   if (embedded) return body;
 

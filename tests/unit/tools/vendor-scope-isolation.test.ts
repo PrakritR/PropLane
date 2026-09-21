@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Analytics is the only outbound side effect not exercised here — the shared
 // work-order-bids.server functions call track() on every write.
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
+const sponsoredSend = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/vendor-sponsored-outbound.server", () => ({ sendVendorSponsoredOutbound: sponsoredSend }));
 
 import { auditDayBucket } from "@/lib/tools/audit";
 import type { VendorAgentContext } from "@/lib/tools/vendor-context";
@@ -434,6 +436,11 @@ beforeEach(() => {
   // Keep every outbound channel offline: inbox-only delivery in tests.
   vi.stubEnv("RESEND_API_KEY", "");
   vi.stubEnv("STRIPE_SECRET_KEY", "");
+  sponsoredSend.mockImplementation(async (_db: unknown, _actor: unknown, request: { preflight?: boolean; sendId: string }) => ({
+    ok: true,
+    delivery: request.preflight ? "sending" : "sent",
+    providerMessageId: request.preflight ? null : request.sendId,
+  }));
 });
 
 describe("vendor registry acceptance", () => {
@@ -656,8 +663,12 @@ describe("vendor write tools: happy paths write audited, scoped rows", () => {
     expect(mutations.some((m) => m.table === "portal_inbox_thread_records")).toBe(true);
   });
 
-  it("send_message_to_manager delivers through the vendor-scoped inbox pipeline and audits per content per day", async () => {
+  it("send_message_to_manager uses the sponsored identity for exact linked managers after audit", async () => {
     const { ctx, mutations } = seed();
+    sponsoredSend.mockImplementation(async (_db: unknown, _actor: unknown, request: { preflight?: boolean; sendId: string }) => {
+      expect(auditRows(mutations)).toHaveLength(1);
+      return { ok: true, delivery: request.preflight ? "sending" : "sent", providerMessageId: request.preflight ? null : request.sendId };
+    });
     const input = { subject: "Question", body: "Which unit has the leak?" };
     const preview = await previewWrite(sendMessageToManagerTool, ctx, input);
     expect(preview.ok).toBe(true);
@@ -670,8 +681,83 @@ describe("vendor write tools: happy paths write audited, scoped rows", () => {
     expect(audit?.values.dedupe_key).toBe(
       `send_message_to_manager:${VENDOR_A.id}:${contentHash("Question\nWhich unit has the leak?")}:${auditDayBucket()}`,
     );
-    // Sender "sent" + recipient "inbox" thread rows.
-    expect(mutations.filter((m) => m.table === "portal_inbox_thread_records").length).toBeGreaterThanOrEqual(2);
+    expect(sponsoredSend).toHaveBeenCalledTimes(2);
+    expect(sponsoredSend.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({ userId: VENDOR_A.id, email: VENDOR_A.email, name: "Vendor A" }),
+      expect.objectContaining({ userId: VENDOR_A.id, email: VENDOR_A.email, name: "Vendor A" }),
+    ]);
+    expect(sponsoredSend.mock.calls.map((call) => call[2])).toEqual([
+      expect.objectContaining({ recipientUserId: MANAGER, preflight: true }),
+      expect.objectContaining({ recipientUserId: MANAGER, preflight: false }),
+    ]);
+    // This tool has no manager identity, wallet, or legacy portal-inbox path.
+    expect(mutations.some((mutation) => mutation.table === "portal_inbox_thread_records")).toBe(false);
+    expect(mutations.some((mutation) => /wallet|credit|charge/i.test(mutation.table))).toBe(false);
+  });
+
+  it("preflights all linked managers and refuses the whole batch before a real send", async () => {
+    const { ctx, tables } = seed();
+    const managerTwo = "manager_2";
+    ctx.managerIds = [MANAGER, managerTwo];
+    tables.profiles!.push({ id: managerTwo, email: "two@axis.test", full_name: "Mgr Two", role: "manager" });
+    sponsoredSend.mockImplementation(async (_db: unknown, _actor: unknown, request: { preflight?: boolean; recipientUserId?: string }) =>
+      request.preflight && request.recipientUserId === managerTwo
+        ? { ok: false, error: "recipient_unlinked" }
+        : { ok: true, delivery: request.preflight ? "sending" : "sent", providerMessageId: null },
+    );
+    const exec = await executeWrite(sendMessageToManagerTool, ctx, { subject: "Question", body: "Which unit has the leak?" });
+    expect(exec.ok).toBe(false);
+    expect(sponsoredSend.mock.calls.filter((call) => !call[2].preflight)).toHaveLength(0);
+  });
+
+  it("keeps per-manager sponsored keys stable when a retryable delivery is retried", async () => {
+    const { ctx, tables, mutations } = seed();
+    const managerTwo = "manager_2";
+    ctx.managerIds = [MANAGER, managerTwo];
+    tables.profiles!.push({ id: managerTwo, email: "two@axis.test", full_name: "Mgr Two", role: "manager" });
+    let attempt = 0;
+    sponsoredSend.mockImplementation(async (_db: unknown, _actor: unknown, request: { preflight?: boolean; recipientUserId?: string }) => {
+      if (request.preflight) return { ok: true, delivery: "sending", providerMessageId: null };
+      attempt += 1;
+      return { ok: true, delivery: attempt <= 2 && request.recipientUserId === managerTwo ? "failed" : "sent", providerMessageId: null };
+    });
+    const input = { subject: "Question", body: "Which unit has the leak?" };
+    expect((await executeWrite(sendMessageToManagerTool, ctx, input)).ok).toBe(false);
+    expect((await executeWrite(sendMessageToManagerTool, ctx, input)).ok).toBe(true);
+    const sends = sponsoredSend.mock.calls.filter((call) => !call[2].preflight).map((call) => call[2] as { recipientUserId: string; sendId: string });
+    expect(sends.map((send) => send.recipientUserId)).toEqual([MANAGER, managerTwo, MANAGER, managerTwo]);
+    expect(sends.slice(0, 2).map((send) => send.sendId)).toEqual(sends.slice(2).map((send) => send.sendId));
+    const outcome = mutations.filter((mutation) => mutation.table === "audit_log" && mutation.kind === "update").at(-1);
+    expect(outcome?.values.result_summary).toMatchObject({ delivery: "sent", recipientCount: 2 });
+  });
+
+  it("clears audit dedupe after a thrown preflight without a real sponsored send", async () => {
+    const { ctx, mutations } = seed();
+    sponsoredSend.mockImplementation(async (_db: unknown, _actor: unknown, request: { preflight?: boolean }) => {
+      if (request.preflight) throw new Error("lookup timed out");
+      return { ok: true, delivery: "sent", providerMessageId: "unexpected" };
+    });
+    const exec = await executeWrite(sendMessageToManagerTool, ctx, { subject: "Question", body: "Which unit has the leak?" });
+    expect(exec.ok).toBe(false);
+    expect(sponsoredSend.mock.calls.filter((call) => !call[2].preflight)).toHaveLength(0);
+    expect(mutations).toContainEqual(expect.objectContaining({ table: "audit_log", kind: "update", values: expect.objectContaining({ dedupe_key: null, result_summary: expect.objectContaining({ delivery: "refused" }) }) }));
+  });
+
+  it("records an unknown post-dispatch failure and reuses its child key on retry", async () => {
+    const { ctx, mutations } = seed();
+    let dispatched = false;
+    sponsoredSend.mockImplementation(async (_db: unknown, _actor: unknown, request: { preflight?: boolean; sendId: string }) => {
+      if (request.preflight) return { ok: true, delivery: "sending", providerMessageId: null };
+      if (!dispatched) { dispatched = true; throw new Error("thread write failed after dispatch"); }
+      return { ok: true, delivery: "sent", providerMessageId: request.sendId };
+    });
+    const input = { subject: "Question", body: "Which unit has the leak?" };
+    expect((await executeWrite(sendMessageToManagerTool, ctx, input)).ok).toBe(false);
+    expect((await executeWrite(sendMessageToManagerTool, ctx, input)).ok).toBe(true);
+    const real = sponsoredSend.mock.calls.filter((call) => !call[2].preflight).map((call) => call[2] as { sendId: string });
+    expect(real).toHaveLength(2);
+    expect(real[0]!.sendId).toBe(real[1]!.sendId);
+    expect(mutations).toContainEqual(expect.objectContaining({ table: "audit_log", kind: "update", values: expect.objectContaining({ dedupe_key: null, result_summary: expect.objectContaining({ delivery: "failed" }) }) }));
   });
 
   it("update_my_availability read-merge-writes the vendor's own slot record with a windowed dedupe key", async () => {

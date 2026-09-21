@@ -32,7 +32,10 @@ import {
   sendManualScheduledMessageNow,
 } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
-import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
+import {
+  automationChannelDefaultsFromSettings,
+  scheduledItemsForRecipient,
+} from "@/lib/inbox-scheduled-thread";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -221,7 +224,11 @@ export function ResidentDirectChatPane({
   const [contactEditOpen, setContactEditOpen] = useState(false);
   const [contactEditSaving, setContactEditSaving] = useState(false);
   const [contactEditError, setContactEditError] = useState<string | null>(null);
-  const { messages: scheduledPaymentMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
+  const {
+    messages: scheduledPaymentMessages,
+    settings: reminderAutomationSettings,
+    reload: reloadAutomationScheduled,
+  } = useScheduledPaymentMessages({
     includeHidden: false,
   });
 
@@ -343,8 +350,14 @@ export function ResidentDirectChatPane({
   // conversation stays untagged with no flag to keep in sync here.
 
   const threadScheduledItems = useMemo(
-    () => scheduledItemsForRecipient(email, manualScheduledMessages, scheduledPaymentMessages),
-    [email, manualScheduledMessages, scheduledPaymentMessages],
+    () =>
+      scheduledItemsForRecipient(
+        email,
+        manualScheduledMessages,
+        scheduledPaymentMessages,
+        automationChannelDefaultsFromSettings(reminderAutomationSettings),
+      ),
+    [email, manualScheduledMessages, reminderAutomationSettings, scheduledPaymentMessages],
   );
 
   const cancelScheduledItem = useCallback(
@@ -448,8 +461,8 @@ export function ResidentDirectChatPane({
             busy={scheduledBusyId === item.id}
             recipient={email}
             sendAt={item.sendAt}
-            onCancel={() => void cancelScheduledItem(item)}
-            onSendNow={() => void sendScheduledItemNow(item)}
+            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
+            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

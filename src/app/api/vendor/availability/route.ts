@@ -3,9 +3,10 @@ import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { VendorAvailabilityRule } from "@/lib/vendor-availability";
-import { normalizeFlexibleTimingRank } from "@/lib/vendor-availability";
+import { normalizeFlexibleTimingRank, pacificDateTimeParts, pacificWallClockToUtc } from "@/lib/vendor-availability";
 import {
   readVendorFlexiblePreferencesForServer,
+  vendorAvailabilityConflictsWithScheduledService,
   writeVendorFlexiblePreferencesForServer,
 } from "@/lib/vendor-availability-server";
 
@@ -120,6 +121,20 @@ function validMinuteRange(startMinute: unknown, endMinute: unknown): { start: nu
   return { start: Math.round(start), end: Math.round(end) };
 }
 
+function validSpecificDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+function validPacificMinute(date: string, minute: number): boolean {
+  if (minute === 1440) return true;
+  const [year, month, day] = date.split("-").map(Number);
+  const parts = pacificDateTimeParts(pacificWallClockToUtc(year, month, day, minute));
+  return parts.year === year && parts.month === month && parts.day === day && parts.hour * 60 + parts.minute === minute;
+}
+
 export async function POST(req: Request) {
   try {
     const db = createSupabaseServiceRoleClient();
@@ -162,6 +177,14 @@ export async function POST(req: Request) {
       }
       const range = validMinuteRange(body.startMinute, body.endMinute);
       if (!range) return NextResponse.json({ error: "Choose a valid time window." }, { status: 400 });
+      if (await vendorAvailabilityConflictsWithScheduledService(db, vendorUserId, {
+        kind: "weekly",
+        weekday,
+        startMinute: range.start,
+        endMinute: range.end,
+      })) {
+        return NextResponse.json({ error: "That time overlaps a scheduled service." }, { status: 409 });
+      }
 
       const now = new Date().toISOString();
       const row = {
@@ -186,11 +209,22 @@ export async function POST(req: Request) {
 
     if (body.action === "upsert-block") {
       const specificDate = String(body.specificDate ?? "").trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(specificDate)) {
+      if (!validSpecificDate(specificDate)) {
         return NextResponse.json({ error: "Choose a valid date to block." }, { status: 400 });
       }
       const range = validMinuteRange(body.startMinute ?? 0, body.endMinute ?? 1440);
       if (!range) return NextResponse.json({ error: "Choose a valid time window." }, { status: 400 });
+      if (!validPacificMinute(specificDate, range.start) || !validPacificMinute(specificDate, range.end)) {
+        return NextResponse.json({ error: "Choose a real Pacific time on that date." }, { status: 400 });
+      }
+      if (await vendorAvailabilityConflictsWithScheduledService(db, vendorUserId, {
+        kind: "date",
+        specificDate,
+        startMinute: range.start,
+        endMinute: range.end,
+      })) {
+        return NextResponse.json({ error: "That time overlaps a scheduled service." }, { status: 409 });
+      }
 
       const now = new Date().toISOString();
       const row = {
@@ -215,11 +249,22 @@ export async function POST(req: Request) {
 
     if (body.action === "upsert-open") {
       const specificDate = String(body.specificDate ?? "").trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(specificDate)) {
+      if (!validSpecificDate(specificDate)) {
         return NextResponse.json({ error: "Choose a valid date to open." }, { status: 400 });
       }
       const range = validMinuteRange(body.startMinute ?? 0, body.endMinute ?? 1440);
       if (!range) return NextResponse.json({ error: "Choose a valid time window." }, { status: 400 });
+      if (!validPacificMinute(specificDate, range.start) || !validPacificMinute(specificDate, range.end)) {
+        return NextResponse.json({ error: "Choose a real Pacific time on that date." }, { status: 400 });
+      }
+      if (await vendorAvailabilityConflictsWithScheduledService(db, vendorUserId, {
+        kind: "date",
+        specificDate,
+        startMinute: range.start,
+        endMinute: range.end,
+      })) {
+        return NextResponse.json({ error: "That time overlaps a scheduled service." }, { status: 409 });
+      }
 
       const now = new Date().toISOString();
       const row = {
@@ -244,11 +289,14 @@ export async function POST(req: Request) {
 
     if (body.action === "upsert-event") {
       const specificDate = String(body.specificDate ?? "").trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(specificDate)) {
+      if (!validSpecificDate(specificDate)) {
         return NextResponse.json({ error: "Choose a valid date for this work block." }, { status: 400 });
       }
       const range = validMinuteRange(body.startMinute, body.endMinute);
       if (!range) return NextResponse.json({ error: "Choose a valid time window." }, { status: 400 });
+      if (!validPacificMinute(specificDate, range.start) || !validPacificMinute(specificDate, range.end)) {
+        return NextResponse.json({ error: "Choose a real Pacific time on that date." }, { status: 400 });
+      }
       const title = body.note?.trim().slice(0, 500);
       if (!title) return NextResponse.json({ error: "Add a title for this work block." }, { status: 400 });
 
