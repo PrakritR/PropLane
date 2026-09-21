@@ -1128,7 +1128,7 @@ export function ManagerVendorFormModal({
           {stepId === "contact" ? (
             <div className="space-y-4">
               <label className="block space-y-1">
-                <span className="text-sm font-semibold">Vendor name</span>
+                <span className="text-sm font-semibold">Invite by first name</span>
                 <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} required autoFocus data-attr="vendor-essential-name" />
               </label>
               <label className="block space-y-1">

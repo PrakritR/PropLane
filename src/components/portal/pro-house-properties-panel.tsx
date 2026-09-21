@@ -59,6 +59,8 @@ import {
 } from "@/components/portal/portal-property-section-list";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import {
   PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS,
   PROPERTY_DETAIL_TOP_TAB_LABELS,
@@ -541,19 +543,14 @@ function ManagerPropertyInlineDetails({
   const duplicateFooterAction = (): PortalAdaptiveAction => ({
     id: "duplicate-listing",
     node: (
-      <Button
-        type="button"
-        variant="outline"
-        className={propertyDetailFooterBtn}
+      <PortalIconAction
+        ring
+        icon={Copy}
+        label="Copy"
         data-attr="listing-duplicate"
-        aria-label="Duplicate"
-        title="Duplicate"
         disabled={duplicateBusy}
         onClick={() => runDuplicateProperty()}
-      >
-        <Copy className="size-4" aria-hidden />
-        <span className="sr-only">Duplicate</span>
-      </Button>
+      />
     ),
     menuItem: (
       <DropdownMenuItem
@@ -665,6 +662,9 @@ function ManagerPropertyInlineDetails({
         onSaved: () => {
           onUpdated();
         },
+        onAutosaved: () => {
+          onUpdated();
+        },
         showToast,
         skuTier,
         userId: managerUserId,
@@ -699,6 +699,7 @@ function ManagerPropertyInlineDetails({
             }
           },
           onSaved: () => onUpdated(),
+          onAutosaved: () => onUpdated(),
           showToast,
           skuTier,
           userId: managerUserId,
@@ -714,13 +715,15 @@ function ManagerPropertyInlineDetails({
   // Memoized so `topNavItems` below has a stable dependency. Rebuilt inline it
   // was a fresh array every render, which the compiler reads as a value that may
   // be mutated later and refuses to preserve the manual memo around.
+  // The shared trio (Communication · Documents · Activity) is available at
+  // every stage — a draft or unlisted home can still hold files and messages.
   const availableTabs = useMemo<PropertyDetailTabId[]>(
     () =>
       bucket === 3 || bucket === 5
-        ? ["preview"]
+        ? ["preview", "communication", "documents", "activity"]
         : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info"]
-          : ["preview", "house-details", "move-in", "application", "lease"],
+          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info", "communication", "documents", "activity"]
+          : ["preview", "house-details", "move-in", "application", "lease", "communication", "documents", "activity"],
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
@@ -757,6 +760,9 @@ function ManagerPropertyInlineDetails({
     pushTopTab("requests", "requests");
     pushTopTab("promotion", "promotion");
     pushTopTab("ai-info", "ai-info");
+    pushTopTab("communication", "communication");
+    pushTopTab("documents", "documents");
+    pushTopTab("activity", "activity");
     return items;
   }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
   /**
@@ -776,6 +782,9 @@ function ManagerPropertyInlineDetails({
       ["requests", "requests"],
       ["promotion", "promotion"],
       ["ai-info", "ai-info"],
+      ["communication", "communication"],
+      ["documents", "documents"],
+      ["activity", "activity"],
     ];
     return order.map(([id, tab]) => {
       const available = availableTabs.includes(tab);
@@ -805,18 +814,14 @@ function ManagerPropertyInlineDetails({
         actions.push({
           id: "view-listing",
           node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={propertyDetailFooterBtn}
+            <PortalIconAction
+              ring
+              ringPrimary
+              icon={Eye}
+              label="View public"
               data-attr="listing-view"
-              aria-label="View"
-              title="View"
               onClick={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
-            >
-              <Eye className="size-4" aria-hidden />
-              <span className="sr-only">View</span>
-            </Button>
+            />
           ),
           menuItem: (
             <DropdownMenuItem
@@ -831,18 +836,13 @@ function ManagerPropertyInlineDetails({
           actions.push({
             id: "edit-listing",
             node: (
-              <Button
-                type="button"
-                variant="primary"
-                className={propertyDetailFooterBtn}
+              <PortalIconAction
+                ring
+                icon={Pencil}
+                label="Edit"
                 data-attr="listing-edit-full"
-                aria-label="Edit"
-                title="Edit"
                 onClick={() => openFullListingEditor()}
-              >
-                <Pencil className="size-4" aria-hidden />
-                <span className="sr-only">Edit</span>
-              </Button>
+              />
             ),
             menuItem: (
               <DropdownMenuItem
@@ -857,18 +857,13 @@ function ManagerPropertyInlineDetails({
         actions.push({
           id: "send-listing",
           node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={propertyDetailFooterBtn}
+            <PortalIconAction
+              ring
+              icon={Share2}
+              label="Share"
               data-attr="listing-send-listing"
-              aria-label="Send"
-              title="Send"
               onClick={() => onSendToProspect?.(listingId)}
-            >
-              <Share2 className="size-4" aria-hidden />
-              <span className="sr-only">Send</span>
-            </Button>
+            />
           ),
           menuItem: (
             <DropdownMenuItem
@@ -883,18 +878,14 @@ function ManagerPropertyInlineDetails({
         actions.push({
           id: "unlist",
           node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={dangerBtnClass}
+            <PortalIconAction
+              ring
+              tone="danger"
+              icon={Trash2}
+              label="Delete"
               data-attr="listing-unlist"
-              aria-label="Unlist"
-              title="Unlist"
               onClick={() => setPendingDestructiveAction("unlist")}
-            >
-              <Trash2 className="size-4" aria-hidden />
-              <span className="sr-only">Unlist</span>
-            </Button>
+            />
           ),
           menuItem: (
             <DropdownMenuItem
@@ -1023,13 +1014,15 @@ function ManagerPropertyInlineDetails({
         actions.push({
           id: "continue-draft",
           node: (
-            <Button
-              type="button"
-              variant="primary"
-              className={propertyDetailFooterBtn}
+            // A draft has two actions: the title row shows a pencil and a
+            // trash can at every width (see iconTitleActions); the word
+            // lives in the tooltip/accessible name only.
+            <PortalIconAction
+              ring
+              ringPrimary
+              icon={Pencil}
+              label="Edit"
               data-attr="draft-continue-editing"
-              aria-label="Edit"
-              title="Edit"
               onClick={() => {
                 if (!skuLoaded) {
                   showToast("Loading subscription…");
@@ -1037,13 +1030,7 @@ function ManagerPropertyInlineDetails({
                 }
                 setDraftEditorOpen(true);
               }}
-            >
-              {/* A draft has two actions: the title row shows a pencil and a
-                  trash can at every width (see iconTitleActions); the words
-                  live in the aria-label and the tooltip. */}
-              <Pencil className="size-4" aria-hidden />
-              <span className="sr-only">Edit</span>
-            </Button>
+            />
           ),
           menuItem: (
             <DropdownMenuItem
@@ -1064,18 +1051,14 @@ function ManagerPropertyInlineDetails({
         actions.push({
           id: "delete-draft",
           node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={dangerBtnClass}
+            <PortalIconAction
+              ring
+              tone="danger"
+              icon={Trash2}
+              label="Delete"
               data-attr="draft-delete"
-              aria-label="Delete"
-              title="Delete"
               onClick={() => setPendingDestructiveAction("delete-draft")}
-            >
-              <Trash2 className="size-4" aria-hidden />
-              <span className="sr-only">Delete</span>
-            </Button>
+            />
           ),
           menuItem: (
             <DropdownMenuItem
@@ -1365,6 +1348,18 @@ function ManagerPropertyInlineDetails({
           showToast={showToast}
         />
       ) : null}
+
+      {/* The shared trio (PLAN-0920-1058, area 1a) — same renderers every
+          record kind uses; see src/components/portal/record-section-renderers.tsx. */}
+      {activeDetailTab === "communication" || activeDetailTab === "documents" || activeDetailTab === "activity"
+        ? renderRecordSection(activeDetailTab, {
+            role: "manager",
+            kind: "property",
+            kindLabel: "home",
+            recordId: propertyRouteKey,
+            recordLabel: propertyShareLabel,
+          })
+        : null}
 
       </PortalPageScrollBody>
 

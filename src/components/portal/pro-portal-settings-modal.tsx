@@ -27,10 +27,8 @@ import {
   type FormAutomationPane,
 } from "@/components/portal/property-form-automation-chrome";
 import { cn } from "@/lib/utils";
-import {
-  SettingsPropertyScopeBar,
-  SettingsPropertyScopeProvider,
-} from "@/components/portal/settings-property-scope";
+import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
+import { SettingsScopeBar } from "@/components/portal/settings-scope-bar";
 
 type SettingsEditorPane = FormAutomationPane;
 
@@ -112,7 +110,9 @@ export function ProPortalSettingsModal({
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
   const [editorPane, setEditorPane] = useState<SettingsEditorPane>("form");
   const [formBulkActions, setFormBulkActions] = useState<ReactNode | null>(null);
-  const [scopePropertyId, setScopePropertyId] = useState(initialPropertyId ?? "");
+  const [scopePropertyIds, setScopePropertyIds] = useState<string[]>(initialPropertyId ? [initialPropertyId] : []);
+  const [scopeWorkspaceId, setScopeWorkspaceId] = useState("");
+  const scopePropertyId = scopePropertyIds[0] ?? "";
   const { userId: managerUserId } = useManagerUserId();
   const { showToast } = useAppUi();
 
@@ -121,7 +121,7 @@ export function ProPortalSettingsModal({
       setTab(initialTab);
       setEditorPane(isFormAutomationTab(initialTab) ? initialPane : "form");
       setFormBulkActions(null);
-      setScopePropertyId(initialPropertyId ?? "");
+      setScopePropertyIds(initialPropertyId ? [initialPropertyId] : []);
     }
   }, [open, initialTab, initialPane, initialPropertyId]);
 
@@ -235,8 +235,10 @@ export function ProPortalSettingsModal({
 
   return (
     <SettingsPropertyScopeProvider
-      propertyId={scopePropertyId}
-      onPropertyIdChange={setScopePropertyId}
+      workspaceId={scopeWorkspaceId}
+      onWorkspaceIdChange={setScopeWorkspaceId}
+      propertyIds={scopePropertyIds}
+      onPropertyIdsChange={setScopePropertyIds}
       options={propertyOptions}
     >
     <Modal
@@ -259,7 +261,7 @@ export function ProPortalSettingsModal({
       )}
       status={
         <span className="flex items-center gap-2">
-          {showPropertyPicker ? <SettingsPropertyScopeBar /> : null}
+          {showPropertyPicker ? <SettingsScopeBar /> : null}
           <SaveStatus
             status={{
               state: saveStatus.state,

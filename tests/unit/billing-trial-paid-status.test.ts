@@ -20,10 +20,10 @@ describe("Billing names trial vs paid and work number stays paid-only", () => {
       join(process.cwd(), "src/components/portal/pro-messaging-settings-panel.tsx"),
       "utf8",
     );
-    expect(messaging).toContain("You're on a free trial. Upgrade to a paid plan to activate a work number.");
+    expect(messaging).toContain("Available on Pro. Start Pro to set up a work number.");
     expect(messaging).toContain("Free accounts cannot use a work number.");
     expect(messaging).toContain('data-attr="messaging-work-number-plan-lock"');
-    expect(messaging).toContain("Activate paid plan");
+    expect(messaging).toContain("Start Pro");
     expect(messaging).toContain("/portal/profile?tab=billing&activatePaid=1");
     expect(messaging).not.toContain('data-attr="messaging-number-status-refresh"');
     expect(messaging).not.toContain('data-attr="messaging-announce-residents-open"');

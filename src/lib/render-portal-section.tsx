@@ -44,7 +44,6 @@ import {
   loadManagerTours,
   loadManagerBookings,
   loadManagerApplications,
-  loadManagerBackgroundChecks,
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
   loadManagerCommunication,
@@ -171,7 +170,29 @@ async function renderManagerDocumentsSection(
   if (financesRedirect) {
     redirect(`${basePath}/financials/${financesRedirect}`);
   }
-  if (!DOCUMENTS_TABS.includes(docTab as (typeof DOCUMENTS_TABS)[number])) notFound();
+  if (!DOCUMENTS_TABS.includes(docTab as (typeof DOCUMENTS_TABS)[number])) {
+    // Not a known documents tab — a manager document RECORD id
+    // (PLAN-0920-1058, area 1c): /documents/<id>/<tab>.
+    const { parseDocumentDetailTab } = await import("@/lib/portal-detail-routes");
+    const documentId = decodeURIComponent(docTab);
+    const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
+    const detailTab = parseDocumentDetailTab(detailTabRaw);
+    if (detailTabRaw && detailTab !== detailTabRaw) {
+      redirect(`${basePath}/documents/${encodeURIComponent(documentId)}/${detailTab}`);
+    }
+    const ManagerDocumentsPanel = await loadManagerDocumentsPanel();
+    return subscriptionGated(
+      <ManagerDocumentsPanel
+        tabId="library"
+        basePath={basePath}
+        documentId={documentId}
+        documentDetailTab={detailTab}
+      />,
+      kind,
+      "documents",
+      tier,
+    );
+  }
   if (tabParts.length === 2 && docTab !== "applications") {
     if (tabParts[1] === "pending") {
       redirect(`${basePath}/documents/${docTab}`);
@@ -805,7 +826,7 @@ export async function renderPortalSection(
         if (tabParts.length === 1) {
           redirect(`${def.basePath}/services/requests/pending`);
         }
-        if (tabParts.length > 3) notFound();
+        if (tabParts.length > 4) notFound();
         const bucketRaw = tabParts[1]!;
         const requestBucket = REQUEST_BUCKETS.includes(bucketRaw as typeof REQUEST_BUCKETS[number])
           ? (bucketRaw as typeof REQUEST_BUCKETS[number])
@@ -817,7 +838,7 @@ export async function renderPortalSection(
         if (tabParts.length === 1) {
           redirect(`${def.basePath}/services/work-orders/open`);
         }
-        if (tabParts.length > 3) notFound();
+        if (tabParts.length > 4) notFound();
         const bucketRaw = tabParts[1]!;
         const workOrderBucket = WO_BUCKETS.includes(bucketRaw as typeof WO_BUCKETS[number])
           ? (bucketRaw as typeof WO_BUCKETS[number])
@@ -843,6 +864,16 @@ export async function renderPortalSection(
         servicesTab === "work-orders" && tabParts.length >= 3
           ? decodeURIComponent(tabParts[2]!)
           : undefined;
+      // A service record's own rail tab (docs/agents/record-page.md).
+      const { parseServiceDetailTab } = await import("@/lib/portal-detail-routes");
+      const serviceDetailTabRaw = tabParts.length >= 4 ? tabParts[3]! : undefined;
+      const serviceDetailTab =
+        serviceRequestId || workOrderId ? parseServiceDetailTab(serviceDetailTabRaw) : undefined;
+      if ((serviceRequestId || workOrderId) && serviceDetailTabRaw && serviceDetailTab !== serviceDetailTabRaw) {
+        redirect(
+          `${def.basePath}/services/${servicesTab}/${tabParts[1]}/${encodeURIComponent(tabParts[2]!)}/${serviceDetailTab}`,
+        );
+      }
 
       const ManagerAllServicesPanel = await loadManagerAllServicesPanel();
       return subscriptionGated(
@@ -853,6 +884,7 @@ export async function renderPortalSection(
           workOrderBucket={workOrderBucket}
           serviceRequestId={serviceRequestId}
           workOrderId={workOrderId}
+          serviceDetailTab={serviceDetailTab}
         />,
         kind,
         "services",
@@ -972,7 +1004,7 @@ export async function renderPortalSection(
       if (!tabParts?.length) {
         redirect(`${def.basePath}/leases/manager`);
       }
-      if (tabParts.length > 2) notFound();
+      if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;
       const leaseTab = LEASE_TABS.includes(tabRaw as typeof LEASE_TABS[number])
         ? (tabRaw as typeof LEASE_TABS[number])
@@ -981,8 +1013,14 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/leases/${leaseTab}`);
       }
       const leaseId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const { parseLeaseDetailTab } = await import("@/lib/portal-detail-routes");
+      const leaseDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const leaseDetailTab = leaseId ? parseLeaseDetailTab(leaseDetailTabRaw) : undefined;
+      if (leaseId && leaseDetailTabRaw && leaseDetailTab !== leaseDetailTabRaw) {
+        redirect(`${def.basePath}/leases/${leaseTab}/${encodeURIComponent(leaseId)}/${leaseDetailTab}`);
+      }
       return subscriptionGated(
-        <ManagerLeases tab={leaseTab} basePath={def.basePath} leaseId={leaseId} />,
+        <ManagerLeases tab={leaseTab} basePath={def.basePath} leaseId={leaseId} leaseDetailTab={leaseDetailTab} />,
         kind,
         "leases",
         managerOwnerSubscriptionTier,
@@ -990,26 +1028,20 @@ export async function renderPortalSection(
     }
 
     if (section === "background-checks") {
+      // Screening now nests inside the application record's own Screening tab
+      // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — the standalone
+      // list is gone, so every old link redirects into Applications. A
+      // record-carrying link has no reliable bucket to recover here (buckets
+      // are resolved client-side from local rows), so it lands on a fixed
+      // bucket the same way the older "screenings" alias below does.
       const BG_TABS = ["pending_review", "passed", "flagged"] as const;
-      if (!tabParts?.length) {
-        redirect(`${def.basePath}/background-checks/pending_review`);
+      const tabRaw = tabParts?.[0];
+      if (tabRaw && !BG_TABS.includes(tabRaw as typeof BG_TABS[number])) notFound();
+      const applicationId = tabParts && tabParts.length >= 2 ? tabParts[1] : undefined;
+      if (applicationId) {
+        redirect(`${def.basePath}/applications/pending/${encodeURIComponent(decodeURIComponent(applicationId))}/screening`);
       }
-      if (tabParts.length > 2) notFound();
-      const tabRaw = tabParts[0]!;
-      const bgTab = BG_TABS.includes(tabRaw as typeof BG_TABS[number])
-        ? (tabRaw as typeof BG_TABS[number])
-        : "pending_review";
-      if (tabRaw !== bgTab) {
-        redirect(`${def.basePath}/background-checks/${bgTab}`);
-      }
-      const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-      const ManagerBackgroundChecks = await loadManagerBackgroundChecks();
-      return subscriptionGated(
-        <ManagerBackgroundChecks tab={bgTab} basePath={def.basePath} applicationId={applicationId} />,
-        kind,
-        "background-checks",
-        managerOwnerSubscriptionTier,
-      );
+      redirect(`${def.basePath}/applications/pending`);
     }
 
     if (section === "applications") {
@@ -1030,8 +1062,11 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/applications/${applicationTab}`);
       }
       const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-      const applicationDetailTab =
-        tabParts.length >= 3 ? parseApplicationDetailTab(tabParts[2]) : "application";
+      const applicationDetailTabRaw = tabParts.length >= 3 ? tabParts[2] : undefined;
+      const applicationDetailTab = applicationId ? parseApplicationDetailTab(applicationDetailTabRaw) : undefined;
+      if (applicationId && applicationDetailTabRaw && applicationDetailTab !== applicationDetailTabRaw) {
+        redirect(`${def.basePath}/applications/${applicationTab}/${encodeURIComponent(applicationId)}/${applicationDetailTab}`);
+      }
       const ManagerApplications = await loadManagerApplications();
       return subscriptionGated(
         <ManagerApplications
@@ -1150,21 +1185,42 @@ export async function renderPortalSection(
     }
 
     if (section === "bookings") {
-      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket } = await import(
+      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket, isBookingDayKeySegment } = await import(
         "@/lib/portal-detail-routes"
       );
       if (!tabParts?.length) {
         redirect(`${def.basePath}/bookings/calendar`);
       }
       const segmentRaw = tabParts[0]!;
-      if (!MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
-        notFound();
-      }
-      if (tabParts.length > 1) notFound();
-      const bucket = parseManagerBookingBucket(segmentRaw);
       const ManagerBookings = await loadManagerBookings();
+      // The day page (`/bookings/2026-09-01`) replaces the old day pop-up —
+      // a date can never collide with a bucket keyword.
+      if (isBookingDayKeySegment(segmentRaw)) {
+        if (tabParts.length > 1) notFound();
+        return subscriptionGated(
+          <ManagerBookings dayKey={segmentRaw} basePath={def.basePath} />,
+          kind,
+          "bookings",
+          managerOwnerSubscriptionTier,
+        );
+      }
+      if (MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
+        if (tabParts.length > 1) notFound();
+        const bucket = parseManagerBookingBucket(segmentRaw);
+        return subscriptionGated(
+          <ManagerBookings bucket={bucket} basePath={def.basePath} />,
+          kind,
+          "bookings",
+          managerOwnerSubscriptionTier,
+        );
+      }
+      // Anything else is a booking record id (`bookingEntryKey`, opaque and
+      // URL-encoded) — the booking record page, per docs/agents/record-page.md.
+      if (tabParts.length > 2) notFound();
+      const bookingId = decodeURIComponent(segmentRaw);
+      const bookingTab = tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       return subscriptionGated(
-        <ManagerBookings bucket={bucket} basePath={def.basePath} />,
+        <ManagerBookings bookingId={bookingId} bookingTab={bookingTab} basePath={def.basePath} />,
         kind,
         "bookings",
         managerOwnerSubscriptionTier,
@@ -1172,7 +1228,9 @@ export async function renderPortalSection(
     }
 
     if (section === "tours") {
-      const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket } = await import("@/lib/portal-detail-routes");
+      const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket, parseTourDetailTab } = await import(
+        "@/lib/portal-detail-routes"
+      );
       if (!tabParts?.length) {
         redirect(`${def.basePath}/tours/pending`);
       }
@@ -1186,12 +1244,17 @@ export async function renderPortalSection(
       if (!MANAGER_TOUR_BUCKETS.includes(segmentRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
         notFound();
       }
-      if (tabParts.length > 2) notFound();
+      if (tabParts.length > 3) notFound();
       const bucket = parseManagerTourBucket(segmentRaw);
-      const tourId = tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const tourId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const tourDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const tourDetailTab = tourId ? parseTourDetailTab(tourDetailTabRaw) : undefined;
+      if (tourId && tourDetailTabRaw && tourDetailTab !== tourDetailTabRaw) {
+        redirect(`${def.basePath}/tours/${bucket}/${encodeURIComponent(tourId)}/${tourDetailTab}`);
+      }
       const ManagerTours = await loadManagerTours();
       return subscriptionGated(
-        <ManagerTours bucket={bucket} basePath={def.basePath} tourId={tourId} />,
+        <ManagerTours bucket={bucket} basePath={def.basePath} tourId={tourId} tourDetailTab={tourDetailTab} />,
         kind,
         "tours",
         managerOwnerSubscriptionTier,
@@ -1473,11 +1536,27 @@ export async function renderPortalSection(
         const tierGate = residentManagerTierGate("services", residentManagerTier, meta.label);
         if (tierGate) return tierGate;
         if (tabParts?.length) {
-          const legacy = tabParts[0];
+          const legacy = tabParts[0]!;
           if (legacy === "requests" || legacy === "work-orders") {
             redirect(`${def.basePath}/services`);
           }
-          notFound();
+          // A service RECORD id (PLAN-0920-1058, area 1c): /services/<id>/<tab>.
+          if (tabParts.length > 2) notFound();
+          const { parseResidentServiceDetailTab } = await import("@/lib/portal-detail-routes");
+          const serviceId = decodeURIComponent(legacy);
+          const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
+          const detailTab = parseResidentServiceDetailTab(detailTabRaw);
+          if (detailTabRaw && detailTab !== detailTabRaw) {
+            redirect(`${def.basePath}/services/${encodeURIComponent(serviceId)}/${detailTab}`);
+          }
+          const ResidentServicesPanel = await loadResidentServicesPanel();
+          return (
+            <ResidentServicesPanel
+              basePath={def.basePath}
+              serviceId={serviceId}
+              serviceDetailTab={detailTab}
+            />
+          );
         }
         const ResidentServicesPanel = await loadResidentServicesPanel();
         return <ResidentServicesPanel basePath={def.basePath} />;
@@ -1502,16 +1581,33 @@ export async function renderPortalSection(
       VENDOR_WORK_ORDER_LIST_TABS,
       VENDOR_WORK_ORDER_LEGACY_LIST_TABS,
       vendorWorkOrderListHref,
+      parseVendorJobDetailTab,
     } = await import("@/lib/portal-detail-routes");
     if (!tabParts?.length) {
       redirect(vendorWorkOrderListHref(def.basePath, DEFAULT_VENDOR_WORK_ORDER_TAB));
     }
-    if (tabParts.length > 1) notFound();
     const raw = tabParts[0]!;
     if (VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) {
       redirect(vendorWorkOrderListHref(def.basePath, VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!));
     }
-    if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) notFound();
+    if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) {
+      // Not a known list tab — a vendor job RECORD id (PLAN-0920-1058, area 1c).
+      if (tabParts.length > 2) notFound();
+      const workOrderId = decodeURIComponent(raw);
+      const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
+      const detailTab = parseVendorJobDetailTab(detailTabRaw);
+      if (detailTabRaw && detailTab !== detailTabRaw) {
+        redirect(`${def.basePath}/work-orders/${encodeURIComponent(workOrderId)}/${detailTab}`);
+      }
+      return (
+        <VendorWorkOrdersPanel
+          tabId={DEFAULT_VENDOR_WORK_ORDER_TAB}
+          workOrderId={workOrderId}
+          workOrderDetailTab={detailTab}
+        />
+      );
+    }
+    if (tabParts.length > 1) notFound();
     return <VendorWorkOrdersPanel tabId={parseVendorWorkOrderListTab(raw)} />;
   }
 
@@ -1588,19 +1684,53 @@ export async function renderPortalSection(
     if (!tabParts?.length) {
       redirect(`${def.basePath}/financials/income`);
     }
+    const finTab = tabParts[0]!;
+    if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
+
+    if (finTab === "invoices" || finTab === "payouts") {
+      // A record under this tab: /financials/invoices|payouts/<id>/<tab>
+      // (PLAN-0920-1058, area 1c).
+      if (tabParts.length > 3) notFound();
+      if (tabParts.length === 1) {
+        // Payouts is one page now, mounted at Settings → Payouts (vendor twin
+        // of the manager redirect above) — the bare Finances tab is a door to
+        // it, never its own render (PLAN-0920-1500). A payout record below
+        // still renders here.
+        if (finTab === "payouts") {
+          redirect(`${def.basePath}/profile?tab=payouts`);
+        }
+        return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
+      }
+      if (tabParts.length === 2 && tabParts[1] === "pending") {
+        redirect(`${def.basePath}/financials/${finTab}`);
+      }
+      const { parseVendorInvoiceDetailTab, parseVendorPayoutDetailTab } = await import(
+        "@/lib/portal-detail-routes"
+      );
+      const recordId = decodeURIComponent(tabParts[1]!);
+      const detailTabRaw = tabParts.length === 3 ? tabParts[2]! : undefined;
+      const detailTab =
+        finTab === "invoices"
+          ? parseVendorInvoiceDetailTab(detailTabRaw)
+          : parseVendorPayoutDetailTab(detailTabRaw);
+      if (detailTabRaw && detailTab !== detailTabRaw) {
+        redirect(`${def.basePath}/financials/${finTab}/${encodeURIComponent(recordId)}/${detailTab}`);
+      }
+      return (
+        <VendorFinancesPanel
+          tabId={finTab}
+          basePath={def.basePath}
+          recordId={recordId}
+          recordDetailTab={detailTab}
+        />
+      );
+    }
+
     if (tabParts.length > 1) {
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${tabParts[0]}`);
       }
       notFound();
-    }
-    const finTab = tabParts[0]!;
-    if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
-    // Payouts is one page now, mounted at Settings → Payouts (vendor twin of
-    // the manager redirect above) — this Finances tab is a door to it, never
-    // its own render (PLAN-0920-1500).
-    if (finTab === "payouts") {
-      redirect(`${def.basePath}/profile?tab=payouts`);
     }
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
   }

@@ -17,7 +17,8 @@ const resolveOwner = vi.fn();
 const assertModuleAccess = vi.fn();
 const loadAutomatedMessageSettings = vi.fn();
 const saveAutomatedMessageSettings = vi.fn();
-const resolveOperationsOverride = vi.fn();
+const resolveSettingsScope = vi.fn();
+const saveWorkspaceNamespaceSettings = vi.fn();
 const savePropertyOverride = vi.fn();
 const clearPropertyOverride = vi.fn();
 const listPropertyOverrides = vi.fn();
@@ -33,6 +34,21 @@ vi.mock("@/lib/supabase/service", () => ({
       }
       if (table === "profile_roles") {
         return { select: () => ({ eq: async () => ({ data: [{ role: "manager" }] }) }) };
+      }
+      if (table === "manager_property_records") {
+        // `assertSettingsScopeOwned` resolves the property's own workspace
+        // once the owner is already known — reuse the same `resolveOwner`
+        // mock so both resolution steps agree on who owns the house.
+        return {
+          select: () => ({
+            eq: (_col: string, id: string) => ({
+              maybeSingle: async () => {
+                const owner = await resolveOwner(id);
+                return { data: owner ? { id, manager_user_id: owner, workspace_id: null } : null, error: null };
+              },
+            }),
+          }),
+        };
       }
       throw new Error(`unexpected table "${table}"`);
     },
@@ -51,10 +67,13 @@ vi.mock("@/lib/automated-messages-settings.server", () => ({
 vi.mock("@/lib/automated-messages-defaults.server", () => ({ automatedMessageDefaults: () => ({}) }));
 vi.mock("@/lib/settings/property-overrides.server", () => ({
   ForeignPropertyError: class ForeignPropertyError extends Error {},
-  resolveOperationsOverride: (...args: unknown[]) => resolveOperationsOverride(...args),
   savePropertyOverride: (...args: unknown[]) => savePropertyOverride(...args),
   clearPropertyOverride: (...args: unknown[]) => clearPropertyOverride(...args),
   listPropertyOverrides: (...args: unknown[]) => listPropertyOverrides(...args),
+}));
+vi.mock("@/lib/settings/scope-resolver.server", () => ({
+  resolveSettingsScope: (...args: unknown[]) => resolveSettingsScope(...args),
+  saveWorkspaceNamespaceSettings: (...args: unknown[]) => saveWorkspaceNamespaceSettings(...args),
 }));
 
 import { PATCH as automatedMessagesPatch } from "@/app/api/portal/automated-messages/route";
@@ -74,7 +93,7 @@ beforeEach(() => {
   getUser.mockResolvedValue({ data: { user: { id: OWNER } } });
   loadAutomatedMessageSettings.mockResolvedValue({});
   saveAutomatedMessageSettings.mockResolvedValue({});
-  resolveOperationsOverride.mockResolvedValue({ settings: {}, scope: "workspace", inherited: true });
+  resolveSettingsScope.mockResolvedValue({ value: {}, source: "account" });
   listPropertyOverrides.mockResolvedValue([]);
   savePropertyOverride.mockResolvedValue(undefined);
   clearPropertyOverride.mockResolvedValue(undefined);
@@ -113,7 +132,12 @@ describe("PATCH /api/portal/automated-messages — co-manager house-scoped write
 
     expect(res.status).toBe(200);
     // Every downstream call lands on the property OWNER's id, never the co-manager's own.
-    expect(resolveOperationsOverride).toHaveBeenCalledWith(expect.anything(), OWNER, HOUSE, "automatedMessages", expect.anything());
+    expect(resolveSettingsScope).toHaveBeenCalledWith(
+      expect.anything(),
+      { managerUserId: OWNER, propertyId: HOUSE, workspaceId: null },
+      "automatedMessages",
+      expect.anything(),
+    );
     expect(savePropertyOverride.mock.calls[0]![1]).toBe(OWNER);
     expect(savePropertyOverride.mock.calls[0]![2]).toBe(HOUSE);
   });
@@ -127,7 +151,7 @@ describe("PATCH /api/portal/automated-messages — co-manager house-scoped write
 
     expect(res.status).toBe(403);
     expect(savePropertyOverride).not.toHaveBeenCalled();
-    expect(resolveOperationsOverride).not.toHaveBeenCalled();
+    expect(resolveSettingsScope).not.toHaveBeenCalled();
   });
 
   it("an unrelated propertyId (owner lookup fails) is a 403, never a workspace fallback", async () => {

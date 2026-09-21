@@ -1,5 +1,6 @@
 import { bookedDayKeyCountInMonth, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
+import { leaseDetailHref, propertyDetailHref } from "@/lib/portal-detail-routes";
 
 export type BookingsListTabId = "all" | "check_ins" | "check_outs";
 
@@ -69,6 +70,22 @@ export function formatBookingStayRange(
   };
   if (openEnded || start === end) return `${fmt(start)} onward`;
   return `${fmt(start)} – ${fmt(end)}`;
+}
+
+/**
+ * The overlap refusal, named — "Room 9 is booked Sep 1 – Aug 31 by Prakrit"
+ * (PLAN-0920-1058, area 1e), never a generic "these dates are taken". Shared
+ * by the Edit dates and Move room sheets so the wording never drifts between
+ * the two.
+ */
+export function describeBookingConflict(
+  conflict: Pick<PropertyBookingEntry, "roomLabel" | "start" | "end" | "openEnded" | "summary">,
+  fallbackRoomLabel: string,
+): string {
+  const room = conflict.roomLabel?.trim() || fallbackRoomLabel;
+  const range = formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded);
+  const who = conflict.summary?.trim();
+  return who ? `${room} is booked ${range} by ${who}` : `${room} is booked ${range}`;
 }
 
 export function classifyBookingListBucket(
@@ -209,6 +226,25 @@ export function bookingSourceBadgeTone(
     default:
       return "info";
   }
+}
+
+/**
+ * Where "Edit dates" / "Move room" should actually go for a booking this
+ * screen cannot edit directly (PLAN-0920-1058, area 1c): a signed lease's
+ * dates belong to the Lease record, and a channel import is owned by Airbnb.
+ * `null` for a block (editable here) or any other source (still "Coming soon").
+ */
+export function bookingOpenTarget(
+  entry: PropertyBookingEntry,
+  basePath: string,
+): { href: string; label: string } | null {
+  if (entry.source === "proplane" && entry.leaseId) {
+    return { href: leaseDetailHref(basePath, "manager", entry.leaseId), label: "Open lease" };
+  }
+  if (entry.source === "airbnb" || entry.source === "booking_com") {
+    return { href: propertyDetailHref(basePath, "all", entry.propertyId, "preview"), label: "Open listing" };
+  }
+  return null;
 }
 
 export function bookingSourceLabel(source: PropertyBookingEntry["source"]): string {

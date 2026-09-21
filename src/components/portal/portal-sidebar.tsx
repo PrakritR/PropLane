@@ -28,6 +28,7 @@ import {
 import { adjacentPrimarySection, resolveSwipePageDirection } from "@/lib/native/portal-swipe-page";
 import { playSwipeEnter, playSwipeExit, resetSwipeTransform } from "@/lib/native/portal-swipe-page-transition";
 import { observeNativeBottomNavInset } from "@/lib/native/sync-portal-bottom-nav-inset";
+import { useBottomNavHidden } from "@/lib/portal-record-page-chrome";
 import {
   isCrossPortalNavigation,
   portalNavClick,
@@ -117,9 +118,6 @@ function buildPortalNavItems(
       return true;
     })
     .flatMap((section) => {
-      if (section.section === "background-checks") {
-        return [];
-      }
       if (
         section.section === "payments" &&
         section.tabs.some((tab) => tab.id === "incoming" || tab.id === "outgoing")
@@ -165,38 +163,16 @@ function buildPortalNavItems(
         ];
       }
       if (section.section === "applications") {
+        // Screening nests inside the application record's own Screening tab now
+        // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — no second
+        // sidebar sub-item for it.
         const appBase = `${definition.basePath}/applications/pending`;
-        if (definition.kind === "resident") {
-          return [
-            {
-              section: section.section,
-              label: section.label,
-              href: appBase,
-              prefetchHrefs: [appBase],
-            },
-          ];
-        }
-        const bgBase = `${definition.basePath}/background-checks/pending_review`;
         return [
           {
             section: section.section,
             label: section.label,
             href: appBase,
-            prefetchHrefs: [appBase, bgBase],
-            subItems: [
-              {
-                sectionTabId: "application",
-                label: "Application",
-                href: appBase,
-                prefetchHrefs: [appBase],
-              },
-              {
-                sectionTabId: "background-check",
-                label: "Background check",
-                href: bgBase,
-                prefetchHrefs: [bgBase],
-              },
-            ],
+            prefetchHrefs: [appBase],
           },
         ];
       }
@@ -293,9 +269,7 @@ export function PortalSidebar({
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
-    const section = parts[1] ?? "dashboard";
-    if (section === "background-checks") return "applications";
-    return section;
+    return parts[1] ?? "dashboard";
   }, [pathname]);
 
   const navItems = useMemo(() => {
@@ -313,11 +287,6 @@ export function PortalSidebar({
       const teamsIdx = parts.indexOf("teams");
       const tab = parts[teamsIdx + 1];
       return tab === "managers" || tab === "vendors" ? tab : "managers";
-    }
-    if (activeSection === "applications") {
-      const bgIdx = parts.indexOf("background-checks");
-      if (bgIdx >= 0) return "background-check";
-      return "application";
     }
     return null;
   }, [activeSection, pathname]);
@@ -353,8 +322,11 @@ export function PortalSidebar({
   }, [activeSectionSubTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
+  // "settings" (Settings/profile) is the trailing group added in `nav-groups.ts`
+  // for pro/manager, resident, and vendor — it gets the same bottom-pinned
+  // treatment as "account"/"more" so it lands just above "Need help?".
   const firstTrailingGroupIdx = useMemo(
-    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
+    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more" || g.id === "settings"),
     [navGroups],
   );
 
@@ -435,8 +407,11 @@ export function PortalSidebar({
     return primary.filter((item) => !isSectionLocked(item.section));
   }, [definition.kind, nativeBottomNavSplit, isSectionLocked]);
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
+  // A record page's phone sticky action bar takes this bar's place (no-bottom-bar,
+  // PLAN-0920-1058) — two fixed bottom bars never both fit on a 390px screen.
+  const bottomNavHiddenByRecordPage = useBottomNavHidden();
   const showBottomNavBar =
-    showMobileNav && isClient && (nativeBottomNavItems.length > 0 || showMoreTab);
+    showMobileNav && isClient && !bottomNavHiddenByRecordPage && (nativeBottomNavItems.length > 0 || showMoreTab);
   const moreTabActive = !nativeBottomNavItems.some((item) => isNavItemActive(item));
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [bottomNavEl, setBottomNavEl] = useState<HTMLElement | null>(null);
@@ -537,29 +512,40 @@ export function PortalSidebar({
     const ordered = orderNativeBottomNavItems(navItems, definition.kind);
     return ordered
       .filter((item) => !isHiddenFromMobileNav(definition.kind, item.section))
-      .flatMap((item) =>
+      .map((item) =>
         item.subItems?.length
-          ? item.subItems.map((sub) => ({
+          ? {
+              // A section with sub-tabs (Payments) nests them under its own
+              // row — the sheet used to flatten these into separate top-level
+              // rows ("Incoming", "Outgoing") that lost the "Payments"
+              // context the desktop sidebar keeps (PLAN-0920-1058 area 1d).
               section: item.section,
-              sectionTabId: sub.sectionTabId,
-              label: sub.label,
-              href: sub.href,
+              label: item.label,
+              href: item.href,
               locked: isSectionLocked(item.section),
               lockedNavigable: isSectionLockNavigable(item.section),
               count: navCounts[item.section] ?? 0,
               countTone: portalNavCountTone(item.section),
-            }))
-          : [
-              {
+              subItems: item.subItems.map((sub) => ({
                 section: item.section,
-                label: item.label,
-                href: item.href,
+                sectionTabId: sub.sectionTabId,
+                label: sub.label,
+                href: sub.href,
                 locked: isSectionLocked(item.section),
                 lockedNavigable: isSectionLockNavigable(item.section),
                 count: navCounts[item.section] ?? 0,
                 countTone: portalNavCountTone(item.section),
-              },
-            ],
+              })),
+            }
+          : {
+              section: item.section,
+              label: item.label,
+              href: item.href,
+              locked: isSectionLocked(item.section),
+              lockedNavigable: isSectionLockNavigable(item.section),
+              count: navCounts[item.section] ?? 0,
+              countTone: portalNavCountTone(item.section),
+            },
       );
   }, [navItems, definition.kind, navCounts, isSectionLocked, isSectionLockNavigable]);
 

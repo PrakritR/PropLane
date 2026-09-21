@@ -190,7 +190,6 @@ describe("manager messaging-number route", () => {
   });
 
   it.each([
-    ["trialing", 503, "could not verify"],
     ["plan_unreadable", 503, "could not verify"],
     ["legacy_unknown", 503, "could not verify"],
   ])("explains %s eligibility without a misleading upgrade prompt", async (reason, status, message) => {
@@ -198,6 +197,16 @@ describe("manager messaging-number route", () => {
     const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", { method: "POST", body: "{}" }));
     expect(response.status).toBe(status);
     expect((await response.json()).error).toContain(message);
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("refuses a trial's work-number purchase with a plain, non-transient 403", async () => {
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "trialing" });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", { method: "POST", body: "{}" }));
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error).toContain("trial");
+    expect(body.code).toBe("trial_cannot_buy_number");
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 

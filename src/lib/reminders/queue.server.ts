@@ -12,6 +12,7 @@ import {
   URGENT_REMINDER_KINDS,
   reminderDedupeKey,
   reminderSendTimes,
+  type QuietHours,
   type ReminderSettings,
   type ReminderSubjectKind,
 } from "@/lib/reminders/rules";
@@ -30,6 +31,15 @@ export type ReminderRecipient = {
   userId?: string | null;
   /** Shown in the greeting. Falls back to a neutral phrase when unknown. */
   name?: string | null;
+  /**
+   * Resolved AT SEND-TIME (PLAN-0915 area 4): overrides the manager's
+   * workspace `settings.quietHours` for THIS recipient only — the vendor's own
+   * Settings → Notifications quiet-hours window, not the manager's. Absent for
+   * every recipient except a vendor whose own settings the caller already
+   * loaded; every other role keeps the shared workspace push-forward exactly
+   * as before.
+   */
+  quietHours?: QuietHours;
 };
 
 export type ReminderQueueRow = {
@@ -95,10 +105,22 @@ export async function materializeReminders(
   const rule = settings.rules[input.kind];
   if (!rule) return 0;
 
-  const sends = reminderSendTimes(rule, input.anchorIso, settings.quietHours, now, {
-    urgent: URGENT_REMINDER_KINDS.has(input.kind),
-  });
-  if (sends.length === 0) return 0;
+  const urgent = URGENT_REMINDER_KINDS.has(input.kind);
+  const sends = reminderSendTimes(rule, input.anchorIso, settings.quietHours, now, { urgent });
+  // A recipient carrying their own `quietHours` (a vendor's personal Settings →
+  // Notifications window) gets THEIR push-forward instead of the manager's
+  // workspace one — computed once per distinct override rather than per row.
+  const sendsByOverride = new Map<QuietHours, { leadMinutes: number; sendAt: Date }[]>();
+  const sendsFor = (quietHours?: QuietHours) => {
+    if (!quietHours) return sends;
+    let cached = sendsByOverride.get(quietHours);
+    if (!cached) {
+      cached = reminderSendTimes(rule, input.anchorIso, quietHours, now, { urgent });
+      sendsByOverride.set(quietHours, cached);
+    }
+    return cached;
+  };
+  if (sends.length === 0 && input.recipients.every((r) => !r.quietHours)) return 0;
 
   const recipients = input.recipients.filter((recipient) => {
     if (!recipient.email.trim() && !(input.kind === "tour_interest" && /^\+[1-9]\d{7,14}$/.test(recipient.phone ?? ""))) return false;
@@ -115,8 +137,8 @@ export async function materializeReminders(
   });
   if (recipients.length === 0) return 0;
 
-  const rows = sends.flatMap(({ leadMinutes, sendAt }) =>
-    recipients.map((recipient) => ({
+  const rows = recipients.flatMap((recipient) =>
+    sendsFor(recipient.quietHours).map(({ leadMinutes, sendAt }) => ({
       manager_user_id: input.managerUserId,
       kind: input.kind,
       subject_id: input.subjectId,

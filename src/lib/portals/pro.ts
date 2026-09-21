@@ -11,7 +11,6 @@ export const proPortal: PortalDefinition = {
     { section: "properties", label: "Properties", tabs: [] },
     { section: "tours", label: "Tours", tabs: [] },
     { section: "applications", label: "Application", tabs: [] },
-    { section: "background-checks", label: "Background check", tabs: [] },
     { section: "leases", label: "Leases", tabs: [] },
     {
       section: "residents",
@@ -108,7 +107,6 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Properties", path: "/portal/properties/all" },
   { label: "Tours", path: "/portal/tours/pending" },
   { label: "Applications", path: "/portal/applications/pending" },
-  { label: "Background checks", path: "/portal/background-checks/pending_review" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
   { label: "Inspections", path: "/portal/inspections/move-in" },

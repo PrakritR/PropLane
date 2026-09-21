@@ -50,7 +50,9 @@ describe("vendors catalog list chrome", () => {
     expect(panel).toContain("vendors-empty-add");
     expect(panel).not.toContain("vendors-empty-proplane");
     expect(panel).not.toContain("vendors-add-footer");
-    expect(panel).toContain("vendors-catalog-close");
+    // The band never carries a ✕ (docs/agents/ui-change-checklist.md); catalog vs
+    // "yours" is reachable through the tab destinations instead.
+    expect(panel).not.toContain("vendors-catalog-close");
     expect(panel).toContain("View profile");
     expect(panel).toContain("Add to your vendors");
     expect(panel).toContain("onSelectedChange");

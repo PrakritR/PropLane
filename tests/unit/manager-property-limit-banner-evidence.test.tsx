@@ -121,11 +121,17 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     await act(async () => {
       fireEvent.click(trigger!);
     });
+    // A gate is a dialog, not a silent redirect (PLAN-0920-1058 "1d · The
+    // pop-up") — clicking + at the cap opens a PortalDialog confirm naming the
+    // limit, with an explicit Upgrade action, rather than a toast that
+    // auto-navigates to Billing.
     await waitFor(() => {
-      expect(screen.getByText(/Free includes 1 property/)).toBeTruthy();
+      expect(screen.getByText(/Your plan allows 1 property/)).toBeTruthy();
     });
-    const toast = screen.getByText(/Free includes 1 property/);
-    expect(toast.textContent).toBe("Free includes 1 property. Upgrade to Pro or Business to add more.");
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("Your plan allows 1 property. Upgrade to add more.");
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     // Refused before anything opens — the wizard never mounts.
     expect(screen.queryByText(/Submit listing/i)).toBeNull();
 

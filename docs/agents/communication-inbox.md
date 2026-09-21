@@ -9,6 +9,38 @@ Any portal send (invite, reminder, listing share, notice) uses the New message
 field order. Do not invent a second compose. Full rule:
 [`send-message-compose.md`](send-message-compose.md).
 
+## `recordRef` — a thread can be labeled with the record it is about
+
+A thread's `row_data` may carry `recordRef: { kind, id, label }` (kinds:
+`property | resident | payment | outgoing-payment | lease | application |
+inspection | service | task | vendor | tour | booking | document`, exported
+from `src/lib/portals/record-kinds.ts`). It is stamped by the send path
+(`deliverPortalMessageThreadSide` / `deliverPortalInboxMessage` /
+`commitInboxThreadReply` in `src/lib/portal-inbox-delivery.ts`, and the
+`recordRef` field accepted by `POST /api/portal/send-inbox-message`) whenever
+the caller composed from inside a record's own Communication section
+(`RecordCommunicationSection`, `src/components/portal/record-communication-section.tsx`)
+or an automated reminder already knows its subject row
+(`recordRefFromReminderRow`, `src/lib/reminders/reminder-record-ref.ts`).
+
+It is a LABEL for display and filtering, **never an authorization grant** —
+every send still authorizes the recipient first and appends second, exactly
+as every other send does (see "A message enters the thread store only AFTER
+the send is authorized" below). Once a thread has a `recordRef`, a later reply
+never overwrites it with a different one — the ref belongs to whoever first
+composed from that record, not to whatever record a later replier happens to
+be viewing. A thread written before this existed, or whose subject kind is
+not in the mapped set, carries none and renders no chip — never a guessed one.
+
+`CommunicationThreadFilters.recordRefs` / `.recordKinds`
+(`src/lib/communication-thread-filters.ts`) narrow a thread list to one record
+or one "About" kind; they only ever REMOVE rows the viewer's other
+authorization already let them see, never add one. The manager, resident, and
+vendor Communication components (`pro-unified-inbox.tsx`,
+`resident-communication.tsx`, `vendor-communication.tsx`) render a small
+clickable chip on a thread that carries a `recordRef`, using
+`recordRoutePath()` to build the record's route.
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized

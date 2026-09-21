@@ -74,6 +74,11 @@ export const REMINDER_SUBJECT_KINDS = [
   "move_out",
   "move_out_inspection_manager",
   "deposit_accounting",
+  // ---- Lease-ending sequence (PLAN-0915 area 4): informational, never a
+  // regulated notice — a proactive nudge, not the deposit accounting itself. ----
+  "lease_renewal_offer",
+  "move_out_instructions",
+  "deposit_return_notice",
   // ---- Applications ----
   "application_documents",
   "application_decision_manager",
@@ -294,6 +299,9 @@ export const COMPACT_RULE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<Remi
   "task_overdue",
   "resident_welcome",
   "inspection_acknowledge",
+  "lease_renewal_offer",
+  "move_out_instructions",
+  "deposit_return_notice",
 ]);
 
 type RuleShape = {
@@ -342,6 +350,10 @@ const PLAN_0915_DEFAULT_RULES: Omit<
 > = {
   // Services
   work_order_unassigned: rule({ timings: ["after:1440"], audience: MANAGER }),
+  // "You + co-managers" is offered in Settings, but no subject defaults to
+  // the team audience (tests/unit/reminder-team-scope.test.ts) — fanning out
+  // to co-managers is an opt-in, never a silent default, even for an
+  // emergency escalation.
   work_order_unassigned_emergency: rule({ timings: ["after:60"], audience: MANAGER, sms: true }),
   work_order_no_on_my_way: rule({ enabled: false, timings: ["after:15"], audience: MANAGER }),
   vendor_offer_expiry: rule({ timings: ["before:240"], audience: VENDOR }),
@@ -362,6 +374,14 @@ const PLAN_0915_DEFAULT_RULES: Omit<
   move_out: rule({ timings: ["before:43200", "before:10080", "before:1440"], audience: COUNTERPARTY }),
   move_out_inspection_manager: rule({ timings: ["before:20160"], audience: MANAGER }),
   deposit_accounting: rule({ timings: ["before:20160", "before:4320"], audience: MANAGER }),
+  // Lease-ending sequence (PLAN-0915 area 4): resident-facing, informational —
+  // never a regulated notice. Renewal offer rides sms too, since it is the one
+  // message in the sequence a resident is expected to act on by a deadline.
+  lease_renewal_offer: rule({ timings: ["before:86400"], audience: COUNTERPARTY, sms: true }),
+  move_out_instructions: rule({ timings: ["before:20160"], audience: COUNTERPARTY }),
+  // "Day of move-out" — the smallest valid lead, which lands a few minutes
+  // before the tenancy sweep's 9am Pacific anchor on the move-out date itself.
+  deposit_return_notice: rule({ timings: ["before:5"], audience: COUNTERPARTY }),
   // Applications
   application_documents: rule({ timings: ["after:2880"], audience: COUNTERPARTY }),
   application_decision_manager: rule({ timings: ["after:4320"], audience: MANAGER }),
@@ -401,6 +421,9 @@ const PLAN_0915_SUBJECT_META: Record<keyof typeof PLAN_0915_DEFAULT_RULES, Remin
   move_out: { kind: "move_out", label: "Move-out checklist to resident", anchorLabel: "the move-out date", counterpartyLabel: "resident" },
   move_out_inspection_manager: { kind: "move_out_inspection_manager", label: "Remind me to schedule the move-out inspection", anchorLabel: "the move-out date", counterpartyLabel: "resident" },
   deposit_accounting: { kind: "deposit_accounting", label: "Deposit accounting due", anchorLabel: "the deposit deadline", counterpartyLabel: "resident" },
+  lease_renewal_offer: { kind: "lease_renewal_offer", label: "Renewal offer", anchorLabel: "the lease end date", counterpartyLabel: "resident" },
+  move_out_instructions: { kind: "move_out_instructions", label: "Move-out instructions", anchorLabel: "the move-out date", counterpartyLabel: "resident" },
+  deposit_return_notice: { kind: "deposit_return_notice", label: "Deposit return notice", anchorLabel: "the move-out date", counterpartyLabel: "resident" },
   application_documents: { kind: "application_documents", label: "Documents requested reminder", anchorLabel: "documents were requested", counterpartyLabel: "applicant" },
   application_decision_manager: { kind: "application_decision_manager", label: "Decision reminder", anchorLabel: "the application was submitted", counterpartyLabel: "applicant" },
   application_no_lease_manager: { kind: "application_no_lease_manager", label: "Approved, no lease sent", anchorLabel: "the application was approved", counterpartyLabel: "applicant" },

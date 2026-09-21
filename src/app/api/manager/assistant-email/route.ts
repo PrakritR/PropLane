@@ -216,7 +216,7 @@ export async function POST(req: Request) {
         { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
       );
     }
-    const result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local);
+    const result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local, actor.userId);
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   }
 

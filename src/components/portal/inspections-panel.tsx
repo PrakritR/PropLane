@@ -15,17 +15,13 @@ import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-det
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import {
-  inspectionDetailHref,
-  INSPECTION_RECORD_RAIL_GROUPS,
-  INSPECTION_RECORD_TAB_DESCRIPTIONS,
-  parseServiceRecordTab,
-  SERVICE_RECORD_TAB_LABELS,
-  SERVICE_RECORD_TABS,
-} from "@/lib/portal-detail-routes";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { parseServiceRecordTab } from "@/lib/portal-detail-routes";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -125,12 +121,18 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
   // A room whose own configuration requires this inspection says so on the person's row.
   // A separate "required" banner above the list drew the same resident twice.
   const requiredFor = (residency: InspectionResidency | undefined): boolean => residency?.requiredKinds?.includes(kind) ?? false;
+  // A trailing " · " with nothing after it is worse than no room segment at all — only
+  // append when the raw value resolves to a real room name (never a fabricated one).
+  const roomSuffix = (raw: string | undefined): string => {
+    const label = raw ? inspectionRoomLabel(raw) : "";
+    return label ? ` · ${label}` : "";
+  };
   const rows: InspectionRow[] = forKind.map(report => {
     const residency = byId.get(report.application_id);
     return {
       key: `report:${report.id}`,
       name: residency?.name || report.resident_name,
-      address: `${residency?.property || report.property_label}${(residency?.room || report.room_label) ? ` · ${inspectionRoomLabel(residency?.room || report.room_label)}` : ""}`,
+      address: `${residency?.property || report.property_label}${roomSuffix(residency?.room || report.room_label)}`,
       tenancy: tenancyLine(residency),
       photos: photoLine(report.photos),
       required: requiredFor(residency),
@@ -146,7 +148,7 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
     rows.push({
       key: `residency:${residency.id}`,
       name: residency.name,
-      address: `${residency.property}${residency.room ? ` · ${inspectionRoomLabel(residency.room)}` : ""}`,
+      address: `${residency.property}${roomSuffix(residency.room)}`,
       tenancy: tenancyLine(residency),
       photos: "No photos yet",
       required: requiredFor(residency),
@@ -222,6 +224,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
 }) {
   const router = useRouter();
+  const { showToast } = useAppUi();
   const [kind, setKind] = useState(initialKind);
   const [data, setData] = useState<InspectionList>({ reports: [], residencies: [] });
   const [loading, setLoading] = useState(true);
@@ -329,12 +332,18 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     const editor = <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
     if (role !== "manager" || !routeBase) return editor;
     const recordTabId = parseServiceRecordTab(recordTab);
-    const navItems = SERVICE_RECORD_TABS.map((tab) => ({
-      id: tab,
-      label: SERVICE_RECORD_TAB_LABELS[tab],
-      description: INSPECTION_RECORD_TAB_DESCRIPTIONS[tab],
-      href: inspectionDetailHref(routeBase.replace(/\/inspections$/, "") || "/portal", kind, detail.report.id, tab),
-    }));
+    const inspectionBasePath = routeBase.replace(/\/inspections$/, "") || "/portal";
+    const sections = recordSections("manager", "inspection", {
+      basePath: inspectionBasePath,
+      inspectionKind: kind,
+    });
+    const onInspectionHeaderAction = (actionId: string) => {
+      if (actionId === "download-report") {
+        void downloadInspection(role, detail.report.id);
+        return;
+      }
+      showToast("Coming soon");
+    };
     return (
       <PortalRecordDetailPage
         pageTitle="Inspections"
@@ -348,29 +357,37 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         iconTitleActions
         pinScrollBody
       >
+        <PortalRecordActions>
+          <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onInspectionHeaderAction} />
+        </PortalRecordActions>
         <PortalRecordSectionChrome
-          items={navItems}
+          sections={sections}
+          recordId={detail.report.id}
           activeId={recordTabId}
-          groups={INSPECTION_RECORD_RAIL_GROUPS}
           title={kindLabel(detail.report.kind)}
           backHref={`${routeBase}/${kind}`}
           backLabel="All inspections"
           ariaLabel="Inspection sections"
-          currentLabel={SERVICE_RECORD_TAB_LABELS[recordTabId]}
-          defaultDisclosureOpen={recordTabId === "overview"}
+          onHeaderAction={onInspectionHeaderAction}
         >
-          {recordTabId === "overview" ? editor : recordTabId === "communication" ? (
-            <PortalRecordRelatedPanel title="Communication" empty="No thread for this report yet." />
-          ) : recordTabId === "payments" ? (
+          {recordTabId === "overview" ? editor : recordTabId === "payments" ? (
             <PortalRecordRelatedPanel title="Payments" empty="No payment on this inspection." />
           ) : recordTabId === "vendor" ? (
             <PortalRecordRelatedPanel title="Vendor" empty="No vendor on this inspection." />
-          ) : (
+          ) : recordTabId === "resident" ? (
             <PortalRecordRelatedPanel
               title="Resident"
               value={detail.report.resident_name}
               empty="No resident on this inspection."
             />
+          ) : (
+            renderRecordSection(recordTabId, {
+              role: "manager",
+              kind: "inspection",
+              kindLabel: "report",
+              recordId: detail.report.id,
+              recordLabel: kindLabel(detail.report.kind),
+            })
           )}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
@@ -429,9 +446,14 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     {embeddedScope && !loading && embeddedPrimaryReport ? (
       <div className="mx-1 space-y-4 rounded-2xl border border-border bg-card/50 p-5" data-attr="inspection-embedded-resume">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="space-y-1">
             <p className="text-base font-semibold">{kindLabel(kind)} photos</p>
-            <p className="text-sm text-muted">{tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date} · {photoLine(embeddedPrimaryReport.photos)}</p>
+            <p className="flex flex-wrap items-center gap-2.5 text-sm text-muted">
+              <PortalRowFact icon={CalendarDays} srLabel="Tenancy">
+                {tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date}
+              </PortalRowFact>
+              <PortalRowFact icon={Camera} srLabel="Photos">{photoLine(embeddedPrimaryReport.photos)}</PortalRowFact>
+            </p>
           </div>
         </div>
         <Button onClick={openEmbeddedInspection} disabled={busy} data-attr="inspection-embedded-continue">

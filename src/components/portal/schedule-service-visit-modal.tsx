@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
@@ -226,27 +225,20 @@ export function ScheduleServiceVisitModal({
 
 
   return (
-    <Modal
+    <PortalDialog
       open={open && Boolean(row)}
       title="Schedule visit"
-      dense
-      fullPage={false}
       onClose={() => {
         if (!busy) onClose();
       }}
-      footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={busy || !row}
-            onClick={() => onConfirm()}
-            data-attr="schedule-service-visit-confirm"
-          >
-            {busy ? "Scheduling…" : "Schedule visit"}
-          </Button>
-        </ModalFooter>
-      }
+      dismissBlocked={busy}
+      primaryAction={{
+        label: "Schedule visit",
+        onClick: onConfirm,
+        disabled: !row,
+        loading: busy,
+        dataAttr: "schedule-service-visit-confirm",
+      }}
     >
       {row ? (
         <div className="space-y-4">
@@ -327,6 +319,6 @@ export function ScheduleServiceVisitModal({
           </div>
         </div>
       ) : null}
-    </Modal>
+    </PortalDialog>
   );
 }

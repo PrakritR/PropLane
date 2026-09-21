@@ -6,6 +6,10 @@ import {
   normalizeServiceAutomationSettings,
   type ServiceAutomationSettings,
 } from "@/lib/service-automation-settings";
+import {
+  resolveSettingsScope,
+  type SettingsScopeCache,
+} from "@/lib/settings/scope-resolver.server";
 
 const ROW_DATA_KEY = "serviceAutomation";
 
@@ -41,6 +45,29 @@ export async function loadServiceAutomationSettingsForManagers(
   }
   for (const id of ids) if (!out.has(id)) out.set(id, DEFAULT_SERVICE_AUTOMATION_SETTINGS);
   return out;
+}
+
+/**
+ * Service automation for one work order's property, through the full
+ * three-rung scope (PLAN-0920-0845 phase C): house override → workspace row →
+ * account row → default. `cache` should be one {@link createSettingsScopeCache}
+ * shared for an entire sweep pass. A row with no `propertyId` resolves to the
+ * account value, exactly today's no-property behaviour.
+ */
+export async function resolveServiceAutomationSettingsForRow(
+  db: SupabaseClient,
+  cache: SettingsScopeCache,
+  managerUserId: string,
+  propertyId: string | null,
+): Promise<ServiceAutomationSettings> {
+  const { value } = await resolveSettingsScope(
+    db,
+    { managerUserId, propertyId },
+    ROW_DATA_KEY,
+    { normalize: normalizeServiceAutomationSettings, loadAccount: (d, m) => loadServiceAutomationSettings(d, m) },
+    cache,
+  );
+  return value;
 }
 
 export async function saveServiceAutomationSettings(

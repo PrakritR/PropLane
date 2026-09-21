@@ -99,6 +99,12 @@ whoever holds it agreed to, and the previous link is revoked in the same call
 above). The reveal call is `POST /api/pro/invite-links/[linkId]/link` with no
 body, which **reveals** the stored ciphertext rather than rotating (rotate is
 the separate `{ rotate: true }` call two sections below).
+Pressing the link action ("Invite link") does not copy — it resolves the URL
+through `resolveLinkForCurrentTerms` and advances to a SECOND VIEW of the same
+sheet (`view: "link"`), titled "Invite link · <workspace>", with the form
+gone and only the read-only URL, a "Joins as" line, and Copy (a `PortalIconAction`
+icon, per the icon-chrome rule) / Share / Back / Done; Back returns to the form
+with role/houses untouched, Done closes the sheet.
 Sending by email goes out through the manager directory message path
 (`deliverManagerDirectoryMessage`) with the auto-formatted body from
 `formatInviteMessageBody`; that path only ever resolves an existing account or

@@ -77,20 +77,17 @@ import {
   managerTaskListHref,
   parseServiceRecordTab,
   paymentListHref,
-  SERVICE_RECORD_TABS,
-  SERVICE_RECORD_TAB_LABELS,
-  TASK_RECORD_RAIL_GROUPS,
-  TASK_RECORD_TAB_DESCRIPTIONS,
   serviceRequestDetailHref,
   vendorDetailHref,
   workOrderDetailHref,
   type ManagerTaskListTabId,
 } from "@/lib/portal-detail-routes";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
-import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Mail, Pencil } from "lucide-react";
 import {
   SERVICE_REQUESTS_EVENT,
   syncServiceRequestsFromServer,
@@ -828,12 +825,29 @@ export function ManagerTaskList({
   }
   if (routeTask) {
     const recordTab = parseServiceRecordTab(taskTabProp);
-    const navItems = SERVICE_RECORD_TABS.map((tab) => ({
-      id: tab,
-      label: SERVICE_RECORD_TAB_LABELS[tab],
-      description: TASK_RECORD_TAB_DESCRIPTIONS[tab],
-      href: managerTaskDetailHref(basePath, tabId, routeTask.id, tab),
-    }));
+    const sections = recordSections("manager", "task", { basePath, taskListTab: tabId });
+    const onTaskHeaderAction = (actionId: string) => {
+      if (actionId === "mark-done") {
+        if (!userId) return;
+        void updateManagerTask(userId, routeTask.id, { completed: !routeTask.completed }).then(() => {
+          setTasks((prev) =>
+            prev.map((row) => (row.id === routeTask.id ? { ...row, completed: !routeTask.completed } : row)),
+          );
+          showToast(routeTask.completed ? "Task reopened." : "Task completed.");
+        });
+        return;
+      }
+      if (actionId === "delete") {
+        if (!userId) return;
+        void deleteManagerTask(userId, routeTask.id).then(() => {
+          setTasks((prev) => prev.filter((row) => row.id !== routeTask.id));
+          showToast("Task deleted.");
+          navigate(managerTaskListHref(basePath, tabId));
+        });
+        return;
+      }
+      showToast("Coming soon");
+    };
     return (
       <>
         <PortalRecordDetailPage
@@ -849,29 +863,17 @@ export function ManagerTaskList({
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalIconAction
-              icon={Pencil}
-              label="Edit"
-              data-attr="task-detail-edit"
-              onClick={() => beginEdit(routeTask)}
-            />
-            <PortalIconAction
-              icon={Mail}
-              label="Message"
-              data-attr="task-detail-message"
-              onClick={() => navigate(`${basePath}/communication`)}
-            />
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onTaskHeaderAction} />
           </PortalRecordActions>
           <PortalRecordSectionChrome
-            items={navItems}
+            sections={sections}
+            recordId={routeTask.id}
             activeId={recordTab}
-            groups={TASK_RECORD_RAIL_GROUPS}
             title={routeTask.title}
             backHref={managerTaskListHref(basePath, tabId)}
             backLabel="All tasks"
             ariaLabel="Task sections"
-            currentLabel={SERVICE_RECORD_TAB_LABELS[recordTab]}
-            defaultDisclosureOpen={recordTab === "overview"}
+            onHeaderAction={onTaskHeaderAction}
           >
             {recordTab === "overview" ? (
               <div className="grid gap-3 px-1 py-3 sm:grid-cols-2">
@@ -898,12 +900,6 @@ export function ManagerTaskList({
                   </p>
                 </div>
               </div>
-            ) : recordTab === "communication" ? (
-              <PortalRecordRelatedPanel
-                title="Communication"
-                href={`${basePath}/communication`}
-                empty="No thread for this task yet."
-              />
             ) : recordTab === "payments" ? (
               <PortalRecordRelatedPanel
                 title="Payments"
@@ -921,11 +917,19 @@ export function ManagerTaskList({
                 }
                 empty="Unassigned."
               />
-            ) : (
+            ) : recordTab === "resident" ? (
               <PortalRecordRelatedPanel
                 title="Resident"
                 empty="No resident on this task."
               />
+            ) : (
+              renderRecordSection(recordTab, {
+                role: "manager",
+                kind: "task",
+                kindLabel: "task",
+                recordId: routeTask.id,
+                recordLabel: routeTask.title,
+              })
             )}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>

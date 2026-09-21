@@ -7,12 +7,14 @@ import { lateFeePolicyFromSubmission } from "@/lib/payment-policy";
 import {
   loadManagerAutomationSettings,
   loadScheduledMessageOverrides,
+  normalizeManagerAutomationSettings,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
 } from "@/lib/payment-automation-settings";
 import {
   projectScheduledPaymentMessages,
   shouldSendScheduledMessage,
 } from "@/lib/scheduled-payment-messages";
+import { createSettingsScopeCache, resolveSettingsScope } from "@/lib/settings/scope-resolver.server";
 import { loadListingByPropertyId } from "@/lib/payment-automation-server";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import {
@@ -160,16 +162,15 @@ export async function GET(req: Request) {
     if (idStr.startsWith("hc_late_fee_")) existingLateFeeSources.add(idStr.slice("hc_late_fee_".length));
   }
 
+  const settingsCache = createSettingsScopeCache();
+
   for (const [managerId, charges] of chargesByManager) {
     if (managerId === "unknown") continue;
 
     const rentProfiles = profilesByManager.get(managerId) ?? [];
     const eligibleCharges = filterChargesEligibleForPaymentReminders(charges, rentProfiles);
 
-    const [settings, overrides] = await Promise.all([
-      loadManagerAutomationSettings(db, managerId).catch(() => DEFAULT_MANAGER_AUTOMATION_SETTINGS),
-      loadScheduledMessageOverrides(db, managerId).catch(() => new Map()),
-    ]);
+    const overrides = await loadScheduledMessageOverrides(db, managerId).catch(() => new Map());
 
     const { data: profile } = await db
       .from("profiles")
@@ -180,17 +181,50 @@ export async function GET(req: Request) {
     const managerSmsFromNumber = String(profile?.sms_from_number ?? "").trim();
     const from = await managerOutboundFromHeader(db, managerId);
 
-    const scheduled = projectScheduledPaymentMessages({
-      managerUserId: managerId,
-      charges: eligibleCharges,
-      settings,
-      overrides,
-      sentDedupIds,
-      listingByPropertyId,
-      managerName,
-      now,
-      includeHidden: true,
-    });
+    // A house with its own payment-automation settings gets its own cadence and
+    // channels; an un-customized house falls through workspace then account
+    // (phase C) — group charges by property so each group projects with its
+    // own resolved settings rather than one account-wide value for everyone.
+    const chargesByProperty = new Map<string, HouseholdCharge[]>();
+    for (const charge of eligibleCharges) {
+      const key = charge.propertyId?.trim() || "";
+      const list = chargesByProperty.get(key) ?? [];
+      list.push(charge);
+      chargesByProperty.set(key, list);
+    }
+
+    // Keyed the same way as `chargesByProperty` ("" = no property) so the
+    // delivery and late-fee passes below can look up the same resolved value
+    // per charge without re-querying.
+    const settingsByPropertyKey = new Map<string, typeof DEFAULT_MANAGER_AUTOMATION_SETTINGS>();
+    const settingsForCharge = (charge: HouseholdCharge) =>
+      settingsByPropertyKey.get(charge.propertyId?.trim() || "") ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS;
+
+    const scheduled = (
+      await Promise.all(
+        [...chargesByProperty.entries()].map(async ([propertyId, propertyCharges]) => {
+          const { value: settings } = await resolveSettingsScope(
+            db,
+            { managerUserId: managerId, propertyId: propertyId || null },
+            "paymentAutomation",
+            { normalize: normalizeManagerAutomationSettings, loadAccount: (d, m) => loadManagerAutomationSettings(d, m) },
+            settingsCache,
+          ).catch(() => ({ value: DEFAULT_MANAGER_AUTOMATION_SETTINGS }));
+          settingsByPropertyKey.set(propertyId, settings);
+          return projectScheduledPaymentMessages({
+            managerUserId: managerId,
+            charges: propertyCharges,
+            settings,
+            overrides,
+            sentDedupIds,
+            listingByPropertyId,
+            managerName,
+            now,
+            includeHidden: true,
+          });
+        }),
+      )
+    ).flat();
 
     const chargeById = new Map(eligibleCharges.map((c) => [c.id, c]));
 
@@ -245,9 +279,9 @@ export async function GET(req: Request) {
         // A channel the manager set on THIS reminder wins over the automation
         // default. `??` and not `||`, because turning a channel OFF for one
         // reminder is a real choice and `false || default` would undo it.
-        managerDeliverViaEmail: message.deliverViaEmail ?? settings.paymentReminderDeliverViaEmail,
-        managerDeliverViaSms: message.deliverViaSms ?? settings.paymentReminderDeliverViaSms,
-        managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
+        managerDeliverViaEmail: message.deliverViaEmail ?? settingsForCharge(primary).paymentReminderDeliverViaEmail,
+        managerDeliverViaSms: message.deliverViaSms ?? settingsForCharge(primary).paymentReminderDeliverViaSms,
+        managerDeliverViaInbox: settingsForCharge(primary).paymentReminderDeliverViaInbox,
       });
       if (result.error) errors.push(result.error);
       if (result.sent) {
@@ -272,6 +306,7 @@ export async function GET(req: Request) {
         // gates the notice — matching the schedule projection
         // (scheduled-payment-messages.ts), which already requires both. A
         // listing-level policy alone must never create charges.
+        const settings = settingsForCharge(charge);
         if (settings.lateFeeNoticeEnabled && policy.enabled && daysPastDue >= policy.graceDays) {
           const lateFeeId = `hc_late_fee_${charge.id}`;
           const lateFeeCharge: HouseholdCharge = {

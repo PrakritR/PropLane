@@ -2,14 +2,20 @@
 /**
  * Covers the redraw of the remaining eight settings modules plus
  * Communication onto the shared settings kit (`portal-settings-ui.tsx`):
- * every section carries a scope tag, Applications/Lease put "Applies to"
- * first, every row carries a real consequence line, Communication's
- * duplicate "Send via for" editor is gone, no hand-rolled checkbox survives,
- * and "work order" never reaches rendered copy.
+ * every section carries a scope tag, every row carries a real consequence
+ * line, Communication's duplicate "Send via for" editor is gone, no
+ * hand-rolled checkbox survives, and "work order" never reaches rendered
+ * copy.
+ *
+ * PLAN-0920-0845 phase D moved property scope out of Applications/Lease's own
+ * "Applies to" row (`PropertyScopeRow`, removed) and into the module's own
+ * `SettingsScopeBar`, mounted one level up by the host — so this file's own
+ * `PROPERTY_SCOPE` wrapper stands in for that host, and the old "Applies to
+ * is the first row" contract is gone with the row it tested.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,6 +26,7 @@ import {
   DEFAULT_APPLICATION_AUTOMATION,
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
+import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
 
 const showToast = vi.fn();
 
@@ -52,19 +59,35 @@ import {
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
 
+/**
+ * Every settings route accepts `?propertyId=`; this stand-in resolver returns
+ * `source: "property"` exactly when one rides the query, `"account"`
+ * otherwise — the same two-value range the real per-namespace resolver can
+ * return, without needing a seeded property override to exercise it.
+ */
+function sourceForUrl(url: string): "property" | "account" {
+  return new URL(url, "http://localhost").searchParams.has("propertyId") ? "property" : "account";
+}
+
 function stubFetch() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/api/portal/reminder-settings")) {
-        return Response.json({ settings: {} });
+        return Response.json({ settings: {}, source: sourceForUrl(url) });
+      }
+      if (url.includes("/api/portal/automated-messages")) {
+        return Response.json({ settings: {}, defaults: {}, source: sourceForUrl(url) });
+      }
+      if (url.includes("/api/portal/service-automation-settings")) {
+        return Response.json({ settings: {}, source: sourceForUrl(url) });
       }
       if (url.includes("/api/portal/task-automation-settings")) {
-        return Response.json({ automation: DEFAULT_LIFECYCLE_AUTOMATION });
+        return Response.json({ automation: DEFAULT_LIFECYCLE_AUTOMATION, source: sourceForUrl(url) });
       }
       if (url.includes("/api/portal/automation-settings")) {
-        return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
+        return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS, source: sourceForUrl(url) });
       }
       if (url.includes("/api/manager/messaging-number")) {
         return new Response("missing", { status: 404 });
@@ -74,6 +97,25 @@ function stubFetch() {
       }
       throw new Error(`Unexpected fetch: ${url} (${init?.method ?? "GET"})`);
     }),
+  );
+}
+
+/**
+ * Stands in for the module host (`settings-module-page.tsx` and friends),
+ * which is what actually mounts `SettingsPropertyScopeProvider` around a
+ * panel in the real app. `propertyIds` mirrors the bar's selection.
+ */
+function withScope(node: ReactNode, propertyIds: string[] = []) {
+  return (
+    <SettingsPropertyScopeProvider
+      workspaceId=""
+      onWorkspaceIdChange={() => {}}
+      propertyIds={propertyIds}
+      onPropertyIdsChange={() => {}}
+      options={PROPERTY_OPTIONS}
+    >
+      {node}
+    </SettingsPropertyScopeProvider>
   );
 }
 
@@ -120,61 +162,67 @@ afterEach(() => {
 });
 
 describe("settings module redraws — scope tags", () => {
-  it("Applications tags both its automation and its reminders sections", async () => {
+  it("Applications tags both its reminders and its messages-sent sections", async () => {
     stubFetch();
-    render(<ControlledApplications />);
-    expect(await screen.findByText("1 property")).toBeTruthy();
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<ControlledApplications />, ["prop-1"]));
+    expect((await screen.findAllByText("Own values on 1 property")).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("Lease tags both its automation and its reminders sections", async () => {
+  it("Lease tags its Ending/Move-in/Move-out/Reminders and messages-sent sections", async () => {
     stubFetch();
-    render(<ControlledLease />);
-    expect(await screen.findByText("1 property")).toBeTruthy();
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<ControlledLease />, ["prop-1"]));
+    expect((await screen.findAllByText("Own values on 1 property")).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("Task, Payments, Bookings, Inspections, Services, Communication each tag their section", async () => {
+  it("Task, Bookings, Inspections, Services, Communication each tag their section as Account when no house is picked", async () => {
     stubFetch();
-    render(<TaskSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<TaskSettingsPanel teamMembers={[]} />));
+    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
+    // PLAN-0920-0845 phase E dropped the "Settings" area dropdown — every
+    // area is now a stacked, always-visible section.
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("Payment setup")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Processing fee").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Late fees").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Incoming reminders").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Outgoing reminders").length).toBeGreaterThan(0);
     cleanup();
 
-    render(<BookingsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<BookingsSettingsPanel teamMembers={[]} />));
+    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
     cleanup();
 
-    render(<InspectionsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<InspectionsSettingsPanel teamMembers={[]} />));
+    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
     cleanup();
 
-    render(<ServicesSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<ServicesSettingsPanel teamMembers={[]} />));
+    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
     cleanup();
 
-    render(<CommunicationSettingsPanel />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    render(withScope(<CommunicationSettingsPanel />));
+    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
   });
 
-  it("Resident settings is the welcome message, scoped by the Property bar", async () => {
+  it("Resident settings is the welcome message, tagged Account when no house is picked", async () => {
     stubFetch();
     render(
-      <ResidentSettingsPanel
-        propertyOptions={PROPERTY_OPTIONS}
-        selectedPropertyId="prop-1"
-        onPropertyIdChange={() => {}}
-        area="household"
-        onAreaChange={() => {}}
-        teamMembers={[]}
-      />,
+      withScope(
+        <ResidentSettingsPanel
+          propertyOptions={PROPERTY_OPTIONS}
+          selectedPropertyId="prop-1"
+          onPropertyIdChange={() => {}}
+          area="household"
+          onAreaChange={() => {}}
+          teamMembers={[]}
+        />,
+      ),
     );
     expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
-    expect(screen.getByText("All properties")).toBeTruthy();
+    expect(screen.getByText("Account")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
     expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();
@@ -241,41 +289,35 @@ describe("a section is never titled the same as the module that contains it", ()
   });
 });
 
-describe("settings module redraws — Applies to is the first row", () => {
-  function rowLabels(container: HTMLElement): string[] {
-    return Array.from(container.querySelectorAll("p.text-sm.font-medium.text-foreground")).map(
-      (el) => el.textContent ?? "",
-    );
-  }
-
-  it("Applications renders Applies to before every other row", async () => {
+describe("settings module redraws — no Applies to row (scope moved to the module's SettingsScopeBar)", () => {
+  it("Applications renders no Applies to row of its own", async () => {
     stubFetch();
-    const { container } = render(<ControlledApplications />);
+    render(withScope(<ControlledApplications />, ["prop-1"]));
     await screen.findByText("Auto-approve applications");
-    expect(rowLabels(container)[0]).toBe("Applies to");
+    expect(screen.queryByText("Applies to")).toBeNull();
   });
 
-  it("Lease renders Applies to before every other row", async () => {
+  it("Lease renders no Applies to row of its own", async () => {
     stubFetch();
-    const { container } = render(<ControlledLease />);
+    render(withScope(<ControlledLease />, ["prop-1"]));
     await screen.findByText("Auto-generate the lease on approval");
-    expect(rowLabels(container)[0]).toBe("Applies to");
+    expect(screen.queryByText("Applies to")).toBeNull();
   });
 });
 
 describe("settings module redraws — every row is a label and its control, nothing under it", () => {
   it("Applications rows", async () => {
     stubFetch();
-    render(<ControlledApplications />);
-    expect(await screen.findByText("Applies to")).toBeTruthy();
+    render(withScope(<ControlledApplications />, ["prop-1"]));
+    expect(await screen.findByText("Auto-approve applications")).toBeTruthy();
     expect(screen.queryByText("The settings below apply only to the properties checked here.")).toBeNull();
     expect(screen.queryByText(/Approve a submitted application without reviewing it first\./)).toBeNull();
   });
 
   it("Lease rows", async () => {
     stubFetch();
-    render(<ControlledLease />);
-    expect(await screen.findByText("Applies to")).toBeTruthy();
+    render(withScope(<ControlledLease />, ["prop-1"]));
+    expect(await screen.findByText("Auto-generate the lease on approval")).toBeTruthy();
     expect(screen.queryByText("Build the lease document as soon as an application is approved.")).toBeNull();
     expect(screen.queryByText("Send the generated lease for signature when it is ready.")).toBeNull();
   });

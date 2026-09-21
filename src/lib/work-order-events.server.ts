@@ -35,6 +35,7 @@ export type WorkOrderEventType =
   | "offer_expired"
   | "offer_filled"
   | "accepted"
+  | "vendor_silent"
   | "scheduled"
   | "rescheduled"
   | "cancelled"
@@ -135,6 +136,12 @@ export function renderWorkOrderEvent(
     if (audience === "vendor") text = `${ref}: Your offer was accepted for “${title}”${at}. Visit: ${when}.${facts.accessInstructions ? ` Access: ${facts.accessInstructions}` : ""}${facts.residentContact ? ` Resident contact: ${facts.residentContact}` : ""}`;
     if (audience === "manager") text = `${ref}: ${vendor} accepted “${title}” for ${money(facts.amountCents)}.`;
     if (audience === "team") text = `${ref}: ${vendor} was assigned to “${title}”${at}.`;
+  } else if (event === "vendor_silent") {
+    if (audience === "manager") {
+      text = facts.note
+        ? `${ref}: ${vendor} accepted “${title}”${at} but never scheduled it. ${facts.note}`
+        : `${ref}: ${vendor} accepted “${title}”${at} but never scheduled it. Re-offered it to the next vendor.`;
+    }
   } else if (event === "scheduled") {
     if (audience === "resident") text = `${ref}: ${vendor} is scheduled for ${when}. Please make the area accessible.`;
     if (audience === "vendor") text = `${ref}: Visit confirmed for ${when}${at}.`;

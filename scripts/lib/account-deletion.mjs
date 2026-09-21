@@ -138,6 +138,9 @@ export const DELETE_ORDER = [
   "manager_application_records",
   "manager_application_fee_waiver_codes",
   "manager_automation_settings",
+  // Workspace rung of the settings scope; references `portal_workspaces` (cascade), so it
+  // must clear before the workspace delete at the end of this list.
+  "workspace_automation_settings",
   "listing_prefill_usage",
   "manager_billing_settings",
   "manager_bank_accounts",
@@ -154,6 +157,8 @@ export const DELETE_ORDER = [
   "manager_api_keys",
   "webhook_subscriptions",
   "manager_assistant_emails",
+  // A renamed work email held as an alias for 30 days; cascades from the email row too.
+  "manager_assistant_email_aliases",
   "manager_sms_numbers",
   "manager_sms_contacts",
   "manager_sms_messages",

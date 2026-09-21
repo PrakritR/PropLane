@@ -4,6 +4,7 @@ import {
   isManagerScopedScheduleRecordType,
   managerScheduleRecordIdOwnedByUser,
   vendorScheduleRecordTypes,
+  ROOM_DATE_BLOCK_RECORD_TYPE,
 } from "@/lib/portal-schedule-record-scope";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
@@ -27,6 +28,60 @@ export const runtime = "nodejs";
  * the authenticated manager by the time `afterWrite` runs.
  */
 const AVAILABILITY_RECORD_TYPES = new Set(["manager_availability", "manager_property_availability"]);
+
+type RoomDateBlockRow = { id?: unknown; row_data?: unknown };
+
+function roomDateBlockField(row: RoomDateBlockRow, key: string): string {
+  const rowData = row.row_data;
+  if (!rowData || typeof rowData !== "object") return "";
+  const value = (rowData as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * The server-side half of the "Room 9 is booked … by …" refusal
+ * (PLAN-0920-1058, area 1e; docs/agents/shared-room-capacity.md's 409
+ * contract for a different table). The client already screens against every
+ * booking source it can see (`bookingConflictsFor`); this is the authoritative
+ * re-check against every OTHER manager-made hold on the same room, run from a
+ * fresh read at write time so two concurrent saves cannot both win.
+ */
+async function roomDateBlockOverlapConflict(args: {
+  db: Parameters<typeof syncManagerAvailabilityToGoogleCalendar>[0];
+  managerUserId: string;
+  recordId: string;
+  propertyId: string;
+  roomId: string;
+  checkIn: string;
+  checkOut: string;
+}): Promise<string | null> {
+  const { db, managerUserId, recordId, propertyId, roomId, checkIn, checkOut } = args;
+  if (!propertyId || !checkIn || !checkOut) return null;
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("id, row_data")
+    .eq("manager_user_id", managerUserId)
+    .eq("property_id", propertyId)
+    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE);
+  if (error || !data) return null;
+  for (const row of data as RoomDateBlockRow[]) {
+    if (String(row.id ?? "") === recordId) continue;
+    const otherRoomId = roomDateBlockField(row, "roomId");
+    // Whole-home ("") collides with every room; otherwise only the same room does.
+    if (roomId && otherRoomId && roomId !== otherRoomId) continue;
+    const otherCheckIn = roomDateBlockField(row, "checkIn");
+    const otherCheckOut = roomDateBlockField(row, "checkOut");
+    if (!otherCheckIn || !otherCheckOut) continue;
+    // Check-out is EXCLUSIVE (block Sep 10 -> Sep 12 frees the 12th), so two
+    // ranges collide only when each starts before the other's end.
+    const overlaps = checkIn < otherCheckOut && otherCheckIn < checkOut;
+    if (!overlaps) continue;
+    const otherRoomLabel = roomDateBlockField(row, "roomId") ? "That room" : "This room";
+    const who = roomDateBlockField(row, "residentName") || roomDateBlockField(row, "reason") || "another hold";
+    return `${otherRoomLabel} is booked ${otherCheckIn} – ${otherCheckOut} by ${who}`;
+  }
+  return null;
+}
 
 /**
  * The team notice goes to the PROPERTY OWNER's team when the record is about
@@ -198,6 +253,19 @@ const route = createJsonRecordRoute({
     return managerScoped ? { ...record, manager_user_id: user.id } : record;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    if (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE) {
+      const conflict = await roomDateBlockOverlapConflict({
+        db,
+        managerUserId: String(record.manager_user_id ?? user.id),
+        recordId: String(record.id ?? ""),
+        propertyId: String(record.property_id ?? ""),
+        roomId: roomDateBlockField(record as RoomDateBlockRow, "roomId"),
+        checkIn: roomDateBlockField(record as RoomDateBlockRow, "checkIn"),
+        checkOut: roomDateBlockField(record as RoomDateBlockRow, "checkOut"),
+      });
+      if (conflict) return { handled: true, error: conflict, status: 409 };
+      return { handled: false };
+    }
     if (String(record.id) !== PLANNED_EVENTS_RECORD_ID) {
       return { handled: false };
     }

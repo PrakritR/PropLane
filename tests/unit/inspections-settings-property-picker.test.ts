@@ -17,7 +17,7 @@ describe("Operations settings gears carry a Property picker", () => {
 
   it("the settings modal always wraps the module page in the All properties picker", () => {
     expect(modal).toContain("SettingsPropertyScopeProvider");
-    expect(modal).toContain("SettingsPropertyScopeBar");
+    expect(modal).toContain("SettingsScopeBar");
   });
 
   it("Tasks already hands propertyOptions to the same sheet", () => {

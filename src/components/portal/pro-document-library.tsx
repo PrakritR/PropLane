@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
@@ -18,25 +18,22 @@ import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalStatusPills,
-  MANAGER_TABLE_TH,
 } from "@/components/portal/portal-metrics";
 import {
-  PORTAL_DATA_TABLE,
-  PORTAL_DATA_TABLE_SCROLL,
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
-  PORTAL_MOBILE_CARD_CLASS,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TD,
-  PORTAL_TABLE_TR_EXPANDABLE,
   PortalDataTableEmpty,
   PortalTableDetailActions,
-  PortalTableInlineExpand,
-  createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
 import { triggerDocumentDownload } from "@/components/portal/resident-other-documents";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { documentRecordHref, type DocumentDetailTabId } from "@/lib/portal-detail-routes";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -55,7 +52,6 @@ import {
   documentExpirationBucket,
   documentMatchesExpiryFilter,
   expirationBadgeTone,
-  expirationBucketLabel,
   formatExpiryDate,
   suggestedExpiryDateInput,
   summarizeDocumentExpiration,
@@ -269,6 +265,11 @@ type ManagerDocumentLibraryProps = {
   expiryFilter?: string;
   onExpiryFilterChange?: (value: string) => void;
   onExpiryPillsChange?: (pills: DocumentLibraryFilterFieldsProps["expiryPills"]) => void;
+  /** Route base for a row's own record page (docs/agents/record-page.md). */
+  basePath?: string;
+  /** A document RECORD id; set only when routed to /documents/<id>/<tab>. */
+  documentId?: string;
+  documentDetailTab?: DocumentDetailTabId;
 };
 
 export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, ManagerDocumentLibraryProps>(
@@ -277,6 +278,9 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
       userId,
       listHidden = false,
       hideFilterChrome = false,
+      basePath = "/portal",
+      documentId,
+      documentDetailTab,
       search: searchProp,
       onSearchChange,
       categoryFilter: categoryFilterProp,
@@ -293,8 +297,10 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   ) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
+  const navigate = usePortalNavigate();
   const demo = isDemoModeActive();
   const searchParams = useSearchParams();
+  const sections = useMemo(() => recordSections("manager", "document", { basePath }), [basePath]);
 
   const [documents, setDocuments] = useState<ManagerDocumentDTO[]>([]);
   const [loading, setLoading] = useState(!demo);
@@ -313,7 +319,6 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   const setPropertyFilter = onPropertyFilterChange ?? setPropertyFilterState;
   const expiryFilter = expiryFilterProp ?? expiryFilterState;
   const setExpiryFilter = onExpiryFilterChange ?? setExpiryFilterState;
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   useImperativeHandle(ref, () => ({ openUpload: () => setUploadOpen(true) }), []);
@@ -432,8 +437,8 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   }, [load]);
 
   const handleDelete = useCallback(
-    async (doc: ManagerDocumentDTO) => {
-      if (!(await confirm({ description: `Delete "${doc.displayName}"? It will be removed from your library.` }))) return;
+    async (doc: ManagerDocumentDTO): Promise<boolean> => {
+      if (!(await confirm({ description: `Delete "${doc.displayName}"? It will be removed from your library.` }))) return false;
       try {
         const res = await fetch(`/api/manager-documents/${doc.id}`, { method: "DELETE", credentials: "include" });
         const data = await res.json().catch(() => ({}));
@@ -441,11 +446,32 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         setDocuments((cur) => cur.filter((d) => d.id !== doc.id));
         refreshExpirySummary();
         showToast("Document deleted.");
+        return true;
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Failed to delete document.");
+        return false;
       }
     },
-    [refreshExpirySummary, showToast],
+    [confirm, refreshExpirySummary, showToast],
+  );
+
+  const handleDownloadDoc = useCallback(
+    async (doc: ManagerDocumentDTO) => {
+      try {
+        const res = await fetch(`/api/manager-documents/${doc.id}/signed-url?download=1`, { credentials: "include" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Download failed.");
+        const fileRes = await fetch(data.url as string);
+        if (!fileRes.ok) throw new Error("Download failed.");
+        const blob = await fileRes.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        triggerDocumentDownload(objectUrl, (data.fileName as string | undefined) ?? doc.displayName);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Download failed.");
+      }
+    },
+    [showToast],
   );
 
   const handleShareLink = useCallback(
@@ -525,17 +551,12 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
     [propertyLabel],
   );
 
+  // Preview, Share link, and Delete moved to the record page's own header
+  // icons (docs/agents/record-page.md; the registry's document headerActions)
+  // and the dedicated Preview tab — this bar keeps only the actions that
+  // aren't a header icon.
   const renderActions = (doc: ManagerDocumentDTO) => (
     <PortalTableDetailActions placement="top">
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        onClick={() => setPreviewTarget(doc)}
-        data-attr="document-preview"
-      >
-        Preview
-      </Button>
       <Button
         type="button"
         variant="outline"
@@ -565,24 +586,6 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
           Request signature
         </Button>
       ) : null}
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        onClick={() => handleShareLink(doc)}
-        data-attr="document-share-link"
-      >
-        Share link
-      </Button>
-      <Button
-        type="button"
-        variant="danger"
-        className={PORTAL_DETAIL_BTN}
-        onClick={() => handleDelete(doc)}
-        data-attr="document-delete"
-      >
-        Delete
-      </Button>
     </PortalTableDetailActions>
   );
 
@@ -723,6 +726,105 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
     </>
   );
 
+  if (documentId) {
+    const detailRow = documents.find((d) => d.id === documentId) ?? null;
+    if (!detailRow) {
+      return loading ? (
+        <PortalDataTableEmpty icon="default" message="Loading…" />
+      ) : (
+        <PortalDataTableEmpty icon="default" message="Document not found." />
+      );
+    }
+    const activeTab: DocumentDetailTabId = documentDetailTab ?? "preview";
+    const documentListHref = `${basePath}/documents/library`;
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "download") {
+        void handleDownloadDoc(detailRow);
+        return;
+      }
+      if (actionId === "share") {
+        void handleShareLink(detailRow);
+        return;
+      }
+      if (actionId === "delete") {
+        void handleDelete(detailRow).then((deleted) => {
+          if (deleted) navigate(documentListHref);
+        });
+      }
+    };
+    const ownContent =
+      activeTab === "details" ? (
+        renderDetail(detailRow)
+      ) : activeTab === "communication" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "manager",
+          kind: "document",
+          kindLabel: "document",
+          recordId: detailRow.id,
+          recordLabel: detailRow.displayName,
+        })
+      ) : (
+        <DocumentPreviewPane doc={detailRow} />
+      );
+    return (
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Documents"
+          title={detailRow.displayName}
+          subtitle={DOCUMENT_CATEGORY_LABELS[detailRow.category]}
+          avatarName={detailRow.displayName}
+          backHref={documentListHref}
+          backLabel="Back to documents"
+          hideBackText
+          bareHeader
+          iconTitleActions
+          pinScrollBody
+        >
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            sections={sections}
+            recordId={detailRow.id}
+            activeId={activeTab}
+            title={detailRow.displayName}
+            subtitle={DOCUMENT_CATEGORY_LABELS[detailRow.category]}
+            backHref={documentListHref}
+            backLabel="All documents"
+            ariaLabel="Document sections"
+            onHeaderAction={onHeaderAction}
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
+        </PortalRecordDetailPage>
+        <EditDocumentModal
+          doc={renameTarget}
+          vendorRows={vendorRows.filter((v) => v.active !== false)}
+          onClose={() => setRenameTarget(null)}
+          onSaved={(updated) => {
+            setDocuments((cur) => cur.map((d) => (d.id === updated.id ? updated : d)));
+            refreshExpirySummary();
+            setRenameTarget(null);
+          }}
+        />
+        <UploadModal
+          open={Boolean(versionTarget)}
+          onClose={() => setVersionTarget(null)}
+          propertyOptions={propertyOptions}
+          vendorRows={vendorRows.filter((v) => v.active !== false)}
+          supersedeDocumentId={versionTarget?.id}
+          title={versionTarget ? `Upload new version · ${versionTarget.displayName}` : "Upload new version"}
+          versionMode
+          onUploaded={(doc) => {
+            setDocuments((cur) => [doc, ...cur.filter((row) => row.id !== versionTarget?.id)]);
+            refreshExpirySummary();
+            setVersionTarget(null);
+          }}
+        />
+      </>
+    );
+  }
+
   if (listHidden) {
     return documentModals;
   }
@@ -771,109 +873,21 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
           emptyLibraryCard
         )
       ) : (
-        <>
-          {/* Mobile cards */}
-          <div className="space-y-2 lg:hidden">
-            {filteredDocuments.map((doc) => {
-              const expanded = expandedId === doc.id;
-              return (
-                <div key={doc.id} className={PORTAL_MOBILE_CARD_CLASS}>
-                  <button
-                    type="button"
-                    className="w-full text-left"
-                    onClick={() => setExpandedId((cur) => (cur === doc.id ? null : doc.id))}
-                    aria-expanded={expanded}
-                  >
-                    <div className="flex min-w-0 items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <PortalTableInlineExpand expanded={expanded} className="font-semibold text-foreground">
-                          <span className="truncate">{doc.displayName}</span>
-                        </PortalTableInlineExpand>
-                        <p className="mt-0.5 truncate text-xs text-muted">
-                          {scopeSummary(doc)} · {formatBytes(doc.sizeBytes)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <Badge tone="neutral">{DOCUMENT_CATEGORY_LABELS[doc.category]}</Badge>
-                        {doc.expiresAt ? (
-                          <Badge tone={expirationBadgeTone(documentExpirationBucket(doc.expiresAt))}>
-                            {expirationBucketLabel(documentExpirationBucket(doc.expiresAt))}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    </div>
-                  </button>
-                  {expanded ? <div className="mt-3 border-t border-border pt-3">{renderDetail(doc)}</div> : null}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Desktop table */}
-          <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-            <div className={PORTAL_DATA_TABLE_SCROLL}>
-              <table className={PORTAL_DATA_TABLE}>
-                <thead>
-                  <tr className={PORTAL_TABLE_HEAD_ROW}>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Name</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Category</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Visibility</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Scope</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Size</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Expires</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Uploaded</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDocuments.map((doc) => (
-                    <Fragment key={doc.id}>
-                      <tr
-                        className={PORTAL_TABLE_TR_EXPANDABLE}
-                        onClick={createPortalRowExpandClick(() =>
-                          setExpandedId((cur) => (cur === doc.id ? null : doc.id)),
-                        )}
-                        aria-expanded={expandedId === doc.id}
-                      >
-                        <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
-                          <PortalTableInlineExpand expanded={expandedId === doc.id}>
-                            <span className="truncate">{doc.displayName}</span>
-                          </PortalTableInlineExpand>
-                        </td>
-                        <td className={PORTAL_TABLE_TD}>
-                          <Badge tone="neutral">{DOCUMENT_CATEGORY_LABELS[doc.category]}</Badge>
-                        </td>
-                        <td className={PORTAL_TABLE_TD}>
-                          <Badge tone={doc.visibility === "manager" ? "neutral" : "info"}>
-                            {DOCUMENT_VISIBILITY_LABELS[doc.visibility]}
-                          </Badge>
-                        </td>
-                        <td className={`${PORTAL_TABLE_TD} truncate`}>{scopeSummary(doc)}</td>
-                        <td className={`${PORTAL_TABLE_TD} tabular-nums`}>{formatBytes(doc.sizeBytes)}</td>
-                        <td className={PORTAL_TABLE_TD}>
-                          {doc.expiresAt ? (
-                            <Badge tone={expirationBadgeTone(documentExpirationBucket(doc.expiresAt))}>
-                              {formatExpiryDate(doc.expiresAt)}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted">—</span>
-                          )}
-                        </td>
-                        <td className={`${PORTAL_TABLE_TD} tabular-nums`}>{formatDate(doc.createdAt)}</td>
-                      </tr>
-                      {expandedId === doc.id ? (
-                        <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                          <td colSpan={7} className={PORTAL_TABLE_DETAIL_CELL}>
-                            {renderDetail(doc)}
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
+        <PortalRecordListSurface dataAttr="documents-library-list">
+          {filteredDocuments.map((doc) => (
+            <PortalServiceRecordRow
+              key={doc.id}
+              title={doc.displayName}
+              subtitle={[
+                DOCUMENT_CATEGORY_LABELS[doc.category],
+                scopeSummary(doc),
+                formatBytes(doc.sizeBytes),
+              ].join(" · ")}
+              onOpen={() => navigate(documentRecordHref(basePath, doc.id))}
+              dataAttr={`document-row-${doc.id}`}
+            />
+          ))}
+        </PortalRecordListSurface>
       )}
 
       {documentModals}
@@ -1278,6 +1292,55 @@ function EditDocumentModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** The document record page's "Preview" tab — same signed-URL fetch as `PreviewModal`, inline rather than in a modal. */
+function DocumentPreviewPane({ doc }: { doc: ManagerDocumentDTO }) {
+  const { showToast } = useAppUi();
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setUrl(null);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/manager-documents/${doc.id}/signed-url`, { credentials: "include" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to open document.");
+        if (!cancelled) setUrl(data.url as string);
+      } catch (e) {
+        if (!cancelled) showToast(e instanceof Error ? e.message : "Failed to open document.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.id, showToast]);
+
+  const canInline = doc.mimeType === "application/pdf" || isImageMime(doc.mimeType);
+
+  return (
+    <div className="min-h-[50vh] px-3 pb-4 sm:px-4" data-attr="document-preview-pane">
+      {loading ? (
+        <p className="py-12 text-center text-sm text-muted">Loading preview…</p>
+      ) : !url ? (
+        <p className="py-12 text-center text-sm text-muted">Preview unavailable.</p>
+      ) : !canInline ? (
+        <p className="py-12 text-center text-sm text-muted">
+          This file type can’t be previewed inline. Use Download to open it.
+        </p>
+      ) : isImageMime(doc.mimeType) ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={doc.displayName} className="mx-auto max-h-[70vh] max-w-full rounded-lg" />
+      ) : (
+        <iframe src={url} title={doc.displayName} className="h-[70vh] w-full rounded-lg border border-border" />
+      )}
+    </div>
   );
 }
 

@@ -1,12 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 
 /**
- * In-app confirmation for a destructive or lossy action — the same Modal shell
- * as account deletion and every other portal confirm, never `window.confirm`.
+ * In-app confirmation for a destructive or lossy action — the one
+ * {@link PortalDialog} shape ("Destructive confirm") every portal confirm
+ * uses, never `window.confirm`.
  *
  * A native confirm is a browser chrome dialog: it reads "localhost:3002 says",
  * cannot be styled, and looks like a phishing prompt rather than part of the
@@ -45,30 +45,23 @@ export function ConfirmDeleteModal({
   dataAttr?: string;
 }) {
   return (
-    <Modal
+    <PortalDialog
       open={open}
+      onClose={onClose}
       title={title}
-      dense
-      fullPage={false}
-      onClose={() => {
-        if (!busy) onClose();
+      tone={tone === "danger" ? "danger" : "default"}
+      dismissBlocked={busy}
+      secondaryAction={{ label: "Cancel", onClick: onClose, disabled: busy }}
+      primaryAction={{
+        label: busy ? busyLabel : confirmLabel,
+        onClick: onConfirm,
+        disabled: busy,
+        loading: busy,
+        dataAttr,
       }}
-      footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            variant={tone === "danger" ? "danger" : "primary"}
-            disabled={busy}
-            onClick={onConfirm}
-            data-attr={dataAttr}
-          >
-            {busy ? busyLabel : confirmLabel}
-          </Button>
-        </ModalFooter>
-      }
     >
       <p className="text-sm text-muted">{description}</p>
       {note ? <p className="mt-2 text-xs text-muted">{note}</p> : null}
-    </Modal>
+    </PortalDialog>
   );
 }

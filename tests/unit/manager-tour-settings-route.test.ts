@@ -23,7 +23,21 @@ function managerDb() {
           }),
         };
       }
-      return {};
+      // `manager_property_records` — no propertyId/workspaceId is named in
+      // these tests, so this only backs `listPropertyOverrides` (property
+      // override listing) and the analytics count query; empty is correct.
+      if (table === "manager_property_records") {
+        return {
+          select: () => ({
+            eq: () => Promise.resolve({ data: [], error: null, count: 0 }),
+          }),
+        };
+      }
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
+        }),
+      };
     }),
   };
 }
@@ -39,6 +53,7 @@ vi.mock("@/lib/supabase/service", () => ({
 vi.mock("@/lib/manager-tour-settings", () => ({
   loadManagerTourSettings: (...a: unknown[]) => loadManagerTourSettings(...a),
   saveManagerTourSettings: (...a: unknown[]) => saveManagerTourSettings(...a),
+  normalizeManagerTourSettings: (raw: unknown) => raw,
 }));
 
 const route = await import("@/app/api/portal/manager-tour-settings/route");
@@ -52,15 +67,21 @@ beforeEach(() => {
 
 describe("GET /api/portal/manager-tour-settings", () => {
   it("returns tour settings for an authenticated manager", async () => {
-    const res = await route.GET();
+    const res = await route.GET(new Request("http://localhost/api/portal/manager-tour-settings"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ settings: { tourNoticeDays: 0 } });
+    expect(await res.json()).toEqual({
+      settings: { tourNoticeDays: 0 },
+      scope: "workspace",
+      inherited: false,
+      overriddenPropertyIds: [],
+      source: "account",
+    });
     expect(loadManagerTourSettings).toHaveBeenCalledWith(expect.anything(), "mgr-1");
   });
 
   it("refuses unauthenticated callers", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
-    const res = await route.GET();
+    const res = await route.GET(new Request("http://localhost/api/portal/manager-tour-settings"));
     expect(res.status).toBe(401);
   });
 });
@@ -74,7 +95,13 @@ describe("PATCH /api/portal/manager-tour-settings", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ settings: { tourNoticeDays: 1 } });
+    expect(await res.json()).toEqual({
+      settings: { tourNoticeDays: 1 },
+      scope: "workspace",
+      inherited: false,
+      overriddenPropertyIds: [],
+      source: "account",
+    });
     expect(saveManagerTourSettings).toHaveBeenCalledWith(expect.anything(), "mgr-1", { tourNoticeDays: 1 });
   });
 });

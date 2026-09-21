@@ -5,6 +5,9 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () => Promise.resolve([]),
 }));
+// The day cell now navigates to the day page when the caller passes no
+// `onDayClick` of its own (PLAN-0920-1058, area 1e) — needs a router.
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 

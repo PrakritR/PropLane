@@ -35,10 +35,19 @@ export const PortalIconAction = forwardRef<
     iconOnly?: boolean;
     /** State the glyph cannot carry: an applied filter, a count, an open setup step. */
     badge?: "dot" | "warn" | "ok" | number | null;
+    /**
+     * A record page's own header row (view public/edit/share/copy/delete): a
+     * 40px circle with a 1px border, distinct from a list band's bare glyph.
+     * The FIRST ringed action on a page is filled solid — there is exactly one
+     * per screen — every other one is outlined.
+     */
+    ring?: boolean;
+    /** The one filled `ring` action per record header — the record's primary act. */
+    ringPrimary?: boolean;
   }
 >(function PortalIconAction(
   // `shortLabel` / `iconOnly` are accepted and ignored — see the props above.
-  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, className, type = "button", ...rest },
+  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, className, type = "button", ...rest },
   ref,
 ) {
   return (
@@ -49,11 +58,16 @@ export const PortalIconAction = forwardRef<
       title={label}
       aria-pressed={active || undefined}
       data-slot="portal-icon-action"
+      data-ring={ring || undefined}
       className={cn(
         "relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 outline-none transition md:size-9",
         "hover:bg-[var(--secondary)]/70 focus-visible:ring-2 focus-visible:ring-primary/30 active:bg-[var(--secondary)] disabled:opacity-50",
         tone === "primary" ? "text-primary" : tone === "danger" ? "text-red-600" : "text-foreground/80 hover:text-foreground",
         active && "bg-accent text-primary",
+        ring &&
+          (ringPrimary
+            ? "!size-9 rounded-full border border-transparent bg-[var(--btn-primary)] !text-white shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] hover:bg-[var(--btn-primary)] active:scale-95"
+            : "!size-9 rounded-full border border-border bg-card hover:bg-accent/60"),
         className,
       )}
       {...rest}

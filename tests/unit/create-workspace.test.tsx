@@ -209,7 +209,7 @@ describe("CreateWorkspace", () => {
     const importStep = screen.getByText(/^Step 1 of \d+$/).textContent;
     const total = importStep?.match(/of (\d+)/)?.[1];
     fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-rooms']")!);
-    await screen.findByText("Default room");
+    await screen.findByText("All rooms");
     expect(document.querySelector("[data-attr='listing-v2-rail-rooms']")?.getAttribute("aria-current")).toBe("step");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByText("The home itself");

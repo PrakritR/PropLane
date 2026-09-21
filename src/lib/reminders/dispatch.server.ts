@@ -31,6 +31,7 @@ import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import { reminderIsCurrent } from "@/lib/reminders/current.server";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
+import { recordRefFromReminderRow } from "@/lib/reminders/reminder-record-ref";
 
 /** Which vendor Settings row gates each vendor-audience kind. */
 const VENDOR_TOPIC_BY_KIND: Partial<Record<ReminderSubjectKind, VendorNotificationTopic>> = {
@@ -91,6 +92,9 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   move_out: "leases",
   move_out_inspection_manager: "leases",
   deposit_accounting: "payments",
+  lease_renewal_offer: "leases",
+  move_out_instructions: "leases",
+  deposit_return_notice: "payments",
   application_documents: "applications",
   application_decision_manager: "applications",
   application_no_lease_manager: "applications",
@@ -249,6 +253,7 @@ export async function dispatchReminderRow(
         deliverViaSms: channels.sms,
         eventCategory: CATEGORY_BY_KIND[row.kind],
         senderRole: "manager",
+        recordRef: recordRefFromReminderRow(row.kind, row.subjectId, row.payload as ReminderPayload, subject) ?? undefined,
         ...(row.recipientRole === "vendor"
           ? {
               vendorTopic: VENDOR_TOPIC_BY_KIND[row.kind],

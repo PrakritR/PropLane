@@ -25,11 +25,19 @@ import {
 } from "@/lib/payment-policy.server";
 import {
   loadWorkspacePaymentSettings,
+  loadWorkspaceServiceFeePayerForProperty,
   saveWorkspacePaymentSettings,
   workspaceAutopayEnabled,
   workspaceAutopayRetryEnabled,
 } from "@/lib/workspace-payment-settings.server";
 import { assertManualPaymentSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
+import {
+  assertSettingsScopeOwned,
+  resolveSettingsScopeParams,
+  trackSettingsScopeChanged,
+} from "@/lib/scope/settings-scope";
+
+const ANALYTICS_MODULE = "manual_payments";
 
 export const runtime = "nodejs";
 
@@ -131,18 +139,39 @@ export async function GET(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const access = await assertManualPaymentSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    // `?propertyId=`/`?workspaceId=` (singular) narrow which rung's answer the
+    // `source` field describes — the fee-payer resolution itself already ran
+    // property → workspace → account for years, via `loadPropertyServiceFeePayers`
+    // / `loadWorkspaceServiceFeePayerForProperty` (this route's own resolver,
+    // predating and separate from `scope-resolver.server.ts`'s generic one).
+    const scope = resolveSettingsScopeParams(req.url);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
+    const { propertyId, workspaceId } = scopeAccess;
     const settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
-    const propertyIds = parsePropertyIdsQuery(req);
+    const propertyIds = new Set(parsePropertyIdsQuery(req));
+    if (propertyId) propertyIds.add(propertyId);
     const propertyServiceFeePayers =
-      propertyIds.length > 0
-        ? await loadPropertyServiceFeePayers(ctx.db, ctx.userId, propertyIds)
+      propertyIds.size > 0
+        ? await loadPropertyServiceFeePayers(ctx.db, ctx.userId, [...propertyIds])
         : undefined;
+    let source: "property" | "workspace" | "account" | undefined;
+    if (propertyId) {
+      source = propertyServiceFeePayers?.[propertyId] != null ? "property" : "workspace";
+      if (source === "workspace" && (await loadWorkspaceServiceFeePayerForProperty(ctx.db, ctx.userId, propertyId)) == null) {
+        source = "account";
+      }
+    } else if (workspaceId) {
+      const workspaceSettings = await loadWorkspacePaymentSettings(ctx.db, ctx.userId);
+      source = workspaceSettings[workspaceId]?.serviceFeePayer != null ? "workspace" : "account";
+    }
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
       /* Payment setup is answered per workspace; the modal reads this to show
          which workspace it is editing and what that workspace currently says. */
       workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId),
       ...(propertyServiceFeePayers ? { propertyServiceFeePayers } : {}),
+      ...(source ? { source } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
@@ -206,6 +235,9 @@ export async function PATCH(req: Request) {
       workspaceId.trim() &&
       (feePayerProvided || autopayEnabledProvided || autopayRetryProvided)
     ) {
+      // A workspace id in the body is scope, never a grant: the caller must own it.
+      const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { workspaceId: workspaceId.trim() });
+      if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
       const choice =
         workspaceServiceFeePayer === "resident" ||
         workspaceServiceFeePayer === "manager" ||
@@ -242,8 +274,20 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "That workspace is not available." }, { status: 404 });
       }
       workspaceSaved = true;
+      await trackSettingsScopeChanged(ctx.db, ctx.userId, {
+        module: ANALYTICS_MODULE,
+        rung: "workspace",
+        ownerUserId: ctx.userId,
+        workspaceId: workspaceId.trim(),
+      });
     }
 
+    if (feePayerUpdates.length > 0) {
+      for (const update of feePayerUpdates) {
+        const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { propertyId: update.propertyId });
+        if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
+      }
+    }
     const feePayerPropagation =
       feePayerUpdates.length > 0
         ? await applyPropertyServiceFeePayersToListings(
@@ -253,6 +297,15 @@ export async function PATCH(req: Request) {
             await accountWaiverGranted(ctx.db, ctx.userId),
           )
         : { listingsUpdated: 0 };
+    if (feePayerUpdates.length > 0) {
+      await trackSettingsScopeChanged(ctx.db, ctx.userId, {
+        module: ANALYTICS_MODULE,
+        rung: "property",
+        ownerUserId: ctx.userId,
+        workspaceId: null,
+        count: feePayerUpdates.length,
+      });
+    }
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
       ...(workspaceSaved

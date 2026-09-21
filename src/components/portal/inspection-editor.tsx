@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
@@ -324,7 +325,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   return <div className="min-w-0 space-y-5" data-attr="inspection-editor">
     {/* The type, the date and the room say everything the old meta row and its paragraph of
         instructions said, in the place a person already reads. */}
-    <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={`${report.kind === "move-in" ? "Move-in" : "Move-out"} · ${inspectionRoomLabel(report.room_label) || "Assigned room"} · ${report.property_label}`} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
+    <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={[report.kind === "move-in" ? "Move-in" : "Move-out", inspectionRoomLabel(report.room_label), report.property_label].filter(Boolean).join(" · ")} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
     {(busy || dirty || submittedByResident) && <p role="status" className="px-2 text-sm text-muted">{busy ? "Saving…" : dirty ? "Changes waiting to save" : role === "resident" ? "Submitted. Ask your manager to reopen this to add more." : `Resident submitted ${new Date(submission!.at).toLocaleDateString()}.`}</p>}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
@@ -382,9 +383,20 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       </div>
     </Modal>
     <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(roomAreas.filter(area => area.id === uploadArea).length ? roomAreas.filter(area => area.id === uploadArea) : activeArea ? [activeArea] : selectedAreas.length ? selectedAreas : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
-    <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : "Review the latest saved report?"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : "Review latest"}</Button>}>
+    <PortalDialog
+      open={confirm !== null}
+      onClose={() => { if (!busy) setConfirm(null); }}
+      dismissBlocked={busy}
+      title={confirm === "leave" ? "Leave without saving?" : "Review the latest saved report?"}
+      primaryAction={{
+        label: confirm === "leave" ? "Discard and leave" : "Review latest",
+        onClick: confirmAction,
+        disabled: busy,
+        dataAttr: "inspection-confirm",
+      }}
+    >
       <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and notes remain." : "Unsaved notes will be discarded. Your pending photo is kept — retry its upload once the latest report has loaded."}</p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
-    </Modal>
+    </PortalDialog>
   </div>;
 }

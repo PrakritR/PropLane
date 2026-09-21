@@ -31,10 +31,20 @@ export type AssistantDockPanelProps = {
    * What `onCollapse` means to the user. The portal rail folds to a narrow
    * strip ("collapse"); a modal's assistant rail is removed entirely, so it
    * shows a labeled X ("close") that is distinct from the editor's own X.
+   * Superseded by the standalone `onClose` below for a surface that wants
+   * BOTH a collapse-to-strip control and a real ✕ (the desktop side panel) —
+   * kept so the modal strip's existing single-button wiring still compiles.
    */
   collapseVariant?: "collapse" | "close";
   /** When set, shows a switch-to-popup control (desktop rail). */
   onUndockToPopup?: () => void;
+  /**
+   * A real ✕ close, independent of `onCollapse` — the desktop side panel
+   * keeps its fold-to-strip chevron AND gets an unambiguous way to dismiss
+   * the panel entirely (PLAN-0920-1058 "1d · The pop-up" — every surface
+   * gets a real ✕, never overloaded onto a different icon).
+   */
+  onClose?: () => void;
   /** Stable input hook for the portal header's Ask PropLane action. */
   inputId?: string;
 };
@@ -54,6 +64,7 @@ export function AssistantDockPanel({
   onCollapse,
   collapseVariant = "collapse",
   onUndockToPopup,
+  onClose,
   inputId,
 }: AssistantDockPanelProps) {
   const {
@@ -120,7 +131,7 @@ export function AssistantDockPanel({
     >
       <AssistantPanelHeader
         onCollapse={onCollapse && collapseVariant === "collapse" ? onCollapse : undefined}
-        onClose={onCollapse && collapseVariant === "close" ? onCollapse : undefined}
+        onClose={onClose ?? (onCollapse && collapseVariant === "close" ? onCollapse : undefined)}
         closeDataAttr="modal-assistant-close"
         onUndockToPopup={onUndockToPopup}
         showHistory={multiThread}

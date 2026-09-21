@@ -153,24 +153,25 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
 });
 
 describe("listed Preview header actions — source", () => {
-  it("ships listed Preview as icon-only view, pen, share, and unlist in the title row", () => {
+  it("ships listed Preview as ringed PortalIconAction view, pen, share, and delete in the title row (PLAN-0920-1058, area 1a)", () => {
     const src = readFileSync(
       resolve(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
       "utf8",
     );
     const listed = src.slice(src.indexOf("if (bucket === 2 && listingId)"), src.indexOf("if (bucket === 3)"));
-    expect(listed).toContain('aria-label="View"');
-    expect(listed).toContain('aria-label="Edit"');
-    expect(listed).toContain('aria-label="Send"');
-    expect(listed).toContain('aria-label="Unlist"');
-    expect(listed).toContain("<Eye");
-    expect(listed).toContain("<Pencil");
-    expect(listed).toContain("<Share2");
-    expect(listed).toContain("<Trash2");
-    expect(listed).toContain('<span className="sr-only">View</span>');
-    expect(listed).toContain('<span className="sr-only">Edit</span>');
-    expect(listed).toContain('<span className="sr-only">Send</span>');
-    expect(listed).toContain('<span className="sr-only">Unlist</span>');
+    expect(listed).toContain('label="View public"');
+    expect(listed).toContain('label="Edit"');
+    expect(listed).toContain('label="Share"');
+    expect(listed).toContain('label="Delete"');
+    expect(listed).toContain("icon={Eye}");
+    expect(listed).toContain("icon={Pencil}");
+    expect(listed).toContain("icon={Share2}");
+    expect(listed).toContain("icon={Trash2}");
+    // Every ringed header action goes through PortalIconAction, never a
+    // hand-rolled icon-only Button — the record page's own ring styling
+    // (40px circle, first one filled) lives in that one component.
+    expect(listed).toContain("<PortalIconAction");
+    expect(listed).not.toMatch(/<Button[^>]*aria-label="(View|Edit|Send|Unlist)"/);
     expect(src).toContain('sourceBucket === 2 && (detailTabProp ?? "preview") === "preview"');
     expect(src).toContain("?edit=1");
   });

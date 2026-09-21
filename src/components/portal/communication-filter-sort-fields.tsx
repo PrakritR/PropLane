@@ -10,11 +10,14 @@ import {
   filterMultiSelectSummary,
   filterSingleSelectSummary,
 } from "@/components/portal/filter-field-lists";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import {
+  RECORD_KIND_FILTER_OPTIONS,
   type CommunicationFilterRole,
   type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
+import type { RecordKind } from "@/lib/portals/record-kinds";
 import type { CommunicationListSort } from "@/lib/unified-inbox-merge";
 
 const SORT_OPTIONS: { value: CommunicationListSort; label: string }[] = [
@@ -95,6 +98,17 @@ export function CommunicationFilterSortFields({
           dataAttr="communication-filter-role"
         />
       </FilterCollapsibleSection>
+
+      <FieldSingleSelect
+        label="About"
+        value={draftFilters.recordKinds?.[0] ?? ""}
+        onChange={(next) =>
+          setDraftFilters({ ...draftFilters, recordKinds: next ? [next as RecordKind] : [] })
+        }
+        options={[{ value: "", label: "All records" }, ...RECORD_KIND_FILTER_OPTIONS]}
+        placeholder="All records"
+        dataAttr="communication-filter-about"
+      />
 
       <FilterCollapsibleSection
         sectionId="sort"

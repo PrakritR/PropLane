@@ -199,12 +199,13 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    // The reminder is a glyph fact on the charge row it belongs to — the next
-    // send, compactly — not a pill on a group header and not a verbose list.
+    // The reminder is a glyph fact on the charge row it belongs to — the
+    // soonest queued send, and only that: never a count of the rest ("+1
+    // more"), never a group-header pill, never a verbose list.
     const reminder = container.querySelector('[data-attr="payment-row-reminder"]');
     expect(reminder).toBeTruthy();
     expect(reminder?.textContent).toContain("Aug 28, 2026");
-    expect(reminder?.textContent).toContain("+1 more");
+    expect(reminder?.textContent).not.toContain("+1 more");
     expect(reminder?.textContent).not.toContain("Reminders scheduled:");
     expect(reminder?.textContent).not.toContain("The Magnolia");
     expect(container.querySelector('[data-attr="payments-cluster-scheduled"]')).toBeNull();
@@ -249,7 +250,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(amount).toBeTruthy();
   });
 
-  it("keeps the dashed add row for the EMPTY ledger only — a populated list adds from the page head", () => {
+  it("never renders a second labeled Add here — the page band's icon action is the one way to add, empty or populated", () => {
     const { unmount } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -270,7 +271,11 @@ describe("ManagerPaymentsLedgerPanel", () => {
         onAddPayment={() => undefined}
       />,
     );
-    expect(screen.getByRole("button", { name: /Add charge/i })).toBeTruthy();
+    // The empty card deliberately keeps only its title — the band's
+    // `PortalPrimaryIconAction` ("Add charge" in pro-payments.tsx) is the add
+    // affordance now, not a labeled button inside this panel.
+    expect(screen.queryByRole("button", { name: /Add charge/i })).toBeNull();
+    expect(screen.getByText("No charges yet")).toBeInTheDocument();
   });
 
   it("renders action menus on grouped charge rows", () => {

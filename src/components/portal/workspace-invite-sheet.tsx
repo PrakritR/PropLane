@@ -2,22 +2,28 @@
 
 /**
  * Invite to a workspace: one sheet, three rows — send by phone/email/code,
- * copy the shareable link, and see who already has access. Opened by
+ * get the shareable link, and see who already has access. Opened by
  * `ProAccountLinksPanel`'s `openLinkModal(workspaceId)`.
  *
  * The link and the send box share ONE access setting (role + houses). Opening
  * the sheet only READS the workspace's active link (hydrating role/houses/
  * permissions from it) and never mints as a side effect. Changing the access
  * chip only updates local state. A link is minted or re-minted — always with
- * `replaceActive: true` — only at the moment of Copy link or Send, and only
- * when the on-screen terms differ from the held link's terms, so an
- * already-shared URL never gains power without the sender re-confirming it
- * (see `docs/agents/co-manager-access.md`).
+ * `replaceActive: true` — only at the moment the "Invite link" action or Send
+ * is pressed, and only when the on-screen terms differ from the held link's
+ * terms, so an already-shared URL never gains power without the sender
+ * re-confirming it (see `docs/agents/co-manager-access.md`).
+ *
+ * Pressing "Invite link" resolves that URL and advances to a SECOND VIEW of
+ * this same sheet (`view: "link"`) — the form (recipient field, Send, the
+ * access chip) is gone, replaced by the read-only URL, a "Joins as" line, and
+ * Copy / Share / Back / Done. It never copies on its own; Back returns to the
+ * form with role/houses untouched, Done closes the sheet.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Link2 } from "lucide-react";
-import { Modal } from "@/components/ui/modal";
+import { Check, Copy, Link2 } from "lucide-react";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
@@ -30,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { parseInviteRecipient, inviteRecipientHint } from "@/lib/invite-recipient";
 import {
@@ -220,6 +227,13 @@ export function WorkspaceInviteSheet({
   const [linkLoading, setLinkLoading] = useState(false);
   /** The terms the held link (`linkId`) actually carries — null until one is hydrated or minted. */
   const [heldTerms, setHeldTerms] = useState<HeldLinkTerms | null>(null);
+  /**
+   * `"form"` is the send + access chip sheet. `"link"` is a second view of the
+   * SAME sheet reached only by pressing the link action — the link is shown
+   * read-only, Copy/Share/Back/Done replace the form, and Back returns here
+   * with role/houses untouched (see `docs/agents/co-manager-access.md`).
+   */
+  const [view, setView] = useState<"form" | "link">("form");
 
   const [pendingInvites, setPendingInvites] = useState<AccountLinkInviteDto[]>([]);
   const [sentThisSession, setSentThisSession] = useState<LocalSentInvite[]>([]);
@@ -266,6 +280,7 @@ export function WorkspaceInviteSheet({
   // that, at the moment the manager actually shares something.
   useEffect(() => {
     if (!open) return;
+    setView("form");
     setRole("viewer");
     setHouseScope("all");
     setSelectedHouseIds([]);
@@ -407,26 +422,48 @@ export function WorkspaceInviteSheet({
     return { ok: true, url: result.url, linkId: result.linkId };
   };
 
-  const copyLink = async () => {
+  /**
+   * The link action: resolve (reuse-or-mint) the URL for what is on screen,
+   * then advance to the read-only link view. It never copies on its own —
+   * Copy is the icon action inside that view.
+   */
+  const openInviteLink = async () => {
     setLinkLoading(true);
-    let url: string | null = null;
     try {
       const result = await resolveLinkForCurrentTerms();
       if (!result.ok) {
         showToast(result.error);
         return;
       }
-      url = result.url;
+      setView("link");
     } finally {
       setLinkLoading(false);
     }
-    if (!url) {
-      showToast("Could not copy the invite link.");
-      return;
+  };
+
+  const copyLinkUrl = async () => {
+    if (!linkUrl) return;
+    try {
+      await navigator.clipboard.writeText(linkUrl);
+      showToast("Invite link copied.");
+    } catch {
+      showToast("Could not copy. Select the link and copy it manually.");
+    }
+  };
+
+  const shareLink = async () => {
+    if (!linkUrl) return;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: `Invite to ${workspace.name}`, url: linkUrl });
+        return;
+      } catch {
+        return; // the share sheet was dismissed — nothing else to do.
+      }
     }
     try {
-      await navigator.clipboard.writeText(url);
-      showToast("Invite link copied.");
+      await navigator.clipboard.writeText(linkUrl);
+      showToast("Link copied.");
     } catch {
       showToast("Could not copy. Select the link and copy it manually.");
     }
@@ -565,6 +602,54 @@ export function WorkspaceInviteSheet({
     }
   };
 
+  if (view === "link") {
+    return (
+      <Modal
+        open={open}
+        title={`Invite link · ${workspace.name}`}
+        onClose={onClose}
+        panelClassName="max-w-lg"
+        dataAttr="workspace-invite-sheet"
+        footer={
+          <ModalFooter>
+            <Button type="button" variant="outline" className="rounded-full" onClick={() => setView("form")} data-attr="workspace-invite-back">
+              Back
+            </Button>
+            <Button type="button" variant="outline" className="rounded-full" onClick={() => void shareLink()} data-attr="workspace-invite-share">
+              Share
+            </Button>
+            <Button type="button" variant="primary" className="rounded-full" onClick={onClose} data-attr="workspace-invite-done">
+              Done
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <div className="space-y-4">
+          {/* Modal's own header has no action slot for a call site — Copy lives
+              here, top-right of this view's content, per the icon-chrome rule. */}
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Invite link</p>
+            <PortalIconAction icon={Copy} label="Copy link" onClick={() => void copyLinkUrl()} data-attr="workspace-invite-copy-link" />
+          </div>
+          <Input
+            readOnly
+            value={linkUrl ?? ""}
+            aria-label="Invite link"
+            className="truncate font-mono text-xs"
+            onFocus={(e) => e.currentTarget.select()}
+            data-attr="workspace-invite-link-url"
+          />
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5">
+            <span className="text-[13px] font-medium text-muted">Joins as</span>
+            <span className="truncate text-[13.5px] font-semibold text-foreground" data-attr="workspace-invite-link-access">
+              {roleLabelFor(role)} · {reach}
+            </span>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal open={open} title={`Invite to ${workspace.name}`} onClose={onClose} panelClassName="max-w-lg" dataAttr="workspace-invite-sheet">
       <div className="space-y-5">
@@ -610,11 +695,11 @@ export function WorkspaceInviteSheet({
               variant="outline"
               className="shrink-0 rounded-full"
               loading={linkLoading}
-              onClick={() => void copyLink()}
+              onClick={() => void openInviteLink()}
               data-attr="workspace-invite-copy"
             >
               <Link2 className="h-4 w-4" />
-              <span className="ml-1.5">Copy link</span>
+              <span className="ml-1.5">Invite link</span>
             </Button>
             <AccessChip
               role={role}

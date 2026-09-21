@@ -1,6 +1,14 @@
 "use client";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { residentServiceDetailHref, type ResidentServiceDetailTabId } from "@/lib/portal-detail-routes";
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -16,7 +24,7 @@ import { formatPacificDate } from "@/lib/pacific-time";
 import { Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
@@ -541,17 +549,24 @@ export function WorkOrderDetail({
  */
 export function ResidentServicesPanel({
   basePath,
+  serviceId,
+  serviceDetailTab,
 }: {
   basePath: string;
+  /** The service record's own rail tab (docs/agents/record-page.md); set only when routed to /services/<id>[/<tab>]. */
+  serviceId?: string;
+  serviceDetailTab?: ResidentServiceDetailTabId;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
+  const navigate = usePortalNavigate();
+  const [pendingCompose, setPendingCompose] = useState(false);
   const session = usePortalSession();
 
   const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
   const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
   const { selectedIds, toggleSelected, clearSelection, setSelectedIds } = usePortalRowSelection(serviceStateFilter);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
   // edit modals (resident edits their own items)
@@ -847,7 +862,6 @@ export function ResidentServicesPanel({
   function cancelWorkOrder(id: string) {
     deleteManagerWorkOrderRow(id);
     setAllRows(readManagerWorkOrderRows());
-    setExpandedId(null);
     showToast("Service removed.");
   }
 
@@ -988,7 +1002,6 @@ export function ResidentServicesPanel({
       if (unified.kind === "add-on") {
         const req = serviceRequestById.get(unified.id);
         if (!req) return [];
-        const isExpanded = expandedId === rowKey;
         return [
           {
             id: rowKey,
@@ -1010,24 +1023,14 @@ export function ResidentServicesPanel({
                   {displayServiceRequestCost(req)}
                 </span>
               ),
-              expanded: isExpanded,
-              onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
-              expandedContent: (
-                <ServiceRequestCard
-                  req={req}
-                  onDelete={reloadServiceRequests}
-                  onEdit={() => openRequestEdit(req)}
-                  onSendReminder={() => void sendServiceRequestReminder(req)}
-                  reminderSending={requestReminderSendingId === req.id}
-                />
-              ),
+              expanded: false,
+              onClick: () => navigate(residentServiceDetailHref(basePath, rowKey)),
             },
           },
         ];
       }
       const row = workOrderById.get(unified.id);
       if (!row) return [];
-      const isExpanded = expandedId === rowKey;
       return [
         {
           id: rowKey,
@@ -1052,17 +1055,8 @@ export function ResidentServicesPanel({
                 {row.priority}
               </span>
             ),
-            expanded: isExpanded,
-            onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
-            expandedContent: (
-              <WorkOrderDetail
-                row={row}
-                onEdit={() => openWorkOrderEdit(row)}
-                onCancel={() => cancelWorkOrder(row.id)}
-                onSendReminder={() => void sendWorkOrderReminder(row)}
-                reminderSending={reminderSendingId === row.id}
-              />
-            ),
+            expanded: false,
+            onClick: () => navigate(residentServiceDetailHref(basePath, rowKey)),
           },
         },
       ];
@@ -1071,9 +1065,8 @@ export function ResidentServicesPanel({
     filteredUnifiedRows,
     serviceRequestById,
     workOrderById,
-    expandedId,
-    requestReminderSendingId,
-    reminderSendingId,
+    basePath,
+    navigate,
   ]);
 
   const deleteSelectedServices = () => {
@@ -1202,6 +1195,360 @@ export function ResidentServicesPanel({
       />
     ) : null;
 
+  if (serviceId) {
+    const parsed = parseUnifiedServiceRowKey(serviceId);
+    const activeTab: ResidentServiceDetailTabId = serviceDetailTab ?? "overview";
+    const backHref = `${basePath}/services`;
+    const sections = recordSections("resident", "service", { basePath });
+
+    const req = parsed?.kind === "add-on" ? (serviceRequestById.get(parsed.id) ?? null) : null;
+    const row = parsed?.kind === "maintenance" ? (workOrderById.get(parsed.id) ?? null) : null;
+
+    if (!parsed || (!req && !row)) {
+      return <PortalDataTableEmpty icon="default" message="Service not found." />;
+    }
+
+    const recordLabel = req?.offerName ?? row?.title ?? "Service";
+
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "message") {
+        setPendingCompose(true);
+        navigate(residentServiceDetailHref(basePath, serviceId, "communication"));
+        return;
+      }
+      if (actionId === "edit") {
+        if (req) openRequestEdit(req);
+        else if (row) openWorkOrderEdit(row);
+        return;
+      }
+      if (actionId === "cancel") {
+        void confirm({
+          title: "Cancel service",
+          description: `Cancel "${recordLabel}"?`,
+          confirmLabel: "Cancel service",
+          tone: "danger",
+          dataAttr: "resident-service-record-cancel-confirm",
+        }).then((ok) => {
+          if (!ok) return;
+          if (req) {
+            deleteServiceRequest(req.id);
+            reloadServiceRequests();
+            showToast("Request deleted.");
+          } else if (row) {
+            cancelWorkOrder(row.id);
+          }
+          navigate(backHref);
+        });
+      }
+    };
+
+    const ownContent =
+      activeTab === "updates" ? (
+        <div className="px-3 pb-4 sm:px-4">
+          <PortalListEmptyCard title="No updates yet" workspaceAware={false} dataAttr="resident-service-updates-empty" />
+        </div>
+      ) : activeTab === "photos" ? (
+        row?.photoDataUrls?.length ? (
+          <div className="grid grid-cols-2 gap-2 px-3 pb-4 sm:grid-cols-3 sm:px-4" data-attr="resident-service-photos">
+            {row.photoDataUrls.map((src, i) => {
+              const trimmed = src.trim();
+              if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
+              return (
+                <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                  <Image src={trimmed} alt={`Photo ${i + 1}`} width={240} height={180} className="h-28 w-full object-cover" unoptimized />
+                </a>
+              );
+            })}
+          </div>
+        ) : req?.returnPhotoDataUrl ? (
+          <div className="px-3 pb-4 sm:px-4">
+            <a href={req.returnPhotoDataUrl} target="_blank" rel="noreferrer" className="block w-32 overflow-hidden rounded-xl border border-border" data-attr="resident-service-photos">
+              <Image src={req.returnPhotoDataUrl} alt="Return photo" width={128} height={96} className="h-24 w-full object-cover" unoptimized />
+            </a>
+          </div>
+        ) : (
+          <div className="px-3 pb-4 sm:px-4">
+            <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="resident-service-photos-empty" />
+          </div>
+        )
+      ) : activeTab === "communication" ? (
+        renderRecordSection("communication", {
+          role: "resident",
+          kind: "service",
+          kindLabel: "service",
+          recordId: serviceId,
+          recordLabel,
+          autoOpenCompose: pendingCompose,
+        })
+      ) : (
+        <div className="px-3 pb-4 sm:px-4" data-attr="resident-service-overview">
+          {req ? (
+            <ServiceRequestCard
+              req={req}
+              onDelete={reloadServiceRequests}
+              onEdit={() => openRequestEdit(req)}
+              onSendReminder={() => void sendServiceRequestReminder(req)}
+              reminderSending={requestReminderSendingId === req.id}
+            />
+          ) : row ? (
+            <WorkOrderDetail
+              row={row}
+              onEdit={() => openWorkOrderEdit(row)}
+              onCancel={() => cancelWorkOrder(row.id)}
+              onSendReminder={() => void sendWorkOrderReminder(row)}
+              reminderSending={reminderSendingId === row.id}
+            />
+          ) : null}
+        </div>
+      );
+
+    return (
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Services"
+          title={recordLabel}
+          subtitle="Service"
+          avatarName={recordLabel}
+          backHref={backHref}
+          backLabel="Back to services"
+          hideBackText
+          bareHeader
+          iconTitleActions
+          pinScrollBody
+        >
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            sections={sections}
+            recordId={serviceId}
+            activeId={activeTab}
+            title={recordLabel}
+            subtitle="Service"
+            backHref={backHref}
+            backLabel="All services"
+            ariaLabel="Service sections"
+            onHeaderAction={onHeaderAction}
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
+        </PortalRecordDetailPage>
+        <Modal
+          open={editingRequest !== null}
+          title="Edit service"
+          onClose={() => setEditingRequest(null)}
+          panelClassName="max-w-lg"
+          footer={
+            editingRequest ? (
+              <ModalFooter>
+                <Button type="button" variant="primary" className="rounded-full" data-attr="resident-service-request-edit-save" onClick={saveRequestEdit}>
+                  Save changes
+                </Button>
+              </ModalFooter>
+            ) : undefined
+          }
+        >
+          {editingRequest ? (
+            <>
+              <p className="text-xs text-muted">
+                Update the details of your <span className="font-semibold text-foreground">{editingRequest.offerName}</span> request.
+                Pricing is set by your manager and can&apos;t be changed here.
+              </p>
+              <div className="mt-4 grid gap-3">
+                <div>
+                  <p className="mb-1 text-[11px] font-medium text-muted">Notes</p>
+                  <Textarea
+                    value={eNotes}
+                    onChange={(e) => setENotes(e.target.value)}
+                    placeholder="Preferred timing, special instructions…"
+                    rows={3}
+                    className="bg-card"
+                  />
+                </div>
+              </div>
+            </>
+          ) : null}
+        </Modal>
+        <Modal
+          open={editingWorkOrder !== null}
+          title="Edit service"
+          onClose={() => setEditingWorkOrder(null)}
+          panelClassName="max-w-lg"
+          footer={
+            <ModalFooter>
+              <Button type="button" variant="primary" className="rounded-full" data-attr="resident-work-order-edit-save" onClick={saveWorkOrderEdit}>
+                Save changes
+              </Button>
+            </ModalFooter>
+          }
+        >
+          <p className="text-xs text-muted">Update your maintenance request. Your property manager sees these changes.</p>
+          <div className="mt-4 grid gap-3">
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-muted">Title</p>
+              <Input value={wTitle} onChange={(e) => setWTitle(e.target.value)} placeholder="Short summary of the issue" className="bg-card" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Priority</p>
+                <Select value={wPriority} onChange={(e) => setWPriority(e.target.value)} className="bg-card">
+                  <option>Emergency</option>
+                  <option>Low</option>
+                  <option>Medium</option>
+                  <option>High</option>
+                </Select>
+              </div>
+              <PreferredArrivalField
+                preset={wArrivalPreset}
+                custom={wArrivalCustom}
+                onPresetChange={setWArrivalPreset}
+                onCustomChange={setWArrivalCustom}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-muted">Can the repair person enter if you&apos;re not home?</p>
+              <Select
+                value={wEntryPermission}
+                onChange={(e) => setWEntryPermission(e.target.value as DemoManagerWorkOrderRow["entryPermission"])}
+                className="bg-card"
+              >
+                {ENTRY_PERMISSION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-muted">Entry notes (gate code, pets, parking...)</p>
+              <Input value={wEntryNotes} onChange={(e) => setWEntryNotes(e.target.value)} placeholder="Optional" className="bg-card" />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-muted">Details</p>
+              <Textarea
+                value={wDetails}
+                onChange={(e) => setWDetails(e.target.value)}
+                placeholder="Describe the issue"
+                rows={4}
+                className="bg-card"
+              />
+            </div>
+          </div>
+        </Modal>
+      </>
+    );
+  }
+
+  const editServiceModals = (
+    <>
+          {/* Edit add-on service request modal */}
+          <Modal
+            open={editingRequest !== null}
+            title="Edit service"
+            onClose={() => setEditingRequest(null)}
+            panelClassName="max-w-lg"
+            footer={
+              editingRequest ? (
+                <ModalFooter>
+                  <Button type="button" variant="primary" className="rounded-full" data-attr="resident-service-request-edit-save" onClick={saveRequestEdit}>
+                    Save changes
+                  </Button>
+                </ModalFooter>
+              ) : undefined
+            }
+          >
+            {editingRequest ? (
+              <>
+                <p className="text-xs text-muted">
+                  Update the details of your <span className="font-semibold text-foreground">{editingRequest.offerName}</span> request.
+                  Pricing is set by your manager and can&apos;t be changed here.
+                </p>
+                <div className="mt-4 grid gap-3">
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium text-muted">Notes</p>
+                    <Textarea
+                      value={eNotes}
+                      onChange={(e) => setENotes(e.target.value)}
+                      placeholder="Preferred timing, special instructions…"
+                      rows={3}
+                      className="bg-card"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </Modal>
+
+          {/* Edit service modal */}
+          <Modal
+            open={editingWorkOrder !== null}
+            title="Edit service"
+            onClose={() => setEditingWorkOrder(null)}
+            panelClassName="max-w-lg"
+            footer={
+              <ModalFooter>
+                <Button type="button" variant="primary" className="rounded-full" data-attr="resident-work-order-edit-save" onClick={saveWorkOrderEdit}>
+                  Save changes
+                </Button>
+              </ModalFooter>
+            }
+          >
+            <p className="text-xs text-muted">Update your maintenance request. Your property manager sees these changes.</p>
+            <div className="mt-4 grid gap-3">
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Title</p>
+                <Input value={wTitle} onChange={(e) => setWTitle(e.target.value)} placeholder="Short summary of the issue" className="bg-card" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-[11px] font-medium text-muted">Priority</p>
+                  <Select value={wPriority} onChange={(e) => setWPriority(e.target.value)} className="bg-card">
+                    <option>Emergency</option>
+                    <option>Low</option>
+                    <option>Medium</option>
+                    <option>High</option>
+                  </Select>
+                </div>
+                <PreferredArrivalField
+                  preset={wArrivalPreset}
+                  custom={wArrivalCustom}
+                  onPresetChange={setWArrivalPreset}
+                  onCustomChange={setWArrivalCustom}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Can the repair person enter if you&apos;re not home?</p>
+                <Select
+                  value={wEntryPermission}
+                  onChange={(e) => setWEntryPermission(e.target.value as DemoManagerWorkOrderRow["entryPermission"])}
+                  className="bg-card"
+                >
+                  {ENTRY_PERMISSION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Entry notes (gate code, pets, parking...)</p>
+                <Input value={wEntryNotes} onChange={(e) => setWEntryNotes(e.target.value)} placeholder="Optional" className="bg-card" />
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Details</p>
+                <Textarea
+                  value={wDetails}
+                  onChange={(e) => setWDetails(e.target.value)}
+                  placeholder="Describe the issue"
+                  rows={4}
+                  className="bg-card"
+                />
+              </div>
+            </div>
+          </Modal>
+    </>
+  );
+
   return (
     <>
     <ManagerPortalPageShell
@@ -1273,111 +1620,7 @@ export function ResidentServicesPanel({
         }}
       />
 
-      {/* Edit add-on service request modal */}
-      <Modal
-        open={editingRequest !== null}
-        title="Edit service"
-        onClose={() => setEditingRequest(null)}
-        panelClassName="max-w-lg"
-        footer={
-          editingRequest ? (
-            <ModalFooter>
-              <Button type="button" variant="primary" className="rounded-full" data-attr="resident-service-request-edit-save" onClick={saveRequestEdit}>
-                Save changes
-              </Button>
-            </ModalFooter>
-          ) : undefined
-        }
-      >
-        {editingRequest ? (
-          <>
-            <p className="text-xs text-muted">
-              Update the details of your <span className="font-semibold text-foreground">{editingRequest.offerName}</span> request.
-              Pricing is set by your manager and can&apos;t be changed here.
-            </p>
-            <div className="mt-4 grid gap-3">
-              <div>
-                <p className="mb-1 text-[11px] font-medium text-muted">Notes</p>
-                <Textarea
-                  value={eNotes}
-                  onChange={(e) => setENotes(e.target.value)}
-                  placeholder="Preferred timing, special instructions…"
-                  rows={3}
-                  className="bg-card"
-                />
-              </div>
-            </div>
-          </>
-        ) : null}
-      </Modal>
-
-      {/* Edit service modal */}
-      <Modal
-        open={editingWorkOrder !== null}
-        title="Edit service"
-        onClose={() => setEditingWorkOrder(null)}
-        panelClassName="max-w-lg"
-        footer={
-          <ModalFooter>
-            <Button type="button" variant="primary" className="rounded-full" data-attr="resident-work-order-edit-save" onClick={saveWorkOrderEdit}>
-              Save changes
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <p className="text-xs text-muted">Update your maintenance request. Your property manager sees these changes.</p>
-        <div className="mt-4 grid gap-3">
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Title</p>
-            <Input value={wTitle} onChange={(e) => setWTitle(e.target.value)} placeholder="Short summary of the issue" className="bg-card" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 text-[11px] font-medium text-muted">Priority</p>
-              <Select value={wPriority} onChange={(e) => setWPriority(e.target.value)} className="bg-card">
-                <option>Emergency</option>
-                <option>Low</option>
-                <option>Medium</option>
-                <option>High</option>
-              </Select>
-            </div>
-            <PreferredArrivalField
-              preset={wArrivalPreset}
-              custom={wArrivalCustom}
-              onPresetChange={setWArrivalPreset}
-              onCustomChange={setWArrivalCustom}
-            />
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Can the repair person enter if you&apos;re not home?</p>
-            <Select
-              value={wEntryPermission}
-              onChange={(e) => setWEntryPermission(e.target.value as DemoManagerWorkOrderRow["entryPermission"])}
-              className="bg-card"
-            >
-              {ENTRY_PERMISSION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Entry notes (gate code, pets, parking...)</p>
-            <Input value={wEntryNotes} onChange={(e) => setWEntryNotes(e.target.value)} placeholder="Optional" className="bg-card" />
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Details</p>
-            <Textarea
-              value={wDetails}
-              onChange={(e) => setWDetails(e.target.value)}
-              placeholder="Describe the issue"
-              rows={4}
-              className="bg-card"
-            />
-          </div>
-        </div>
-      </Modal>
+      {editServiceModals}
       </div>
     </ManagerPortalPageShell>
 

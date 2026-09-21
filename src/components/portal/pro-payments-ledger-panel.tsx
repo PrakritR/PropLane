@@ -21,11 +21,12 @@ import {
   type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
-import { paymentDetailHref, paymentListHref, paymentRecordDetailHref, PAYMENT_RECORD_RAIL_GROUPS, PAYMENT_RECORD_TAB_DESCRIPTIONS, PAYMENT_RECORD_TAB_LABELS, PAYMENT_RECORD_TABS, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
-import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { paymentDetailHref, paymentListHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { Bell, CalendarDays, Mail } from "lucide-react";
+import { Bell, CalendarDays, Trash2 } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -42,7 +43,9 @@ import {
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 import { Input } from "@/components/ui/input";
-import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import {
   PortalBulkMessageCarouselModal,
 } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -101,6 +104,13 @@ function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
   return !isPaidRow(row) && Boolean(row.householdChargeId || row.id);
 }
 
+/** Day-only, matching the due fact's format (`dueDateInputToLabel`) — one date shape on the row. */
+function formatReminderRowDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return formatScheduledSendAt(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function paymentReminderMetaHint(
   row: DemoManagerPaymentLedgerRow,
   scheduledMessages: ScheduledPaymentMessage[],
@@ -108,11 +118,9 @@ function paymentReminderMetaHint(
   if (!row.householdChargeId || isPaidRow(row)) return null;
   const reminders = manageableRemindersForCharge(scheduledMessages, row.householdChargeId);
   const summary = summariseScheduledSends(reminders);
+  // At most one glyph fact on the row — the soonest queued send, never a count of the rest.
   if (summary.count > 0 && summary.nextSendAt) {
-    const next = formatScheduledSendAt(summary.nextSendAt);
-    return summary.count === 1
-      ? `Next reminder ${next}`
-      : `Next reminder ${next} (+${summary.count - 1} more)`;
+    return `Reminder ${formatReminderRowDate(summary.nextSendAt)}`;
   }
   const hasScheduled = reminders.some((message) => message.status === "scheduled");
   const hasActive = reminders.some((message) => message.status !== "cancelled" && message.status !== "sent");
@@ -812,49 +820,38 @@ export function ManagerPaymentsLedgerPanel({
     const stay = isStayTotalRow(row);
     const parsed = stay ? parseShortTermStayChargeTitle(row.chargeTitle) : null;
     return (
-      <Modal
+      <PortalDialog
         open
-        title="Edit payment"
-        onClose={cancelEdit}
-        dense
-        dataAttr="payments-edit-modal"
-        footer={
-          <ModalFooter className="justify-between gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
+        title={
+          <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+            <span className="min-w-0 truncate">Edit payment</span>
+            <PortalIconAction
+              icon={Trash2}
+              label="Delete"
+              tone="danger"
               data-attr="payments-edit-delete"
               onClick={() => removePayment(row)}
-            >
-              Delete
-            </Button>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {isMarkableAsPaid(row) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  data-attr="payments-edit-mark-paid"
-                  onClick={() => {
-                    void recordPaid(row, "Marked as paid.");
-                    cancelEdit();
-                  }}
-                >
-                  Mark as paid
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-full"
-                data-attr="payments-edit-save"
-                onClick={() => saveEdit(row)}
-              >
-                Save
-              </Button>
-            </div>
-          </ModalFooter>
+            />
+          </span>
+        }
+        onClose={cancelEdit}
+        dataAttr="payments-edit-modal"
+        primaryAction={{
+          label: "Save",
+          onClick: () => saveEdit(row),
+          dataAttr: "payments-edit-save",
+        }}
+        secondaryAction={
+          isMarkableAsPaid(row)
+            ? {
+                label: "Mark as paid",
+                onClick: () => {
+                  void recordPaid(row, "Marked as paid.");
+                  cancelEdit();
+                },
+                dataAttr: "payments-edit-mark-paid",
+              }
+            : undefined
         }
       >
         <div className="space-y-3">
@@ -938,7 +935,7 @@ export function ManagerPaymentsLedgerPanel({
             </div>
           </div>
         </div>
-      </Modal>
+      </PortalDialog>
     );
   };
 
@@ -1746,46 +1743,40 @@ export function ManagerPaymentsLedgerPanel({
         iconTitleActions
         pinScrollBody
       >
-        <PortalRecordActions>
-          <PortalIconAction
-            icon={Mail}
-            label="Message"
-            data-attr="payment-detail-message"
-            onClick={() => {
-              if (listBasePath) navigate(`${listBasePath}/communication`);
-            }}
-          />
-        </PortalRecordActions>
         {(() => {
           const recordTab = parsePaymentRecordTab(paymentTabProp);
-          const navItems = PAYMENT_RECORD_TABS.map((tab) => ({
-            id: tab,
-            label: PAYMENT_RECORD_TAB_LABELS[tab],
-            description: PAYMENT_RECORD_TAB_DESCRIPTIONS[tab],
-            href: listBasePath
-              ? paymentRecordDetailHref(listBasePath, direction, activeBucket, detailRow.id, tab)
-              : "#",
-          }));
+          const sections = recordSections("manager", "payment", {
+            basePath: listBasePath ?? "/portal",
+            direction,
+            bucket: activeBucket,
+          });
+          // Real handlers exist today only for the actions below; the rest are
+          // real header buttons wired to a visible "coming soon" rather than a
+          // silent no-op — see area-1a's final report.
+          const onHeaderAction = (actionId: string) => {
+            if (actionId === "send-reminder") {
+              setChargeRemindersRow(detailRow);
+              return;
+            }
+            showToast("Coming soon");
+          };
           return (
+            <>
+            <PortalRecordActions>
+              <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+            </PortalRecordActions>
             <PortalRecordSectionChrome
-              items={navItems}
+              sections={sections}
+              recordId={detailRow.id}
               activeId={recordTab}
-              groups={PAYMENT_RECORD_RAIL_GROUPS}
               title={detailRow.chargeTitle}
               backHref={listBasePath ? paymentListHref(listBasePath, direction, activeBucket) : "#"}
               backLabel="All payments"
               ariaLabel="Payment sections"
-              currentLabel={PAYMENT_RECORD_TAB_LABELS[recordTab]}
-              defaultDisclosureOpen={recordTab === "overview"}
+              onHeaderAction={onHeaderAction}
             >
               {recordTab === "overview" ? (
                 renderPaymentDetailPanel(detailRow)
-              ) : recordTab === "communication" ? (
-                <PortalRecordRelatedPanel
-                  title="Communication"
-                  href={listBasePath ? `${listBasePath}/communication` : undefined}
-                  empty="No thread for this charge yet."
-                />
               ) : recordTab === "service" ? (
                 <PortalRecordRelatedPanel
                   title="Service"
@@ -1793,14 +1784,23 @@ export function ManagerPaymentsLedgerPanel({
                 />
               ) : recordTab === "vendor" ? (
                 <PortalRecordRelatedPanel title="Vendor" empty="This charge is not a vendor payment." />
-              ) : (
+              ) : recordTab === "resident" ? (
                 <PortalRecordRelatedPanel
                   title="Resident"
                   value={detailRow.residentName}
                   empty="No resident on this charge."
                 />
+              ) : (
+                renderRecordSection(recordTab, {
+                  role: "manager",
+                  kind: "payment",
+                  kindLabel: "charge",
+                  recordId: detailRow.id,
+                  recordLabel: detailRow.chargeTitle,
+                })
               )}
             </PortalRecordSectionChrome>
+            </>
           );
         })()}
       </PortalRecordDetailPage>

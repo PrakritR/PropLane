@@ -66,11 +66,15 @@ describe("BookingsBlockDatesModal — resident", () => {
   afterEach(cleanup);
 
   it("puts the primary button bottom-right, not bottom-left", () => {
+    // PortalDialog's shared footer (docs/agents/ui-change-checklist.md § Pop-ups):
+    // one text secondary (left) + one filled primary (right), laid out
+    // `justify-between` rather than the old hand-rolled `justify-end` row.
     const { view } = open();
     const button = attr(view, "bookings-block-dates-save")!;
     const footer = button.parentElement!;
-    expect(footer.className).toContain("justify-end");
+    expect(footer.className).toContain("justify-between");
     expect(footer.className).not.toContain("justify-start");
+    expect(footer.lastElementChild).toBe(button);
   });
 
   it("saves with no one by default, and with the picked resident's name and email", async () => {
@@ -149,7 +153,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(optionLabels(provider)).toEqual(["Airbnb", "Booking.com"]);
   });
 
-  it("lists existing holds with Edit and Delete, not a Blocked or View pill", () => {
+  it("lists existing holds with Edit dates and Cancel, not a Blocked or View pill", () => {
     const view = render(
       <BookingsBlockDatesModal
         open
@@ -179,8 +183,8 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(attr(view, "bookings-sheet-existing-blocks")).not.toBeNull();
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Sep 20/i }), { key: "ArrowDown" });
     const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
-    expect(menu.textContent).toContain("Edit");
-    expect(menu.textContent).toContain("Delete");
+    expect(menu.textContent).toContain("Edit dates");
+    expect(menu.textContent).toContain("Cancel booking");
     expect(menu.textContent).not.toContain("View");
     expect(menu.textContent).not.toContain("Blocked");
   });

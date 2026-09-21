@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
+import { MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { PortalComposeScheduledMessagesSection } from "@/components/portal/portal-compose-scheduled-messages-section";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,6 @@ import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-n
 import { trimmedText } from "@/lib/trimmed-text";
 import {
   defaultPortalMessageScheduleAt,
-  PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageCheckboxRow,
@@ -151,6 +151,10 @@ export function PortalNotificationPreviewModal({
   assigneeVendors?: readonly { id: string; name?: string | null; trade?: string | null; active?: boolean }[];
   assigneeLabel?: string;
 }) {
+  // PortalDialog owns panel width and stacking chrome now (PLAN-0920-1058 "1d
+  // · The pop-up"); kept as accepted no-ops so existing callers still typecheck.
+  void panelClassName;
+  void stackClassName;
   const { showToast } = useAppUi();
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [skipMessage, setSkipMessage] = useState(false);
@@ -329,40 +333,34 @@ export function PortalNotificationPreviewModal({
     : footerNote?.trim() ||
       portalMessageSendViaFooterNote(Boolean(smsAvailable && smsSetup?.canSend !== false));
 
-  const footer = (
-    <ModalFooter>
-      <Button
-        type="button"
-        variant="primary"
-        className="rounded-full"
-        data-attr="portal-notification-confirm"
-        disabled={
+  return (
+    <PortalDialog
+      open={open}
+      title={title}
+      onClose={onClose}
+      primaryAction={{
+        label: primaryButtonLabel,
+        onClick: () => void handleConfirm(),
+        disabled:
           confirmBusy ||
           scheduleBusy ||
           !channelsOk ||
           !messageReady ||
           smsBlocked ||
-          (scheduling && !canSchedule)
-        }
-        onClick={() => void handleConfirm()}
-      >
-        {primaryButtonLabel}
-      </Button>
-    </ModalFooter>
-  );
-
-  return (
-    <Modal
-      open={open}
-      title={title}
-      onClose={onClose}
-      dense
-      footer={footer}
-      assistantContext={assistantContext ?? title}
-      panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, panelClassName)}
-      stackClassName={stackClassName}
+          (scheduling && !canSchedule),
+        dataAttr: "portal-notification-confirm",
+      }}
+      secondaryAction={{ label: cancelLabel, onClick: onClose }}
     >
       <PortalMessageComposeModalBody>
+        {/*
+         * The "Ask PropLane" draft helper is body chrome for this editing
+         * workspace, not the top-bar chip PortalDialog forbids — it renders its
+         * own inline trigger (no header portal target) and portals its rail
+         * over the dialog when expanded, so it works unmodified in a
+         * PortalDialog body (PLAN-0920-1058 "1d · The pop-up").
+         */}
+        <ModalAssistantStrip contextHint={assistantContext ?? title} storageScopeKey={assistantContext ?? title} />
         {warning ? (
           <p className={`${MODAL_WARNING_BOX_CLASS} py-1.5 text-xs`}>
             {warningLead ? (
@@ -486,7 +484,7 @@ export function PortalNotificationPreviewModal({
           />
         ) : null}
       </PortalMessageComposeModalBody>
-    </Modal>
+    </PortalDialog>
   );
 }
 
@@ -519,23 +517,19 @@ export function PortalBulkPaymentReminderPreviewModal({
   const title = count === 1 ? "Send payment reminder" : `Send ${count} payment reminders`;
   const confirmLabel = count === 1 ? "Send reminder" : `Send ${count} reminders`;
 
-  const footer = (
-    <ModalFooter>
-      <Button
-        type="button"
-        variant="primary"
-        className="rounded-full"
-        data-attr="portal-bulk-notification-confirm"
-        disabled={confirmBusy || count === 0}
-        onClick={onConfirm}
-      >
-        {confirmBusy ? "Sending…" : confirmLabel}
-      </Button>
-    </ModalFooter>
-  );
-
   return (
-    <Modal open={open} title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}>
+    <PortalDialog
+      open={open}
+      title={title}
+      onClose={onClose}
+      primaryAction={{
+        label: confirmBusy ? "Sending…" : confirmLabel,
+        onClick: onConfirm,
+        disabled: confirmBusy || count === 0,
+        loading: confirmBusy,
+        dataAttr: "portal-bulk-notification-confirm",
+      }}
+    >
       <div className="max-h-[min(52vh,26rem)] space-y-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
         {items.map((item, index) => (
           <div key={item.id} className="space-y-2 rounded-xl border border-border bg-accent/10 p-3">
@@ -565,7 +559,7 @@ export function PortalBulkPaymentReminderPreviewModal({
           </div>
         ))}
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }
 

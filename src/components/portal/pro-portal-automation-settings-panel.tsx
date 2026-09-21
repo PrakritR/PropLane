@@ -40,10 +40,16 @@ import {
   PortalSettingsGroup,
   PortalSettingsLinkRow,
   PortalSettingsRow,
+  PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
 import type { CoManagerPermissionId } from "@/lib/co-manager-permissions";
+import {
+  useSettingsPropertyScope,
+  type SettingsResolutionSource,
+} from "@/components/portal/settings-property-scope";
+import { scopeTagLabel } from "@/components/portal/settings-scope-bar";
 
 /** 00:00 … 23:00 — the quiet-hours pickers, Pacific wall time. */
 const QUIET_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }));
@@ -96,6 +102,9 @@ export const REMINDER_KIND_MODULE: Record<ReminderSubjectKind, CoManagerPermissi
   move_out: "leases",
   move_out_inspection_manager: "residents",
   deposit_accounting: "payments",
+  lease_renewal_offer: "leases",
+  move_out_instructions: "leases",
+  deposit_return_notice: "payments",
   application_documents: "applications",
   application_decision_manager: "applications",
   application_no_lease_manager: "applications",
@@ -137,7 +146,14 @@ export function ManagerPortalAutomationSettingsPanel({
   formRef?: React.Ref<{ saveIfDirty: () => Promise<boolean> }>;
 } = {}) {
   const reportSaveStatus = useReportSettingsSaveStatus();
+  const {
+    propertyId: scopePropertyId,
+    propertyIds: scopePropertyIds,
+    workspaceId: scopeWorkspaceId,
+    reportSource,
+  } = useSettingsPropertyScope();
   const [settings, setSettings] = useState<ReminderSettings>(DEFAULT_REMINDER_SETTINGS);
+  const [source, setSource] = useState<SettingsResolutionSource | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -149,18 +165,24 @@ export function ManagerPortalAutomationSettingsPanel({
     const timer = setTimeout(() => controller.abort(), 15_000);
     void (async () => {
       try {
-        const res = await fetch("/api/portal/reminder-settings", {
+        const params = new URLSearchParams();
+        if (scopePropertyId) params.set("propertyId", scopePropertyId);
+        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
+        const query = params.toString() ? `?${params.toString()}` : "";
+        const res = await fetch(`/api/portal/reminder-settings${query}`, {
           credentials: "include",
           cache: "no-store",
           signal: controller.signal,
         });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; source?: SettingsResolutionSource };
         if (cancelled) return;
         if (!res.ok) {
           setLoadError(body.error ?? "Could not load settings.");
           return;
         }
         setSettings(normalizeReminderSettings(body.settings));
+        setSource(body.source ?? null);
+        reportSource("reminder-settings", body.source);
         setHydrated(true);
       } catch {
         if (!cancelled) setLoadError("Could not load settings.");
@@ -174,7 +196,8 @@ export function ManagerPortalAutomationSettingsPanel({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [reloadKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey, scopePropertyId, scopeWorkspaceId]);
 
   const persist = useCallback(async (draft: ReminderSettings) => {
     reportSaveStatus({ type: "start" });
@@ -183,21 +206,27 @@ export function ManagerPortalAutomationSettingsPanel({
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: draft }),
+        body: JSON.stringify({
+          settings: draft,
+          ...(scopePropertyId ? { propertyId: scopePropertyId } : {}),
+          ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
+        }),
       });
-      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; source?: SettingsResolutionSource };
       if (!res.ok) {
         const reason = body.error ?? "Could not save.";
         reportSaveStatus({ type: "failure", reason });
         return { ok: false as const, error: reason };
       }
+      setSource(body.source ?? null);
+      reportSource("reminder-settings", body.source);
       reportSaveStatus({ type: "success" });
     } catch {
       const reason = "Could not save.";
       reportSaveStatus({ type: "failure", reason });
       return { ok: false as const, error: reason };
     }
-  }, [reportSaveStatus]);
+  }, [reportSaveStatus, scopePropertyId, scopeWorkspaceId, reportSource]);
 
   const autosave = useAutosaveDraft({
     draft: settings,
@@ -241,6 +270,7 @@ export function ManagerPortalAutomationSettingsPanel({
       <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <PortalSettingsSection
           title="Quiet hours"
+          action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
         >
           <PortalSettingsGroup>
             <PortalSettingsRow
@@ -300,7 +330,10 @@ export function ManagerPortalAutomationSettingsPanel({
           </PortalSettingsGroup>
         </PortalSettingsSection>
 
-        <PortalSettingsSection title="Team & automated sends">
+        <PortalSettingsSection
+          title="Team & automated sends"
+          action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
+        >
           <PortalSettingsGroup>
             <PortalSettingsRow label="Team notices send automatically">
               <PortalSettingsToggle

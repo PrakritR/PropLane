@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettings, normalizeManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import {
   managerNotificationCategoryForEvent,
   resolveManagerNotificationRoute,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/manager-notification-preferences";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { resolveSettingsScope, type SettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 
 export type ManagerNotificationProfile = {
   phone?: string | null;
@@ -22,6 +23,15 @@ export async function resolveManagerNotificationChannels(
   managerUserId: string,
   category: ManagerNotificationCategory | string,
   suppliedProfile?: ManagerNotificationProfile | null,
+  /**
+   * The triggering row's workspace, when it has one (PLAN-0920-0845 phase C).
+   * Notifications have no property rung — a house-level override never
+   * applies here — so this resolves workspace row → account row → default.
+   * Omitted (or no matching workspace row) behaves exactly as before: the
+   * manager's account-level notification settings.
+   */
+  workspaceId?: string | null,
+  cache?: SettingsScopeCache,
 ): Promise<{ inbox: boolean; email: boolean; sms: boolean; fellBackToAssistant: boolean }> {
   let profile = suppliedProfile ?? null;
   if (!profile) {
@@ -33,7 +43,13 @@ export async function resolveManagerNotificationChannels(
     profile = (data as ManagerNotificationProfile | null) ?? null;
   }
 
-  const settings = await loadManagerAutomationSettings(db, managerUserId);
+  const { value: settings } = await resolveSettingsScope(
+    db,
+    { managerUserId, workspaceId },
+    "paymentAutomation",
+    { normalize: normalizeManagerAutomationSettings, loadAccount: (d, m) => loadManagerAutomationSettings(d, m) },
+    cache,
+  );
   const resolvedCategory = managerNotificationCategoryForEvent(category);
   const phone = String(profile?.phone ?? "").trim();
   const optedOut = phone ? await isPhoneOptedOut(db, phone) : false;
@@ -85,6 +101,8 @@ export async function sendManagerNotificationSms(
     text: string;
     purpose: string;
     dedupeKey?: string;
+    /** The triggering row's workspace, when it has one (phase C). */
+    workspaceId?: string | null;
   },
 ): Promise<{ sent: boolean }> {
   const { data } = await db
@@ -98,6 +116,7 @@ export async function sendManagerNotificationSms(
     input.managerUserId,
     input.category,
     profile,
+    input.workspaceId,
   );
   const to = String(profile?.phone ?? "").trim();
   const fromNumber = channels.sms

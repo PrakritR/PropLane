@@ -2,6 +2,7 @@
  * One Communication thread per (resident/prospect email, manager, property).
  */
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { createHash } from "node:crypto";
 
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -403,6 +404,8 @@ export async function deliverResidentPropertyManagerChatMessage(
     subject: string;
     message: string;
     messageIds?: { resident: string; manager: string };
+    /** Never overwrites an already-stamped `recordRef` — the ref belongs to whoever first composed from that record. */
+    recordRef?: RecordRef;
   },
 ): Promise<{ threadId: string }> {
   const residentEmail = input.residentEmail.trim().toLowerCase();
@@ -436,12 +439,15 @@ export async function deliverResidentPropertyManagerChatMessage(
   };
 
   const residentExisting = residentTarget.existing;
+  const normalizedRecordRef = normalizeRecordRef(input.recordRef);
 
   if (residentExisting?.row_data) {
     const rowData = asObject(residentExisting.row_data) ?? {};
     if (input.messageIds && recordedMessage(rowData, input.messageIds.resident, subject, message)) {
       // The manager-side retry still runs below.
     } else {
+    // Never overwrite an already-stamped `recordRef` — it belongs to whoever first composed from that record.
+    const recordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef;
     const { error: updateError } = await db.from("portal_inbox_thread_records").upsert(
       {
         id: threadId,
@@ -464,6 +470,7 @@ export async function deliverResidentPropertyManagerChatMessage(
           managerUserId: input.managerUserId,
           counterpartyRole: "manager",
           propertyTitle: input.propertyTitle,
+          ...(recordRef ? { recordRef } : {}),
           messages: appendThreadMessages(rowData, [{ ...outboundTurn, id: input.messageIds?.resident ?? outboundTurn.id, subject }]),
         },
         updated_at: new Date().toISOString(),
@@ -498,6 +505,7 @@ export async function deliverResidentPropertyManagerChatMessage(
           counterpartyRole: "manager",
           propertyTitle: input.propertyTitle,
           rootOutbound: true,
+          ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
         },
         updated_at: new Date().toISOString(),
       },
@@ -514,6 +522,7 @@ export async function deliverResidentPropertyManagerChatMessage(
     subject,
     body: message,
     messageId: input.messageIds?.manager,
+    recordRef: normalizedRecordRef ?? undefined,
   });
 
   return { threadId };
@@ -535,6 +544,8 @@ export async function appendManagerPropertyLeadInboxMessage(
     outbound?: boolean;
     counterpartyRole?: "resident" | "applicant" | "prospect";
     smsConversationKey?: string;
+    /** Never overwrites an already-stamped `recordRef` — the ref belongs to whoever first composed from that record. */
+    recordRef?: RecordRef;
   },
 ): Promise<void> {
   const prospectEmail = input.prospectEmail.trim().toLowerCase();
@@ -563,9 +574,13 @@ export async function appendManagerPropertyLeadInboxMessage(
     outbound: input.outbound === true,
   };
 
+  const normalizedRecordRef = normalizeRecordRef(input.recordRef);
+
   if (existing?.row_data) {
     const rowData = asObject(existing.row_data) ?? {};
     if (input.messageId && recordedMessage(rowData, input.messageId, threadSubject, input.body)) return;
+    // Never overwrite an already-stamped `recordRef` — see the param doc above.
+    const recordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef;
     const { error: updateError } = await db.from("portal_inbox_thread_records").upsert(
       {
         id: threadId,
@@ -586,6 +601,7 @@ export async function appendManagerPropertyLeadInboxMessage(
           counterpartyRole: input.counterpartyRole ?? "resident",
           propertyTitle: propertyLabel,
           ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
+          ...(recordRef ? { recordRef } : {}),
           messages: appendThreadMessages(rowData, [{ ...inboundTurn, id: input.messageId ?? inboundTurn.id, subject: threadSubject }]),
         },
         updated_at: new Date().toISOString(),
@@ -622,6 +638,7 @@ export async function appendManagerPropertyLeadInboxMessage(
         ...(input.outbound === true ? { rootOutbound: true } : {}),
         propertyTitle: propertyLabel,
         ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
+        ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
       },
       updated_at: new Date().toISOString(),
     },
