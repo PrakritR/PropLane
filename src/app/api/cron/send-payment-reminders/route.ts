@@ -8,7 +8,9 @@ import {
   loadManagerAutomationSettings,
   loadScheduledMessageOverrides,
   normalizeManagerAutomationSettings,
+  scheduledOverrideId,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
+  type ScheduledMessageOverride,
 } from "@/lib/payment-automation-settings";
 import {
   projectScheduledPaymentMessages,
@@ -28,6 +30,9 @@ import {
   scheduledPaymentMessageChargeIds,
 } from "@/lib/combined-payment-reminders";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
+import { paymentReminderSnapshotMatches, resolveReminderWorkspaceOwner } from "@/lib/payment-reminder-workspace";
+import { loadPaymentReminderChargeForActor } from "@/lib/payment-reminder-capability.server";
 
 export const runtime = "nodejs";
 
@@ -77,7 +82,7 @@ export async function GET(req: Request) {
   const [{ data: records, error }, { data: profileRecords, error: profileError }] = await Promise.all([
     db
       .from("portal_household_charge_records")
-      .select("id, row_data, manager_user_id")
+      .select("id, row_data, manager_user_id, property_id")
       .eq("status", "pending"),
     db.from("portal_recurring_rent_profile_records").select("manager_user_id, row_data").limit(5000),
   ]);
@@ -90,11 +95,19 @@ export async function GET(req: Request) {
   }
 
   const listingByPropertyId = await loadListingByPropertyId(db);
+  const propertyOwners = await resolvePropertyPayoutOwners(db, [
+    ...(records ?? []).map((row) => String(row.property_id ?? (row.row_data as HouseholdCharge | null)?.propertyId ?? "")),
+    ...(profileRecords ?? []).map((row) => String((row.row_data as RecurringRentProfile | null)?.propertyId ?? "")),
+  ]);
+  const ownerFor = (propertyId: string, fallback: string | null | undefined) =>
+    resolveReminderWorkspaceOwner(propertyOwners, propertyId, fallback);
 
   const profilesByManager = new Map<string, RecurringRentProfile[]>();
   for (const row of profileRecords ?? []) {
     const profile = row.row_data as RecurringRentProfile;
-    const managerId = (row.manager_user_id as string | null) ?? profile.managerUserId ?? "unknown";
+    if (!profile) continue;
+    const managerId = ownerFor(String(profile.propertyId ?? ""), (row.manager_user_id as string | null) ?? profile.managerUserId);
+    if (!managerId) continue;
     const list = profilesByManager.get(managerId) ?? [];
     list.push(profile);
     profilesByManager.set(managerId, list);
@@ -104,15 +117,17 @@ export async function GET(req: Request) {
     .map((record) => ({
       recordId: record.id as string,
       managerUserId: record.manager_user_id as string | null,
+      propertyId: String(record.property_id ?? (record.row_data as HouseholdCharge | null)?.propertyId ?? ""),
       charge: record.row_data as HouseholdCharge | null,
     }))
-    .filter((row): row is { recordId: string; managerUserId: string | null; charge: HouseholdCharge } =>
+    .filter((row): row is { recordId: string; managerUserId: string | null; propertyId: string; charge: HouseholdCharge } =>
       Boolean(row.charge?.id && row.charge.residentEmail && isUnpaidHouseholdCharge(row.charge)),
     );
 
   const chargesByManager = new Map<string, HouseholdCharge[]>();
   for (const row of allCharges) {
-    const mgr = row.managerUserId ?? row.charge.managerUserId ?? "unknown";
+    const mgr = ownerFor(row.propertyId, row.managerUserId ?? row.charge.managerUserId);
+    if (!mgr) continue;
     const list = chargesByManager.get(mgr) ?? [];
     list.push(row.charge);
     chargesByManager.set(mgr, list);
@@ -120,10 +135,14 @@ export async function GET(req: Request) {
 
   const { data: outboundRows } = await db
     .from("portal_outbound_mail_records")
-    .select("id")
+    .select("id, row_data")
     .or("id.like.payment_reminder_%,id.like.late_fee_notice_%")
     .limit(SENT_DEDUP_ID_LIMIT);
-  const sentDedupIds = new Set((outboundRows ?? []).map((r) => String(r.id)));
+  const sentDedupIds = new Set(
+    (outboundRows ?? [])
+      .filter((row) => (row.row_data as { deliveryComplete?: boolean } | null)?.deliveryComplete !== false)
+      .map((row) => String(row.id)),
+  );
 
   let sent = 0;
   let skipped = 0;
@@ -172,13 +191,12 @@ export async function GET(req: Request) {
 
     const overrides = await loadScheduledMessageOverrides(db, managerId).catch(() => new Map());
 
-    const { data: profile } = await db
-      .from("profiles")
-      .select("full_name, email, sms_from_number")
-      .eq("id", managerId)
-      .maybeSingle();
+    const [{ data: profile }, { data: workNumber }] = await Promise.all([
+      db.from("profiles").select("full_name, email").eq("id", managerId).maybeSingle(),
+      db.from("manager_sms_numbers").select("phone_number").eq("manager_user_id", managerId).maybeSingle(),
+    ]);
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";
-    const managerSmsFromNumber = String(profile?.sms_from_number ?? "").trim();
+    const managerSmsFromNumber = String(workNumber?.phone_number ?? "").trim();
     const from = await managerOutboundFromHeader(db, managerId);
 
     // A house with its own payment-automation settings gets its own cadence and
@@ -238,7 +256,7 @@ export async function GET(req: Request) {
       const charges = chargeIds
         .map((id) => chargeById.get(id))
         .filter((c): c is HouseholdCharge => Boolean(c && isUnpaidHouseholdCharge(c)));
-      if (!charges.length) {
+      if (charges.length !== chargeIds.length) {
         skipped++;
         continue;
       }
@@ -262,9 +280,22 @@ export async function GET(req: Request) {
         continue;
       }
 
+      // Projection may have happened minutes before provider work. Re-read
+      // every member so a paid, moved, or edited charge cannot send stale copy.
+      const current = await Promise.all(chargeIds.map((id) =>
+        loadPaymentReminderChargeForActor(db, managerId, id),
+      ));
+      if (current.some((context, index) =>
+        !context || context.ownerUserId !== managerId ||
+        !paymentReminderSnapshotMatches(charges[index]!, context.charge),
+      )) {
+        skipped++;
+        continue;
+      }
+
       const result = await deliverPaymentReminder({
         db,
-        charge: primary,
+        charge: current[0]!.charge,
         managerId,
         dedupId: dedupPlan.dedupId,
         bundledDedupEntries: dedupPlan.bundledDedupEntries,
@@ -317,7 +348,9 @@ export async function GET(req: Request) {
             residentUserId: charge.residentUserId,
             propertyId: charge.propertyId,
             propertyLabel: charge.propertyLabel,
-            managerUserId: charge.managerUserId ?? managerId,
+            // The source row may predate a property ownership transfer. The
+            // current property owner is the payee and sender for this run.
+            managerUserId: managerId,
             kind: "late_fee",
             title: `Late fee — ${charge.title}`,
             amountLabel: policy.amountLabel,
@@ -328,12 +361,13 @@ export async function GET(req: Request) {
             sourceChargeId: charge.id,
           };
 
-          await db.from("portal_household_charge_records").upsert(
+          const { error: lateFeeError } = await db.from("portal_household_charge_records").upsert(
             {
               id: lateFeeId,
               manager_user_id: lateFeeCharge.managerUserId,
               resident_user_id: lateFeeCharge.residentUserId ?? null,
               resident_email: charge.residentEmail.trim().toLowerCase(),
+              property_id: charge.propertyId,
               kind: "late_fee",
               status: "pending",
               row_data: lateFeeCharge,
@@ -341,6 +375,10 @@ export async function GET(req: Request) {
             },
             { onConflict: "id" },
           );
+          if (lateFeeError) {
+            errors.push(`Could not create late fee ${lateFeeId}: ${lateFeeError.message}`);
+            continue;
+          }
           await syncLedgerChargeEntry(db, lateFeeCharge).catch((e: unknown) => {
             const reason = e instanceof Error ? e.message : String(e);
             console.error(`[send-payment-reminders] ledger sync failed for late fee ${lateFeeId}: ${reason}`);
@@ -361,6 +399,14 @@ export async function GET(req: Request) {
           });
           const residentLower = charge.residentEmail.trim().toLowerCase();
           const noticeDedupId = `late_fee_notice_${lateFeeId}`;
+          const lateFeeNoticeOverride = overrides.get(
+            scheduledOverrideId({
+              managerUserId: managerId,
+              chargeId: charge.id,
+              kind: "late_fee",
+              daysBeforeDue: null,
+            }),
+          ) as ScheduledMessageOverride | undefined;
 
           if (settings.lateFeeNoticeEnabled && !sentDedupIds.has(noticeDedupId)) {
             if (residentEmailBudgetLeft(charge.residentEmail)) {
@@ -378,8 +424,14 @@ export async function GET(req: Request) {
                 html: reminderHtmlFromText(noticeText),
                 slotLabel: "late_fee_created",
                 eventCategory: "payments",
-                managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
-                managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
+                // The late-fee notice is sent from here rather than the reminder
+                // loop, so it has to read the same per-slot override the inbox
+                // card writes — otherwise the card shows SMS and the notice goes
+                // out by email.
+                managerDeliverViaEmail:
+                  lateFeeNoticeOverride?.customDeliverViaEmail ?? settings.paymentReminderDeliverViaEmail,
+                managerDeliverViaSms:
+                  lateFeeNoticeOverride?.customDeliverViaSms ?? settings.paymentReminderDeliverViaSms,
                 managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
               });
               if (result.error) errors.push(result.error);

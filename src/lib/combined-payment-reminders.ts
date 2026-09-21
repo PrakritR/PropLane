@@ -34,14 +34,28 @@ function sendAtBundleKey(sendAt: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+function deliveryChannelBundleKey(message: ScheduledPaymentMessage): string {
+  // Keep inherited automation settings distinct from an explicit per-slot choice.
+  // They may resolve to the same channels today, but they have different future
+  // behavior if the workspace defaults change before this reminder is sent.
+  const value = (channel: boolean | undefined) =>
+    channel === undefined ? "default" : channel ? "on" : "off";
+  return `${value(message.deliverViaEmail)},${value(message.deliverViaSms)}`;
+}
+
 export function scheduledPaymentMessageBundleKey(message: ScheduledPaymentMessage): string {
   const dayPart = message.daysBeforeDue == null ? "na" : String(message.daysBeforeDue);
   return [
+    // The manager id is the scheduled reminder's workspace owner. A resident
+    // can have charges under more than one owner, and their reminders must
+    // never share a workspace's delivery configuration or conversation entry.
+    message.managerUserId,
     normalizeEmail(message.residentEmail),
     message.kind,
     dayPart,
     sendAtBundleKey(message.sendAt),
     message.status,
+    deliveryChannelBundleKey(message),
   ].join("|");
 }
 

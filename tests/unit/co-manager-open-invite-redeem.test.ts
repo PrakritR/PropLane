@@ -11,7 +11,7 @@ vi.mock("@/lib/auth/co-manager-invite-scope", () => ({ findPropertyIdsNotOwnedBy
 vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: mocks.role }));
 vi.mock("@/lib/co-manager-notification.server", () => ({ notifyCoManagerInviteAccepted: mocks.notify }));
 import { POST } from "@/app/api/pro/account-links/redeem/route";
-import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token";
+import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token.server";
 
 const row = {
   id: "invite", inviter_user_id: "owner", invitee_user_id: null,

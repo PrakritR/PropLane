@@ -476,6 +476,18 @@ describe("POST /api/webhooks/email/inbound", () => {
       ingestInboundEmailReply: replyIngestSpy,
       backfillInboundEmailReplyBody: replyBackfillSpy,
     }));
+    // The route also probes every inbound mail against vendor-sponsored work
+    // identities before falling through to the support/reply ingest paths
+    // this suite exercises. That probe needs a live service-role client and a
+    // `vendor_work_identities` lookup — out of scope here (covered by
+    // vendor-work-identity-reply-binding.test.ts) — so stub both rather than
+    // letting a real client construction or a real query run against nothing.
+    vi.doMock("@/lib/supabase/service", () => ({
+      createSupabaseServiceRoleClient: () => ({}),
+    }));
+    vi.doMock("@/lib/vendor-work-identity-inbound.server", () => ({
+      ingestVendorWorkIdentityEmail: vi.fn(async () => ({ handled: false })),
+    }));
   });
   afterEach(() => {
     for (const k of ENV) delete process.env[k];

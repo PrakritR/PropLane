@@ -12,14 +12,12 @@ import {
   type UpcomingRow,
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
-import {
-  ManagerPortalPageShell,
-  portalDashboardWelcomeSubtitle,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
+import { CalendarDays, ListChecks } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   MANAGER_WORK_ORDERS_EVENT,
@@ -53,10 +51,10 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 }
 
 /** Vendor Home — same tree as the manager dashboard with vendor numbers. */
-export function VendorDashboard({ displayName }: { displayName: string }) {
+export function VendorDashboard({}: { displayName: string }) {
   const router = useRouter();
   const [tick, setTick] = useState(0);
-  const [nowTick] = useState(() => Date.now());
+  const [nowMs] = useState(() => Date.now());
   const bump = () => setTick((n) => n + 1);
   const [paymentsConnected, setPaymentsConnected] = useState(false);
   const [needsContact, setNeedsContact] = useState(false);
@@ -144,7 +142,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
     attentionRows.push({
       id: "phone",
       title: "Phone number not set up",
-      detail: "Set up messaging in Settings",
+      detail: "Phone",
       actionLabel: "Set up",
       href: `${BASE}/profile`,
       tone: "pending",
@@ -187,7 +185,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
       kind: "Visit",
       title: row.title,
       detail: propertyLabel(row),
-      at: Date.parse(row.scheduledAtIso ?? "") || nowTick,
+      at: Date.parse(row.scheduledAtIso ?? "") || nowMs,
       href: `${BASE}/calendar`,
     })),
   ];
@@ -197,10 +195,8 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
   return (
     <ManagerPortalPageShell
       title="Dashboard"
-      subtitle={portalDashboardWelcomeSubtitle(displayName)}
       hideTitleOnNative
       hideTitleOnMobileNav
-      welcomeSubtitle
     >
       <PortalHomeLayout
         banner={
@@ -218,32 +214,24 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
             <KpiCard
               label="Open jobs"
               value={String(openWorkOrders.length)}
-              detail={openWorkOrders.length === 0 ? "No jobs yet" : "Active services"}
-              delta={null}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-jobs"
             />
             <KpiCard
               label="Quotes due"
               value={String(quotesPending.length)}
-              detail={quotesPending.length === 0 ? "Nothing waiting" : "Waiting on your price"}
-              delta={null}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-quotes"
             />
             <KpiCard
               label="Upcoming visits"
               value={String(upcomingVisits.length)}
-              detail={upcomingVisits.length === 0 ? "Nothing scheduled" : "On the calendar"}
-              delta={null}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
             />
             <KpiCard
               label="Unread messages"
               value={String(inboxThreads.length)}
-              detail={inboxThreads.length === 0 ? "All caught up" : "Needs a reply"}
-              delta={null}
               href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
             />
@@ -251,8 +239,14 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
         }
         split={
           <>
-            <AttentionPanel rows={attentionRows} />
-            <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
+            <AttentionPanel rows={attentionRows} hideRowDetail emptyCopy="No items need attention." />
+            <UpcomingPanel
+              rows={upcomingRows}
+              nowMs={nowMs}
+              calendarHref={`${BASE}/calendar`}
+              emptyCopy="No upcoming visits."
+              aside={<PortalIconAction icon={CalendarDays} label="Open calendar" onClick={() => router.push(`${BASE}/calendar`)} data-attr="vendor-dashboard-calendar-open" />}
+            />
           </>
         }
         below={
@@ -265,13 +259,12 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
                   data-attr="vendor-dashboard-add"
                   onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "pending")}?add=1`)}
                 />
-                <Link
-                  href={vendorWorkOrderListHref(BASE, "pending")}
-                  className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"
+                <PortalIconAction
+                  icon={ListChecks}
+                  label="Manage services"
                   data-attr="vendor-dashboard-manage-jobs"
-                >
-                  Manage services →
-                </Link>
+                  onClick={() => router.push(vendorWorkOrderListHref(BASE, "pending"))}
+                />
               </div>
             </div>
             {jobCards.length === 0 ? (

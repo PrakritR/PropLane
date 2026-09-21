@@ -1,167 +1,78 @@
-# Captain dev workflow (PropPlane)
+# Captain development workflow
 
-**Prakrit's pipeline.** Short copy for agents: [`AGENTS-prakrit.md`](AGENTS-prakrit.md).
-Akhil's agents skip this unless he asks: [`AGENTS-akhil.md`](AGENTS-akhil.md).
+Prakrit's process and standing authority are defined in
+[AGENTS-prakrit.md](AGENTS-prakrit.md). Akhil's process remains separate.
 
-The captain reviews plans in **Lavish** before any build. Share **`ticket.md`**
-with friends via `docs/share/proplane-collaborator-workflow.md`.
+## Plan → approve → build → validate → integrate
 
-## The three gates (always in order)
+Start product and UI work with an editable Lavish prototype in PropLane's
+actual design system. Keep the same review session through revisions, verify
+its chat round trip, and keep an attached feedback poll running. Build only
+after explicit build approval. Follow [the plan standard](lavish-plan-standard.md).
 
-```
-① TICKET  →  ② PLAN + SHARE  →  ③ EXECUTE  →  ④ REVIEW  →  ⑤ PROMOTE
-```
+Linear tickets are off unless Prakrit explicitly asks for one. Create the
+Lavish artifact independently; do not use a combined helper that creates a
+ticket. Instruction maintenance and read-only investigation do not need a
+recursive product plan.
 
-| Phase | Agent does | Captain does |
+## Six standing agent worktrees
+
+| Branch | Worktree directory | Port |
 | --- | --- | --- |
-| **① Ticket** | File Linear issue from chat | Skim **PRP-###** in Linear |
-| **② Plan + share** | Lavish `plan.html` + optional `ticket.md` | Review Lavish; share `ticket.md` if needed |
-| **③ Execute** | Build on keeper branch; wire MCP/tools | — |
-| **④ Review** | Test sandbox port; summarize | Review localhost + diff |
-| **⑤ Promote** | Push keeper branch; captain runs `ship:to-prakrit` + main ladder | Approve integration; verify :3000 on review route |
+| `claude-1` | `proplane-claude` | 3001 |
+| `claude-2` | `proplane-claude-2` | 3002 |
+| `claude-3` | `proplane-claude-3` | 3003 |
+| `cursor-1` | `proplane-cursor-branch-1` | 3004 |
+| `cursor-2` | `proplane-cursor-2` | 3005 |
+| `codex-1` | `proplane-codex-1` | 3006 |
+| `prakrit` | `proplane-prakrit` | 3000 |
 
-**Do not skip ① or ②** unless the captain says **"no ticket"** or **"skip plan"**
-(hotfix only).
+The installed path/port registry is Firstmate's
+`config/proplane-agent-branches`. Keep the six agents in the existing cockpit
+and `prakrit` in its own terminal window. Do not automatically create extra
+lanes, dated prompt branches, or delete a standing branch after integration.
 
-**Visual workflow board:** `npm run lavish:workflow`
+Each agent works on its own keeper. Before new work, fetch and fast-forward
+from `origin/prakrit` when the working tree is clean and the update is a
+fast-forward. Preserve unfinished edits and unique commits when it is not.
+Temporary isolated worktrees may be used for validation; they are not new
+standing lanes and must be retired after their work is preserved.
 
----
+## Validate before integration
 
-## ① + ② Ticket and plan (preferred one-shot)
+Read the relevant feature architecture notes before editing. For product
+changes, seed dev/test data, drive the complete affected browser flow and its
+edges, and report actual test/lint exit codes. Follow [the ship gate](../ship-gate.md).
 
-```bash
-npm run workflow:plan -- --chat "<captain message>"
-```
+Run security review and no-mistakes before integrating. Review UI changes for
+cache/rendering/performance and web/native parity as applicable. Open the
+agent's review route with `npm run sandbox:open -- </route>`.
 
-Creates **PRP-###**, scaffolds `.lavish/plans/PRP-###-slug/plan.html`, links the
-plan on the Linear ticket, opens Lavish. **No product code** until approval.
-
-**Existing ticket:**
-
-```bash
-npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..." --image /path.png
-```
-
-**Ticket only** (plan later): `npm run linear:ticket -- --chat "…"`
-
-**Priority when filing** (auto unless you pass `--priority 1-4`):
-
-| Level | Use when |
-| --- | --- |
-| **High** | Blocks signup → listing → apply → pay; wrong charges; unusable UI |
-| **Medium** | Frequent portal surface; confusing but completable |
-| **Low** | Cosmetic UI, copy, rename, dev tooling |
-
-UI polish is **Low** unless the screen is unusable. Full matrix + backlog sort order:
-`docs/linear-ticket-system.md` → **Priority & backlog sort**. Normalize open issues:
-`npm run linear:triage`.
-
-Manual enrich + poll:
-
-1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).
-2. **Images:** `--image` on `workflow:plan` or `lavish:plan` (stored in `assets/`).
-3. `npm run lavish:poll` — **mandatory** on every agent turn while `.lavish/active-session.json` exists.
-4. **Stop** until captain says **approved — build**.
-
-### Share with a friend
+Commit and push the keeper without force. Open a PR only on request. Prakrit
+has authorized completed, validated keeper work to be integrated into
+`prakrit`; no repeated integration approval is needed for that bounded step:
 
 ```bash
-npm run linear:export -- --ticket PRP-### \
-  --out .lavish/plans/PRP-###-slug/ticket.md
+npm run ship:to-prakrit -- --source <keeper>
 ```
 
-Email or Slack `ticket.md`; optional Lavish public URL:
+Keep the source branch. Fast-forward clean keepers from the integrated tip,
+then verify each completed keeper is an ancestor of `origin/prakrit`.
+Report dirty or divergent keepers explicitly instead of claiming all are
+synchronized. Do not overwrite another agent's unfinished work.
 
-```bash
-npx -y lavish-axi share .lavish/plans/PRP-###-slug/plan.html
-```
+Before closing an obsolete branch/worktree, preserve its commits and working
+copy, distinguish equivalent patches from genuinely missing changes, and
+verify integration. Old snapshots are not permission to restore obsolete
+behavior over newer reviewed code.
 
-Full collaborator guide: **`docs/share/proplane-collaborator-workflow.md`**.
+## Release remains separate
 
-### ② Done when
+Integration stops at `prakrit`. Moving to `main`, staging QA, and production
+still require their existing captain/release authorization and checks.
+Vercel deploys only `staging` and `production`; production also ships iOS.
+See [deployment workflow](deployment-workflow.md) and
+[sandbox review](sandbox-open-review.md).
 
-- [ ] `plan.html` reviewed in Lavish
-- [ ] `ticket.md` exported if sharing async
-- [ ] Captain said **approved — build**
-
----
-
-## ③ Execute (build + tooling)
-
-| Pane | Keeper branch | Sandbox URL |
-| --- | --- | --- |
-| Cursor 1 | `cursor-1` | http://localhost:3010 |
-| Cursor 2 | `cursor-2` | http://localhost:3011 |
-| Claude 1 | `claude-1` | http://localhost:3012 |
-
-Commit and push **only** the prompt branch created when this prompt started
-(`agent/<lane>/…`). Never push the standing lane name.
-
-| Area | Read first |
-| --- | --- |
-| Portal UI | `docs/portal-ui-system.md` + `docs/agents/ui-change-checklist.md` |
-| Feature | `docs/agents/<area>.md` |
-| MCP / tools | `docs/agents/agent-tooling-index.md` |
-| Code map | `graphify query "…"` |
-
----
-
-## ④ Review (sandbox)
-
-1. Dev server on **this pane's port**.
-2. **`npm run sandbox:open -- </route>`** — mandatory before handoff; opens browser + records `.proplane-review-path` (`docs/agents/sandbox-open-review.md`).
-3. Happy path + edge cases (`docs/ship-gate.md`).
-4. Targeted `npm run test:unit`; smoke e2e when UI/routes changed.
-5. Linear comment: commit SHA + what was tested + Review URL. When the fix covers
-   the **whole** ticket and `tsc` + unit are green on this tip, mark **Done**.
-   Do not move issues back to Backlog after a peer marked them Done for a verified tip.
-
-```bash
-npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
-```
-
-**Captain promote (not agents):** `npm run ship:to-prakrit -- --source <keeper>` runs security review + no-mistakes, then opens `localhost:3000` on the review route.
-
----
-
-## ⑤ Promote (captain gate)
-
-Fold the keeper into **`prakrit`** (integration across all agent branches), then
-`main`, then the deploy rungs:
-
-```bash
-npm run ship:to-prakrit -- --source <keeper>   # security review + no-mistakes → prakrit
-# or: /promote prakrit
-# then: bin/fm-proplane-promote-prakrit-to-main.sh --push-main
-npm run ship:staging      # ff main → staging; dedicated QA tests that URL
-npm run ship:production   # ff staging → production after QA sign-off
-```
-
-Or use the GitHub Action **Promote** (`workflow_dispatch`) for staging/production.
-
-Captain verifies `prakrit` / `main` on localhost (developers) and the `staging`
-URL (QA) before a live ship.
-
----
-
-## Artifacts
-
-| What | Path / command |
-| --- | --- |
-| Workflow board | `docs/lavish/captain-workflow.html` → `npm run lavish:workflow` |
-| Per-ticket folder | `.lavish/plans/PRP-###-slug/` (`plan.html`, `ticket.md`, `assets/`) |
-| One-shot ticket+plan | `npm run workflow:plan` |
-| Ticket export | `npm run linear:export` |
-| Collaborator guide | `docs/share/proplane-collaborator-workflow.md` |
-| MCP index | `docs/agents/agent-tooling-index.md` |
-| Linear folders | `docs/linear-ticket-system.md` |
-
----
-
-## Production data
-
-Default routine work to dev/test Supabase. A production schema or data change
-requires explicit authorization for its exact scope, a reviewed and backed-up
-fail-closed apply path, and post-apply verification. Authorization does not
-extend to unrelated mutations. The separate locked-listing constraints in
-`no-production-live-listings.mdc` still apply.
+Never mutate production data without explicit authorization for that exact
+scope. Locked live listings remain locked. Routine verification uses dev/test.

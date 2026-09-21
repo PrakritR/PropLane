@@ -86,7 +86,8 @@ export async function GET() {
     }
 
     // Co-manager access: include a linked owner's promotions on properties where
-    // this user holds the `promotion` grant (empty perms = full, per moduleAllowed).
+    // this user holds the `promotion` grant. Assignment alone is not the grant —
+    // a map with no module checked confers nothing, per coManagerModuleAllowed.
     if (!admin) {
       const { ownerIds } = await linkedOwnerScopeForModule(db, user.id, "promotion");
       ownerIds.delete(user.id);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS } from "@/components/ui/modal";
 import {
@@ -32,6 +32,7 @@ export type BulkMessageCarouselItem = {
   body: string;
   emailAvailable?: boolean;
   smsAvailable?: boolean;
+  channelNote?: string;
 };
 
 export type BulkMessageCarouselDraft = {
@@ -97,6 +98,7 @@ export function PortalBulkMessageCarouselModal({
   defaultViaEmail = true,
   defaultViaSms = false,
   hideSendViaFooterNote = false,
+  channelStatus,
   onClose,
   onConfirm,
 }: {
@@ -118,6 +120,7 @@ export function PortalBulkMessageCarouselModal({
   defaultViaSms?: boolean;
   /** When true, omit work-number / SMS setup helper copy under Send via. */
   hideSendViaFooterNote?: boolean;
+  channelStatus?: ReactNode;
   onClose: () => void;
   onConfirm: (
     scope: "all" | "single",
@@ -200,6 +203,12 @@ export function PortalBulkMessageCarouselModal({
     !showChannelPicker ||
     skipMessage ||
     portalMessageChannelsSelectionValid(sendVia, emailAvailable, smsAvailable);
+  const includedChannelsOk =
+    !showChannelPicker || skipMessage ||
+    items.filter((item) => includedIds.has(item.id)).every((item) =>
+      (!viaEmail || (item.emailAvailable ?? Boolean(item.recipient.includes("@")))) &&
+      (!viaSms || (item.smsAvailable ?? Boolean(item.recipientPhone?.trim()))),
+    );
 
   const messageReady =
     skipMessage ||
@@ -277,7 +286,7 @@ export function PortalBulkMessageCarouselModal({
         variant="primary"
         className="rounded-full"
         data-attr="portal-bulk-carousel-confirm-all"
-        disabled={confirmBusy || !channelsOk || !allDraftsReady || includedCount === 0}
+        disabled={confirmBusy || !channelsOk || !includedChannelsOk || !allDraftsReady || includedCount === 0}
         onClick={() =>
           onConfirm("all", {
             skipMessage,
@@ -433,6 +442,12 @@ export function PortalBulkMessageCarouselModal({
             />
           ) : null}
         </div>
+
+        {channelStatus}
+        {activeItem?.channelNote ? <p className="text-xs text-muted">{activeItem.channelNote}</p> : null}
+        {!includedChannelsOk && !skipMessage ? (
+          <p className="text-xs text-amber-700">Some selected recipients cannot use the chosen channel. Choose another channel or exclude those recipients.</p>
+        ) : null}
 
         <PortalMessageBodyField
           value={activeDraft?.body ?? ""}

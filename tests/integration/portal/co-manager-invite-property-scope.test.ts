@@ -9,8 +9,8 @@ import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
  * property id from the public listing feed, invite a second account they
  * control onto it, accept, and then pass every `assertCoManagerModuleAccess`
  * gate on that property — read leases/financials/documents, edit the listing,
- * or delete it. An empty permissions object resolves to a *full* grant, so a
- * forged link with `{}` yields maximum access.
+ * or delete it. The permission map is no defence: the inviter writes it, so a
+ * forged link carries whatever grant its author chose.
  *
  * The PATCH path was worse: either party could rewrite the list, so an invitee
  * could widen their own grant after the fact.

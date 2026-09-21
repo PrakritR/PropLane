@@ -33,6 +33,7 @@ import {
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
+import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -213,6 +214,8 @@ export async function commitInboxThreadReply(
     messageId?: string;
     /** Channel the turn actually went on; omitted = unknown (never assumed email). */
     channel?: InboxThreadMessageChannel;
+    /** Durable external-delivery state; never infer Sent before the provider records it. */
+    delivery?: "sending" | "sent" | "failed";
     /** Email subject the turn left with, for the bubble's subject line. */
     subject?: string;
     /**
@@ -224,7 +227,7 @@ export async function commitInboxThreadReply(
      */
     recordRef?: RecordRef;
   },
-): Promise<void> {
+): Promise<"sending" | "sent" | "failed" | undefined> {
   const { data: freshRow, error: readError } = await db
     .from("portal_inbox_thread_records")
     .select("id, row_data")
@@ -234,6 +237,27 @@ export async function commitInboxThreadReply(
   if (!freshRow) throw new Error("This conversation is no longer available.");
   const rowData = (freshRow.row_data ?? {}) as Record<string, unknown>;
   const messages = Array.isArray(rowData.messages) ? [...(rowData.messages as unknown[])] : [];
+  // A durable outbound sender may be replayed after its provider accepted the
+  // request.  Keep the thread append idempotent so a retry repairs a failed
+  // companion write without showing the recipient a second sent turn.
+  const existingIndex = opts.messageId
+    ? messages.findIndex((message) => (message as { id?: unknown } | null)?.id === opts.messageId)
+    : -1;
+  if (existingIndex >= 0) {
+    const existing = messages[existingIndex] as Record<string, unknown>;
+    const prior = typeof existing.delivery === "string" ? existing.delivery : undefined;
+    const delivery = opts.delivery
+      ? aggregateVendorSponsoredDelivery([opts.delivery], prior as "sending" | "sent" | "failed" | undefined)
+      : prior as "sending" | "sent" | "failed" | undefined;
+    if (!opts.delivery || prior === delivery) return delivery;
+    messages[existingIndex] = { ...existing, delivery };
+    const { error } = await db.from("portal_inbox_thread_records").upsert({
+      id: target.threadId, scope: target.scope, owner_user_id: target.ownerUserId,
+      participant_email: target.participantEmail, row_data: { ...rowData, messages }, updated_at: new Date().toISOString(),
+    }, { onConflict: "id" });
+    if (error) throw new Error("Could not save the reply. Please try again.", { cause: error });
+    return delivery;
+  }
   const when = formatPacificDateTime(new Date());
   messages.push({
     id: opts.messageId ?? `reply-${Date.now().toString(36)}`,
@@ -244,6 +268,7 @@ export async function commitInboxThreadReply(
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
     ...(opts.channel ? { channel: opts.channel } : {}),
     ...(opts.subject?.trim() ? { subject: opts.subject.trim() } : {}),
+    ...(opts.delivery ? { delivery: opts.delivery } : {}),
   });
   const existingRecordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef);
   const recordRef = existingRecordRef ?? normalizeRecordRef(opts.recordRef);
@@ -268,6 +293,7 @@ export async function commitInboxThreadReply(
     { onConflict: "id" },
   );
   if (writeError) throw new Error("Could not save the reply. Please try again.", { cause: writeError });
+  return opts.delivery;
 }
 
 /**
@@ -439,8 +465,9 @@ export async function deliverPortalMessageThreadSide(
      * than trusted.
      */
     recordRef?: RecordRef;
+    delivery?: "sending" | "sent" | "failed";
   },
-): Promise<{ action: "append" | "create" | "skipped"; threadId: string }> {
+): Promise<{ action: "append" | "create" | "skipped"; threadId: string; delivery?: "sending" | "sent" | "failed" }> {
   const existing = await findExistingPortalMessageThread(db, args);
   const nowIso = new Date().toISOString();
   const normalizedRecordRef = normalizeRecordRef(args.recordRef);
@@ -449,12 +476,36 @@ export async function deliverPortalMessageThreadSide(
     const messages = Array.isArray(existing.rowData.messages)
       ? [...(existing.rowData.messages as unknown[])]
       : [];
-    if (
-      args.messageId &&
-      (existing.rowData.rootMessageId === args.messageId ||
-        messages.some((m) => (m as { id?: unknown } | null)?.id === args.messageId))
-    ) {
-      return { action: "skipped", threadId: existing.id };
+    if (args.messageId && existing.rowData.rootMessageId === args.messageId) {
+      const prior = typeof existing.rowData.rootDelivery === "string" ? existing.rowData.rootDelivery : undefined;
+      const delivery = args.delivery
+        ? aggregateVendorSponsoredDelivery([args.delivery], prior as "sending" | "sent" | "failed" | undefined)
+        : prior as "sending" | "sent" | "failed" | undefined;
+      if (!args.delivery || prior === delivery) return { action: "skipped", threadId: existing.id, ...(delivery ? { delivery } : {}) };
+      const { error } = await db.from("portal_inbox_thread_records").upsert({
+        id: existing.id, scope: existing.scope, owner_user_id: existing.ownerUserId,
+        participant_email: existing.participantEmail, thread_type: "portal_message",
+        row_data: { ...existing.rowData, rootDelivery: delivery }, updated_at: nowIso,
+      }, { onConflict: "id" });
+      if (error) throw new Error("Could not save the reply.", { cause: error });
+      return { action: "skipped", threadId: existing.id, ...(delivery ? { delivery } : {}) };
+    }
+    const duplicate = args.messageId ? messages.findIndex((message) => (message as { id?: unknown } | null)?.id === args.messageId) : -1;
+    if (duplicate >= 0) {
+      const prior = messages[duplicate] as Record<string, unknown>;
+      const previous = typeof prior.delivery === "string" ? prior.delivery : undefined;
+      const delivery = args.delivery
+        ? aggregateVendorSponsoredDelivery([args.delivery], previous as "sending" | "sent" | "failed" | undefined)
+        : previous as "sending" | "sent" | "failed" | undefined;
+      if (!args.delivery || previous === delivery) return { action: "skipped", threadId: existing.id, ...(delivery ? { delivery } : {}) };
+      messages[duplicate] = { ...prior, delivery };
+      const { error } = await db.from("portal_inbox_thread_records").upsert({
+        id: existing.id, scope: existing.scope, owner_user_id: existing.ownerUserId,
+        participant_email: existing.participantEmail, thread_type: "portal_message",
+        row_data: { ...existing.rowData, messages }, updated_at: nowIso,
+      }, { onConflict: "id" });
+      if (error) throw new Error("Could not save the reply.", { cause: error });
+      return { action: "skipped", threadId: existing.id, ...(delivery ? { delivery } : {}) };
     }
     messages.push({
       id: args.messageId ?? `msg-${Date.now().toString(36)}-${messages.length}`,
@@ -465,8 +516,9 @@ export async function deliverPortalMessageThreadSide(
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(args.channel ? { channel: args.channel } : {}),
       ...(args.messageSubject?.trim() ? { subject: args.messageSubject.trim() } : {}),
+      ...(args.delivery ? { delivery: args.delivery } : {}),
     });
-    await db.from("portal_inbox_thread_records").upsert(
+    const { error } = await db.from("portal_inbox_thread_records").upsert(
       {
         id: existing.id,
         scope: existing.scope,
@@ -505,11 +557,12 @@ export async function deliverPortalMessageThreadSide(
       },
       { onConflict: "id" },
     );
+    if (error) throw new Error("Could not save the reply.", { cause: error });
     await emitInboxMessageWebhook(args, existing.id, args.unread);
-    return { action: "append", threadId: existing.id };
+    return { action: "append", threadId: existing.id, ...(args.delivery ? { delivery: args.delivery } : {}) };
   }
 
-  await db.from("portal_inbox_thread_records").upsert(
+  const { error } = await db.from("portal_inbox_thread_records").upsert(
     {
       id: args.fallbackId,
       scope: args.scope,
@@ -545,13 +598,15 @@ export async function deliverPortalMessageThreadSide(
         ...(args.channel ? { rootChannel: args.channel } : {}),
         ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
         ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
+        ...(args.delivery ? { rootDelivery: args.delivery } : {}),
       },
       updated_at: nowIso,
     },
     { onConflict: "id" },
   );
+  if (error) throw new Error("Could not save the message.", { cause: error });
   await emitInboxMessageWebhook(args, args.fallbackId, args.unread);
-  return { action: "create", threadId: args.fallbackId };
+  return { action: "create", threadId: args.fallbackId, ...(args.delivery ? { delivery: args.delivery } : {}) };
 }
 
 export async function deliverPortalInboxMessage(

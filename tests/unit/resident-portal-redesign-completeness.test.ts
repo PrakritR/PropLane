@@ -26,7 +26,6 @@ describe("resident portal redesign completeness", () => {
         "applications",
         "dashboard",
         "communication",
-        "profile",
       ]);
     });
 

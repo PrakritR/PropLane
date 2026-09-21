@@ -314,8 +314,9 @@ function dedupeAdminPropertyRows(rows: AdminPropertyRow[]): AdminPropertyRow[] {
 }
 
 function linkedAdminPropertyRowsForBucket(bucket: AdminPropertyBucketIndex, userId: string): AdminPropertyRow[] {
-  // Gate the Properties tab by the `properties` module grant (empty perms = full
-  // access, per modulePermsAllow). Previously this used the module-agnostic
+  // Gate the Properties tab by the `properties` module grant, which has to be
+  // positively checked — assignment alone confers nothing, per modulePermsAllow.
+  // Previously this used the module-agnostic
   // collectLinkedPropertyIds, so a co-manager granted only e.g. `payments` on a
   // property still saw it in the Properties tab. Buckets 0/2 additionally were
   // not filtering the readLinkedListingsForUser results by the id set at all.

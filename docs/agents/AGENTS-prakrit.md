@@ -185,14 +185,32 @@ npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
 - Partial / parked: **Backlog**. Do not mark Done for a partial fix.
 - Do not move a peer/captain-verified Done issue back to Backlog.
 
-## Promote (Prakrit only)
+## Standing branches and captain integration
 
-Agents never run this. Prakrit does:
+Prakrit's standing instruction (2026-09-20): keep exactly these six agent
+branches active: `claude-1`, `claude-2`, `claude-3`, `cursor-1`, `cursor-2`,
+and `codex-1`. Keep `prakrit` open in its own captain worktree and terminal
+window. The worktree/port map lives in the local Firstmate
+`config/proplane-agent-branches`; do not make a new branch for each prompt.
+
+Keep completed, validated agent work merged into `prakrit`. This is standing
+authorization to integrate approved builds through the security-review and
+no-mistakes gates. Keep each standing branch after integration and fast-forward
+clean keepers from the resulting `prakrit` tip. Preserve dirty work; never reset
+or overwrite it to synchronize a lane. Stop on a non-fast-forward push.
+
+Before retiring an old branch, preserve its commits and uncommitted work,
+reconcile any unique changes, and verify its integration. Do not turn an
+unfinished working copy into a completed feature merely to clean up branches.
+
+The product plan/build approval gate still applies. This integration authority
+does not authorize `main`, `staging`, `production`, production data changes, or
+PR creation. Those retain their existing captain/release gates.
+
+Integrate completed keeper work:
 
 ```bash
 npm run ship:to-prakrit -- --source <keeper>
-npm run ship:staging
-npm run ship:production
 ```
 
 `ship:to-prakrit` runs security review + no-mistakes, then opens

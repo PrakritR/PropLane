@@ -60,8 +60,7 @@ describe("orderNativeBottomNavItems", () => {
   it("preserves resident unified catalog order for the More sheet", () => {
     const items = RESIDENT_UNIFIED_PORTAL_SECTIONS.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "resident").map((item) => item.section);
-    expect(ordered.filter((id) => id !== "profile")).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_ORDER]);
-    expect(ordered.at(-1)).toBe("profile");
+    expect(ordered).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_ORDER]);
   });
 
   it("preserves resident limited registry order (known sections follow unified order)", () => {
@@ -72,7 +71,7 @@ describe("orderNativeBottomNavItems", () => {
       "resident",
     ).map((item) => item.section);
     expect(ordered).toEqual(expected);
-    expect(ordered.at(-1)).toBe("profile");
+    expect(ordered.at(-1)).toBe("documents");
   });
 
   it("preserves admin registry order", () => {
@@ -110,7 +109,7 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).not.toContain("dashboard");
     expect(overflow.map((item) => item.section)).toContain("documents");
-    expect(primary.length + overflow.length).toBe(items.length - 1);
+    expect(primary.length + overflow.length).toBe(items.length);
   });
 
   it("curates the resident bar (pre-approval) to the pre-approval primary set", () => {
@@ -126,7 +125,7 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("documents");
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).not.toContain("dashboard");
-    expect(primary.length + overflow.length).toBe(items.length - 1);
+    expect(primary.length + overflow.length).toBe(items.length);
   });
 
   it("curates the admin bar to the primary set and overflows the rest", () => {

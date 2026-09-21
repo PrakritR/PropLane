@@ -5,6 +5,8 @@ export type MockProperty = {
   title: string;
   tagline: string;
   address: string;
+  /** State/province when the property record carries a complete address. */
+  state?: string;
   /** Approximate ZIP for demo radius filtering from home search */
   zip: string;
   neighborhood: string;

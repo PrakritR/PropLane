@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   validate: vi.fn(() => true),
   appliedManagerId: "11111111-1111-4111-8111-111111111111" as string | null,
   ownedRow: null as null | { last_provider_event_at: string | null; attachment_state: string },
+  vendorIdentity: null as null | { id: string; attachment_state: string; sms_receive_ready: boolean },
   inserted: [] as Record<string, unknown>[],
   updated: [] as Record<string, unknown>[],
   rpc: vi.fn(),
@@ -37,6 +38,15 @@ vi.mock("@/lib/supabase/service", () => ({
           select: () => builder,
           eq: () => builder,
           maybeSingle: async () => ({ data: mocks.ownedRow, error: null }),
+        };
+        return builder;
+      }
+      if (table === "vendor_work_identities") {
+        const builder = {
+          select: () => builder,
+          eq: () => builder,
+          update: () => builder,
+          maybeSingle: async () => ({ data: mocks.vendorIdentity, error: null }),
         };
         return builder;
       }
@@ -75,6 +85,7 @@ beforeEach(() => {
   mocks.updated.length = 0;
   mocks.appliedManagerId = "11111111-1111-4111-8111-111111111111";
   mocks.ownedRow = null;
+  mocks.vendorIdentity = null;
   mocks.rpc.mockImplementation(async () => ({ data: mocks.appliedManagerId, error: null }));
   vi.stubEnv("TWILIO_EVENT_STREAMS_SINK_URL", "https://prop-lane.space/api/twilio/events");
   vi.stubEnv("TWILIO_ACCOUNT_SID", "AC11111111111111111111111111111111");

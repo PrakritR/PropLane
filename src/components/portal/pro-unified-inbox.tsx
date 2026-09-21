@@ -840,13 +840,13 @@ export function ManagerUnifiedInbox({
       ),
       "active",
     );
-    const archived = mergeUnifiedInboxItems(
+    const archived = pinAssistant(mergeUnifiedInboxItems(
       [
         ...filteredEmail.filter((t) => t.folder === "trash").map(emailThreadMergeStub),
         ...allSmsItems.filter((row) => row.archived).map((row) => row.item),
       ],
       listSort,
-    );
+    ), "archived");
     return { active: active.length, archived: archived.length };
   }, [
     allSmsItems,
@@ -876,7 +876,6 @@ export function ManagerUnifiedInbox({
       [...emailListItems, ...smsListItems, ...placeholderListItems],
       listSort,
     );
-    if (listSegment === "archived") return merged;
     if (!assistantThreadId || !viewerId) {
       return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
     }

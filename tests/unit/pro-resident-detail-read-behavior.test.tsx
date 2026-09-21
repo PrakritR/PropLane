@@ -25,7 +25,10 @@ vi.mock("@/components/portal/portal-contact-details-modal", () => ({
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({ ManagerInbox: () => null }));
 vi.mock("@/lib/portal-api-error", () => ({ readPortalApiError: async () => "error" }));
-vi.mock("@/lib/inbox-scheduled-thread", () => ({ scheduledItemsForRecipient: () => [] }));
+vi.mock("@/lib/inbox-scheduled-thread", () => ({
+  scheduledItemsForRecipient: () => [],
+  automationChannelDefaultsFromSettings: () => undefined,
+}));
 vi.mock("@/lib/assistant-inbox-reply", () => ({ sendPropLaneAssistantInboxMessage: vi.fn() }));
 vi.mock("@/lib/inbox-attachments", () => ({
   INBOX_MAX_ATTACHMENTS: 5,

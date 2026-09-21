@@ -6,6 +6,8 @@ export type InboxContactRole = "manager" | "resident" | "vendor";
 
 export type InboxScopedContact = {
   id: string;
+  /** Auth user id when this directory contact has an account. */
+  userId?: string;
   name: string;
   email: string;
   role: InboxContactRole;
