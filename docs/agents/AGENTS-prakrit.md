@@ -62,6 +62,27 @@ commenting on existing issues stays fine, as does
 `npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>` when
 he points at an existing ticket.
 
+## Prior art check - every prompt, before the plan
+
+**Standing order (Sep 20, 2026): on every prompt that will change code or UI,
+look on GitHub first for open-source repos with more than 1,000 stars that do
+something similar to what is being built, and let what they do well shape the
+plan.** It is a simple check, not research: one or two searches, the top hits
+only, and a look at how each solved the same problem (data model, UX shape,
+edge cases, tests). It runs before the Lavish plan is written so the plan can
+borrow the pattern, and the plan names what was borrowed and from where.
+
+```bash
+gh-axi repo search "<what the prompt is about> in:name,description,readme" --stars ">1000" --limit 5
+```
+
+- Use `gh-axi` (or the GitHub search API); never clone into the repo.
+- Borrow ideas and shapes, never code you cannot license: PropLane ships under
+  its own terms, so copy a pattern, not a file, and note the source in the plan.
+- Skip only where the plan itself is skipped ("skip plan", a one-line answer,
+  read-only investigation, an urgent production fix).
+- No hits over 1,000 stars is a fine outcome; say so in one line and move on.
+
 ## Lavish poll - the chat only works if this is running
 
 The plan's chat, annotations, and queued prompts reach the agent through the
