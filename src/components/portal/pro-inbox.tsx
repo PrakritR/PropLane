@@ -592,10 +592,21 @@ export const ManagerInbox = forwardRef<
   // Mark an unread inbox thread read without a toast — used when a thread is
   // opened in the two-pane view (kept listed under Unopened until refresh via
   // `retainedIds`, matching the explicit "Mark read" behaviour).
-  const markReadSilent = (id: string) => {
-    setLocal((prev) => prev.map((t) => (t.id === id && t.folder === "inbox" ? { ...t, unread: false } : t)));
+  const markReadSilent = useCallback((id: string) => {
+    const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+    const thread = current.find((row) => row.id === id && row.folder === "inbox" && row.unread);
+    if (!thread) return;
+    const changed = { ...thread, unread: false };
+    const next = current.map((row) => row.id === id ? changed : row);
+    // Commit the selected row to the shared store before React's persistence
+    // effect runs. A read must not rewrite the entire mailbox: an unrelated
+    // inaccessible row can reject that replacement before this row is saved.
+    void upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [changed], next).then((ok) => {
+      if (!ok) showToast("Could not mark the conversation as read. Try again.");
+    });
+    setLocal(next);
     setRetainedIds((prev) => new Set(prev).add(id));
-  };
+  }, [showToast]);
 
   const markRead = (id: string) => {
     markReadSilent(id);
@@ -1208,9 +1219,9 @@ export const ManagerInbox = forwardRef<
 
   // Opening a thread in the unified Communication list marks it read (dot clears).
   useEffect(() => {
-    if (!activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
+    if (!inboxSynced || !activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
     markReadSilent(activeThread.id);
-  }, [activeThread?.id]);
+  }, [activeThread?.id, inboxSynced, markReadSilent]);
 
   // A draft per conversation — restored when the manager comes back to it.
   // The text and the conversation it belongs to travel as one value, so the
@@ -1582,8 +1593,7 @@ export const ManagerInbox = forwardRef<
       // Opening an unread inbox message reads it (natural inbox behaviour).
       if (thread.folder === "inbox" && thread.unread) markReadSilent(thread.id);
     },
-    // markReadSilent only closes over stable state setters.
-    [],
+    [markReadSilent, setExpandedId],
   );
 
   const pickReplyAttachments = useCallback(
