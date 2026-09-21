@@ -117,3 +117,36 @@ describe("applyAnswersAndSkips — room skip", () => {
     expect(skippedResident.properties[0]!.rooms.map((r) => r.key)).toEqual(["p1:room:0", "p1:room:1", "p1:room:2"]);
   });
 });
+
+describe("applyAnswersAndSkips — skip survives a later answer-only patch", () => {
+  // Real sequence on the review screen: skip a resident, THEN answer a
+  // different resident's gap. The second PATCH (`{ answers: {...} }`) never
+  // resends `skips` (only `handleSkipToggle` does — portfolio-import-
+  // page.tsx), so omitting it must never reset the skip.
+  it("keeps a skipped resident skipped through a later answer-only call", () => {
+    const skipped = applyAnswersAndSkips(proposal([property()]), { skips: ["p1:resident:1"] });
+    expect(skipped.properties[0]!.residents.find((r) => r.key === "p1:resident:1")!.status).toBe("skip");
+
+    const answered = applyAnswersAndSkips(skipped, {
+      answers: { "p1:resident:0": { leaseEnd: "2027-01-31" } },
+    });
+    const resident1 = answered.properties[0]!.residents.find((r) => r.key === "p1:resident:1")!;
+    expect(resident1.status).toBe("skip");
+    expect(resident1.gaps).toEqual([]);
+  });
+
+  it("keeps a skipped property skipped through a later answer-only call", () => {
+    const skipped = applyAnswersAndSkips(proposal([property()]), { skips: ["p1"] });
+    expect(skipped.properties[0]!.status).toBe("skip");
+
+    const answered = applyAnswersAndSkips(skipped, { answers: {} });
+    expect(answered.properties[0]!.status).toBe("skip");
+    expect(answered.summary.properties).toBe(0);
+  });
+
+  it("an explicit empty skips array still un-skips (skip toggled back off)", () => {
+    const skipped = applyAnswersAndSkips(proposal([property()]), { skips: ["p1:resident:1"] });
+    const unskipped = applyAnswersAndSkips(skipped, { skips: [] });
+    expect(unskipped.properties[0]!.residents.find((r) => r.key === "p1:resident:1")!.status).not.toBe("skip");
+  });
+});

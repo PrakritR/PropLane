@@ -284,12 +284,35 @@ export async function loadReceipts(db: SupabaseClient, importId: string): Promis
  * skipping THAT room happens by skipping the resident instead, never by
  * silently discarding their room.
  */
+/**
+ * Every property/resident already marked "skip" in the stored proposal —
+ * used as the fallback skip set below when a PATCH omits `skips` entirely
+ * (an answer-only PATCH, e.g. `{ answers: {...} }`). Without this, that call
+ * would default to an EMPTY skip set and silently un-skip anyone a prior
+ * PATCH had skipped: the client only ever resends `skips` from its own
+ * `handleSkipToggle` (portfolio-import-page.tsx), never from `handleAnswer`,
+ * so a manager who skips one resident and then answers a different
+ * resident's gap would see the skip revert and the "skipped" resident get
+ * created anyway. `input.skips` being an explicit array (even `[]`, an
+ * un-skip) still wins — only `undefined` falls back to this.
+ */
+function currentSkipKeys(proposal: PortfolioImportProposal): string[] {
+  const keys: string[] = [];
+  for (const property of proposal.properties) {
+    if (property.status === "skip") keys.push(property.key);
+    for (const resident of property.residents) {
+      if (resident.status === "skip") keys.push(resident.key);
+    }
+  }
+  return keys;
+}
+
 export function applyAnswersAndSkips(
   proposal: PortfolioImportProposal,
   input: { answers?: Record<string, Partial<ImportResidentProposal>>; skips?: string[] },
 ): PortfolioImportProposal {
   const answers = input.answers ?? {};
-  const skips = new Set(input.skips ?? []);
+  const skips = new Set(input.skips ?? currentSkipKeys(proposal));
 
   const properties: ImportPropertyProposal[] = proposal.properties.map((property) => {
     const propertySkipped = skips.has(property.key);
