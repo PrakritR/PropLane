@@ -63,8 +63,8 @@ function renderWithScope(opts: {
 }) {
   return render(
     <SettingsPropertyScopeProvider
-      workspaceIds={[opts.workspaceId ?? "ws-33"]}
-      onWorkspaceIdsChange={() => {}}
+      workspaceId={opts.workspaceId ?? "ws-33"}
+      onWorkspaceIdChange={() => {}}
       propertyIds={opts.propertyIds}
       onPropertyIdsChange={() => {}}
       options={opts.propertyOptions}

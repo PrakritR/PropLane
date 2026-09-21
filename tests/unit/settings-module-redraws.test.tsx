@@ -108,8 +108,8 @@ function stubFetch() {
 function withScope(node: ReactNode, propertyIds: string[] = []) {
   return (
     <SettingsPropertyScopeProvider
-      workspaceIds={[]}
-      onWorkspaceIdsChange={() => {}}
+      workspaceId=""
+      onWorkspaceIdChange={() => {}}
       propertyIds={propertyIds}
       onPropertyIdsChange={() => {}}
       options={PROPERTY_OPTIONS}

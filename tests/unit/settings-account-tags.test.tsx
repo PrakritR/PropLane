@@ -16,7 +16,6 @@ import {
   DEVICE_TAG_PANES,
   SCOPED_OPERATIONS_PANES,
   SETTINGS_SCOPE_EXEMPT_PANES,
-  SINGLE_WORKSPACE_PANES,
   WORKSPACE_ONLY_PANES,
   type SettingsGroupId,
 } from "@/components/portal/portal-profile-client";
@@ -49,7 +48,6 @@ function classificationsFor(id: SettingsGroupId): string[] {
   const hits: string[] = [];
   if (SCOPED_OPERATIONS_PANES.has(id)) hits.push("bar");
   if (WORKSPACE_ONLY_PANES.has(id)) hits.push("bar");
-  if (SINGLE_WORKSPACE_PANES.has(id)) hits.push("bar");
   if (ACCOUNT_TAG_PANES.has(id)) hits.push("account-tag");
   if (DEVICE_TAG_PANES.has(id)) hits.push("device-tag");
   if (SETTINGS_SCOPE_EXEMPT_PANES.has(id)) hits.push("exempt");
@@ -77,12 +75,13 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
     expect(DEVICE_TAG_PANES.has("workspaces")).toBe(false);
   });
 
-  it("the ten Portfolio + Operations modules with a per-house rung get the full scope bar", () => {
+  it("the eleven Portfolio + Operations modules get the full scope bar", () => {
     const expected: SettingsGroupId[] = [
       "applications",
       "lease",
       "tours",
       "resident",
+      "messaging",
       "payments",
       "tasks",
       "reminders",
@@ -90,20 +89,13 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
       "inspections",
       "services",
     ];
-    expect(SCOPED_OPERATIONS_PANES.size).toBe(10);
+    expect(SCOPED_OPERATIONS_PANES.size).toBe(11);
     for (const id of expected) expect(SCOPED_OPERATIONS_PANES.has(id)).toBe(true);
   });
 
   it("Notifications gets the workspace-only bar, not the full bar", () => {
     expect(WORKSPACE_ONLY_PANES.has("notifications")).toBe(true);
     expect(SCOPED_OPERATIONS_PANES.has("notifications")).toBe(false);
-  });
-
-  it("Communication gets the single-workspace bar, never the multi-select full/workspace-only bar", () => {
-    expect(SINGLE_WORKSPACE_PANES.size).toBe(1);
-    expect(SINGLE_WORKSPACE_PANES.has("messaging")).toBe(true);
-    expect(SCOPED_OPERATIONS_PANES.has("messaging")).toBe(false);
-    expect(WORKSPACE_ONLY_PANES.has("messaging")).toBe(false);
   });
 
   it("Profile, Billing, Login & security, API & MCP, Feedback, and Account carry the Account tag", () => {

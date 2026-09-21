@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { CheckboxMultiSelect, FieldSingleSelect, type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
@@ -10,13 +10,8 @@ import {
   type SettingsResolutionSource,
   type SettingsSourceNamespace,
 } from "@/components/portal/settings-property-scope";
-import {
-  resolveScopeTreeChange,
-  scopeTreeCheckedValues,
-  summarizeScopeTreeSelection,
-  workspaceOptionValue,
-  type ScopeTreeWorkspace,
-} from "@/lib/scope/settings-scope-tree";
+
+const ALL_WORKSPACES = "__all_workspaces__";
 
 /** "Account" / "Workspace" / "Own values on N properties" — the one vocabulary every scope tag in Settings uses. */
 export function scopeTagLabel(source: SettingsResolutionSource, propertyCount: number): string {
@@ -42,168 +37,125 @@ export function SettingsGroupSourceTag({ namespace }: { namespace: SettingsSourc
  * One scope bar per settings module (AGENTS.md § Icon chrome: "one property
  * control in module chrome … never repeat it on each section header").
  *
- * - `variant="full"` (the ten Portfolio + Operations modules with a per-house
- *   rung): ONE multi-select box — every workspace is a selectable group
- *   header ("My workspace · all houses"), its houses listed beneath it.
- *   Checking the header selects every house under it; checking houses one at
- *   a time promotes back to the header once all of them are checked. A
- *   picked selection can span several workspaces at once.
- * - `variant="workspace-only"` (Notifications — manager alert routing has no
- *   per-house rung): the SAME multi-select, restricted to workspace headers
- *   only, no house rows.
- * - `variant="single-workspace"` (Communication — a work number and a work
- *   email belong to exactly one workspace, never several at once): a plain
- *   single-select workspace picker, bound to the SAME global workspace
- *   switcher `useWorkspaces()` drives, so Communication always shows the
- *   currently active workspace's channels and switching here also switches
- *   the app's active workspace.
+ * `variant="full"` (the eleven Portfolio + Operations modules) is a workspace
+ * select, a properties multi-select scoped to that workspace, a bar-level tag
+ * describing the CURRENT SELECTION, and a Reset control once houses are
+ * picked. `variant="workspace-only"` (Notifications) drops the properties
+ * picker entirely — manager alert routing has no per-house rung.
  *
- * `variant="full"`/`"workspace-only"` selection lives in
- * `useSettingsPropertyScope()` (the module's own local/URL-backed state);
- * `"single-workspace"` bypasses that context entirely and reads/writes the
- * global switcher directly — Communication's panel already reads the global
- * active workspace (`useSelectedWorkspaceId`), so this variant needs no
- * provider wrap and no plumbing beyond the picker itself.
+ * The workspace select is bound to the SAME global selection the top-left
+ * `WorkspaceSwitcher` reads (`useWorkspaces()`): picking a real workspace here
+ * calls the same `select()` the switcher itself calls, so the two stay in
+ * sync. "All workspaces" has no equivalent global state — a switch always
+ * stands in exactly one workspace — so picking it is a local-only override
+ * for this module's fetches; it never forces the global switcher into an
+ * impossible "no workspace" state, and switching workspaces globally always
+ * still shows here.
  */
-export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "workspace-only" | "single-workspace" }) {
-  // A thin, hook-free dispatcher — `single-workspace` renders a fully
-  // separate component with its own hooks rather than sharing this
-  // function's, so neither branch mixes hooks with a conditional return.
-  if (variant === "single-workspace") {
-    return <SingleWorkspaceScopeBar />;
-  }
-  return <MultiScopeBar variant={variant} />;
-}
-
-function MultiScopeBar({ variant }: { variant: "full" | "workspace-only" }) {
-  const workspaces = useWorkspaces();
+export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "workspace-only" }) {
   const scope = useSettingsPropertyScope();
-
-  const treeWorkspaces: ScopeTreeWorkspace[] = useMemo(
-    () => (workspaces?.workspaces ?? []).map((w) => ({ id: w.id, propertyIds: w.propertyIds })),
-    [workspaces?.workspaces],
-  );
-
-  const selection = useMemo(
-    () => ({ workspaceIds: scope.workspaceIds, propertyIds: scope.propertyIds }),
-    [scope.workspaceIds, scope.propertyIds],
-  );
-
-  /**
-   * Nothing explicit picked yet resolves to the active workspace (the
-   * Provider's own `targets` default) — the checkboxes must show THAT as
-   * checked, not nothing, or the bar would display an empty picker while
-   * every panel underneath is already scoped to a real workspace. A click
-   * against this implicit state (e.g. un-checking one house) diffs against
-   * it too, via `resolveScopeTreeChange`'s `current` argument below.
-   */
-  const effectiveSelection = useMemo(() => {
-    if (selection.workspaceIds.length === 0 && selection.propertyIds.length === 0 && workspaces?.active?.id) {
-      return { workspaceIds: [workspaces.active.id], propertyIds: [] };
-    }
-    return selection;
-    // Depend on the whole `workspaces` object (not `workspaces?.active?.id` alone) —
-    // the narrower dependency made the React Compiler skip optimizing this component.
-  }, [selection, workspaces]);
-
-  const checkedValues = useMemo(
-    () => scopeTreeCheckedValues(treeWorkspaces, effectiveSelection),
-    [treeWorkspaces, effectiveSelection],
-  );
-
-  const groups: CheckboxMultiSelectGroup[] = useMemo(
-    () =>
-      (workspaces?.workspaces ?? []).map((w) => ({
-        label: w.name,
-        options: [
-          { value: workspaceOptionValue(w.id), label: "All houses in this workspace" },
-          ...(variant === "full"
-            ? w.propertyIds
-                .map((id) => id.trim())
-                .filter(Boolean)
-                .map((id) => ({ value: id, label: (w.propertyLabels?.[id] ?? "").trim() || "Untitled property" }))
-            : []),
-        ],
-      })),
-    [workspaces?.workspaces, variant],
-  );
-
-  const handleChange = (nextRawValues: string[]) => {
-    const next = resolveScopeTreeChange(treeWorkspaces, effectiveSelection, nextRawValues);
-    scope.setWorkspaceIds(next.workspaceIds);
-    scope.setPropertyIds(next.propertyIds);
-  };
-
-  const fallbackWorkspaceName =
-    scope.workspaceIds.length === 0 && scope.propertyIds.length === 0 ? (workspaces?.active?.name ?? null) : null;
-  const summary = summarizeScopeTreeSelection(workspaces?.workspaces ?? [], selection, fallbackWorkspaceName);
-  const hasExplicitSelection = scope.workspaceIds.length > 0 || scope.propertyIds.length > 0;
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <CheckboxMultiSelect
-        label={variant === "full" ? "Workspaces and properties" : "Workspaces"}
-        hideLabel
-        variant="pill"
-        selected={checkedValues}
-        onChange={handleChange}
-        groups={groups}
-        disabled={scope.loading || !workspaces || workspaces.loading}
-        emptyLabel={fallbackWorkspaceName ? `${fallbackWorkspaceName} · all houses` : "All workspaces"}
-        selectionTriggerLabel={summary}
-        dataAttr="settings-scope-picker"
-        className="max-w-[16rem]"
-        menuFooter={(close) => (
-          <button
-            type="button"
-            className="text-xs font-semibold text-muted hover:underline"
-            data-attr="settings-scope-clear"
-            disabled={!hasExplicitSelection}
-            onClick={() => {
-              scope.setWorkspaceIds([]);
-              scope.setPropertyIds([]);
-              scope.requestReset();
-              close();
-            }}
-          >
-            Reset to current workspace
-          </button>
-        )}
-      />
-      <PortalSettingsScopeTag dataAttr="settings-scope-summary">Applies to · {summary}</PortalSettingsScopeTag>
-    </div>
-  );
-}
-
-/**
- * Communication's scope: exactly one workspace, no houses. Bound to the
- * global active-workspace switcher (`useWorkspaces().select`), the same
- * state `pro-messaging-settings-panel.tsx` already reads through
- * `useSelectedWorkspaceId()` — this picker IS the module's scope control,
- * with no separate local/URL state to keep in sync.
- */
-function SingleWorkspaceScopeBar() {
   const workspaces = useWorkspaces();
-  const options = useMemo(
-    () => (workspaces?.workspaces ?? []).map((w) => ({ value: w.id, label: w.name })),
+
+  const workspaceOptions = useMemo(
+    () => [
+      { value: ALL_WORKSPACES, label: "All workspaces" },
+      ...(workspaces?.workspaces.map((w) => ({ value: w.id, label: w.name })) ?? []),
+    ],
     [workspaces?.workspaces],
   );
-  const activeId = workspaces?.active?.id ?? "";
+
+  // Properties scoped to whichever workspace is chosen — "All workspaces" falls
+  // back to the full account list the host already computed for the provider.
+  const propertyOptions = useMemo(() => {
+    if (!scope.workspaceId) return scope.options;
+    const active = workspaces?.workspaces.find((w) => w.id === scope.workspaceId);
+    if (!active) return scope.options;
+    const labels = active.propertyLabels ?? {};
+    return active.propertyIds
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => ({ id, label: (labels[id] ?? "").trim() || "Untitled property" }));
+  }, [scope.workspaceId, scope.options, workspaces?.workspaces]);
+
+  const selectionSource: SettingsResolutionSource =
+    scope.propertyIds.length > 0 ? "property" : scope.workspaceId ? "workspace" : "account";
+
+  const handleWorkspaceChange = (next: string) => {
+    const id = next === ALL_WORKSPACES ? "" : next;
+    scope.setWorkspaceId(id);
+    scope.setPropertyIds([]);
+    if (id) void workspaces?.select(id, { href: false });
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <FieldSingleSelect
         label="Workspace"
         hideLabel
-        value={activeId}
-        onChange={(id) => void workspaces?.select(id, { href: false })}
-        options={options}
-        disabled={!workspaces || workspaces.loading}
-        dataAttr="settings-scope-single-workspace"
+        value={scope.workspaceId || ALL_WORKSPACES}
+        onChange={handleWorkspaceChange}
+        options={workspaceOptions}
+        disabled={scope.loading || !workspaces || workspaces.loading}
+        dataAttr="settings-scope-workspace"
         variant="pill"
         triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[13rem]`}
       />
-      <PortalSettingsScopeTag dataAttr="settings-scope-summary">Workspace</PortalSettingsScopeTag>
+      {variant === "full" ? (
+        <CheckboxMultiSelect
+          label="Properties"
+          hideLabel
+          variant="pill"
+          selected={scope.propertyIds}
+          onChange={scope.setPropertyIds}
+          options={propertyOptions.map((o) => ({ value: o.id, label: o.label }))}
+          disabled={scope.loading}
+          emptyLabel={scope.workspaceId ? "All properties in workspace" : "All properties"}
+          dataAttr="settings-scope-properties"
+          className="max-w-[15rem]"
+          menuFooter={(close) => (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                data-attr="settings-scope-properties-select-all"
+                onClick={() => {
+                  scope.setPropertyIds(propertyOptions.map((o) => o.id));
+                  close();
+                }}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="text-xs font-semibold text-muted hover:underline"
+                data-attr="settings-scope-properties-clear"
+                disabled={scope.propertyIds.length === 0}
+                onClick={() => {
+                  scope.setPropertyIds([]);
+                  close();
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        />
+      ) : null}
+      <PortalSettingsScopeTag>{scopeTagLabel(selectionSource, scope.propertyIds.length)}</PortalSettingsScopeTag>
+      {variant === "full" && scope.propertyIds.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => {
+            scope.requestReset();
+            scope.setPropertyIds([]);
+          }}
+          disabled={scope.loading}
+          data-attr="settings-scope-reset"
+          className="text-[13px] font-semibold text-primary transition-colors hover:text-primary/80 disabled:opacity-50"
+        >
+          Reset to workspace
+        </button>
+      ) : null}
     </div>
   );
 }
