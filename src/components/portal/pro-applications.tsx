@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
@@ -1710,31 +1710,22 @@ export function ManagerApplications({
           }}
         />
       ) : null}
-      <Modal
+      <PortalDialog
         open={slotPickRow !== null}
         title="Rent for this resident"
         onClose={closeSlotPick}
         dataAttr="application-resident-slot-modal"
-        footer={
-          <ModalFooter>
-            <Button variant="ghost" onClick={closeSlotPick}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={selectedResidentSlot == null}
-              onClick={() => {
-                const chosen = slotPickOptions.find((s) => s.slot === selectedResidentSlot);
-                if (!slotPickRow || !chosen || chosen.holder) return;
-                persistResidentSlotPick(slotPickRow.id, chosen.price);
-                setApprovePreviewRow(slotPickRow);
-                closeSlotPick();
-              }}
-            >
-              Continue
-            </Button>
-          </ModalFooter>
-        }
+        primaryAction={{
+          label: "Continue",
+          disabled: selectedResidentSlot == null,
+          onClick: () => {
+            const chosen = slotPickOptions.find((s) => s.slot === selectedResidentSlot);
+            if (!slotPickRow || !chosen || chosen.holder) return;
+            persistResidentSlotPick(slotPickRow.id, chosen.price);
+            setApprovePreviewRow(slotPickRow);
+            closeSlotPick();
+          },
+        }}
       >
         {slotPickRow ? (
           <p className="mb-3 text-sm text-muted">
@@ -1746,7 +1737,7 @@ export function ManagerApplications({
           value={selectedResidentSlot}
           onChange={setSelectedResidentSlot}
         />
-      </Modal>
+      </PortalDialog>
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
         title="Approve application"
