@@ -67,6 +67,10 @@ import {
   vendorCatalogDetailHref,
   vendorDetailHref,
   vendorListHref,
+  VENDOR_DETAIL_TABS,
+  VENDOR_DETAIL_TAB_LABELS,
+  VENDOR_DETAIL_TAB_DESCRIPTIONS,
+  VENDOR_RAIL_GROUPS,
 } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useSearchParams } from "next/navigation";
@@ -652,6 +656,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               <ManagerVendorDetail
                 row={routeVendor}
                 managerUserId={userId}
+                basePath={basePath}
+                onNavigate={navigate}
                 tab={ownVendorTab}
                 extraNeedsYou={personRecordNeedsYouItems({
                   kind: "vendor",
