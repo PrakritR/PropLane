@@ -724,57 +724,68 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     }
   };
 
-  const listBody =
-    directoryTab === "catalog" && catalogDetailId ? (
-      <PortalRecordDetailPage
-        pageTitle="Vendors"
+  const catalogDetailPage = catalogDetailId ? (
+    <PortalRecordDetailPage
+      pageTitle="Vendors"
+      title={catalogDetail?.name ?? "PropLane vendor"}
+      subtitle={catalogDetail ? [catalogDetail.trade, catalogDetail.city].filter(Boolean).join(" · ") : undefined}
+      avatarName={catalogDetail?.name}
+      backHref={vendorListHref(basePath, "catalog")}
+      backLabel="Back to PropLane vendors"
+      hideBackText
+      bareHeader
+      dataAttrBack="vendor-catalog-back"
+      iconTitleActions
+      pinScrollBody
+    >
+      <PortalRecordActions>
+        <PortalRecordHeaderIconActions actions={catalogHeaderActions} onAction={onCatalogHeaderAction} />
+      </PortalRecordActions>
+      <PortalRecordSectionChrome
+        sections={catalogChromeSections}
+        recordId={catalogDetailId}
+        activeId={catalogDetailTab}
         title={catalogDetail?.name ?? "PropLane vendor"}
-        subtitle={catalogDetail ? [catalogDetail.trade, catalogDetail.city].filter(Boolean).join(" · ") : undefined}
-        avatarName={catalogDetail?.name}
+        subtitle={catalogDetail?.trade}
         backHref={vendorListHref(basePath, "catalog")}
-        backLabel="Back to PropLane vendors"
-        hideBackText
-        bareHeader
-        dataAttrBack="vendor-catalog-back"
-        iconTitleActions
-        pinScrollBody
+        backLabel="PropLane vendors"
+        ariaLabel="Vendor sections"
+        onHeaderAction={onCatalogHeaderAction}
       >
-        <PortalRecordActions>
-          <PortalRecordHeaderIconActions actions={catalogHeaderActions} onAction={onCatalogHeaderAction} />
-        </PortalRecordActions>
-        <PortalRecordSectionChrome
-          sections={catalogChromeSections}
-          recordId={catalogDetailId}
-          activeId={catalogDetailTab}
-          title={catalogDetail?.name ?? "PropLane vendor"}
-          subtitle={catalogDetail?.trade}
-          backHref={vendorListHref(basePath, "catalog")}
-          backLabel="PropLane vendors"
-          ariaLabel="Vendor sections"
-          onHeaderAction={onCatalogHeaderAction}
-        >
-          {catalogRosterMatch ? (
-            <div data-attr="vendor-catalog-matched-profile">
-              <ManagerVendorDetail
-                row={catalogRosterMatch}
-                managerUserId={userId}
-                basePath={basePath}
-                onNavigate={navigate}
-                tab={catalogDetailTab}
-                detailHref={(tab) => vendorCatalogDetailHref(basePath, catalogDetailId, tab)}
-              />
-            </div>
-          ) : (
-            <ManagerVendorCatalogDetail
-              catalogId={catalogDetailId}
-              vendor={catalogDetail}
+        {catalogRosterMatch ? (
+          <div data-attr="vendor-catalog-matched-profile">
+            <ManagerVendorDetail
+              row={catalogRosterMatch}
+              managerUserId={userId}
+              basePath={basePath}
+              onNavigate={navigate}
               tab={catalogDetailTab}
-              inRoster={Boolean(catalogRosterMatch)}
+              detailHref={(tab) => vendorCatalogDetailHref(basePath, catalogDetailId, tab)}
             />
-          )}
-        </PortalRecordSectionChrome>
-      </PortalRecordDetailPage>
-    ) : directoryTab === "catalog" && catalogRows.length === 0 ? (
+          </div>
+        ) : (
+          <ManagerVendorCatalogDetail
+            catalogId={catalogDetailId}
+            vendor={catalogDetail}
+            tab={catalogDetailTab}
+            inRoster={Boolean(catalogRosterMatch)}
+          />
+        )}
+      </PortalRecordSectionChrome>
+    </PortalRecordDetailPage>
+  ) : null;
+
+  if (directoryTab === "catalog" && catalogDetailId) {
+    return (
+      <>
+        {modals}
+        {catalogDetailPage}
+      </>
+    );
+  }
+
+  const listBody =
+    directoryTab === "catalog" && catalogRows.length === 0 ? (
       <PortalListEmptyCard
         section="vendors"
         title={portalEmptyCopy("vendors.catalog").title}
@@ -938,14 +949,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     });
   }
 
-  const showingCatalogDetail = directoryTab === "catalog" && Boolean(catalogDetailId);
-
   const body = (
     <>
       {modals}
-      {showingCatalogDetail ? (
-        listBody
-      ) : (
       <PortalRecordListSurface
         className="mt-0"
         onBulkClear={directoryTab === "yours" ? clearSelection : undefined}
@@ -962,7 +968,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         add={undefined}
         dataAttr={directoryTab === "catalog" ? "vendor-catalog-list" : "vendor-your-list"}
       >{listBody}</PortalRecordListSurface>
-      )}
     </>
   );
 
