@@ -98,12 +98,19 @@ type LinkRow = {
 function makeDb(linkRows: LinkRow[]) {
   return {
     from(table: string) {
-      const result =
+      const propertyRow = { id: PROPERTY, manager_user_id: OWNER, workspace_id: null };
+      const listResult =
         table === "manager_property_records"
-          ? { data: { manager_user_id: OWNER } }
+          ? { data: [propertyRow], error: null }
           : table === "account_link_invites"
             ? { data: linkRows, error: null }
-            : { data: { id: CO_MANAGER, email: "co@example.com" } };
+            : { data: [{ id: CO_MANAGER, email: "co@example.com" }], error: null };
+      const singleResult =
+        table === "manager_property_records"
+          ? { data: propertyRow, error: null }
+          : table === "account_link_invites"
+            ? { data: linkRows[0] ?? null, error: null }
+            : { data: { id: CO_MANAGER, email: "co@example.com" }, error: null };
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: () => builder,
@@ -114,8 +121,8 @@ function makeDb(linkRows: LinkRow[]) {
               { id: CO_MANAGER, email: "co@example.com" },
             ],
           }),
-        maybeSingle: async () => result,
-        then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
+        maybeSingle: async () => singleResult,
+        then: (resolve: (v: unknown) => unknown) => Promise.resolve(listResult).then(resolve),
       };
       return builder;
     },

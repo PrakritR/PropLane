@@ -133,7 +133,10 @@ export async function GET(req: Request) {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, {
+      module: "applications",
+      level: "read",
+    });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
     const { ownerUserId, propertyId, workspaceId } = scopeAccess;
     const settings = await loadManagerApplicationSettings(ctx.db, ownerUserId);
@@ -204,7 +207,10 @@ export async function PATCH(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const scope = resolveSettingsScopeParams(req.url, body);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, {
+      module: "applications",
+      level: "edit",
+    });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
     const { ownerUserId, propertyId, workspaceId } = scopeAccess;
 
