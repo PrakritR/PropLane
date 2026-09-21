@@ -1,0 +1,114 @@
+{
+  "importId": "fixture-import-1",
+  "files": [{ "name": "rentroll-sep.xlsx", "kind": "spreadsheet" }],
+  "properties": [
+    {
+      "key": "prop-maple",
+      "address": "120 Maple St, Austin, TX 78701",
+      "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [2, 12] },
+      "status": "ready",
+      "rooms": [
+        { "key": "room-maple-1a", "name": "1A", "rent": 1850, "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [3] } },
+        { "key": "room-maple-1b", "name": "1B", "rent": 1400, "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [4] } },
+        { "key": "room-maple-1c", "name": "1C", "rent": 1400, "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [5] } }
+      ],
+      "residents": [
+        {
+          "key": "resident-jordan-lee",
+          "roomKey": "room-maple-1a",
+          "name": "Jordan Lee",
+          "email": "jordan.lee@example.com",
+          "phone": "512-555-0100",
+          "leaseStart": "2026-01-01",
+          "leaseEnd": "2026-12-31",
+          "rent": 1850,
+          "deposit": 1850,
+          "balance": 0,
+          "status": "ready",
+          "gaps": [],
+          "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [3] }
+        },
+        {
+          "key": "resident-ari-chen",
+          "roomKey": "room-maple-1b",
+          "name": "Ari Chen",
+          "email": "ari.chen@example.com",
+          "phone": null,
+          "leaseStart": "2026-02-01",
+          "leaseEnd": null,
+          "rent": 1400,
+          "deposit": 1400,
+          "balance": 0,
+          "status": "needs",
+          "gaps": [{ "field": "leaseEnd", "question": "What date does Ari's lease end?" }],
+          "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [4] }
+        }
+      ],
+      "charges": [
+        { "key": "charge-jordan-rent", "residentKey": "resident-jordan-lee", "kind": "rent", "amount": 1850, "dueDate": "2026-09-01", "label": "September rent", "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [3] } },
+        { "key": "charge-jordan-deposit", "residentKey": "resident-jordan-lee", "kind": "deposit", "amount": 1850, "dueDate": null, "label": "Security deposit", "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [3] } }
+      ],
+      "tasks": [
+        { "key": "task-ari-end-date", "residentKey": "resident-ari-chen", "title": "Confirm Ari Chen's lease end date", "kind": "missing_end_date", "source": { "file": "rentroll-sep.xlsx", "sheet": "Maple Court", "rows": [4] } }
+      ]
+    },
+    {
+      "key": "prop-elm",
+      "address": "48 Elm Ave, Austin, TX 78702",
+      "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [16, 22] },
+      "status": "ready",
+      "rooms": [
+        { "key": "room-elm-1", "name": "Room 1", "rent": 1100, "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [17] } },
+        { "key": "room-elm-2", "name": "Room 2", "rent": 1150, "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [18] } },
+        { "key": "room-elm-3", "name": "Room 3", "rent": null, "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [19] } }
+      ],
+      "residents": [
+        {
+          "key": "resident-priya-shah",
+          "roomKey": "room-elm-1",
+          "name": "Priya Shah",
+          "email": "priya.shah@example.com",
+          "phone": "512-555-0142",
+          "leaseStart": "2026-03-01",
+          "leaseEnd": "2027-02-28",
+          "rent": 1100,
+          "deposit": 1100,
+          "balance": 220,
+          "status": "ready",
+          "gaps": [],
+          "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [17] }
+        },
+        {
+          "key": "resident-sam-osei",
+          "roomKey": "room-elm-2",
+          "name": "Sam Osei",
+          "email": null,
+          "phone": null,
+          "leaseStart": "2026-01-15",
+          "leaseEnd": "2026-07-15",
+          "rent": 1150,
+          "deposit": 1150,
+          "balance": 0,
+          "status": "skip",
+          "gaps": [],
+          "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [18] }
+        }
+      ],
+      "charges": [
+        { "key": "charge-priya-rent", "residentKey": "resident-priya-shah", "kind": "rent", "amount": 1100, "dueDate": "2026-09-01", "label": "September rent", "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [17] } },
+        { "key": "charge-priya-balance", "residentKey": "resident-priya-shah", "kind": "balance", "amount": 220, "dueDate": null, "label": "Past-due balance", "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [17] } }
+      ],
+      "tasks": [
+        { "key": "task-elm-room-3", "residentKey": null, "title": "Move-in photos for Room 3", "kind": "move_in_photos", "source": { "file": "rentroll-sep.xlsx", "sheet": "Elm House", "rows": [19] } }
+      ]
+    }
+  ],
+  "summary": {
+    "properties": 2,
+    "rooms": 6,
+    "residents": 4,
+    "charges": 4,
+    "tasks": 2,
+    "gaps": 1
+  }
+}

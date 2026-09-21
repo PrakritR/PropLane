@@ -14,6 +14,7 @@ import {
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Share2 } from "lucide-react";
 import {
   ManagerPortalPageShell,
@@ -607,16 +608,27 @@ export function ManagerProperties({
             }
             primary={
               /*
-               * One door in. Create opens the listing editor; importing a file
-               * is a strip at the top of its Basics step, so there is no menu
-               * and no second workspace to choose between.
+               * Create opens the listing editor (a single-property file drops
+               * onto its Basics step); a whole rent roll of several
+               * properties and their current residents goes through the
+               * portfolio import instead (docs/agents/portfolio-import.md).
                */
-              <PortalPrimaryIconAction
-                label="Create"
-                disabled={!skuLoaded}
-                data-attr="manager-properties-add-top"
-                onClick={tryOpenAdd}
-              />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <PortalPrimaryIconAction label="Create" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
+                    Add property
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-attr="manager-properties-add-import"
+                    onSelect={() => router.push("/portal/properties/import")}
+                  >
+                    Import your portfolio
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             }
           />
           {atPropertyLimit && limitMax != null ? (
