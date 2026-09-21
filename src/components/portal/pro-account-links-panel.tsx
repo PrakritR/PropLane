@@ -1812,7 +1812,7 @@ export function ProAccountLinksPanel({
         onClick={() => setTransferTarget(transferMatch)}
         data-attr="team-member-transfer"
       >
-        Transfer ownership…
+        Transfer ownership
       </Button>
     ) : null;
     if (entry.kind === "remote") {

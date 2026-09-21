@@ -140,18 +140,31 @@ step) is **gone from the manager invite**; it is kept only for the vendor
 invite modal (`pro-vendor-form-modal.tsx`), which still owns its own
 Continue → New message flow. Coverage: `tests/unit/workspace-invite-sheet.test.tsx`.
 
-**Transfer ownership (`transfer-ownership-dialog.tsx`)** promotes a workspace
-member to owner of one or more of that workspace's houses, opened from the
-member row's ⋯ menu or the member sheet's footer (owner only,
-`pro-team-blocks.tsx` / `renderDetailFooter`). It issues one
-`POST /api/pro/properties/[propertyId]/transfer-ownership` per selected house,
-in order, and stops at the first failure — reporting how many moved and
-naming the houses that did not, never rolling back or silently retrying.
-Submit is gated on typing the workspace's name to confirm. The former owner
-chooses what role (if any) they keep on the moved houses afterward — Admin,
-Property manager, Viewer, Custom, or **Nothing** (an empty grant, same "empty
-means no access" rule as everywhere else in this file) — and stays a member
-of those houses under that role rather than losing them outright.
+**Transfer ownership (`transfer-ownership-dialog.tsx`)** hands the WHOLE
+workspace to an accepted member — there is no per-house picking. A workspace
+has exactly one owner (`portal_workspaces.owner_user_id`), so transferring it
+moves every house it holds, now and any added later, opened from the member
+row's ⋯ menu or the member sheet's footer (owner only, `pro-team-blocks.tsx` /
+`renderDetailFooter`). It issues ONE
+`POST /api/pro/workspaces/[workspaceId]/transfer-ownership`, backed by the
+database routine `transfer_portal_workspace_ownership`
+(`20260921000000_workspace_ownership_transfer.sql`), which atomically:
+reassigns the workspace row itself, moves every house's `manager_user_id`
+(the workspace-reassign-to-default and membership-propagation triggers are
+held off for the call via a session-local GUC so a house's `workspace_id`
+stays put instead of bouncing to the new owner's default workspace — see the
+migration header), rewrites `manager_user_id` on the same related tables
+`transferPropertyOwnership` rewrites per house, and rewires memberships: the
+new owner's own membership row is dropped, every other member's row now
+answers to the new owner (their per-house grants are untouched), and the
+former owner is added back as a member under whatever role they chose to
+keep — Admin, Property manager, Viewer, Custom, or **Nothing** (an empty
+grant, same "empty means no access" rule as everywhere else in this file;
+choosing Nothing leaves them out of the workspace entirely rather than adding
+a membership row). Submit is gated on typing the workspace's name to confirm.
+The **per-property** transfer (`POST /api/pro/properties/[propertyId]/transfer-ownership`,
+`transferPropertyOwnership` in `src/lib/property-ownership-transfer.ts`)
+still exists for its own callers; the dialog above no longer uses it.
 
 Mint stores a hash plus encrypted ciphertext so **Copy returns the same live
 URL**. Rotate is a separate action (`POST /api/pro/invite-links/[linkId]/link`
