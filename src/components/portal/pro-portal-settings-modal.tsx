@@ -260,24 +260,22 @@ export function ProPortalSettingsModal({
         isFormAutomationTab(tab) && editorPane === "form" ? "max-w-4xl" : "max-w-lg",
       )}
       status={
-        <span className="flex items-center gap-2">
-          {showPropertyPicker ? <SettingsScopeBar /> : null}
-          <SaveStatus
-            status={{
-              state: saveStatus.state,
-              reason: saveStatus.reason,
-              savedAt: saveStatus.savedAt,
-              retry: () => {
-                void flushPendingSaves();
-              },
-              flush: async () => {
-                await flushPendingSaves();
-              },
-              dirty: saveStatus.state === "saving",
-            }}
-          />
-        </span>
+        <SaveStatus
+          status={{
+            state: saveStatus.state,
+            reason: saveStatus.reason,
+            savedAt: saveStatus.savedAt,
+            retry: () => {
+              void flushPendingSaves();
+            },
+            flush: async () => {
+              await flushPendingSaves();
+            },
+            dirty: saveStatus.state === "saving",
+          }}
+        />
       }
+      subheader={showPropertyPicker ? <SettingsScopeBar /> : undefined}
       // A save in flight must not be raced by an outside click or Escape closing
       // the dialog out from under it — the flush already keeps the panel's edit
       // safe, but blocking dismissal here keeps the "saving…" mark truthful.
