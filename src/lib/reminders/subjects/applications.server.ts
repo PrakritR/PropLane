@@ -20,6 +20,7 @@ import {
   inProgressApplicationResumeUrl,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
+import { isBookingResidencyRow } from "@/lib/manager-applications-storage";
 
 const MAX_ROWS = 500;
 /** Ignore stale drafts that have not moved in months. */
@@ -84,6 +85,11 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
       const managerUserId = String(record.manager_user_id ?? row.managerUserId ?? "").trim();
       const anchorIso = applicationAnchorIso(record);
       if (!managerUserId || !anchorIso || !withinAge(anchorIso, now)) return null;
+      // Never a real submitted application — `shouldOfferApplicationCompletionReminder`
+      // already returns false for it (bucket "pending", not in-progress, not
+      // withdrawn), but this stays explicit rather than relying on that as an
+      // implementation detail (booking-residency-hidden-from-applications.test.ts).
+      if (isBookingResidencyRow(row)) return null;
       if (!shouldOfferApplicationCompletionReminder(row)) return null;
       const applicantEmail = (row.email?.trim() || record.resident_email?.trim() || "").toLowerCase();
       if (!applicantEmail.includes("@")) return null;

@@ -56,6 +56,7 @@ import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
   MANAGER_APPLICATIONS_EVENT,
   deleteManagerApplicationFromServer,
+  isBookingResidencyRow,
   normalizeApplicationAxisId,
   openResidentSlotsForApplicationRow,
   readManagerApplicationRows,
@@ -787,7 +788,12 @@ export function ManagerApplications({
     // hydrates so linked-property rows appear without a manual refresh.
     void portfolioTick;
     if (!scopeUserId) return [];
-    return rows.filter((r) => applicationVisibleToPortalUser(r, scopeUserId, "applications") && workspaceContainsProperty(r.assignedPropertyId || r.propertyId || r.application?.propertyId));
+    return rows.filter(
+      (r) =>
+        !isBookingResidencyRow(r) &&
+        applicationVisibleToPortalUser(r, scopeUserId, "applications") &&
+        workspaceContainsProperty(r.assignedPropertyId || r.propertyId || r.application?.propertyId),
+    );
   }, [rows, scopeUserId, portfolioTick]);
 
   // Reconcile group applications across every bucket (a group can span pending / approved /

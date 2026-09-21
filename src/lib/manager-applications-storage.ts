@@ -218,6 +218,24 @@ export function isDraftApplicationRow(row: Pick<DemoApplicantRow, "bucket" | "st
 }
 
 /**
+ * True for the plumbing row `sendBookingResidentInvite` creates
+ * (src/lib/booking-resident-invite.server.ts) so a booking's resident-setup
+ * link has an application id to hang off of. It is never a real submitted
+ * application and must never surface as one — exclude it from every
+ * manager-facing application list, tab count, sidebar badge, dashboard
+ * widget, reminder sweep, and assistant tool that reads
+ * `manager_application_records`. This is the ONE shared predicate for that;
+ * do not re-check `bookingResidency` inline at a call site.
+ *
+ * Mirrors `isBookingResidencyRecord` in resident-portal-access.ts, which does
+ * the same test against the raw `row_data` column for the resident-facing
+ * access grant — that is the only other place this tag is read.
+ */
+export function isBookingResidencyRow(row: DemoApplicantRow): boolean {
+  return (row as unknown as Record<string, unknown>).bookingResidency === true;
+}
+
+/**
  * True when writing `incoming` over `existing` would revert an application that
  * is already submitted back to an unsubmitted draft.
  *

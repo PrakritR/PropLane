@@ -295,7 +295,7 @@ async function viewerMayReadLeaseRecord(
   return managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record);
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const ctx = await getUserContext();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });

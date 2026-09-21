@@ -6,6 +6,7 @@ import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-por
 import { resolveBackgroundCheckStatus } from "@/lib/application-background-check";
 import { stageLabelForApplicationBucket } from "@/lib/application-review";
 import { applicationStageDisplayLabel } from "@/lib/rental-application/in-progress-application";
+import { isBookingResidencyRow } from "@/lib/manager-applications-storage";
 import { backgroundCheckConfigured, checkrPackage } from "@/lib/checkr/config";
 import { runBackgroundCheck } from "@/lib/checkr/background-check";
 import { checkrOrderCostCents } from "@/lib/checkr/packages";
@@ -66,6 +67,7 @@ export const listApplicationsTool = defineTool({
   handler: async (ctx, input) => {
     const rows = await loadManagerApplications(ctx);
     const filtered = rows
+      .filter((r) => !isBookingResidencyRow(r))
       .map((r) => ({ row: r, summary: summarizeApplicant(r) }))
       .filter(({ row, summary }) => {
         if (input.bucket && row.bucket !== input.bucket) return false;
