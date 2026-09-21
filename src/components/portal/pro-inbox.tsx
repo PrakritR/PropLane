@@ -1897,8 +1897,13 @@ export const ManagerInbox = forwardRef<
   }, [activeThread, local, setReplyDraft]);
 
   const approveActiveDraft = useCallback(async () => {
-    const text = activeThread?.aiDraft?.text.trim() ?? "";
-    if (!activeThread || !text) return;
+    // The normal composer is the only send surface. Auto-send and Approve must
+    // deliver what is on screen (replyDraft), never a hidden server aiDraft that
+    // dirty-composer protection refused to insert.
+    const pending = activeThread?.aiDraft?.text.trim() ?? "";
+    const text = replyDraft.trim();
+    if (!activeThread || !pending || !text) return false;
+    if (text !== pending) return false;
     // Resolve against live availability so auto-send (and a stale picker
     // state right after opening a phone-only thread) still picks SMS when
     // email is impossible — never toast "choose a channel" and stick the
@@ -1944,6 +1949,7 @@ export const ManagerInbox = forwardRef<
     activeSmsAvailable,
     activeThread,
     handleReply,
+    replyDraft,
     replyViaEmail,
     replyViaProplane,
     replyViaSms,
@@ -1961,6 +1967,8 @@ export const ManagerInbox = forwardRef<
     // A draft the workspace queued FOR review is the one thing auto-send must
     // never touch — the manager turned that on to see it first.
     if (activeThread.aiDraft.requiresReview) return;
+    // Fail closed when the visible composer does not hold this pending draft.
+    if (!activeAiDraftAdopted) return;
     if (approvingDraft || draftingIds.has(activeThread.id)) return;
     if (!hasInboxReplyChannelSelected({
       viaEmail: activeEmailAvailable && replyViaEmail,
@@ -1975,6 +1983,7 @@ export const ManagerInbox = forwardRef<
     });
   }, [
     aiAutoSend,
+    activeAiDraftAdopted,
     activeThread?.id,
     activeThread?.aiDraft?.text,
     activeThread?.aiDraft?.status,

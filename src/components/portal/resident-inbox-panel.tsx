@@ -1548,15 +1548,16 @@ export const ResidentInboxPanel = forwardRef<
   }, [activeThread, insertAiDraft]);
 
   const approveResidentAiDraft = useCallback(async () => {
-    const text = aiDraftText.trim();
-    if (!text) return;
+    const pending = aiDraftText.trim();
+    const text = replyDraft.trim();
+    if (!pending || !text || text !== pending) return;
     setApprovingAiDraft(true);
     try {
       await sendActiveReply(text);
     } finally {
       setApprovingAiDraft(false);
     }
-  }, [aiDraftText, sendActiveReply]);
+  }, [aiDraftText, replyDraft, sendActiveReply]);
 
   const discardResidentAiDraft = useCallback(() => {
     if (adoptedAiDraftRef.current) {
@@ -1576,6 +1577,7 @@ export const ResidentInboxPanel = forwardRef<
 
   useEffect(() => {
     if (!autoSend || !aiDraftText.trim() || !activeThread) return;
+    if (!aiDraftAdopted) return;
     if (aiDrafting || approvingAiDraft || replySending) return;
     const key = `${activeThread.id}:${aiDraftText.trim()}`;
     if (autoSentAiDraftRef.current === key) return;
@@ -1585,6 +1587,7 @@ export const ResidentInboxPanel = forwardRef<
     });
   }, [
     activeThread,
+    aiDraftAdopted,
     aiDraftText,
     aiDrafting,
     approvingAiDraft,

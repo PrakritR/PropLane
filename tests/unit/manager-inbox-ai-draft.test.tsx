@@ -111,6 +111,16 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 
+const autoSendEnabled = { current: false };
+vi.mock("@/hooks/use-inbox-ai-draft-auto-send", () => ({
+  useInboxAiDraftAutoSend: () => ({
+    enabled: autoSendEnabled.current,
+    setEnabled: (next: boolean) => {
+      autoSendEnabled.current = next;
+    },
+  }),
+}));
+
 import { ManagerInbox } from "@/components/portal/pro-inbox";
 
 afterEach(() => cleanup());
@@ -128,6 +138,7 @@ function InboxChangeObserver() {
 describe("AI draft in the unified Communication inbox", () => {
   afterEach(() => {
     inboxRows = THREADS;
+    autoSendEnabled.current = false;
     showToast.mockReset();
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -316,5 +327,43 @@ describe("AI draft in the unified Communication inbox", () => {
     fireEvent.click(screen.getByRole("button", { name: "Insert draft" }));
     expect(reply).toHaveValue("Generated replacement.");
     expect(document.activeElement).toBe(reply);
+  });
+
+  it("does not auto-send a pending draft while the composer holds different text", async () => {
+    autoSendEnabled.current = true;
+    const { writeInboxReplyDraft } = await import("@/lib/inbox-reply-draft-store");
+    writeInboxReplyDraft("thr-2000000001", "I will reply myself.");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/portal/send-inbox-message")) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        commBase="/portal/communication"
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+
+    const reply = await screen.findByDisplayValue("I will reply myself.");
+    await screen.findByRole("button", { name: "Insert draft" });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes("/api/portal/send-inbox-message")),
+    ).toBe(false);
+    expect(reply).toHaveValue("I will reply myself.");
   });
 });
