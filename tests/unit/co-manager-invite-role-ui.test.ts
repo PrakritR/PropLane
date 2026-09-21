@@ -21,12 +21,15 @@ describe("invite Role dropdown", () => {
     expect(roleIdx).toBeGreaterThan(-1);
     expect(propertiesIdx).toBeGreaterThan(roleIdx);
 
-    // Sending a new invite: the sheet's access control offers the same role
-    // set before its houses picker, with no separate pills.
+    // Sending a new invite: the sheet renders the SAME shared Role and
+    // Houses selects the member "Edit permissions" sheet uses (so the role
+    // set can never drift between the two), Role before Houses, with no
+    // separate pills.
     const sheet = src("src/components/portal/workspace-invite-sheet.tsx");
-    expect(sheet).toContain("TEAM_ROLE_INVITE_OPTIONS");
-    const sheetRoleIdx = sheet.indexOf('data-attr="workspace-invite-access"');
-    const sheetHousesIdx = sheet.indexOf('dataAttr="workspace-invite-selected-houses"');
+    expect(sheet).toContain("CoManagerRoleSelect");
+    expect(sheet).toContain("HouseScopeSelect");
+    const sheetRoleIdx = sheet.indexOf("<CoManagerRoleSelect");
+    const sheetHousesIdx = sheet.indexOf("<HouseScopeSelect");
     expect(sheetRoleIdx).toBeGreaterThan(-1);
     expect(sheetHousesIdx).toBeGreaterThan(sheetRoleIdx);
   });
