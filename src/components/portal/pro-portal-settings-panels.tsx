@@ -44,6 +44,7 @@ import {
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
+  cacheShowUpcomingChargesSetting,
   normalizeManagerAutomationSettings,
   normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
@@ -2029,7 +2030,9 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
         const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
         const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
         if (!res.ok) throw new Error("Could not load settings.");
-        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+        const loaded = normalizeManagerAutomationSettings(body.settings);
+        cacheShowUpcomingChargesSetting(loaded.showUpcomingCharges);
+        if (!cancelled) setValue(loaded[field]);
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load settings.");
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
@@ -2056,7 +2059,9 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
       });
       const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not save settings.");
-      setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+      const saved = normalizeManagerAutomationSettings(body.settings);
+      cacheShowUpcomingChargesSetting(saved.showUpcomingCharges);
+      setValue(saved[field]);
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save settings.";
