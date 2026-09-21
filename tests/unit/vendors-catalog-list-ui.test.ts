@@ -53,16 +53,23 @@ describe("vendors catalog list chrome", () => {
     // The band never carries a ✕ (docs/agents/ui-change-checklist.md); catalog vs
     // "yours" is reachable through the tab destinations instead.
     expect(panel).not.toContain("vendors-catalog-close");
-    expect(panel).toContain("View profile");
+    // The row menu is View (from the row's own onOpen) + Add: no second View, no "View profile".
+    expect(panel).not.toContain("View profile");
+    expect(panel).not.toContain("vendor-catalog-row-view");
     expect(panel).toContain("Add to your vendors");
     expect(panel).toContain("onSelectedChange");
     expect(panel).not.toContain("trailing={<RecordActionMenu");
   });
 
   it("gives the catalog profile an X back to the list", () => {
+    // The page chrome (PortalRecordDetailPage + the X back button) is owned by the
+    // panel, the same split already used for the real vendor detail (see
+    // pro-vendor-detail.tsx / portal-parity-tranche.test.ts) — pro-vendor-catalog-detail.tsx
+    // renders only the tabbed content.
+    const panel = read("src/components/portal/pro-vendors-panel.tsx");
     const detail = read("src/components/portal/pro-vendor-catalog-detail.tsx");
-    expect(detail).toContain("vendor-catalog-back");
+    expect(panel).toContain("vendor-catalog-back");
+    expect(panel).toContain("PortalRecordDetailPage");
     expect(detail).toContain("About");
-    expect(detail).toContain("PortalRecordDetailPage");
   });
 });

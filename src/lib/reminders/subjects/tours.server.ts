@@ -18,6 +18,7 @@ import { materializeReminders } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { loadManagerReminderRecipients, loadTeamReminderRecipients, teamReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 const PLANNED_EVENTS_RECORD = "axis_admin_planned_events_v1";
 const HORIZON_DAYS = 31;
@@ -37,6 +38,7 @@ export function remindableTours(
   const from = now.getTime();
   const to = from + horizonDays * 24 * 60 * 60 * 1000;
   return events.filter((event) => {
+    if (hasSmsTestProvenance(event as unknown as Record<string, unknown>)) return false;
     if (event.kind !== "tour") return false;
     if (!isActivePlannedEvent(event)) return false;
     if (!event.managerUserId?.trim()) return false;

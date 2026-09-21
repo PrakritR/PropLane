@@ -19,6 +19,7 @@ import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -109,12 +110,12 @@ export async function loadManagerAttentionSummary(
       fetchLeasesForManagerUser(db, managerUserId),
     ]);
 
-  const applications = applicationRecords.map((row) => scopedRowData<DemoApplicantRow>(row));
-  const charges = chargeRecords.map((row) => scopedRowData<HouseholdCharge>(row));
+  const applications = applicationRecords.filter((row) => !hasSmsTestProvenance(row.row_data)).map((row) => scopedRowData<DemoApplicantRow>(row));
+  const charges = chargeRecords.filter((row) => !hasSmsTestProvenance(row.row_data)).map((row) => scopedRowData<HouseholdCharge>(row));
   const scopedCharges = scopeChargesToManagerPaymentsLedger(charges, applications);
-  const workOrders = workOrderRecords.map((row) => scopedRowData<DemoManagerWorkOrderRow>(row));
-  const serviceRequests = serviceRequestRecords.map((row) => scopedRowData<ServiceRequest>(row));
-  const leases = leaseRecords.map((record) => scopedRowData<LeasePipelineRow>(record as StoredRow));
+  const workOrders = workOrderRecords.filter((row) => !hasSmsTestProvenance(row.row_data)).map((row) => scopedRowData<DemoManagerWorkOrderRow>(row));
+  const serviceRequests = serviceRequestRecords.filter((row) => !hasSmsTestProvenance(row.row_data)).map((row) => scopedRowData<ServiceRequest>(row));
+  const leases = leaseRecords.filter((row) => !hasSmsTestProvenance(row.row_data)).map((record) => scopedRowData<LeasePipelineRow>(record as StoredRow));
 
   const counts = {
     unpaidCharges: unpaidManagerPaymentCharges(scopedCharges).length,

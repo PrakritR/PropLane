@@ -46,6 +46,20 @@ function mockDb(opts: {
 }
 
 describe("resolveCreateListingOwner", () => {
+  it("refuses a non-admin foreign owner even when no workspace was selected", async () => {
+    const result = await resolveCreateListingOwner(mockDb({}), {
+      callerUserId: "manager-1",
+      admin: false,
+      requestedOwnerId: "manager-2",
+      workspaceId: null,
+    });
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      error: "Select an owned workspace before adding a property.",
+    });
+  });
+
   it("stamps a teammate listing as the workspace owner when addProperties is granted", async () => {
     const result = await resolveCreateListingOwner(
       mockDb({

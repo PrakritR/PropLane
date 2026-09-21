@@ -9,6 +9,7 @@
 
 import type { RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
 
@@ -22,6 +23,8 @@ type BlockRow = {
   reason?: unknown;
   residentName?: unknown;
   residentEmail?: unknown;
+  residentPhone?: unknown;
+  isBookingResidency?: unknown;
   createdAt?: unknown;
 };
 
@@ -44,6 +47,10 @@ function normalizeBlock(raw: unknown): RoomDateBlock | null {
     ...(typeof row.residentEmail === "string" && row.residentEmail.trim()
       ? { residentEmail: row.residentEmail.trim().toLowerCase() }
       : {}),
+    ...(typeof row.residentPhone === "string" && row.residentPhone.trim()
+      ? { residentPhone: row.residentPhone.trim() }
+      : {}),
+    ...(row.isBookingResidency === true ? { isBookingResidency: true } : {}),
     createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
   };
 }
@@ -80,10 +87,15 @@ export async function saveRoomDateBlock(
     reason: string;
     residentName?: string;
     residentEmail?: string;
+    /** Free-typed or already-E.164; normalized here so every caller stores the same shape. */
+    residentPhone?: string;
+    /** Set once the invite that skips application/lease has actually gone out. */
+    isBookingResidency?: boolean;
   },
 ): Promise<RoomDateBlock> {
   const residentName = input.residentName?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";
+  const residentPhone = normalizeE164(input.residentPhone) ?? "";
   const uid =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -97,6 +109,8 @@ export async function saveRoomDateBlock(
     reason: input.reason.trim(),
     ...(residentName ? { residentName } : {}),
     ...(residentName && residentEmail ? { residentEmail } : {}),
+    ...(residentName && residentPhone ? { residentPhone } : {}),
+    ...(input.isBookingResidency ? { isBookingResidency: true } : {}),
     createdAt: new Date().toISOString(),
   };
   const res = await fetch("/api/portal-schedule-records", {

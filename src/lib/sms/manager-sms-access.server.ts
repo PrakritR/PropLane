@@ -23,6 +23,7 @@ async function loadIncomingAssignedProperties(
   db: SupabaseClient,
   inviteeUserId: string,
   inviterUserId?: string,
+  testWorkspaceId?: string,
 ): Promise<{ ownerIds: string[]; propertyIds: string[]; permissionsByOwner?: Record<string, PropertyCoManagerPermissions> }> {
   const ownerIds = new Set<string>();
   const propertyIds = new Set<string>();
@@ -44,6 +45,10 @@ async function loadIncomingAssignedProperties(
     .eq("status", "accepted")
     .eq("invitee_user_id", invitee);
   if (inviterUserId?.trim()) query = query.eq("inviter_user_id", inviterUserId.trim());
+  // Authenticated private-workspace SMS tests must never inherit a normal or
+  // different-workspace link. Carrier SMS has no workspace argument and keeps
+  // its existing owner-number boundary unchanged.
+  if (testWorkspaceId?.trim()) query = query.eq("test_workspace_id", testWorkspaceId.trim());
 
   const { data: linkRows, error } = await query;
   if (error) throw new Error("Manager assignments unavailable.");
@@ -89,14 +94,14 @@ async function loadIncomingAssignedProperties(
 
 export async function resolveManagerSmsAccess(
   db: SupabaseClient,
-  args: { actorUserId: string; workNumberOwnerId: string },
+  args: { actorUserId: string; workNumberOwnerId: string; testWorkspaceId?: string },
 ): Promise<ManagerSmsAccess | null> {
   const actorUserId = args.actorUserId.trim();
   const workNumberOwnerId = args.workNumberOwnerId.trim();
   if (!actorUserId || !workNumberOwnerId) return null;
 
   if (actorUserId === workNumberOwnerId) {
-    const linked = await loadIncomingAssignedProperties(db, actorUserId);
+    const linked = await loadIncomingAssignedProperties(db, actorUserId, undefined, args.testWorkspaceId);
     if (linked.propertyIds.length === 0) {
       return {
         mode: "owner",
@@ -116,7 +121,7 @@ export async function resolveManagerSmsAccess(
     };
   }
 
-  const delegated = await loadIncomingAssignedProperties(db, actorUserId, workNumberOwnerId);
+  const delegated = await loadIncomingAssignedProperties(db, actorUserId, workNumberOwnerId, args.testWorkspaceId);
   if (delegated.propertyIds.length === 0) return null;
   return {
     mode: "delegated",

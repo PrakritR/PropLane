@@ -6,6 +6,7 @@ import {
   TOUR_AVAILABILITY_RATE_LIMIT,
   TOUR_AVAILABILITY_RATE_LIMIT_WINDOW_MS,
 } from "@/lib/tour-availability.server";
+import { resolveTestWorkspaceRequestScope } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -38,10 +39,15 @@ export async function GET(req: Request) {
     );
   }
 
+  const scope = await resolveTestWorkspaceRequestScope();
+  if (scope.kind === "denied") {
+    return NextResponse.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+  }
   const result = await listOpenTourSlots(createSupabaseServiceRoleClient(), {
     propertyId,
     buildingName: searchParams.get("buildingName"),
     address: searchParams.get("address"),
+    workspaceId: scope.kind === "active" ? scope.workspaceId : null,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 });
 

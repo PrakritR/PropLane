@@ -15,6 +15,8 @@ import {
   type TeamNoticeModule,
 } from "@/lib/team-comms.server";
 import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { currentSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 export type ActionEventDomain =
   | "work_order"
@@ -418,6 +420,7 @@ export async function emitActionEvent(
       (recipient.audience === "team" && sendMode.team === "draft");
     return [{ ...recipient, rendered: applied, draftForReview }];
   });
+  const smsTest = currentSmsTestProvenance();
   const { data: inserted, error: insertError } = await db.from("action_events").upsert({
     event_key: eventKey,
     domain: input.domain,
@@ -430,6 +433,9 @@ export async function emitActionEvent(
     sender_name: input.senderName?.trim() || null,
     occurred_at: input.occurredAt ?? now.toISOString(),
     payload: input.payload ?? {},
+    sms_test_actor_user_id: smsTest?.actorUserId ?? null,
+    sms_test_manager_user_id: smsTest?.managerUserId ?? null,
+    sms_test_session_id: smsTest?.sessionId ?? null,
   }, { onConflict: "event_key", ignoreDuplicates: true }).select("id").maybeSingle();
   if (insertError) throw new Error(`Could not record action event: ${insertError.message}`);
   let eventRow = inserted as { id: string } | null;
@@ -453,7 +459,7 @@ export async function emitActionEvent(
     const since = new Date(now.getTime() - 10 * 60_000).toISOString();
     const { count } = await db.from("action_event_deliveries").select("id", { count: "exact", head: true }).eq("recipient_key", recipientKey).gte("created_at", since);
     const policy = actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0 });
-    const initialStatus = policy.deferSms ? "deferred" : "pending";
+    const initialStatus = smsTest ? "captured" : policy.deferSms ? "deferred" : "pending";
     const { data: delivery } = await db.from("action_event_deliveries").upsert({
       event_id: eventRow.id,
       audience: recipient.audience,
@@ -461,15 +467,28 @@ export async function emitActionEvent(
       recipient_user_id: recipient.userId ?? null,
       recipient_email: recipient.email?.trim().toLowerCase() ?? null,
       status: initialStatus,
-      next_attempt_at: policy.nextAttemptAt,
-      sms_deferred_until: policy.deferSms ? policy.nextAttemptAt : null,
+      next_attempt_at: smsTest ? null : policy.nextAttemptAt,
+      sms_deferred_until: smsTest ? null : policy.deferSms ? policy.nextAttemptAt : null,
       rendered: recipient.rendered,
+      sms_test_actor_user_id: smsTest?.actorUserId ?? null,
+      sms_test_manager_user_id: smsTest?.managerUserId ?? null,
+      sms_test_session_id: smsTest?.sessionId ?? null,
       // Persisted so a retry of a FAILED draft-queue attempt re-queues the
       // draft rather than falling through to a real send — see
       // `retryDueActionEventDeliveries` below.
       draft_for_review: Boolean(recipient.draftForReview),
     }, { onConflict: "event_id,audience,recipient_key", ignoreDuplicates: true }).select("id,status,attempts").maybeSingle();
     if (!delivery) continue;
+    if (smsTest) {
+      captureSmsTestDelivery({
+        kind: "manager_notification",
+        summary: "Action-event delivery captured in the test conversation.",
+        status: "captured",
+        metadata: { audience: recipient.audience, event: input.event },
+      });
+      delivered++;
+      continue;
+    }
     const outcome = await deliverProjection(db, {
       deliveryId: String(delivery.id),
       eventKey,

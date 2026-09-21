@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -6,6 +6,10 @@ import {
   markHouseholdChargeProcessingFromStripeSession,
   revertHouseholdChargeProcessingFromStripeSession,
 } from "@/lib/stripe-household-charge";
+
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
 
 function session(overrides: Partial<Stripe.Checkout.Session>): Stripe.Checkout.Session {
   return {

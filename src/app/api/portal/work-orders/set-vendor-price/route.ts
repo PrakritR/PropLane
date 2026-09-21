@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { setVendorPriceForWorkOrder } from "@/lib/work-order-bids.server";
 
 export const runtime = "nodejs";
@@ -14,6 +15,7 @@ async function sessionActor(db: Db) {
     data: { user },
   } = await auth.auth.getUser();
   if (!user) return null;
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
   const admin = await isAdminUser(user.id);
   const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
   const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();

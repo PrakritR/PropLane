@@ -207,7 +207,32 @@ export const ResidentInboxPanel = forwardRef<
     },
     [controlledExpandedId, onControlledExpandedIdChange],
   );
-  const [replyDraft, setReplyDraft] = useState("");
+  const [replyDraft, setReplyDraftState] = useState("");
+  const replyDraftRef = useRef("");
+  const [replyFocusSignal, setReplyFocusSignal] = useState(0);
+  const adoptedAiDraftRef = useRef<string | null>(null);
+  const [aiDraftInserted, setAiDraftInserted] = useState(false);
+  const updateReplyDraft = useCallback((next: string) => {
+    replyDraftRef.current = next;
+    setReplyDraftState(next);
+  }, []);
+  const insertAiDraft = useCallback(
+    (text: string, force = false) => {
+      const normalized = text.trim();
+      if (!normalized) return false;
+      const current = replyDraftRef.current;
+      if (!force && current.trim() && current !== adoptedAiDraftRef.current) {
+        showToast("Draft ready. Your existing reply was kept.");
+        return false;
+      }
+      adoptedAiDraftRef.current = normalized;
+      setAiDraftInserted(true);
+      updateReplyDraft(normalized);
+      setReplyFocusSignal((value) => value + 1);
+      return true;
+    },
+    [showToast, updateReplyDraft],
+  );
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
   const [replyViaSms, setReplyViaSms] = useState(false);
@@ -215,6 +240,9 @@ export const ResidentInboxPanel = forwardRef<
   const [autoSend, setAutoSend] = useState(false);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [aiDraftText, setAiDraftText] = useState("");
+  const aiDraftAdopted = Boolean(
+    aiDraftText.trim() && replyDraft.trim() === aiDraftText.trim(),
+  );
   const [aiDrafting, setAiDrafting] = useState(false);
   const [aiDraftError, setAiDraftError] = useState<string | null>(null);
   const [approvingAiDraft, setApprovingAiDraft] = useState(false);
@@ -233,7 +261,9 @@ export const ResidentInboxPanel = forwardRef<
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    setReplyDraft("");
+    adoptedAiDraftRef.current = null;
+    setAiDraftInserted(false);
+    updateReplyDraft("");
     setAiDraftText("");
     setAiDraftError(null);
     setAiDrafting(false);
@@ -246,7 +276,7 @@ export const ResidentInboxPanel = forwardRef<
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
-  }, [embeddedInCommunication, expandedId]);
+  }, [embeddedInCommunication, expandedId, updateReplyDraft]);
 
   useEffect(() => {
     if (!smsUiEnabled || isDemoModeActive()) return;
@@ -378,8 +408,8 @@ export const ResidentInboxPanel = forwardRef<
 
   const emailThreads = useMemo(() => {
     if (!embeddedInCommunication) return local;
-    return filterEmailInboxThreads(local);
-  }, [embeddedInCommunication, local]);
+    return filterEmailInboxThreads(local, { keepSmsLike: !smsUiEnabled });
+  }, [embeddedInCommunication, local, smsUiEnabled]);
 
   const emailCounts = useMemo(() => countThreads(emailThreads), [emailThreads]);
 
@@ -1033,6 +1063,9 @@ export const ResidentInboxPanel = forwardRef<
       if (tabId === "schedule") {
         const message = scheduledRows.find((item) => item.id === row.id);
         const cancelled = message?.status === "cancelled";
+        if (message?.status === "sending") {
+          return <span className="text-xs font-medium text-amber-700">Sending / needs review</span>;
+        }
         return (
           <>
             {message?.status === "scheduled" ? (
@@ -1232,8 +1265,10 @@ export const ResidentInboxPanel = forwardRef<
   }, [activeThread?.id, activeThread?.folder, activeThread?.unread, markReadSilent]);
 
   useEffect(() => {
-    setReplyDraft("");
-  }, [expandedId]);
+    adoptedAiDraftRef.current = null;
+    setAiDraftInserted(false);
+    updateReplyDraft("");
+  }, [expandedId, updateReplyDraft]);
 
   const activeIsSent = activeThread?.folder === "sent";
   const activeThreadAvatarName = activeThread
@@ -1341,8 +1376,8 @@ export const ResidentInboxPanel = forwardRef<
                 busy={scheduledBusyId === item.id}
                 recipient={activeThread.email}
                 sendAt={item.sendAt}
-                onCancel={() => void cancelResidentScheduled(item.id)}
-                onSendNow={() => void sendResidentScheduledNow(item.id)}
+                onCancel={() => { if (item.deliveryStatus !== "sending") void cancelResidentScheduled(item.id); }}
+                onSendNow={() => { if (item.deliveryStatus !== "sending") void sendResidentScheduledNow(item.id); }}
               />
             ))}
           </InboxScheduledThreadList>
@@ -1448,12 +1483,11 @@ export const ResidentInboxPanel = forwardRef<
         showToast("Could not send reply.");
         return;
       }
-      if (textOverride) {
-        setAiDraftText("");
-        setAiDraftError(null);
-      } else {
-        setReplyDraft("");
-      }
+      adoptedAiDraftRef.current = null;
+      setAiDraftInserted(false);
+      updateReplyDraft("");
+      setAiDraftText("");
+      setAiDraftError(null);
       setReplyAttachments((prev) => {
         prev.forEach(revokeInboxAttachmentPreview);
         return [];
@@ -1480,6 +1514,7 @@ export const ResidentInboxPanel = forwardRef<
     replyViaProplane,
     replyViaSms,
     showToast,
+    updateReplyDraft,
   ]);
 
   const requestResidentAiDraft = useCallback(async () => {
@@ -1500,7 +1535,9 @@ export const ResidentInboxPanel = forwardRef<
         error?: string;
       };
       if (data.ok && data.draft?.text) {
-        setAiDraftText(data.draft.text);
+        const text = data.draft.text.trim();
+        setAiDraftText(text);
+        insertAiDraft(text);
       } else if (!data.ok && data.error) {
         setAiDraftError(data.error);
       } else if (data.ok && data.skip) {
@@ -1511,23 +1548,29 @@ export const ResidentInboxPanel = forwardRef<
     } finally {
       setAiDrafting(false);
     }
-  }, [activeThread]);
+  }, [activeThread, insertAiDraft]);
 
   const approveResidentAiDraft = useCallback(async () => {
-    const text = aiDraftText.trim();
-    if (!text) return;
+    const pending = aiDraftText.trim();
+    const text = replyDraft.trim();
+    if (!pending || !text || text !== pending) return;
     setApprovingAiDraft(true);
     try {
       await sendActiveReply(text);
     } finally {
       setApprovingAiDraft(false);
     }
-  }, [aiDraftText, sendActiveReply]);
+  }, [aiDraftText, replyDraft, sendActiveReply]);
 
   const discardResidentAiDraft = useCallback(() => {
+    if (adoptedAiDraftRef.current) {
+      adoptedAiDraftRef.current = null;
+      setAiDraftInserted(false);
+      updateReplyDraft("");
+    }
     setAiDraftText("");
     setAiDraftError(null);
-  }, []);
+  }, [updateReplyDraft]);
 
   const autoSentAiDraftRef = useRef<string | null>(null);
 
@@ -1537,6 +1580,7 @@ export const ResidentInboxPanel = forwardRef<
 
   useEffect(() => {
     if (!autoSend || !aiDraftText.trim() || !activeThread) return;
+    if (!aiDraftAdopted) return;
     if (aiDrafting || approvingAiDraft || replySending) return;
     const key = `${activeThread.id}:${aiDraftText.trim()}`;
     if (autoSentAiDraftRef.current === key) return;
@@ -1546,6 +1590,7 @@ export const ResidentInboxPanel = forwardRef<
     });
   }, [
     activeThread,
+    aiDraftAdopted,
     aiDraftText,
     aiDrafting,
     approvingAiDraft,
@@ -1562,31 +1607,22 @@ export const ResidentInboxPanel = forwardRef<
     if (!activeThread || activeThread.folder === "trash" || tabId === "trash") return undefined;
     return (
       <>
-        {/* Draft with AI and Ask PropLane live in the reply row (its ✦ tool),
+        {/* Draft with PropLane and Ask PropLane live in the reply row (its ✦ tool),
             the same as the manager's thread. Only a draft in flight, a failed
             draft, or a draft waiting for approval still shows above it. */}
         {showResidentAiDraftUi ? (
           <AiDraftReplyCard
             drafting={aiDrafting}
             draft={aiDraftText.trim() ? aiDraftText : undefined}
-            onDraftChange={setAiDraftText}
             error={aiDraftError ?? undefined}
             approving={approvingAiDraft || replySending}
             onApprove={() => void approveResidentAiDraft()}
             onDiscard={discardResidentAiDraft}
             onGenerate={() => void requestResidentAiDraft()}
-            // Hand the finished draft to the thread's own reply field instead
-            // of rendering a second message box beside it. Skipped while
-            // auto-send is armed: adopting discards the draft, and a discarded
-            // draft is one the auto-send effect can no longer send.
-            onAdopt={
-              autoSend
-                ? undefined
-                : (text) => {
-                    setReplyDraft(text);
-                    discardResidentAiDraft();
-                  }
-            }
+            onAdopt={(text) => {
+              insertAiDraft(text, true);
+            }}
+            adopted={aiDraftAdopted}
             autoSend={autoSend}
             /*
               Communication offers no auto-send control, matching the manager's
@@ -1612,7 +1648,12 @@ export const ResidentInboxPanel = forwardRef<
         />
         <InboxComposer
           value={replyDraft}
-          onChange={setReplyDraft}
+          onChange={(next) => {
+            updateReplyDraft(next);
+            if (!next.trim() && aiDraftInserted) {
+              discardResidentAiDraft();
+            }
+          }}
           onSubmit={() => void sendActiveReply()}
           sending={replySending}
           disabled={
@@ -1633,9 +1674,11 @@ export const ResidentInboxPanel = forwardRef<
             !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
           }
           dataAttr="resident-inbox-reply"
+          focusSignal={replyFocusSignal}
           trailingControls={
             <>
               <InboxComposerAiMenu
+                disabled={aiDrafting}
                 onDraft={showResidentAiDraftUi && !aiDraftText.trim() ? () => void requestResidentAiDraft() : undefined}
                 onAsk={() => setAskAssistantSignal((n) => n + 1)}
               />
@@ -1664,6 +1707,7 @@ export const ResidentInboxPanel = forwardRef<
     activeSmsAvailable,
     activeThread,
     aiDraftError,
+    aiDraftInserted,
     aiDraftText,
     aiDrafting,
     approvingAiDraft,
@@ -1671,11 +1715,13 @@ export const ResidentInboxPanel = forwardRef<
     autoSend,
     discardResidentAiDraft,
     embeddedInCommunication,
+    insertAiDraft,
     approveResidentAiDraft,
     pickReplyAttachments,
     replyAttachments,
     replyChannelMenu,
     replyDraft,
+    replyFocusSignal,
     replySending,
     replyViaEmail,
     replyViaProplane,
@@ -1685,6 +1731,7 @@ export const ResidentInboxPanel = forwardRef<
     showReplyChannelPicker,
     showResidentAiDraftUi,
     tabId,
+    updateReplyDraft,
   ]);
 
   useEffect(() => {

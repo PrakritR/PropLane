@@ -26,6 +26,7 @@ import "server-only";
 import { lookup } from "node:dns/promises";
 
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import {
   isWebhookEventType,
   webhookTestPayload,
@@ -254,6 +255,15 @@ export async function enqueueWebhookEvent(
   type: WebhookEventType,
   payload: WebhookPayload,
 ): Promise<{ queued: number }> {
+  // Capture before creating a service client, loading subscriptions, or writing
+  // a retryable delivery. A test event is still represented by its business
+  // event/inbox rows, but it must never become a later network obligation.
+  if (captureSmsTestDelivery({
+    kind: "webhook",
+    summary: "Webhook delivery captured in the test conversation.",
+    status: "captured",
+    metadata: { eventType: type },
+  })) return { queued: 0 };
   try {
     const manager = String(managerUserId ?? "").trim();
     if (!manager || !isWebhookEventType(type)) return { queued: 0 };

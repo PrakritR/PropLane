@@ -42,18 +42,16 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   table row key and unmount the open editor. Publishing is always in place, so
   the one-record invariant holds either way. Unnamed drafts render as "Untitled
   draft" in the list.
-- **Closing the wizard also saves — there is no "Save draft" button.** Every
-  close affordance (footer Close, header ✕, backdrop click) routes through
-  `closeWizard` in `pro-add-listing-form.tsx`, which flushes any unsaved
-  edits as a draft and only then calls `onClose`. While the wizard stays open,
-  **background autosave** debounces (`LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS` in
-  `manager-listing-draft-autosave.ts`) and persists in-progress work to Drafts
-  without closing. Two guards make implicit save safe to leave: an UNTOUCHED
-  wizard closes without writing anything (the baseline fingerprint captured on
-  first render, `manager-listing-draft-autosave.ts`, compares the whole
-  submission rather than an allowlist of fields, so a field added to the wizard
-  tomorrow is covered). The v2 editor also debounce-saves live edits in place
-  (`updateExtraListingFromSubmissionOnServer`) so they never fork a draft.
+- **The active v2 editor has explicit Save on every step and also saves on close.**
+  Save keeps the editor open and accepts a partial draft, including an incomplete
+  promo code. Closing flushes the same draft write before leaving. The v2 editor
+  has no typing timer; its full prepare/write lifecycle is serialized so Save,
+  Publish and close cannot race or resurrect a published draft. The older
+  `pro-add-listing-form.tsx` path still uses its close-triggered/background
+  autosave contract. Both paths compare the full submission fingerprint, so an
+  untouched wizard closes without writing and future fields are covered without
+  an allowlist. Live edits continue to write in place through
+  `updateExtraListingFromSubmissionOnServer` and never fork a draft.
   Closing with X flushes remaining dirty work, then leaves. A failed draft write leaves
   the wizard OPEN with the work intact rather than closing on a lie — **but a
   failed save is never a locked door.** The inline notice names the server's

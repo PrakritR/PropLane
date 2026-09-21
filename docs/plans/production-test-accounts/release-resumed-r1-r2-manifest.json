@@ -1,0 +1,16 @@
+{
+  "scope": "resumed independent-review R1 and R2 payment corrections",
+  "branch": "akhil/test-workspace-release-20260919",
+  "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
+  "fileCount": 8,
+  "files": [
+    { "path": "src/lib/manager-purchase-from-session.ts", "sha256": "d3f19d9614f7dbcb8c4888d85a120f0f3282c6903d430abad366ed9c85b8b3de" },
+    { "path": "src/app/api/stripe/webhook/route.ts", "sha256": "050f8b197cca8f2e7cf857c1c8fe8f7fd78f15f2bcf8d9fd9dda2c3ef9771286" },
+    { "path": "src/lib/comms-billing/credit-purchase.server.ts", "sha256": "17dee7b6e0efbdc7b53c2a46705871655b71f1ac504cf64c6682622ec12b7654" },
+    { "path": "tests/unit/manager-purchase-from-session.test.ts", "sha256": "7c268b6cabc871a5b05bd01258f689e67ca9a0407fd687e53b12cd44ddd01db5" },
+    { "path": "tests/unit/comms-credit-purchase.test.ts", "sha256": "6b7236110669ba546bf942221dd82fd54f34be28bb8c88b3e62cb46192a37d08" },
+    { "path": "tests/integration/stripe/webhook.test.ts", "sha256": "dcc61ef20d3c881fe5e10e3b3c43f902154ed7887a15bd31f3aee7350c0ad0f1" },
+    { "path": "docs/plans/production-test-accounts/logs/resumed-r1-r2-focused-vitest.log", "sha256": "3c87a07df141e0d3f0a33abf4591624f0edb607a5c146dc56ca22a1097a79789" },
+    { "path": "docs/plans/production-test-accounts/logs/resumed-r1-r2-eslint.log", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+  ]
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { buildGoogleCalendarOAuthUrl, googleCalendarOAuthRedirectUri } from "@/lib/google-calendar/api.server";
+import { assertGoogleCalendarProviderAllowed, buildGoogleCalendarOAuthUrl, googleCalendarOAuthRedirectUri } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import { isGoogleCalendarOAuthConfigured, warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
 import { sanitizeOAuthReturnPath } from "@/lib/auth/oauth-return-path";
@@ -54,6 +54,7 @@ export async function GET(req: Request) {
       const reason = encodeURIComponent("Sign in as a manager on this port, then try again.");
       return NextResponse.redirect(`${returnTo}?gcal=error&reason=${reason}`);
     }
+    await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "oauth_start");
     const redirectUri = googleCalendarOAuthRedirectUri(origin);
     debugGoogleCalendarLog("connect/route.ts:GET", "calendar oauth redirect", {
       hypothesisId: "H2",

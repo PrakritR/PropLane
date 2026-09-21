@@ -14,8 +14,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { track } from "@/lib/analytics/track-client";
+import { AssistantDockExpandButton } from "@/components/portal/assistant-layout-controls";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { useAxisAssistantDock } from "@/components/portal/axis-assistant";
+import {
+  getAssistantDockCollapsed,
+  getAssistantDocked,
+  subscribeAssistantDockCollapsed,
+  subscribeAssistantDocked,
+  toggleAssistantDock,
+} from "@/lib/axis-assistant/dock-store";
 import {
   closeAxisAssistant,
   getAxisAssistantOpen,
@@ -59,7 +67,15 @@ export function PortalTopBar({
     getAxisAssistantOpen,
     () => false,
   );
-  const { dockable, setMode } = useAxisAssistantDock();
+  const { dockable, mode, setMode } = useAxisAssistantDock();
+  const dockCollapsed = useSyncExternalStore(
+    subscribeAssistantDockCollapsed,
+    getAssistantDockCollapsed,
+    () => true,
+  );
+  const storeDocked = useSyncExternalStore(subscribeAssistantDocked, getAssistantDocked, () => false);
+  const showCollapsedDockExpand =
+    dockCollapsed && (dockable ? mode === "docked" : storeDocked);
 
   const openAskProPlane = useCallback(() => {
     track("assistant_opened");
@@ -174,6 +190,8 @@ export function PortalTopBar({
           <PortalSignOutButton className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-red-600 transition hover:bg-accent/70 disabled:opacity-60" />
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {showCollapsedDockExpand ? <AssistantDockExpandButton onClick={toggleAssistantDock} /> : null}
     </header>
   );
 }

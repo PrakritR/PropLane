@@ -18,12 +18,22 @@ export const adminPortal: PortalDefinition = {
     // resolve — a bookmark that lands nowhere is worse than a redundant one.
     { section: "communication", label: "Inbox", tabs: [] },
     { section: "axis-users", label: "Accounts", tabs: [] },
+    { section: "test-accounts", label: "Test accounts", tabs: [] },
     // Billing is a LENS on those same accounts - plan, caps, fees and usage - not a second place
     // to administer one. Opening a row opens the Accounts editor.
     { section: "billing", label: "Billing", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
+
+/** Keep the operator-only entry out of every other admin's navigation. */
+export function adminPortalForTestWorkspaceOperator(allowed: boolean): PortalDefinition {
+  if (allowed) return adminPortal;
+  return {
+    ...adminPortal,
+    sections: adminPortal.sections.filter((section) => section.section !== "test-accounts"),
+  };
+}
 
 /** Default smoke-test paths for web + native WebView (admin portal). */
 export const ADMIN_PORTAL_SMOKE_PATHS = [

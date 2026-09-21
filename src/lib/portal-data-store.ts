@@ -40,8 +40,9 @@ let cachedAccountLinksResponse: AccountLinksResponse = { invites: [] };
  * The cache starts `{ invites: [] }`, which reads identically to "fetched, and
  * this account co-manages nothing". Anything that treats an empty link list as
  * a FACT — the first-listing seed does — has to be able to tell those apart, or
- * it acts on a portfolio it has not finished loading. A failed fetch leaves
- * this false on purpose: not knowing is not the same as knowing there are none.
+ * it acts on a portfolio it has not finished loading. A failed fetch CLEARS this
+ * even after an earlier success: not knowing is not the same as knowing there
+ * are none, and a stale `true` over a wiped cache is the confident wrong answer.
  */
 let accountLinksKnownOk = false;
 
@@ -68,6 +69,26 @@ export function seedAccountLinksCache(invites: AccountLinkInviteDto[], migration
   accountLinksKnownOk = true;
 }
 
+/**
+ * What a refused, unreachable or malformed account-links response leaves behind.
+ *
+ * An empty list here is ignorance, not an answer, so it must not read as one:
+ * the known flag drops (even if an earlier fetch had set it), the last KNOWN
+ * invites are kept rather than clobbered — they still gate co-manager property
+ * access — and the TTL is dropped so the next call retries instead of serving
+ * this non-answer for the rest of the window.
+ */
+function forgetAccountLinks(): AccountLinksResponse {
+  cachedAccountLinksResponse = {
+    invites: cachedAccountLinksResponse.invites,
+    migrationRequired: true,
+  };
+  accountLinksKnownOk = false;
+  accountLinksAt = 0;
+  accountLinksPromise = null;
+  return cachedAccountLinksResponse;
+}
+
 /** Deduped fetch for co-manager nav + account link sync. */
 export async function fetchAccountLinksCached(): Promise<AccountLinksResponse> {
   const now = Date.now();
@@ -79,24 +100,14 @@ export async function fetchAccountLinksCached(): Promise<AccountLinksResponse> {
   accountLinksPromise = (async () => {
     const res = await fetch("/api/pro/account-links", { credentials: "include", cache: "no-store" });
     const body = (await res.json()) as AccountLinksResponse & { error?: string };
-    if (!res.ok) {
-      // A refused request tells us nothing about the links, so the "known"
-      // flag deliberately stays where it was.
-      cachedAccountLinksResponse = { invites: [], migrationRequired: true };
-      return cachedAccountLinksResponse;
-    }
+    if (!res.ok || !Array.isArray(body?.invites)) return forgetAccountLinks();
     cachedAccountLinksResponse = {
-      invites: body.invites ?? [],
+      invites: body.invites,
       migrationRequired: body.migrationRequired,
     };
     accountLinksKnownOk = true;
     return cachedAccountLinksResponse;
-  })().catch(() => {
-    // Same as a refused response: an empty list here is ignorance, not an
-    // answer, so it must not look like one to a caller.
-    cachedAccountLinksResponse = { invites: [], migrationRequired: true };
-    return cachedAccountLinksResponse;
-  });
+  })().catch(() => forgetAccountLinks());
 
   return accountLinksPromise;
 }

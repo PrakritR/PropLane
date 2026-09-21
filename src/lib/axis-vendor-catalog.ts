@@ -8,8 +8,8 @@ export type AxisCatalogVendor = {
   phone: string;
   email: string;
   description: string;
-  hourlyCents: number;
-  serviceCents: number;
+  hourlyCents: number | null;
+  serviceCents: number | null;
   notes?: string;
 };
 
@@ -179,8 +179,8 @@ export function axisCatalogVendorById(catalogId: string | null | undefined): Axi
   return AXIS_VENDOR_CATALOG.find((row) => row.catalogId === id) ?? null;
 }
 
-export function formatVendorCatalogUsd(cents: number): string {
-  if (!Number.isFinite(cents) || cents <= 0) return "—";
+export function formatVendorCatalogUsd(cents: number | null | undefined): string {
+  if (cents == null || !Number.isFinite(cents)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

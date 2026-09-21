@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *    manager already vetoes.
  */
 
-type Filter = { kind: "eq" | "gt"; col: string; value: unknown };
+type Filter = { kind: "eq" | "gt" | "is"; col: string; value: unknown };
 
 let selectArg = "";
 let filters: Filter[] = [];
@@ -36,6 +36,10 @@ const fakeDb = {
   },
   gt(col: string, value: unknown) {
     filters.push({ kind: "gt", col, value });
+    return this;
+  },
+  is(col: string, value: unknown) {
+    filters.push({ kind: "is", col, value });
     return this;
   },
   order() {
@@ -92,6 +96,9 @@ describe("GET /api/agent/pending-actions", () => {
     // would offer an approval the portal-bound confirm gate must refuse.
     expect(filters).toContainEqual({ kind: "eq", col: "portal", value: "manager" });
     expect(filters.some((f) => f.col === "landlord_id")).toBe(false);
+    expect(filters).toContainEqual({ kind: "is", col: "sms_test_actor_user_id", value: null });
+    expect(filters).toContainEqual({ kind: "is", col: "sms_test_manager_user_id", value: null });
+    expect(filters).toContainEqual({ kind: "is", col: "sms_test_session_id", value: null });
     expect(filters.some((f) => f.kind === "gt" && f.col === "expires_at")).toBe(true);
 
     expect(body.actions).toHaveLength(1);

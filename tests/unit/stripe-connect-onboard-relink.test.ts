@@ -133,8 +133,17 @@ describe("POST /api/stripe/connect/onboard — relink contract", () => {
     expect(consoleErrorSpy.mock.calls.some((call) => String(call[0]).includes("acct_stale"))).toBe(true);
   });
 
-  it("with relink on a HEALTHY saved account: refuses with 409 and never replaces it", async () => {
-    profiles = { id: "owner-1", stripe_connect_account_id: "acct_fine", email: "owner@example.com" };
+  it("with relink on a HEALTHY (still retrievable) account: refuses, never clears or replaces the id", async () => {
+    // The saved account is genuinely reachable this time — Stripe's own
+    // retrieve succeeds instead of throwing the access error.
+    profiles = { id: "owner-1", stripe_connect_account_id: "acct_healthy", email: "owner@example.com" };
+    currentStripe.accounts.retrieve = vi.fn(async (id: string) => ({
+      id,
+      details_submitted: true,
+      payouts_enabled: true,
+      capabilities: { transfers: "active" as const },
+    }));
+
     const { POST } = await import("@/app/api/stripe/connect/onboard/route");
     const res = await POST(
       new Request("http://x/api/stripe/connect/onboard", { method: "POST", body: JSON.stringify({ relink: true }) }),
@@ -143,7 +152,7 @@ describe("POST /api/stripe/connect/onboard — relink contract", () => {
 
     expect(res.status).toBe(409);
     expect(body).toMatchObject({ code: "CONNECT_ACCOUNT_HEALTHY" });
-    expect(profiles.stripe_connect_account_id).toBe("acct_fine");
+    expect(profiles.stripe_connect_account_id).toBe("acct_healthy");
     expect(currentStripe.accounts.create).not.toHaveBeenCalled();
   });
 });
@@ -201,5 +210,29 @@ describe("POST /api/vendor/stripe-connect/onboard — relink contract", () => {
     expect(profiles.stripe_connect_account_id).toBe("acct_fresh_v");
     expect(currentStripe.accounts.create).toHaveBeenCalledTimes(1);
     expect(consoleErrorSpy.mock.calls.some((call) => String(call[0]).includes("acct_stale_v"))).toBe(true);
+  });
+
+  it("with relink on a HEALTHY (still retrievable) account: refuses, never clears or replaces the id", async () => {
+    profiles = { id: "vendor-1", role: "vendor", stripe_connect_account_id: "acct_healthy_v" };
+    currentStripe.accounts.retrieve = vi.fn(async (id: string) => ({
+      id,
+      details_submitted: true,
+      payouts_enabled: true,
+      capabilities: { transfers: "active" as const },
+    }));
+
+    const { POST } = await import("@/app/api/vendor/stripe-connect/onboard/route");
+    const res = await POST(
+      new Request("http://x/api/vendor/stripe-connect/onboard", {
+        method: "POST",
+        body: JSON.stringify({ relink: true }),
+      }),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(409);
+    expect(body).toMatchObject({ code: "CONNECT_ACCOUNT_HEALTHY" });
+    expect(profiles.stripe_connect_account_id).toBe("acct_healthy_v");
+    expect(currentStripe.accounts.create).not.toHaveBeenCalled();
   });
 });

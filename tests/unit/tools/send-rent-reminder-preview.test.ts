@@ -9,6 +9,9 @@ const { enqueueMock, portalDeliveryMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: enqueueMock }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
 vi.mock("@/lib/portal-inbox-delivery", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/portal-inbox-delivery")>()),
   deliverPortalMessageThreadSide: portalDeliveryMock,

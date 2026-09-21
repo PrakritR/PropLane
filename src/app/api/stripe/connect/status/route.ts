@@ -13,6 +13,7 @@ import {
   isStripeConnectAccountAccessError,
   retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
+import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
 
 export const runtime = "nodejs";
 
@@ -97,6 +98,11 @@ export async function GET() {
         : existing;
       const transfersEnabled = connectAccountTransfersActive(acct);
       const paymentReady = connectAccountReadyForAchPayouts(acct);
+      // The ONE payouts-ready decision (identity verified + a verified payout
+      // destination) — see `stripe-payouts-readiness.server.ts`. Distinct
+      // from `paymentReady` above, which is Stripe's own charges-acceptance
+      // signal ("can this account receive resident payments at all").
+      const payoutsReady = resolvePayoutsReadiness(acct).ready;
       return NextResponse.json({
         connected: true,
         accountId: acct.id,
@@ -104,6 +110,7 @@ export async function GET() {
         payoutsEnabled: Boolean(acct.payouts_enabled),
         transfersEnabled,
         paymentReady,
+        payoutsReady,
         transfersStatus: acct.capabilities?.transfers ?? null,
         detailsSubmitted: Boolean(acct.details_submitted),
         payoutOwnerUserId,

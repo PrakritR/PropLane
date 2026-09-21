@@ -101,6 +101,19 @@ export function normalizeWaiverCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, "");
 }
 
+/**
+ * Do two typed-in code fields mean the SAME code? Normalization decides, because
+ * the uniqueness constraint keys off `code_normalized`: "spring" and " SPRING "
+ * are one code, and a caller comparing raw text would read a re-cased field as
+ * an edit. An absent field and an empty one are both "no code".
+ */
+export function sameApplicationFeeWaiverCodeText(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  return normalizeWaiverCode(a ?? "") === normalizeWaiverCode(b ?? "");
+}
+
 const WAIVER_CODE_PATTERN = /^[A-Z0-9-]{4,32}$/;
 
 export function isValidWaiverCodeFormat(raw: string): boolean {
@@ -456,31 +469,82 @@ export function listingWaiverLabel(propertyId: string): string {
 }
 
 /**
- * Upsert the waiver code tied to one listing/property. Uses the code `label` column
- * (`listing:<propertyId>`) so multiple properties can each have their own active code
- * without revoking the manager's other listings.
+ * The manager's active PORTFOLIO-WIDE code — `property_id IS NULL` and not a
+ * legacy `listing:<id>` row. `pickWaiverCodeRowForProperty` keeps these
+ * redeemable on EVERY property, so a per-property settings screen that surfaces
+ * only the property-scoped code hides a waiver that is still live on that
+ * property. Reported alongside, never instead of, the property's own code: a
+ * property-scoped field must not look like it can revoke a portfolio code.
  */
-export async function upsertPropertyApplicationFeeWaiverCode(
-  db: SupabaseClient,
-  managerUserId: string,
+export function pickPortfolioApplicationFeeWaiverCode(
+  codes: ApplicationFeeWaiverCode[],
+): ApplicationFeeWaiverCode | null {
+  const active = codes.filter(
+    (c) =>
+      c.status === "active" &&
+      c.propertyId == null &&
+      !(c.label ?? "").startsWith(LISTING_WAIVER_LABEL_PREFIX),
+  );
+  if (active.length === 0) return null;
+  return [...active].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0] ?? null;
+}
+
+/**
+ * The unique index is `(manager_user_id, code_normalized)` — it does NOT include
+ * `status`. A REVOKED row therefore still owns its text, so re-typing a code the
+ * manager retired earlier cannot be created, and the insert comes back as an
+ * opaque 23505 only AFTER the caller has already revoked whatever code was live.
+ * Both write planners refuse it up front instead, so nothing is written and the
+ * currently active code survives. Reviving the old row is deliberately NOT the
+ * answer: its usage count, cap and expiry belong to the grant that was ended.
+ */
+const RETIRED_WAIVER_CODE_ERROR =
+  "That code was used before and has been retired, so it cannot be brought back. Pick different text.";
+
+function findRetiredWaiverCodeWithText(
+  existing: ApplicationFeeWaiverCode[],
+  normalized: string,
+): ApplicationFeeWaiverCode | null {
+  return existing.find((c) => c.code === normalized && c.status === "revoked") ?? null;
+}
+
+type PropertyWaiverCodePlan =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      /** Rows on this property whose active grant this write ends. */
+      revoke: ApplicationFeeWaiverCode[];
+      /** The row this write keeps or re-pins, when one already carries the text. */
+      matching: ApplicationFeeWaiverCode | null;
+      normalized: string;
+      label: string;
+    };
+
+/**
+ * Decide what a per-property waiver write would do, from rows already read.
+ *
+ * Pure, so the same answer serves the write itself and the read-only precheck a
+ * caller runs before committing a listing. Two rules cannot be decided by the
+ * database — its unique index reports a collision as an opaque 23505, and it
+ * cannot see who is asking — so they live here.
+ */
+function planPropertyWaiverCodeWrite(
+  existing: ApplicationFeeWaiverCode[],
   propertyId: string,
   rawCode: string | null | undefined,
-): Promise<SetPrimaryWaiverCodeResult> {
-  const pid = propertyId.trim();
-  if (!pid) return { ok: false, error: "propertyId is required." };
-  const label = listingWaiverLabel(pid);
-  const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
+  allowPortfolioConversion: boolean,
+): PropertyWaiverCodePlan {
+  const label = listingWaiverLabel(propertyId);
   // A row belongs to this listing by `property_id`; the older `listing:<id>`
   // label is still honoured for rows written before the column existed.
-  const mine = existing.filter((c) => c.propertyId === pid || (c.propertyId == null && c.label === label));
+  const mine = existing.filter(
+    (c) => c.propertyId === propertyId || (c.propertyId == null && c.label === label),
+  );
+  const activeMine = mine.filter((row) => row.status === "active");
   const trimmed = (rawCode ?? "").trim();
 
   if (!trimmed) {
-    for (const c of mine.filter((row) => row.status === "active")) {
-      const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
-      if (!revoked.ok) return { ok: false, error: revoked.error };
-    }
-    return { ok: true, code: null };
+    return { ok: true, revoke: activeMine, matching: null, normalized: "", label };
   }
 
   if (!isValidWaiverCodeFormat(trimmed)) {
@@ -493,11 +557,7 @@ export async function upsertPropertyApplicationFeeWaiverCode(
   // property — silently un-waiving a code its applicants may already hold. Say
   // so instead.
   const onAnotherProperty = existing.find(
-    (c) =>
-      c.code === normalized &&
-      c.status === "active" &&
-      c.propertyId != null &&
-      c.propertyId !== pid,
+    (c) => c.code === normalized && c.status === "active" && c.propertyId != null && c.propertyId !== propertyId,
   );
   if (onAnotherProperty) {
     return {
@@ -506,17 +566,89 @@ export async function upsertPropertyApplicationFeeWaiverCode(
     };
   }
 
-  const matching =
-    mine.find((c) => c.code === normalized && c.status === "active") ??
-    // A legacy portfolio-wide code with this text is taken over by this
-    // property rather than left applying everywhere.
-    existing.find((c) => c.code === normalized && c.status === "active" && c.propertyId == null) ??
-    null;
+  const ownMatch = mine.find((c) => c.code === normalized && c.status === "active") ?? null;
+  // A legacy portfolio-wide code with this text is taken over by this property
+  // rather than left applying everywhere — but that un-waives the fee on every
+  // OTHER listing the owner has, so only the owner may do it.
+  const portfolioMatch = ownMatch
+    ? null
+    : existing.find((c) => c.code === normalized && c.status === "active" && c.propertyId == null) ?? null;
+  if (portfolioMatch && !allowPortfolioConversion) {
+    return {
+      ok: false,
+      error:
+        "That code applies to every property on this account. Only the account owner can point it at a single property. Give this listing its own code.",
+    };
+  }
+  const matching = ownMatch ?? portfolioMatch;
+  if (!matching && findRetiredWaiverCodeWithText(existing, normalized)) {
+    return { ok: false, error: RETIRED_WAIVER_CODE_ERROR };
+  }
 
-  for (const c of mine.filter((row) => row.status === "active" && row.id !== matching?.id)) {
+  return {
+    ok: true,
+    revoke: activeMine.filter((row) => row.id !== matching?.id),
+    matching,
+    normalized,
+    label,
+  };
+}
+
+/**
+ * Whether a per-property waiver write WOULD be accepted, without writing.
+ *
+ * Internal: `previewApplicationFeeWaiverCodeWrite` is the single exported gate,
+ * so a route cannot pick the narrower of two same-shaped prechecks by name and
+ * silently skip the portfolio path.
+ */
+async function previewPropertyApplicationFeeWaiverCodeWrite(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string,
+  rawCode: string | null | undefined,
+  opts?: { allowPortfolioConversion?: boolean },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const pid = propertyId.trim();
+  if (!pid) return { ok: false, error: "propertyId is required." };
+  const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
+  const plan = planPropertyWaiverCodeWrite(existing, pid, rawCode, opts?.allowPortfolioConversion === true);
+  return plan.ok ? { ok: true } : { ok: false, error: plan.error };
+}
+
+/**
+ * Upsert the waiver code tied to one listing/property. Uses the code `label` column
+ * (`listing:<propertyId>`) so multiple properties can each have their own active code
+ * without revoking the manager's other listings.
+ */
+export async function upsertPropertyApplicationFeeWaiverCode(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string,
+  rawCode: string | null | undefined,
+  /**
+   * Whether this write may CONVERT a legacy portfolio-wide code (`property_id
+   * IS NULL`, redeemable on every one of the owner's listings) into a code
+   * pinned to `propertyId`. Off by default: this function is called with the
+   * OWNER's id even when a property-scoped co-manager is the one typing, so it
+   * cannot tell the two apart on its own. Only a caller that has established
+   * the authenticated user IS the owner may pass `true`.
+   */
+  opts?: { allowPortfolioConversion?: boolean },
+): Promise<SetPrimaryWaiverCodeResult> {
+  const allowPortfolioConversion = opts?.allowPortfolioConversion === true;
+  const pid = propertyId.trim();
+  if (!pid) return { ok: false, error: "propertyId is required." };
+  const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
+  const plan = planPropertyWaiverCodeWrite(existing, pid, rawCode, allowPortfolioConversion);
+  if (!plan.ok) return { ok: false, error: plan.error };
+  const { matching, normalized, label } = plan;
+
+  for (const c of plan.revoke) {
     const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
     if (!revoked.ok) return { ok: false, error: revoked.error };
   }
+
+  if (!normalized) return { ok: true, code: null };
 
   if (matching) {
     if (matching.label !== label || matching.propertyId !== pid) {
@@ -541,6 +673,65 @@ export async function upsertPropertyApplicationFeeWaiverCode(
   return { ok: true, code: created.code };
 }
 
+type PortfolioWaiverCodePlan =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      revoke: ApplicationFeeWaiverCode[];
+      matching: ApplicationFeeWaiverCode | null;
+      normalized: string;
+    };
+
+/**
+ * Decide what a PORTFOLIO-wide waiver write would do, from rows already read.
+ * Pure, for the same reason the per-property planner is: the refusal has to be
+ * available before the caller revokes the code that is live today.
+ */
+function planPortfolioWaiverCodeWrite(
+  existing: ApplicationFeeWaiverCode[],
+  rawCode: string | null | undefined,
+): PortfolioWaiverCodePlan {
+  const trimmed = (rawCode ?? "").trim();
+  const active = existing.filter((c) => c.status === "active");
+
+  if (!trimmed) return { ok: true, revoke: active, matching: null, normalized: "" };
+
+  if (!isValidWaiverCodeFormat(trimmed)) {
+    return { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
+  }
+  const normalized = normalizeWaiverCode(trimmed);
+  const matching = active.find((c) => c.code === normalized) ?? null;
+  if (!matching && findRetiredWaiverCodeWithText(existing, normalized)) {
+    return { ok: false, error: RETIRED_WAIVER_CODE_ERROR };
+  }
+
+  return { ok: true, revoke: active.filter((c) => c.id !== matching?.id), matching, normalized };
+}
+
+/**
+ * Whether a waiver write WOULD be accepted, without writing — per-property when
+ * `propertyId` is given, portfolio-wide when it is empty.
+ *
+ * Every caller that must commit something else in the same request (a listing
+ * record, the fee settings row) runs this FIRST, so a refused code leaves zero
+ * mutations behind instead of a half-applied save.
+ */
+export async function previewApplicationFeeWaiverCodeWrite(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string | null | undefined,
+  rawCode: string | null | undefined,
+  opts?: { allowPortfolioConversion?: boolean },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const pid = (propertyId ?? "").trim();
+  if (pid) {
+    return previewPropertyApplicationFeeWaiverCodeWrite(db, managerUserId, pid, rawCode, opts);
+  }
+  const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
+  const plan = planPortfolioWaiverCodeWrite(existing, rawCode);
+  return plan.ok ? { ok: true } : { ok: false, error: plan.error };
+}
+
 /**
  * Collapse the manager's waiver codes to at most one unlimited primary code.
  * Compatible with the multi-code table: extras are revoked, not deleted.
@@ -551,30 +742,17 @@ export async function setPrimaryApplicationFeeWaiverCode(
   managerUserId: string,
   rawCode: string | null | undefined,
 ): Promise<SetPrimaryWaiverCodeResult> {
-  const trimmed = (rawCode ?? "").trim();
   const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
-  const active = existing.filter((c) => c.status === "active");
+  const plan = planPortfolioWaiverCodeWrite(existing, rawCode);
+  if (!plan.ok) return { ok: false, error: plan.error };
+  const { matching, normalized } = plan;
 
-  if (!trimmed) {
-    for (const c of active) {
-      const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
-      if (!revoked.ok) return { ok: false, error: revoked.error };
-    }
-    return { ok: true, code: null };
-  }
-
-  if (!isValidWaiverCodeFormat(trimmed)) {
-    return { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
-  }
-  const normalized = normalizeWaiverCode(trimmed);
-  const matching = active.find((c) => c.code === normalized) ?? null;
-
-  for (const c of active) {
-    if (matching && c.id === matching.id) continue;
+  for (const c of plan.revoke) {
     const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
     if (!revoked.ok) return { ok: false, error: revoked.error };
   }
 
+  if (!normalized) return { ok: true, code: null };
   if (matching) return { ok: true, code: matching };
 
   const created = await createApplicationFeeWaiverCode(db, managerUserId, {

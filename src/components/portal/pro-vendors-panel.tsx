@@ -67,6 +67,10 @@ import {
   vendorCatalogDetailHref,
   vendorDetailHref,
   vendorListHref,
+  VENDOR_DETAIL_TABS,
+  VENDOR_DETAIL_TAB_LABELS,
+  VENDOR_DETAIL_TAB_DESCRIPTIONS,
+  VENDOR_RAIL_GROUPS,
 } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useSearchParams } from "next/navigation";
@@ -153,6 +157,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const directoryTab = parseVendorDirectoryTab(searchParams?.get("tab"));
   const catalogDetailId = searchParams?.get("catalog")?.trim() || null;
+  const catalogDetailTab = parseVendorDetailTab(searchParams?.get("detailTab"));
 
   useEffect(() => {
     if (!authReady) return;
@@ -584,9 +589,15 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       );
     }
     const vendorTab = parseVendorDetailTab(vendorTabProp);
-    const ownVendorTab: VendorDetailTab = vendorTab === "communication" || vendorTab === "documents" || vendorTab === "activity"
-      ? "overview"
-      : vendorTab;
+    const ownVendorTab: VendorDetailTab =
+      vendorTab === "pricing" ||
+      vendorTab === "reviews" ||
+      vendorTab === "overview" ||
+      vendorTab === "profile" ||
+      vendorTab === "jobs" ||
+      vendorTab === "check-ins"
+        ? vendorTab
+        : "overview";
     const sections = recordSections("manager", "vendor", { basePath });
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
@@ -645,6 +656,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               <ManagerVendorDetail
                 row={routeVendor}
                 managerUserId={userId}
+                basePath={basePath}
+                onNavigate={navigate}
                 tab={ownVendorTab}
                 extraNeedsYou={personRecordNeedsYouItems({
                   kind: "vendor",
@@ -679,27 +692,68 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const catalogDetail = catalogDetailId
     ? catalogRows.find((row) => row.catalogId === catalogDetailId) ?? null
     : null;
+  const catalogRosterMatch = catalogDetail
+    ? findRosterCatalogMatch(vendors, catalogDetail)
+    : null;
 
   const listBody =
     directoryTab === "catalog" && catalogDetailId ? (
-      <ManagerVendorCatalogDetail
-        catalogId={catalogDetailId}
-        vendor={catalogDetail}
-        alreadyOwned={Boolean(findRosterCatalogMatch(vendors, catalogDetail ?? { name: "", trade: "" }))}
+      <PortalRecordDetailPage
+        pageTitle="Vendors"
+        title={catalogDetail?.name ?? "PropLane vendor"}
+        subtitle={catalogDetail ? [catalogDetail.trade, catalogDetail.city].filter(Boolean).join(" · ") : undefined}
+        avatarName={catalogDetail?.name}
         backHref={vendorListHref(basePath, "catalog")}
-        onAdd={(row) => {
-          const existing = findRosterCatalogMatch(vendors, row);
-          if (existing) {
-            navigate(vendorDetailHref(basePath, existing.id));
-            return;
-          }
-          openAddVendorForm(row.trade, row);
-        }}
-        onOpen={() => {
-          const existing = catalogDetail ? findRosterCatalogMatch(vendors, catalogDetail) : undefined;
-          if (existing) navigate(vendorDetailHref(basePath, existing.id));
-        }}
-      />
+        backLabel="Back to PropLane vendors"
+        hideBackText
+        bareHeader
+        dataAttrBack="vendor-catalog-back"
+        iconTitleActions
+        pinScrollBody
+      >
+        <PortalRecordActions>
+          <Button
+            type="button"
+            disabled={Boolean(catalogRosterMatch)}
+            onClick={() => catalogDetail && openAddVendorForm(catalogDetail.trade, catalogDetail)}
+            data-attr="vendor-catalog-add"
+          >
+            {catalogRosterMatch ? "Added" : "Add"}
+          </Button>
+        </PortalRecordActions>
+        <PortalRecordSectionChrome
+          items={VENDOR_DETAIL_TABS.map((tab) => ({
+            id: tab,
+            label: VENDOR_DETAIL_TAB_LABELS[tab],
+            description: VENDOR_DETAIL_TAB_DESCRIPTIONS[tab],
+            href: vendorCatalogDetailHref(basePath, catalogDetailId, tab),
+          }))}
+          activeId={catalogDetailTab}
+          groups={VENDOR_RAIL_GROUPS}
+          title={catalogDetail?.name ?? "PropLane vendor"}
+          subtitle={catalogDetail?.trade}
+          backHref={vendorListHref(basePath, "catalog")}
+          backLabel="PropLane vendors"
+          ariaLabel="Vendor sections"
+          currentLabel={VENDOR_DETAIL_TAB_LABELS[catalogDetailTab]}
+          defaultDisclosureOpen={catalogDetailTab === "overview"}
+        >
+          {catalogRosterMatch ? (
+            <div data-attr="vendor-catalog-matched-profile">
+              <ManagerVendorDetail
+                row={catalogRosterMatch}
+                managerUserId={userId}
+                basePath={basePath}
+                onNavigate={navigate}
+                tab={catalogDetailTab}
+                detailHref={(tab) => vendorCatalogDetailHref(basePath, catalogDetailId, tab)}
+              />
+            </div>
+          ) : (
+            <ManagerVendorCatalogDetail catalogId={catalogDetailId} vendor={catalogDetail} tab={catalogDetailTab} basePath={basePath} />
+          )}
+        </PortalRecordSectionChrome>
+      </PortalRecordDetailPage>
     ) : directoryTab === "catalog" && catalogRows.length === 0 ? (
       <PortalListEmptyCard
         section="vendors"
@@ -715,13 +769,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         {visibleCatalogRows.map((row) => {
           const existing = findRosterCatalogMatch(vendors, row);
           const openProfile = () => navigate(vendorCatalogDetailHref(basePath, row.catalogId));
-          const addOrOpen = () => {
-            if (existing) {
-              navigate(vendorDetailHref(basePath, existing.id));
-              return;
-            }
-            openAddVendorForm(row.trade, row);
-          };
+          const add = () => openAddVendorForm(row.trade, row);
           return (
             <RecordActionContext.Provider
               key={row.catalogId}
@@ -729,18 +777,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 scope: row.catalogId,
                 clear: () => {},
                 actions: (
-                  <>
-                    <Button type="button" data-attr="vendor-catalog-row-view" onClick={openProfile}>
-                      View profile
-                    </Button>
-                    <Button
-                      type="button"
-                      data-attr={existing ? "vendor-catalog-row-open" : "vendor-catalog-row-add"}
-                      onClick={addOrOpen}
-                    >
-                      {existing ? "Open" : "Add to your vendors"}
-                    </Button>
-                  </>
+                  <Button
+                    type="button"
+                    data-attr="vendor-catalog-row-add"
+                    disabled={Boolean(existing)}
+                    onClick={add}
+                  >
+                    {existing ? "Added" : "Add to your vendors"}
+                  </Button>
                 ),
               }}
             >

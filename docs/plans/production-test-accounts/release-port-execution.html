@@ -1,0 +1,257 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Private test workspace release port execution</title>
+<style>body{max-width:1120px;margin:40px auto;padding:0 24px;font:15px/1.55 system-ui;color:#172334}code,pre{background:#eef1f3;padding:2px 5px}pre{padding:14px;white-space:pre-wrap;overflow-wrap:anywhere}.warn{padding:14px;border-left:4px solid #b42318;background:#fff1f0}.ok{color:#176b3a}li{margin:7px 0}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd2d8;padding:9px;text-align:left;vertical-align:top}th{background:#f6f7f8}</style><body>
+<h1>Private test workspace release port execution</h1>
+<p class="warn"><strong>Status: coherent source candidate, not release-ready and not shipped.</strong> Focused feature tests pass, but current-base build/unit gates, fresh full-candidate review, real-data/browser acceptance, operator configuration, staging QA, and the reviewed production transaction remain required. The feature stays off. The two forward fixes were applied only to the exact dev project; no remote branch, staging, or production action occurred.</p>
+<h2>Candidate identity</h2><table><tr><th>Worktree</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/7/AXIS-2</code></td></tr><tr><th>Branch</th><td><code>akhil/test-workspace-release-20260919</code></td></tr><tr><th>Starting/current Git commit</th><td><code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code> plus the uncommitted task candidate listed below</td></tr></table>
+<h2>Integrated behavior</h2><ul>
+<li>Private workspace storage and durable classification; trusted operator invitation/setup; manager/co-manager/resident banners and fail-closed layouts; private public-listing projection; application/account-link/purge boundaries; workspace-scoped schedule storage; and the exact reviewed <code>docs/agents/test-workspaces.md</code>.</li>
+<li>Phone-free manager/prospect/resident SMS test capability, authenticated context, session runner, history, burst/quota, pending actions, confirmation, provenance, transport capture, assistant controls, application-stage transition, and accepted-tour flow.</li>
+<li>Current schedule semantics preserved: normal planned writes retain <code>actorIsAdmin</code> and expected-slice CAS; tour writes retain current start/end/generation CAS. Duplicate submitted event IDs fail; existing confirmed tours remain; generic schedule writes cannot mutate tour lifecycle records.</li>
+<li>Normal portal workspace scope remains distinct from <code>test_workspace_id</code>. Normal manager context continues through authenticated <code>resolveAgentContext</code>; normal history keeps active portal <code>workspace_id</code>, while test history/actions additionally require exact authenticated workspace, actor, manager, and session provenance.</li>
+<li>Current low-level Twilio capture occurs before client construction. Normal pending-action rows explicitly store null test provenance; test rows store actor, manager, session, and workspace identity. Claims require the same namespace.</li>
+<li>Provider capture covers shared Twilio, Resend, Google Calendar, push, webhook, managed SMS/outbox, phone verification, portal/application/reminder/invite email routes, and delayed consumers. Auth lifecycle email and AI generation calls are outside this effect category. Legacy guest email fallbacks remain only when no trusted server-owned manager identity exists.</li>
+<li>Only Akhil's persistent low-resource validation preference was added to the current personal agent instructions.</li></ul>
+<h2>Migration reconciliation</h2><ul>
+<li>Six historical task migrations already applied in dev remain byte-immutable: <code>20260917120000</code>, <code>17193000</code>, <code>17201500</code>, <code>18130000</code>, <code>18131500</code>, and <code>18133000</code>.</li>
+<li><code>20260919113000</code> forward-reconciles the Google cleanup claimant with both the current create-intent fence and test exclusion.</li>
+<li><code>20260919120000</code> rejects SQL NULL/non-array schedule inputs, missing/mismatched owners, and duplicate IDs before writes while retaining rows owned by other/missing owners. CAS, locking, namespace storage, and service-role ACLs remain. The independent migration reviewer found no regression in the exact eight-file SQL scope.</li>
+<li>Excluded old <code>20260915120000</code> because the same bytes landed as 120100; old <code>20260916103000</code> because only whitespace differs; and old <code>20260912143000</code> because it would regress the current credit-reserving RPC.</li>
+<li>Dev ledger inspection against exact linked ref <code>emstjswhotsnyksqhqyf</code> confirmed the six historical migrations were applied. Root then dry-ran and applied only the reviewer-hash-verified <code>191130</code> and <code>191200</code> forward fixes to that exact dev project; apply exited 0. Safe probes using random, uncreated workspace/actor IDs rejected SQL/JSON null submitted events, null expected events, and object submitted events as <code>invalid_payload</code> (3/3), with no namespace data writes. Version-name absence still does not establish schema absence for other current-main migrations.</li>
+<li>The raw listing policy creation in 18131500 and drop in 18133000 must execute inside one reviewed rollback-on-failure transaction. File order is insufficient. No staging or production migration was applied.</li></ul>
+<h2>Validation evidence</h2><table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Complete bounded feature batch: <code>sms-test-*</code>, leasing SMS test session, <code>test-workspace-*</code>; Node 22.23.0, heap 1536 MiB, one worker</td><td class="ok">Final exit 0: 29 files, 128 tests passed. An earlier integration checkpoint exited 1 with 17 failures; those exposed and drove the environment, tour RPC/key, raw Twilio, public listing, and fixture reconciliation.</td></tr>
+<tr><td>Additional history, pending/confirmation, inbox count, and provider-adjacent routes; Node 22.23.0, heap 1536 MiB, one worker</td><td class="ok">Exit 0: 9 files, 73 tests passed.</td></tr>
+<tr><td>Changed/new TS/TSX ESLint</td><td class="ok">Exit 0: 0 errors, 32 warnings. Warnings are retained in the gate record; this is not a zero-warning claim.</td></tr>
+<tr><td>Static changed/new source scan</td><td class="ok">186 TS/TSX files scanned; no duplicate exported declarations and no missing <code>@/</code> import targets.</td></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0 after final source changes.</td></tr>
+<tr><td>Graph refresh</td><td>Unavailable: the local command could not be resolved. No graph-freshness claim.</td></tr>
+<tr><td>Resource/process cleanup</td><td>Latest 36% memory free; 9.1 GiB disk free (96% used). No candidate worktree, Next, or Vitest process remained.</td></tr></table>
+<h2>Reproducible validation commands</h2>
+<p>The shell default was discovered to be Node 23.7.0 after the first exploratory passes. Those results are retained only as integration history. The final acceptance evidence below explicitly prepended the installed repository-pinned Node 22.23.0 runtime (<code>.nvmrc</code> is <code>22</code>; package engines are Node 22.x/npm 10.x).</p>
+<pre>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH NODE_OPTIONS=--max-old-space-size=1536 npx vitest run tests/unit/sms-test-*.test.ts tests/unit/leasing-sms-test-session.test.ts tests/unit/test-workspace-*.test.ts --maxWorkers=1
+# exit 0; 29 files, 128 tests</pre>
+<pre>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH NODE_OPTIONS=--max-old-space-size=1536 npx vitest run tests/unit/agent/chat-history.test.ts tests/unit/tools/confirm-gate-portal-scope.test.ts tests/unit/tools/pending-actions.test.ts tests/unit/communication-inbox-filters.test.ts tests/unit/manager-phone-verification-route.test.ts tests/unit/portal-record-share-authorize.test.ts tests/unit/send-application-submitted-handoff-route.test.ts tests/unit/lead-invite-email.test.ts tests/unit/payment-reminder-delivery.test.ts --maxWorkers=1
+# exit 0; 9 files, 73 tests</pre>
+<pre>git status --porcelain=v1 -z | python3 -c 'import sys,os; xs=sys.stdin.buffer.read().split(b"\0"); out=[]; [out.append(x[3:].split(b" -&gt; ",1)[-1]) for x in xs if x and x[3:].endswith((b".ts",b".tsx")) and os.path.isfile(x[3:].split(b" -&gt; ",1)[-1].decode())]; sys.stdout.buffer.write(b"\0".join(out)+(b"\0" if out else b""))' | PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH xargs -0 npx eslint
+# exit 0; 0 errors, 32 warnings</pre>
+<pre>git diff --check
+# exit 0</pre>
+<h2>Current-base release gates remain unwaived</h2><p>Primary evidence: <code>/Users/akhilvemuri/coding/AXIS-2/docs/plans/production-test-accounts/release-baseline-ci.json</code>, <code>release-unit-triage.html</code>, and <code>release-baseline-repair-plan.html</code>.</p><ul>
+<li>Base build reported 11 TypeScript errors. Targeted candidate fixes include a typed lease jurisdiction view that preserves known listing/room/submission state and fails closed without a valid generation context. A valid Node 22 whole-project check has not verified the final candidate.</li>
+<li>Base lint reported 3 errors. Candidate changed-source lint has no errors, but the required full gate has not run.</li>
+<li>Base unit reported 36 failures across 21 files. They are not waived. The candidate fixes the concrete inbound-SMS list/count mismatch, but the full unit gate has not run.</li>
+<li>Base smoke did not reach browser cases because server startup failed typechecking; there is no separate passing browser claim.</li>
+<li>The property create-owner 403 regression remains in the separate baseline repair plan and is not claimed fixed here.</li></ul>
+<h2>Remaining release prerequisites</h2><ol>
+<li>Fresh independent source/security/bug review of the exact candidate, including lease fallback behavior, provider exclusions, normal versus test portal workspace scope, tour lifecycle routing, and the two forward migrations. The completed SQL review is migration-only.</li>
+<li>Complete seeded dev browser acceptance against the now-forward-migrated dev schema. It must exercise two workspaces and a normal-account control, co-manager permissions, full calendar actions, application-stage transitions, pending confirmation, suspension/flag-off capture, invalid/expired/duplicate/failure paths, cleanup concurrency, and mobile. No broad <code>db:push</code>.</li>
+<li>Run required Node 22 unit/lint/typecheck/build/preflight gates sequentially when resource headroom permits. Vercel project metadata currently reports Node 24, so deploy runtime must be verified against the package pin.</li>
+<li>Obtain the operator admin email/UUID. Never elevate a shared seed credential.</li>
+<li>After review and gates: commit/push keeper fast-forward, integrate to main, promote to staging, apply/verify staging schema and QA, preserve the production backup, apply the exact reviewed migration transaction, and promote staging to production. A production push also triggers iOS/TestFlight/App Store workflow behavior.</li></ol>
+<h2>Dependencies</h2><p>No package or lockfile dependency was added. New source uses existing Supabase clients/RPCs, authenticated portal access, AsyncLocalStorage provenance, current agent registries, Twilio/Resend provider wrappers, current calendar and schedule CAS functions, and the existing UI system.</p>
+<h2>Exact current candidate paths</h2><pre> M docs/agents/AGENTS-akhil.md
+ M scripts/import-ambika-seattle-occupancy-production.ts
+ M src/app/admin/layout.tsx
+ M src/app/api/agent/pending-actions/route.ts
+ M src/app/api/cron/send-lease-signing-reminders/route.ts
+ M src/app/api/cron/send-payment-reminders/route.ts
+ M src/app/api/cron/send-scheduled-inbox-messages/route.ts
+ M src/app/api/manager-applications/route.ts
+ M src/app/api/manager/phone/route.ts
+ M src/app/api/portal-lease-pipeline/route.ts
+ M src/app/api/portal-schedule-records/route.ts
+ M src/app/api/portal/record-share-link/send/route.ts
+ M src/app/api/portal/scheduled-inbox-messages/[id]/route.ts
+ M src/app/api/portal/scheduled-inbox-messages/[id]/send-now/route.ts
+ M src/app/api/portal/scheduled-inbox-messages/route.ts
+ M src/app/api/portal/scheduled-messages/[id]/route.ts
+ M src/app/api/portal/send-application-completion-reminder/route.ts
+ M src/app/api/portal/send-application-started/route.ts
+ M src/app/api/portal/send-application-submitted/route.ts
+ M src/app/api/portal/send-lead-invite/route.ts
+ M src/app/api/portal/send-manager-application-started/route.ts
+ M src/app/api/portal/send-payment-reminder/route.ts
+ M src/app/api/pro/account-links/[inviteId]/route.ts
+ M src/app/api/pro/account-links/redeem/route.ts
+ M src/app/api/pro/account-links/route.ts
+ M src/app/api/property-records/public/route.ts
+ M src/app/api/public/property-lead-message/route.ts
+ M src/app/api/public/property-lead/route.ts
+ M src/app/api/public/property-tour-availability/route.ts
+ M src/app/api/twilio/voice/status/route.ts
+ M src/app/auth/confirm/page.tsx
+ M src/app/portal/layout.tsx
+ M src/app/resident/layout.tsx
+ M src/components/portal/admin-portal-nav-icons.tsx
+ M src/components/portal/assistant-dock-panel.tsx
+ M src/components/portal/axis-assistant.tsx
+ M src/components/portal/channel-calendar-link-modal.tsx
+ M src/components/portal/portal-sign-out-button.tsx
+ M src/components/portal/pro-inbox.tsx
+ M src/components/portal/promotion-new-modal.tsx
+ M src/components/portal/resident-inbox-panel.tsx
+ M src/lib/action-events.server.ts
+ M src/lib/agent-notify.server.ts
+ M src/lib/agent/chat-history-route.ts
+ M src/lib/agent/chat-history.ts
+ M src/lib/agent/leasing-sms-agent.server.ts
+ M src/lib/agent/manager-email-agent.server.ts
+ M src/lib/agent/manager-sms-agent.server.ts
+ M src/lib/agent/resident-sms-agent.server.ts
+ M src/lib/agent/sms-agent-turn.server.ts
+ M src/lib/application-submitted-notification.server.ts
+ M src/lib/auth/account-purge-manifest.ts
+ M src/lib/axis-assistant/assistant-conversation-context.tsx
+ M src/lib/axis-assistant/portal-assistant-context.tsx
+ M src/lib/axis-assistant/use-assistant-conversation.ts
+ M src/lib/claw-maintenance-work-order.server.ts
+ M src/lib/communication-inbox-filters.ts
+ M src/lib/cosigner-notification.server.ts
+ M src/lib/demo-property-pipeline.ts
+ M src/lib/google-calendar/sync.server.ts
+ M src/lib/inspections/model.ts
+ M src/lib/inspections/server.ts
+ M src/lib/lead-invite.server.ts
+ M src/lib/lease-amendment.server.ts
+ M src/lib/lease-packet-edit.server.ts
+ M src/lib/lease-pipeline-storage.ts
+ M src/lib/manager-assistant-email/process-assistant-inbound.server.ts
+ M src/lib/manager-attention-digest.server.ts
+ M src/lib/manager-bills.server.ts
+ M src/lib/manager-bills.ts
+ M src/lib/manager-default-tasks.server.ts
+ M src/lib/manager-tasks.ts
+ M src/lib/payment-reminder-delivery.ts
+ M src/lib/planned-schedule-persistence.server.ts
+ M src/lib/portal-email-send.server.ts
+ M src/lib/portal-record-api.ts
+ M src/lib/portals/admin.ts
+ M src/lib/property-lead-notification.server.ts
+ M src/lib/property-lead-prospect-handoff.server.ts
+ M src/lib/proplane-sms-transport.server.ts
+ M src/lib/prospect-tour-scheduling-context.server.ts
+ M src/lib/public-listings.server.ts
+ M src/lib/push-notifications.server.ts
+ M src/lib/reminders/current.server.ts
+ M src/lib/reminders/subjects/applications.server.ts
+ M src/lib/reminders/subjects/bookings.server.ts
+ M src/lib/reminders/subjects/inspections.server.ts
+ M src/lib/reminders/subjects/leases.server.ts
+ M src/lib/reminders/subjects/leasing-current.server.ts
+ M src/lib/reminders/subjects/outgoing-payments.server.ts
+ M src/lib/reminders/subjects/records.server.ts
+ M src/lib/reminders/subjects/services-current.server.ts
+ M src/lib/reminders/subjects/tasks.server.ts
+ M src/lib/reminders/subjects/tenancy-current.server.ts
+ M src/lib/reminders/subjects/tours.server.ts
+ M src/lib/render-portal-section.tsx
+ M src/lib/resident-apply-invite-email.ts
+ M src/lib/resident-outbound-sms.server.ts
+ M src/lib/resident-welcome.server.ts
+ M src/lib/resident-work-order-reminder.server.ts
+ M src/lib/scheduled-inbox-messages.ts
+ M src/lib/screening/order-screening.ts
+ M src/lib/send-scheduled-inbox-message-now.ts
+ M src/lib/sms-conversation-identity.ts
+ M src/lib/sms-inbox-notice.server.ts
+ M src/lib/sms/manager-number-provisioning.server.ts
+ M src/lib/sms/owner-sms-dispatcher.server.ts
+ M src/lib/sms/prospect-tour-reminder.server.ts
+ M src/lib/sms/weekly-rent-reminder.server.ts
+ M src/lib/stripe-household-charge-checkout.server.ts
+ M src/lib/tools/confirm-gate.server.ts
+ M src/lib/tools/context.ts
+ M src/lib/tools/domains/applications.ts
+ M src/lib/tools/domains/calendar.ts
+ M src/lib/tools/domains/charges.ts
+ M src/lib/tools/domains/leases.ts
+ M src/lib/tools/domains/messaging.ts
+ M src/lib/tools/domains/payments.ts
+ M src/lib/tools/domains/resident/messaging.ts
+ M src/lib/tools/domains/resident/services.ts
+ M src/lib/tools/domains/residents.ts
+ M src/lib/tools/domains/services-write.ts
+ M src/lib/tools/domains/tours.ts
+ M src/lib/tools/domains/utility-allocation.ts
+ M src/lib/tools/domains/work-orders.ts
+ M src/lib/tools/pending-actions.ts
+ M src/lib/tools/resident-context.ts
+ M src/lib/tour-availability.server.ts
+ M src/lib/tour-notification-delivery.server.ts
+ M src/lib/tour-reminder.server.ts
+ M src/lib/tour-schedule-persistence.server.ts
+ M src/lib/twilio.ts
+ M src/lib/vendor-invite.server.ts
+ M src/lib/vendor-notification-delivery.ts
+ M src/lib/voice/voice-summary-email.server.ts
+ M src/lib/webhooks/deliver.server.ts
+ M src/lib/work-order-approve-pay.server.ts
+ M src/lib/work-order-bids.server.ts
+ M src/lib/work-order-dispatch.server.ts
+ M src/lib/work-order-offers.server.ts
+ M tests/unit/agent/chat-history.test.ts
+ M tests/unit/communication-inbox-filters.test.ts
+ M tests/unit/tools/confirm-gate-portal-scope.test.ts
+ M tests/unit/tools/pending-actions.test.ts
+?? docs/agents/test-workspaces.md
+?? docs/plans/production-test-accounts/
+?? docs/security/2026-09-19-test-workspace-migration-review.html
+?? scripts/test-workspace-acceptance-probe.mjs
+?? src/app/api/admin/test-workspaces/
+?? src/app/api/agent/sms-test/
+?? src/app/auth/test-workspace-setup/
+?? src/components/portal/admin-test-workspaces-client.tsx
+?? src/components/portal/assistant-sms-test-control.tsx
+?? src/components/portal/test-account-banner.tsx
+?? src/components/portal/test-account-unavailable.tsx
+?? src/lib/agent/sms-test-context.server.ts
+?? src/lib/agent/sms-test-runner.server.ts
+?? src/lib/axis-assistant/sms-test-turn-state.ts
+?? src/lib/comms-billing/agent-usage.server.ts
+?? src/lib/resend-delivery.server.ts
+?? src/lib/scheduled-inbox-messages.server.ts
+?? src/lib/sms/sms-test-burst.server.ts
+?? src/lib/sms/sms-test-provenance.server.ts
+?? src/lib/sms/sms-test-provenance.ts
+?? src/lib/sms/sms-test-transport.server.ts
+?? src/lib/test-workspaces/
+?? supabase/migrations/20260917120000_authenticated_sms_test_identity.sql
+?? supabase/migrations/20260917193000_authenticated_sms_test_tour_context.sql
+?? supabase/migrations/20260917201500_sms_test_pending_action_and_delivery_provenance.sql
+?? supabase/migrations/20260918130000_sms_test_tour_wrapper_failed_replace_guard.sql
+?? supabase/migrations/20260918131500_test_workspaces.sql
+?? supabase/migrations/20260918133000_remove_raw_live_listing_read_policy.sql
+?? supabase/migrations/20260919113000_reconcile_sms_test_google_cleanup_claim_fence.sql
+?? supabase/migrations/20260919120000_harden_test_workspace_schedule_slice.sql
+?? tests/unit/leasing-sms-test-session.test.ts
+?? tests/unit/sms-test-billing.test.ts
+?? tests/unit/sms-test-burst.test.ts
+?? tests/unit/sms-test-capability-route.test.ts
+?? tests/unit/sms-test-context.test.ts
+?? tests/unit/sms-test-external-effects.test.ts
+?? tests/unit/sms-test-identity-migration.test.ts
+?? tests/unit/sms-test-provenance.test.ts
+?? tests/unit/sms-test-provider-boundaries.test.ts
+?? tests/unit/sms-test-raw-twilio-webhook.test.ts
+?? tests/unit/sms-test-route.test.ts
+?? tests/unit/sms-test-runner.test.ts
+?? tests/unit/sms-test-session-isolation.test.ts
+?? tests/unit/sms-test-tour-context.test.ts
+?? tests/unit/sms-test-tour-persistence.test.ts
+?? tests/unit/sms-test-transport.test.ts
+?? tests/unit/sms-test-turn-state.test.ts
+?? tests/unit/test-workspace-admin-route.test.ts
+?? tests/unit/test-workspace-capability-boundary.test.ts
+?? tests/unit/test-workspace-classification.test.ts
+?? tests/unit/test-workspace-confirmation.test.ts
+?? tests/unit/test-workspace-effect-boundary.test.ts
+?? tests/unit/test-workspace-history-boundary.test.ts
+?? tests/unit/test-workspace-link-boundary.test.ts
+?? tests/unit/test-workspace-migration-contract.test.ts
+?? tests/unit/test-workspace-public-listings.test.ts
+?? tests/unit/test-workspace-schedule-route.test.ts
+?? tests/unit/test-workspace-sms-boundary.test.ts
+?? tests/unit/test-workspace-sms-scope.test.ts</pre>
+<h2>Process cleanup</h2><p>No task server or browser is running. This integration session performed no package install, commit, push, PR, deploy, branch promotion, staging action, or production action. Root's separate bounded database operation applied only the two reviewed forward fixes to exact dev and performed rejection-only probes with no namespace data writes. Broad validation was deferred because the known-red base needs its bounded repair plan and local disk is at 96%.</p></body></html>

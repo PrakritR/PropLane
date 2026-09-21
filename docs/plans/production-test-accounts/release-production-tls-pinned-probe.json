@@ -1,0 +1,12 @@
+{
+  "target": "production",
+  "project": "qahnczmilgptcedaqype",
+  "certificate_verification": "verify-full/pinned Supabase Root 2021 CA",
+  "ca_sha256": "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7",
+  "exit_code": 0,
+  "probe": {
+    "read_only": "on",
+    "tls": true,
+    "version": "TLSv1.3"
+  }
+}

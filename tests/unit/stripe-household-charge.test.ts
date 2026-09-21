@@ -13,6 +13,9 @@ vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
 vi.mock("@/lib/push-notifications.server", () => ({
   sendPushToUser: vi.fn(async () => undefined),
 }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
 
 describe("stripe-household-charge", () => {
   it("resident-pays application fee on an ACH charge is Stripe's 0.8% cost", () => {

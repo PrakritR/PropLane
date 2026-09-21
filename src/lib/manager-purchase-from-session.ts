@@ -1,5 +1,88 @@
 import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+
+type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
+
+export type ResolvedManagerCheckoutPurchase = {
+  id: string;
+  userId: string | null;
+  managerId: string;
+  email: string;
+};
+
+function checkoutEmail(session: Stripe.Checkout.Session): string {
+  return String(
+    session.customer_details?.email ??
+      session.customer_email ??
+      session.metadata?.email ??
+      "",
+  ).trim().toLowerCase();
+}
+
+/** Resolve a Checkout event only through a durable purchase row. */
+export async function resolveManagerCheckoutPurchase(
+  db: ManagerPurchaseDb,
+  session: Stripe.Checkout.Session,
+): Promise<ResolvedManagerCheckoutPurchase> {
+  const managerId = session.metadata?.manager_id?.trim() ?? "";
+  const claimedUserId = session.metadata?.userId?.trim() ?? "";
+  const email = checkoutEmail(session);
+  const select = "id,user_id,manager_id,email";
+
+  const { data: reserved, error: reservedError } = await db
+    .from("manager_purchases")
+    .select(select)
+    .eq("stripe_checkout_session_id", session.id)
+    .maybeSingle();
+  if (reservedError) throw new Error("Could not verify manager checkout ownership.");
+
+  let stored = reserved as {
+    id: string;
+    user_id?: string | null;
+    manager_id?: string | null;
+    email?: string | null;
+  } | null;
+  if (!stored && claimedUserId) {
+    const { data, error } = await db
+      .from("manager_purchases")
+      .select(select)
+      .eq("user_id", claimedUserId)
+      .or("paid_at.is.null,tier.is.null")
+      .maybeSingle();
+    if (error) throw new Error("Could not verify manager checkout ownership.");
+    stored = data as typeof stored;
+  }
+  if (!stored && managerId) {
+    const { data, error } = await db
+      .from("manager_purchases")
+      .select(select)
+      .eq("manager_id", managerId)
+      .or("paid_at.is.null,tier.is.null")
+      .maybeSingle();
+    if (error) throw new Error("Could not verify manager checkout ownership.");
+    stored = data as typeof stored;
+  }
+  if (!stored) throw new Error("Could not verify manager checkout ownership.");
+
+  const storedUserId = String(stored.user_id ?? "").trim();
+  const storedManagerId = String(stored.manager_id ?? "").trim();
+  const storedEmail = String(stored.email ?? "").trim().toLowerCase();
+  if (
+    (claimedUserId && claimedUserId !== storedUserId) ||
+    (managerId && storedManagerId && managerId !== storedManagerId) ||
+    (email && storedEmail && email !== storedEmail)
+  ) {
+    throw new Error("Could not verify manager checkout ownership.");
+  }
+  // Guest checkouts have no auth owner. Both manager id and email must match
+  // their durable pending row, including for legacy rows without a reservation.
+  if (!storedUserId && (!managerId || managerId !== storedManagerId || !email || email !== storedEmail)) {
+    throw new Error("Could not verify manager checkout ownership.");
+  }
+
+  return { id: stored.id, userId: storedUserId || null, managerId: storedManagerId, email: storedEmail };
+}
 
 /**
  * Stripe Checkout can complete a subscription while `payment_status` is still `unpaid`
@@ -24,14 +107,7 @@ export function checkoutSessionIndicatesPaidPurchase(session: Stripe.Checkout.Se
 /** Idempotent: records a completed Checkout session as a paid manager purchase. */
 export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.Session): Promise<void> {
   const managerId = session.metadata?.manager_id?.trim();
-  const metadataUserId = session.metadata?.userId?.trim();
-  const email = (
-    session.customer_details?.email ??
-    session.customer_email ??
-    session.metadata?.email
-  )
-    ?.trim()
-    .toLowerCase();
+  const email = checkoutEmail(session);
 
   if (!checkoutSessionIndicatesPaidPurchase(session)) return;
 
@@ -65,81 +141,25 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
     full_name: session.metadata?.full_name?.trim() || null,
     ...(email ? { email } : {}),
     ...(managerId ? { manager_id: managerId } : {}),
-    ...(metadataUserId ? { user_id: metadataUserId } : {}),
   };
 
-  const { data: bySession, error: sessionUpdateError } = await supabase
+  // A signed event still carries caller-originated metadata. Resolve the
+  // already-reserved local purchase first, then use its owner as the provider
+  // boundary. New checkout creation reserves this row before returning.
+  const stored = await resolveManagerCheckoutPurchase(supabase, session);
+  if (stored.userId && (await captureTestWorkspaceEffectForUser({
+      userId: stored.userId,
+      kind: "payment",
+      summary: "Manager subscription fulfillment was refused for a test workspace.",
+      metadata: { operation: "manager_subscription_fulfillment" },
+      db: supabase,
+    })).captured) return;
+  const { error: verifiedUpdateError } = await supabase
     .from("manager_purchases")
-    .update(patch)
-    .eq("stripe_checkout_session_id", session.id)
-    .select("id");
-  if (sessionUpdateError) throw new Error(sessionUpdateError.message);
-  if (bySession && bySession.length > 0) return;
-
-  /** Fallback for older pending rows that were not reserved by Checkout session id. */
-  if (metadataUserId || managerId) {
-    let updated = false;
-    if (metadataUserId) {
-      const { data: byUser, error: e1 } = await supabase
-        .from("manager_purchases")
-        .update(patch)
-        .eq("user_id", metadataUserId)
-        .or("paid_at.is.null,tier.is.null")
-        .select("id");
-      if (e1) throw new Error(e1.message);
-      if (byUser && byUser.length > 0) updated = true;
-    }
-    if (!updated && managerId) {
-      const { data: byMgr, error: e2 } = await supabase
-        .from("manager_purchases")
-        .update(patch)
-        .eq("manager_id", managerId)
-        .or("paid_at.is.null,tier.is.null")
-        .select("id");
-      if (e2) throw new Error(e2.message);
-      if (byMgr && byMgr.length > 0) updated = true;
-    }
-    if (updated) return;
-  }
-
-  /**
-   * Upsert by `manager_id` (unique): covers first-time inserts and rows where
-   * prior updates missed (e.g. `user_id` was null on an older row).
-   */
-  if (managerId && email) {
-    const { data: existingManagerPurchase, error: existingErr } = await supabase
-      .from("manager_purchases")
-      .select("id, paid_at, stripe_checkout_session_id")
-      .eq("manager_id", managerId)
-      .maybeSingle();
-    if (existingErr) throw new Error(existingErr.message);
-    if (
-      existingManagerPurchase?.paid_at &&
-      existingManagerPurchase.stripe_checkout_session_id !== session.id
-    ) {
-      return;
-    }
-
-    const { error: upErr } = await supabase.from("manager_purchases").upsert(
-      {
-        stripe_checkout_session_id: session.id,
-        stripe_customer_id: customerId,
-        stripe_subscription_id: subscriptionId,
-        email,
-        manager_id: managerId,
-        tier: tierMeta,
-        billing: billingMeta,
-        promo_code: session.metadata?.promo ?? null,
-        paid_at: new Date().toISOString(),
-        full_name: session.metadata?.full_name?.trim() || null,
-        user_id: metadataUserId ?? null,
-      },
-      { onConflict: "manager_id" },
-    );
-    if (upErr) throw new Error(upErr.message);
-    return;
-  }
-
-  /** Legacy signup checkout without manager_id in metadata (handled by other flows). */
-  return;
+    .update({
+      ...patch,
+      manager_id: stored.managerId || managerId,
+    })
+    .eq("id", stored.id);
+  if (verifiedUpdateError) throw new Error(verifiedUpdateError.message);
 }

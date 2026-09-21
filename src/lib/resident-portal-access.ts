@@ -26,6 +26,7 @@ function emptyAccessState(managerSubscriptionTier: ManagerSubscriptionTier): Res
     applicationProperty: null,
     leaseSigned: false,
     leaseAccessUnlocked: false,
+    isBookingResidency: false,
     fullPortalAccess: false,
     managerSubscriptionTier,
   };
@@ -44,6 +45,22 @@ type ApplicationRecord = {
   updated_at?: string | null;
   resident_email?: string | null;
 };
+
+/**
+ * True for the plumbing row `sendBookingResidentInvite`
+ * (src/lib/booking-resident-invite.server.ts) creates so the resident-setup
+ * link has an application id to hang off of. It is never a real submitted
+ * application: `readOwnedApplications` filters every one of these out before
+ * `applicationApproved` / `hasSubmittedApplication` ever see it, so a booking
+ * resident's own Applications tab stays empty, exactly as if the row did not
+ * exist. This is the ONLY place that reads the `bookingResidency` tag for
+ * resident-facing access.
+ */
+function isBookingResidencyRecord(record: ApplicationRecord): boolean {
+  const row = record.row_data;
+  if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+  return (row as Record<string, unknown>).bookingResidency === true;
+}
 
 type OwnedApplication = {
   id: string | null;
@@ -200,7 +217,11 @@ const loadResidentPortalAccessStateCached = cache(
     if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
     const { data: applicationRows } = await applicationQuery.order("updated_at", { ascending: false });
 
-    const ownedApplications = readOwnedApplications(applicationRows ?? [], email, userId);
+    const allRows = applicationRows ?? [];
+    const isBookingResidency = allRows.some(isBookingResidencyRecord);
+    const realApplicationRows = allRows.filter((row) => !isBookingResidencyRecord(row));
+
+    const ownedApplications = readOwnedApplications(realApplicationRows, email, userId);
     let latestApplication = latestApplicationOf(ownedApplications);
     let hasSubmittedApplication = ownedApplications.length > 0;
     let hasCompletedApplicationSubmission = ownedApplications.some(
@@ -284,6 +305,7 @@ const loadResidentPortalAccessStateCached = cache(
       applicationProperty: latestApplication.property,
       leaseSigned,
       leaseAccessUnlocked,
+      isBookingResidency,
       fullPortalAccess: leaseSigned,
       managerSubscriptionTier,
     };

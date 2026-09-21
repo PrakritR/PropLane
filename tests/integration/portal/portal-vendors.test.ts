@@ -13,6 +13,10 @@ vi.mock("@/lib/auth/admin-preview", () => ({
   isAdminUser: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-vendors/route";
@@ -103,10 +107,15 @@ describe("/api/portal-vendors", () => {
       select: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ data: [{ id: "v-other", manager_user_id: "mgr-b" }], error: null }),
     };
+    const acceptedLinks = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn(),
+    };
+    acceptedLinks.eq.mockReturnValueOnce(acceptedLinks).mockResolvedValueOnce({ data: [], error: null });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
         if (table === "profiles") return profileChain;
-        if (table === "account_link_invites") return noAcceptedLinks();
+        if (table === "account_link_invites") return acceptedLinks;
         if (table === "manager_vendor_records") return ownerLookup;
         throw new Error(`Unexpected table ${table}`);
       }),
@@ -132,6 +141,8 @@ describe("/api/portal-vendors", () => {
     const { status, data } = await parseJsonResponse<{ error?: string }>(res);
     expect(status).toBe(403);
     expect(data.error).toMatch(/another manager/i);
+    expect(acceptedLinks.eq).toHaveBeenCalledWith("status", "accepted");
+    expect(acceptedLinks.eq).toHaveBeenCalledWith("invitee_user_id", "mgr-a");
   });
 
   it("POST upsert persists sharedWithManagers on own vendor", async () => {
@@ -179,8 +190,10 @@ describe("/api/portal-vendors", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
+    expect(insert).toHaveBeenCalledOnce();
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: "v-share",
         manager_user_id: "mgr-a",
         row_data: expect.objectContaining({ sharedWithManagers: true, name: "Shared Vendor" }),
       }),

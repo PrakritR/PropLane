@@ -22,6 +22,7 @@ import { projectProspectShadowPrimaryEvidence, prospectRepetitionEvidence } from
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/twilio";
+import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import {
   loadProspectTourSchedulingContext,
   persistProspectTourSchedulingContext,
@@ -191,6 +192,7 @@ type LeasingSmsTurn = {
   inboundMessageId: string | null;
   assistantMessageId: string | null;
   traceId: string | null;
+  toolTrace?: { tool: string; ok: boolean }[];
   candidateContext?: unknown[];
   shadowInput?: ProspectShadowBurst;
 };
@@ -254,6 +256,48 @@ export async function findOrCreateLeasingSmsSession(
   return (created as LeasingSmsSessionRow | null) ?? null;
 }
 
+/** Authenticated test prospects are bound to an actor + manager + selected listing, never a phone. */
+export async function findOrCreateLeasingSmsTestSession(
+  db: Db,
+  args: { landlordId: string; actorUserId: string; targetListingId: string; sessionKind: string; sessionId?: string | null },
+): Promise<LeasingSmsSessionRow | null> {
+  const landlordId = args.landlordId.trim();
+  const actorUserId = args.actorUserId.trim();
+  const sessionKind = args.sessionKind.trim();
+  const targetListingId = args.targetListingId.trim();
+  if (!landlordId || !actorUserId || !targetListingId || sessionKind !== `leasing_sms_test:${landlordId}:${targetListingId}`) return null;
+  const sessionId = args.sessionId?.trim() || null;
+  if (sessionId) {
+    const { data, error } = await db.from("agent_sessions").select(SESSION_COLUMNS)
+      .eq("id", sessionId)
+      .eq("kind", sessionKind)
+      .eq("landlord_id", landlordId)
+      .eq("user_id", actorUserId)
+      .eq("test_actor_user_id", actorUserId)
+      .eq("sms_test_manager_user_id", landlordId)
+      .eq("sms_test_mode", "prospect")
+      .eq("sms_test_target_listing_id", targetListingId)
+      .eq("status", "active")
+      .is("vendor_phone_e164", null)
+      .maybeSingle();
+    return error ? null : (data as LeasingSmsSessionRow | null);
+  }
+  const { data: created, error } = await db.from("agent_sessions").insert({
+    landlord_id: landlordId,
+    user_id: actorUserId,
+    kind: sessionKind,
+    vendor_phone_e164: null,
+    status: "active",
+    test_actor_user_id: actorUserId,
+    sms_test_manager_user_id: landlordId,
+    sms_test_mode: "prospect",
+    sms_test_target_listing_id: targetListingId,
+    portal: "resident",
+  }).select(SESSION_COLUMNS).maybeSingle();
+  if (error) return null;
+  return (created as LeasingSmsSessionRow | null) ?? null;
+}
+
 /**
  * Run one leasing-SMS turn and return the assistant reply text (caller sends SMS).
  * Returns null when suppressed (rate cap, missing API key, empty body).
@@ -262,7 +306,7 @@ export async function runLeasingSmsAgentTurn(
   db: Db,
   args: {
     landlordId: string;
-    prospectPhoneE164: string;
+    prospectPhoneE164?: string;
     inboundText: string;
     workNumber?: string | null;
     inboundMessageSid?: string | null;
@@ -272,7 +316,10 @@ export async function runLeasingSmsAgentTurn(
     maxReplyChars?: number;
     traceName?: string;
     /** Queue-worker revision lease; absent on voice and legacy synchronous turns. */
-    prospectBurst?: { burstId: string; revision: number; workerId: string; claimedSourceIds?: string[]; snapshotCutoff?: string };
+    prospectBurst?: { burstId: string; revision: number; workerId: string; claimedSourceIds?: string[]; snapshotCutoff?: string; testSessionId?: string };
+    /** Authenticated test identity. It is deliberately never coerced into a phone field. */
+    testActor?: { userId: string; email: string; targetListingId: string; sessionKind: string; sessionId?: string | null };
+    testTarget?: { listingId: string; title: string };
   },
 ): Promise<LeasingSmsTurn | null> {
   if (!process.env.ANTHROPIC_API_KEY?.trim()) return null;
@@ -280,10 +327,18 @@ export async function runLeasingSmsAgentTurn(
   const text = args.inboundText.trim().slice(0, 2000);
   if (!text) return null;
 
-  const session = await findOrCreateLeasingSmsSession(db, {
-    landlordId: args.landlordId,
-    prospectPhoneE164: args.prospectPhoneE164,
-  });
+  const session = args.testActor
+    ? await findOrCreateLeasingSmsTestSession(db, {
+        landlordId: args.landlordId,
+        actorUserId: args.testActor.userId,
+        targetListingId: args.testActor.targetListingId,
+        sessionKind: args.testActor.sessionKind,
+        sessionId: args.testActor.sessionId,
+      })
+    : await findOrCreateLeasingSmsSession(db, {
+        landlordId: args.landlordId,
+        prospectPhoneE164: args.prospectPhoneE164 ?? "",
+      });
   if (!session) return null;
 
   const channel = args.channel ?? "sms";
@@ -330,24 +385,12 @@ export async function runLeasingSmsAgentTurn(
   });
 
   if (!inboundMessageId) return null;
-  const creditKey = `ai_turn:${channel}:${session.id}:${inboundMessageId}`;
-  const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
-    idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
-  if (!credit.allowed) return null;
-  if (credit.duplicate) return readCommsTurnResult<LeasingSmsTurn>(db, session.landlord_id, creditKey, {
-    reply: INTERRUPTED_COMMS_REPLY,
-    suppressed: false,
-    sessionId: session.id,
-    inboundMessageId,
-    assistantMessageId: null,
-    traceId: null,
-  });
   const execute = async (): Promise<LeasingSmsTurn | null> => {
   let history: Anthropic.MessageParam[];
-  if (args.prospectBurst) {
+  if (args.prospectBurst && !args.testActor) {
     history = await loadDurableSmsHistory(db, {
       landlordId: session.landlord_id,
-      phone: normalizeE164(args.prospectPhoneE164) ?? args.prospectPhoneE164.trim(),
+      phone: normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim(),
       claimedText: text,
       claimedSourceIds: args.prospectBurst.claimedSourceIds ?? [sourceMessageSid ?? ""].filter(Boolean),
       snapshotCutoff: args.prospectBurst.snapshotCutoff,
@@ -363,27 +406,37 @@ export async function runLeasingSmsAgentTurn(
       ((historyRows ?? []) as { role: string; content: string }[]).reverse(),
     ) as Anthropic.MessageParam[];
   }
-  if (!args.prospectBurst && (history.length === 0 || history.at(-1)!.role !== "user")) {
+  if ((!args.prospectBurst || args.testActor) && (history.length === 0 || history.at(-1)!.role !== "user")) {
     history.push({ role: "user", content: text });
   }
 
-  const prospectPhone =
-    normalizeE164(args.prospectPhoneE164) ?? args.prospectPhoneE164.trim();
-  const recentDeliveredReplies = await loadRecentConfirmedReplies(db, {
+  const prospectPhone = normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim();
+  const recentDeliveredReplies = args.testActor ? [] : await loadRecentConfirmedReplies(db, {
     landlordId: session.landlord_id,
     phone: prospectPhone,
   });
   const ctx = buildLeasingSmsAgentContext(db, {
     landlordId: session.landlord_id,
+    actorUserId: args.testActor?.userId,
     scope: {
       sessionId: session.id,
       prospectPhoneE164: prospectPhone,
+      ...(args.testActor ? {
+        testActorUserId: args.testActor.userId,
+        testSessionId: args.testActor.sessionId ?? args.prospectBurst?.testSessionId ?? session.id,
+      } : {}),
+      prospectEmail: args.testActor?.email ?? null,
       workNumber: args.workNumber?.trim() || null,
       crossCatalog: args.crossCatalog === true,
       channel,
       recentDeliveredReplies,
       prospectBurst: args.prospectBurst
-        ? { burstId: args.prospectBurst.burstId, revision: args.prospectBurst.revision, workerId: args.prospectBurst.workerId, claimedSourceIds: args.prospectBurst.claimedSourceIds ?? [] }
+        ? {
+            burstId: args.prospectBurst.burstId,
+            revision: args.prospectBurst.revision,
+            workerId: args.prospectBurst.workerId,
+            claimedSourceIds: args.prospectBurst.claimedSourceIds ?? [],
+          }
         : undefined,
     },
   });
@@ -403,7 +456,9 @@ export async function runLeasingSmsAgentTurn(
   const conversationKey = buildConversationKey({
     ownerManagerUserId: session.landlord_id,
     role: "prospect",
-    counterpartyPhone: prospectPhone,
+    ...(args.testActor
+      ? { counterpartyUserId: args.testActor.sessionId ?? args.prospectBurst?.testSessionId ?? session.id }
+      : { counterpartyPhone: prospectPhone }),
   });
   const durableSchedulingContext = args.prospectBurst
     ? await loadProspectTourSchedulingContext(db, { managerUserId: session.landlord_id, conversationKey })
@@ -428,18 +483,28 @@ export async function runLeasingSmsAgentTurn(
         system += `\n\nSuccessful tool facts from earlier submitted replies are authoritative conversation context. Reuse canonical listing/property/room ids for follow-up requests unless the prospect explicitly changes the property. Availability facts are timestamped and must be rechecked with list_open_tour_slots before quoting or requesting a time:\n${JSON.stringify(confirmedToolContext)}`;
       }
     }
+    if (args.testActor && args.testTarget) {
+      system += `\n\nThis authenticated test conversation is scoped to the selected listing ${JSON.stringify(args.testTarget.title)} (canonical property id ${JSON.stringify(args.testTarget.listingId)}). Resolve and reuse that listing unless the person explicitly asks to discuss another listing owned by this manager.`;
+    }
     shadowSystem = system;
     turnPromptMeta = resolvePromptMeta(PROMPT_IDS.leasingSmsAgent, system);
     let inlineActionAuthorized = false;
     result = await traceAgentTurn(
       {
         ...leasingSmsTraceActor(session.landlord_id),
+        userId: args.testActor?.userId ?? session.landlord_id,
         metadata: {
           ...leasingSmsTraceActor(session.landlord_id).metadata,
           channel,
           ...(args.prospectBurst
             ? { burstId: args.prospectBurst.burstId, burstRevision: args.prospectBurst.revision }
             : {}),
+          ...(args.testActor ? {
+            smsTest: true,
+            testActorUserId: args.testActor.userId,
+            testWorkspace: true,
+            testWorkspaceId: currentSmsTestTransport()?.workspaceId ?? null,
+          } : {}),
         },
       },
       history as { role: string; content: string }[],
@@ -483,13 +548,18 @@ export async function runLeasingSmsAgentTurn(
           authorizeInlineWrite: args.prospectBurst
             ? async (call) => {
                 if (inlineActionAuthorized) return false;
-                const { data, error } = await db.rpc("authorize_prospect_sms_inline_action", {
-                  p_burst_id: args.prospectBurst!.burstId,
-                  p_revision: args.prospectBurst!.revision,
-                  p_worker_id: args.prospectBurst!.workerId,
-                  p_tool_call_id: call.id,
-                  p_tool_name: call.name,
-                });
+                const { data, error } = await db.rpc(
+                  args.testActor ? "authorize_authenticated_sms_test_inline_action" : "authorize_prospect_sms_inline_action",
+                  {
+                    p_burst_id: args.prospectBurst!.burstId,
+                    p_revision: args.prospectBurst!.revision,
+                    p_worker_id: args.prospectBurst!.workerId,
+                    p_tool_call_id: call.id,
+                    p_tool_name: call.name,
+                    ...(args.testActor ? { p_test_actor_user_id: args.testActor.userId } : {}),
+                    ...(args.testActor ? { p_test_session_id: args.testActor.sessionId ?? args.prospectBurst!.testSessionId } : {}),
+                  },
+                );
                 const authorized = !error && data === true;
                 if (authorized) inlineActionAuthorized = true;
                 return authorized;
@@ -497,12 +567,17 @@ export async function runLeasingSmsAgentTurn(
             : undefined,
           releaseInlineWrite: args.prospectBurst
             ? async (call) => {
-                const { data, error } = await db.rpc("release_prospect_sms_inline_action", {
-                  p_burst_id: args.prospectBurst!.burstId,
-                  p_revision: args.prospectBurst!.revision,
-                  p_worker_id: args.prospectBurst!.workerId,
-                  p_tool_call_id: call.id,
-                });
+                const { data, error } = await db.rpc(
+                  args.testActor ? "release_authenticated_sms_test_inline_action" : "release_prospect_sms_inline_action",
+                  {
+                    p_burst_id: args.prospectBurst!.burstId,
+                    p_revision: args.prospectBurst!.revision,
+                    p_worker_id: args.prospectBurst!.workerId,
+                    p_tool_call_id: call.id,
+                    ...(args.testActor ? { p_test_actor_user_id: args.testActor.userId } : {}),
+                    ...(args.testActor ? { p_test_session_id: args.testActor.sessionId ?? args.prospectBurst!.testSessionId } : {}),
+                  },
+                );
                 const released = !error && data === true;
                 if (released) inlineActionAuthorized = false;
                 return released;
@@ -545,6 +620,7 @@ export async function runLeasingSmsAgentTurn(
       inboundMessageId,
       assistantMessageId: null,
       traceId,
+      toolTrace: [],
       candidateContext: [],
     };
   }
@@ -559,7 +635,12 @@ export async function runLeasingSmsAgentTurn(
     await persistProspectTourSchedulingContext(db, {
       managerUserId: session.landlord_id,
       conversationKey,
-      trustedPhoneE164: prospectPhone,
+      ...(args.testActor
+        ? {
+            testActorUserId: args.testActor.userId,
+            testSessionId: args.testActor.sessionId ?? args.prospectBurst.testSessionId ?? session.id,
+          }
+        : { trustedPhoneE164: prospectPhone }),
       trustedInboundText: text,
       burst: {
         id: args.prospectBurst.burstId,
@@ -574,7 +655,7 @@ export async function runLeasingSmsAgentTurn(
   // from manager_sms_messages, which is appended only after provider accepts
   // submission. Legacy synchronous and voice turns retain agent_messages.
   let assistantMessageId: string | null = null;
-  if (!args.prospectBurst && !quietHandoff) {
+  if ((!args.prospectBurst || args.testActor) && !quietHandoff) {
     const { data: assistantMessage } = await db.from("agent_messages").insert({
       session_id: session.id,
       landlord_id: session.landlord_id,
@@ -653,6 +734,19 @@ export async function runLeasingSmsAgentTurn(
     } : undefined,
   };
   };
+  if (args.testActor) return execute();
+  const creditKey = `ai_turn:${channel}:${session.id}:${inboundMessageId}`;
+  const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
+    idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
+  if (!credit.allowed) return null;
+  if (credit.duplicate) return readCommsTurnResult<LeasingSmsTurn>(db, session.landlord_id, creditKey, {
+    reply: INTERRUPTED_COMMS_REPLY,
+    suppressed: false,
+    sessionId: session.id,
+    inboundMessageId,
+    assistantMessageId: null,
+    traceId: null,
+  });
   return completeCommsTurn(db, session.landlord_id, creditKey, await execute());
 }
 

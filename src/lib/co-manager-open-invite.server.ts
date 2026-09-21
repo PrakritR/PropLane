@@ -14,7 +14,7 @@ import {
   generateCoManagerInviteToken,
   hashCoManagerInviteToken,
   coManagerOpenInviteUrl,
-} from "@/lib/co-manager-invite-token";
+} from "@/lib/co-manager-invite-token.server";
 
 const OPEN_INVITE_SELECT = [
   "id",

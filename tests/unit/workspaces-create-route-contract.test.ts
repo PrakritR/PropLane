@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   userIsManager: vi.fn(),
   loadWorkspaces: vi.fn(),
   loadWorkspacePlan: vi.fn(),
+  businessAccess: vi.fn(),
   rpc: vi.fn(),
 }));
 
@@ -21,8 +22,11 @@ vi.mock("@/lib/workspaces/server", () => ({
   loadWorkspaces: mocks.loadWorkspaces,
   loadWorkspacePlan: mocks.loadWorkspacePlan,
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: mocks.businessAccess,
+}));
 
-import { POST } from "@/app/api/workspaces/route";
+import { GET, POST } from "@/app/api/workspaces/route";
 
 const OWNER = "owner-123";
 const OTHER = "attacker-456";
@@ -53,6 +57,7 @@ function setup(options: { user?: { id: string } | null; planValue?: unknown } = 
   mocks.serverClient.mockResolvedValue({ auth: { getUser: vi.fn(async () => ({ data: { user } })) } });
   mocks.serviceClient.mockReturnValue(db);
   mocks.userIsManager.mockResolvedValue(Boolean(user));
+  mocks.businessAccess.mockResolvedValue({ kind: "normal" });
   mocks.loadWorkspaces.mockResolvedValue([
     {
       id: DEFAULT,
@@ -85,6 +90,32 @@ describe("workspace create route owner and cap contract", () => {
 
     expect(response.status).toBe(401);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { state: "suspended" },
+    { state: "expired" },
+    { state: "flag-off" },
+  ])("refuses a %s classified session before workspace reads or service RPCs", async ({ state }) => {
+    setup();
+    mocks.businessAccess.mockResolvedValue({ kind: "denied", state });
+
+    const readResponse = await GET();
+    const writeResponse = await POST(request({ action: "initialize" }));
+
+    expect(readResponse.status).toBe(403);
+    expect(writeResponse.status).toBe(403);
+    expect(mocks.loadWorkspaces).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("allows a normal authenticated session through the workspace service boundary", async () => {
+    setup();
+
+    const response = await POST(request({ action: "initialize" }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("ensure_default_portal_workspace", { p_owner: OWNER });
   });
 
   it.each([

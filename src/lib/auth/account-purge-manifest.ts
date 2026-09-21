@@ -506,12 +506,33 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Display-only Connect identity-verification status cache
+    // (PLAN-0920-1500 Part C). `owner_user_id` is whichever role's profile
+    // holds the Connect account — a manager's own or a vendor's own, never
+    // both for the same row — so both scopes key off the same column.
+    table: "payout_identity_status",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "stripe_payouts",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
     // Set only for a vendor-initiated in-app payout (PLAN-0920-0853); a
     // manager row leaves this null.
     vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    // Display cache of a Connect account's bank accounts / debit cards
+    // (PLAN-0920-1500 part B). `owner_user_id` is generic — a manager's own
+    // id for a manager account, a vendor's own id for a vendor account, the
+    // same pattern `profiles.stripe_connect_account_id` already uses — so it
+    // is classified under both scopes; a given row only ever matches one.
+    table: "payout_destinations_cache",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
   },
   {
     table: "external_calendar_connections",
@@ -565,6 +586,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "scheduled_inbox_channel_deliveries",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "portal_scheduled_inbox_message_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
@@ -582,6 +608,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
     resident: { emails: ["recipient_email"] },
     vendor: { emails: ["recipient_email"] },
+  },
+  {
+    table: "payment_reminder_occurrences",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["recipient_email"] },
   },
   {
     table: "portal_outbound_mail_records",
@@ -836,6 +868,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 3,
     manager: { ids: ["manager_user_id"] },
   },
+  {
+    table: "vendor_work_identities",
+    phase: 3,
+    vendor: { ids: ["vendor_user_id"] },
+  },
 ];
 
 /**
@@ -843,7 +880,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",
+  vendor_work_identity_operations: "Child of vendor_work_identities; removed by identity cascade after release is queued.",
+  vendor_work_identity_outbox: "Child of vendor_work_identities; removed by identity cascade after release is queued.",
+  vendor_work_identity_delivery_attempts: "Child of vendor_work_identity_outbox; removed by outbox cascade.",
+  vendor_work_identity_usage_events: "Child of vendor_work_identities; removed by identity cascade and never used for billing.",
+  vendor_work_identity_reply_bindings: "Child of vendor_work_identities; service-role reply authorization facts are removed by identity cascade after release is queued.",
+  vendor_work_identity_release_queue: "Retained provider-release work with copied external IDs; it must survive account deletion until reconciled.",
   listing_prefill_cache: "Provider answers keyed by normalized street address; holds no account data.",
+  payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
+  payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",
@@ -859,6 +905,12 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   account_deleted_record_identities: "Non-recoverable hashed identity guards for retained business history; survive ordinary row deletion to block stale delete/reinsert.",
   profiles: "Identity row — deleted by the auth-user cascade in deleteProfileAndAuthUser.",
   profile_roles: "Identity row — deleted by the auth-user cascade in deleteProfileAndAuthUser.",
+  test_workspace_members:
+    "Durable test-domain classification by opaque auth UUID; retained so deleted or suspended accounts cannot fall through into customer behavior.",
+  test_workspaces:
+    "Durable test-domain namespace and audit owner; retained because member and record provenance must remain classifiable after account deletion.",
+  test_workspace_schedule_records:
+    "Shared test-workspace schedule state; retained with its durable workspace namespace so classified activity cannot fall through into customer scheduling.",
   mcp_oauth_clients: "Shared OAuth client registry, not owned by any one account.",
   site_config_records: "Global site configuration.",
   site_content_records: "Global marketing/site content.",
@@ -874,6 +926,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",
   application_document_storage_aliases:
     "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
+  workspace_work_numbers:
+    "Workspace <-> work-number assignment join table; keyed on workspace_id/number_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged.",
 };
 
 /**
@@ -885,6 +939,30 @@ export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
   "vendor_business_profiles.work_email": "The vendor's public business mailbox, keyed by user_id; the row is deleted with the login.",
+  // These columns are immutable test-effect provenance. They identify which
+  // authenticated test actor and target manager produced an isolated effect;
+  // they are deliberately retained with the owning business row so deletion
+  // cannot erase its classification or let it be replayed as customer data.
+  "action_event_deliveries.sms_test_actor_user_id": "Retained test-effect provenance, not row ownership.",
+  "action_event_deliveries.sms_test_manager_user_id": "Retained test-effect target provenance, not row ownership.",
+  "action_events.sms_test_actor_user_id": "Retained test-effect provenance, not row ownership.",
+  "action_events.sms_test_manager_user_id": "Retained test-effect target provenance, not row ownership.",
+  "agent_pending_actions.sms_test_actor_user_id": "Retained test-action provenance, not row ownership.",
+  "agent_pending_actions.sms_test_manager_user_id": "Retained test-action target provenance, not row ownership.",
+  "agent_sessions.sms_test_manager_user_id": "Retained test-session target provenance, not row ownership.",
+  "agent_sessions.sms_test_origin_actor_user_id": "Retained test-session origin provenance, not row ownership.",
+  "agent_sessions.sms_test_origin_manager_user_id": "Retained test-session origin target provenance, not row ownership.",
+  "agent_sessions.test_actor_user_id": "Retained test-session provenance, not row ownership.",
+  "manager_bills.sms_test_actor_user_id": "Retained test-effect provenance, not row ownership.",
+  "manager_bills.sms_test_manager_user_id": "Retained test-effect target provenance, not row ownership.",
+  "prospect_sms_bursts.test_actor_user_id": "Retained test-message provenance, not row ownership.",
+  "prospect_sms_ingress.test_actor_user_id": "Retained test-message provenance, not row ownership.",
+  "prospect_tour_bookings.test_actor_user_id": "Retained test-booking provenance, not row ownership.",
+  "prospect_tour_google_calendar_cleanup.sms_test_actor_user_id": "Retained test-cleanup provenance, not row ownership.",
+  "prospect_tour_google_calendar_cleanup.sms_test_manager_user_id": "Retained test-cleanup target provenance, not row ownership.",
+  "prospect_tour_scheduling_state.test_actor_user_id": "Retained test-scheduling provenance, not row ownership.",
+  "resident_inspections.sms_test_actor_user_id": "Retained test-inspection provenance, not row ownership.",
+  "resident_inspections.sms_test_manager_user_id": "Retained test-inspection target provenance, not row ownership.",
 };
 
 export function purgeRulesForScope(scope: PurgeScope, phase: 1 | 2 | 3) {

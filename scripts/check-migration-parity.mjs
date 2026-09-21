@@ -8,7 +8,7 @@
  * not used to decide whether a named migration was applied. Empty names,
  * duplicates, and remote-only bundle names are unresolved rather than guessed.
  *
- * Reads and prints versions and migration names only. Connection errors are
+ * Reads names, versions, reviewed digests and schema metadata, never historical SQL bodies. Connection errors are
  * deliberately redacted because driver messages can contain credentials.
  *
  * Exit codes:
@@ -16,8 +16,11 @@
  *   1  migration drift or ambiguous migration history
  *   2  the target could not be checked
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { REMINDER_ATTESTATION, REVIEWED_REMINDER_CONSTRAINTS, COMPACT_STATEMENTS_SHA_SQL,
+  REMINDER_SCHEMA_SQL, attestHistoricalReminderDuplicate } from "./historical-migration-parity-attestation.mjs";
 
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 const FILE_RE = /^(\d{14})_(.+)\.sql$/;
@@ -118,6 +121,19 @@ export function hasFatalMigrationDrift(result) {
   return result.missing.length > 0 || result.problems.length > 0;
 }
 
+/** Explicit target-aware path; the ordinary two-argument diff stays strict. */
+export function diffMigrationsWithAttestation(local, applied, evidence) {
+  const result=diffMigrations(local,applied);
+  const attestation=attestHistoricalReminderDuplicate({...evidence,local,applied,problems:result.problems});
+  const problems=attestation.accepted ? result.problems.filter((p)=>p!==attestation.problem) : [...result.problems];
+  // The pinned production history must not become green if one historical row
+  // disappears and the ordinary duplicate-name diagnostic consequently vanishes.
+  if (!attestation.accepted && evidence?.target==='production' && applied.some((r)=>r.name===REMINDER_ATTESTATION.name)) {
+    problems.push({source:'database',kind:'historical-attestation-failed',name:REMINDER_ATTESTATION.name,version:'20260915120000'});
+  }
+  return {...result, problems, attestations:attestation.accepted ? [attestation.warning] : []};
+}
+
 function parseConnectionUrl(dbUrl) {
   try {
     const parsed = new URL(dbUrl);
@@ -190,32 +206,41 @@ function localMigrations() {
   };
 }
 
-/** Read only the ledger Supabase itself writes. */
-async function appliedMigrations(dbUrl) {
+/** One bounded, consistent read-only snapshot. Caller has verified the target. */
+export async function readParitySnapshot(client,target) {
+  await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  try {
+    await client.query("SET LOCAL statement_timeout = '15s'");
+    await client.query("SET LOCAL lock_timeout = '5s'");
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '20s'");
+    await client.query("SET LOCAL search_path = pg_catalog, public");
+    const ledger=await client.query("select 1 from information_schema.tables where table_schema='supabase_migrations' and table_name='schema_migrations'");
+    if (ledger.rowCount===0) return null;
+    const production=target==='production';
+    const {rows}=await client.query(production
+      ? `select version,coalesce(name,'') as name,case when name=$1 then ${COMPACT_STATEMENTS_SHA_SQL} else null end as "statementsSha256" from supabase_migrations.schema_migrations order by version`
+      : "select version,coalesce(name,'') as name from supabase_migrations.schema_migrations order by version",
+      production ? [REMINDER_ATTESTATION.name] : []);
+    let schema;
+    if (production) {
+      const result=await client.query(REMINDER_SCHEMA_SQL,[Object.keys(REVIEWED_REMINDER_CONSTRAINTS)]);
+      schema=result.rows[0]?.evidence;
+    }
+    return {applied:rows.map((row)=>({version:String(row.version),name:String(row.name),statementsSha256:row.statementsSha256})),schema};
+  } finally {
+    await client.query("ROLLBACK");
+  }
+}
+
+async function appliedMigrations(dbUrl,target) {
   const { Client } = await import("pg");
   const parsed = new URL(dbUrl);
   const local = /^(localhost|127\.0\.0\.1)$/.test(parsed.hostname);
-  const client = new Client({
-    connectionString: dbUrl,
-    ssl: local ? undefined : { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15_000,
-    statement_timeout: 15_000,
-  });
+  const client = new Client({connectionString:dbUrl,ssl:local?undefined:{rejectUnauthorized:false},
+    connectionTimeoutMillis:15_000,statement_timeout:15_000});
   await client.connect();
-  try {
-    const ledger = await client.query(
-      `select 1 from information_schema.tables
-        where table_schema = 'supabase_migrations' and table_name = 'schema_migrations'`,
-    );
-    if (ledger.rowCount === 0) return null;
-    const { rows } = await client.query(
-      `select version, coalesce(name, '') as name
-         from supabase_migrations.schema_migrations order by version`,
-    );
-    return rows.map((row) => ({ version: String(row.version), name: String(row.name) }));
-  } finally {
-    await client.end().catch(() => {});
-  }
+  try { return await readParitySnapshot(client,target); }
+  finally { await client.end().catch(()=>{}); }
 }
 
 function label(target) {
@@ -273,7 +298,7 @@ async function main() {
 
   let applied;
   try {
-    applied = await appliedMigrations(dbUrl);
+    applied = await appliedMigrations(dbUrl,target);
   } catch {
     console.log(`migration parity: NOT CHECKED${label(target)} - could not read the migration ledger.`);
     console.log("  Connection details and driver errors were suppressed.");
@@ -285,7 +310,12 @@ async function main() {
     return 2;
   }
 
-  const result = diffMigrations(local, applied);
+  const sourceSha256=target==='production'
+    ? createHash('sha256').update(readFileSync(join(MIGRATIONS_DIR,REMINDER_ATTESTATION.file))).digest('hex') : undefined;
+  const result = diffMigrationsWithAttestation(local, applied.applied, {
+    target,project:TARGET_PROJECT_REFS[target],sourceSha256,schema:applied.schema,
+  });
+  for (const warning of result.attestations) console.log(`  audited warning: ${warning.name} [${warning.versions.join(', ')}] - ${warning.message}`);
   const { missing, extra, problems } = result;
   if (extra.length > 0) {
     console.log(`migration parity: ${extra.length} applied migration name(s) not in this repo${label(target)}.`);

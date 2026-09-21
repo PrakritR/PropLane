@@ -15,6 +15,7 @@ type WorkflowStep = {
   uses?: string;
   run?: string;
   if?: string;
+  env?: Record<string, unknown>;
   with?: Record<string, unknown>;
 };
 type WorkflowJob = {
@@ -24,8 +25,23 @@ type WorkflowJob = {
   needs?: string[];
   steps: WorkflowStep[];
 };
-const jobs = (parse(workflow) as { jobs: Record<string, WorkflowJob> }).jobs;
+type WorkflowDocument = {
+  on: { workflow_dispatch: { inputs: Record<string, { type: string; required: boolean; default: boolean | string; options?: string[] }> } };
+  jobs: Record<string, WorkflowJob>;
+};
+const workflowDocument = parse(workflow) as WorkflowDocument;
+const jobs = workflowDocument.jobs;
 const UPLOAD_ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
+const BUILD_ONLY = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true";
+const NOT_BUILD_ONLY = `\${{ !(${BUILD_ONLY}) }}`;
+const E2E_ENV = {
+  NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+  PLAYWRIGHT_BASE_URL: "http://localhost:3000",
+  NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.TEST_SUPABASE_URL }}",
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "${{ secrets.TEST_SUPABASE_ANON_KEY }}",
+  SUPABASE_SERVICE_ROLE_KEY: "${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}",
+  E2E_TESTS_ENABLED: "1",
+};
 
 // Parse active YAML: comments cannot satisfy a gate, and all upload requirements
 // must belong to the same executable step in the same job.
@@ -61,9 +77,37 @@ describe("Test workflow resource budget", () => {
   it("keeps the full suite on schedule/manual dispatch only", () => {
     const full = jobConfig("e2e-full");
     expect(full.if).toBe(
-      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+      `github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))`,
     );
-    expect(full.steps).toContainEqual(expect.objectContaining({ run: "npm run test:e2e" }));
+    expect(full.steps).toContainEqual(expect.objectContaining({
+      name: "Run full E2E suite",
+      if: "github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'",
+      run: "npm run test:e2e",
+    }));
+    expect(full.steps).toContainEqual(expect.objectContaining({
+      name: "Run property metadata E2E scope",
+      if: "github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'",
+      run: "npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts",
+    }));
+    for (const name of ["Run full E2E suite", "Run property metadata E2E scope"]) {
+      const step = full.steps.find((candidate) => candidate.name === name);
+      expect(step?.env, `${name} must use the dev/test E2E environment`).toMatchObject(E2E_ENV);
+    }
+  });
+
+  it("keeps property metadata preflight limited to its manual dispatch scope", () => {
+    expect(workflowDocument.on.workflow_dispatch.inputs.e2e_scope).toEqual({
+      description: "Select the manual browser scope",
+      required: false,
+      type: "choice",
+      default: "full",
+      options: ["full", "property_metadata"],
+    });
+    expect(jobConfig("build").steps).toContainEqual(expect.objectContaining({
+      name: "Run property metadata ship preflight",
+      if: "success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'",
+      run: "npm run ship:preflight",
+    }));
   });
 
   it("sets retries exactly once, in the Playwright config", () => {
@@ -116,7 +160,7 @@ describe("Test workflow resource budget", () => {
     const check = jobConfig("check");
 
     expect(check.needs).toEqual(["unit", "lint", "build"]);
-    expect(check.if).toBe("always()");
+    expect(check.if).toBe(`\${{ always() && !(${BUILD_ONLY}) }}`);
     expect(check.steps.some((step) => step.run?.includes('if [ "$result" != "success" ]'))).toBe(true);
     // `e2e` is skipped on pull requests, and `integration` needs live Supabase
     // credentials a fork PR never receives — depending on either would make the
@@ -144,8 +188,23 @@ describe("Test workflow resource budget", () => {
     for (const [name, runner] of Object.entries(runners)) {
       const job = jobConfig(name);
       expect(job["runs-on"]).toBe(runner);
-      expect(job.if ?? "", `${name} must not be event-gated`).not.toContain("github.event_name");
+      if (name === "build") expect(job.if).toBeUndefined();
+      else expect(job.if).toBe(NOT_BUILD_ONLY);
     }
+  });
+
+  it("allows build-only dispatch only on the exact keeper without changing default gates", () => {
+    expect(workflowDocument.on.workflow_dispatch.inputs.build_only).toEqual({
+      description: "Run only the build and encrypted local QA artifact job on the exact release keeper",
+      required: false,
+      type: "boolean",
+      default: false,
+    });
+    for (const name of ["unit", "integration", "lint"]) expect(jobConfig(name).if).toBe(NOT_BUILD_ONLY);
+    expect(jobConfig("check").if).toBe(`\${{ always() && !(${BUILD_ONLY}) }}`);
+    expect(jobConfig("e2e-full").if).toContain(`!(${BUILD_ONLY.replace("github.event_name == 'workflow_dispatch' && ", "")})`);
+    expect(jobConfig("build").if).toBeUndefined();
+    expect(workflow).not.toContain("inputs.build_only != false");
   });
 
   it("keeps the unit harness provisioned with PostgreSQL 16 and OpenSSL before its unconditional command", () => {

@@ -3,23 +3,43 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { loadWorkspacePlan, loadWorkspaces } from "@/lib/workspaces/server";
 import { actorWorkspaceStanding, previewHouseMove } from "@/lib/workspaces/membership.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
 
-async function actor() {
+type WorkspaceActor =
+  | { kind: "authorized"; user: { id: string }; db: ReturnType<typeof createSupabaseServiceRoleClient> }
+  | { kind: "denied" }
+  | null;
+
+async function actor(): Promise<WorkspaceActor> {
   const session = await createSupabaseServerClient();
   const { data: { user } } = await session.auth.getUser();
   if (!user) return null;
-  return { user, db: createSupabaseServiceRoleClient() };
+  const db = createSupabaseServiceRoleClient();
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+    return { kind: "denied" };
+  }
+  return { kind: "authorized", user, db };
+}
+
+function actorFailureResponse(ctx: WorkspaceActor) {
+  if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (ctx.kind === "denied") {
+    return NextResponse.json({ error: "Workspace access is unavailable for this account." }, { status: 403 });
+  }
+  return null;
 }
 
 export async function GET() {
   try {
     const ctx = await actor();
-    if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const failure = actorFailureResponse(ctx);
+    if (failure) return failure;
+    if (!ctx || ctx.kind !== "authorized") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const workspaces = await loadWorkspaces(ctx.db, ctx.user.id);
     const plan = await loadWorkspacePlan(ctx.db, ctx.user.id, workspaces);
     const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
@@ -36,7 +56,9 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const ctx = await actor();
-    if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const failure = actorFailureResponse(ctx);
+    if (failure) return failure;
+    if (!ctx || ctx.kind !== "authorized") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = await request.json();
     const { user, db } = ctx;
     if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request." }, { status: 400 });

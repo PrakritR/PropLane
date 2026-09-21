@@ -7,6 +7,14 @@
  * a link) the invite link box. Opened by `ProAccountLinksPanel`'s
  * `openLinkModal(workspaceId)`.
  *
+ * Role / Houses / Selected houses render through `WorkspacePermissionsFields`,
+ * the shared field kit in `workspace-permissions-fields.tsx` — the invite
+ * sheet and the Team page's Edit permissions sheet always show the identical
+ * controls. The default Houses scope is capped to the inviter's own reach —
+ * an Admin whose own membership is scoped to selected houses defaults to
+ * "Only selected houses" too, rather than silently offering every house in
+ * the workspace (`defaultHouseScopeFor`).
+ *
  * The link and the send box share ONE access setting (role + houses). Opening
  * the sheet only READS the workspace's active link (hydrating role/houses/
  * permissions from it) and never mints as a side effect. Changing Role or
@@ -28,17 +36,15 @@ import { Copy, Link2, Share2 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
+  WorkspacePermissionsFields,
+  RoleCapabilitiesList,
   CoManagerPermissionsEditor,
-  CoManagerRoleSelect,
-  HouseScopeSelect,
-  RoleCanTable,
   WorkspaceGrantFields,
-} from "@/components/portal/pro-account-links-panel";
+} from "@/components/portal/workspace-permissions-fields";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 import { memberReachLabel, parseHouseScope, type HouseScope } from "@/lib/workspaces/membership";
 import {
@@ -77,6 +83,11 @@ function reachLabelFor(input: {
     houseCount: input.selectedHouseIds.length,
     workspaceHouseCount: input.workspace.propertyIds.length,
   });
+}
+
+/** The default Houses scope an inviter may hand out: never wider than their own reach in this workspace. */
+function defaultHouseScopeFor(workspace: PortalWorkspace): HouseScope {
+  return workspace.viewerHouseScope === "selected" ? "selected" : "all";
 }
 
 /** The access terms a held link was minted or hydrated with, for comparison against the live UI. */
@@ -170,6 +181,15 @@ export function WorkspaceInviteSheet({
     [houseScope, workspace, selectedHouseIds],
   );
 
+  const houseOptions = useMemo(
+    () =>
+      workspace.propertyIds.map((id) => ({
+        value: id,
+        label: workspace.propertyLabels?.[id]?.trim() || id,
+      })),
+    [workspace.propertyIds, workspace.propertyLabels],
+  );
+
   const currentTerms: HeldLinkTerms = useMemo(
     () => ({ role, houseScope, houseIds, permissions: effectivePermissions, workspacePermissions: effectiveWorkspacePermissions }),
     [role, houseScope, houseIds, effectivePermissions, effectiveWorkspacePermissions],
@@ -180,11 +200,12 @@ export function WorkspaceInviteSheet({
 
   // Reset and read the workspace's existing link every time the sheet opens
   // for a (possibly new) workspace. This never mints — Invite link and Send
-  // own that, at the moment the manager actually shares something.
+  // own that, at the moment the manager actually shares something. The
+  // default Houses scope is capped to the inviter's own reach in this workspace.
   useEffect(() => {
     if (!open) return;
     setRole("viewer");
-    setHouseScope("all");
+    setHouseScope(defaultHouseScopeFor(workspace));
     setSelectedHouseIds([]);
     setCustomPermissions(EMPTY_CO_MANAGER_PERMISSIONS);
     setWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
@@ -263,9 +284,9 @@ export function WorkspaceInviteSheet({
   /**
    * The URL for what is on screen right now. Reuses the held link's URL
    * (revealing it if not already in hand) when its terms still match the
-   * access chip; otherwise mints a fresh link with `replaceActive: true` so
-   * the new URL always matches what is about to be copied or sent, and any
-   * URL already out in the world stops working. Only toasts about a
+   * permissions fields; otherwise mints a fresh link with `replaceActive:
+   * true` so the new URL always matches what is about to be copied or sent,
+   * and any URL already out in the world stops working. Only toasts about a
    * replacement when a prior link actually existed to replace.
    */
   const resolveLinkForCurrentTerms = async (): Promise<
@@ -496,31 +517,19 @@ export function WorkspaceInviteSheet({
           data-attr="workspace-invite-add"
         />
 
-        <CoManagerRoleSelect value={role} onChange={changeRole} />
-
-        <HouseScopeSelect
-          value={houseScope}
-          onChange={changeHouseScope}
-          workspaceName={workspace.name}
-          houseCount={workspace.propertyIds.length}
-          dataAttr="workspace-invite-houses"
+        <WorkspacePermissionsFields
+          role={role}
+          onRoleChange={changeRole}
+          houseScope={houseScope}
+          onHouseScopeChange={changeHouseScope}
+          selectedHouseIds={selectedHouseIds}
+          onSelectedHouseIdsChange={changeSelectedHouseIds}
+          workspace={{ name: workspace.name, houseCount: workspace.propertyIds.length }}
+          houseOptions={houseOptions}
+          roleDataAttr="workspace-invite-role"
+          houseScopeDataAttr="workspace-invite-houses"
+          selectedHousesDataAttr="workspace-invite-selected-houses"
         />
-
-        {houseScope === "selected" ? (
-          <CheckboxMultiSelect
-            label="Selected houses"
-            labelClassName="text-xs font-semibold text-foreground"
-            options={workspace.propertyIds.map((id) => ({
-              value: id,
-              label: workspace.propertyLabels?.[id]?.trim() || id,
-            }))}
-            selected={selectedHouseIds}
-            onChange={changeSelectedHouseIds}
-            emptyLabel="Select houses…"
-            searchPlaceholder="Search houses…"
-            dataAttr="workspace-invite-selected-houses"
-          />
-        ) : null}
 
         {role === "custom" ? (
           <>
@@ -528,7 +537,7 @@ export function WorkspaceInviteSheet({
             <WorkspaceGrantFields value={workspacePermissions} onChange={setWorkspacePermissions} />
           </>
         ) : (
-          <RoleCanTable role={role} grant={effectivePermissions} />
+          <RoleCapabilitiesList role={role} grant={effectivePermissions} />
         )}
 
         {showLinkBox ? (

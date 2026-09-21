@@ -10,44 +10,16 @@ import {
 } from "@/components/portal/filter-field-lists";
 import { PortalListPropertyField } from "@/components/portal/portal-list-group-filter-fields";
 import {
-  MANAGER_TASK_GROUP_LABELS,
-  MANAGER_TASK_GROUP_MODES,
   MANAGER_TASK_LIST_FILTER_LABELS,
   MANAGER_TASK_LIST_FILTERS,
   MANAGER_TASK_LIST_SORT_LABELS,
   MANAGER_TASK_LIST_SORTS,
-  type ManagerTaskGroupMode,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
 import type { ManagerTaskPriority } from "@/lib/manager-tasks";
 import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
-
-function TaskGroupByFilterField({
-  value,
-  onChange,
-}: {
-  value: ManagerTaskGroupMode;
-  onChange: (next: ManagerTaskGroupMode) => void;
-}) {
-  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "property", "taskGroupMode");
-  const options = MANAGER_TASK_GROUP_MODES.map((mode) => ({
-    value: mode,
-    label: MANAGER_TASK_GROUP_LABELS[mode],
-  }));
-  /* Three fixed options — a menu here cost two taps and hid the alternatives to
-     save a row of height that the panel has anyway. */
-  return (
-    <FilterChipsField
-      label="Group by"
-      value={draft}
-      options={options}
-      onChange={(next: ManagerTaskGroupMode) => setDraft(next)}
-      dataAttr="tasks-filter-group-mode"
-    />
-  );
-}
 
 function taskListFilterOptions(tabId: ManagerTaskListTabId) {
   return MANAGER_TASK_LIST_FILTERS.filter(
@@ -166,8 +138,6 @@ export function ManagerTaskFilterFields({
   onAssigneeFilterIdChange,
   priorityFilter = "",
   onPriorityFilterChange,
-  taskGroupMode,
-  onTaskGroupModeChange,
   sortId,
   onSortIdChange,
 }: {
@@ -182,8 +152,6 @@ export function ManagerTaskFilterFields({
   onAssigneeFilterIdChange?: (next: string) => void;
   priorityFilter?: ManagerTaskPriority | "";
   onPriorityFilterChange?: (next: ManagerTaskPriority | "") => void;
-  taskGroupMode: ManagerTaskGroupMode;
-  onTaskGroupModeChange: (next: ManagerTaskGroupMode) => void;
   sortId: ManagerTaskListSortId;
   onSortIdChange: (next: ManagerTaskListSortId) => void;
 }) {
@@ -196,10 +164,9 @@ export function ManagerTaskFilterFields({
 
   return (
     <FilterFieldsAccordion>
-      {/* Group by leads, then Sort by, then the rest — the same order on every
-          portal list, so the two controls that reshape the list are always the
-          first things read. */}
-      <TaskGroupByFilterField value={taskGroupMode} onChange={onTaskGroupModeChange} />
+      {/* Sort by leads, then the rest — the list is already flat (no property
+          or assignee group headers), so Sort is the one control that reshapes
+          its order. */}
       <FilterCollapsibleSection
         sectionId="sort"
         label="Sort by"

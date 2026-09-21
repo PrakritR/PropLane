@@ -6,6 +6,7 @@ import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-por
 import { resolveBackgroundCheckStatus } from "@/lib/application-background-check";
 import { stageLabelForApplicationBucket } from "@/lib/application-review";
 import { applicationStageDisplayLabel } from "@/lib/rental-application/in-progress-application";
+import { isBookingResidencyRow } from "@/lib/manager-applications-storage";
 import { backgroundCheckConfigured, checkrPackage } from "@/lib/checkr/config";
 import { runBackgroundCheck } from "@/lib/checkr/background-check";
 import { checkrOrderCostCents } from "@/lib/checkr/packages";
@@ -15,6 +16,7 @@ import { orderScreeningForApplication } from "@/lib/screening/order-screening";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 /** Server-side read of the landlord's applications, scoped by manager_user_id. */
 async function loadManagerApplications(ctx: AgentContext): Promise<DemoApplicantRow[]> {
@@ -66,6 +68,7 @@ export const listApplicationsTool = defineTool({
   handler: async (ctx, input) => {
     const rows = await loadManagerApplications(ctx);
     const filtered = rows
+      .filter((r) => !isBookingResidencyRow(r))
       .map((r) => ({ row: r, summary: summarizeApplicant(r) }))
       .filter(({ row, summary }) => {
         if (input.bucket && row.bucket !== input.bucket) return false;
@@ -231,12 +234,12 @@ export const updateApplicationBucketTool = defineWriteTool({
     const { error } = await ctx.db
       .from("manager_application_records")
       .update({
-        row_data: sealApplicantRow({
+        row_data: sealApplicantRow(stampSmsTestProvenance({
           ...rowData,
           bucket,
           stage: stageLabelForApplicationBucket(bucket),
           ...(bucket === "approved" ? { managerUserId: r.managerUserId ?? ctx.landlordId } : {}),
-        }, rec.id, ctx.landlordId),
+        }), rec.id, ctx.landlordId),
         updated_at: new Date().toISOString(),
       })
       .eq("id", rec.id)

@@ -10,7 +10,7 @@
 // be reported as having published.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 const publishDraft = vi.fn();
 const submitPending = vi.fn();
@@ -32,6 +32,7 @@ vi.mock("@/lib/manager-access", () => ({
 import { LISTING_V2_STEPS, ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 /** Drives the hook exactly as the wizard does, without mounting the whole flow. */
 function Harness({
@@ -43,7 +44,17 @@ function Harness({
   onMessage: (m: string) => void;
   propertyCount?: number;
 }) {
-  const sub = createDefaultListingSubmission();
+  const base = createDefaultListingSubmission();
+  const sub = {
+    ...base,
+    address: "142 Test Ave",
+    city: "Seattle",
+    state: "WA",
+    zip: "98101",
+    listingPlaceCategoryId: "shared_home",
+    allowedLeaseTerms: [LONG_TERM_LEASE_TERM],
+    rooms: base.rooms.map((room) => ({ ...room, monthlyRent: 1_500 })),
+  };
   const { publish, busy } = useListingPersistence({ userId: "mgr-1", skuTier: "starter", propertyCount });
   return (
     <ListingEditorV2

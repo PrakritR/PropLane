@@ -11,8 +11,8 @@ rest of the contract.
 
 | Branch | Role | Database | Vercel | CI |
 | --- | --- | --- | --- | --- |
-| `agent/<lane>/…` | One prompt's sandbox (created on prompt start, deleted on merge) | shared dev/test | No deploy | PR: unit + lint + build |
-| **`prakrit`** | Captain integration — folds prompt branches together | shared dev/test | No deploy | localhost review on :3000 |
+| standing keeper | Prakrit's persistent agent sandbox; retain after integration | shared dev/test | No deploy | unit + lint + build; PR only on request |
+| **`prakrit`** | Captain integration — folds completed keeper work together | shared dev/test | No deploy | localhost review on :3000 |
 | `main` | Consolidation. Developers verify on localhost. | shared dev/test | **No deploy** | unit, lint, build, integration, e2e smoke |
 | `staging` | QA candidate. Fast-forward of `main`. | staging project `xwszcafaontidfgznlxd` (never live production) | **Preview** (branch-scoped env) | same as `main` |
 | `production` | Live site + TestFlight | live production | **Production** | TestFlight workflow |

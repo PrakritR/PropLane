@@ -286,7 +286,33 @@ describe("manager and vendor inbox reply integrity", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("send-inbox-message") && init?.method === "POST") {
-          return Response.json({ ok: true });
+          // The vendor sponsored-send path never POSTs the optimistic thread
+          // back over the server's projection (see
+          // communication-inbox-thread-mutations.ts / vendor-inbox-panel.tsx)
+          // — it re-reads canonically via syncPersistedInboxFromServer once
+          // the send is authorized. Simulate that authorization landing on
+          // the server so the resync below reflects it, the way the real
+          // API does.
+          const body = JSON.parse(String(init.body)) as { text: string };
+          vendorRows = vendorRows.map((row) =>
+            row.id === "thread-1"
+              ? {
+                  ...row,
+                  messages: [
+                    ...(row.messages ?? []),
+                    {
+                      id: "server-reply-1",
+                      from: "Vendor One",
+                      body: body.text,
+                      at: "Aug 26, 9:45 AM",
+                      outbound: true,
+                      delivery: "sent",
+                    },
+                  ],
+                }
+              : row,
+          );
+          return Response.json({ ok: true, delivery: "sent" });
         }
         return responseForBackground(url);
       }),
@@ -303,15 +329,16 @@ describe("manager and vendor inbox reply integrity", () => {
 
     await typeAndSend("vendor-inbox-reply", "Accepted vendor reply");
 
-    await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
-    const outbound = [
-      ...document.querySelectorAll(".portal-inbox-outbound-bubble"),
-    ];
-    expect(
-      outbound.some((bubble) =>
-        bubble.textContent?.includes("Accepted vendor reply"),
-      ),
-    ).toBe(true);
+    await waitFor(() => {
+      const outbound = [
+        ...document.querySelectorAll(".portal-inbox-outbound-bubble"),
+      ];
+      expect(
+        outbound.some((bubble) =>
+          bubble.textContent?.includes("Accepted vendor reply"),
+        ),
+      ).toBe(true);
+    });
     expect(showToast).toHaveBeenCalledWith("Reply sent.");
   });
 });

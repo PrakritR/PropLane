@@ -659,7 +659,7 @@ describe("WorkspaceInviteSheet — Edit-permissions layout, no hint, no member l
     renderSheet();
     await waitFor(() => expect(roleTrigger()).toBeTruthy());
     expect(housesTrigger()).toBeTruthy();
-    expect(document.querySelector('[data-attr="co-manager-role"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="workspace-invite-role"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="workspace-invite-houses"]')).toBeTruthy();
   });
 

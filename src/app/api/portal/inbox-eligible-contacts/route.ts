@@ -5,6 +5,7 @@ import { listEligibleInboxContacts } from "@/lib/inbox-recipient-scope";
 import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { assertTestWorkspacePrincipalCompatibility, resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,9 @@ export async function GET(req: Request) {
     const portal = portalParam === "manager" || portalParam === "vendor" ? portalParam : "resident";
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ contacts: [] }, { status: 403 });
+    }
     const { data: profile } = await db
       .from("profiles")
       .select("email, role")
@@ -42,6 +46,7 @@ export async function GET(req: Request) {
     if (admin) {
       const effectiveId = await getEffectiveUserIdForPortal(portal);
       if (effectiveId && effectiveId !== user.id) {
+        await assertTestWorkspacePrincipalCompatibility({ actorUserId: user.id, relatedUserIds: [effectiveId], db });
         actorId = effectiveId;
         const { data: effectiveProfile } = await db
           .from("profiles")

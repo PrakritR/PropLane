@@ -21,7 +21,7 @@ environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin
 
 ## Add-ons
 
-Past the bundle a paying account adds one unit at a time from Settings → Billing & plan
+Past the bundle a paying account adds units from Settings → Billing & plan
 (`src/lib/plan-addons.ts`, quantities in `manager_plan_addons`, route
 `/api/manager/plan-addons`). Each quota reads its plan cap PLUS the add-on quantity
 (`manager-property-quota.server.ts`, `workspaces/server.ts`, `/api/pro/account-links`).
@@ -30,19 +30,37 @@ Past the bundle a paying account adds one unit at a time from Settings → Billi
 | --- | --- | --- |
 | Extra property listing | $8/mo | $6/mo |
 | Extra work number | $5/mo | $5/mo |
-| Extra workspace | $15/mo (up to 2, i.e. 3 total) | $30/mo |
+| Extra workspace | $15/mo (up to 2, i.e. 3 total) | $30/mo (up to the database ceiling, `WORKSPACE_LIMIT`) |
 | Extra co-manager seat | $5/mo | $5/mo |
 
-A Stripe-managed subscription needs one Price per add-on and plan in env —
-`STRIPE_PRICE_ADDON_<EXTRA_LISTING|EXTRA_WORK_NUMBER|EXTRA_WORKSPACE|EXTRA_SEAT>_<PRO|BUSINESS>`
-— and the route adds/updates/removes a subscription item with proration before the
-quantity is written; without the Price the Add button is disabled ("not available for
-purchase yet"). Comp and admin grants record quantities without Stripe.
+**Add-ons are always purchasable (PLAN-0920).** A row is never disabled for a missing
+Stripe Price: `ensureAddonPrice()` (`plan-addons.server.ts`) resolves it in order — the
+env override `STRIPE_PRICE_ADDON_<EXTRA_LISTING|EXTRA_WORK_NUMBER|EXTRA_WORKSPACE|EXTRA_SEAT>_<PRO|BUSINESS>`,
+then an existing Price under the add-on's stable `lookup_key`
+(`planAddonLookupKey`, `proplane_addon_<id>_<tier>`), then creates the Product + Price
+from the catalog — idempotent across processes and cached per process. Comp and admin
+grants record quantities without Stripe (`getManagerPurchaseSku` has no billable
+subscription, so nothing is sent to Stripe at all).
+
+The panel's steppers change only local draft state; nothing is sent until the manager
+presses **Buy**, which applies every changed row as ONE Stripe subscription update
+(`setManagerPlanAddonQuantities`, `PATCH /api/manager/plan-addons` with
+`{ changes: [{ addonId, quantity }] }`) — all-or-nothing and prorated. On any Stripe
+failure nothing is written and the caller's existing quantities are returned unchanged;
+on success the panel re-reads quantities from the response, never from the click. The
+older single-item `{ addonId, quantity }` body still works on both `PATCH` and `POST`
+for backward compatibility. Caps: `extra_work_number` total is capped at 2 per workspace
+(`maxExtraWorkNumberQuantity`, `includedWorkNumbers` + purchased `extra_workspace`
+together set the workspace count); `extra_workspace` is capped by the product limit on
+Pro and by `WORKSPACE_LIMIT` on Business (`maxExtraWorkspaceQuantity`).
 
 Annual subscriptions receive the same monthly credit. Credit resets on the first of
-each month at 00:00 UTC. Existing managers keep their higher current allowance during
-the migration month; the new allowance starts next reset. An upgrade adds only the
-positive allowance difference once; downgrades take effect at the next reset.
+each month at 00:00 UTC. The one-month migration grace that let an existing manager
+keep a higher legacy allowance has ended (PLAN-0920-1400): `wallet.server.ts`'s
+`legacyAllowanceCentsForTier` now equals the plan's own `includedAllowanceCents`, so
+`greatest(allowance, legacy)` in `comms_wallet_snapshot` is a no-op and the plan's own
+allowance always applies — a Business account reads exactly $100.00. An upgrade adds
+only the positive allowance difference once; downgrades take effect at the next reset.
 
 The paid allowance is 50% of monthly subscription price in **retail usage credit**,
 not provider cost. Rates include operational overhead; provider and carrier costs can
@@ -51,11 +69,14 @@ used only for that meter; Free spends only purchased packs. Incoming messages, v
 
 ## Purchases and stops
 
-Manual one-time packs: **$5, $10, $25, $50**. Purchased credit carries forward without
-expiry and is spent after included credit. A saved card never authorizes automatic
-recharge or overage. Insufficient credit blocks new outgoing SMS, calls and work-number
-AI. Incoming SMS is stored first and uses available credit only; unavoidable excess
-is absorbed by PropLane. Message history and the assigned number remain available.
+Credit is bought from **Settings → Billing & plan → Extra usage**: a typed whole-dollar
+amount from **$5 to $500** (default $20), not a fixed pack — `isValidCommsCreditAmountCents`
+in `credit-packs.ts` is the one bound the checkout route, `credit-purchase.server.ts`, and
+the webhook fulfillment all enforce. Purchased credit carries forward without expiry and
+is spent after included credit. A saved card never authorizes automatic recharge or
+overage. Insufficient credit blocks new outgoing SMS, calls and work-number AI. Incoming
+SMS is stored first and uses available credit only; unavoidable excess is absorbed by
+PropLane. Message history and the assigned number remain available.
 
 `COMMS_PAYG_BILLING_ENABLED=1` now enables **manual credit checkout only**. It defaults
 off until the migrations and signed Stripe webhook are available. The former
@@ -120,14 +141,20 @@ unreadable plans fail closed.
 
 The admin Billing list reads communication credit from `comms_wallet_snapshots`
 (`loadCommsWalletTotals`): one read-only round trip that runs the canonical snapshot
-per owner with `p_apply=false`, so staff see the preserved migration-month grant and
-unspent purchased packs exactly as the dispatcher does. Never derive a staff balance from
+per owner with `p_apply=false`, so staff see the same plan allowance and unspent
+purchased credit exactly as the dispatcher does. Never derive a staff balance from
 the plan table plus usage. An owner whose wallet cannot be computed shows "comms —".
 
 - `GET /api/manager/comms-billing`: read-only balance, usage, rates and recent purchases.
 - `PATCH /api/manager/comms-billing`: `{ monthlyBudgetCents }`, alert only. Cannot clear a pause.
-- `POST /api/manager/comms-billing/checkout`: server-priced pack and UUID operation id;
-  owner derives from authenticated manager context. Co-manager access grants no spending authority.
+- `POST /api/manager/comms-billing/checkout`: server-validated whole-dollar amount
+  ($5–$500) and UUID operation id; owner derives from authenticated manager context.
+  Co-manager access grants no spending authority.
+- `GET /api/manager/usage-summary`: read-only communication, listing, workspace, work-number
+  and co-manager usage for Settings → Billing & plan's Usage section (one summary read,
+  `resolveEffectiveManagerSkuTier` drives every cap).
+- `GET /api/manager/invoices`: read-only Stripe invoices plus credit-purchase receipts for
+  the Invoices table; every hosted URL is server-minted, never client-constructed.
 - Signed `/api/stripe/webhook`: exact paid amount, USD, purpose, checkout identity and
   owner checks before atomic credit fulfillment. Duplicate events grant once. Refunds
   reconcile cumulatively; disputes remove credit and pause for staff review. Won disputes

@@ -26,6 +26,7 @@ vi.mock("@/lib/manager-applications-storage", async () => {
   return {
     MANAGER_APPLICATIONS_EVENT: "axis:manager-applications",
     wouldDowngradeSubmittedApplication: actual.wouldDowngradeSubmittedApplication,
+    isBookingResidencyRow: actual.isBookingResidencyRow,
     readManagerApplicationRows: vi.fn(() => []),
     replaceManagerApplicationRowInCache: vi.fn(),
     upsertApplicationRowToServer: vi.fn(),

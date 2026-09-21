@@ -77,7 +77,12 @@ export const RESIDENT_PAYMENTS_LEGACY_TABS: Record<string, { status?: string } |
     charges: {},
   });
 
-/** Sidebar during application phase: Application, Communication, and Settings. */
+/**
+ * Sidebar during application phase: Tour, Application, Dashboard, and
+ * Communication, plus Settings pinned last (never stage-locked — see
+ * `STAGE_UNLOCKED_SECTIONS` in `resident-portal-nav.ts`). The top-right
+ * account menu keeps its own duplicate Settings link too.
+ */
 export const RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "tour", label: "Tour", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },

@@ -16,13 +16,13 @@ import type { ActionPreview } from "@/lib/tools/registry";
  * and the scoped follow-up reads.
  */
 type Row = Record<string, unknown> & { id: string };
-type Filter = [op: "eq" | "gt", col: string, val: unknown];
+type Filter = [op: "eq" | "gt" | "is", col: string, val: unknown];
 
 const DEFAULT_TTL_MS = 15 * 60_000;
 
 function matches(row: Row, filters: Filter[]): boolean {
   return filters.every(([op, col, val]) => {
-    if (op === "eq") return row[col] === val;
+    if (op === "eq" || op === "is") return row[col] === val;
     return String(row[col] ?? "") > String(val ?? "");
   });
 }
@@ -62,6 +62,10 @@ function makeFakeDb() {
               filters.push(["gt", col, val]);
               return chain;
             },
+            is(col: string, val: unknown) {
+              filters.push(["is", col, val]);
+              return chain;
+            },
             select: () => ({
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               then: (resolve: (v: any) => unknown) => Promise.resolve({ data: apply(), error: null }).then(resolve),
@@ -83,6 +87,10 @@ function makeFakeDb() {
             },
             gt(col: string, val: unknown) {
               filters.push(["gt", col, val]);
+              return chain;
+            },
+            is(col: string, val: unknown) {
+              filters.push(["is", col, val]);
               return chain;
             },
             order: () => chain,
@@ -356,6 +364,7 @@ describe("pending actions", () => {
       state: "found",
       portal: "resident",
       toolName: "do_thing",
+      smsTestProvenance: null,
     });
     expect(await peekPendingActionPortal({ userId: "user_b", db }, id!)).toEqual({ state: "missing" });
     expect(rows[0]!.status).toBe("proposed");

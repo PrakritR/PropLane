@@ -295,7 +295,7 @@ async function viewerMayReadLeaseRecord(
   return managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record);
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const ctx = await getUserContext();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -343,7 +343,9 @@ export async function GET(req?: Request) {
       records = await fetchLeasesForManagerUser(ctx.db, ctx.user.id);
     }
 
-    const rows = records.map((record) => projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record))));
+    const rows = records.map((record) =>
+      projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record)) as LeasePipelineRow),
+    );
 
     return NextResponse.json({ rows });
   } catch (e) {

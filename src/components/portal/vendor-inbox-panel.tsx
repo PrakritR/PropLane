@@ -19,6 +19,7 @@ import { buildInboxThreadAssistantContext, InboxThreadAssistantStrip } from "@/c
 import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import { INBOX_MAX_ATTACHMENTS, attachmentMetaFromUrls, createPendingInboxAttachment, uploadInboxAttachment, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
+import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
@@ -467,7 +468,7 @@ export const VendorInboxPanel = forwardRef<
   );
 
   const handleComposeSend = useCallback(
-    (p: ScopedInboxSendPayload) => {
+    async (p: ScopedInboxSendPayload) => {
       if (p.includesAxisAdmin && isDemoModeActive()) {
         appendPortalMessageToAdminInbox({
           role: "vendor",
@@ -477,43 +478,52 @@ export const VendorInboxPanel = forwardRef<
           body: p.body.trim(),
         });
       }
-      setComposeOpen(false);
-      void (async () => {
-        try {
-          const res = await fetch("/api/portal/send-inbox-message", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              fromName: p.senderName,
-              fromEmail: p.senderEmail,
-              toEmails: p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean),
-              toBroadcast: p.broadcastCategories,
-              subject: p.subject.trim(),
-              text: p.body.trim(),
-              deliverToPortalInbox: true,
-              eventCategory: "messages",
-              senderPortal: "vendor",
-            }),
-          });
-          const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
-          if (!res.ok || !data.ok) {
-            showToast("Message could not be sent.");
-            return;
-          }
-          invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
-          const rows = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
-          setLocal(rows as InboxThread[]);
+      try {
+        const res = await fetch("/api/vendor/send-inbox-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            recipientUserIds: p.directRecipientUserIds,
+            broadcastCategories: p.broadcastCategories,
+            includesAxisAdmin: p.includesAxisAdmin,
+            subject: p.subject.trim(),
+            text: p.body.trim(),
+            channel: "email",
+            sendId: p.sendId,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          delivery?: "sent" | "sending" | "failed" | "mixed" | "refused";
+        };
+        if (!res.ok || !data.ok) {
+          showToast("Message could not be sent.");
+          return false;
+        }
+        invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
+        const rows = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
+        setLocal(rows as InboxThread[]);
+        if (data.delivery === "sent" || !data.delivery) {
+          setComposeOpen(false);
           showToast(
             p.includesAxisAdmin && !p.includesDirectoryRecipients
               ? "Message sent to PropLane admin."
               : "Message sent.",
           );
           navigate("/vendor/communication/email/sent");
-        } catch {
-          showToast("Message could not be sent.");
+          return true;
         }
-      })();
+        if (data.delivery === "failed") showToast("Message delivery failed. Draft kept for retry.");
+        else if (data.delivery === "sending") showToast("Message is still sending. Draft kept for retry.");
+        else showToast("Some deliveries failed or are still sending. Draft kept for retry.");
+        // Returning false preserves the compose fields and its child send ids.
+        // A retry therefore reuses the server outbox fences for each recipient.
+        return false;
+      } catch {
+        showToast("Message could not be sent.");
+        return false;
+      }
     },
     [navigate, showToast],
   );
@@ -540,7 +550,10 @@ export const VendorInboxPanel = forwardRef<
       const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
       if (!channels.email && !channels.sms) throw new InboxSendRefusal(null);
-      const replyId = `reply-${Date.now().toString(36)}`;
+      const sendId = crypto.randomUUID();
+      // The server uses this id for both selected channels. Matching it keeps
+      // an optimistic reply from becoming a second bubble on refresh.
+      const replyId = `vendor-sponsored:${sendId}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
       const reply: InboxThreadMessage = {
         id: replyId,
@@ -590,33 +603,31 @@ export const VendorInboxPanel = forwardRef<
       const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
       let emailOk = false;
       let smsOk = false;
+      const authorizedDeliveries: ("sending" | "sent" | "failed")[] = [];
       let failureMessage = "";
       try {
         if (channels.email) {
           try {
-            const res = await fetch("/api/portal/send-inbox-message", {
+            const res = await fetch("/api/vendor/send-inbox-message", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
               body: JSON.stringify({
-                fromName: vendorIdentity.name,
-                fromEmail: vendorIdentity.email,
                 threadId: thread.id,
                 subject,
                 text,
-                toEmails: [thread.email],
-                deliverToPortalInbox: true,
-                deliverViaEmail: true,
-                deliverViaSms: false,
-                senderPortal: "vendor",
+                channel: "email",
+                sendId,
                 attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
               ok?: boolean;
               error?: string;
+              delivery?: "sending" | "sent" | "failed";
             };
             emailOk = res.ok && data.ok === true;
+            if (emailOk) authorizedDeliveries.push(data.delivery ?? "sent");
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
             failureMessage = "";
@@ -627,29 +638,26 @@ export const VendorInboxPanel = forwardRef<
             failureMessage ||= "Text messaging is not available right now.";
           } else {
             try {
-              const res = await fetch("/api/portal/send-inbox-message", {
+              const res = await fetch("/api/vendor/send-inbox-message", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
                 body: JSON.stringify({
-                  fromName: vendorIdentity.name,
-                  fromEmail: vendorIdentity.email,
                   threadId: thread.id,
                   subject,
                   text,
-                  toEmails: [thread.email],
-                  deliverToPortalInbox: false,
-                  deliverViaEmail: false,
-                  deliverViaSms: true,
-                  senderPortal: "vendor",
+                  channel: "sms",
+                  sendId,
                   attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
                 }),
               });
               const data = (await res.json().catch(() => ({}))) as {
                 ok?: boolean;
                 error?: string;
+                delivery?: "sending" | "sent" | "failed";
               };
               smsOk = res.ok && data.ok === true;
+              if (smsOk) authorizedDeliveries.push(data.delivery ?? "sent");
               if (!smsOk) failureMessage = data.error?.trim() || failureMessage;
             } catch {
               // Preserve any explicit refusal from the other channel.
@@ -669,11 +677,18 @@ export const VendorInboxPanel = forwardRef<
           )
             ? currentThread
             : appendReplyToInboxThread(currentThread, reply);
-          const delivered = markThreadMessageDelivery(withReply, replyId, undefined);
+          // An authorized provider failure or ambiguous provider result is a
+          // durable server bubble. Keep it visible as Failed/Sending; only a
+          // preauthorization refusal above rolls the optimistic bubble back.
+          const delivery = aggregateVendorSponsoredDelivery(authorizedDeliveries);
+          const delivered = markThreadMessageDelivery(withReply, replyId, delivery);
           const persisted = currentRows.map((item) =>
             item.id === thread.id ? delivered : item,
           );
           setLocal(persisted);
+          // Persist with the same `vendor-sponsored:${sendId}` id the server
+          // will later project this reply under, so the durable copy and the
+          // forced read below merge on that id instead of duplicating.
           await upsertPersistedInboxRows(
             VENDOR_INBOX_STORAGE_KEY,
             [delivered],
@@ -683,14 +698,16 @@ export const VendorInboxPanel = forwardRef<
       } finally {
         persistInboxRef.current = true;
       }
-      void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, {
+      const synced = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, {
         force: true,
-      }).catch(() => {});
+      }).catch(() => null);
+      if (synced) setLocal(synced as InboxThread[]);
       return {
         emailRequested: channels.email,
         smsRequested: channels.sms,
         emailOk,
         smsOk,
+        delivery: aggregateVendorSponsoredDelivery(authorizedDeliveries),
       };
     },
     [activeSmsAvailable, vendorIdentity],

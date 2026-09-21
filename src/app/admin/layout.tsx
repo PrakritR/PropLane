@@ -15,20 +15,28 @@ import {
   PORTAL_MAIN_CONTENT_INNER_CLASS,
   PORTAL_SHELL_ROOT_CLASS,
 } from "@/lib/portal-layout-classes";
-import { adminPortal } from "@/lib/portals/admin";
+import { adminPortalForTestWorkspaceOperator } from "@/lib/portals/admin";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { getAssistantDockCollapsed, getAssistantDocked } from "@/lib/assistant-dock-state";
+import {
+  isTestWorkspaceFeatureEnabled,
+  requireTrustedTestWorkspaceOperator,
+} from "@/lib/test-workspaces/index.server";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await assertAdminPortalAccess();
   const { profile } = await getServerSessionProfile();
-  const [sidebarCollapsed, assistantDockCollapsed, assistantDocked] = await Promise.all([
+  const [sidebarCollapsed, assistantDockCollapsed, assistantDocked, testWorkspaceOperator] = await Promise.all([
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
     getAssistantDocked(),
+    isTestWorkspaceFeatureEnabled()
+      ? requireTrustedTestWorkspaceOperator().then(() => true, () => false)
+      : Promise.resolve(false),
   ]);
+  const adminPortal = adminPortalForTestWorkspaceOperator(testWorkspaceOperator);
   return (
     <AxisAssistant managerName={profile?.full_name ?? null}>
       <div className={PORTAL_SHELL_ROOT_CLASS} data-surface="admin">

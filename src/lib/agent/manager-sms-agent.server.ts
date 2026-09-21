@@ -95,9 +95,10 @@ export async function runManagerSmsAgentTurn(
   db: Db,
   args: {
     ctx: AgentContext;
-    managerPhoneE164: string;
+    managerPhoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
+    testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null };
   },
 ): Promise<ManagerSmsTurn | null> {
   const access = args.ctx.managerSmsAccess;
@@ -116,6 +117,7 @@ export async function runManagerSmsAgentTurn(
     phoneE164: args.managerPhoneE164,
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
+    testActor: args.testActor ? { ...args.testActor, mode: "manager" } : undefined,
     precomputedReply:
       referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
         ? referenceResolution.message

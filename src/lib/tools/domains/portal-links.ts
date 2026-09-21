@@ -23,6 +23,7 @@ import type { ResidentAgentContext } from "../resident-context";
 import type { VendorAgentContext } from "../vendor-context";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { residentPortalPath } from "@/lib/claw-resident-links";
+import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import {
   buildManagerApplyUrl,
   buildManagerListingUrl,
@@ -37,9 +38,13 @@ export function agentLinkOrigin(): string {
   return PRODUCTION_APP_ORIGIN;
 }
 
-function absolutize<T extends Record<string, string>>(paths: T, channel: AgentLinkChannel | undefined): T {
+function absolutize<T extends Record<string, string>>(
+  paths: T,
+  channel: AgentLinkChannel | undefined,
+  trustedOrigin?: string,
+): T {
   if (channel === "portal") return paths;
-  const origin = agentLinkOrigin();
+  const origin = trustedOrigin ?? agentLinkOrigin();
   return Object.fromEntries(Object.entries(paths).map(([k, p]) => [k, `${origin}${p}`])) as T;
 }
 
@@ -77,8 +82,8 @@ export function vendorLinkPaths() {
     inbox: "/vendor/communication/active",
     income: "/vendor/financials/income",
     invoices: "/vendor/financials/invoices",
-    payments: "/vendor/financials/payouts",
-    documents: "/vendor/documents/mine",
+    payments: "/vendor/financials/income",
+    documents: "/vendor/documents/all",
     /** Bank payout setup, W-9, insurance, licensing. */
     profile: "/vendor/profile",
     signIn: "/auth/sign-in",
@@ -108,7 +113,9 @@ export const getResidentLinksTool = defineTool<NoInput, LinksResult<ReturnType<t
   handler: async (ctx) => {
     // No channel recorded means the reply may leave the platform: absolute.
     const channel: AgentLinkChannel = ctx.channel ?? "sms";
-    return { links: residentLinks(channel), channel };
+    const test = currentSmsTestTransport();
+    const testOrigin = test?.workspaceId && test.appOrigin ? test.appOrigin : undefined;
+    return { links: absolutize(residentLinkPaths(), channel, testOrigin), channel };
   },
 });
 

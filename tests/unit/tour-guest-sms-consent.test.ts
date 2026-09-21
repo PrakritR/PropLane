@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 /**
  * Send-time gate for the tours-contact SMS opt-in (A2P 10DLC / CTIA).
  *

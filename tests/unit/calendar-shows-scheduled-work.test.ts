@@ -45,8 +45,9 @@ describe("Calendar shows scheduled work", () => {
   it("recomputes when the service meetings change", () => {
     // A stale memo would reintroduce the empty calendar for the rest of the session.
     const memo = SRC.slice(SRC.indexOf("const mergedExternalMeetings"));
-    expect(memo).toContain("showServiceVisits]");
-    expect(memo).toContain("serviceCalendarMeetings,");
+    const dependencies = memo.match(/\}, \[([^\]]+)\]\);/)?.[1] ?? "";
+    expect(dependencies).toContain("showServiceVisits");
+    expect(dependencies).toContain("serviceCalendarMeetings");
   });
 });
 

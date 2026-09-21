@@ -23,6 +23,9 @@ const createServiceClient = vi.fn();
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => createServiceClient(),
 }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn().mockResolvedValue(undefined),
+}));
 
 type Row = { stripe_connect_account_id: string | null };
 

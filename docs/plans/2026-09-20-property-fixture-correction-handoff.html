@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Property fixture correction handoff</title>
+<style>
+  body { max-width: 920px; margin: 40px auto; padding: 24px; font: 16px/1.55 system-ui, sans-serif; color: #172033; }
+  h1, h2 { line-height: 1.2; }
+  code { background: #f1f4f8; padding: 2px 5px; border-radius: 4px; }
+  li { margin: 7px 0; }
+  .status { border-left: 4px solid #356ae6; background: #f5f8ff; padding: 12px 16px; }
+</style>
+<h1>Property metadata fixture correction handoff</h1>
+<p class="status"><strong>Status:</strong> source implementation complete and frozen for root-owned CI and fresh Astra review. No local runtime, browser, server, database, Node, build, test, lint, graph, install, or Git mutation was performed in this correction session.</p>
+
+<h2>Scope</h2>
+<ul>
+  <li>Plan: <code>docs/plans/2026-09-20-property-fixture-correction-plan.html</code></li>
+  <li>Repository: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></li>
+  <li>Branch: <code>akhil/ship-property-preservation-20260920</code></li>
+  <li>Starting and current uncommitted base HEAD: <code>546fef73b</code></li>
+  <li>Owned code file: <code>tests/e2e/property-metadata-omission-preservation.spec.ts</code></li>
+  <li>Application source, serializers, CI workflow, migrations, shared seeds, and broad helpers were unchanged.</li>
+</ul>
+
+<h2>Implemented behavior</h2>
+<ul>
+  <li>The E2E authenticates the seeded manager before creating the fixture, preventing sign-in hydration from mirroring it before observers exist.</li>
+  <li>It enforces the exact dev/test Supabase origin and requires the service-role key.</li>
+  <li>It creates one random, marked, manager-owned live property in an owned workspace with a free slot. It creates one marked workspace only when the manager owns fewer than three, and fails clearly when all three are full.</li>
+  <li>It selects the fixture workspace through the authenticated <code>POST /api/workspaces</code> route, then observes the first fixture-visible Properties navigation.</li>
+  <li>The response observer matches <code>POST /api/property-records</code>, <code>action: upsert</code>, and the exact random property ID. The test requires HTTP 200, a present <code>propertyData</code> field, an omitted <code>rowData</code> field, and full stored <code>row_data</code> equality afterward.</li>
+  <li>Navigation, visible-tab readiness, and the matching response are awaited together so a failed navigation cannot leave an unobserved response promise.</li>
+  <li>Teardown first commits <code>about:blank</code>, falling back to closing the owned page. If browser activity cannot be confirmed stopped, the test reports the failure and leaves the bounded fixture in place instead of racing a live mirror.</li>
+  <li>When activity is stopped, teardown restores the prior workspace through the same authenticated request context and checks the response. Database cleanup still runs if restoration fails.</li>
+  <li>Property deletion is fenced by exact ID, manager, workspace, and marker after a read-back ownership check. A created workspace is checked independently for exact owner and name and must be empty before deletion. Cleanup attempts both safe steps and reports all failures.</li>
+</ul>
+
+<h2>Delegated review</h2>
+<p>Terra implemented the single-file fixture correction under source-only restrictions. Luna's first independent cleanup review found that a property cleanup error prevented the created-workspace cleanup check from running. The implementation now attempts both safe cleanup steps and aggregates failures. Luna's follow-up source review confirmed that finding is closed and found no remaining source blocker against the correction plan.</p>
+
+<h2>Validation evidence and remaining gate</h2>
+<ul>
+  <li>Source inspection commands completed with exit code 0.</li>
+  <li>The root agent reported the pre-correction unit suite passed: 1,759 files and 12,288 tests. This does not validate the corrected fixture.</li>
+  <li>The root agent is the sole owner of CI, browser, database, and Git validation because local resource pressure prohibited duplicate work.</li>
+  <li>Required next validation: run the corrected property metadata browser job against seeded dev/test data and confirm fixture creation, real background upsert, full metadata preservation, workspace restoration, and exact cleanup.</li>
+</ul>
+
+<h2>Fresh review prompt</h2>
+<p>Review <code>docs/plans/2026-09-20-property-fixture-correction-plan.html</code>, this handoff, and the diff of <code>tests/e2e/property-metadata-omission-preservation.spec.ts</code> from HEAD <code>546fef73b</code>. Verify the bounded fixture, listener ordering, exact route evidence, fail-closed target guard, page-stop gate, restoration behavior, ownership-fenced cleanup, capacity refusal, and root CI results. Report findings by severity with file and line references. Do not expand into application source unless an exact compile correction is necessary and root approves it.</p>
+</html>

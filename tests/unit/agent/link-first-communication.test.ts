@@ -39,6 +39,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import type { VendorAgentContext } from "@/lib/tools/vendor-context";
 import { routeResolves } from "../../helpers/route-resolves";
+import { runWithSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 const PROD = "https://prop-lane.space";
 
@@ -86,6 +87,20 @@ describe("get_resident_links", () => {
     expect(portal.links.lease).toBe("/resident/lease");
     const unknown = await getResidentLinksTool.handler(residentCtx(undefined), {});
     expect(unknown.links.services).toBe(`${PROD}/resident/services`);
+  });
+
+  it("uses the trusted deployment origin only inside a classified SMS-test turn", async () => {
+    const captured = await runWithSmsTestTransport({
+      actorUserId: "resident-a",
+      managerUserId: "manager-a",
+      workspaceId: "workspace-a",
+      sessionId: "session-a",
+      appOrigin: "http://localhost:3010",
+    }, () => getResidentLinksTool.handler(residentCtx("sms"), {}));
+
+    expect(captured.result.links.application).toBe("http://localhost:3010/resident/applications");
+    expect((await getResidentLinksTool.handler(residentCtx("sms"), {})).links.application)
+      .toBe(`${PROD}/resident/applications`);
   });
 
   it("is available in the application phase and on every tier", () => {

@@ -7,6 +7,7 @@ import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
 import { BUSINESS_MAX_PROPERTIES, FREE_MAX_PROPERTIES, PRO_MAX_PROPERTIES } from "@/lib/manager-access";
+import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteFaq, type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
@@ -81,7 +82,7 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
     items: [
       { text: `Up to ${BUSINESS_MAX_PROPERTIES} property listings`, included: true },
       { text: "Up to 20 co-managers, per-module access", included: true },
-      { text: "3 workspaces, a work number in each", included: true },
+      { text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`, included: true },
       { text: `${credit("business")}/mo communication credit`, included: true },
       { text: "Priority admin support", included: true },
     ],
@@ -197,7 +198,7 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
     rows: [
       { label: "Property listings", cells: [String(FREE_MAX_PROPERTIES), String(PRO_MAX_PROPERTIES), String(BUSINESS_MAX_PROPERTIES)] },
       { label: "Co-managers", cells: [NO, "2", "20"] },
-      { label: "Workspaces", cells: ["1", "1", "3"] },
+      { label: "Workspaces", cells: ["1", "1", String(WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces)] },
       { label: "Per-module access for co-managers", cells: [NO, YES, YES] },
     ],
   },

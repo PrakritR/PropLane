@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   reconcileManagerSmsEntitlement: vi.fn(),
   getEffectiveManagerSmsEntitlement: vi.fn(),
   getManagerPortalNavSubscriptionTier: vi.fn(),
-  provisionManagerNumber: vi.fn(),
+  provisionNumberForWorkspace: vi.fn(),
   track: vi.fn(),
   rateLimit: vi.fn<typeof import("@/lib/rate-limit").rateLimit>(),
 }));
@@ -33,9 +33,12 @@ vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
   getEffectiveManagerSmsEntitlement: mocks.getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement: mocks.reconcileManagerSmsEntitlement,
 }));
-vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
-  provisionManagerNumber: mocks.provisionManagerNumber,
-}));
+// The route buys through the per-workspace path (`work-numbers.server`); the
+// rest of that module (listing / assigning numbers for `buildStatus`) stays real.
+vi.mock("@/lib/sms/work-numbers.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/sms/work-numbers.server")>();
+  return { ...actual, provisionNumberForWorkspace: mocks.provisionNumberForWorkspace };
+});
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 vi.mock("next/headers", () => ({
@@ -90,12 +93,12 @@ describe("server: trial cannot buy a work number", () => {
     const body = await response.json();
     expect(body.error.toLowerCase()).toContain("trial");
     expect(body.code).toBe("trial_cannot_buy_number");
-    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+    expect(mocks.provisionNumberForWorkspace).not.toHaveBeenCalled();
   });
 
   it("lets a paid (non-trial) tier through to provisioning", async () => {
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
-    mocks.provisionManagerNumber.mockResolvedValue({
+    mocks.provisionNumberForWorkspace.mockResolvedValue({
       ok: true,
       number: "+12065550123",
       state: "provisioning",
@@ -105,7 +108,7 @@ describe("server: trial cannot buy a work number", () => {
       new Request("https://prop-lane.test/api/manager/messaging-number", { method: "POST", body: "{}" }),
     );
     expect(response.status).toBe(200);
-    expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(expect.anything(), MANAGER, { workspaceId: MY_WS });
+    expect(mocks.provisionNumberForWorkspace).toHaveBeenCalledWith(expect.anything(), MANAGER, { workspaceId: MY_WS });
   });
 });
 
@@ -120,13 +123,18 @@ describe("client: the work-number card never reaches the picker on a trial", () 
     expect(panelSrc).toContain('"Start Pro"');
   });
 
-  it("gates the area-code / request-number picker behind canRequest && !planMessage", () => {
-    expect(panelSrc).toContain("status.canRequest && !planMessage");
-    // The alert card (planMessage) renders before the picker check in source,
-    // so a trial's non-null planMessage short-circuits the picker every time.
-    const planMessageBlockIdx = panelSrc.indexOf("planMessage ? (");
-    const pickerGuardIdx = panelSrc.indexOf("status.canRequest && !planMessage");
-    expect(planMessageBlockIdx).toBeGreaterThan(-1);
-    expect(pickerGuardIdx).toBeGreaterThan(planMessageBlockIdx);
+  it("never renders the area-code picker while a plan message locks the number", () => {
+    // Inside the Add-a-work-number sheet the picker is the ELSE branch of the
+    // plan-lock ternary, so a trial's non-null planMessage renders the
+    // "Start Pro" lock card in its place every time — and the submit stays
+    // disabled for good measure.
+    const lockIdx = panelSrc.indexOf('data-attr="messaging-work-number-plan-lock"');
+    const pickerIdx = panelSrc.indexOf('id="messaging-number-area-code"');
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(pickerIdx).toBeGreaterThan(lockIdx);
+    const ternaryIdx = panelSrc.lastIndexOf("{planMessage ? (", lockIdx);
+    expect(ternaryIdx).toBeGreaterThan(-1);
+    expect(panelSrc.slice(ternaryIdx, pickerIdx)).toContain(") : (");
+    expect(panelSrc).toContain("(Boolean(planMessage) && !unverifiedEntitlement) ||");
   });
 });

@@ -27,6 +27,7 @@ import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import {
   RESIDENT_AGENT_THREAD_TYPE,
@@ -276,6 +277,9 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ ok: false, error: "Inbox access is unavailable for this account." }, { status: 403 });
+    }
 
     // Resolving the thread authorizes the sender against it but writes NOTHING
     // yet: the recipient-scope gate below can still refuse this send with a 403,
@@ -425,6 +429,14 @@ export async function POST(req: Request) {
       portal: senderPortal,
       isAdmin: senderIsAdmin,
     });
+    // External vendor delivery has a sponsored identity and durable outbox.
+    // Do not let legacy callers borrow the generic manager/resident transports.
+    if (String(senderRole ?? "").trim().toLowerCase() === "vendor" && (deliverViaEmail || deliverViaSms)) {
+      return NextResponse.json(
+        { ok: false, error: "Use the vendor sponsored delivery route for external messages." },
+        { status: 409 },
+      );
+    }
 
     const propertyId = String(body.propertyId ?? "").trim();
     if (propertyId && body.fanOutPropertyInbox !== false && toUserIds.length === 1) {

@@ -55,7 +55,7 @@ export async function sweepOutgoingPaymentReminders(db: SupabaseClient, now: Dat
     .map((row) => {
       const bill = mapManagerBillRow(row as Record<string, unknown>);
       const managerUserId = String((row as { manager_user_id?: unknown }).manager_user_id ?? "").trim();
-      if (!managerUserId || !bill.dueDate) return null;
+      if (!managerUserId || !bill.dueDate || bill.smsTestSessionId) return null;
       const anchorIso = dueAnchorIso(bill.dueDate);
       if (!withinHorizon(anchorIso, now)) return null;
       return { bill, managerUserId, anchorIso };

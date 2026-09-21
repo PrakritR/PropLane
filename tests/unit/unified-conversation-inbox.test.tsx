@@ -107,9 +107,9 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   persistedInboxReadSucceeded: () => true,
-  loadPersistedInbox: () => ALL_THREADS,
-  syncPersistedInboxFromServer: () => Promise.resolve(ALL_THREADS),
-  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: ALL_THREADS, ok: true }),
+  loadPersistedInbox: () => [...ALL_THREADS],
+  syncPersistedInboxFromServer: () => Promise.resolve([...ALL_THREADS]),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: [...ALL_THREADS], ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
@@ -137,7 +137,11 @@ vi.mock("@/hooks/use-portal-session", () => ({
   usePortalSession: () => ({ userId: "manager-test", email: "manager@example.com", ready: true }),
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({
-  ManagerInbox: () => <div data-testid="embedded-email-thread" />,
+  ManagerInbox: ({ controlledExpandedId, onControlledExpandedIdChange }: { controlledExpandedId?: string; onControlledExpandedIdChange: (id: null) => void }) => (
+    <div data-testid="embedded-email-thread" data-thread-id={controlledExpandedId}>
+      <button type="button" onClick={() => onControlledExpandedIdChange(null)}>Back</button>
+    </div>
+  ),
 }));
 vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({
   ResidentDirectChatPane: ({ onSent }: { onSent: () => void }) => (
@@ -380,5 +384,165 @@ describe("unified conversation inbox (no folder tabs)", () => {
     expect(screen.queryByText("Dana Ramirez")).toBeNull();
     expect(screen.queryByRole("link", { name: /^All/ })).toBeNull();
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
+  });
+});
+
+describe("desktop unread selection regression", () => {
+  function desktop() {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+  }
+
+  it("leaves Unread closed until an explicit click", async () => {
+    desktop();
+    const selected = vi.fn();
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" onThreadSelectedChange={selected} />);
+    await screen.findByText("Dana Ramirez");
+    expect(selected).not.toHaveBeenCalledWith(true);
+    expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
+    fireEvent.click(screen.getByText("Dana Ramirez"));
+    await waitFor(() => expect(selected).toHaveBeenLastCalledWith(true));
+    expect(screen.getByTestId("embedded-email-thread")).toBeTruthy();
+  });
+
+  it("honors an explicit unread deep link", async () => {
+    desktop();
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} />);
+    expect(await screen.findByTestId("embedded-email-thread")).toBeTruthy();
+  });
+
+  it.each(["active", "read", "archived"] as const)("preserves %s first-row selection", async (status) => {
+    desktop();
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment={status === "archived" ? "archived" : "active"} threadFilters={{ status: status === "active" ? "all" : status, propertyIds: [], roles: [], contactIds: [] }} />);
+    expect(await screen.findByTestId("embedded-email-thread")).toBeTruthy();
+  });
+
+  it("clears the previous selection on entering Unread without opening its first result", async () => {
+    desktop();
+    const props = { tabId: "unopened", commBase: "/portal/communication" };
+    const { rerender } = render(<ManagerUnifiedInbox {...props} listSegment="active" />);
+    await screen.findByTestId("embedded-email-thread");
+    fireEvent.click(screen.getByText("sam@example.com"));
+    rerender(<ManagerUnifiedInbox {...props} listSegment="unread" />);
+    await screen.findByText("Dana Ramirez");
+    await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+  });
+});
+
+describe("unread results do not cascade", () => {
+  it.each([false, true])("keeps the clicked pane after read without cascading (routed: %s)", async (routed) => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    const second = { ...EMAIL_INBOX, id: "thr-2000000004", from: "Second Unread", email: "second@example.com" };
+    ALL_THREADS.push(second);
+    try {
+      const routeChanged = vi.fn();
+      const { rerender } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" onRouteThreadChange={routeChanged} />);
+      await screen.findByText("Second Unread");
+      expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
+      fireEvent.click(screen.getByText("Dana Ramirez"));
+      await screen.findByTestId("embedded-email-thread");
+      if (routed) {
+        rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} onRouteThreadChange={routeChanged} />);
+      }
+      // Simulate the persisted-read notification emitted when the opened thread is read.
+      EMAIL_INBOX.unread = false;
+      fireEvent(window, new Event("portal-inbox-changed"));
+      await waitFor(() => expect(screen.queryByText("Dana Ramirez")).toBeNull());
+      expect(screen.getByText("Second Unread")).toBeTruthy();
+      expect(screen.getByTestId("embedded-email-thread").getAttribute("data-thread-id")).toBe(EMAIL_INBOX.id);
+      expect(second.unread).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+      expect(routeChanged).toHaveBeenLastCalledWith(undefined);
+    } finally {
+      EMAIL_INBOX.unread = true;
+      ALL_THREADS.splice(ALL_THREADS.indexOf(second), 1);
+    }
+  });
+
+  it("clears retention when the canonical source disappears", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
+    fireEvent.click(await screen.findByText("Dana Ramirez"));
+    await screen.findByTestId("embedded-email-thread");
+    EMAIL_INBOX.unread = false;
+    ALL_THREADS.splice(ALL_THREADS.indexOf(EMAIL_INBOX), 1);
+    try {
+      fireEvent(window, new Event("portal-inbox-changed"));
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+    } finally {
+      EMAIL_INBOX.unread = true;
+      ALL_THREADS.unshift(EMAIL_INBOX);
+    }
+  });
+
+  it.each(["removed", "archived"] as const)("clears a routed last unread pane when its source is %s", async (change) => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} />);
+    await screen.findByTestId("embedded-email-thread");
+    EMAIL_INBOX.unread = false;
+    const index = ALL_THREADS.indexOf(EMAIL_INBOX);
+    if (change === "removed") ALL_THREADS.splice(index, 1);
+    else EMAIL_INBOX.folder = "trash";
+    try {
+      fireEvent(window, new Event("portal-inbox-changed"));
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+    } finally {
+      EMAIL_INBOX.unread = true;
+      EMAIL_INBOX.folder = "inbox";
+      if (change === "removed") ALL_THREADS.unshift(EMAIL_INBOX);
+    }
+  });
+
+  it("does not render the old routed pane when the route changes to a missing thread", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    const props = { tabId: "unopened", commBase: "/portal/communication", listSegment: "unread" as const };
+    const { rerender } = render(<ManagerUnifiedInbox {...props} routeThreadId={EMAIL_INBOX.id} />);
+    await screen.findByTestId("embedded-email-thread");
+    rerender(<ManagerUnifiedInbox {...props} routeThreadId="missing-thread" />);
+    await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+  });
+
+  it("clears unread retention after search, contact filter, or status context changes", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    const base = { tabId: "unopened", commBase: "/portal/communication", routeThreadId: EMAIL_INBOX.id };
+    const { rerender } = render(<ManagerUnifiedInbox {...base} listSegment="unread" searchQuery="" onSearchQueryChange={() => {}} />);
+    await screen.findByTestId("embedded-email-thread");
+    EMAIL_INBOX.unread = false;
+    try {
+      fireEvent(window, new Event("portal-inbox-changed"));
+      await screen.findByTestId("embedded-email-thread");
+      rerender(<ManagerUnifiedInbox {...base} listSegment="unread" searchQuery="no match" onSearchQueryChange={() => {}} />);
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+
+      EMAIL_INBOX.unread = true;
+      rerender(<ManagerUnifiedInbox {...base} listSegment="unread" />);
+      await screen.findByTestId("embedded-email-thread");
+      EMAIL_INBOX.unread = false;
+      fireEvent(window, new Event("portal-inbox-changed"));
+      await screen.findByTestId("embedded-email-thread");
+      rerender(<ManagerUnifiedInbox
+        {...base}
+        listSegment="unread"
+        filterContacts={[
+          { id: "dana", name: "Dana Ramirez", email: EMAIL_INBOX.email, role: "resident" },
+          { id: "sam", name: "Sam", email: EMAIL_SENT.email, role: "resident" },
+        ]}
+        threadFilters={{ status: "unread", propertyIds: [], roles: [], contactIds: ["sam"] }}
+      />);
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+
+      rerender(<ManagerUnifiedInbox {...base} listSegment="active" threadFilters={{ status: "read", propertyIds: [], roles: [], contactIds: [] }} />);
+      await screen.findByTestId("embedded-email-thread");
+      rerender(<ManagerUnifiedInbox {...base} listSegment="unread" />);
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+    } finally {
+      EMAIL_INBOX.unread = true;
+    }
   });
 });

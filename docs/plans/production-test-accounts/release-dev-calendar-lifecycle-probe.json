@@ -1,0 +1,22 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "method": "Actual stored RPCs and direct SQL list assertions in rolled-back transaction; no browser/route proof",
+  "checks": [
+    {
+      "workspace": "A",
+      "slice_write": true,
+      "duplicate_idempotent": true,
+      "stale_baseline_refused": true,
+      "stale_reschedule_refused": true,
+      "book_list_reschedule_cancel_delete": true
+    },
+    {
+      "workspace": "B",
+      "slice_write": true,
+      "duplicate_idempotent": true,
+      "stale_baseline_refused": true,
+      "stale_reschedule_refused": true,
+      "book_list_reschedule_cancel_delete": true
+    }
+  ]
+}

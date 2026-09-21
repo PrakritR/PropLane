@@ -65,6 +65,12 @@ export function ManagerPaymentSetupPanel({
   const [loading, setLoading] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
+  // The ONE payouts-ready decision (`stripe-payouts-readiness.server.ts`,
+  // read off the SAME `/api/stripe/connect/status` response this panel
+  // already fetches) — never a second hand-rolled check of `stripeState`,
+  // which answers a different question (can this account accept resident
+  // payments at all, not "can it withdraw").
+  const [payoutsReady, setPayoutsReady] = useState(false);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
   const [canEditBankAccount, setCanEditBankAccount] = useState(true);
@@ -128,6 +134,7 @@ export function ManagerPaymentSetupPanel({
   const loadStripeStatus = useCallback(async () => {
     if (demo) {
       setStripeState("ready");
+      setPayoutsReady(true);
       return;
     }
     try {
@@ -137,6 +144,7 @@ export function ManagerPaymentSetupPanel({
         chargesEnabled?: boolean;
         transfersEnabled?: boolean;
         paymentReady?: boolean;
+        payoutsReady?: boolean;
         connected?: boolean;
         accountId?: string | null;
         stripeError?: string | null;
@@ -150,13 +158,17 @@ export function ManagerPaymentSetupPanel({
         setCanEditBankAccount(false);
         setIsCoManagerForPayout(body.isCoManagerForPayout === true);
         setStripeState("unknown");
+        setPayoutsReady(false);
         return;
       }
       setCanEditBankAccount(body.canEditBankAccount !== false);
       setIsCoManagerForPayout(body.isCoManagerForPayout === true);
-      setStripeState(stripeSetupStateFromStatus(body));
+      const nextState = stripeSetupStateFromStatus(body);
+      setStripeState(nextState);
+      setPayoutsReady(body.payoutsReady === true);
     } catch {
       setStripeState("unknown");
+      setPayoutsReady(false);
     }
   }, [demo]);
 
@@ -389,9 +401,9 @@ export function ManagerPaymentSetupPanel({
       showToast("Only the property owner (or a co-manager with Bank account access) can change payout bank details.");
       return;
     }
-    // Identity, bank and the balance all live on the Payouts page now — this
-    // row is a door to it, never its own Stripe popup (PLAN-0920-0853).
-    window.location.href = `${portalBasePath}/payments/payouts`;
+    // Identity, bank and the balance all live on Settings → Payouts now —
+    // this row is a door to it, never its own Stripe popup (PLAN-0920-1500).
+    window.location.href = `${portalBasePath}/settings/payouts`;
   }
 
   const tier = skuTier ?? "free";
@@ -407,8 +419,10 @@ export function ManagerPaymentSetupPanel({
 
   // Plain words, never a pill (AGENTS.md § No subtext): "Ready" once payouts
   // can actually go out, "Set up" for every other state — incomplete, unknown
-  // or never linked all lead to the same door.
-  const payoutsRowState = stripeState === "ready" ? "Ready" : "Set up";
+  // or never linked all lead to the same door. Reads the one payouts-ready
+  // field the status response carries (`stripe-payouts-readiness.server.ts`),
+  // not `stripeState` (a different, charges-acceptance question).
+  const payoutsRowState = payoutsReady ? "Ready" : "Set up";
 
   /* PropLane pays is always offered: the option itself is the door to the code
      field, and the code — not a grant on the account — is what applies it. */

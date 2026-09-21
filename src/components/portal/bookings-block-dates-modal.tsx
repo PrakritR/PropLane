@@ -10,6 +10,7 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { RadixSegmentedTabs } from "@/components/ui/radix-segmented-tabs";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   ChannelCalendarLinkFields,
   type ChannelCalendarLinkActions,
@@ -43,7 +44,14 @@ export type BlockDatesDraft = {
   /** Who the room is held for; "" when the block is just closing the room. */
   residentName: string;
   residentEmail: string;
+  /** E.164, or "" — at least one of email/phone is required for a new resident. Optional so an older caller's draft shape still compiles. */
+  residentPhone?: string;
+  /** True only for a person typed into "+ New resident" this save — never an existing pick. Optional so an older caller's draft shape still compiles. */
+  isNewResident?: boolean;
 };
+
+/** What `onSave` reports back — surfaced in the sheet as a plain result line, never a toast-only aside. */
+export type BlockDatesSaveResult = { message?: string } | void;
 
 function applyEditingBlock(
   entry: PropertyBookingEntry | null | undefined,
@@ -54,6 +62,7 @@ function applyEditingBlock(
   setReason: (value: string) => void,
   setResidentChoice: (value: string) => void,
   setNewResidentName: (value: string) => void,
+  setNewResidentPhone: (value: string) => void,
   setEditingBlockId: (id: string | null) => void,
   residentOptions: readonly BlockDatesResidentOption[],
 ) {
@@ -73,12 +82,15 @@ function applyEditingBlock(
   if (match) {
     setResidentChoice(match.key);
     setNewResidentName("");
+    setNewResidentPhone("");
   } else if (entry.residentName) {
     setResidentChoice(NEW_RESIDENT_CHOICE);
     setNewResidentName(entry.residentName);
+    setNewResidentPhone(entry.residentPhone ?? "");
   } else {
     setResidentChoice("");
     setNewResidentName("");
+    setNewResidentPhone("");
   }
 }
 
@@ -116,7 +128,7 @@ export function BookingsBlockDatesModal({
   entries: readonly PropertyBookingEntry[];
   /** People the room can be held for. Empty is fine — "New resident" still works. */
   residentOptions?: readonly BlockDatesResidentOption[];
-  onSave: (draft: BlockDatesDraft) => Promise<void>;
+  onSave: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   onDeleteBlock?: (blockId: string) => Promise<void>;
   propertyIds?: string[];
   showToast?: (message: string) => void;
@@ -137,9 +149,12 @@ export function BookingsBlockDatesModal({
   const [residentChoice, setResidentChoice] = useState("");
   const [newResidentName, setNewResidentName] = useState("");
   const [newResidentEmail, setNewResidentEmail] = useState("");
+  const [newResidentPhone, setNewResidentPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  /** Set after a NEW resident is saved — keeps the sheet open on a confirmation line instead of closing blind. */
+  const [inviteResult, setInviteResult] = useState<string | null>(null);
 
   const [airbnbFooter, setAirbnbFooter] = useState<ChannelCalendarLinkFooterState>({
     canSave: false,
@@ -161,8 +176,10 @@ export function BookingsBlockDatesModal({
     setResidentChoice("");
     setNewResidentName("");
     setNewResidentEmail("");
+    setNewResidentPhone("");
     setError(null);
     setBusy(false);
+    setInviteResult(null);
     applyEditingBlock(
       editingBlock,
       setPropertyId,
@@ -172,6 +189,7 @@ export function BookingsBlockDatesModal({
       setReason,
       setResidentChoice,
       setNewResidentName,
+      setNewResidentPhone,
       setEditingBlockId,
       residentOptions,
     );
@@ -208,7 +226,10 @@ export function BookingsBlockDatesModal({
     () => (residentChoice && !isNewResident ? residentOptions.find((option) => option.key === residentChoice) ?? null : null),
     [residentChoice, isNewResident, residentOptions],
   );
-  const residentValid = !isNewResident || newResidentName.trim().length > 0;
+  // A new resident needs a name plus at least one way to reach them — email,
+  // phone, or both — so the invite that skips application/lease has somewhere to go.
+  const residentValid =
+    !isNewResident || (newResidentName.trim().length > 0 && (newResidentEmail.trim().length > 0 || newResidentPhone.trim().length > 0));
 
   const canSave = Boolean(propertyId) && rangeValid && conflicts.length === 0 && residentValid && !busy;
 
@@ -221,13 +242,18 @@ export function BookingsBlockDatesModal({
     if (!canSave) return;
     setBusy(true);
     setError(null);
+    setInviteResult(null);
     try {
       const resident = isNewResident
-        ? { residentName: newResidentName.trim(), residentEmail: newResidentEmail.trim().toLowerCase() }
+        ? {
+            residentName: newResidentName.trim(),
+            residentEmail: newResidentEmail.trim().toLowerCase(),
+            residentPhone: newResidentPhone.trim(),
+          }
         : pickedResident
-          ? { residentName: pickedResident.name, residentEmail: pickedResident.email }
-          : { residentName: "", residentEmail: "" };
-      await onSave({
+          ? { residentName: pickedResident.name, residentEmail: pickedResident.email, residentPhone: "" }
+          : { residentName: "", residentEmail: "", residentPhone: "" };
+      const result = await onSave({
         ...(editingBlockId ? { id: editingBlockId } : {}),
         propertyId,
         roomId,
@@ -235,8 +261,18 @@ export function BookingsBlockDatesModal({
         checkOut,
         reason,
         ...resident,
+        // Editing an existing block never re-invites — only a fresh "+ New
+        // resident" save on a brand-new hold does.
+        isNewResident: isNewResident && !editingBlockId,
       });
-      onClose();
+      // A brand-new resident gets a confirmation line (did the invite go by
+      // text or email?) instead of the sheet vanishing on them — everyone
+      // else (no one / an existing pick / an edit) closes as before.
+      if (isNewResident && result?.message) {
+        setInviteResult(result.message);
+      } else {
+        onClose();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn’t save booking. House and move-in are required.");
     } finally {
@@ -262,13 +298,15 @@ export function BookingsBlockDatesModal({
               loading: airbnbFooter.busy,
               dataAttr: "channel-calendar-save-link",
             }
-          : {
-              label: busy ? "Saving…" : "Add booking",
-              onClick: () => save(),
-              disabled: !canSave,
-              loading: busy,
-              dataAttr: "bookings-block-dates-save",
-            }
+          : inviteResult
+            ? { label: "Done", onClick: () => onClose(), dataAttr: "bookings-block-dates-done" }
+            : {
+                label: busy ? "Saving…" : "Add booking",
+                onClick: () => save(),
+                disabled: !canSave,
+                loading: busy,
+                dataAttr: "bookings-block-dates-save",
+              }
       }
       secondaryAction={
         pane === "airbnb"
@@ -340,6 +378,7 @@ export function BookingsBlockDatesModal({
                           setReason,
                           setResidentChoice,
                           setNewResidentName,
+                          setNewResidentPhone,
                           setEditingBlockId,
                           residentOptions,
                         )
@@ -422,6 +461,14 @@ export function BookingsBlockDatesModal({
                   disabled={busy}
                   aria-label="New resident email"
                   data-attr="bookings-block-resident-email"
+                />
+                <PhoneNumberField
+                  id="bookings-block-resident-phone"
+                  value={newResidentPhone}
+                  onChange={setNewResidentPhone}
+                  disabled={busy}
+                  placeholder="Phone"
+                  dataAttr="bookings-block-resident-phone"
                 />
               </div>
             ) : (
@@ -508,6 +555,11 @@ export function BookingsBlockDatesModal({
           {error ? (
             <p role="alert" className="rounded-lg border px-3 py-2 text-sm portal-banner-danger">
               {error}
+            </p>
+          ) : null}
+          {inviteResult ? (
+            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground" data-attr="bookings-invite-result">
+              {inviteResult}
             </p>
           ) : null}
         </div>

@@ -3,7 +3,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { emptyPayoutSnapshot, readPayoutSnapshot } from "@/lib/stripe-payouts.server";
+import { emptyPayoutSnapshot, readPayoutSnapshot, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
 
@@ -40,10 +40,9 @@ export async function GET() {
       if (isStripeConnectAccountAccessError(msg)) {
         return NextResponse.json({ ...emptyPayoutSnapshot(), needsRelink: true });
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("vendor/payouts/balance GET", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("vendor/payouts/balance GET", e);
   }
 }

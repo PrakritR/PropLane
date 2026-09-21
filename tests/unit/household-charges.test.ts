@@ -158,6 +158,8 @@ describe("syncHouseholdChargesFromServer", () => {
         }),
       },
       dispatchEvent: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
 
     let resolveFirst: (value: { ok: true; json: () => Promise<{ charges: HouseholdCharge[]; rentProfiles: [] }> }) => void;
@@ -269,6 +271,8 @@ describe("syncHouseholdChargesFromServer", () => {
         }),
       },
       dispatchEvent: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
 
     const fetchMock = vi.fn((_url: string, init?: { method?: string }) => {

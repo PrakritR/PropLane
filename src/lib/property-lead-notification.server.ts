@@ -10,19 +10,21 @@ import {
   resolvePropertyLeadRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 type Db = ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceRoleClient>;
 
-async function deliverEmail(to: string[], subject: string, text: string): Promise<void> {
+async function deliverEmail(to: string[], subject: string, text: string, actorUserId: string): Promise<void> {
   const recipients = to.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
   if (recipients.length === 0) return;
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return;
   const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: recipients, subject, text }),
+  await postResendEmail({
+    apiKey,
+    actorUserId,
+    payload: { from, to: recipients, subject, text },
+    effectSummary: "Property lead notification email captured for the test workspace.",
   }).catch(() => undefined);
 }
 
@@ -90,6 +92,7 @@ export async function notifyManagerPropertyLeadMessage(input: {
     recipients.map((recipient) => recipient.email),
     subject,
     text,
+    input.managerUserId,
   );
   for (const recipient of recipients) {
     await upsertManagerInbox(db, recipient.userId, {

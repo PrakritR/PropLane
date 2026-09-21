@@ -3,6 +3,8 @@ import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 /**
  * Back-compat re-export for the server-side callers that already import it from here.
@@ -24,8 +26,31 @@ export async function sendSms(
   to: string,
   body: string,
   fromNumber: string,
-  opts?: { skipOptOutCheck?: boolean; mediaUrls?: string[]; creditReservationKey?: string; purpose?: "phone_verification" },
+  opts?: {
+    skipOptOutCheck?: boolean;
+    mediaUrls?: string[];
+    creditReservationKey?: string;
+    purpose?: "phone_verification";
+    /** Trusted actor identity for delayed/provider calls outside SMS ALS. */
+    actorUserId?: string;
+  },
 ): Promise<{ sent: boolean; sid?: string; error?: string; providerAttempted?: boolean }> {
+  if (captureSmsTestDelivery({
+    kind: "sms",
+    summary: "Twilio SMS delivery captured in the test conversation.",
+    status: "captured",
+    metadata: { transport: "twilio_raw" },
+  })) {
+    return { sent: true, sid: "in_app_test" };
+  }
+  if (opts?.actorUserId && (await captureTestWorkspaceEffectForUser({
+    userId: opts.actorUserId,
+    kind: "sms",
+    summary: "Twilio SMS delivery captured in the test workspace.",
+    metadata: { transport: "twilio_raw" },
+  })).captured) {
+    return { sent: true, sid: "test_workspace_captured" };
+  }
   const client = createTwilioRestClient();
   if (!client) return { sent: false, providerAttempted: false };
 

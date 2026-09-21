@@ -2,6 +2,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
+  isBookingResidencyRow,
   readManagerApplicationRows,
   replaceManagerApplicationRowInCache,
   upsertApplicationRowToServer,
@@ -132,9 +133,19 @@ export function applicationStageDisplayLabel(row: Pick<DemoApplicantRow, "bucket
  * awaiting review — the resident pulled out — so it is excluded here to keep it
  * off the manager's actionable "needs attention" surfaces (nav badge, dashboard).
  * It stays visible in the Applications tab, labelled Withdrawn.
+ *
+ * A booking-residency plumbing row (`isBookingResidencyRow`,
+ * src/lib/booking-resident-invite.server.ts) is excluded for the same reason:
+ * it also keeps `bucket === "pending"` but was never a submitted application,
+ * so it must never inflate the "needs attention" nav badge or dashboard count.
  */
 export function isSubmittedPendingApplicationRow(row: DemoApplicantRow): boolean {
-  return row.bucket === "pending" && !isInProgressApplicationRow(row) && !isWithdrawnApplicationRow(row);
+  return (
+    row.bucket === "pending" &&
+    !isInProgressApplicationRow(row) &&
+    !isWithdrawnApplicationRow(row) &&
+    !isBookingResidencyRow(row)
+  );
 }
 
 /**

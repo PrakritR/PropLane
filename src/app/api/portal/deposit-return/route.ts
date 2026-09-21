@@ -7,6 +7,7 @@ import {
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,13 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
 
+    const db = createSupabaseServiceRoleClient();
+    // Deposits are real provider-backed funds. A durable test identity never
+    // reaches charge/ledger reads or Stripe, regardless of workspace state.
+    if ((await resolveTestWorkspaceClassification(user.id, db)).kind !== "normal") {
+      return NextResponse.json({ error: "This action is unavailable." }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const chargeId = typeof body.chargeId === "string" ? body.chargeId.trim() : "";
     if (!chargeId) return NextResponse.json({ error: "chargeId is required." }, { status: 400 });
@@ -47,7 +55,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "amountCents must be a number." }, { status: 400 });
     }
 
-    const db = createSupabaseServiceRoleClient();
     const { data: row } = await db
       .from("portal_household_charge_records")
       .select("id, manager_user_id, status, row_data")

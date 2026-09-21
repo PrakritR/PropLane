@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getManagerServiceFeePayerByManagerId } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,9 @@ export async function GET() {
     }
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Payment access is unavailable for this account." }, { status: 403 });
+    }
     const { data: profile } = await db
       .from("profiles")
       .select("manager_id")

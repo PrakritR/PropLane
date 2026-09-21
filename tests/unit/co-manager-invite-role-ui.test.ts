@@ -8,30 +8,34 @@ const src = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
 describe("invite Role dropdown", () => {
   it("replaces All view / edit / manage pills with a Role field", () => {
-    const panel = src("src/components/portal/pro-account-links-panel.tsx");
-    expect(panel).toContain('label="Role"');
+    const fields = src("src/components/portal/workspace-permissions-fields.tsx");
+    expect(fields).toContain('label="Role"');
     // Admin is offered; the legacy Full access stamp is not.
-    expect(panel).toContain("TEAM_ROLE_INVITE_OPTIONS");
-    expect(panel).not.toContain('label: "All view"');
-    expect(panel).not.toContain('label: "All edit"');
-    expect(panel).not.toContain('label: "All manage"');
-    // Editing an existing member: Role comes before the houses picker.
-    const roleIdx = panel.indexOf("<CoManagerRoleSelect value={draft.teamRole}");
-    const propertiesIdx = panel.indexOf('dataAttr="team-member-houses"');
+    expect(fields).toContain("TEAM_ROLE_INVITE_OPTIONS");
+    expect(fields).not.toContain('label: "All view"');
+    expect(fields).not.toContain('label: "All edit"');
+    expect(fields).not.toContain('label: "All manage"');
+    // WorkspacePermissionsFields renders Role before the houses picker.
+    const roleIdx = fields.indexOf("<CoManagerRoleSelect value={role}");
+    const housesIdx = fields.indexOf("<CheckboxMultiSelect");
     expect(roleIdx).toBeGreaterThan(-1);
-    expect(propertiesIdx).toBeGreaterThan(roleIdx);
+    expect(housesIdx).toBeGreaterThan(roleIdx);
 
-    // Sending a new invite: the sheet renders the SAME shared Role and
-    // Houses selects the member "Edit permissions" sheet uses (so the role
-    // set can never drift between the two), Role before Houses, with no
-    // separate pills.
+    // Editing an existing member: the shared fields component renders Role
+    // before the houses picker, with no separate pills.
+    const panel = src("src/components/portal/pro-account-links-panel.tsx");
+    const panelFieldsIdx = panel.indexOf("<WorkspacePermissionsFields");
+    const panelPropertiesIdx = panel.indexOf('dataAttr="team-member-houses"');
+    expect(panelFieldsIdx).toBeGreaterThan(-1);
+    expect(panelPropertiesIdx).toBeGreaterThan(panelFieldsIdx);
+
+    // Sending a new invite: the sheet renders the same shared fields
+    // component before its houses picker, with no separate pills.
     const sheet = src("src/components/portal/workspace-invite-sheet.tsx");
-    expect(sheet).toContain("CoManagerRoleSelect");
-    expect(sheet).toContain("HouseScopeSelect");
-    const sheetRoleIdx = sheet.indexOf("<CoManagerRoleSelect");
-    const sheetHousesIdx = sheet.indexOf("<HouseScopeSelect");
-    expect(sheetRoleIdx).toBeGreaterThan(-1);
-    expect(sheetHousesIdx).toBeGreaterThan(sheetRoleIdx);
+    const sheetFieldsIdx = sheet.indexOf("<WorkspacePermissionsFields");
+    const sheetHousesIdx = sheet.indexOf('selectedHousesDataAttr="workspace-invite-selected-houses"');
+    expect(sheetFieldsIdx).toBeGreaterThan(-1);
+    expect(sheetHousesIdx).toBeGreaterThan(sheetFieldsIdx);
   });
 
   it("shows the stamped role on team rows and the accept screen", () => {

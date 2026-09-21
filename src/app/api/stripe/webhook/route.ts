@@ -16,7 +16,10 @@ import {
   reconcileManagerPurchaseByStripeSubscriptionId,
   reconcileManagerPurchaseWithStripe,
 } from "@/lib/manager-stripe-subscription-sync";
-import { recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
+import {
+  recordPaidManagerCheckoutSession,
+  resolveManagerCheckoutPurchase,
+} from "@/lib/manager-purchase-from-session";
 import { recordAutoExpense } from "@/lib/reports/auto-expense";
 import {
   inferPaidTierFromStripePriceId,
@@ -45,6 +48,7 @@ import {
   handleAutopayPaymentIntentFailed,
   handleAutopayPaymentIntentSucceeded,
   handleConnectPayoutEvent,
+  handleExternalAccountEvent,
   handlePaymentIntentFailed,
   handleStripeAccountUpdated,
   handleStripeDisputeEvent,
@@ -52,8 +56,54 @@ import {
   handleStripeTransferCreated,
   handleStripeTransferReversed,
 } from "@/lib/stripe-webhook-financials";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 export const runtime = "nodejs";
+
+async function refuseWebhookOwner(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+  operation: string,
+): Promise<boolean> {
+  return (await captureTestWorkspaceEffectForUser({
+    userId,
+    kind: "payment",
+    summary: "Stripe webhook mutation was refused for a test workspace.",
+    metadata: { operation },
+    db,
+  })).captured;
+}
+
+async function checkoutOwner(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  session: Stripe.Checkout.Session,
+): Promise<string | null> {
+  const purpose = session.metadata?.purpose;
+  let owner = "";
+  if (purpose === "rental_application_fee") {
+    const propertyId = session.metadata?.property_id?.trim() ?? "";
+    const { data, error } = await db.from("manager_property_records").select("manager_user_id").eq("id", propertyId).maybeSingle();
+    if (error) throw new Error("Could not resolve checkout ownership.");
+    owner = String(data?.manager_user_id ?? "").trim();
+  } else if (purpose === "household_charge") {
+    const chargeId = session.metadata?.charge_ids?.split(",")[0]?.trim() || session.metadata?.charge_id?.trim() || "";
+    const { data, error } = await db.from("portal_household_charge_records").select("manager_user_id").eq("id", chargeId).maybeSingle();
+    if (error) throw new Error("Could not resolve checkout ownership.");
+    owner = String(data?.manager_user_id ?? "").trim();
+  } else if (purpose === SCREENING_CHECKOUT_PURPOSE) {
+    const applicationId = session.metadata?.application_id?.trim() ?? "";
+    const { data, error } = await db.from("manager_application_records").select("manager_user_id").eq("id", applicationId).maybeSingle();
+    if (error) throw new Error("Could not resolve checkout ownership.");
+    owner = String(data?.manager_user_id ?? "").trim();
+  } else {
+    const purchase = await resolveManagerCheckoutPurchase(db, session);
+    owner = purchase.userId ?? "";
+    if (!purchase.userId) return null;
+  }
+  const claimed = session.metadata?.manager_user_id?.trim() || session.metadata?.userId?.trim() || "";
+  if (!owner || (claimed && claimed !== owner)) throw new Error("Could not resolve checkout ownership.");
+  return owner;
+}
 
 function logCheckoutCompleted(session: Stripe.Checkout.Session) {
   const customer = session.customer;
@@ -182,12 +232,22 @@ export async function POST(req: Request) {
       const account = event.data.object as Stripe.Account;
       await handleStripeAccountUpdated(db, account).catch((e) => {
         console.error("[stripe webhook] account.updated", e);
+        throw e;
       });
     }
 
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object as Stripe.Checkout.Session;
       logCheckoutCompleted(session);
+      if (
+        session.metadata?.purpose !== COMMS_CREDIT_PURPOSE &&
+        !(session.mode === "setup" && session.metadata?.purpose === "manager_card_setup")
+      ) {
+        const owner = await checkoutOwner(db, session);
+        if (owner && await refuseWebhookOwner(db, owner, "checkout_completion")) {
+          return NextResponse.json({ received: true }, { status: 200 });
+        }
+      }
       if (session.metadata?.purpose === COMMS_CREDIT_PURPOSE) {
         await runCommsCreditStep("comms credit fulfillment", async () => {
           try {
@@ -261,6 +321,7 @@ export async function POST(req: Request) {
           }
         } catch (e) {
           console.error("[stripe webhook] recordPaidManagerCheckoutSession", e);
+          throw e;
         }
       }
     }
@@ -279,6 +340,17 @@ export async function POST(req: Request) {
       const inv = event.data.object as Stripe.Invoice;
       const subId = stripeInvoiceSubscriptionId(inv);
       if (subId) {
+        const { data: invoicePurchase, error: invoiceOwnerError } = await db
+          .from("manager_purchases")
+          .select("user_id")
+          .eq("stripe_subscription_id", subId)
+          .maybeSingle();
+        if (invoiceOwnerError) throw new Error("Could not resolve invoice ownership.");
+        const invoiceOwner = String(invoicePurchase?.user_id ?? "").trim();
+        if (!invoiceOwner) throw new Error("Could not resolve invoice ownership.");
+        if (await refuseWebhookOwner(db, invoiceOwner, "invoice_paid")) {
+          return NextResponse.json({ received: true }, { status: 200 });
+        }
         try {
           await applyScheduledDowngradeAfterInvoicePaid(subId, inv.billing_reason ?? null);
         } catch (e) {
@@ -314,6 +386,10 @@ export async function POST(req: Request) {
         .eq("stripe_subscription_id", sub.id)
         .maybeSingle();
       const smsManagerId = String(smsPurchase?.user_id ?? "").trim();
+      if (!smsManagerId) throw new Error("Could not resolve subscription ownership.");
+      if (await refuseWebhookOwner(db, smsManagerId, "subscription_event")) {
+        return NextResponse.json({ received: true }, { status: 200 });
+      }
       try {
         if (event.type === "customer.subscription.deleted") {
           await db
@@ -336,15 +412,27 @@ export async function POST(req: Request) {
       }
     }
 
+    if (
+      event.type === "account.external_account.created" ||
+      event.type === "account.external_account.updated" ||
+      event.type === "account.external_account.deleted"
+    ) {
+      await handleExternalAccountEvent(stripe, db, event.account).catch((e) => {
+        console.error("[stripe webhook] account.external_account event", e);
+      });
+    }
+
     if (event.type === "transfer.created") {
       await handleStripeTransferCreated(db, event.data.object as Stripe.Transfer).catch((e) => {
         console.error("[stripe webhook] transfer.created", e);
+        throw e;
       });
     }
 
     if (event.type === "transfer.reversed") {
       await handleStripeTransferReversed(db, event.data.object as Stripe.Transfer).catch((e) => {
         console.error("[stripe webhook] transfer.reversed", e);
+        throw e;
       });
     }
 
@@ -357,6 +445,7 @@ export async function POST(req: Request) {
     ) {
       await handleConnectPayoutEvent(db, event.data.object as Stripe.Payout, event.account, stripe).catch((e) => {
         console.error("[stripe webhook] payout event", e);
+        throw e;
       });
     }
 
@@ -370,6 +459,7 @@ export async function POST(req: Request) {
         if (refund.status === "succeeded" || refund.status === "pending") {
           await handleStripeRefund(db, refund, charge.id).catch((e) => {
             console.error("[stripe webhook] charge.refunded", e);
+            throw e;
           });
         }
       }
@@ -395,6 +485,7 @@ export async function POST(req: Request) {
           }
           await handleStripeRefund(db, refund, chargeId).catch((e) => {
             console.error("[stripe webhook] refund event", e);
+            throw e;
           });
         }
       }
@@ -405,7 +496,19 @@ export async function POST(req: Request) {
       const disputedCharge = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
       const disputedPaymentIntent =
         typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-      if (disputedCharge && dispute.status !== "won" && dispute.status !== "warning_closed") {
+      // Resolve the durable ordinary ledger owner first. A rent/application
+      // dispute is complete once that handler records (or deliberately
+      // captures) it and must not enter the communication-credit retry path.
+      const ordinaryPaymentHandled = await handleStripeDisputeEvent(db, dispute).catch((e) => {
+        console.error("[stripe webhook] dispute event", e);
+        throw e;
+      });
+      if (
+        !ordinaryPaymentHandled &&
+        disputedCharge &&
+        dispute.status !== "won" &&
+        dispute.status !== "warning_closed"
+      ) {
         await runCommsCreditStep("dispute event comms credit", () =>
           reverseCommsCreditForPaymentIntent(db, disputedPaymentIntent, event.id, {
             dispute: true,
@@ -413,15 +516,13 @@ export async function POST(req: Request) {
           }),
         );
       }
-      await handleStripeDisputeEvent(db, event.data.object as Stripe.Dispute).catch((e) => {
-        console.error("[stripe webhook] dispute event", e);
-      });
     }
 
     if (event.type === "payment_intent.payment_failed") {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       await handlePaymentIntentFailed(db, paymentIntent).catch((e) => {
         console.error("[stripe webhook] payment_intent.payment_failed", e);
+        throw e;
       });
       // Additive: an autopay off-session PaymentIntent (metadata.autopay_run_id)
       // also updates its own run row and sends the resident the decline notice.

@@ -83,7 +83,8 @@ describe("loadWorkspacePlan add-on capacity", () => {
     expect(plan).toMatchObject({
       tier: "business",
       unknown: false,
-      workspaceLimit: 5,
+      // Business includes 2 workspaces (PLAN-0920) + the 2 held by the add-on.
+      workspaceLimit: 4,
       propertyLimit: 23,
       recordsPerWorkspace: 10,
       teamLimit: 24,
@@ -97,10 +98,31 @@ describe("loadWorkspacePlan add-on capacity", () => {
     expect(plan).toMatchObject({
       tier: "business",
       unknown: false,
-      workspaceLimit: 3,
+      workspaceLimit: 2,
       propertyLimit: 20,
       teamLimit: 20,
     });
+  });
+
+  it("grandfathers an existing Business account already holding 3 workspaces (2 owned + 1 more) rather than stranding it below the new 2-workspace cap", async () => {
+    const threeOwnedWorkspaces = [
+      ...workspaces,
+      {
+        id: "third",
+        name: "Third team",
+        ownerUserId: OWNER,
+        owned: true,
+        isDefault: false,
+        propertyIds: ["house-5"],
+        propertyPermissions: {},
+      },
+    ];
+
+    const plan = await loadWorkspacePlan(dbFor() as never, OWNER, threeOwnedWorkspaces);
+
+    // 3 owned workspaces exceeds the new 2-workspace plan cap; the account keeps all 3.
+    expect(plan.workspaceLimit).toBe(3);
+    expect(plan.usage.workspaces).toBe(3);
   });
 
   it.each([

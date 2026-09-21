@@ -6,12 +6,12 @@ import { ManagerLeases } from "@/components/portal/pro-leases";
 import { ManagerPayments } from "@/components/portal/pro-payments";
 import { ManagerPromotion } from "@/components/portal/pro-promotion";
 import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
-import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
 import { AdminBillingClient } from "@/components/portal/admin-billing-client";
+import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminEventsClient } from "@/components/portal/admin-events-client";
 import { AdminProfileSection } from "@/components/portal/admin-profile-section";
@@ -73,6 +73,10 @@ import { legacyManagerPortalSectionPath, parseApplicationDetailTab, parseResiden
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
 import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
+import {
+  isTestWorkspaceFeatureEnabled,
+  requireTrustedTestWorkspaceOperator,
+} from "@/lib/test-workspaces/index.server";
 
 const LEGACY_FINANCIALS_TAB_MAP: Record<string, string> = {
   "rent-roll": "income",
@@ -359,7 +363,7 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "payments") {
-    redirect(`${def.basePath}/financials/payouts`);
+    redirect(`${def.basePath}/financials/income`);
   }
 
   if (kind === "vendor" && section === "tasks") {
@@ -467,6 +471,18 @@ export async function renderPortalSection(
     return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
   }
 
+  // Settings (account entry) sits as its own trailing sidebar group for
+  // resident and vendor too, same as pro/manager — see `nav-groups.ts`'s
+  // "settings" group. The top-right account menu keeps its own duplicate link.
+  if (kind === "resident" && section === "profile") {
+    if (tabParts?.length) notFound();
+    return <ResidentProfileSection />;
+  }
+  if (kind === "vendor" && section === "profile") {
+    if (tabParts?.length) notFound();
+    return <VendorSettingsPanel />;
+  }
+
   const meta = findSection(def, section);
   if (!meta) notFound();
 
@@ -520,6 +536,13 @@ export async function renderPortalSection(
   if (kind === "admin" && section === "billing") {
     if (tabParts?.length) notFound();
     return <AdminBillingClient />;
+  }
+
+  if (kind === "admin" && section === "test-accounts") {
+    if (tabParts?.length) notFound();
+    if (!isTestWorkspaceFeatureEnabled()) notFound();
+    await requireTrustedTestWorkspaceOperator().catch(() => notFound());
+    return <AdminTestWorkspacesClient />;
   }
 
   if (kind === "admin" && section === "leases") {
@@ -927,13 +950,11 @@ export async function renderPortalSection(
     }
 
     if (section === "payments") {
+      // Payouts is one page now, mounted at Settings → Payouts
+      // (`portal-payouts-settings-page.tsx`) — this legacy path is a door to
+      // it, never its own render (PLAN-0920-1500).
       if (tabParts?.length === 1 && tabParts[0] === "payouts") {
-        return subscriptionGated(
-          <PortalPayoutsPanel portal="manager" />,
-          kind,
-          "payments",
-          managerOwnerSubscriptionTier,
-        );
+        redirect(`${def.basePath}/settings/payouts`);
       }
 
       const PAYMENT_DIRECTIONS = ["incoming", "outgoing"] as const;
@@ -1331,11 +1352,6 @@ export async function renderPortalSection(
     return <ResidentTourPanel basePath={def.basePath} inquiryId={legacyInquiryId} />;
   }
 
-  if (kind === "resident" && section === "profile") {
-    if (tabParts?.length) notFound();
-    return <ResidentProfileSection />;
-  }
-
   if (kind === "resident" && section === "payments") {
     const PAY_BUCKETS = ["pending", "overdue", "paid"] as const;
     if (!tabParts?.length) {
@@ -1623,7 +1639,7 @@ export async function renderPortalSection(
     } = await import("@/lib/portal-detail-routes");
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0];
-    if (raw === "tasks" || raw === "tours") {
+    if (raw === "tasks" || raw === "tours" || raw === "all" || raw === "services") {
       redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
     }
     if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
@@ -1695,6 +1711,13 @@ export async function renderPortalSection(
       // (PLAN-0920-1058, area 1c).
       if (tabParts.length > 3) notFound();
       if (tabParts.length === 1) {
+        // Payouts is one page now, mounted at Settings → Payouts (vendor twin
+        // of the manager redirect above) — the bare Finances tab is a door to
+        // it, never its own render (PLAN-0920-1500). A payout record below
+        // still renders here.
+        if (finTab === "payouts") {
+          redirect(`${def.basePath}/profile?tab=payouts`);
+        }
         return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
       }
       if (tabParts.length === 2 && tabParts[1] === "pending") {
@@ -1743,19 +1766,15 @@ export async function renderPortalSection(
       notFound();
     }
     const documentsTab = tabParts[0]!;
-    // The three category tabs collapsed into one "Mine" list. A vendor's
+    // The category and former source tabs collapsed into one source-filtered list. A vendor's
     // bookmark, or a manager's emailed link, must still land somewhere.
-    if (documentsTab === "tax" || documentsTab === "insurance" || documentsTab === "licensing") {
-      redirect(`${def.basePath}/${section}/mine`);
+    if (["tax", "insurance", "licensing", "mine", "shared"].includes(documentsTab)) {
+      redirect(`${def.basePath}/${section}/all`);
     }
     if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
     return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
   }
 
-  if (kind === "vendor" && section === "profile") {
-    if (tabParts?.length) notFound();
-    return <VendorSettingsPanel />;
-  }
 
   if (!meta.tabs.length) {
     if (tabParts?.length) notFound();

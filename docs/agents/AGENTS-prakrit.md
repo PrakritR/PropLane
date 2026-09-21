@@ -62,6 +62,27 @@ commenting on existing issues stays fine, as does
 `npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>` when
 he points at an existing ticket.
 
+## Prior art check - every prompt, before the plan
+
+**Standing order (Sep 20, 2026): on every prompt that will change code or UI,
+look on GitHub first for open-source repos with more than 1,000 stars that do
+something similar to what is being built, and let what they do well shape the
+plan.** It is a simple check, not research: one or two searches, the top hits
+only, and a look at how each solved the same problem (data model, UX shape,
+edge cases, tests). It runs before the Lavish plan is written so the plan can
+borrow the pattern, and the plan names what was borrowed and from where.
+
+```bash
+gh-axi repo search "<what the prompt is about> in:name,description,readme" --stars ">1000" --limit 5
+```
+
+- Use `gh-axi` (or the GitHub search API); never clone into the repo.
+- Borrow ideas and shapes, never code you cannot license: PropLane ships under
+  its own terms, so copy a pattern, not a file, and note the source in the plan.
+- Skip only where the plan itself is skipped ("skip plan", a one-line answer,
+  read-only investigation, an urgent production fix).
+- No hits over 1,000 stars is a fine outcome; say so in one line and move on.
+
 ## Lavish poll - the chat only works if this is running
 
 The plan's chat, annotations, and queued prompts reach the agent through the
@@ -185,14 +206,32 @@ npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
 - Partial / parked: **Backlog**. Do not mark Done for a partial fix.
 - Do not move a peer/captain-verified Done issue back to Backlog.
 
-## Promote (Prakrit only)
+## Standing branches and captain integration
 
-Agents never run this. Prakrit does:
+Prakrit's standing instruction (2026-09-20): keep exactly these six agent
+branches active: `claude-1`, `claude-2`, `claude-3`, `cursor-1`, `cursor-2`,
+and `codex-1`. Keep `prakrit` open in its own captain worktree and terminal
+window. The worktree/port map lives in the local Firstmate
+`config/proplane-agent-branches`; do not make a new branch for each prompt.
+
+Keep completed, validated agent work merged into `prakrit`. This is standing
+authorization to integrate approved builds through the security-review and
+no-mistakes gates. Keep each standing branch after integration and fast-forward
+clean keepers from the resulting `prakrit` tip. Preserve dirty work; never reset
+or overwrite it to synchronize a lane. Stop on a non-fast-forward push.
+
+Before retiring an old branch, preserve its commits and uncommitted work,
+reconcile any unique changes, and verify its integration. Do not turn an
+unfinished working copy into a completed feature merely to clean up branches.
+
+The product plan/build approval gate still applies. This integration authority
+does not authorize `main`, `staging`, `production`, production data changes, or
+PR creation. Those retain their existing captain/release gates.
+
+Integrate completed keeper work:
 
 ```bash
 npm run ship:to-prakrit -- --source <keeper>
-npm run ship:staging
-npm run ship:production
 ```
 
 `ship:to-prakrit` runs security review + no-mistakes, then opens

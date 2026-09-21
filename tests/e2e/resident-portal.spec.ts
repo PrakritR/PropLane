@@ -1,24 +1,37 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
-import { mockStripeCheckoutRoutes } from "../helpers/auth";
+import { mockStripeCheckoutRoutes, signInAsResident } from "../helpers/auth";
 import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
-import { RESIDENT_PORTAL_SMOKE_PATHS } from "../../src/lib/portals/resident-sections";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
 test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
 
-const RESIDENT_SECTIONS = [
-  ...RESIDENT_PORTAL_SMOKE_PATHS,
-  { label: "Services", path: "/resident/services" },
+const PRE_LEASE_RESIDENT_SECTIONS = [
+  { label: "Dashboard", path: "/resident/dashboard" },
+  { label: "Tour", path: "/resident/tour" },
+  { label: "Applications", path: "/resident/applications" },
+  { label: "Lease", path: "/resident/lease" },
+  { label: "Payments", path: "/resident/payments" },
+  { label: "Inbox", path: "/resident/communication/active" },
+  { label: "Documents", path: "/resident/documents/application" },
 ] as const;
+
+async function expectSignedLeaseLock(page: import("@playwright/test").Page, label: string) {
+  await expect(page).toHaveURL(/\/resident\/dashboard\/?$/, { timeout: 15_000 });
+  await expect(
+    page.getByRole("link", {
+      name: new RegExp(`${label}: Available after your lease is signed`, "i"),
+    }),
+  ).toBeVisible();
+}
 
 test.describe("Resident portal", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
   test.beforeEach(async ({ page }) => {
     await mockStripeCheckoutRoutes(page);
-    await page.goto("/resident/dashboard", { waitUntil: "domcontentloaded" });
+    await signInAsResident(page);
   });
 
   test("dashboard loads", async ({ page }) => {
@@ -33,9 +46,9 @@ test.describe("Resident portal", () => {
     await expect(page.getByRole("heading").first()).toBeVisible();
   });
 
-  test("all resident sections load via direct navigation", async ({ page }) => {
+  test("all pre-lease resident sections load via direct navigation", async ({ page }) => {
     test.setTimeout(180_000);
-    for (const { path } of RESIDENT_SECTIONS) {
+    for (const { path } of PRE_LEASE_RESIDENT_SECTIONS) {
       try {
         await gotoAppPath(page, path);
       } catch (error) {
@@ -76,17 +89,14 @@ test.describe("Resident portal", () => {
     }
   });
 
-  test("services tab shows unified add-on and maintenance sections", async ({ page }) => {
+  test("services stays locked until the approved resident signs a lease", async ({ page }) => {
     await page.goto("/resident/services");
-    await expect(page.getByRole("heading").first()).toBeVisible();
-    await expect(page.getByText("Add-on services")).toBeVisible();
-    await expect(page.getByText("Maintenance")).toBeVisible();
+    await expectSignedLeaseLock(page, "Services");
   });
 
-  test("legacy services sub-paths redirect to unified services", async ({ page }) => {
+  test("legacy services sub-paths preserve the signed-lease stage guard", async ({ page }) => {
     await page.goto("/resident/services/requests");
-    await expect(page).toHaveURL(/\/resident\/services\/?$/, { timeout: 15_000 });
-    await expect(page.getByText("Add-on services")).toBeVisible();
+    await expectSignedLeaseLock(page, "Services");
   });
 
   test("documents receipts tab loads", async ({ page }) => {
@@ -100,8 +110,8 @@ test.describe("Resident portal", () => {
     await expect(page.getByRole("heading").first()).toBeVisible();
   });
 
-  test("move-in tab loads", async ({ page }) => {
+  test("my home stays locked until the approved resident signs a lease", async ({ page }) => {
     await page.goto("/resident/move-in");
-    await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
+    await expectSignedLeaseLock(page, "My home");
   });
 });

@@ -125,7 +125,7 @@ function makeDb() {
 
 async function loadLeases(): Promise<{ status: number; ids: string[] }> {
   const { GET } = await import("@/app/api/portal-lease-pipeline/route");
-  const res = await GET();
+  const res = await GET(new Request("http://localhost/api/portal-lease-pipeline"));
   if (res.status !== 200) return { status: res.status, ids: [] };
   const body = (await res.json()) as { rows: Array<{ id: string }> };
   return { status: res.status, ids: body.rows.map((row) => row.id) };

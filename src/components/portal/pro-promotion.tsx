@@ -7,8 +7,8 @@ import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/comp
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
+import { FilterFieldsAccordion } from "@/components/portal/filter-field-lists";
+import { PortalListPropertyField } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
@@ -112,14 +112,6 @@ import {
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
-import {
-  clusterRowsByProperty,
-  type PropertyCluster,
-} from "@/lib/resident-row-clustering";
-import {
-  DEFAULT_PORTAL_LIST_GROUP_MODE,
-  type PortalListGroupMode,
-} from "@/lib/portal-list-grouping";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 function promotionEntryId(asset: PromotionAsset): string | null {
@@ -195,7 +187,6 @@ export function ManagerPromotion({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [demoPromotionGeneratePending, setDemoPromotionGeneratePending] = useState(false);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listSearch, setListSearch] = useState("");
 
   useEffect(() => {
@@ -252,22 +243,12 @@ export function ManagerPromotion({
   );
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
-    `${propertyFilters.join(",")}:${groupMode}:${activeKind}:${listSearch}`,
+    `${propertyFilters.join(",")}:${activeKind}:${listSearch}`,
   );
   const selectedAssets = useMemo(
     () => visibleAssets.filter((asset) => selectedIds.has(asset.id)),
     [visibleAssets, selectedIds],
   );
-
-  const promotionPropertyClusters = useMemo((): PropertyCluster<PromotionAsset>[] => {
-    return clusterRowsByProperty(
-      visibleAssets.map((asset) => ({
-        ...asset,
-        propertyId: asset.row.propertyId,
-        propertyLabel: asset.propertyLabel,
-      })),
-    );
-  }, [visibleAssets]);
 
   const listings = useMemo<ManagerPromotionPropertyOption[]>(() => {
     void propertyTick;
@@ -892,24 +873,21 @@ export function ManagerPromotion({
       activeCount={portalFilterActiveCount([propertyFilters])}
       compactPanel
       commandStripTrigger
-      filterFieldCount={filterPropertyOptions.length > 1 ? 2 : 1}
+      filterFieldCount={1}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
-      onReset={() => {
-        setPropertyFilters([]);
-        setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
-      }}
+      onReset={() => setPropertyFilters([])}
       dataAttr="promotion-filter-sheet-open"
     >
-      <PortalListGroupFilterFields
-        groupMode={groupMode}
-        onGroupModeChange={setGroupMode}
-        propertyOptions={filterPropertyOptions}
-        propertyFilters={propertyFilters}
-        onPropertyFiltersChange={setPropertyFilters}
-        propertyDataAttr="promotion-filter-property"
-        groupModeDataAttr="promotion-filter-group-mode"
-      />
+      <FilterFieldsAccordion>
+        <PortalListPropertyField
+          propertyOptions={filterPropertyOptions}
+          propertyFilters={propertyFilters}
+          onPropertyFiltersChange={setPropertyFilters}
+          propertyAllLabel="All houses"
+          propertyDataAttr="promotion-filter-property"
+        />
+      </FilterFieldsAccordion>
     </PortalFilterSortSheet>
   );
 
@@ -1062,40 +1040,13 @@ export function ManagerPromotion({
           )
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
-            {groupMode === "house" ? (
-              <div className="space-y-3" data-attr="promotion-house-groups">
-                {promotionPropertyClusters.map((cluster) => (
-                  <ApplicationHouseholdCluster
-                    key={cluster.key}
-                    header={
-                      <>
-                        <span className="truncate text-xs font-semibold text-foreground">
-                          {cluster.propertyLabel}
-                        </span>
-                        <span className="sr-only">{cluster.rows.length === 1 ? "1 promotion" : `${cluster.rows.length} promotions`}</span>
-                      </>
-                    }
-                  >
-                    <PromotionAssetStack
-                      assets={cluster.rows}
-                      onView={openViewAsset}
-                      onEdit={openEditAsset}
-                      selectedIds={selectedIds}
-                      onToggleSelected={toggleSelected}
-                    />
-                  </ApplicationHouseholdCluster>
-                ))}
-              </div>
-            ) : (
-              <PromotionAssetStack
-                assets={visibleAssets}
-                variant="card"
-                onView={openViewAsset}
-                onEdit={openEditAsset}
-                selectedIds={selectedIds}
-                onToggleSelected={toggleSelected}
-              />
-            )}
+            <PromotionAssetStack
+              assets={visibleAssets}
+              onView={openViewAsset}
+              onEdit={openEditAsset}
+              selectedIds={selectedIds}
+              onToggleSelected={toggleSelected}
+            />
           </div>
         )}
       </div></PortalRecordListSurface>

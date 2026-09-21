@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
+import { AssistantSmsTestControl } from "@/components/portal/assistant-sms-test-control";
 import { AssistantChatHistoryPanel } from "@/components/portal/assistant-chat-history-panel";
 import {
   AssistantEmptyState,
@@ -13,6 +14,7 @@ import {
 import { AssistantPendingActionCard } from "@/components/portal/assistant-shared";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
 import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
+import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { cn } from "@/lib/utils";
 
 export type AssistantDockPanelProps = {
@@ -103,6 +105,7 @@ export function AssistantDockPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [historyPortal, setHistoryPortal] = useState<HTMLElement | null>(null);
+  const smsTestActive = usePortalAssistantConfig()?.smsTest?.active ?? false;
 
   const firstName = managerName?.trim().split(/\s+/)[0] || null;
   const visibleMessages = visibleConversationMessages(messages);
@@ -147,6 +150,8 @@ export function AssistantDockPanel({
         }}
       />
 
+      <AssistantSmsTestControl />
+
       <div ref={setHistoryPortal} className="relative flex min-h-0 flex-1 flex-col">
         {multiThread ? (
           <AssistantChatHistoryPanel
@@ -173,7 +178,11 @@ export function AssistantDockPanel({
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3"
       >
-        {!hasConversation ? (
+        {!hasConversation && smsTestActive ? (
+          <p className="m-auto max-w-sm rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-center text-xs leading-relaxed text-muted">
+            Send the same short replies you would text. Type YES or NO when the SMS assistant asks for confirmation.
+          </p>
+        ) : !hasConversation ? (
           <AssistantEmptyState
             firstName={firstName}
             hint={composerHint}
@@ -218,7 +227,8 @@ export function AssistantDockPanel({
           inputRef={inputRef}
           inputId={inputId}
           inputAriaLabel="Ask the PropLane Assistant about your portfolio"
-          placeholder="Ask about your portfolio…"
+          placeholder={smsTestActive ? "Type an SMS message…" : "Ask about your portfolio…"}
+          allowAttachments={!smsTestActive}
 
           onSend={() => void sendWithContext()}
         />

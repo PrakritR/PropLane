@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
-import { isCommsCreditPack } from "@/lib/comms-billing/credit-packs";
+import { isValidCommsCreditAmountCents } from "@/lib/comms-billing/credit-packs";
 import { loadCommsWallet } from "@/lib/comms-billing/wallet.server";
 import { createCommsCreditCheckout } from "@/lib/comms-billing/credit-purchase.server";
 import { rateLimit } from "@/lib/rate-limit";
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (
     !body ||
-    !isCommsCreditPack(body.creditCents) ||
+    !isValidCommsCreditAmountCents(body.creditCents) ||
     typeof body.purchaseId !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       body.purchaseId,
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     )
   ) {
     return NextResponse.json(
-      { error: "Choose an available credit amount." },
+      { error: "Enter a whole-dollar amount from $5 to $500." },
       { status: 400 },
     );
   }

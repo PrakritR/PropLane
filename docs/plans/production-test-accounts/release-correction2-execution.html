@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test workspace release correction 2 execution</title>
+<style>body{max-width:1120px;margin:36px auto;padding:0 24px;font:16px/1.5 system-ui;color:#182331}h1,h2{line-height:1.2}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #cbd3db;padding:9px;text-align:left;vertical-align:top}code,pre{background:#eef2f5}code{padding:.1rem .3rem}pre{padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.stop{background:#fff0e9;padding:16px}.ok{color:#126b37}.blocked{color:#9b241b}.note{background:#fff7df;padding:14px}li{margin:.4rem 0}</style></head><body>
+<h1>Test workspace release correction 2 execution</h1>
+<p class="stop"><strong>Status: source correction frozen for final independent review; release remains blocked.</strong> The listed source findings were addressed, but changed bytes have not been compiled, linted, tested, exercised in a browser, or probed against a database because the laptop remained at 99% disk usage with 3.8 GiB free and heavy work from another task was active. Existing baseline failures, calendar runtime proof, SQL runtime/apply gates, seeded browser QA, and the full release ladder remain open. No commit, push, PR, migration apply, staging action, production mutation, or deployment occurred.</p>
+
+<h2>Candidate and frozen artifacts</h2>
+<table>
+<tr><th>Worktree</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/7/AXIS-2</code></td></tr>
+<tr><th>Branch / HEAD</th><td><code>akhil/test-workspace-release-20260919</code> / <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code></td></tr>
+<tr><th>Correction 2 delta</th><td>60 source/test files: 46 additions to the prior union and 14 changed prior-union paths. <code>release-correction2-manifest.json</code>, SHA-256 <code>98ab01442efbfa9e5b7364a7b48f8ea0cb8fb386a8999dbf35c5c6c0d8c650eb</code>.</td></tr>
+<tr><th>Full source union</th><td>299 current source/test/SQL files. <code>release-correction2-source-union.json</code>, SHA-256 <code>e29702a15ec6ca4bdd1d2c05c995108921ac9feae20ae92642acc16aae7be53e</code>.</td></tr>
+<tr><th>Ninth migration</th><td>Unapplied and byte-preserved: <code>20260919123000_revoke_classified_test_workspace_direct_access.sql</code>, SHA-256 <code>52c4f59995d8812cbb504db4485aa18076fc53050904d0d1a814bfd5c82f8d80</code>. Earlier eight task migrations were not edited.</td></tr>
+<tr><th>Delegation</th><td>Terra owned the route/share closure. The retained Astra SQL reviewer was reused for the disjoint client cache/hydration/capability scope because the four-thread host limit prevented the planned Luna spawn. Sol integrated provider/financial work plus archive/type corrections. This is a visible model/host deviation from the preferred Terra/Luna split.</td></tr>
+</table>
+
+<h2>Finding disposition</h2>
+<table>
+<tr><th>Finding</th><th>Source disposition</th><th>Proof status</th></tr>
+<tr><td>C1 archive lifetime</td><td>Archive list, transcript, hydrate, select, delete, error and finally paths now capture a monotonic conversation generation. Endpoint/actor/workspace switches and new-chat generations reject stale mutations. Confirmation uses the shared transport response type including optional <code>smsTest</code>.</td><td class="blocked">Behavioral tests were not run. Existing and new race coverage remains unverified.</td></tr>
+<tr><td>C2 catalog scope</td><td>Catalog state is explicit <code>unresolved</code>, <code>normal</code>, <code>private</code>, or <code>denied</code>. Anonymous-to-authenticated and workspace changes synchronously invalidate the generation. Public fallback is available only after confirmed normal scope; private/denied/unresolved reads return no warmed public extras.</td><td class="blocked">New network/500/malformed/empty/ABA source tests were authored but not run.</td></tr>
+<tr><td>C3 resident hydration and capability</td><td>Resident own-property requests coalesce by actor/workspace/generation and never write the public extras cache. Services binds offers and filing scope to the current generation. SMS capability/target state is masked synchronously and refetched across actor/workspace/catalog changes.</td><td class="blocked">Rendered logout/login, workspace switch and capability race tests were authored but not run.</td></tr>
+<tr><td>C4 type mismatch</td><td>Confirmation JSON is typed as <code>AssistantTransportData</code>, whose contract includes optional <code>smsTest</code>.</td><td class="blocked">Pinned typecheck deferred.</td></tr>
+<tr><td>S1 provider creation</td><td>Pricing OAuth refuses every durable classified identity before provisioning. Shared manager checkout resolves an existing server-owned user from the supplied authenticated id or stored purchase/profile identity before price lookup and Stripe. New ordinary signups with no stored identity remain permitted.</td><td class="blocked">Provider-spy and normal signup tests deferred.</td></tr>
+<tr><td>S2 delayed finance/provider</td><td>Phone POST/PUT refuse all classified identities before throttle rows or Verify calls; GET/PATCH refuse revoked access. Deposit return refuses classified actors before charge/ledger reads. Subscription reads skip Stripe for active private scope and deny revoked scope. Subscription sync, manager purchase fulfillment, credit fulfillment/review/reversal, application/household/screening settlement, Connect/ledger financial events, and webhook dispatch resolve durable stored owners before provider or business mutation. Classified terminal events retain refusal evidence and acknowledge; ownership/evidence failures throw for retry.</td><td class="blocked">No provider-spy or signed delayed-webhook test ran. Fresh review must scrutinize retry/idempotency compatibility.</td></tr>
+<tr><td>S3 revoked route access</td><td>All 43 authenticated entries in the frozen inventory are accounted for by a direct business gate or an already-guarded shared resolver. Role, resource and co-manager checks remain after the new gate.</td><td class="blocked">No real-handler route matrix ran.</td></tr>
+<tr><td>S4 public links / private peers</td><td>Applicant lookup enforces normal/private and same-private-workspace compatibility. Public share mint/send refuses classified actors. Existing application, lease and lease-PDF token resolution checks durable owner, creator and record provenance before access-count mutation or payload. Guest application notification routes retain anonymous flow while rejecting denied optional sessions and classified stored application provenance.</td><td class="blocked">No anonymous-token or cross-workspace runtime matrix ran.</td></tr>
+<tr><td>S5 phone Verify</td><td>Classified active, suspended, expired and flag-off identities terminate before verification state writes, Twilio send, or Verify confirmation.</td><td class="blocked">Zero-provider-call spies deferred.</td></tr>
+<tr><td>Calendar B2/B3</td><td>No correction2 source change claimed. Existing correction1 code remains.</td><td class="blocked">Sequential stale-conflict and two-namespace book/list/edit/cancel proof remains missing.</td></tr>
+<tr><td>Baseline gate failures</td><td>No baseline repair was attempted under the resource freeze. The prior property-owner 403 fix remains present.</td><td class="blocked">Lease HTML projection/preview mock, accessible-name, move-in, renewal, application actions, scope-bar and Settings history cases remain release blockers.</td></tr>
+</table>
+
+<h2>Exact route-method inventory disposition</h2>
+<table>
+<tr><th>Disposition</th><th>Exact routes</th></tr>
+<tr><td>Direct authenticated business gate before business I/O</td><td><code>manager/amend-lease</code>, <code>manager/phone</code> GET/PATCH revoked gate and POST/PUT provider refusal, <code>manager/pricing-oauth-continue</code>, <code>manager/subscription</code>, <code>manager/update-lease-packet</code>; <code>portal/applicant-ids</code>, <code>application-photos</code>, <code>co-manager-calendar</code>, <code>data-export</code>, <code>delete-resident-access</code>, <code>deposit-return</code>, <code>inbox-attachments</code>, <code>inbox-eligible-contacts</code>, <code>onboard-existing-resident</code>, <code>property-access-info</code>, <code>purge-orphaned-records</code>, <code>record-share-link</code>, <code>record-share-link/send</code>, <code>resident-application-autofill</code>, <code>resident-property</code>, <code>resident-service-fee</code>, both scheduled <code>send-now</code> routes, <code>send-application-completion-reminder</code>, <code>send-inbox-message</code>, <code>send-lead-invite</code>, <code>send-manager-application-started</code>, <code>send-payment-reminder</code>, <code>send-resident-welcome</code>, <code>send-task-reminder</code>, <code>send-vendor-invite</code>, <code>send-vendor-visit-email</code>, both service/reminder routes; tour <code>accept</code>, <code>cancel</code>, <code>delete-planned</code>, <code>delete</code>, <code>propose-reschedule</code>, and <code>reschedule</code>.</td></tr>
+<tr><td>Guarded shared resolver</td><td><code>portal/inbox-draft-reply</code> through <code>resolveInboxScopeUser</code>; <code>portal/lease-template</code> and <code>portal/property-import/read</code> through <code>getReportsAuthContext</code>; tour <code>proposals</code> through <code>resolveAgentContext</code>.</td></tr>
+<tr><td>Guest with optional session and stored provenance</td><td><code>portal/send-application-started</code>, <code>portal/send-application-submitted</code>.</td></tr>
+<tr><td>Disabled</td><td><code>manager/phone/provision</code> remains unconditional HTTP 410.</td></tr>
+</table>
+<p class="note">Attachment GET keeps its existing 404 non-oracle response on denial. Active private routes still require their existing role/resource/workspace rules; the common gate does not replace them. The table is a source disposition inventory, not runtime proof.</p>
+
+<h2>Provider ownership mapping</h2>
+<table>
+<tr><th>Operation</th><th>Durable owner source before effect</th></tr>
+<tr><td>Pricing / checkout</td><td>Authenticated session user; shared checkout resolves stored <code>manager_purchases.user_id</code> or <code>profiles.id</code> by normalized existing identity before price/provider access.</td></tr>
+<tr><td>Phone</td><td>Authenticated session user, classified before verification state or Twilio.</td></tr>
+<tr><td>Deposit refund</td><td>Authenticated manager, then stored household charge owner and ledger charge id.</td></tr>
+<tr><td>Subscription GET/reconcile/downgrade</td><td>Session user or stored <code>manager_purchases</code> row keyed by subscription id.</td></tr>
+<tr><td>Manager checkout completion</td><td>Reserved <code>manager_purchases</code> row keyed by session id, with legacy stored user/manager fallback verified against signed metadata.</td></tr>
+<tr><td>Communication credit</td><td>Stored <code>manager_comms_credit_purchases.manager_user_id</code> keyed by purchase or payment-intent id before fulfillment, review, charge load or reversal RPC.</td></tr>
+<tr><td>Application fee / deposit</td><td>Stored <code>manager_property_records.manager_user_id</code>; claimed metadata must agree.</td></tr>
+<tr><td>Household settlement / failure</td><td>Stored household charge manager; claimed session manager must agree.</td></tr>
+<tr><td>Screening</td><td>Stored <code>manager_application_records.manager_user_id</code>; claimed session manager must agree before Checkr or refund.</td></tr>
+<tr><td>Connect account / payout</td><td>Stored profile Connect account mapping; account metadata is only a candidate and must agree.</td></tr>
+<tr><td>Transfer / refund / dispute / failed payment</td><td>Stored ledger or household charge owner before mutation; classified refusal evidence failure propagates for webhook retry.</td></tr>
+</table>
+
+<h2>Tests authored or changed</h2>
+<ul>
+<li><code>tests/unit/test-workspace-public-catalog-cache.test.ts</code>: initial authenticated unresolved behavior, network/500/malformed failures, empty private success, confirmed normal fallback/coalescing, actor/workspace ABA and resident hydration cache isolation.</li>
+<li><code>tests/unit/test-workspace-client-scope-races.test.tsx</code>: rendered SMS capability target invalidation/refetch and resident Services logout/login plus same-actor workspace-switch races.</li>
+<li>No new provider, 47-route matrix, public-token, archive delete/transcript, or calendar runtime tests were completed in this cycle. Existing relevant tests are part of the 299-file frozen union but are not counted as fresh proof.</li>
+</ul>
+
+<h2>Commands and exits</h2>
+<table>
+<tr><th>Command family</th><th>Exit / evidence</th></tr>
+<tr><td>Repository instruction, plan, review and source reads using <code>sed</code>, <code>rg</code>, <code>find</code>, <code>git status</code>, <code>git diff</code>, <code>jq</code>, <code>comm</code> and <code>sha256sum</code>.</td><td class="ok">Routine read/source-audit commands exited 0. One collaboration spawn call was rejected by the host thread limit.</td></tr>
+<tr><td>First manifest verification loop using zsh variable name <code>path</code>.</td><td class="blocked">Exit 127: assigning zsh's special <code>path</code> array removed command lookup, so <code>sha256sum</code> and <code>awk</code> were not found. No file was changed by the failed read-only command.</td></tr>
+<tr><td>Corrected manifest verification loop using <code>file_path</code>.</td><td class="ok">Exit 0: all 299 union hashes and all 60 delta hashes matched current files.</td></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0 after integration and again after the client delegate edits.</td></tr>
+<tr><td><code>sha256sum supabase/migrations/20260919123000_revoke_classified_test_workspace_direct_access.sql</code></td><td class="ok">Exit 0; expected frozen hash matched.</td></tr>
+<tr><td>Resource checks: <code>df -h .</code>, <code>vm_stat</code>, bounded <code>ps</code>.</td><td class="blocked">Exit 0. Final check still showed 3.8 GiB available, 99% filesystem usage, only 3,772 free VM pages, and a foreign task's ESLint process. No task-owned process was stopped.</td></tr>
+<tr><td>Tests, lint, compiler, build, browser/server, graph rebuild, database probe/apply.</td><td class="blocked">Not run in correction2. No pass result is claimed.</td></tr>
+</table>
+
+<h2>External/root evidence and remaining release gates</h2>
+<p>Root separately completed read-only DEV metadata audits: the sole public view uses <code>security_invoker=true</code>; anon/auth have no table or column SELECT on it; PostgREST exposes exactly <code>public</code> and <code>graphql_public</code>; the GraphQL wrapper is security invoker. Those artifacts are external evidence, not a correction2 runtime pass. The ninth migration is still unapplied.</p>
+<ul>
+<li>Fresh Astra security/bug review of these exact 299 source files and the 60-file correction2 delta.</li>
+<li>Pinned Node 22.23.0, 512 MiB, one-worker focused tests for changed behavior, then coordinated baseline unit/lint/typecheck/build when disk and memory allow.</li>
+<li>Sequential database calendar CAS and two-namespace lifecycle probes; migration backup, atomic apply and effective privilege/lifecycle/storage probes.</li>
+<li>Real seeded browser exercise for manager/resident flows and current baseline failures; localhost server must be stopped after active QA.</li>
+<li>Ship preflight, exact-target DEV/staging verification, required reviewed migration apply, then keeper to main to staging to production fast-forward ladder. Akhil's production authorization persists, but no gate is waived. The personal production operator identity remains unresolved and must not be guessed.</li>
+</ul>
+
+<h2>Process cleanup</h2>
+<p>No localhost server, browser automation, test worker, compiler, build, graph process, install, or database session was started by correction2. No process or file belonging to another task was stopped or deleted. No cleanup action was required.</p>
+</body></html>

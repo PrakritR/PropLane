@@ -420,10 +420,10 @@ export function ManagerPayments({
       return;
     }
     if (payouts === "1") {
-      // The Payouts page is a first-class destination now — send this legacy
-      // link straight to it instead of the incoming bucket list
-      // (PLAN-0920-0853).
-      window.location.replace(`${portalBase}/payments/payouts`);
+      // Payouts is one page now, mounted at Settings → Payouts
+      // (PLAN-0920-1500) — send this legacy link straight there instead of
+      // the incoming bucket list.
+      window.location.replace(`${portalBase}/settings/payouts`);
     }
   }, [portalBase, showToast]);
 
@@ -812,6 +812,7 @@ export function ManagerPayments({
         activeBucket={bucket}
         scheduledMessages={scheduledMessages}
         reminderScheduleSummary={reminderScheduleSummary}
+        reminderAutomationSettings={reminderSettings}
         onOpenReminderSettings={() => setPaymentSettingsOpen(true)}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}

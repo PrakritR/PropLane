@@ -10,6 +10,10 @@ vi.mock("@/lib/tour-notification-delivery.server", () => ({
 
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 vi.mock("@/lib/manager-property-share-access", () => ({
   getShareablePropertyForUser: vi.fn(async () => ({
     title: "Test Property",

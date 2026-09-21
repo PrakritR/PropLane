@@ -116,6 +116,6 @@ describe("room detail modal — rent", () => {
     expect(screen.getByText(/Green dates are open and red dates are unavailable/)).toBeTruthy();
     expect(screen.getByLabelText("Previous month")).toBeTruthy();
     expect(screen.getByLabelText("Next month")).toBeTruthy();
-    expect(screen.getAllByText("Open").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
   });
 });
