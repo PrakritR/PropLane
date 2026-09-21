@@ -4,8 +4,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { submissionFromImportedProperty } from "@/lib/property-import/to-submission";
 import type { PropertyImportProperty, PropertyImportRoom } from "@/lib/property-import/types";
-import { deriveLegacyFields } from "@/lib/demo-property-pipeline";
-import { submissionToDraftAdminRow, mintManagerPropertyId } from "@/lib/demo-admin-property-inventory";
+import { submissionToDraftAdminRow } from "@/lib/demo-admin-property-inventory";
 import { buildImportedResidentRow } from "@/lib/resident-document-import/build-application-row";
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboarding.server";
@@ -34,14 +33,18 @@ import type {
  *  - rooms/properties -> a listing DRAFT via `submissionFromImportedProperty`
  *    (src/lib/property-import/to-submission.ts, unchanged) and the exact row
  *    `saveManagerPropertyDraftToServer` would build — that function is
- *    browser-only (it round-trips through `fetch`), so this calls its two
- *    now-exported pure builders (`submissionToDraftAdminRow`,
- *    `mintManagerPropertyId`) directly and upserts `manager_property_records`
- *    itself, the same way `create_property` and every other server-side
- *    write tool bypasses the HTTP route rather than duplicating its quota /
- *    service-fee / workspace logic (AGENTS.md "tools never fetch() internal
- *    routes"). A draft never charges the plan's listing-slot quota
- *    (`manager-first-listing-onboarding.ts`), and the workspace trigger
+ *    browser-only (it round-trips through `fetch`), so this calls its
+ *    now-exported pure builder (`submissionToDraftAdminRow`) directly and
+ *    upserts `manager_property_records` itself, the same way `create_property`
+ *    and every other server-side write tool bypasses the HTTP route rather
+ *    than duplicating its quota / service-fee / workspace logic (AGENTS.md
+ *    "tools never fetch() internal routes"). The draft id is
+ *    `mgr-import-${shortHash(landlordId + property.key)}` — deliberately NOT
+ *    `mintManagerPropertyId` (that mints a random suffix per call, right for
+ *    a manager starting a new listing in the wizard, wrong for a retried or
+ *    re-uploaded import, which must land on the SAME draft — see
+ *    `createPropertyDraft`). A draft never charges the plan's listing-slot
+ *    quota (`manager-first-listing-onboarding.ts`), and the workspace trigger
  *    (`enforce_portal_workspace_limit`) assigns the manager's default
  *    workspace itself when none is given, enforcing the real 10-per-workspace
  *    cap even on this direct path.
@@ -69,9 +72,13 @@ import type {
  * see docs/agents/portfolio-import.md.
  *
  * ONE property at a time: ids inside a property (the draft, the resident row,
- * each charge) are deterministic — `shortHash(importId + proposal key)` — so
- * re-running create() after a partial failure upserts the SAME rows rather
- * than duplicating them. A property that throws partway is unwound with
+ * each charge) are deterministic — `shortHash` of the manager id plus the
+ * property/resident/charge's own proposal key (never `importId`, since those
+ * keys are already derived from the file's own content — see propose.ts —
+ * so a completely fresh re-upload of the same file lands on the same rows
+ * too, not just a retry of one importId) — so re-running create() after a
+ * partial failure upserts the SAME rows rather than duplicating them. A
+ * property that throws partway is unwound with
  * best-effort compensating deletes of what THIS attempt created (the draft,
  * the application row, the lease row, the charge rows) before moving to the
  * next property; a provisioned auth account / profile is deliberately never
@@ -154,8 +161,18 @@ async function createPropertyDraft(
 ): Promise<{ propertyId: string; roomIdByKey: Map<string, string>; wholePlaceRoomId: string | undefined }> {
   const importedProperty = toPropertyImportProperty(property);
   const submission = submissionFromImportedProperty(importedProperty);
-  const legacy = deriveLegacyFields(submission);
-  const propertyId = mintManagerPropertyId(legacy);
+  // NOT `mintManagerPropertyId(legacy)` — that mints a fresh
+  // `Date.now()` + `Math.random()` suffix on every call, which is exactly
+  // right for a manager starting a genuinely new listing in the wizard, but
+  // wrong here: every OTHER id this module creates (the resident's
+  // application id, its lease id, each charge/task id) is deterministic —
+  // `shortHash(landlordId + property.key)` — precisely so a retried
+  // create() call (or a second identical file upload) upserts the SAME
+  // draft instead of minting a new one and orphaning the old row. Using the
+  // random minter here silently broke that for properties alone: two
+  // create() calls for the same import produced two draft listings for the
+  // same address, with residents re-pointed at whichever one ran last.
+  const propertyId = `mgr-import-${shortHash(`${landlordId}:${property.key}`)}`;
   const row = submissionToDraftAdminRow(submission, landlordId, propertyId, {});
 
   const { error } = await db

@@ -143,6 +143,11 @@ function importTaskId(taskKey: string): string {
   return `task_import_${createHash("sha256").update(taskKey).digest("hex").slice(0, 12)}`;
 }
 
+/** Mirrors create.server.ts's `mgr-import-${shortHash(landlordId + property.key)}`. */
+function importPropertyId(landlordId: string, propertyKey: string): string {
+  return `mgr-import-${createHash("sha256").update(`${landlordId}:${propertyKey}`).digest("hex").slice(0, 12)}`;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   submissionFromImportedProperty.mockReturnValue({ rooms: [{ id: "room-real-abc" }] });
@@ -282,5 +287,33 @@ describe("createPortfolioImportRecords", () => {
     const second = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
     expect(second.created.tasks).toBe(0);
     expect(createManagerTaskRow).not.toHaveBeenCalled();
+  });
+
+  it("retry safety: the property draft id is deterministic (manager + property key), never the randomly-minted wizard id", async () => {
+    // Regression for a real bug: createPropertyDraft used to call
+    // `mintManagerPropertyId`, which mints a fresh Date.now()+Math.random()
+    // suffix on every call — right for a manager starting a brand new
+    // listing in the wizard, but wrong here, where a retried create() (or a
+    // second identical file upload) must land on the SAME draft. Left
+    // unfixed, every retry minted a second, orphaned property row and
+    // re-pointed the resident/charge/task rows at it.
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    const expectedId = importPropertyId("mgr-1", "p1");
+
+    const first = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
+    expect(first.created.properties).toBe(1);
+    const firstPropertyId = submissionToDraftAdminRow.mock.calls[0]![2];
+    expect(firstPropertyId).toBe(expectedId);
+    expect(firstPropertyId).not.toBe(mintManagerPropertyId.mock.results[0]?.value);
+
+    submissionToDraftAdminRow.mockClear();
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    const second = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
+    expect(second.created.properties).toBe(1);
+    const secondPropertyId = submissionToDraftAdminRow.mock.calls[0]![2];
+
+    // Same manager, same property key -> the SAME draft id both times.
+    expect(secondPropertyId).toBe(firstPropertyId);
+    expect(mintManagerPropertyId).not.toHaveBeenCalled();
   });
 });
