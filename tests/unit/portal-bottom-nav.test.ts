@@ -109,7 +109,8 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).not.toContain("dashboard");
     expect(overflow.map((item) => item.section)).toContain("documents");
-    expect(primary.length + overflow.length).toBe(items.length);
+    // Settings ("profile") is excluded from the split entirely, same as pro/admin.
+    expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 
   it("curates the resident bar (pre-approval) to the pre-approval primary set", () => {
@@ -125,7 +126,8 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("documents");
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).not.toContain("dashboard");
-    expect(primary.length + overflow.length).toBe(items.length);
+    // Settings ("profile") is excluded from the split entirely, same as pro/admin.
+    expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 
   it("curates the admin bar to the primary set and overflows the rest", () => {
