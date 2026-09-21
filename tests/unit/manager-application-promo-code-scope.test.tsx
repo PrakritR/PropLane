@@ -12,7 +12,7 @@
  * selection for a manager who had ever set a code.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }));
@@ -84,9 +84,26 @@ function renderModal() {
   );
 }
 
+// The property picker's options only react to pointerdown+pointerup (it binds
+// listeners on the listbox itself rather than relying on React's delegated
+// click, since the menu portals outside the app root — see
+// useFieldSelectListboxPointerPick / settings-scope-bar.test.tsx's `tap`).
+function tap(target: HTMLElement) {
+  fireEvent.pointerDown(target, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
+}
+
 async function selectEveryProperty() {
   fireEvent.click(screen.getByRole("button", { name: "Properties" }));
-  fireEvent.click(await screen.findByText(/select all/i));
+  for (const property of PROPERTY_OPTIONS) {
+    const listbox = await screen.findByRole("listbox", { name: "Properties" });
+    const option = within(listbox).getByRole("option", { name: property.label });
+    // The modal opens scoped to `initialPropertyId` (prop-1), so that option
+    // is already ticked — tapping it again would toggle it back off.
+    if (option.getAttribute("aria-selected") !== "true") {
+      tap(option);
+    }
+  }
   fireEvent.click(screen.getByRole("button", { name: "Properties" }));
 }
 

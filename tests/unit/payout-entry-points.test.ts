@@ -27,7 +27,10 @@ describe("Payout entry points never open a hosted onboarding redirect", () => {
 
   it("the payment-settings modal's Payouts row opens Settings → Payouts, not the old /payments/payouts page", () => {
     const text = source("src/components/portal/pro-payment-setup-modal.tsx");
-    expect(text).toMatch(/`\$\{portalBasePath\}\/settings\/payouts`/);
+    // Payouts folded into Profile → Payouts (PLAN-0920-1500); the settings
+    // gear modal's own tab list still calls this tab "payouts", so the hub
+    // query stays `?tab=payouts` (managerSettingsHubTab/-ProfilePath).
+    expect(text).toMatch(/`\$\{portalBasePath\}\/profile\?tab=payouts`/);
     expect(text).not.toMatch(/`\$\{portalBasePath\}\/payments\/payouts`/);
   });
 });
