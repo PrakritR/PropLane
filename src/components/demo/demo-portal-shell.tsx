@@ -515,7 +515,8 @@ export function DemoPortalShell() {
                 {collapsed && i > 0 ? <div className="my-1 h-px w-6 bg-border" aria-hidden /> : null}
                 {group.items.map((item) => {
                   const active = section === item.section;
-                  const count = navCounts[item.section] ?? 0;
+                  const count = navCounts[item.section]?.count ?? 0;
+                  const tone = navCounts[item.section]?.tone ?? "muted";
                   return (
                     <button
                       key={item.section}
@@ -539,7 +540,7 @@ export function DemoPortalShell() {
                       {collapsed ? null : (
                         <>
                           <span className="min-w-0 flex-1 truncate">{item.meta.label}</span>
-                          <PortalNavCountBadge count={count} />
+                          <PortalNavCountBadge count={count} tone={tone} />
                         </>
                       )}
                     </button>

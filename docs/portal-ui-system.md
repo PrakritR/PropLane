@@ -8,6 +8,14 @@ manager, resident, vendor, and admin portals.
 
 Reference implementation: **resident detail in the property portal** (`manager-residents.tsx` → `ResidentDetailSection` + nested tables).
 
+## Sidebar nav counts
+
+A sidebar number is a to-do count computed from the page's own rows — never
+inventory, and never a separate poll. Zero hides the badge entirely (no `0`).
+Owner: `usePortalNavCounts` (`src/hooks/use-portal-nav-counts.ts`), which
+returns `{ count, tone }` per section — `"alert"` (blue pill) for unread mail
+or an overdue item, `"muted"` (quiet number) for ordinary pending work.
+
 ## Expand chevron direction
 
 | State | Icon | Component |

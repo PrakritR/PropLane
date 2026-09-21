@@ -39,7 +39,7 @@ import {
   stagePersistedInboxRows,
 } from "@/lib/portal-inbox-storage";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
-import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import { buildActiveCommunicationThreads } from "@/lib/communication-active-rows";
 import {
   buildResidentAssistantPlaceholderThread,
   communicationInboxListPreview,
@@ -48,7 +48,6 @@ import {
   propLaneAssistantListSubtitle,
   propLaneAssistantThreadIdForPortal,
   resolveCommunicationViewerId,
-  withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
@@ -254,8 +253,15 @@ function ResidentUnifiedInbox({
   const [query, setQuery] = useState("");
 
   const filteredEmail = useMemo(() => {
-    const base = filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled });
-    const withAssistant = withPinnedPropLaneAssistantThreads(base, "resident", viewerId, listSegment);
+    // The exact rows this list shows — lifted into a shared builder so the
+    // Communication sidebar badge (which counts the Active tab) can never
+    // drift from what this list renders.
+    const withAssistant = buildActiveCommunicationThreads(emailThreads, {
+      portal: "resident",
+      viewerId,
+      smsUiEnabled,
+      listSegment,
+    });
     if (!threadFilters) return withAssistant;
     return withAssistant.filter((t) =>
       isPropLaneAssistantInboxThread(t) ||
