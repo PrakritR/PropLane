@@ -3110,14 +3110,17 @@ export function clampRoomResidentPrices(
  * Apply the per-resident rules to a NORMALIZED room (its rent, deposit, utilities,
  * mode and capacity are already clean):
  *
- *  - capacity below 2, or the row unticked → both fields dropped, on the room and
- *    on every term entry; the room's own figures are untouched.
- *  - ticked → `residentPrices` clamped to capacity with the room's figures as the
- *    fallback; each term entry marked `"per_resident"` is clamped the same way
- *    with that term's figures (else the room's) as its fallback.
- *  - a term entry saying `"same"` is kept only while the room itself prices per
- *    resident — it is that term's way of turning the row off — and otherwise says
- *    nothing, so it goes.
+ *  - capacity below 2 → both fields dropped everywhere, on the room and on every
+ *    term entry; the room's own figures are untouched.
+ *  - each lease term's tick is its own: a term entry marked `"per_resident"` keeps
+ *    that flag and gets its `residentPrices` clamped to capacity (that term's own
+ *    figures as fallback, else the room's) whenever capacity is at least 2 —
+ *    independent of whether the room itself prices per resident.
+ *  - a term entry saying `"same"` only means something while the room itself
+ *    prices per resident — it is that term's way of turning the row off relative
+ *    to the room default — and otherwise says nothing, so it goes.
+ *  - the room's own tick, when set, clamps `residentPrices` on the room with the
+ *    room's figures as the fallback.
  */
 export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): ManagerRoomSubmission {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
@@ -3135,9 +3138,7 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
     for (const [term, entry] of Object.entries(termPricing)) {
       const { residentPricing, residentPrices, ...rest } = entry;
       const cleaned: ManagerRoomTermPrice = { ...rest };
-      if (perResident && residentPricing === "same") {
-        cleaned.residentPricing = "same";
-      } else if (perResident && residentPricing === "per_resident") {
+      if (capacity >= 2 && residentPricing === "per_resident") {
         cleaned.residentPricing = "per_resident";
         cleaned.residentPrices = clampRoomResidentPrices(residentPrices, capacity, {
           monthlyRent: entry.monthlyRent && entry.monthlyRent > 0 ? entry.monthlyRent : room.monthlyRent,
@@ -3145,6 +3146,8 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
           securityDeposit: entry.securityDeposit ?? room.securityDeposit,
           pricingMode: entry.pricingMode ?? room.pricingMode,
         });
+      } else if (perResident && residentPricing === "same") {
+        cleaned.residentPricing = "same";
       }
       if (Object.keys(cleaned).length > 0) next[term] = cleaned;
     }

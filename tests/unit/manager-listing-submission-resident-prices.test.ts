@@ -155,6 +155,25 @@ describe("the per-term block", () => {
     });
     expect(room.termPricing).toBeUndefined();
   });
+
+  it("keeps a term's per_resident rows while the room itself does not price per resident", () => {
+    const room = normalizedRoom({
+      occupancyCapacity: 2,
+      termPricing: {
+        "Month-to-Month": {
+          monthlyRent: 1300,
+          residentPricing: "per_resident",
+          residentPrices: [{ monthlyRent: 0 }],
+        },
+      },
+    });
+    expect(room.termPricing?.["Month-to-Month"]).toEqual({
+      monthlyRent: 1300,
+      residentPricing: "per_resident",
+      residentPrices: [{ monthlyRent: 1300 }, { monthlyRent: 1300 }],
+    });
+    expect(room.residentPricing).toBeUndefined();
+  });
 });
 
 describe("clampRoomResidentPrices / reconcileRoomResidentPricing (pure, for the Pricing card)", () => {
