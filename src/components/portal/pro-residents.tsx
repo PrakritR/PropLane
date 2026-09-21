@@ -98,6 +98,7 @@ import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-c
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { importedActivity, parseResidentImportFile } from "@/lib/portfolio-import/activity";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
@@ -389,6 +390,8 @@ type ActiveResident = {
   axisId: string;
   manuallyAdded?: boolean;
   moveInInstructions?: string;
+  /** Free-text note; portfolio import stamps "Imported from <file>." here (see `@/lib/portfolio-import/activity`). */
+  detail?: string;
   manualResidentDetails?: NonNullable<import("@/data/demo-portal").DemoApplicantRow["manualResidentDetails"]>;
   isPrevious: boolean;
   stage: ResidentDirectoryStage;
@@ -800,6 +803,7 @@ export function ManagerResidents({
           axisId,
           manuallyAdded: row.manuallyAdded,
           moveInInstructions: row.moveInInstructions,
+          detail: row.detail,
           manualResidentDetails: row.manualResidentDetails,
           isPrevious: isPreviousResidentDirectoryRow(row),
           stage,
@@ -3438,6 +3442,10 @@ export function ManagerResidents({
                                   kindLabel: "resident",
                                   recordId: selected.id,
                                   recordLabel: selected.name,
+                                  activity: importedActivity(
+                                    parseResidentImportFile(selected.detail),
+                                    selected.manualResidentDetails?.importedAt,
+                                  ),
                                 })}
                               </ResidentDetailTabPanel>
                             ) : null}

@@ -5107,6 +5107,8 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
     statusLabel: managerChargeStatusLabel(c, bucket),
     cancelledReminders: c.cancelledReminders,
     residentChargeMessages: c.residentChargeMessages,
+    migrationSourceId: c.migrationSourceId,
+    createdAt: c.createdAt,
     notes:
       c.kind === "rent"
         ? `Recurring tenant rent. Current cycle: ${c.rentMonth ?? currentRentMonth()}. Due ${formatRecurringRentDueLabel(c.rentMonth ?? currentRentMonth(), c.dueDay ?? 1, c.dueDayMode)}.`

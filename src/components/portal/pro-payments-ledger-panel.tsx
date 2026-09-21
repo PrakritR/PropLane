@@ -25,6 +25,7 @@ import { paymentDetailHref, paymentListHref, parsePaymentRecordTab } from "@/lib
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { importedActivity } from "@/lib/portfolio-import/activity";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
 import { Bell, CalendarDays, Trash2 } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
@@ -1976,6 +1977,7 @@ export function ManagerPaymentsLedgerPanel({
                   kindLabel: "charge",
                   recordId: detailRow.id,
                   recordLabel: detailRow.chargeTitle,
+                  activity: importedActivity(detailRow.migrationSourceId, detailRow.createdAt),
                 })
               )}
             </PortalRecordSectionChrome>
