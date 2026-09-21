@@ -20,19 +20,22 @@ export function BookingsRowOverflow({
   onMessage,
   onCopyLink,
   onCancel,
+  cancelLabel = "Cancel booking",
   children,
 }: {
   label: string;
   /** Present only for a block-sourced booking — the only kind this screen can actually edit —
    *  or, with `editDatesLabel` overridden, a jump to the Lease/listing record that owns it. */
   onEditDates?: () => void;
-  /** "Open lease" / "Open listing" when `onEditDates` is repurposed for a non-block booking. */
+  /** "Open lease" / "Open listing" when `onEditDates` is repurposed for a non-block booking, or "Edit booking" in the day pop-up. */
   editDatesLabel?: string;
   onMoveRoom?: () => void;
   onMessage?: () => void;
   onCopyLink?: () => void;
   /** Present only for a block-sourced booking (deletes the hold) — a lease or channel import cannot be cancelled here. */
   onCancel?: () => void;
+  /** "Delete booking" in the day pop-up; every other caller keeps the default. */
+  cancelLabel?: string;
   /** When set, this provides the ⋯ context for a list row (one menu). Otherwise it draws its own ⋯. */
   children?: ReactNode;
 }) {
@@ -65,7 +68,7 @@ export function BookingsRowOverflow({
             ) : null}
             {onCancel ? (
               <Button type="button" variant="danger" data-attr="bookings-row-cancel" onClick={onCancel}>
-                Cancel booking
+                {cancelLabel}
               </Button>
             ) : null}
           </>

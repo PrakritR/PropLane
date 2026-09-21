@@ -4,6 +4,7 @@ import type { ResidentPortalAccessState } from "@/lib/resident-portal-access-typ
 export type ResidentPortalNavStage =
   | "pre_approval"
   | "application_submitted"
+  | "booking_residency"
   | "post_approval_pre_lease"
   | "post_lease";
 
@@ -11,10 +12,14 @@ export function resolveResidentPortalNavStage(
   access: Pick<
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
-  >,
+  > &
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>,
 ): ResidentPortalNavStage {
   if (access.leaseAccessUnlocked) return "post_lease";
   if (access.applicationApproved) return "post_approval_pre_lease";
+  // A booking-created resident has neither row — checked before the ordinary
+  // application-submitted branch since they never submitted one.
+  if (access.isBookingResidency) return "booking_residency";
   if (access.hasCompletedApplicationSubmission) return "application_submitted";
   return "pre_approval";
 }
@@ -35,6 +40,10 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
   pre_approval: ["tour", "applications", "dashboard", "communication"],
   application_submitted: ["tour", "applications", "dashboard", "communication"],
   post_approval_pre_lease: ["lease", "payments", "dashboard", "communication"],
+  // Same primary set as a signed lease — Applications and Lease were never
+  // bottom-bar tabs at that stage either, so hiding them here needs no
+  // separate list.
+  booking_residency: ["services", "payments", "dashboard", "communication"],
   post_lease: ["services", "payments", "dashboard", "communication"],
 };
 
@@ -48,6 +57,24 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "payments",
     "dashboard",
     "communication",
+    "documents",
+    "profile",
+  ],
+  // Lease/Payments/Documents/Services/My home (move-in + inspections) unlock
+  // exactly as a signed lease would, without an application or lease row.
+  // "applications"/"lease" stay UNLOCKED (never a dead padlocked row) but are
+  // hidden from the rendered nav by `residentNavSectionVisibleInNav` below —
+  // there is nothing to show there for this resident.
+  booking_residency: [
+    "tour",
+    "applications",
+    "services",
+    "payments",
+    "dashboard",
+    "communication",
+    "lease",
+    "move-in",
+    "inspections",
     "documents",
     "profile",
   ],
@@ -81,10 +108,22 @@ export function residentSectionLockedForStage(section: string, stage: ResidentPo
 /** Keep My home discoverable; existing stage locks protect house access details. */
 const RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED = new Set<string>();
 
+/**
+ * Sections a stage keeps UNLOCKED (so a direct link still works) but never
+ * shows as a nav row — the "hide, don't grey out" case, distinct from
+ * `RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED` above which is about a locked row. A
+ * booking residency has no application and no lease document, so those two
+ * rows have nothing to show rather than something to unlock later.
+ */
+const RESIDENT_NAV_HIDDEN_FOR_STAGE: Partial<Record<ResidentPortalNavStage, readonly string[]>> = {
+  booking_residency: ["applications", "lease"],
+};
+
 export function residentNavSectionVisibleInNav(section: string, stage: ResidentPortalNavStage): boolean {
   if (RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED.has(section) && residentSectionLockedForStage(section, stage)) {
     return false;
   }
+  if (RESIDENT_NAV_HIDDEN_FOR_STAGE[stage]?.includes(section)) return false;
   return true;
 }
 
@@ -155,10 +194,14 @@ export function residentPortalHomePath(
   access: Pick<
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasTourLink" | "hasSubmittedApplication"
-  >,
+  > &
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>,
 ): string {
   if (access.leaseAccessUnlocked) return "/resident/dashboard";
   if (access.applicationApproved) return "/resident/dashboard";
+  // A booking-created account has nothing to review on the dashboard either —
+  // move-in details (My home) is the one thing worth landing them on.
+  if (access.isBookingResidency) return "/resident/move-in";
   if (access.hasTourLink && !access.hasSubmittedApplication) return "/resident/tour";
   // A resident who has submitted nothing and has no tour signed up to APPLY.
   // Their dashboard is empty by construction, so landing them there reads as a

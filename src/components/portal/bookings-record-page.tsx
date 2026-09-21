@@ -81,7 +81,7 @@ export function BookingsRecordPage({
     reason: string;
     residentName: string;
     residentEmail: string;
-  }) => Promise<void>;
+  }) => Promise<{ message?: string } | void>;
   onRemoveBlock: (blockId: string) => Promise<void>;
   showToast: (message: string) => void;
 }) {
