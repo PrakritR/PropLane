@@ -46,14 +46,27 @@ function quantityFor(container: HTMLElement, addonId: string): string | null {
   return container.querySelector(`[data-attr="plan-addon-${addonId}-quantity"]`)?.textContent ?? null;
 }
 
+// The panel also renders the separate Rent reporting row (its own endpoint,
+// its own fetch) beside the PLAN_ADDONS catalogue most tests exercise here.
+// Route that call to a stub default so the addons-specific mock's call
+// count/args assertions stay scoped to the plan-addons endpoint only.
+function stubbedFetch(addonsFetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/api/manager/rent-reporting-addon")) {
+      return Response.json({ tier: "business", canHoldAddon: true, enabled: false, reporting: 0, total: 0 });
+    }
+    return addonsFetchMock(input, init);
+  });
+}
+
 // PLAN-0920: add-ons are always purchasable and commit as one batch, so this
 // suite replaces the retired per-click purchase-closure assertions — nothing
 // here should ever find a row disabled for a missing price.
 
 describe("ManagerPlanAddonsPanel", () => {
   it("moving a stepper never calls the server — only local draft state changes", async () => {
-    const fetchMock = vi.fn(async () => Response.json(BASE_PAYLOAD));
-    vi.stubGlobal("fetch", fetchMock);
+    const addonsFetchMock = vi.fn(async () => Response.json(BASE_PAYLOAD));
+    vi.stubGlobal("fetch", stubbedFetch(addonsFetchMock));
 
     const { container } = render(<ManagerPlanAddonsPanel />);
 
@@ -63,8 +76,8 @@ describe("ManagerPlanAddonsPanel", () => {
 
     expect(quantityFor(container, "extra_listing")).toBe("2");
     // Only the initial GET happened; no write was sent for either click.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith("/api/manager/plan-addons", expect.objectContaining({ cache: "no-store" }));
+    expect(addonsFetchMock).toHaveBeenCalledTimes(1);
+    expect(addonsFetchMock).toHaveBeenCalledWith("/api/manager/plan-addons", expect.objectContaining({ cache: "no-store" }));
   });
 
   it("shows a Buy banner with the combined delta only after something moved, and sends ONE batch PATCH", async () => {
@@ -77,11 +90,11 @@ describe("ManagerPlanAddonsPanel", () => {
         { ...BASE_PAYLOAD.addons[1], quantity: 2 },
       ],
     };
-    const fetchMock = vi
+    const addonsFetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json(BASE_PAYLOAD))
       .mockResolvedValueOnce(Response.json(patchedBody));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", stubbedFetch(addonsFetchMock));
 
     render(<ManagerPlanAddonsPanel />);
 
@@ -99,8 +112,8 @@ describe("ManagerPlanAddonsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Buy" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    await waitFor(() => expect(addonsFetchMock).toHaveBeenCalledTimes(2));
+    expect(addonsFetchMock).toHaveBeenLastCalledWith(
       "/api/manager/plan-addons",
       expect.objectContaining({
         method: "PATCH",
@@ -138,11 +151,11 @@ describe("ManagerPlanAddonsPanel", () => {
   });
 
   it("reverts to the server's answer and reports the error when the batch fails", async () => {
-    const fetchMock = vi
+    const addonsFetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json(BASE_PAYLOAD))
       .mockResolvedValueOnce(Response.json({ error: "We couldn't update your add-ons. Nothing changed." }, { status: 402 }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", stubbedFetch(addonsFetchMock));
 
     render(<ManagerPlanAddonsPanel />);
 
