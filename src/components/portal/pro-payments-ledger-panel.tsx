@@ -21,6 +21,7 @@ import {
   type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
+import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
 import { paymentDetailHref, paymentListHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -103,6 +104,19 @@ type BulkReminderCapabilityState =
 
 function isMarkableAsPaid(row: DemoManagerPaymentLedgerRow): boolean {
   return row.statusLabel !== "Paid" && parseMoneyLabel(row.balanceDue) > 0;
+}
+
+/** Flattens house/resident clusters back into one ordered row list — house mode nests a resident sub-order within each property so a resident's rows still sit together. */
+function flattenLedgerClusters(
+  clusters: ManagerPaymentResidentCluster[] | ManagerPaymentPropertyCluster[],
+  groupMode: PortalListGroupMode,
+): DemoManagerPaymentLedgerRow[] {
+  if (isPropertyClusterList(groupMode, clusters)) {
+    return (clusters as ManagerPaymentPropertyCluster[]).flatMap((cluster) =>
+      clusterManagerPaymentLedgerRowsByMode(cluster.rows, "resident").flatMap((resident) => resident.rows),
+    );
+  }
+  return (clusters as ManagerPaymentResidentCluster[]).flatMap((cluster) => cluster.rows);
 }
 
 function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
@@ -224,6 +238,7 @@ export function ManagerPaymentsLedgerPanel({
   linkedPropertyIds,
   canEditRow,
   canDeleteRow,
+  showUpcomingCharges = true,
 }: {
   rows: DemoManagerPaymentLedgerRow[];
   managerUserId: string | null;
@@ -263,6 +278,8 @@ export function ManagerPaymentsLedgerPanel({
    */
   canEditRow?: (propertyId: string | undefined) => boolean;
   canDeleteRow?: (propertyId: string | undefined) => boolean;
+  /** Whether a not-yet-due Pending charge shows at all (default Show/true). See "Upcoming" grouping below. */
+  showUpcomingCharges?: boolean;
 }) {
   const rowEditable = useCallback(
     (row: DemoManagerPaymentLedgerRow) => (canEditRow ? canEditRow(row.propertyId) : true),
@@ -388,12 +405,43 @@ export function ManagerPaymentsLedgerPanel({
 
   const showSelection = !paymentIdProp;
   const rowIdSet = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
+
+  /**
+   * The Pending bucket only: a charge not yet due this month or earlier
+   * ("Upcoming") renders in its own trailing group, after everything due
+   * now — and drops out of the list entirely once `showUpcomingCharges` is
+   * off, matching the exclusion `manager-payments-scope.ts` already applies
+   * to the Pending tab count and the dashboard/sidebar counts.
+   */
+  const { dueNowRows, upcomingRows } = useMemo(() => {
+    if (embeddedInResident || activeBucket !== "pending") {
+      return { dueNowRows: rows, upcomingRows: [] as DemoManagerPaymentLedgerRow[] };
+    }
+    const dueNow: DemoManagerPaymentLedgerRow[] = [];
+    const upcoming: DemoManagerPaymentLedgerRow[] = [];
+    for (const row of rows) {
+      if (isUpcomingDueDateMs(row.dueDateSortMs)) {
+        if (showUpcomingCharges) upcoming.push(row);
+      } else {
+        dueNow.push(row);
+      }
+    }
+    return { dueNowRows: dueNow, upcomingRows: upcoming };
+  }, [embeddedInResident, activeBucket, rows, showUpcomingCharges]);
+
   const ledgerClusters = useMemo(
     () =>
       embeddedInResident
         ? []
-        : clusterManagerPaymentLedgerRowsByMode(rows, groupMode),
-    [embeddedInResident, groupMode, rows],
+        : clusterManagerPaymentLedgerRowsByMode(dueNowRows, groupMode),
+    [embeddedInResident, groupMode, dueNowRows],
+  );
+  const upcomingLedgerClusters = useMemo(
+    () =>
+      embeddedInResident || upcomingRows.length === 0
+        ? []
+        : clusterManagerPaymentLedgerRowsByMode(upcomingRows, groupMode),
+    [embeddedInResident, groupMode, upcomingRows],
   );
 
   /**
@@ -1818,17 +1866,29 @@ export function ManagerPaymentsLedgerPanel({
   // grouping box itself is gone — the card row says who and where.
   const orderedLedgerRows = useMemo(() => {
     if (embeddedInResident) return rows;
-    if (isPropertyClusterList(groupMode, ledgerClusters)) {
-      return (ledgerClusters as ManagerPaymentPropertyCluster[]).flatMap((cluster) =>
-        clusterManagerPaymentLedgerRowsByMode(cluster.rows, "resident").flatMap((resident) => resident.rows),
-      );
-    }
-    return (ledgerClusters as ManagerPaymentResidentCluster[]).flatMap((cluster) => cluster.rows);
+    return flattenLedgerClusters(ledgerClusters, groupMode);
   }, [embeddedInResident, groupMode, ledgerClusters, rows]);
+
+  // Upcoming is always the LAST section — house/resident grouping applies within
+  // it exactly as it does for the due-now rows above, so an "Upcoming" property
+  // or resident cluster reads the same way the main list already does.
+  const orderedUpcomingLedgerRows = useMemo(() => {
+    if (embeddedInResident || upcomingLedgerClusters.length === 0) return [];
+    return flattenLedgerClusters(upcomingLedgerClusters, groupMode);
+  }, [embeddedInResident, groupMode, upcomingLedgerClusters]);
 
   const renderManagerGroupedLedger = () => (
     <div data-attr={groupMode === "house" ? "payments-house-groups" : "payments-resident-groups"}>
       {orderedLedgerRows.map(renderChargeRow)}
+      {orderedUpcomingLedgerRows.length > 0 ? (
+        <div className="mt-4" data-attr="payments-upcoming-section">
+          <div className="mb-1.5 flex items-baseline gap-2 px-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted">Upcoming</span>
+            <span className="text-xs text-muted tabular-nums">{orderedUpcomingLedgerRows.length}</span>
+          </div>
+          {orderedUpcomingLedgerRows.map(renderChargeRow)}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -1970,15 +2030,25 @@ export function ManagerPaymentsLedgerPanel({
             direction,
             bucket: activeBucket,
           });
-          // Real handlers exist today only for the actions below; the rest are
-          // real header buttons wired to a visible "coming soon" rather than a
-          // silent no-op — see area-1a's final report.
+          // Every action `record-sections.ts` still lists for this record kind
+          // (record-payment, send-reminder, delete) now has a real handler,
+          // reusing the same reversible paths the detail page's own buttons use
+          // (`recordPaid` / `removePayment`, PLAN-0920-2357). "Edit" is not
+          // handled here on purpose — it is dropped from that action list
+          // elsewhere, and an id this list stops naming never reaches this
+          // handler at all.
           const onHeaderAction = (actionId: string) => {
             if (actionId === "send-reminder") {
               setChargeRemindersRow(detailRow);
               return;
             }
-            showToast("Coming soon");
+            if (actionId === "record-payment") {
+              if (isMarkableAsPaid(detailRow)) void recordPaid(detailRow, "Marked as paid.");
+              return;
+            }
+            if (actionId === "delete") {
+              void removePayment(detailRow);
+            }
           };
           return (
             <>

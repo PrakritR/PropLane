@@ -1515,6 +1515,16 @@ export function PaymentsSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection title="Payment setup">
         <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
+        <ManagerAutomationSelectRow
+          label="Upcoming charges in Payments"
+          field="showUpcomingCharges"
+          options={[
+            { value: "true", label: "Show" },
+            { value: "false", label: "Hide" },
+          ]}
+          parse={(value) => value === "true"}
+          dataAttr="payments-settings-show-upcoming-charges"
+        />
       </PortalSettingsSection>
 
       <PortalSettingsSection

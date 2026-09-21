@@ -61,6 +61,12 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { scopeChargesToManagerPaymentsLedger } from "@/lib/manager-payments-scope";
 import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
+import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
+import {
+  cacheShowUpcomingChargesSetting,
+  DEFAULT_MANAGER_AUTOMATION_SETTINGS,
+  normalizeManagerAutomationSettings,
+} from "@/lib/payment-automation-settings";
 import {
   buildManagerOutgoingPaymentRows,
   MANAGER_OUTGOING_PAYMENTS_EVENT,
@@ -95,6 +101,7 @@ function paymentFilterTouches(
   listSort: PaymentListSort,
   groupMode: PortalListGroupMode,
   direction: ManagerPaymentDirection,
+  showUpcomingCharges = true,
 ): number {
   let count = 0;
   if (propertyFilters.length > 0) count += 1;
@@ -103,6 +110,7 @@ function paymentFilterTouches(
   const defaultGroupMode =
     direction === "outgoing" ? OUTGOING_DEFAULT_GROUP_MODE : DEFAULT_PORTAL_LIST_GROUP_MODE;
   if (groupMode !== defaultGroupMode) count += 1;
+  if (direction === "incoming" && !showUpcomingCharges) count += 1;
   return count;
 }
 
@@ -201,6 +209,9 @@ function PaymentsFilterSheet({
   filterFieldCount,
   groupMode,
   onGroupModeChange,
+  showUpcomingChargesField,
+  showUpcomingCharges,
+  onShowUpcomingChargesChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -219,6 +230,10 @@ function PaymentsFilterSheet({
   filterFieldCount: number;
   groupMode: PortalListGroupMode;
   onGroupModeChange: (next: PortalListGroupMode) => void;
+  /** Only the incoming (resident rent) ledger has an Upcoming group to show/hide. */
+  showUpcomingChargesField: boolean;
+  showUpcomingCharges: boolean;
+  onShowUpcomingChargesChange: (next: boolean) => void;
 }) {
   return (
     <PortalFilterSortSheet
@@ -248,6 +263,9 @@ function PaymentsFilterSheet({
         defaultListSort={DEFAULT_PAYMENT_LIST_SORT}
         groupMode={groupMode}
         onGroupModeChange={onGroupModeChange}
+        showUpcomingChargesField={showUpcomingChargesField}
+        showUpcomingCharges={showUpcomingCharges}
+        onShowUpcomingChargesChange={onShowUpcomingChargesChange}
       />
     </PortalFilterSortSheet>
   );
@@ -296,10 +314,45 @@ export function ManagerPayments({
     direction === "incoming" ? setIncomingGroupMode : setOutgoingGroupMode;
   // Per-payment reminder lists show the full saved default schedule, so bypass
   // the Inbox schedule-visibility window (which only gates Inbox → Schedule).
-  const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule } = useScheduledPaymentMessages({ includeHidden: true });
+  const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule, setSettings: setReminderSettings } = useScheduledPaymentMessages({ includeHidden: true });
   const reminderScheduleSummary = useMemo(
     () => (reminderSettings ? formatFriendlyReminderSchedule(reminderSettings) : undefined),
     [reminderSettings],
+  );
+  const showUpcomingCharges = reminderSettings?.showUpcomingCharges ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS.showUpcomingCharges;
+  // Mirrors the setting into a synchronous session cache so `manager-payments-scope.ts`'s
+  // browser convenience (which the dashboard "Payments" group and sidebar nav counts call,
+  // with no settings of their own) can honor it too — see `readManagerPaymentsLedgerCharges`.
+  useEffect(() => {
+    if (reminderSettings) cacheShowUpcomingChargesSetting(reminderSettings.showUpcomingCharges);
+  }, [reminderSettings]);
+  // Same PATCH the Settings row ("Upcoming charges in Payments") uses; the
+  // filter sheet is just a second entry point onto the one saved value.
+  const updateShowUpcomingCharges = useCallback(
+    async (next: boolean) => {
+      const previous = reminderSettings;
+      setReminderSettings((prev) => (prev ? { ...prev, showUpcomingCharges: next } : prev));
+      cacheShowUpcomingChargesSetting(next);
+      try {
+        const res = await fetch("/api/portal/automation-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ showUpcomingCharges: next }),
+          keepalive: true,
+        });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        if (!res.ok) throw new Error(body.error ?? "Could not save settings.");
+        const normalized = normalizeManagerAutomationSettings(body.settings);
+        setReminderSettings(normalized);
+        cacheShowUpcomingChargesSetting(normalized.showUpcomingCharges);
+      } catch (e) {
+        setReminderSettings(previous ?? null);
+        if (previous) cacheShowUpcomingChargesSetting(previous.showUpcomingCharges);
+        showToast(e instanceof Error ? e.message : "Could not save settings.");
+      }
+    },
+    [reminderSettings, setReminderSettings, showToast],
   );
   const ledgerDataVersion = `${hcTick}:${applicationTick}:${propertyTick}:${outgoingTick}`;
 
@@ -540,9 +593,12 @@ export function ManagerPayments({
     return mergedRows.filter((row) => {
       if (!paymentRowMatchesProperty(row, propertyFilters)) return false;
       if (!paymentRowMatchesResident(row, residentFilters)) return false;
+      // Hidden Upcoming charges never count toward Pending — same rule the
+      // ledger panel applies to the rows it renders for that bucket.
+      if (!showUpcomingCharges && row.bucket === "pending" && isUpcomingDueDateMs(row.dueDateSortMs)) return false;
       return true;
     });
-  }, [mergedRows, propertyFilters, residentFilters]);
+  }, [mergedRows, propertyFilters, residentFilters, showUpcomingCharges]);
 
   const counts = useMemo(() => {
     const c: Record<ManagerPaymentBucket, number> = { pending: 0, overdue: 0, paid: 0 };
@@ -618,6 +674,7 @@ export function ManagerPayments({
     listSort,
     groupMode,
     direction,
+    showUpcomingCharges,
   );
 
   const sortOptions = useMemo(
@@ -647,6 +704,7 @@ export function ManagerPayments({
       } else {
         setOutgoingGroupMode(OUTGOING_DEFAULT_GROUP_MODE);
       }
+      if (direction === "incoming" && !showUpcomingCharges) void updateShowUpcomingCharges(true);
     },
     propertyOptions: propertyOptionsForFilter,
     propertyFilters,
@@ -658,9 +716,12 @@ export function ManagerPayments({
     listSort,
     onListSortChange: setListSort,
     sortOptions,
-    filterFieldCount: direction === "incoming" ? 4 : 3,
+    filterFieldCount: direction === "incoming" ? 5 : 3,
     groupMode,
     onGroupModeChange: setGroupMode,
+    showUpcomingChargesField: direction === "incoming",
+    showUpcomingCharges,
+    onShowUpcomingChargesChange: updateShowUpcomingCharges,
   };
 
   const paymentsFilterSort = <PaymentsFilterSheet {...paymentsFilterSheetProps} />;
@@ -813,6 +874,7 @@ export function ManagerPayments({
         scheduledMessages={scheduledMessages}
         reminderScheduleSummary={reminderScheduleSummary}
         reminderAutomationSettings={reminderSettings}
+        showUpcomingCharges={showUpcomingCharges}
         onOpenReminderSettings={() => setPaymentSettingsOpen(true)}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}

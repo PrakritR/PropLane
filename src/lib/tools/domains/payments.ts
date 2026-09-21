@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { isUpcomingHouseholdCharge } from "@/lib/household-charge-visibility";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import {
@@ -54,6 +55,8 @@ function summarizeCharge(c: HouseholdCharge) {
     balance: c.balanceLabel || null,
     status: c.status || null,
     dueDate: c.dueDateLabel || null,
+    /** Not yet due this month or earlier — matches the manager Payments "Upcoming" group. */
+    upcoming: isUpcomingHouseholdCharge(c),
   };
 }
 

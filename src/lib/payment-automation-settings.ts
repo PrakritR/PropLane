@@ -38,6 +38,8 @@ export type ManagerAutomationSettings = {
   lateFeeNoticeEnabled: boolean;
   lateFeeNoticeDaysAfterDue: number;
   sameDayReminderEnabled: boolean;
+  /** Whether not-yet-due charges show in manager Payments (Upcoming group) and count toward the Pending tab. Default on. */
+  showUpcomingCharges: boolean;
   /**
    * Opt-in (default OFF): when a new pending tour inquiry arrives, PropLane
    * proposes confirming it into the first matching open slot as an approval item
@@ -121,6 +123,42 @@ export const DEFAULT_POST_DUE_REMINDER_DAYS = [] as const;
 
 export const PAYMENT_AUTOMATION_SETTINGS_EVENT = "axis:payment-automation-settings";
 
+const SHOW_UPCOMING_CHARGES_SESSION_KEY = "axis:manager-automation-settings:showUpcomingCharges:v1";
+
+function isBrowser() {
+  return typeof window !== "undefined";
+}
+
+/**
+ * A tiny synchronous browser mirror of just `showUpcomingCharges`, so purely
+ * synchronous readers — the manager Payments scope helper
+ * (`readManagerPaymentsLedgerCharges` in `manager-payments-scope.ts`), which the
+ * dashboard "Payments" group and the sidebar nav counts also call without any
+ * settings of their own — can honor the manager's choice without becoming
+ * async. Every place that loads or saves the real settings (the Payments
+ * filter sheet, the Settings row) writes this after a successful fetch/PATCH;
+ * reading before anything has written defaults to `true` (Show), matching
+ * {@link DEFAULT_MANAGER_AUTOMATION_SETTINGS}.
+ */
+export function cacheShowUpcomingChargesSetting(showUpcomingCharges: boolean): void {
+  if (!isBrowser()) return;
+  try {
+    window.sessionStorage.setItem(SHOW_UPCOMING_CHARGES_SESSION_KEY, showUpcomingCharges ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readCachedShowUpcomingChargesSetting(): boolean {
+  if (!isBrowser()) return true;
+  try {
+    const raw = window.sessionStorage.getItem(SHOW_UPCOMING_CHARGES_SESSION_KEY);
+    return raw === null ? true : raw === "1";
+  } catch {
+    return true;
+  }
+}
+
 export const DEFAULT_TOUR_REMINDER_MINUTES_BEFORE = 30;
 
 export function clampTourReminderMinutesBefore(minutes: number): number {
@@ -176,6 +214,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   lateFeeNoticeEnabled: false,
   lateFeeNoticeDaysAfterDue: 5,
   sameDayReminderEnabled: true,
+  showUpcomingCharges: true,
   proposeTourConfirmations: false,
   applicationResponsePromiseDays: 3,
   tourReminderEnabled: true,
@@ -401,6 +440,8 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
       Math.min(30, Math.round(Number(row.lateFeeNoticeDaysAfterDue ?? base.lateFeeNoticeDaysAfterDue) || base.lateFeeNoticeDaysAfterDue)),
     ),
     sameDayReminderEnabled: row.sameDayReminderEnabled !== false,
+    // Missing or truthy → shown by default; only an explicit `false` hides Upcoming.
+    showUpcomingCharges: row.showUpcomingCharges !== false,
     // Opt-in: OFF unless the manager explicitly saved `true`. Same idiom as
     // overdueDailyEnabled — no saved value must never auto-enable a proposal.
     proposeTourConfirmations: row.proposeTourConfirmations === true,
