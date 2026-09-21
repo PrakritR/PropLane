@@ -12,7 +12,7 @@
 //     `aiDraft` hands its draft to the thread's own reply field — never a
 //     second message box beside it.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
 
 const RESIDENT_MSG = {
@@ -38,6 +38,7 @@ const THREADS = [
 ];
 
 let inboxRows = THREADS;
+const showToast = vi.fn();
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -91,7 +92,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
         ? true
         : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
     ),
- useAppUi: () => ({ showToast: vi.fn() }) }));
+ useAppUi: () => ({ showToast }) }));
 vi.mock("@/components/portal/payment-schedule-ui", () => ({ useScheduledPaymentMessages: () => ({ messages: [] }) }));
 vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({ ManagerInboxSchedulePanel: () => null }));
 vi.mock("@/lib/manager-inbox-contacts", async (importOriginal) => ({
@@ -127,10 +128,13 @@ function InboxChangeObserver() {
 describe("AI draft in the unified Communication inbox", () => {
   afterEach(() => {
     inboxRows = THREADS;
+    showToast.mockReset();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 
-  it("keeps a controlled selection open and shows the approval card on an incoming resident thread", async () => {
+  it("hydrates a stored draft into the normal composer without a second composer", async () => {
     // No draft-reply fetch is needed — the thread already carries a pending
     // aiDraft — but stub fetch so any background call is inert.
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
@@ -157,18 +161,73 @@ describe("AI draft in the unified Communication inbox", () => {
     // a second message box beside it.
     const reply = await screen.findByDisplayValue(/I'll look into availability/);
     expect(reply.getAttribute("data-attr")).toBe("inbox-reply");
-    // Adopting consumes the pending draft, so the AI affordance falls back to
-    // the composer row's ✦ menu (round 3: Draft with AI lives there, not in a
-    // pill above the field)…
+    // Draft and assistant actions stay in the composer's AI menu.
     expect(await screen.findByRole("button", { name: "AI" })).toBeTruthy();
     expect(document.querySelector('[data-attr="inbox-composer-ai-menu"]')).not.toBeNull();
-    // …and there is NO second message box: the legacy draft composer, its send
-    // button, and its discard control are all gone.
+    // The pending server draft stays available for refresh/discard, but it is
+    // status only - there is no second editable message box or send button.
+    expect(document.querySelector('[data-attr="inbox-ai-draft-adopted"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="inbox-ai-draft"]')).toBeNull();
     expect(document.querySelector('[data-attr="inbox-ai-draft-send"]')).toBeNull();
-    expect(screen.queryByLabelText("Discard draft")).toBeNull();
     expect(screen.queryByText("Approve & Send")).toBeNull();
     expect(screen.queryByText("Edit")).toBeNull();
+    expect(document.querySelectorAll("textarea")).toHaveLength(1);
+    expect(document.activeElement).toBe(reply);
+
+    fireEvent.change(reply, { target: { value: "" } });
+    await waitFor(() => {
+      expect(document.querySelector('[data-attr="inbox-ai-draft-adopted"]')).toBeNull();
+    });
+  });
+
+  it("offers the current redraft for insertion after the hydrated draft was edited", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/portal/inbox-draft-reply")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              draft: {
+                text: "The updated parking reply.",
+                status: "pending_approval",
+                generatedAt: "2026-09-20T23:30:00.000Z",
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    render(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        commBase="/portal/communication"
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+
+    const reply = await screen.findByDisplayValue(/I'll look into availability/);
+    fireEvent.change(reply, { target: { value: "My edited parking reply." } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Redraft" }));
+
+    await waitFor(() => {
+      expect(showToast).toHaveBeenCalledWith("Draft ready. Your existing reply was kept.");
+    });
+    expect(reply).toHaveValue("My edited parking reply.");
+
+    const insert = screen.getByRole("button", { name: "Insert draft" });
+    fireEvent.click(insert);
+    expect(reply).toHaveValue("The updated parking reply.");
+    expect(document.activeElement).toBe(reply);
+    expect(screen.queryByRole("button", { name: "Insert draft" })).toBeNull();
   });
 
   it("persists an auto-draft after commit, not from a state updater", async () => {
@@ -206,5 +265,56 @@ describe("AI draft in the unified Communication inbox", () => {
     await waitFor(() => expect(screen.getByTestId("inbox-change-count").textContent).not.toBe("0"));
     expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Cannot update a component");
     consoleError.mockRestore();
+  });
+
+  it("keeps typed text when generation finishes and requires explicit replacement", async () => {
+    inboxRows = [{ ...THREADS[0], aiDraft: undefined }];
+    let resolveDraft!: (response: Response) => void;
+    const draftResponse = new Promise<Response>((resolve) => {
+      resolveDraft = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/portal/inbox-draft-reply")) return draftResponse;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    render(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        commBase="/portal/communication"
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+
+    const reply = await screen.findByPlaceholderText("Write a reply…");
+    fireEvent.change(reply, { target: { value: "I already wrote this response." } });
+    expect(await screen.findByRole("button", { name: "AI" })).toBeDisabled();
+
+    await act(async () => {
+      resolveDraft(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            draft: { text: "Generated replacement.", status: "pending_approval" },
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+
+    await screen.findByRole("button", { name: "Insert draft" });
+    expect(reply).toHaveValue("I already wrote this response.");
+    expect(showToast).toHaveBeenCalledWith("Draft ready. Your existing reply was kept.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert draft" }));
+    expect(reply).toHaveValue("Generated replacement.");
+    expect(document.activeElement).toBe(reply);
   });
 });

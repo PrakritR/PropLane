@@ -154,15 +154,33 @@ describe("InboxReplyChannelPicker", () => {
 });
 
 describe("AiDraftReplyCard", () => {
-  it("uses a custom generate label when provided", () => {
+  it("labels the generate control Draft with PropLane", () => {
     render(
       <AiDraftReplyCard
         onApprove={vi.fn()}
         onDiscard={vi.fn()}
         onGenerate={vi.fn()}
-        generateLabel="Draft with AI"
       />,
     );
-    expect(screen.getByRole("button", { name: "Draft with AI" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Draft with PropLane" })).toHaveAttribute(
+      "data-attr",
+      "inbox-ai-draft-generate",
+    );
+  });
+
+  it("keeps generation failures retryable", () => {
+    const onGenerate = vi.fn();
+    render(
+      <AiDraftReplyCard
+        error="Provider unavailable"
+        onApprove={vi.fn()}
+        onDiscard={vi.fn()}
+        onGenerate={onGenerate}
+      />,
+    );
+
+    expect(screen.getByText("Couldn’t draft a reply.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onGenerate).toHaveBeenCalledOnce();
   });
 });

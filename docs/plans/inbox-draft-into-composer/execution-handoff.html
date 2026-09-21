@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inbox draft into composer - execution handoff</title>
+  <style>
+    body { font: 16px/1.55 system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; color: #172334; background: #faf9f5; }
+    h1, h2 { line-height: 1.2; }
+    code { padding: 2px 5px; border-radius: 4px; background: #e9edf0; }
+    .status { padding: 14px 16px; border: 1px solid #75a37a; border-radius: 8px; background: #eef8ef; }
+    .warning { padding: 14px 16px; border: 1px solid #d5a347; border-radius: 8px; background: #fff8e8; }
+    li { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h1>Inbox draft into composer - execution handoff</h1>
+  <p class="status"><strong>Correction cycle 1 complete - P1 closed.</strong> Adopted status now means the normal composer contains the current pending AI draft text.</p>
+
+  <h2>End state</h2>
+  <ul>
+    <li>Branch: <code>akhil/inbox-draft-into-composer</code></li>
+    <li>Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/10/AXIS-2</code></li>
+    <li>Base and end HEAD: <code>794b7de5a29f553c0b03f9887fca94fa775af670</code></li>
+    <li>State: coherent uncommitted feature and correction diff</li>
+  </ul>
+
+  <h2>Original execution</h2>
+  <p>Draft with PropLane reuses the existing draft routes and inserts generated or hydrated text into the normal reply composer. The second editable AI composer is gone. Dirty text is preserved, with an explicit <strong>Insert draft</strong> replacement action. Send, channels, attachments, and scheduling remain on the normal composer. SMS-only drafting is deferred because no safe reusable draft endpoint exists.</p>
+  <p>The original seeded browser run verified generation, insertion and focus, editing, no second composer, clearing, failure and retry presentation, and mobile layout. The task server was stopped. Send was not pressed to avoid an external dogfood email.</p>
+
+  <h2>Correction cycle 1</h2>
+  <ul>
+    <li>Adopted is a trim-equality check between normal composer text and the current pending AI draft.</li>
+    <li>A stale thread id or insertion-history flag can no longer hide <strong>Insert draft</strong>.</li>
+    <li>Dirty protection remains unchanged. Explicit Insert still replaces the composer.</li>
+    <li>The manager inbox, resident-detail inbox, and resident inbox panel share these semantics.</li>
+    <li>The second editable AI composer was not restored.</li>
+  </ul>
+
+  <h2>Regression coverage</h2>
+  <p>The manager test covers stored draft hydration, user edit, Redraft, dirty-protection toast, visible Insert draft, explicit replacement, and adopted status after replacement.</p>
+  <ul>
+    <li>Focused Vitest: exit 0, 1 file and 4 tests passed.</li>
+    <li>Bounded inbox Vitest suite: exit 0, 4 files and 28 tests passed.</li>
+    <li>Correction-touched ESLint with <code>--quiet</code>: exit 0.</li>
+    <li><code>git diff --check</code>: exit 0.</li>
+    <li>Graphify rebuild: exit 1 because npm could not resolve an executable in this worktree.</li>
+  </ul>
+
+  <p class="warning"><strong>Remaining non-P1 risks:</strong> the prior repository-wide typecheck OOMed at the default heap, SMS-only drafting is deferred, and the original browser run did not send an external dogfood email.</p>
+  <p>No production writes, deploys, force pushes, Linear, Lavish, no-mistakes, browser session, or development server were used in correction cycle 1.</p>
+</body>
+</html>
