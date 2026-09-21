@@ -1,6 +1,8 @@
 /**
- * `/portal/settings/<tab>` is a live settings page. Hub bookmarks that used
- * `?tab=properties` land on Applications.
+ * `/portal/settings/<tab>` redirects onto Profile. Hub bookmarks that used
+ * `?tab=properties` land on Applications. next.config.ts still must not
+ * steal the catch-all (the app-router redirect in render-portal-section
+ * is the one fold).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -10,7 +12,9 @@ import {
   DEFAULT_MANAGER_SETTINGS_TAB,
   MANAGER_PORTAL_SETTINGS_TABS,
   managerSettingsHubTab,
+  managerSettingsProfilePath,
   parseManagerSettingsAreaTab,
+  resolveSettingsRedirectHubTab,
 } from "@/lib/portal-settings-section";
 
 function readRedirectSources(): string[] {
@@ -73,6 +77,25 @@ describe("managerSettingsHubTab", () => {
     expect(managerSettingsHubTab("automation")).toBe("reminders");
     expect(managerSettingsHubTab("properties")).toBe("applications");
     expect(managerSettingsHubTab(null)).toBe("applications");
+    expect(managerSettingsHubTab("payouts")).toBe("payouts");
+  });
+});
+
+describe("resolveSettingsRedirectHubTab", () => {
+  it("defaults empty to Applications and maps aliases onto Profile tabs", () => {
+    expect(resolveSettingsRedirectHubTab(null)).toBe("applications");
+    expect(resolveSettingsRedirectHubTab("plan")).toBe("billing");
+    expect(resolveSettingsRedirectHubTab("payouts")).toBe("payouts");
+    expect(resolveSettingsRedirectHubTab("communication")).toBe("messaging");
+    expect(resolveSettingsRedirectHubTab("automation")).toBe("reminders");
+    expect(resolveSettingsRedirectHubTab("not-a-real-module")).toBeNull();
+  });
+});
+
+describe("managerSettingsProfilePath", () => {
+  it("points at the Profile hub", () => {
+    expect(managerSettingsProfilePath("payouts")).toBe("/portal/profile?tab=payouts");
+    expect(managerSettingsProfilePath("communication")).toBe("/portal/profile?tab=messaging");
   });
 });
 
@@ -82,10 +105,17 @@ describe("the settings section route still resolves against src/app", () => {
     expect(routeResolves("/auth/definitely-not-a-real-page-xyz")).toBe(false);
   });
 
-  it("resolves /portal/settings and every /portal/settings/<tab>", () => {
+  it("still matches /portal/settings so the app-router redirect can run", () => {
     expect(routeResolves("/portal/settings")).toBe(true);
     for (const { id } of MANAGER_PORTAL_SETTINGS_TABS) {
       expect(routeResolves(`/portal/settings/${id}`)).toBe(true);
     }
+  });
+
+  it("folds those URLs in render-portal-section, not by rendering a second rail", () => {
+    const src = readFileSync(resolve(__dirname, "../../src/lib/render-portal-section.tsx"), "utf8");
+    expect(src).toContain("resolveSettingsRedirectHubTab");
+    expect(src).toContain("/profile");
+    expect(src).not.toContain("PortalSettingsSectionClient");
   });
 });

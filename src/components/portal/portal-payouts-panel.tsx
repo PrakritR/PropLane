@@ -15,9 +15,9 @@ import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { cn } from "@/lib/utils";
 
 /**
- * Payouts is one page now, mounted at Settings → Payouts
- * (`portal-payouts-settings-page.tsx`, PLAN-0920-1500) for both the manager
- * (`/portal/settings/payouts`) and the vendor (`Vendor → Settings →
+ * Payouts is one page now, mounted at Profile → Payouts
+ * (`portal-payouts-settings-page.tsx`, PLAN-0920-1500 / PLAN-0920-2024) for both
+ * the manager (`/portal/profile?tab=payouts`) and the vendor (`Vendor → Settings →
  * Payouts`). This file no longer owns a page — `render-portal-section.tsx`
  * and `vendor-finances-panel.tsx` redirect the old `/payments/payouts` /
  * `/financials/payouts` paths straight to it. What survives here are the

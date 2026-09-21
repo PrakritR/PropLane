@@ -86,7 +86,7 @@ export type SettingsModulePageHandle = {
    * Flush every autosaving panel this module currently has mounted, `allSettled` so one
    * panel's rejection can never stop a sibling's save. Returns `ok: false` on any failure so
    * the caller can keep its host open/on-tab instead of discarding the edit — both hosts
-   * (the per-tab gear's dialog and the standalone `/portal/settings/<tab>` page) call this
+   * (the per-tab gear's dialog and the Profile hub pane) call this
    * before closing, switching tabs, or navigating away.
    */
   flushPendingSaves: () => Promise<{ ok: boolean }>;
@@ -100,13 +100,12 @@ export type SettingsModuleSaveStatus = {
 
 /**
  * One module's settings UI, portable between two hosts: `ProPortalSettingsModal` (the sheet
- * every section's gear opens) and the standalone `/portal/settings/<tab>` page. This component
+ * every section's gear opens) and the Profile hub pane. This component
  * owns everything a module's panel needs to load, edit, and save itself — it has no idea
  * whether it is inside a dialog or a page.
  *
- * `tab` is the SAME `ManagerPortalSettingsTab` the modal has always kept as its tab id, and it
- * is also the `/portal/settings/<tab>` URL segment (see `portal-settings-section.ts`) — one
- * identifier for all three uses instead of a second id space to keep in sync.
+ * `tab` is the SAME `ManagerPortalSettingsTab` the modal has always kept as its tab id.
+ * Profile hub `?tab=` ids can differ (`managerSettingsHubTab`).
  */
 export const SettingsModulePage = forwardRef<
   SettingsModulePageHandle,

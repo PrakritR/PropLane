@@ -120,6 +120,14 @@ describe("SettingsScopeBar", () => {
     expect(screen.getByText("Account")).toBeTruthy();
   });
 
+  it("property menu has no Select all or Clear", () => {
+    render(<Harness />);
+    const listbox = openMenu("Properties");
+    expect(within(listbox).queryByText("Select all")).toBeNull();
+    expect(within(listbox).queryByText("Clear")).toBeNull();
+    expect(within(listbox).getByText("Ballard House")).toBeTruthy();
+  });
+
   it("workspace-only variant has no properties picker or Reset", () => {
     function WorkspaceOnlyHarness() {
       const [workspaceId, setWorkspaceId] = useState("");

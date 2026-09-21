@@ -302,7 +302,7 @@ export function FoundOnlineCard({
             <span className="rounded-full bg-[var(--status-overdue-bg,#fdf0d5)] px-2 py-0.5 text-[10.5px] text-[var(--status-overdue-fg,#a34a06)]">Free</span>
           </div>
           <div className="mt-2">
-            <Link href="/portal/settings?tab=plan" className={btnPrimary} data-attr="listing-v2-prefill-upgrade">
+            <Link href="/portal/profile?tab=billing" className={btnPrimary} data-attr="listing-v2-prefill-upgrade">
               Upgrade to Pro
             </Link>
           </div>

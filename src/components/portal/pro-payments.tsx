@@ -420,10 +420,10 @@ export function ManagerPayments({
       return;
     }
     if (payouts === "1") {
-      // Payouts is one page now, mounted at Settings → Payouts
-      // (PLAN-0920-1500) — send this legacy link straight there instead of
+      // Payouts is one page now, mounted at Profile → Payouts
+      // (PLAN-0920-2024) — send this legacy link straight there instead of
       // the incoming bucket list.
-      window.location.replace(`${portalBase}/settings/payouts`);
+      window.location.replace(`${portalBase}/profile?tab=payouts`);
     }
   }, [portalBase, showToast]);
 

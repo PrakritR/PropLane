@@ -45,10 +45,11 @@ describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
     expect(markIdx).toBeGreaterThan(submitIdx);
   });
 
-  it("offers multi-select properties with Select all for the waive code", () => {
+  it("offers multi-select properties for the waive code without Select all / Clear", () => {
     expect(SETTINGS).toContain("CheckboxMultiSelect");
-    expect(SETTINGS).toContain('data-attr="settings-scope-properties-select-all"');
-    expect(SETTINGS).toContain("Select all");
+    expect(SETTINGS).not.toContain('data-attr="settings-scope-properties-select-all"');
+    expect(SETTINGS).not.toContain("Select all");
+    expect(SETTINGS).not.toContain('data-attr="settings-scope-properties-clear"');
     expect(MODULE_PAGE).toContain("onPropertyIdsChange");
     expect(MODULE_PAGE).toContain("onWaiverCodeCommit");
   });

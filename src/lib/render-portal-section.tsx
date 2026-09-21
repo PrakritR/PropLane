@@ -37,8 +37,7 @@ import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { DEFAULT_MANAGER_SETTINGS_TAB, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
-import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
+import { resolveSettingsRedirectHubTab } from "@/lib/portal-settings-section";
 import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
@@ -254,6 +253,13 @@ function residentManagerTierGate(
 
 export type PortalSearchParams = Record<string, string | string[] | undefined>;
 
+function firstSearchParam(searchParams: PortalSearchParams | undefined, key: string): string | null {
+  const value = searchParams?.[key];
+  if (typeof value === "string" && value) return value;
+  if (Array.isArray(value) && value[0]) return value[0] ?? null;
+  return null;
+}
+
 /** Re-serializes the incoming query string so a legacy redirect doesn't drop it. */
 function searchSuffix(searchParams?: PortalSearchParams, extra?: Record<string, string>): string {
   const q = new URLSearchParams();
@@ -454,21 +460,20 @@ export async function renderPortalSection(
     return <PortalCalendar portal="manager" calendarView={parseCalendarViewTab(viewRaw)} />;
   }
 
-  // Per-module settings ("bookings", "tours", "applications", …), NOT account settings — that
-  // is "profile", already registered in `proPortal.sections` under the "Settings" label. A
-  // second `proPortal.sections` entry called "settings" would put two rows labeled "Settings" in
-  // the same sidebar, so this section is handled entirely here, before `findSection`/`meta` even
-  // exist, exactly like `calendar` and `work-orders` above. Two more things fall out of that for
-  // free: it never reaches `managerTierPaywall` below, so Settings is never paywalled for a
-  // free-tier manager (the deliberate choice — a manager cannot fix their plan from a screen
-  // they cannot open), and it needs no new entry in `FREE_SUBSCRIPTION_SECTIONS`. Reachable only
-  // by a direct/bookmarked link or a section's own gear's "Open in Settings" link — there is no
-  // dedicated top-level nav row for it, to avoid exactly that duplicate-"Settings" row.
+  // Per-module settings ("bookings", "tours", "applications", …), NOT account
+  // settings — that is "profile". The standalone `/portal/settings/<tab>` rail
+  // is gone (PLAN-0920-2024); bookmarks and gear "Open in Profile" land on
+  // `/portal/profile?tab=…`. Unknown segments 404. Query `?tab=` on the old
+  // path is honored so `/portal/settings?tab=inspections` still opens Inspections.
   if ((kind === "manager" || kind === "pro") && section === "settings") {
     if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0] ?? null;
-    const tab = raw ? parseManagerSettingsAreaTab(raw) : DEFAULT_MANAGER_SETTINGS_TAB;
-    return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
+    const queryTab = firstSearchParam(searchParams, "tab");
+    const raw = tabParts?.[0] ?? queryTab;
+    const hubTab = resolveSettingsRedirectHubTab(raw);
+    if (!hubTab) notFound();
+    const rest = { ...(searchParams ?? {}) };
+    delete rest.tab;
+    redirect(`${def.basePath}/profile${searchSuffix(rest, { tab: hubTab })}`);
   }
 
   // Settings (account entry) sits as its own trailing sidebar group for
@@ -950,11 +955,11 @@ export async function renderPortalSection(
     }
 
     if (section === "payments") {
-      // Payouts is one page now, mounted at Settings → Payouts
+      // Payouts is one page now, mounted at Profile → Payouts
       // (`portal-payouts-settings-page.tsx`) — this legacy path is a door to
-      // it, never its own render (PLAN-0920-1500).
+      // it, never its own render (PLAN-0920-1500 / PLAN-0920-2024).
       if (tabParts?.length === 1 && tabParts[0] === "payouts") {
-        redirect(`${def.basePath}/settings/payouts`);
+        redirect(`${def.basePath}/profile?tab=payouts`);
       }
 
       const PAYMENT_DIRECTIONS = ["incoming", "outgoing"] as const;

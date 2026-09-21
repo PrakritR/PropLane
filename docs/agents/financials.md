@@ -84,7 +84,7 @@ Phase 3 excludes non-income accounts properly.
 
 ## In-app payouts (PLAN-0920-0853, consolidated under PLAN-0920-1500)
 
-**Settings → Payouts** (`/portal/settings/payouts`, vendor twin under
+**Profile → Payouts** (`/portal/profile?tab=payouts`, vendor twin under
 `Vendor → Settings → Payouts`, `src/components/portal/portal-payouts-settings-page.tsx`)
 is now the one payout UI — balance with a Withdraw action (Standard or
 Instant, `payout-withdraw-sheet.tsx`), Set up steps until ready, bank
@@ -92,7 +92,7 @@ accounts, the payout schedule, and history. `/portal/payments/payouts` and
 the vendor `financials/payouts` tab (`portal-payouts-panel.tsx`) still exist
 and share the same Withdraw sheet and API routes; every other entry point
 (the Payments setup card, the payment-settings modal's Payouts row) now
-opens Settings → Payouts instead. Stripe's Express Dashboard and Account
+opens Profile → Payouts instead. Stripe's Express Dashboard and Account
 Links are gone; identity and bank linking are Stripe's embedded
 `account_onboarding` / `account_management` components mounted inside
 PropLane's own modal today (a Verify/Add-bank props seam exists for the

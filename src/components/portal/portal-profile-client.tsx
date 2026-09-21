@@ -14,6 +14,7 @@ import {
   FileText,
   Home,
   KeyRound,
+  Landmark,
   Lock,
   MessageSquareText,
   MessagesSquare,
@@ -99,10 +100,10 @@ function emptyToDash(v: unknown) {
 const SETTINGS_TAB_PARAM = "tab";
 
 /**
- * The eleven Portfolio + Operations modules (PLAN-0920-0845 phase D) — every
- * Portfolio and Operations nav entry, Properties excluded (no longer a
- * settings pane). Each gets the full `SettingsScopeBar` (workspace select,
- * properties multi-select, scope tag, Reset).
+ * The Portfolio + Operations modules (PLAN-0920-0845 phase D, Payouts added
+ * PLAN-0920-2024) — every Portfolio and Operations nav entry, Properties
+ * excluded (no longer a settings pane). Each gets the full `SettingsScopeBar`
+ * (workspace select, properties multi-select, scope tag, Reset).
  */
 export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "applications",
@@ -111,6 +112,7 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "resident",
   "messaging",
   "payments",
+  "payouts",
   "tasks",
   "reminders",
   "bookings",
@@ -160,6 +162,7 @@ export type SettingsGroupId =
   | "tours"
   | "resident"
   | "payments"
+  | "payouts"
   | "tasks"
   | "reminders"
   | "bookings"
@@ -172,6 +175,7 @@ const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>
   tours: "tours",
   resident: "resident",
   payments: "payments",
+  payouts: "payouts",
   tasks: "tasks",
   reminders: "automation",
   bookings: "bookings",
@@ -468,6 +472,7 @@ export function PortalProfileClient({
     if (variant === "manager") {
       list.push(
         { id: "payments", label: "Payments", description: "Payment setup, rent reminders, and late fees.", icon: Wallet, group: "Operations" },
+        { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Operations" },
         { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
         { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
         { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },

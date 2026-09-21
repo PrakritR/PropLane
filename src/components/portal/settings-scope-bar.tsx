@@ -37,11 +37,11 @@ export function SettingsGroupSourceTag({ namespace }: { namespace: SettingsSourc
  * One scope bar per settings module (AGENTS.md § Icon chrome: "one property
  * control in module chrome … never repeat it on each section header").
  *
- * `variant="full"` (the eleven Portfolio + Operations modules) is a workspace
- * select, a properties multi-select scoped to that workspace, a bar-level tag
- * describing the CURRENT SELECTION, and a Reset control once houses are
- * picked. `variant="workspace-only"` (Notifications) drops the properties
- * picker entirely — manager alert routing has no per-house rung.
+ * `variant="full"` (the Portfolio + Operations modules, including Payouts) is a
+ * workspace select, a properties multi-select scoped to that workspace, a
+ * bar-level tag describing the CURRENT SELECTION, and a Reset control once
+ * houses are picked. `variant="workspace-only"` (Notifications) drops the
+ * properties picker entirely — manager alert routing has no per-house rung.
  *
  * The workspace select is bound to the SAME global selection the top-left
  * `WorkspaceSwitcher` reads (`useWorkspaces()`): picking a real workspace here
@@ -112,33 +112,6 @@ export function SettingsScopeBar({ variant = "full" }: { variant?: "full" | "wor
           emptyLabel={scope.workspaceId ? "All properties in workspace" : "All properties"}
           dataAttr="settings-scope-properties"
           className="max-w-[15rem]"
-          menuFooter={(close) => (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="text-xs font-semibold text-primary hover:underline"
-                data-attr="settings-scope-properties-select-all"
-                onClick={() => {
-                  scope.setPropertyIds(propertyOptions.map((o) => o.id));
-                  close();
-                }}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="text-xs font-semibold text-muted hover:underline"
-                data-attr="settings-scope-properties-clear"
-                disabled={scope.propertyIds.length === 0}
-                onClick={() => {
-                  scope.setPropertyIds([]);
-                  close();
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          )}
         />
       ) : null}
       <PortalSettingsScopeTag>{scopeTagLabel(selectionSource, scope.propertyIds.length)}</PortalSettingsScopeTag>

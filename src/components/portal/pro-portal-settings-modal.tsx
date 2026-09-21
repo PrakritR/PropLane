@@ -20,7 +20,7 @@ import {
   type SettingsModuleSaveStatus,
 } from "@/components/portal/settings-module-page";
 import { getSettingsEntryPointForTab } from "@/components/portal/settings-entry-points";
-import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
+import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsProfilePath } from "@/lib/portal-settings-section";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import {
   FormAutomationPaneSwitch,
@@ -221,13 +221,13 @@ export function ProPortalSettingsModal({
    * exercised directly (no app-router context) by `tests/unit/portal-settings-save-flush.test.tsx`,
    * which this file must not require editing, so it takes no dependency on `next/navigation`.
    */
-  const openInSettings = useCallback(async () => {
+  const openInProfile = useCallback(async () => {
     const { ok } = await flushPendingSaves();
     if (!ok) return;
     closeCalledRef.current = true;
     onClose();
     if (typeof window !== "undefined") {
-      window.location.assign(`/portal/settings/${tab}`);
+      window.location.assign(managerSettingsProfilePath(tab));
     }
   }, [flushPendingSaves, onClose, tab]);
 
@@ -331,10 +331,10 @@ export function ProPortalSettingsModal({
       <button
         type="button"
         className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-        data-attr={`${tabEntry.dataAttr}-open-in-settings`}
-        onClick={() => void openInSettings()}
+        data-attr={`${tabEntry.dataAttr}-open-in-profile`}
+        onClick={() => void openInProfile()}
       >
-        Open in Settings
+        Open in Profile
         <ExternalLink className="size-3.5" aria-hidden />
       </button>
 
