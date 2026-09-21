@@ -36,8 +36,15 @@ const MANAGER_LIST_PAGES = [
 
 describe("manager list chrome: no headline-row buttons", () => {
   it("no manager page passes primaryAction to the page shell", () => {
+    // The banned shape is the old headline button, a bare ReactNode
+    // (`primaryAction={<Foo .../>}`, see portal-list-section.tsx's doc
+    // comment for the pattern this replaced). A confirm dialog's
+    // `primaryAction={{ label, onClick }}` (PortalDialogAction, e.g. the
+    // plan-limit upgrade confirm in pro-properties.tsx) is an unrelated,
+    // still-current prop shape and must stay allowed.
+    const shellHeadlinePrimaryAction = /\bprimaryAction=\{(?!\{)/;
     for (const file of MANAGER_LIST_PAGES) {
-      expect(portalSource(file), file).not.toMatch(/\bprimaryAction=/);
+      expect(portalSource(file), file).not.toMatch(shellHeadlinePrimaryAction);
     }
     expect(portalSource("portal-metrics.tsx")).not.toContain("primaryAction?: ReactNode;\n  /** Filter pill");
   });

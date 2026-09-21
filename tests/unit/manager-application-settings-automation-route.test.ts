@@ -17,7 +17,7 @@ const suggestedManagerApplicationFeeCents = vi.fn();
 const loadApplicationAutomation = vi.fn();
 const loadApplicationAutomationState = vi.fn();
 const saveApplicationAutomation = vi.fn();
-const saveApplicationAutomationForProperty = vi.fn();
+const savePropertyOverride = vi.fn();
 const loadManagerLandlordLegalNameFromProfile = vi.fn();
 const listApplicationFeeWaiverCodes = vi.fn();
 const pickPrimaryApplicationFeeWaiverCode = vi.fn();
@@ -44,9 +44,49 @@ vi.mock("@/lib/application-automation-preferences", () => ({
   loadApplicationAutomation: (...a: unknown[]) => loadApplicationAutomation(...a),
   loadApplicationAutomationState: (...a: unknown[]) => loadApplicationAutomationState(...a),
   saveApplicationAutomation: (...a: unknown[]) => saveApplicationAutomation(...a),
-  saveApplicationAutomationForProperty: (...a: unknown[]) => saveApplicationAutomationForProperty(...a),
-  resolveApplicationAutomationForProperty: (state: { portfolio: typeof AUTOMATION; byPropertyId: Record<string, typeof AUTOMATION> }, propertyId: string) =>
-    state.byPropertyId[propertyId] ?? state.portfolio,
+  normalizeApplicationAutomation: (raw: unknown) => raw,
+}));
+// `automation` (the `applicationAutomation` namespace) now resolves through the
+// shared scope resolver rather than the old `applicationAutomationByPropertyId`
+// sidecar (PLAN-0920-0845) — see the route's own header comment. These tests
+// use a bare `{}` for `db`, so the resolver's own database reads (property
+// override lookup, workspace row, ownership check) are stubbed out here; this
+// file's focus stays "the fee is never silently touched by an automation save".
+vi.mock("@/lib/settings/property-overrides.server", () => ({
+  savePropertyOverride: (...a: unknown[]) => savePropertyOverride(...a),
+  clearPropertyOverride: vi.fn().mockResolvedValue(undefined),
+  listPropertyOverrides: vi.fn().mockResolvedValue([]),
+  loadPropertyOverride: vi.fn().mockResolvedValue(null),
+  ForeignPropertyError: class ForeignPropertyError extends Error {},
+}));
+vi.mock("@/lib/settings/scope-resolver.server", () => ({
+  resolveSettingsScope: vi.fn(
+    async (
+      db: unknown,
+      input: { managerUserId: string },
+      _ns: unknown,
+      ops: { loadAccount?: (d: unknown, m: string) => Promise<unknown> },
+    ) => ({ value: await ops.loadAccount?.(db, input.managerUserId), source: "account" as const }),
+  ),
+  saveWorkspaceNamespaceSettings: vi.fn().mockResolvedValue(undefined),
+  clearWorkspaceNamespaceSettings: vi.fn().mockResolvedValue(undefined),
+  createSettingsScopeCache: vi.fn(() => new Map()),
+}));
+vi.mock("@/lib/scope/settings-scope", () => ({
+  parseSettingsScope: vi.fn(() => ({})),
+  resolveSettingsScopeParams: vi.fn((_url: string, body?: Record<string, unknown> | null) => {
+    const propertyId = typeof body?.propertyId === "string" ? body.propertyId : undefined;
+    const workspaceId = typeof body?.workspaceId === "string" ? body.workspaceId : undefined;
+    return { ...(propertyId ? { propertyId } : {}), ...(workspaceId ? { workspaceId } : {}) };
+  }),
+  assertSettingsScopeOwned: vi.fn(async (_db: unknown, callerUserId: string, scope: { propertyId?: string; workspaceId?: string }) => ({
+    ok: true,
+    ownerUserId: callerUserId,
+    workspaceId: scope.workspaceId ?? null,
+    propertyId: scope.propertyId ?? null,
+  })),
+  trackSettingsScopeChanged: vi.fn().mockResolvedValue(undefined),
+  writeRungFromSource: vi.fn((s: string) => (s === "property" ? "property" : s === "workspace" ? "workspace" : "account")),
 }));
 // The route now reads the default-task preferences alongside application
 // automation, and the guard hands these tests a bare `{}` for `db` — without
@@ -93,7 +133,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   requireManagerRouteUser.mockResolvedValue({ db: {}, userId: "mgr-1" });
   saveApplicationAutomation.mockResolvedValue(AUTOMATION);
-  saveApplicationAutomationForProperty.mockResolvedValue(AUTOMATION);
+  savePropertyOverride.mockResolvedValue(undefined);
   loadApplicationAutomation.mockResolvedValue(AUTOMATION);
   loadApplicationAutomationState.mockResolvedValue({ portfolio: AUTOMATION, byPropertyId: {} });
   loadTaskAutomation.mockResolvedValue(TASK_AUTOMATION);
@@ -122,7 +162,13 @@ describe("PATCH automation", () => {
     const res = await route.PATCH(patch({ automation: AUTOMATION }));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ automation: AUTOMATION });
+    expect(await res.json()).toEqual({
+      automation: AUTOMATION,
+      source: "account",
+      scope: "workspace",
+      inherited: false,
+      overriddenPropertyIds: [],
+    });
     expect(saveApplicationAutomation).toHaveBeenCalledWith({}, "mgr-1", AUTOMATION);
     // The load-bearing assertion: the fee was never written, so it still stands.
     expect(saveManagerApplicationSettings).not.toHaveBeenCalled();
@@ -167,7 +213,8 @@ describe("PATCH automation", () => {
     const res = await route.PATCH(patch({ propertyId: "prop-1", automation: AUTOMATION }));
 
     expect(res.status).toBe(200);
-    expect(saveApplicationAutomationForProperty).toHaveBeenCalledWith({}, "mgr-1", "prop-1", AUTOMATION);
+    expect(await res.json()).toMatchObject({ automation: AUTOMATION, source: "property", scope: "property", inherited: false });
+    expect(savePropertyOverride).toHaveBeenCalledWith({}, "mgr-1", "prop-1", "applicationAutomation", AUTOMATION);
     expect(saveApplicationAutomation).not.toHaveBeenCalled();
   });
 });

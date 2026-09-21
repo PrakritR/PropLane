@@ -41,6 +41,8 @@ export type PropertyBookingEntry = {
   reason?: string;
   /** Blocks only — who the room is being held for, when the manager named someone. */
   residentName?: string;
+  /** PropLane stays only — the lease this booking was derived from, so its record page can link back to it. */
+  leaseId?: string;
 };
 
 /** A manager's explicit closed range. `checkOut` is exclusive: the day is free again. */
@@ -225,6 +227,7 @@ export function openEndedBookingHorizonKey(from: Date = new Date()): string {
 
 /** Structural subset of `LeasePipelineRow` this module needs. */
 export type LeaseBookingRow = {
+  id?: string;
   propertyId?: string;
   roomChoice?: string | null;
   residentName?: string;
@@ -330,6 +333,7 @@ export function leaseBookingEntries(
       end: end >= start ? end : start,
       statusLabel: row.stageLabel?.trim() || row.status?.trim() || undefined,
       ...(openEnded ? { openEnded: true } : {}),
+      ...(row.id?.trim() ? { leaseId: row.id.trim() } : {}),
     });
   }
   return out;

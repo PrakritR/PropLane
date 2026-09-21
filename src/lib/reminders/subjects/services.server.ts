@@ -15,17 +15,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers, loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
+import { createSettingsScopeCache, loadReminderSettingsForManagers, loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
-import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
-import { loadServiceAutomationSettingsForManagers } from "@/lib/service-automation-settings.server";
+import { REMINDER_SUBJECT_CO_MANAGER_MODULE, resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
+import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { VENDOR_DOCUMENT_LABELS, type VendorDocumentRecord } from "@/lib/vendor-documents";
 import { isoOrNull } from "@/lib/reminders/subjects/records.server";
+import { loadVendorQuietHoursForUsers } from "@/lib/vendor-notification-settings.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
 
 const MAX_ROWS = 500;
 /** Anchors older than this are history, not something to chase. */
@@ -160,9 +162,12 @@ export async function sweepWorkOrderNoOnMyWay(db: SupabaseClient, now: Date = ne
   );
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [reminderResolver, serviceByManager, managerRecipients] = await Promise.all([
+  // `requireOnMyWay` keeps its own per-property resolution (a house can
+  // require the vendor tap even when the workspace does not), independent of
+  // the reminderRules resolver above.
+  const serviceCache = createSettingsScopeCache();
+  const [reminderResolver, managerRecipients] = await Promise.all([
     loadReminderSettingsResolver(db, managerIds),
-    loadServiceAutomationSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   let queued = 0;
@@ -171,7 +176,9 @@ export async function sweepWorkOrderNoOnMyWay(db: SupabaseClient, now: Date = ne
     // A house's own reminder override wins when it has one (PLAN-0916-1040).
     const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
     if (!settings.rules.work_order_no_on_my_way.enabled) continue;
-    if (!serviceByManager.get(row.manager_user_id)?.requireOnMyWay) continue;
+    // Same fallback for the `serviceAutomation` namespace's `requireOnMyWay` gate.
+    const serviceSettings = await resolveServiceAutomationSettingsForRow(db, serviceCache, row.manager_user_id, propertyId);
+    if (!serviceSettings.requireOnMyWay) continue;
     const anchorIso = isoOrNull(row.row_data.scheduledAtIso)!;
     if (!withinAge(anchorIso, now, 7)) continue;
     const recipients = await managerSideRecipients(db, row.manager_user_id, "work_order_no_on_my_way", settings, managerRecipients, propertyId);
@@ -242,18 +249,23 @@ export async function sweepVendorOfferExpiry(db: SupabaseClient, now: Date = new
       name: String(rowData.name ?? "").trim(),
     });
   }
+  // Every vendor-bound send resolves at THAT vendor's own quiet hours, not the
+  // manager's workspace window (PLAN-0915 area 4) — the same personal setting
+  // `resolveVendorChannels` already reads for the actual channel gate.
+  const vendorQuietHoursByUserId = await loadVendorQuietHoursForUsers(db, offers.map((offer) => offer.vendor_user_id));
   let queued = 0;
   for (const offer of offers) {
     const workOrder = workOrderById.get(offer.work_order_id);
-    const propertyId = workOrder?.assignedPropertyId || workOrder?.propertyId || null;
+    if (!workOrder || workOrder.bucket === "completed") continue;
+    const propertyId = workOrder.assignedPropertyId || workOrder.propertyId || null;
     // A house's own reminder override wins when it has one (PLAN-0916-1040).
     const settings = reminderResolver.resolve(offer.manager_user_id, propertyId);
     if (!settings.rules.vendor_offer_expiry.enabled) continue;
     const vendor = vendorById.get(offer.vendor_directory_id);
     if (!vendor?.email.includes("@")) continue;
-    if (!workOrder || workOrder.bucket === "completed") continue;
     const anchorIso = isoOrNull(offer.expires_at);
     if (!anchorIso) continue;
+    const quietHours = offer.vendor_user_id ? vendorQuietHoursByUserId.get(offer.vendor_user_id) : undefined;
     queued += await materializeReminders(
       db,
       {
@@ -261,7 +273,7 @@ export async function sweepVendorOfferExpiry(db: SupabaseClient, now: Date = new
         kind: "vendor_offer_expiry",
         subjectId: offer.id,
         anchorIso,
-        recipients: [{ email: vendor.email, role: "vendor", name: vendor.name, userId: offer.vendor_user_id }],
+        recipients: [{ email: vendor.email, role: "vendor", name: vendor.name, userId: offer.vendor_user_id, quietHours }],
         payload: {
           title: workOrder.title,
           propertyLabel: workOrder.propertyName,
@@ -295,13 +307,17 @@ export async function sweepVendorInvoiceNudge(db: SupabaseClient, now: Date = ne
   for (const row of profiles ?? []) {
     vendorById.set(String(row.id), { email: String(row.email ?? "").trim().toLowerCase(), name: String(row.full_name ?? "").trim() });
   }
+  // Every vendor-bound send resolves at THAT vendor's own quiet hours, not the
+  // manager's workspace window (PLAN-0915 area 4).
+  const vendorQuietHoursByUserId = await loadVendorQuietHoursForUsers(db, vendorIds);
   let queued = 0;
   for (const row of rows) {
     const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
     // A house's own reminder override wins when it has one (PLAN-0916-1040).
     const settings = reminderResolver.resolve(row.manager_user_id, propertyId);
     if (!settings.rules.vendor_invoice_nudge.enabled) continue;
-    const vendor = vendorById.get(String(row.row_data.vendorUserId));
+    const vendorUserId = String(row.row_data.vendorUserId);
+    const vendor = vendorById.get(vendorUserId);
     if (!vendor?.email.includes("@")) continue;
     const anchorIso = isoOrNull(row.row_data.vendorMarkedDoneAt)!;
     if (!withinAge(anchorIso, now)) continue;
@@ -312,7 +328,7 @@ export async function sweepVendorInvoiceNudge(db: SupabaseClient, now: Date = ne
         kind: "vendor_invoice_nudge",
         subjectId: row.id,
         anchorIso,
-        recipients: [{ email: vendor.email, role: "vendor", name: vendor.name, userId: String(row.row_data.vendorUserId) }],
+        recipients: [{ email: vendor.email, role: "vendor", name: vendor.name, userId: vendorUserId, quietHours: vendorQuietHoursByUserId.get(vendorUserId) }],
         payload: {
           title: row.row_data.title,
           propertyLabel: row.row_data.propertyName,
@@ -526,6 +542,9 @@ export async function sweepVendorDocumentExpiry(db: SupabaseClient, now: Date = 
     loadReminderSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
+  // Every vendor-bound send resolves at THAT vendor's own quiet hours, not the
+  // manager's workspace window (PLAN-0915 area 4).
+  const vendorQuietHoursByUserId = await loadVendorQuietHoursForUsers(db, candidates.map(({ row }) => row.vendor_user_id));
   let queued = 0;
   for (const { row, document } of candidates) {
     const settings = settingsByManager.get(row.manager_user_id);
@@ -534,8 +553,9 @@ export async function sweepVendorDocumentExpiry(db: SupabaseClient, now: Date = 
     if (Date.parse(anchorIso) <= now.getTime()) continue;
     const vendorEmail = String(row.row_data.email ?? "").trim().toLowerCase();
     const vendorName = String(row.row_data.name ?? "").trim() || null;
+    const vendorQuietHours = row.vendor_user_id ? vendorQuietHoursByUserId.get(row.vendor_user_id) : undefined;
     const recipients: ReminderRecipient[] = [
-      ...(vendorEmail.includes("@") ? [{ email: vendorEmail, role: "vendor" as const, name: vendorName, userId: row.vendor_user_id }] : []),
+      ...(vendorEmail.includes("@") ? [{ email: vendorEmail, role: "vendor" as const, name: vendorName, userId: row.vendor_user_id, quietHours: vendorQuietHours }] : []),
       ...(await managerSideRecipients(db, row.manager_user_id, "vendor_document_expiry", settings, managerRecipients, null)),
     ];
     if (recipients.length === 0) continue;
@@ -561,4 +581,94 @@ export async function sweepVendorDocumentExpiry(db: SupabaseClient, now: Date = 
     );
   }
   return queued;
+}
+
+/**
+ * "Vendor silent after accept" (PLAN-0915 area 4) — the third services
+ * escalation. A job whose vendor accepted but never scheduled the visit is
+ * unassigned and re-offered to the next-best declined bid, or, with nobody
+ * left, the manager is told once. An ACTION, not a reminder: its enable/hours
+ * live in the `serviceAutomation` namespace beside `requireOnMyWay` and
+ * `notifyWhenNoVendorAnswers`, resolved per work order's property through the
+ * same resolver every other escalation in this file uses.
+ */
+export async function sweepVendorSilentAfterAccept(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  const rows = (await loadOpenWorkOrders(db)).filter(
+    (row) =>
+      row.row_data.bucket === "open" &&
+      Boolean(row.row_data.vendorId) &&
+      Boolean(row.row_data.vendorAssignedAt) &&
+      !row.row_data.scheduledAtIso &&
+      !row.row_data.vendorSilentEscalatedAt,
+  );
+  if (rows.length === 0) return 0;
+  const managerIds = rows.map((row) => row.manager_user_id);
+  const cache = createSettingsScopeCache();
+  const { data: profiles } = await db.from("profiles").select("id, email, full_name").in("id", managerIds);
+  const managerById = new Map<string, { email: string; name: string }>();
+  for (const p of profiles ?? []) {
+    managerById.set(String((p as { id: string }).id), {
+      email: String((p as { email?: string }).email ?? "").trim().toLowerCase(),
+      name: String((p as { full_name?: string }).full_name ?? "").trim() || "PropLane Portal",
+    });
+  }
+  let acted = 0;
+  for (const row of rows) {
+    const anchorIso = isoOrNull(row.row_data.vendorAssignedAt);
+    if (!anchorIso) continue;
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    const settings = await resolveServiceAutomationSettingsForRow(db, cache, row.manager_user_id, propertyId);
+    if (!settings.reofferAfterVendorSilentHours) continue;
+    const dueAt = Date.parse(anchorIso) + settings.reofferAfterVendorSilentHours * 60 * 60_000;
+    if (dueAt > now.getTime()) continue;
+    const manager = managerById.get(row.manager_user_id);
+    if (!manager?.email) continue;
+
+    const silentVendorName = row.row_data.vendorName || "The vendor";
+    const { reofferWorkOrderToNextVendor } = await import("@/lib/work-order-offers.server");
+    const result = await reofferWorkOrderToNextVendor(db, {
+      workOrderId: row.id,
+      managerUserId: row.manager_user_id,
+      managerEmail: manager.email,
+      managerName: manager.name,
+      row: row.row_data,
+      now,
+    });
+
+    const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+      ownerManagerUserId: row.manager_user_id,
+      propertyId: propertyId || undefined,
+      channel: "services",
+    });
+    await workOrderEvent(db, {
+      eventId: `${row.id}:vendor_silent:${anchorIso}`,
+      event: "vendor_silent",
+      managerUserId: row.manager_user_id,
+      workOrderId: row.id,
+      senderUserId: row.manager_user_id,
+      senderEmail: manager.email,
+      senderName: manager.name,
+      facts: {
+        reference: row.row_data.reference || "Work order",
+        title: row.row_data.title || "Work order",
+        propertyLabel: row.row_data.propertyName || undefined,
+        vendorName: silentVendorName,
+        note: result.ok ? undefined : "No other vendor is available — assign it by hand.",
+        url: `${origin()}/portal/services/work-orders`,
+      },
+      recipients: managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+      now,
+    }).catch(() => undefined);
+
+    if (!result.ok) {
+      // No candidate left to re-offer to: stamp so this job stops re-checking
+      // every tick until a fresh vendor accept clears the stamp.
+      await db
+        .from("portal_work_order_records")
+        .update({ row_data: { ...row.row_data, vendorSilentEscalatedAt: now.toISOString() }, updated_at: now.toISOString() })
+        .eq("id", row.id);
+    }
+    acted += 1;
+  }
+  return acted;
 }

@@ -393,6 +393,21 @@ export async function POST(req: Request) {
     actor.userId,
   );
   if (!entitlement.eligible) {
+    // A trial is a definite, not a transient, refusal — a work number is a paid
+    // feature and this account is not paying yet (`refuseTrialForNumber`
+    // already collapsed an eligible trial to `reason: "trialing"` above). Give
+    // that its own plain 403 instead of the generic "try again" the messaging
+    // panel's other, genuinely transient reasons (`plan_unreadable`,
+    // `legacy_unknown`) still use below.
+    if (entitlement.reason === "trialing") {
+      return NextResponse.json(
+        {
+          error: "A free trial cannot buy a work number. Start Pro to continue.",
+          code: "trial_cannot_buy_number",
+        },
+        { status: 403 },
+      );
+    }
     return NextResponse.json({ error: "We could not verify your communication plan. Try again." }, { status: 503 });
   }
 

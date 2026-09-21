@@ -5,26 +5,33 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type PropertyRailItem = {
+export type RecordRailItem = {
   id: string;
   label: string;
   href: string;
   dataAttr?: string;
 };
 
+/** @deprecated Use {@link RecordRailItem} — kept so existing call sites need not change. */
+export type PropertyRailItem = RecordRailItem;
+
 /**
- * Desktop section rail for one property. Entering a property is an explicit
- * step (the list row), and leaving it is the one link at the top of this
- * rail; the rail itself scrolls independently of the main column so a long
- * section list never pushes the content down.
+ * Desktop section rail for one record — a property originally, now any
+ * manager/resident/vendor record kind the registry (`src/lib/portals/record-sections.ts`)
+ * describes. Entering a record is an explicit step (the list row), and
+ * leaving it is the one link at the top of this rail; the rail itself scrolls
+ * independently of the main column so a long section list never pushes the
+ * content down.
  */
 const RAIL_GROUPS: Array<{ label: string; ids: string[] }> = [
   { label: "Property", ids: ["preview", "house-details", "move-in"] },
   { label: "Leasing", ids: ["tours", "bookings", "application", "lease"] },
-  { label: "Operations", ids: ["requests", "promotion"] },
+  { label: "Operations", ids: ["requests", "promotion", "ai-info"] },
+  // The shared trio — no heading, reads as universal record chrome.
+  { label: "", ids: ["communication", "documents", "activity"] },
 ];
 
-export function PortalPropertyRail({
+export function PortalRecordRail({
   items,
   activeId,
   backHref,
@@ -40,7 +47,7 @@ export function PortalPropertyRail({
   dataAttrBack = "property-rail-back",
   leading,
 }: {
-  items: PropertyRailItem[];
+  items: RecordRailItem[];
   activeId?: string;
   backHref: string;
   backLabel?: string;
@@ -60,7 +67,7 @@ export function PortalPropertyRail({
   const byId = new Map(items.map((item) => [item.id, item]));
   const grouped = groups.map((group) => ({
     label: group.label,
-    items: group.ids.map((id) => byId.get(id)).filter((item): item is PropertyRailItem => Boolean(item)),
+    items: group.ids.map((id) => byId.get(id)).filter((item): item is RecordRailItem => Boolean(item)),
   })).filter((group) => group.items.length > 0);
   const known = new Set(groups.flatMap((group) => group.ids));
   const leftovers = items.filter((item) => !known.has(item.id));
@@ -95,9 +102,11 @@ export function PortalPropertyRail({
         </div>
       ) : null}
       <nav className={cn("flex flex-col gap-px px-2", !showBackLink && !showTitleBlock && "pt-2")}>
-        {grouped.map((group) => (
-          <div key={group.label} className="flex flex-col gap-px">
-            <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted/60">{group.label}</p>
+        {grouped.map((group, index) => (
+          <div key={group.label ? group.label : `group-${index}`} className="flex flex-col gap-px">
+            {group.label ? (
+              <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted/60">{group.label}</p>
+            ) : null}
             {group.items.map((item) => {
               const active = item.id === activeId;
               return (
@@ -121,3 +130,6 @@ export function PortalPropertyRail({
     </aside>
   );
 }
+
+/** @deprecated Use {@link PortalRecordRail} — kept so existing call sites need not change. */
+export const PortalPropertyRail = PortalRecordRail;

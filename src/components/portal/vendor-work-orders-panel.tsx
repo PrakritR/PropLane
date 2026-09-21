@@ -25,6 +25,13 @@ import {
 } from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
@@ -48,7 +55,7 @@ import {
   VENDOR_WORK_ORDER_TAB_ORDER,
   type VendorWorkOrderTab,
 } from "@/lib/vendor-work-order-tabs";
-import { vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
+import { vendorWorkOrderListHref, vendorJobDetailHref, type VendorJobDetailTabId } from "@/lib/portal-detail-routes";
 import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 
@@ -75,6 +82,8 @@ function fromDatetimeLocalValue(s: string): string | null {
   return d.toISOString();
 }
 
+const SAFE_PHOTO_HREF_RE = /^(?:data:image\/|https?:\/\/)/;
+
 type BidDraft = { amount: string; materials: string; proposedTime: string; note: string };
 
 function defaultBidDraft(row: DemoManagerWorkOrderRow, bid: WorkOrderBid | undefined): BidDraft {
@@ -94,16 +103,25 @@ function formatVisitLabel(iso: string): string {
 
 /** Work orders offered/assigned to the signed-in vendor. Read-only except for submitting a
  * cost/time bid once the manager has opened a work order for bids. */
-export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWorkOrderTab }) {
+export function VendorWorkOrdersPanel({
+  tabId = "pending",
+  workOrderId,
+  workOrderDetailTab,
+}: {
+  tabId?: VendorWorkOrderTab;
+  /** A vendor job RECORD id (docs/agents/record-page.md); set only when routed to /work-orders/<id>/<tab>. */
+  workOrderId?: string;
+  workOrderDetailTab?: VendorJobDetailTabId;
+}) {
   const { showToast } = useAppUi();
   const router = useRouter();
+  const navigate = usePortalNavigate();
   const demo = isDemoModeActive();
   const servicesSettingsEntry = getSettingsEntryPoint("vendorServices");
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
   const [bidsByWorkOrderId, setBidsByWorkOrderId] = useState<Record<string, WorkOrderBid>>({});
   const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer>>({});
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [draftById, setDraftById] = useState<Record<string, BidDraft>>({});
   const [submittingId, setSubmittingId] = useState<string | null>(null);
@@ -218,12 +236,6 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
     () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === "pending"),
     [sorted, bidsByWorkOrderId],
   );
-
-  const openExpand = (row: DemoManagerWorkOrderRow) => {
-    setExpandedId(row.id);
-    const existing = bidsByWorkOrderId[row.id];
-    setDraftById((prev) => ({ ...prev, [row.id]: prev[row.id] ?? defaultBidDraft(row, existing) }));
-  };
 
   const submitBid = async (row: DemoManagerWorkOrderRow) => {
     const draft = draftById[row.id] ?? defaultBidDraft(row, bidsByWorkOrderId[row.id]);
@@ -866,6 +878,117 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
     );
   };
 
+  if (workOrderId) {
+    const row = sorted.find((r) => r.id === workOrderId) ?? null;
+    if (!row) {
+      return <PortalDataTableEmpty icon="default" message="Job not found." />;
+    }
+    const activeTab: VendorJobDetailTabId = workOrderDetailTab ?? "overview";
+    const backHref = vendorWorkOrderListHref("/vendor", tabId);
+    const sections = recordSections("vendor", "job", { basePath: "/vendor" });
+    const onHeaderAction = (actionId: string) => {
+      // Accepting/pricing the job and submitting its invoice both live in the
+      // same Bid / Invoice form — the header icon takes you to it rather than
+      // re-implementing the form's validation a second time.
+      if (actionId === "accept" || actionId === "submit-invoice") {
+        navigate(vendorJobDetailHref("/vendor", row.id, "bid-invoice"));
+        return;
+      }
+      if (actionId === "schedule") {
+        navigate(vendorJobDetailHref("/vendor", row.id, "schedule"));
+      }
+    };
+    const ownContent =
+      activeTab === "scope-photos" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-scope-photos">
+          <p className="text-sm leading-relaxed text-muted">{row.description}</p>
+          {row.photoDataUrls?.length ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {row.photoDataUrls.map((src, i) => {
+                const trimmed = src.trim();
+                if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
+                return (
+                  <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={trimmed} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
+                  </a>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-3">
+              <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="vendor-job-photos-empty" />
+            </div>
+          )}
+        </div>
+      ) : activeTab === "schedule" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
+          {row.scheduled && row.scheduled !== "—" ? (
+            <p className="text-sm text-foreground">
+              Visit scheduled for <span className="font-medium">{row.scheduled}</span>
+            </p>
+          ) : (
+            <PortalListEmptyCard title="Not yet scheduled" workspaceAware={false} dataAttr="vendor-job-schedule-empty" />
+          )}
+          {row.entryPermission ? (
+            <p className="mt-2 text-xs text-muted">
+              Entry: {row.entryPermission}
+              {row.entryNotes ? ` (${row.entryNotes})` : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : activeTab === "bid-invoice" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-bid-invoice">
+          {renderRowDetail(row)}
+        </div>
+      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "vendor",
+          kind: "job",
+          kindLabel: "job",
+          recordId: row.id,
+          recordLabel: row.title,
+        })
+      ) : (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-overview">
+          <p className="text-sm leading-relaxed text-muted">{row.description}</p>
+          <p className="mt-2 text-xs text-muted">{[row.reference, propertyLabel(row)].filter(Boolean).join(" · ")}</p>
+          <p className="mt-1 text-xs text-muted">{vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id])}</p>
+        </div>
+      );
+    return (
+      <PortalRecordDetailPage
+        pageTitle="Services"
+        title={row.title}
+        subtitle={propertyLabel(row)}
+        avatarName={row.title}
+        backHref={backHref}
+        backLabel="Back to services"
+        hideBackText
+        bareHeader
+        iconTitleActions
+        pinScrollBody
+      >
+        <PortalRecordActions>
+          <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+        </PortalRecordActions>
+        <PortalRecordSectionChrome
+          sections={sections}
+          recordId={row.id}
+          activeId={activeTab}
+          title={row.title}
+          subtitle={propertyLabel(row)}
+          backHref={backHref}
+          backLabel="All services"
+          ariaLabel="Job sections"
+          onHeaderAction={onHeaderAction}
+        >
+          {ownContent}
+        </PortalRecordSectionChrome>
+      </PortalRecordDetailPage>
+    );
+  }
+
   const emptyCopy = portalEmptyCopy(`work-orders.${tabId}`);
 
   return (
@@ -937,7 +1060,6 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
         dataAttr="vendor-services-list"
       >
         {visible.map((row) => {
-          const isExpanded = expandedId === row.id;
           const phaseLabel = vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id]);
           return (
             <div key={row.id} id={`portal-work-order-${row.id}`}>
@@ -946,18 +1068,14 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
                 subtitle={[row.reference, propertyLabel(row), row.scheduled || "Not yet scheduled", phaseLabel]
                   .filter(Boolean)
                   .join(" · ")}
-                selected={isExpanded}
                 checked={selectedIds.has(row.id)}
                 // Only a scheduled job can be marked done in bulk, so only those
                 // rows offer a checkbox. A checkbox that selects a row nothing
                 // can act on is a promise the dock cannot keep.
                 onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
-                onOpen={() => (isExpanded ? setExpandedId(null) : openExpand(row))}
+                onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
                 dataAttr="vendor-service-row"
               />
-              {isExpanded ? (
-                <div className="border-b border-border/50 bg-accent/10 px-4 py-4">{renderRowDetail(row)}</div>
-              ) : null}
             </div>
           );
         })}

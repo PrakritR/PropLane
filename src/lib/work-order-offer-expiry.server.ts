@@ -14,7 +14,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
-import { loadServiceAutomationSettingsForManagers } from "@/lib/service-automation-settings.server";
+import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
+import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 
 type OfferRow = {
@@ -69,10 +70,8 @@ export async function expireVendorOffers(db: SupabaseClient, now: Date = new Dat
     vendorById.set(String(row.id), { email: String(rowData.email ?? "").trim().toLowerCase(), name: String(rowData.name ?? "").trim() });
   }
   const managerIds = [...new Set(claimed.map((offer) => offer.manager_user_id))];
-  const [serviceSettings, { data: profiles }] = await Promise.all([
-    loadServiceAutomationSettingsForManagers(db, managerIds),
-    db.from("profiles").select("id, email, full_name").in("id", managerIds),
-  ]);
+  const settingsCache = createSettingsScopeCache();
+  const { data: profiles } = await db.from("profiles").select("id, email, full_name").in("id", managerIds);
   const senderById = new Map<string, { email: string; name: string }>();
   for (const row of profiles ?? []) {
     senderById.set(String(row.id), { email: String(row.email ?? "").trim().toLowerCase(), name: String(row.full_name ?? "").trim() || "PropLane Portal" });
@@ -107,7 +106,12 @@ export async function expireVendorOffers(db: SupabaseClient, now: Date = new Dat
         ? [{ audience: "vendor" as const, userId: offer.vendor_user_id ?? undefined, email: vendor?.email || undefined }]
         : [];
     });
-    const tellManager = stillOpen && (serviceSettings.get(workOrder.managerUserId)?.notifyWhenNoVendorAnswers ?? true);
+    // A house with its own service automation settings gets them; a work order
+    // with no property, or an un-customized house, falls through workspace then
+    // account (phase C).
+    const workOrderPropertyId = workOrder.row.assignedPropertyId || workOrder.row.propertyId || null;
+    const serviceSettings = await resolveServiceAutomationSettingsForRow(db, settingsCache, workOrder.managerUserId, workOrderPropertyId);
+    const tellManager = stillOpen && serviceSettings.notifyWhenNoVendorAnswers;
     const managerRecipients = tellManager
       ? (
           await resolvePropertyScopedManagerRecipientIds(db, {

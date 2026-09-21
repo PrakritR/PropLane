@@ -150,12 +150,36 @@ when the round trip was lost, showed nothing. The size placeholder is a dash,
 never a number.
 
 Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
+`tests/unit/listing-wizard-v2-rooms-all-rooms.test.tsx`,
 `tests/unit/listing-pricing-screen-behaviour.test.tsx`,
 `tests/unit/listing-application-fee.test.ts`,
 `tests/unit/listing-wizard-v2-basics-bathrooms.test.tsx`,
 `tests/unit/listing-house-defaults.test.ts`,
 `tests/unit/listing-record-defaults.test.ts`,
 `tests/unit/listing-shared-spaces-no-default.test.ts`.
+
+## The Rooms step names its top card "All rooms" (PLAN-0914-1734)
+
+The Rooms step's own top card reads **All rooms**, not "Default room" — the
+Bathrooms and Shared spaces steps keep "Default bathroom" / "Default shared
+space". Each room gets a **Same as all rooms** checkbox next to its name
+(`SameAsAllToggle`'s `allLabel` prop): ticked, every tracked field is dashed
+and following; a hand edit (or an untick) detaches just that field, which
+turns solid and grows a "Reset to All rooms" tag. This is the same per-field
+follow/reset mechanic every Default card already had — no second mechanism —
+except that here it survives a reload: touching a field, resetting it, or
+duplicating a room writes `room.ownRoomFields` (the touched field names) on
+the submission itself (`ManagerRoomSubmission.ownRoomFields`,
+`manager-listing-submission.ts`), and the Rooms step seeds its per-field
+"own" tracking from it on mount. Nothing outside the Rooms step editor reads
+that list — a room's own value is still what Review, the public listing and
+the lease read, exactly as every other Default card's records are. Bathrooms
+and Shared spaces have not been given this persistence; their per-field
+tracking stays a session convenience, so a field whose value happens to equal
+the top card's after a reload reads as following again. Secondary Rooms
+fields (furnishing, amenities, size, photos, checklists…) stay behind one
+More ▾, and a column label's ⓘ opens one line on tap — never a sentence
+printed under the label.
 
 ## Partial months (PLAN-0920-0423)
 

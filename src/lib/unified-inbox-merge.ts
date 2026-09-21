@@ -1,5 +1,7 @@
 /** Shared types for email + SMS rows in one Communication inbox list. */
 
+import type { RecordKind } from "@/lib/portals/record-kinds";
+
 export type UnifiedInboxChannel = "email" | "sms";
 
 export type CommunicationListSort = "recent" | "resident";
@@ -55,6 +57,8 @@ export type UnifiedInboxListItem = {
    * A non-empty set - including a conflict - forbids email fallback.
    */
   smsBindingKeys?: string[];
+  /** The record this thread is about (`PersistedInboxThread.recordRef`), when it has one. */
+  recordRef?: { kind: RecordKind; id: string; label: string };
 };
 
 export function sortUnifiedInboxItems(
@@ -179,6 +183,7 @@ export function mergeUnifiedInboxItems(
       // one rather than the winner's blank.
       address: winner.address ?? ordered.find((row) => row.address)?.address,
       category: winner.category ?? ordered.find((row) => row.category)?.category,
+      recordRef: winner.recordRef ?? ordered.find((row) => row.recordRef)?.recordRef,
       // A merged row is one conversation, so its unread badge is the total
       // across the channels folded into it.
       unreadCount: ordered.reduce((sum, row) => sum + (row.unreadCount ?? 0), 0) || undefined,

@@ -6,6 +6,7 @@ import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RecordActionContext, RecordActionItemsContext, RecordActionCloseContext } from "./record-action-context";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu";
+import { isPostDividerRecordActionId, orderRecordActions } from "@/lib/portals/record-action-order";
 
 /** Trailing ⋯ on list rows — shared sitewide (portal lists, DataList overflow, expense rows). */
 export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-8 shrink-0 text-foreground stroke-[2.75]";
@@ -47,6 +48,15 @@ type ActionLeafProps = {
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void | Promise<unknown>;
   onSelect?: (event: Event) => void;
   children?: ReactNode;
+  /**
+   * Opts a leaf into `orderRecordActions` (`src/lib/portals/record-action-order.ts`)
+   * — the record's own action ids ("edit", "record-payment", …), or one of the
+   * trailing ids it recognizes ("message", "copy", "share", "archive",
+   * "delete"). A menu whose every leaf carries this renders in the one
+   * canonical order; a menu with any untagged leaf keeps today's
+   * destructive-goes-last behavior unchanged (PLAN-0920-1058 area 1d).
+   */
+  "data-record-action-id"?: string;
 };
 
 /** Flatten `context.actions` into leaves, mirroring RecordActionItems' own Fragment/"div" recursion. */
@@ -70,12 +80,21 @@ function withStableKey(leaf: ReactElement<ActionLeafProps>, index: number): Reac
 }
 
 function isDestructiveLeaf(leaf: ReactElement<ActionLeafProps>): boolean {
+  const actionId = leaf.props["data-record-action-id"];
+  if (actionId && isPostDividerRecordActionId(actionId)) return true;
   if (leaf.type === Button && leaf.props.variant === "danger") return true;
   if (typeof leaf.props.className === "string" && leaf.props.className.includes("text-danger")) return true;
   return false;
 }
 
-/** Split a menu's actions into non-destructive and destructive leaf groups, order preserved. */
+/**
+ * Split a menu's actions into non-destructive and destructive leaf groups.
+ *
+ * When every leaf declares `data-record-action-id`, the non-destructive group
+ * is additionally sorted into the canonical order (own actions, capped, then
+ * Message, then Copy link / Share) via `orderRecordActions` — a menu that has
+ * not adopted ids yet keeps its given order exactly as before.
+ */
 function splitDestructiveActions(actions: ReactNode) {
   const leaves = flattenActionLeaves(actions).map(withStableKey);
   const nonDestructive: ReactElement<ActionLeafProps>[] = [];
@@ -84,7 +103,13 @@ function splitDestructiveActions(actions: ReactNode) {
     if (isDestructiveLeaf(leaf)) destructive.push(leaf);
     else nonDestructive.push(leaf);
   }
-  return { nonDestructive, destructive };
+  const fullyTagged = nonDestructive.length > 0 && nonDestructive.every((leaf) => Boolean(leaf.props["data-record-action-id"]));
+  const orderedNonDestructive = fullyTagged
+    ? orderRecordActions(nonDestructive.map((leaf) => ({ id: leaf.props["data-record-action-id"]!, leaf }))).map(
+        (entry) => entry.leaf,
+      )
+    : nonDestructive;
+  return { nonDestructive: orderedNonDestructive, destructive };
 }
 
 export function RecordActionMenu({ label, activate, disabled = false, onOpen }: {

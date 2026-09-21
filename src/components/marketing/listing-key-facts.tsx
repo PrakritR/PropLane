@@ -1,8 +1,8 @@
 import type { ComponentType } from "react";
-import { Bath, BedDouble, CalendarDays, Camera, DollarSign, PawPrint } from "lucide-react";
+import { Bath, BedDouble, CalendarDays, DollarSign, PawPrint } from "lucide-react";
 import type { MockProperty } from "@/data/types";
 import type { ListingRichContent } from "@/data/listing-rich-content";
-import { roomAvailabilityTone } from "@/lib/room-availability-style";
+import { classifyRoomOpening, earliestRoomOpening } from "@/lib/room-availability-style";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import type { ListingBathroomRow, ListingSharedRow } from "@/data/listing-rich-content";
 
@@ -33,7 +33,7 @@ export function formatMoneyInLabel(label: string): string {
  * from prose — and a tile whose value is genuinely unknown is omitted rather
  * than shown as a dash.
  */
-export type ListingKeyFactId = "rent" | "rooms" | "baths" | "availability" | "pets" | "photos";
+export type ListingKeyFactId = "rent" | "rooms" | "baths" | "availability" | "pets";
 
 export type ListingKeyFact = {
   id: ListingKeyFactId;
@@ -71,7 +71,6 @@ function rentPeriodLabel(rich: Pick<ListingRichContent, "priceRangeLabel" | "sta
 export function deriveListingKeyFacts(
   rich: ListingRichContent,
   property: Pick<MockProperty, "beds" | "baths" | "petFriendly">,
-  options: { photoCount?: number } = {},
 ): ListingKeyFact[] {
   const facts: ListingKeyFact[] = [];
 
@@ -81,7 +80,7 @@ export function deriveListingKeyFacts(
   const rooms = rich.floorPlans.flatMap((f) => f.rooms);
   const roomCount = rooms.length > 0 ? rooms.length : property.beds > 0 ? property.beds : 0;
   if (roomCount > 0) {
-    const availableNow = rooms.filter((r) => roomAvailabilityTone(r.availability) === "available").length;
+    const availableNow = rooms.filter((r) => classifyRoomOpening(r.availability).kind === "now").length;
     facts.push({
       id: "rooms",
       value: `${roomCount} room${roomCount === 1 ? "" : "s"}`,
@@ -105,32 +104,12 @@ export function deriveListingKeyFacts(
 
   if (property.petFriendly) facts.push({ id: "pets", value: "Pets OK" });
 
-  if (typeof options.photoCount === "number") {
-    facts.push({
-      id: "photos",
-      value: `${options.photoCount} photo${options.photoCount === 1 ? "" : "s"}`,
-      label: options.photoCount === 0 ? "add to publish" : undefined,
-    });
-  }
-
   return facts;
 }
 
-/**
- * The soonest a renter can move in, from the rooms' own availability copy:
- * any room open now wins; otherwise the first future-dated opening's text;
- * nothing when every room is unavailable or the copy says nothing useful.
- */
 export function earliestAvailability(availabilities: string[]): string | null {
-  let future: string | null = null;
-  for (const raw of availabilities) {
-    const text = raw?.trim();
-    if (!text || text === "—") continue;
-    const tone = roomAvailabilityTone(text);
-    if (tone === "available") return "Available now";
-    if (tone === "future" && !future) future = text;
-  }
-  return future;
+  if (availabilities.some((text) => classifyRoomOpening(text).kind === "now")) return "Available now";
+  return earliestRoomOpening(availabilities.filter((text) => classifyRoomOpening(text).kind === "later"));
 }
 
 const ICONS: Record<ListingKeyFactId, ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean }>> = {
@@ -139,7 +118,6 @@ const ICONS: Record<ListingKeyFactId, ComponentType<{ className?: string; stroke
   baths: Bath,
   availability: CalendarDays,
   pets: PawPrint,
-  photos: Camera,
 };
 
 export function ListingKeyFacts({ facts, className = "" }: { facts: ListingKeyFact[]; className?: string }) {

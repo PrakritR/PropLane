@@ -9,7 +9,13 @@ import type { InspectionDetail } from "@/lib/inspections/model";
 const { request, capture } = vi.hoisted(() => ({ request: vi.fn(), capture: vi.fn() }));
 vi.mock("@/lib/inspections/client", () => ({ downloadInspection: vi.fn(), inspectionRequest: request }));
 vi.mock("@/lib/native/use-native-camera", () => ({ useNativeCamera: () => ({ capture }) }));
-vi.mock("@/components/ui/modal", () => ({ Modal: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer: ReactNode }) => open ? <div role="dialog" aria-label={title}>{children}{footer}</div> : null }));
+vi.mock("@/components/ui/modal", async (importOriginal) => ({
+  // Keep the real ModalFooter/MODAL_HEADER_CLOSE_CLASS etc. — PortalDialog
+  // (used by the editor's confirm dialog) imports those directly, independent
+  // of this simplified Modal fake.
+  ...(await importOriginal<typeof import("@/components/ui/modal")>()),
+  Modal: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer: ReactNode }) => open ? <div role="dialog" aria-label={title}>{children}{footer}</div> : null,
+}));
 import { InspectionEditor } from "@/components/portal/inspection-editor";
 
 let detail: InspectionDetail;
@@ -108,7 +114,7 @@ it("restores unsaved notes after a history-style unmount without silently overwr
   await pause(); expect(request).not.toHaveBeenCalled();
   request.mockResolvedValue(detail);
   fireEvent.click(screen.getByRole("button", { name: "Review latest", exact: true }));
-  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
+  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("[data-attr=\"inspection-confirm\"]")!); });
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
 });
 
@@ -120,7 +126,7 @@ it("keeps the same photo across a conflict refresh and retries with the fresh re
   request.mockRejectedValueOnce(new Error("Someone updated this report")).mockResolvedValueOnce(current).mockResolvedValueOnce(uploaded); mount();
   await startPhotoUpload();
   fireEvent.click(screen.getByRole("button", { name: "Review latest", exact: true }));
-  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
+  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("[data-attr=\"inspection-confirm\"]")!); });
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry upload" })); });
   const body = request.mock.calls[2]![2].body as FormData;
@@ -178,7 +184,7 @@ it("keeps a captured photo recoverable when a refresh freezes the report", async
 
   await startPhotoUpload();
   fireEvent.click(screen.getByRole("button", { name: "Review latest", exact: true }));
-  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
+  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("[data-attr=\"inspection-confirm\"]")!); });
 
   const writes = () => request.mock.calls.filter(call => call[2]?.method && call[2].method !== "GET").length;
   const writesAfterRefresh = writes();

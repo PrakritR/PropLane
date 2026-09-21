@@ -574,7 +574,7 @@ describe("ManagerMessagingSettingsPanel", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(trialPlan)));
     render(<ManagerMessagingSettingsPanel />);
 
-    const link = await screen.findByRole("link", { name: "Activate paid plan" });
+    const link = await screen.findByRole("link", { name: "Start Pro" });
     expect(link.getAttribute("href")).toBe("/portal/profile?tab=billing&activatePaid=1");
     expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
   });

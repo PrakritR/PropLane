@@ -253,7 +253,7 @@ export function ManagerScreenings({
 
   const openScreening = useCallback(
     (row: DemoApplicantRow) => {
-      navigate(applicationScreeningDetailHref(basePath, row.id));
+      navigate(applicationScreeningDetailHref(basePath, "approved", row.id));
     },
     [basePath, navigate],
   );

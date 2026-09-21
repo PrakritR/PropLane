@@ -31,7 +31,9 @@ vi.mock("@/lib/manager-vendors-storage", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/portal/documents",
 }));
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 
 import { ManagerDocumentLibrary } from "@/components/portal/pro-document-library";
 import {
@@ -128,14 +130,14 @@ describe("document write → dashboard expiry counts", () => {
     // The dashboard has already painted once, so the TTL cache is warm.
     expect(await dashboardRead()).toMatchObject({ expiringSoon: 3, expired: 1 });
 
-    const { container } = render(<ManagerDocumentLibrary userId={MANAGER} />);
-    const nameCell = (await screen.findAllByText(/Boiler inspection certificate/))[0];
+    // Delete now lives behind the document's own record page header icon
+    // (PLAN-0920-1058, area 1c) rather than an inline row expand.
+    const { container } = render(<ManagerDocumentLibrary userId={MANAGER} documentId="doc-1" />);
+    await screen.findAllByText(/Boiler inspection certificate/);
 
-    // What the manager does: open the row, then hit Delete and confirm.
-    fireEvent.click(nameCell.closest("tr") ?? nameCell);
     const deleteBtn = await waitFor(() => {
-      const el = container.querySelector<HTMLButtonElement>('[data-attr="document-delete"]');
-      if (!el) throw new Error("Delete action not open yet");
+      const el = container.querySelector<HTMLButtonElement>('[data-attr="record-header-action-delete"]');
+      if (!el) throw new Error("Delete action not rendered yet");
       return el;
     });
     fireEvent.click(deleteBtn);

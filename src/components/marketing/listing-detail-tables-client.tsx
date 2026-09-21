@@ -347,7 +347,7 @@ function PhotoStrip({ captions, imageUrls }: { captions?: string[]; imageUrls?: 
     // so the facts under it are one scroll away instead of six.
     return (
       <div className={`grid gap-2 ${imgs.length === 1 ? "grid-cols-1" : "grid-cols-[2fr_1fr]"}`}>
-        {imgs.slice(0, 5).map((src, i) => (
+        {imgs.map((src, i) => (
           <div
             key={`${src.slice(0, 48)}-${i}`}
             className={`relative overflow-hidden rounded-lg bg-accent/30 ${i === 0 ? "row-span-2 aspect-[4/3]" : "aspect-[4/3]"} ${
@@ -356,11 +356,6 @@ function PhotoStrip({ captions, imageUrls }: { captions?: string[]; imageUrls?: 
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
-            {i === 4 && imgs.length > 5 ? (
-              <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-bold text-white">
-                +{imgs.length - 5}
-              </span>
-            ) : null}
           </div>
         ))}
       </div>
@@ -652,19 +647,12 @@ export function ListingDetailModal({
         {state.kind === "bathroom" ? (
           <ListingModalBody
             footer={
-              <PreviewSafeModalActions
+              <ListingModalCta
+                href={tourHref}
+                label="Schedule tour"
+                variant="primary"
+                dataAttr="listing-bathroom-tour"
                 newTabProps={newTabProps}
-                primary={{
-                  href: textMessageAbout("this bathroom"),
-                  label: messageLabel,
-                  dataAttr: "listing-text-message-bathroom",
-                  ...messageCtaExtras,
-                }}
-                secondary={{
-                  href: textApplyHref,
-                  label: applyLabel,
-                  dataAttr: "listing-text-apply",
-                }}
               />
             }
           >
@@ -700,19 +688,12 @@ export function ListingDetailModal({
         {state.kind === "shared" ? (
           <ListingModalBody
             footer={
-              <PreviewSafeModalActions
+              <ListingModalCta
+                href={tourHref}
+                label="Schedule tour"
+                variant="primary"
+                dataAttr="listing-shared-tour"
                 newTabProps={newTabProps}
-                primary={{
-                  href: textApplyHref,
-                  label: applyLabel,
-                  dataAttr: "listing-text-apply",
-                }}
-                secondary={{
-                  href: textMessageHref,
-                  label: messageLabel,
-                  dataAttr: "listing-text-message",
-                  ...messageCtaExtras,
-                }}
               />
             }
           >

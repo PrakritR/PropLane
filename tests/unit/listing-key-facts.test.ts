@@ -79,6 +79,18 @@ describe("earliestAvailability", () => {
   it("uses the first future opening when nothing is open now", () => {
     expect(earliestAvailability(["Not available", "Available after Oct 1, 2099"])).toBe("Available after Oct 1, 2099");
   });
+  it("orders dated openings before undated future text regardless of room order", () => {
+    expect(earliestAvailability(["Available soon", "Available after Dec 1, 2099", "Available after Oct 1, 2099"])).toBe("Available after Oct 1, 2099");
+    expect(earliestAvailability(["Available after Dec 1, 2099", "Waitlist"])).toBe("Available after Dec 1, 2099");
+    expect(earliestAvailability(["Waitlist", "Available soon"])).toBe("Waitlist");
+  });
+  it("treats a 'from' date the same as an 'after' date — never available now", () => {
+    expect(earliestAvailability(["Available from Oct 1, 2099"])).toBe("Available from Oct 1, 2099");
+    expect(earliestAvailability(["Available from Oct 1, 2099", "Available now"])).toBe("Available now");
+    expect(earliestAvailability(["Available after Dec 1, 2099", "Available from Oct 1, 2099"])).toBe("Available from Oct 1, 2099");
+    expect(earliestAvailability(["Available after December", "Available from Oct 1, 2099"])).toBe("Available from Oct 1, 2099");
+  });
+
   it("is null when every room is unavailable or blank", () => {
     expect(earliestAvailability(["Not available", "—", ""])).toBeNull();
   });
@@ -120,9 +132,9 @@ describe("deriveListingKeyFacts", () => {
     expect(facts.find((f) => f.id === "baths")).toBeUndefined();
   });
 
-  it("adds the photo tile only for the manager variant", () => {
-    expect(deriveListingKeyFacts(rich(), property).some((f) => f.id === "photos")).toBe(false);
-    const withPhotos = deriveListingKeyFacts(rich(), property, { photoCount: 0 });
-    expect(withPhotos.find((f) => f.id === "photos")).toEqual({ id: "photos", value: "0 photos", label: "add to publish" });
+  it("keeps only the public key facts", () => {
+    expect(deriveListingKeyFacts(rich(), property).map((fact) => fact.id)).toEqual([
+      "rent", "rooms", "baths", "availability", "pets",
+    ]);
   });
 });

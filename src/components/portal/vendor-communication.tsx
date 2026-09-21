@@ -56,6 +56,8 @@ import {
   type ManagerSmsBucketId,
   type ManagerSmsMessageRow,
 } from "@/lib/manager-sms-messages";
+import { threadPassesCommunicationFilters, type CommunicationThreadFilters } from "@/lib/communication-thread-filters";
+import { recordRoutePath } from "@/lib/portals/record-kinds";
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_vendor";
@@ -87,6 +89,7 @@ function VendorUnifiedInbox({
   onThreadSelectedChange,
   commBase,
   listActions,
+  threadFilters,
 }: {
   inboxRef: React.RefObject<VendorInboxPanelHandle | null>;
   smsUiEnabled: boolean;
@@ -102,6 +105,8 @@ function VendorUnifiedInbox({
   onThreadSelectedChange?: (selected: boolean) => void;
   commBase: string;
   listActions?: React.ReactNode;
+  /** Narrows the list — currently only `recordRefs`/`recordKinds` (record-linked communication). */
+  threadFilters?: CommunicationThreadFilters;
 }) {
   const { ready: sessionReady } = usePortalSession();
   const [emailThreads, setEmailThreads] = useState(() => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, []));
@@ -140,10 +145,13 @@ function VendorUnifiedInbox({
     setSelectedKey(null);
   }, [listSegment]);
 
-  const filteredEmail = useMemo(
-    () => filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled }),
-    [emailThreads, smsUiEnabled],
-  );
+  const filteredEmail = useMemo(() => {
+    const base = filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled });
+    if (!threadFilters) return base;
+    return base.filter((t) =>
+      threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef }),
+    );
+  }, [emailThreads, smsUiEnabled, threadFilters]);
 
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
     const q = searchQuery.trim().toLowerCase();
@@ -173,6 +181,7 @@ function VendorUnifiedInbox({
         // Vendor threads carry no property: a vendor's work is per job, and the
         // job is not on the conversation row. No address rather than a wrong one.
         category: inboxThreadCategoryLabel(t),
+        recordRef: t.recordRef,
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
@@ -295,6 +304,11 @@ function VendorUnifiedInbox({
               unreadCount={row.unreadCount}
               address={row.address}
               category={row.category}
+              recordChip={
+                row.recordRef
+                  ? { label: row.recordRef.label, href: recordRoutePath("vendor", row.recordRef.kind, row.recordRef.id) }
+                  : undefined
+              }
               selected={selectedKey === row.key}
               onOpen={() => {
                 setSelectedKey(row.key);
@@ -371,6 +385,7 @@ export function VendorCommunication({
   listSegment = "active",
   threadId,
   smsUiEnabled = false,
+  threadFilters,
 }: {
   /** Routed conversation list segment (Active / Unread / Archived). */
   listSegment?: InboxListSegment;
@@ -379,6 +394,8 @@ export function VendorCommunication({
   /** @deprecated Folder tabs removed; kept so legacy routes still resolve. */
   inboxTabId?: VendorEmailTabId;
   smsUiEnabled?: boolean;
+  /** Scopes the list to one record (`RecordCommunicationSection`) or one "About" kind. */
+  threadFilters?: CommunicationThreadFilters;
 }) {
   const commBase = "/vendor/communication";
   const communicationSettingsEntry = getSettingsEntryPoint("vendorCommunication");
@@ -444,6 +461,7 @@ export function VendorCommunication({
         onThreadSelectedChange={setThreadSelected}
         commBase={commBase}
         listActions={communicationCommandActions}
+        threadFilters={threadFilters}
       />
     </PortalCommunicationShell>
   );

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import {
   ManagerLegacyServiceIntakeForm,
   type ManagerServiceResidentOption,
@@ -43,27 +42,17 @@ export function ManagerCreateServiceRequestModal({
   };
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
       onClose={onClose}
       title="Add service"
-      dense
-      assistantContext="Add service"
-      footer={
-        footer ? (
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={footer.submit}
-              disabled={footer.saving || !footer.canSubmit}
-              data-attr="manager-service-request-save"
-            >
-              {footer.saving ? "Saving…" : footer.label}
-            </Button>
-          </ModalFooter>
-        ) : undefined
-      }
+      primaryAction={{
+        label: footer?.saving ? "Saving…" : footer?.label ?? "Add service",
+        onClick: () => footer?.submit(),
+        disabled: !footer || footer.saving || !footer.canSubmit,
+        loading: footer?.saving,
+        dataAttr: "manager-service-request-save",
+      }}
     >
       <ManagerLegacyServiceIntakeForm
         open={open}
@@ -76,6 +65,6 @@ export function ManagerCreateServiceRequestModal({
         onRegisterFooter={setFooter}
         onLeaveForCatalog={onClose}
       />
-    </Modal>
+    </PortalDialog>
   );
 }

@@ -3,14 +3,20 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Per-property overrides for Operations settings (PLAN-0916-1040).
+ * Per-property overrides for Operations settings (PLAN-0916-1040, extended by
+ * PLAN-0920-0845).
  *
  * A house that wants its own reminders / automation stores a blob at
  * `manager_property_records.row_data.operationsSettings.<namespace>` — the
  * same per-property JSON record the Payments service-fee payer already lives
  * in (`manager-manual-payment-settings.server.ts`). No migration.
  *
- * Resolution is always: house override → workspace default → built-in default.
+ * This module is the PROPERTY rung only. Resolution across every rung — house
+ * override → workspace row (`workspace_automation_settings`) → account row
+ * (this manager's own settings — what earlier comments here called "the
+ * workspace default", before a real `portal_workspaces`-scoped rung existed) →
+ * built-in default — lives in `@/lib/settings/scope-resolver.server`, which
+ * calls into this module for the first rung.
  *
  * `savePropertyOverride` MERGES the incoming value's own top-level keys onto
  * whatever is already stored for that namespace, rather than replacing the
@@ -27,7 +33,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * changes for those namespaces. `clearPropertyOverride` accepts an optional
  * `kind` to delete one top-level key (or one nested `rules.<kind>` on a
  * pre-existing whole-blob override saved before this change) instead of the
- * whole namespace.
+ * whole namespace — "Reset to account/workspace default" for one kind is one
+ * delete, and the result resolves to whatever the next rung up holds.
  *
  * A pre-existing whole-blob `reminderRules` override (saved before per-kind
  * partial overrides existed) already has every kind present under a nested
@@ -43,30 +50,40 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * with an accepted grant for the property may also reach this module — the
  * CALLING ROUTE resolves and authorizes that first, through
  * `resolveSettingsPropertyOwner`/`resolveReminderKindsSettingsPropertyOwner`
- * (`@/lib/auth/manager-settings-module-access.server`), which reuses the
- * same `assertCoManagerModuleAccess` gate every other co-manager-aware
- * settings surface uses (never a wider check), then passes the resolved
+ * (`@/lib/auth/manager-settings-module-access.server`) or, for a named
+ * workspace or a foreign owner's property, `assertSettingsScopeOwned` — both
+ * reuse the same `assertCoManagerModuleAccess` gate every other co-manager-
+ * aware settings surface uses (never a wider check), then pass the resolved
  * PROPERTY OWNER's id in here — this module never resolves ownership itself,
  * only verifies the id it was given. That is a permission-gated read/write,
  * never an ownership transfer. A `propertyId` not in scope at all throws
  * {@link ForeignPropertyError}, which the routes map to 403; it is never a
- * silent fallback to the workspace value.
+ * silent fallback to the workspace or account value.
  */
 
 /** The `row_data` key every Operations override namespace hangs under. */
 export const OPERATIONS_SETTINGS_KEY = "operationsSettings";
 
 /**
- * The namespaces a house may override. These mirror the keys the workspace
- * settings already use inside `manager_automation_settings.row_data`, so the
- * override is conceptually the same blob stored one level down on the house.
+ * The namespaces a house may override. These mirror the keys the account-level
+ * settings already use inside `manager_automation_settings.row_data` (and, for
+ * a workspace rung, `workspace_automation_settings.row_data`), so the override
+ * is conceptually the same blob stored one level down on the house.
+ *
+ * `applicationAutomation` and `tourSettings` (PLAN-0920-0845) join the set
+ * `resolveSettingsScope` resolves through all three rungs. `paymentAutomation`
+ * and `serviceAutomation` were declared here but never wired to a route until
+ * the same change — see `src/app/api/portal/automation-settings/route.ts` and
+ * `src/app/api/portal/service-automation-settings/route.ts`.
  */
 export type OperationsNamespace =
   | "reminderRules"
   | "paymentAutomation"
   | "lifecycleTasks"
   | "serviceAutomation"
-  | "automatedMessages";
+  | "automatedMessages"
+  | "applicationAutomation"
+  | "tourSettings";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {

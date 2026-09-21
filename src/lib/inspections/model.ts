@@ -3,9 +3,13 @@ import { z } from "zod";
 export const INSPECTION_CONDITIONS = {
   unchecked: "Not checked", good: "Good", fair: "Wear / fair", damaged: "Damaged", na: "Not applicable",
 } as const;
-/** Stored assignment values may be catalog keys; never show those keys as room names. */
-export function inspectionRoomLabel(value: string) {
-  return value.includes("::") ? "Assigned room" : value;
+/**
+ * Stored assignment values may be catalog keys, never a real room name — show
+ * the actual name or nothing at all, never a fabricated placeholder like
+ * "Assigned room" standing in for one.
+ */
+export function inspectionRoomLabel(value: string): string {
+  return value.includes("::") ? "" : value;
 }
 
 export type InspectionRole = "manager" | "resident";

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Select, Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
@@ -1152,33 +1153,20 @@ export function ResidentPaymentsPanel({
         <label htmlFor="resident-payments-pay-method-select" className="text-xs font-semibold text-muted">
           Payment method
         </label>
-        <div className="flex items-stretch gap-2 sm:gap-3">
-          <Select
-            aria-label="Payment method"
-            className="min-w-0 flex-1"
-            value={payConfirm.method}
-            data-attr="resident-payments-pay-method-select"
-            onChange={(event) => {
-              selectPayModalMethod(event.target.value as ResidentAxisPaymentMethod);
-            }}
-          >
-            {payMethodDropdownOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.title}
-              </option>
-            ))}
-          </Select>
-          <Button
-            type="button"
-            variant="primary"
-            className="h-11 shrink-0 rounded-full px-5"
-            disabled={checkout?.loading}
-            data-attr="resident-payments-confirm-pay"
-            onClick={() => void continuePayModal()}
-          >
-            Pay {confirmTotalLabel}
-          </Button>
-        </div>
+        <Select
+          aria-label="Payment method"
+          value={payConfirm.method}
+          data-attr="resident-payments-pay-method-select"
+          onChange={(event) => {
+            selectPayModalMethod(event.target.value as ResidentAxisPaymentMethod);
+          }}
+        >
+          {payMethodDropdownOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.title}
+            </option>
+          ))}
+        </Select>
         {selectedOption ? (
           <p className="text-xs text-muted">
             Secure checkout opens in this window. Apple Pay and Google Pay appear when supported.
@@ -1614,8 +1602,45 @@ export function ResidentPaymentsPanel({
       )}
     </Modal>
 
+    {payConfirm && payModalStep === "select" ? (
+      <PortalDialog
+        open
+        onClose={closePayModal}
+        title="Pay charges"
+        primaryAction={{
+          label: `Pay ${confirmTotalLabel}`,
+          onClick: () => void continuePayModal(),
+          disabled: checkout?.loading,
+          dataAttr: "resident-payments-confirm-pay",
+        }}
+      >
+        <div className="flex min-h-[min(50vh,20rem)] flex-col gap-4">
+          <div className="flex flex-1 flex-col justify-center space-y-4">
+            <div className="space-y-1 text-center">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Amount due</p>
+              <p className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{confirmTotalLabel}</p>
+              {confirmMoveInGroup ? (
+                <p className="text-sm text-muted">Move-in total · {moveInGroupItemCountLabel(confirmMoveInGroup)}</p>
+              ) : confirmCharges.length > 1 ? (
+                <p className="text-sm text-muted">{confirmCharges.length} charges</p>
+              ) : confirmCharges[0]?.title ? (
+                <p className="text-sm text-muted">{confirmCharges[0].title}</p>
+              ) : null}
+            </div>
+            {payConfirm.method ? (
+              <p className="text-center text-xs text-muted">No added fees · PropLane covers payment processing</p>
+            ) : null}
+          </div>
+          {renderPayModalMethodFooter()}
+        </div>
+      </PortalDialog>
+    ) : null}
+
+    {/* The checkout step stops at the Stripe element: its own Back control and
+        embedded iframe are unchanged, not folded into PortalDialog's fixed
+        footer, since the commit action there lives inside the iframe. */}
     <Modal
-      open={payConfirm !== null}
+      open={payConfirm !== null && payModalStep !== "select"}
       onClose={closePayModal}
       title="Pay charges"
       scrollableContent
@@ -1623,74 +1648,50 @@ export function ResidentPaymentsPanel({
     >
       {payConfirm ? (
         <div className="flex min-h-[min(50vh,20rem)] flex-col gap-4">
-          {payModalStep === "select" ? (
-            <>
-              <div className="flex flex-1 flex-col justify-center space-y-4">
-                <div className="space-y-1 text-center">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Amount due</p>
-                  <p className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{confirmTotalLabel}</p>
-                  {confirmMoveInGroup ? (
-                    <p className="text-sm text-muted">Move-in total · {moveInGroupItemCountLabel(confirmMoveInGroup)}</p>
-                  ) : confirmCharges.length > 1 ? (
-                    <p className="text-sm text-muted">{confirmCharges.length} charges</p>
-                  ) : confirmCharges[0]?.title ? (
-                    <p className="text-sm text-muted">{confirmCharges[0].title}</p>
-                  ) : null}
-                </div>
-                {payConfirm.method ? (
-                  <p className="text-center text-xs text-muted">No added fees · PropLane covers payment processing</p>
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full"
+              disabled={checkout?.loading}
+              onClick={() => {
+                setPayModalStep("select");
+                setCheckout(null);
+              }}
+            >
+              Back
+            </Button>
+            <p className="text-sm text-foreground">
+              <span className="font-semibold tabular-nums">{confirmTotalLabel}</span>
+            </p>
+          </div>
+          <div className="space-y-3">
+            {checkout?.loading ? (
+              <p className="text-sm text-muted">Loading secure checkout…</p>
+            ) : checkout?.error ? (
+              <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
+                <p>{checkout.error}</p>
+                {checkout.blockedByManagerSetup ? (
+                  // Never a dead end: a resident who cannot pay by card needs
+                  // somewhere to go, and Communication is where they reach the
+                  // manager who has to fix it.
+                  <Link
+                    href="/resident/communication/active"
+                    className="mt-2 inline-block font-semibold underline underline-offset-2"
+                    data-attr="resident-payment-error-contact-manager"
+                  >
+                    Message your property manager
+                  </Link>
                 ) : null}
               </div>
-              {renderPayModalMethodFooter()}
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={checkout?.loading}
-                  onClick={() => {
-                    setPayModalStep("select");
-                    setCheckout(null);
-                  }}
-                >
-                  Back
-                </Button>
-                <p className="text-sm text-foreground">
-                  <span className="font-semibold tabular-nums">{confirmTotalLabel}</span>
-                </p>
+            ) : payModalCheckoutReady && checkout?.clientSecret ? (
+              <div className="min-h-[min(50vh,28rem)] overflow-hidden rounded-2xl border border-border bg-card">
+                <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
               </div>
-              <div className="space-y-3">
-                {checkout?.loading ? (
-                  <p className="text-sm text-muted">Loading secure checkout…</p>
-                ) : checkout?.error ? (
-                  <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
-            <p>{checkout.error}</p>
-            {checkout.blockedByManagerSetup ? (
-              // Never a dead end: a resident who cannot pay by card needs
-              // somewhere to go, and Communication is where they reach the
-              // manager who has to fix it.
-              <Link
-                href="/resident/communication/active"
-                className="mt-2 inline-block font-semibold underline underline-offset-2"
-                data-attr="resident-payment-error-contact-manager"
-              >
-                Message your property manager
-              </Link>
-            ) : null}
+            ) : (
+              <p className="text-sm text-muted">Could not load secure checkout. Go back and try again.</p>
+            )}
           </div>
-                ) : payModalCheckoutReady && checkout?.clientSecret ? (
-                  <div className="min-h-[min(50vh,28rem)] overflow-hidden rounded-2xl border border-border bg-card">
-                    <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted">Could not load secure checkout. Go back and try again.</p>
-                )}
-              </div>
-            </>
-          )}
         </div>
       ) : null}
     </Modal>

@@ -32,6 +32,7 @@ import {
 } from "@/lib/notification-preferences";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -214,6 +215,14 @@ export async function commitInboxThreadReply(
     channel?: InboxThreadMessageChannel;
     /** Email subject the turn left with, for the bubble's subject line. */
     subject?: string;
+    /**
+     * Stamp this thread as being about a record — but ONLY when it does not
+     * already carry a `recordRef`. A reply into an already-classified thread
+     * (e.g. a resident replying inside their Lease page's Communication) must
+     * never relabel it onto whatever record the REPLIER happened to be
+     * viewing; the ref is set once, by whoever first composed from a record.
+     */
+    recordRef?: RecordRef;
   },
 ): Promise<void> {
   const { data: freshRow, error: readError } = await db
@@ -236,6 +245,8 @@ export async function commitInboxThreadReply(
     ...(opts.channel ? { channel: opts.channel } : {}),
     ...(opts.subject?.trim() ? { subject: opts.subject.trim() } : {}),
   });
+  const existingRecordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef);
+  const recordRef = existingRecordRef ?? normalizeRecordRef(opts.recordRef);
   const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
     {
       id: target.threadId,
@@ -250,6 +261,7 @@ export async function commitInboxThreadReply(
         // so an append that leaves it stale never floats the thread.
         time: when,
         unread: false,
+        ...(recordRef ? { recordRef } : {}),
       },
       updated_at: new Date().toISOString(),
     },
@@ -419,10 +431,19 @@ export async function deliverPortalMessageThreadSide(
     channel?: InboxThreadMessageChannel;
     /** Per-turn email subject; the thread-level `subject` above still labels the list. */
     messageSubject?: string;
+    /**
+     * Stamp this thread as being about a record. On an existing thread this
+     * NEVER overwrites an already-stamped `recordRef` — the ref belongs to
+     * whoever first composed from that record, not to whatever later message
+     * happens to pass one. Structurally invalid values are dropped rather
+     * than trusted.
+     */
+    recordRef?: RecordRef;
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string }> {
   const existing = await findExistingPortalMessageThread(db, args);
   const nowIso = new Date().toISOString();
+  const normalizedRecordRef = normalizeRecordRef(args.recordRef);
 
   if (existing) {
     const messages = Array.isArray(existing.rowData.messages)
@@ -475,6 +496,10 @@ export async function deliverPortalMessageThreadSide(
           // Advance with the latest message, like `subject`: a conversation is
           // about whatever it most recently became about.
           ...(args.category ? { category: args.category } : {}),
+          // Never overwrite an existing recordRef — see the param doc above.
+          ...(normalizeRecordRef((existing.rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef
+            ? { recordRef: normalizeRecordRef((existing.rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef }
+            : {}),
         },
         updated_at: nowIso,
       },
@@ -519,6 +544,7 @@ export async function deliverPortalMessageThreadSide(
         // under `root*` so the bubble builders can label it like any other turn.
         ...(args.channel ? { rootChannel: args.channel } : {}),
         ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
+        ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
       },
       updated_at: nowIso,
     },
@@ -573,6 +599,8 @@ export async function deliverPortalInboxMessage(
      * existing conversation.
      */
     smsConversationByEmail?: ReadonlyMap<string, InboxSmsConversationTarget>;
+    /** Stamped onto both thread sides when the caller has one (see `RecordRef`). Structurally invalid values are dropped. */
+    recordRef?: RecordRef;
   },
 ): Promise<
   | { ok: true; recipientCount: number; emailOutcomes: InboxEmailOutcome[]; smsOutcomes: InboxSmsOutcome[] }
@@ -745,6 +773,7 @@ export async function deliverPortalInboxMessage(
         outbound: true,
         category: opts.eventCategory,
         messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
+        recordRef: opts.recordRef,
       });
 
       if (recipientLower === senderEmail) continue;
@@ -766,6 +795,7 @@ export async function deliverPortalInboxMessage(
         outbound: false,
         category: opts.eventCategory,
         messageId: opts.messageId ? `${opts.messageId}:inbox:${recipientLower}` : undefined,
+        recordRef: opts.recordRef,
       });
     }
 

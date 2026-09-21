@@ -109,7 +109,6 @@ describe("manager-originated product mail leaves on the work email", () => {
   const originated = [
     "src/lib/lead-invite.server.ts",
     "src/lib/vendor-invite.server.ts",
-    "src/lib/vendor-notification-delivery.ts",
     "src/lib/resident-welcome.server.ts",
     "src/lib/tour-notification-delivery.server.ts",
     "src/lib/property-lead-prospect-handoff.server.ts",
@@ -138,5 +137,13 @@ describe("manager-originated product mail leaves on the work email", () => {
   it("the automated spine still delivers through the inbox layer", () => {
     expect(readFileSync("src/lib/reminders/dispatch.server.ts", "utf8")).toContain("deliverPortalInboxMessage");
     expect(readFileSync("src/lib/portal-inbox-delivery.ts", "utf8")).toContain("resolveManagerOutboundFrom");
+  });
+
+  it("vendor notifications resolve the workspace From header through the same inbox layer (PLAN-0915 area 4)", () => {
+    // sendVendorNotification used to call `managerOutboundFromHeader` itself
+    // for a raw, duplicate Resend send; it now routes every vendor-bound send
+    // through `deliverPortalInboxMessage`, which is what resolves the header —
+    // so this file lives beside "the automated spine", not in `originated`.
+    expect(readFileSync("src/lib/vendor-notification-delivery.ts", "utf8")).toContain("deliverPortalInboxMessage");
   });
 });

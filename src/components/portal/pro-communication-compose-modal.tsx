@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
 import {
   defaultPortalMessageChannelSelection,
   defaultPortalMessageScheduleAt,
-  PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
@@ -872,37 +870,28 @@ export function ManagerCommunicationComposeModal({
   })();
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
       title="New message"
       onClose={onClose}
-      dense
-      panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
-      footer={
-        <ModalFooter>
-          {formError ? (
-            <p
-              role="alert"
-              className="mr-auto text-sm font-medium text-danger"
-              data-attr="communication-compose-error"
-            >
-              {formError}
-            </p>
-          ) : null}
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            data-attr="communication-compose-send"
-            disabled={sending || (!viaEmail && !viaSms)}
-            onClick={() => submit()}
-          >
-            {sendLabel}
-          </Button>
-        </ModalFooter>
-      }
+      primaryAction={{
+        label: sendLabel,
+        onClick: () => submit(),
+        disabled: sending || (!viaEmail && !viaSms),
+        loading: sending,
+        dataAttr: "communication-compose-send",
+      }}
     >
       <PortalMessageComposeModalBody>
+        {formError ? (
+          <p
+            role="alert"
+            className="text-sm font-medium text-danger"
+            data-attr="communication-compose-error"
+          >
+            {formError}
+          </p>
+        ) : null}
         <PortalMessageComposeRecipientSection
           sectionOptions={sectionOptions}
           selectedCategories={selectedCategories}
@@ -985,6 +974,6 @@ export function ManagerCommunicationComposeModal({
           sendAtDataAttr="communication-compose-schedule-at"
         />
       </PortalMessageComposeModalBody>
-    </Modal>
+    </PortalDialog>
   );
 }

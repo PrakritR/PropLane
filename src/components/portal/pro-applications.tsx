@@ -24,6 +24,10 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import {
@@ -230,6 +234,24 @@ type ManagerApplicationTabId = ApplicationListTabId;
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   if (row.bucket !== "pending") return row.bucket;
   return isInProgressApplicationRow(row) ? "incomplete" : "pending";
+}
+
+function ApplicationFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
+      <span className="text-[13px] font-medium">{label}</span>
+      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+    </div>
+  );
+}
+
+/** Plain-English status for the record's Decision section — never the raw storage bucket. */
+function applicationDecisionStatusLabel(row: DemoApplicantRow): string {
+  if (isWithdrawnApplicationRow(row)) return "Withdrawn";
+  if (row.bucket === "approved") return "Approved";
+  if (row.bucket === "rejected") return "Rejected";
+  if (isInProgressApplicationRow(row)) return "Incomplete";
+  return "Pending review";
 }
 
 
@@ -546,11 +568,12 @@ export function ManagerApplications({
   bucket: bucketProp = "pending",
   basePath = "/portal",
   applicationId: applicationIdProp,
-  applicationDetailTab: applicationDetailTabProp = "application",
+  applicationDetailTab: applicationDetailTabProp = "overview",
 }: {
   bucket?: ManagerApplicationTabId;
   basePath?: string;
   applicationId?: string;
+  /** The application record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
   applicationDetailTab?: ApplicationDetailTabId;
 }) {
   const { showToast } = useAppUi();
@@ -936,13 +959,6 @@ export function ManagerApplications({
     activeCosignerIndex != null && activeCosignerIndex >= 0 && activeCosignerIndex < detailCosignerSubmissions.length
       ? detailCosignerSubmissions[activeCosignerIndex]!
       : null;
-
-  useEffect(() => {
-    if (!applicationIdProp || !detailRow) return;
-    if (applicationDetailTabProp === "background-check") {
-      navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id, "application"));
-    }
-  }, [applicationIdProp, applicationDetailTabProp, detailRow, navigate, basePath]);
 
   useEffect(() => {
     setScreeningSubjectId(null);
@@ -1583,7 +1599,7 @@ export function ManagerApplications({
         onRequestChecksForSubjects={openScreeningForSubjectIds}
         householdNav={{
           onOpenCosigner: (index) => {
-            const href = `${applicationDetailHref(basePath, tabForRow(row), row.id, "application")}?cosigner=${index}`;
+            const href = `${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`;
             navigate(href);
           },
           onOpenApplication: (applicationId) => {
@@ -1594,12 +1610,7 @@ export function ManagerApplications({
                   normalizeApplicationAxisId(applicationId).toUpperCase(),
               ) ?? null;
             navigate(
-              applicationDetailHref(
-                basePath,
-                target ? tabForRow(target) : tabForRow(row),
-                applicationId,
-                "application",
-              ),
+              applicationDetailHref(basePath, target ? tabForRow(target) : tabForRow(row), applicationId),
             );
           },
         }}
@@ -1879,31 +1890,138 @@ export function ManagerApplications({
       );
     }
 
+    // A co-signer's own read-only review is a different record entirely (not
+    // this application's rail) — it keeps its own single-view page, unchanged.
+    if (activeCosignerSubmission) {
+      return (
+        <>
+          {applicationModals}
+          <PortalRecordDetailPage
+            pageTitle="Applications"
+            title={activeCosignerSubmission.fullName || "Co-signer application"}
+            subtitle={activeCosignerSubmission.email || `Co-signer for ${applicantDisplayName(detailRow)}`}
+            avatarName={activeCosignerSubmission.fullName || "Co-signer"}
+            backHref={applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id)}
+            hideBackText
+            bareHeader
+            iconTitleActions
+            dataAttrBack="application-detail-back"
+            pinScrollBody
+            scrollBody={false}
+            footerOmitSpacer
+            footer={(() => {
+              const actions = renderCosignerDetailActions(detailRow, activeCosignerSubmission);
+              if (!actions) return undefined;
+              return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
+            })()}
+          >
+            <div className="flex min-h-0 flex-1 flex-col">
+              <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]">
+                <ManagerCosignerReadonlyReview
+                  sub={activeCosignerSubmission}
+                  signerRow={detailRow}
+                  onOpenSignerApplication={() =>
+                    navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
+                  }
+                />
+              </PortalPageScrollBody>
+            </div>
+          </PortalRecordDetailPage>
+        </>
+      );
+    }
+
+    const sections = recordSections("manager", "application", { basePath });
+    const activeTab = applicationDetailTabProp;
+    const backHref = applicationsListHref(tabForRow(detailRow));
+    // Approve/Decline are the only two of the registry's four generic ids with
+    // a real single-click handler here; Share and Archive have no equivalent
+    // (a dedicated share button and the row's own actions cover them) so they
+    // are dropped rather than shown as a dead "Coming soon" action
+    // (docs/agents/record-page.md § Known gap).
+    const headerActions = sections.headerActions.filter((action) => {
+      if (action.id === "approve") return isApprovableApplicationRow(detailRow);
+      if (action.id === "decline") return detailRow.bucket === "pending";
+      return false;
+    });
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "approve") {
+        beginApprovalPreview(detailRow);
+        return;
+      }
+      if (actionId === "decline") {
+        setRejectPreviewRows([detailRow]);
+      }
+    };
+    const ownContent =
+      activeTab === "applicants" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="application-applicants-facts">
+          <ApplicationFact label="Applicant" value={applicantDisplayName(detailRow)} />
+          <ApplicationFact label="Email" value={detailRow.email ?? ""} />
+          <ApplicationFact label="Phone" value={detailRow.application?.phone ?? ""} />
+          <ApplicationFact label="Property" value={detailRow.property ?? ""} />
+          {detailRow.application?.hasCosigner === "yes" ? (
+            <ApplicationFact
+              label="Co-signer"
+              value={detailCosignerSubmissions[0]?.fullName || "Invited, not yet submitted"}
+            />
+          ) : null}
+        </div>
+      ) : activeTab === "screening" ? (
+        applicationShowsBackgroundCheck(detailRow) ? (
+          <ApplicationScreeningPanel
+            row={activeScreeningRow ?? detailRow}
+            collapsible={false}
+            presentation="full"
+            bareCanvas
+            headerActionsPlacement="parent"
+            compactTabFooterActions
+            onUpdated={handleScreeningFlowComplete}
+            onOpenScreeningModal={(opts) =>
+              openDetailScreeningModal(detailRow, { ...opts, cosignerSubmissionId: activeScreeningCosignerId })
+            }
+            cosignerSubmissions={detailCosignerSubmissions}
+            screeningSubjectId={resolvedScreeningSubjectId}
+            onScreeningSubjectChange={setScreeningSubjectId}
+            onRequestChecksForSubjects={openScreeningForSubjectIds}
+          />
+        ) : (
+          <div className="px-3 pb-4 sm:px-4">
+            <PortalListEmptyCard
+              title="No background check for this application"
+              workspaceAware={false}
+              dataAttr="application-screening-empty"
+            />
+          </div>
+        )
+      ) : activeTab === "decision" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="application-decision-facts">
+          <ApplicationFact label="Status" value={applicationDecisionStatusLabel(detailRow)} />
+          <ApplicationFact label="Property" value={detailRow.property ?? ""} />
+        </div>
+      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "manager",
+          kind: "application",
+          kindLabel: "application",
+          recordId: detailRow.id,
+          recordLabel: applicantDisplayName(detailRow),
+          propertyId: detailRow.propertyId,
+          contactIds: detailRow.email ? [detailRow.email] : undefined,
+        })
+      ) : (
+        renderApplicationDetail(detailRow)
+      );
+
     return (
       <>
         {applicationModals}
         <PortalRecordDetailPage
           pageTitle="Applications"
-          title={
-            activeCosignerSubmission
-              ? activeCosignerSubmission.fullName || "Co-signer application"
-              : applicantDisplayName(detailRow)
-          }
-          subtitle={
-            activeCosignerSubmission
-              ? activeCosignerSubmission.email || `Co-signer for ${applicantDisplayName(detailRow)}`
-              : applicantSecondaryEmail(detailRow) || undefined
-          }
-          avatarName={
-            activeCosignerSubmission
-              ? activeCosignerSubmission.fullName || "Co-signer"
-              : applicantDisplayName(detailRow)
-          }
-          backHref={
-            activeCosignerSubmission
-              ? applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id)
-              : applicationsListHref(tabForRow(detailRow))
-          }
+          title={applicantDisplayName(detailRow)}
+          subtitle={applicantSecondaryEmail(detailRow) || undefined}
+          avatarName={applicantDisplayName(detailRow)}
+          backHref={backHref}
           hideBackText
           bareHeader
           iconTitleActions
@@ -1912,16 +2030,19 @@ export function ManagerApplications({
           scrollBody={false}
           footerOmitSpacer
           footer={(() => {
-            if (activeCosignerSubmission) {
-              const actions = renderCosignerDetailActions(detailRow, activeCosignerSubmission);
-              if (!actions) return undefined;
-              return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
-            }
             const actions = renderApplicationRowActions(detailRow);
             if (!actions) return undefined;
             return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
           })()}
         >
+          {/*
+            No second `PortalRecordActions` here: the footer below already
+            publishes into this same title-row icon slot (`iconTitleActions`),
+            and the slot holds only ONE publisher — a second one would
+            silently overwrite it (docs/agents/record-page.md). Approve /
+            Reject already live there; `onHeaderAction` below still drives the
+            rail's own phone sticky action independently.
+          */}
           <div className="flex min-h-0 flex-1 flex-col">
             {/*
               The action dock (Share / Approve / Reject / Holding fee /
@@ -1931,17 +2052,19 @@ export function ManagerApplications({
               hid the end of every application on desktop.
             */}
             <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]">
-              {activeCosignerSubmission ? (
-                <ManagerCosignerReadonlyReview
-                  sub={activeCosignerSubmission}
-                  signerRow={detailRow}
-                  onOpenSignerApplication={() =>
-                    navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
-                  }
-                />
-              ) : (
-                renderApplicationDetail(detailRow)
-              )}
+              <PortalRecordSectionChrome
+                sections={{ ...sections, headerActions }}
+                recordId={detailRow.id}
+                activeId={activeTab}
+                title={applicantDisplayName(detailRow)}
+                subtitle={applicantSecondaryEmail(detailRow) || undefined}
+                backHref={backHref}
+                backLabel="All applications"
+                ariaLabel="Application sections"
+                onHeaderAction={onHeaderAction}
+              >
+                {ownContent}
+              </PortalRecordSectionChrome>
             </PortalPageScrollBody>
           </div>
         </PortalRecordDetailPage>

@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { Mail, Pencil, Phone, Settings, UserRound, X } from "lucide-react";
+import { Mail, Phone, Settings, UserRound } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -46,13 +46,14 @@ import {
   type NotificationDeliveryChannels,
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
-import { ManagerVendorDetail } from "@/components/portal/pro-vendor-detail";
+import { ManagerVendorDetail, type VendorDetailTab } from "@/components/portal/pro-vendor-detail";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
-import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { ManagerVendorCatalogDetail } from "@/components/portal/pro-vendor-catalog-detail";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import {
-  personRecordListActions,
   personRecordNeedsYouItems,
 } from "@/lib/person-record-actions";
 import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
@@ -64,10 +65,6 @@ import {
   parseVendorDetailTab,
   parseVendorDirectoryTab,
   vendorCatalogDetailHref,
-  VENDOR_DETAIL_TAB_DESCRIPTIONS,
-  VENDOR_DETAIL_TAB_LABELS,
-  VENDOR_DETAIL_TABS,
-  VENDOR_RAIL_GROUPS,
   vendorDetailHref,
   vendorListHref,
 } from "@/lib/portal-detail-routes";
@@ -587,12 +584,25 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       );
     }
     const vendorTab = parseVendorDetailTab(vendorTabProp);
-    const vendorNavItems = VENDOR_DETAIL_TABS.map((tab) => ({
-      id: tab,
-      label: VENDOR_DETAIL_TAB_LABELS[tab],
-      description: VENDOR_DETAIL_TAB_DESCRIPTIONS[tab],
-      href: vendorDetailHref(basePath, routeVendor.id, tab),
-    }));
+    const ownVendorTab: VendorDetailTab = vendorTab === "communication" || vendorTab === "documents" || vendorTab === "activity"
+      ? "overview"
+      : vendorTab;
+    const sections = recordSections("manager", "vendor", { basePath });
+    const onVendorHeaderAction = (actionId: string) => {
+      if (actionId === "message") {
+        navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
+        return;
+      }
+      if (actionId === "invite") {
+        void openVendorInvitePreview(routeVendor);
+        return;
+      }
+      if (actionId === "remove") {
+        void openVendorRemovePreview([routeVendor]);
+        return;
+      }
+      showToast("Coming soon");
+    };
     return (
       <>
         {modals}
@@ -610,54 +620,43 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalIconAction
-              icon={Pencil}
-              label="Edit"
-              data-attr="vendor-detail-edit"
-              onClick={() => {
-                setVendorFormMode("edit");
-                setEditingVendor(routeVendor);
-                setVendorFormOpen(true);
-              }}
-            />
-            <PortalIconAction
-              icon={Mail}
-              label={
-                personRecordListActions({
-                  kind: "vendor",
-                  hasPortalUser: Boolean(routeVendor.vendorUserId),
-                }).find((action) => action.id === "setup")?.label ?? "Send invite"
-              }
-              data-attr="vendor-detail-setup"
-              onClick={() => void openVendorInvitePreview(routeVendor)}
-            />
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onVendorHeaderAction} />
           </PortalRecordActions>
           <PortalRecordSectionChrome
-            items={vendorNavItems}
+            sections={sections}
+            recordId={routeVendor.id}
             activeId={vendorTab}
-            groups={VENDOR_RAIL_GROUPS}
             title={routeVendor.name}
             subtitle={routeVendor.trade || undefined}
             backHref={vendorListHref(basePath)}
             backLabel="All vendors"
             ariaLabel="Vendor sections"
-            currentLabel={VENDOR_DETAIL_TAB_LABELS[vendorTab]}
-            defaultDisclosureOpen={vendorTab === "overview"}
+            onHeaderAction={onVendorHeaderAction}
           >
-            <ManagerVendorDetail
-              row={routeVendor}
-              managerUserId={userId}
-              tab={vendorTab}
-              extraNeedsYou={personRecordNeedsYouItems({
+            {vendorTab === "communication" || vendorTab === "documents" || vendorTab === "activity" ? (
+              renderRecordSection(vendorTab, {
+                role: "manager",
                 kind: "vendor",
-                hasPortalUser: Boolean(routeVendor.vendorUserId),
-              })}
-              onEdit={() => {
-                setVendorFormMode("edit");
-                setEditingVendor(routeVendor);
-                setVendorFormOpen(true);
-              }}
-            />
+                kindLabel: "vendor",
+                recordId: routeVendor.id,
+                recordLabel: routeVendor.name,
+              })
+            ) : (
+              <ManagerVendorDetail
+                row={routeVendor}
+                managerUserId={userId}
+                tab={ownVendorTab}
+                extraNeedsYou={personRecordNeedsYouItems({
+                  kind: "vendor",
+                  hasPortalUser: Boolean(routeVendor.vendorUserId),
+                })}
+                onEdit={() => {
+                  setVendorFormMode("edit");
+                  setEditingVendor(routeVendor);
+                  setVendorFormOpen(true);
+                }}
+              />
+            )}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
       </>
@@ -905,14 +904,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const vendorToolbar = (
     <>
-      {directoryTab === "catalog" && !catalogDetailId ? (
-        <PortalIconAction
-          icon={X}
-          label="Close PropLane vendors"
-          onClick={() => navigate(vendorListHref(basePath, "yours"))}
-          data-attr="vendors-catalog-close"
-        />
-      ) : null}
       <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
     </>
   );

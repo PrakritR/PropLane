@@ -119,7 +119,7 @@ function messagingUpsellMessage(
     case "free":
       return "Free accounts cannot use a work number. Upgrade to a paid Pro or Business plan to activate one.";
     case "trialing":
-      return "You're on a free trial. Upgrade to a paid plan to activate a work number.";
+      return "Available on Pro. Start Pro to set up a work number.";
     case "past_due":
       return "Your subscription payment is past due. Update your card to keep your work number.";
     case "canceled":
@@ -754,7 +754,7 @@ export function ManagerMessagingSettingsPanel({
                   >
                     {!status.entitlement.eligible &&
                     status.entitlement.reason === "trialing"
-                      ? "Activate paid plan"
+                      ? "Start Pro"
                       : "Upgrade to a paid plan"}
                   </Link>
                 </Button>

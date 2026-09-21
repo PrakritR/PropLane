@@ -155,18 +155,28 @@ describe("availability delete: small × on the run, dialog still works", () => {
   });
 });
 
-describe("availability week actions (PLAN-0916-1034)", () => {
-  it("puts Copy / Add / Clear / Houses on the week toolbar, not a pinned footer", () => {
+describe("availability week actions (PLAN-0916-1034, consolidated PLAN-0920-1058 area 1d)", () => {
+  it("puts Copy / Clear / Houses behind one Availability icon, and Add as the toolbar's own primary — never a pinned footer", async () => {
     const { container } = renderTourAvailability();
     expect(container.querySelector('[data-slot="portal-page-footer-actions"]')).toBeNull();
     const toolbar = container.querySelector(".portal-calendar-toolbar");
     expect(toolbar).toBeTruthy();
-    const actions = toolbar?.querySelector('[data-slot="calendar-week-actions"]');
-    expect(actions).toBeTruthy();
-    expect(actions?.querySelector('[data-attr="calendar-copy-previous-week"]')).toBeTruthy();
-    expect(actions?.querySelector('[data-attr="calendar-create-block"]')).toBeTruthy();
-    expect(actions?.querySelector('[data-attr="calendar-clear-week"]')).toBeTruthy();
-    expect(actions?.querySelector('[data-attr="calendar-copy-to-houses"]')).toBeTruthy();
-    expect(screen.getByLabelText("Copy previous week").closest("[data-slot='portal-icon-action']")).toBeTruthy();
+
+    // The Availability icon holds Copy previous week / Clear week / Copy to
+    // houses — one icon, not four, so the persistent band stays
+    // Filter · Availability · Share · + (see AGENTS.md § Portal UI system).
+    const menuTrigger = toolbar?.querySelector('[data-slot="calendar-week-actions"] [data-attr="calendar-availability-menu"]');
+    expect(menuTrigger).toBeTruthy();
+    fireEvent.keyDown(menuTrigger!, { key: "ArrowDown" });
+    expect(await screen.findByText("Copy previous week")).toBeTruthy();
+    expect(screen.getByText("Clear week")).toBeTruthy();
+    // No `otherProperties` in this render, so the "copy to houses" row reads
+    // its disabled-reason label rather than "Copy to houses" — same data-attr.
+    expect(screen.getByText("Add another house to copy availability")).toBeTruthy();
+
+    // "Add availability" is its own primary, next to (not inside) the menu.
+    const addAction = toolbar?.querySelector('[data-slot="calendar-week-add-action"] [data-attr="calendar-create-block"]');
+    expect(addAction).toBeTruthy();
+    expect(addAction?.getAttribute("aria-label")).toBe("Add availability");
   });
 });

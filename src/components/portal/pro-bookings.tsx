@@ -9,6 +9,8 @@ import {
   settingsDialogTitlePrefix,
 } from "@/components/portal/settings-entry-points";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
+import { BookingsDayPage } from "@/components/portal/bookings-day-page";
+import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
@@ -41,6 +43,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   MANAGER_BOOKING_BUCKETS,
   MANAGER_BOOKING_BUCKET_LABELS,
+  managerBookingDayHref,
   managerBookingListHref,
   type ManagerBookingBucketId,
 } from "@/lib/portal-detail-routes";
@@ -306,16 +309,14 @@ function useBookingsWorkspace({
     showRoomFilter,
   ]);
 
-  const openCalendarForDay = useCallback(
-    (dayKey: string) => {
-      void dayKey;
-      if (basePath) {
-        navigate(managerBookingListHref(basePath, "calendar"));
-        return;
-      }
-      onBucketChange?.("calendar");
-    },
-    [basePath, navigate, onBucketChange],
+  /**
+   * The day page always lives at `/portal/bookings/<date>` regardless of
+   * whether this workspace is the portfolio page or a house's embedded
+   * Bookings tab — there is no property-scoped day route.
+   */
+  const goToDayPage = useCallback(
+    (dayKey: string) => navigate(managerBookingDayHref(basePath ?? "/portal", dayKey)),
+    [basePath, navigate],
   );
 
   const listBulkActions =
@@ -328,7 +329,7 @@ function useBookingsWorkspace({
           data-attr="bookings-bulk-view-calendar"
           onClick={() => {
             const first = listEntries.find((entry) => selectedIds.has(bookingEntryKey(entry)));
-            if (first) openCalendarForDay(first.start);
+            if (first) goToDayPage(first.start);
           }}
         >
           View on calendar
@@ -432,8 +433,7 @@ function useBookingsWorkspace({
         emptyMessage={emptyMessage}
         variant="standalone"
         calendarOnly
-        onBlockDates={(dayKey) => setSheet({ open: true, pane: "block", dayKey, editingBlock: null })}
-        onRemoveBlock={removeBlock}
+        onDayClick={goToDayPage}
         searchQuery={listSearch}
       />
     ) : (
@@ -450,10 +450,11 @@ function useBookingsWorkspace({
             return next;
           });
         }}
-        onOpenDay={openCalendarForDay}
         onEditBlock={(entry) => setSheet({ open: true, pane: "block", dayKey: null, editingBlock: entry })}
         onDeleteBlock={(entry) => void deleteBlockEntry(entry)}
         bulkActions={listBulkActions}
+        basePath={basePath ?? "/portal"}
+        showToast={showToast}
         emptyCard={
           propertyFilters.length > 0 || roomFilterId || listSearch.trim()
             ? {
@@ -539,7 +540,17 @@ function useBookingsWorkspace({
     </>
   );
 
-  return { controlStack, content, modals };
+  return {
+    controlStack,
+    content,
+    modals,
+    /** Unfiltered by the workspace's own property/room filters — what a record or day page looks a booking up in. */
+    rawEntries,
+    entriesLoading: !authReady || loading,
+    residentOptions,
+    saveBlock,
+    removeBlock,
+  };
 }
 
 /**
@@ -561,11 +572,20 @@ export function ManagerBookingsWorkspace(props: BookingsWorkspaceProps) {
 export function ManagerBookings({
   bucket = "calendar",
   basePath = "/portal",
+  bookingId,
+  bookingTab,
+  dayKey,
 }: {
   bucket?: ManagerBookingBucketId;
   basePath?: string;
+  /** Present for the booking record page (`/bookings/<id>/<tab>`) — routes here instead of a bucket. */
+  bookingId?: string;
+  bookingTab?: string;
+  /** Present for the day page (`/bookings/<yyyy-mm-dd>`) — routes here instead of a bucket. */
+  dayKey?: string;
 }) {
   const { userId, ready: authReady } = useManagerUserId();
+  const { showToast } = useAppUi();
   const [propertyTick, setPropertyTick] = useState(0);
   const [refreshSignal, setRefreshSignal] = useState(0);
 
@@ -599,7 +619,7 @@ export function ManagerBookings({
     return propertyOptions.map((option) => option.id);
   }, [workspacePropertyIds, propertyOptions]);
 
-  const { controlStack, content, modals } = useBookingsWorkspace({
+  const workspace = useBookingsWorkspace({
     bucket,
     basePath,
     propertyIds,
@@ -608,6 +628,39 @@ export function ManagerBookings({
     refreshSignal,
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
   });
+  const { controlStack, content, modals, rawEntries, entriesLoading, residentOptions, saveBlock, removeBlock } = workspace;
+
+  if (dayKey) {
+    return (
+      <BookingsDayPage
+        dayKey={dayKey}
+        basePath={basePath}
+        entries={rawEntries}
+        loading={entriesLoading}
+        propertyOptions={propertyOptions}
+        residentOptions={residentOptions}
+        onSaveBlock={saveBlock}
+        onRemoveBlock={removeBlock}
+        showToast={showToast}
+      />
+    );
+  }
+
+  if (bookingId) {
+    return (
+      <BookingsRecordPage
+        bookingId={bookingId}
+        tab={bookingTab}
+        basePath={basePath}
+        entries={rawEntries}
+        loading={entriesLoading}
+        residentOptions={residentOptions}
+        onSaveBlock={saveBlock}
+        onRemoveBlock={removeBlock}
+        showToast={showToast}
+      />
+    );
+  }
 
   /*
    * Tabs and the action row are DIRECT children of the shell, with the list in

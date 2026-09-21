@@ -14,18 +14,23 @@ describe("Settings property scope appears once", () => {
     expect(panels).not.toContain("SettingsPropertyScopeEcho");
   });
 
-  it("does not pass a property action on section titles", () => {
+  it("does not repeat the property PICKER on section titles — an informational scope tag is not the picker", () => {
     expect(panels).not.toContain("No properties selected");
-    expect(panels).not.toMatch(/<PortalSettingsSection[^>]*action=\{/);
-    expect(panels).not.toMatch(/action=\{<PortalSettingsScopeTag/);
-    expect(panels).not.toMatch(/action=\{<SettingsPropertyScope/);
+    // PLAN-0920-0845 phase D: a group's own read-only source tag
+    // (`SettingsGroupSourceTag` / `PortalSettingsScopeTag`) is allowed on a
+    // section title now — it states what that group already resolved to, it
+    // never lets a manager change scope from there. The picker itself
+    // (`SettingsScopeBar`/`SettingsPropertyScopePicker`) must still never
+    // appear per section — only once, in module chrome.
+    expect(panels).not.toMatch(/<PortalSettingsSection[^>]*action=\{<SettingsScopeBar/);
+    expect(panels).not.toMatch(/<PortalSettingsSection[^>]*action=\{<SettingsPropertyScopePicker/);
   });
 
   it("mounts the one picker in module chrome, not a sticky card", () => {
     expect(scope).not.toContain("sticky top-0");
-    expect(hub).toContain("SettingsPropertyScopeBar");
-    expect(standalone).toContain("SettingsPropertyScopeBar");
-    expect(modal).toContain("SettingsPropertyScopeBar");
+    expect(hub).toContain("SettingsScopeBar");
+    expect(standalone).toContain("SettingsScopeBar");
+    expect(modal).toContain("SettingsScopeBar");
     expect(standalone).toMatch(/action=\{\s*<div className="flex items-center gap-2">/);
   });
 });

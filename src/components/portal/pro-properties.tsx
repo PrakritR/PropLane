@@ -12,6 +12,7 @@ import {
   type ManagerStageKey,
 } from "@/components/portal/pro-house-properties-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Share2 } from "lucide-react";
@@ -158,6 +159,7 @@ export function ManagerProperties({
   const [portfolioTick, setPortfolioTick] = useState(0);
   const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
+  const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
@@ -383,18 +385,20 @@ export function ManagerProperties({
       return false;
     }
     if (atPropertyLimit) {
-      // Take the manager to the plans page rather than only saying no. This is
-      // the highest-intent moment there is — they clicked the primary action
-      // BECAUSE they want another property — and a toast that names an upgrade
-      // without going there wastes it. It is the same rule as the sidebar's
-      // `upsell` nav lock in AGENTS.md: the locked control stays live because
-      // its destination is the only route to upgrade.
+      // A gate is a dialog, not a redirect (PLAN-0920-1058 "1d · The pop-up").
+      // This is still the highest-intent moment there is — they clicked the
+      // primary action BECAUSE they want another property — so the dialog's
+      // own Upgrade button is the route, not a silent navigation away from
+      // what they just clicked.
       //
       // Native is the exception, and deliberately: the app may not steer to an
       // external purchase, which is what `omitUpgradeCta` already encodes, so
       // there the message alone is the whole response.
-      showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
-      if (!isNativeRuntimeSync()) router.push(MANAGER_PLAN_PORTAL_URL);
+      if (isNativeRuntimeSync()) {
+        showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: true }));
+      } else {
+        setPlanLimitDialogOpen(true);
+      }
       return false;
     }
     return true;
@@ -696,6 +700,26 @@ export function ManagerProperties({
         preselectedPropertyId={shareListingPropertyId}
         preselectedPropertyIds={shareListingPropertyIds}
       />
+      <PortalDialog
+        open={planLimitDialogOpen}
+        onClose={() => setPlanLimitDialogOpen(false)}
+        title="You've reached your plan limit"
+        secondaryAction={{ label: "Cancel", onClick: () => setPlanLimitDialogOpen(false) }}
+        primaryAction={{
+          label: "Upgrade",
+          onClick: () => {
+            setPlanLimitDialogOpen(false);
+            router.push(MANAGER_PLAN_PORTAL_URL);
+          },
+          dataAttr: "manager-properties-plan-limit-upgrade",
+        }}
+      >
+        <p className="text-sm text-muted">
+          {limitMax != null
+            ? `Your plan allows ${limitMax} propert${limitMax === 1 ? "y" : "ies"}. Upgrade to add more.`
+            : managerPropertyLimitMessage(skuTier)}
+        </p>
+      </PortalDialog>
     </>
   );
 }

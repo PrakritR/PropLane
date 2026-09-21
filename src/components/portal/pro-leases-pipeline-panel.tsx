@@ -16,10 +16,14 @@ import {
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ManagerLeasesGroupedTable } from "@/components/portal/pro-leases-grouped-table";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
+import { leaseDetailHref, leaseListHref, type LeaseDetailTabId } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import {
@@ -109,6 +113,15 @@ function leaseRowIsBulkSendable(
   );
 }
 
+function LeaseFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
+      <span className="text-[13px] font-medium">{label}</span>
+      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+    </div>
+  );
+}
+
 export function ManagerLeasesPipelinePanel({
   rows,
   tab,
@@ -116,6 +129,7 @@ export function ManagerLeasesPipelinePanel({
   managerUserId,
   residentAccountEmails,
   leaseId: leaseIdProp,
+  leaseDetailTab: leaseDetailTabProp,
   listBasePath,
   onDetailOpenChange,
   onAddLease,
@@ -129,6 +143,8 @@ export function ManagerLeasesPipelinePanel({
   managerUserId?: string | null;
   residentAccountEmails: Set<string>;
   leaseId?: string;
+  /** The lease record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
+  leaseDetailTab?: LeaseDetailTabId;
   listBasePath?: string;
   onDetailOpenChange?: (open: boolean) => void;
   onAddLease?: () => void;
@@ -771,6 +787,65 @@ export function ManagerLeasesPipelinePanel({
     <LeaseDocumentPreview row={row} flow />
   );
 
+  const renderLeaseTermsFacts = (row: LeasePipelineRow) => (
+    <div className="px-3 pb-4 sm:px-4" data-attr="lease-terms-facts">
+      <LeaseFact label="Unit" value={row.unit} />
+      <LeaseFact label="Rent" value={row.signedRentLabel ?? ""} />
+      <LeaseFact label="Term" value={row.application?.leaseTerm ?? ""} />
+      <LeaseFact label="Start" value={row.application?.leaseStart ?? ""} />
+      <LeaseFact label="End" value={row.application?.leaseEnd ?? ""} />
+    </div>
+  );
+
+  const renderLeaseSignaturesFacts = (row: LeasePipelineRow) => (
+    <div className="px-3 pb-4 sm:px-4" data-attr="lease-signatures-facts">
+      <LeaseFact label="Status" value={row.status ?? row.stageLabel} />
+      <LeaseFact
+        label="Manager"
+        value={row.managerSignature ? `${row.managerSignature.name} · ${row.managerSignature.signedAtIso}` : "Not signed"}
+      />
+      <LeaseFact
+        label="Resident"
+        value={
+          row.residentSignature ? `${row.residentSignature.name} · ${row.residentSignature.signedAtIso}` : "Not signed"
+        }
+      />
+    </div>
+  );
+
+  const renderLeaseAmendmentsBody = (row: LeasePipelineRow) => {
+    if (row.pendingRenewal) {
+      return (
+        <div className="px-3 pb-4 sm:px-4" data-attr="lease-amendments-pending">
+          <LeaseFact label="New term" value={row.pendingRenewal.leaseTerm} />
+          <LeaseFact label="New start" value={row.pendingRenewal.leaseStart} />
+          <LeaseFact label="New end" value={row.pendingRenewal.leaseEnd} />
+          <LeaseFact
+            label="New rent"
+            value={row.pendingRenewal.monthlyRent != null ? `$${row.pendingRenewal.monthlyRent}` : ""}
+          />
+        </div>
+      );
+    }
+    if (row.signedLeaseSnapshots && row.signedLeaseSnapshots.length > 0) {
+      return (
+        <ul className="divide-y divide-border rounded-xl border border-border bg-card" data-attr="lease-amendments-history">
+          {row.signedLeaseSnapshots.map((snapshot) => (
+            <li key={snapshot.id} className="px-4 py-3 text-[13.5px]">
+              <p className="font-medium text-foreground">{snapshot.label}</p>
+              <p className="text-[12px] text-muted">Archived {snapshot.archivedAtIso}</p>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    return (
+      <div className="px-3 pb-4 sm:px-4">
+        <PortalListEmptyCard title="No amendments yet" workspaceAware={false} dataAttr="lease-amendments-empty" />
+      </div>
+    );
+  };
+
   const importReviewRow = useMemo(
     () => (importReviewRowId ? (rows.find((r) => r.id === importReviewRowId) ?? null) : null),
     [importReviewRowId, rows],
@@ -1035,6 +1110,53 @@ export function ManagerLeasesPipelinePanel({
 
   if (leaseIdProp && detailRow) {
     const detailFooterActions = renderLeaseDetailFooterActions(detailRow);
+    const sections = recordSections("manager", "lease", { basePath: listBasePath ?? "/portal", leaseListTab: tab });
+    const activeTab = leaseDetailTabProp ?? "overview";
+    const backHref = leaseListHref(listBasePath ?? "/portal", tab);
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "send") {
+        onSendToResident(detailRow);
+        return;
+      }
+      if (actionId === "amend") {
+        setAmendLeaseRow(detailRow);
+        return;
+      }
+      if (actionId === "download") {
+        onDownload(detailRow);
+        return;
+      }
+      if (actionId === "delete") {
+        if (detailRow.status !== "Fully Signed") onDeleteLease(detailRow);
+        else showToast("Coming soon");
+        return;
+      }
+      showToast("Coming soon");
+    };
+    const ownContent =
+      activeTab === "terms" ? (
+        renderLeaseTermsFacts(detailRow)
+      ) : activeTab === "signatures" ? (
+        renderLeaseSignaturesFacts(detailRow)
+      ) : activeTab === "amendments" ? (
+        renderLeaseAmendmentsBody(detailRow)
+      ) : activeTab === "payments" ? (
+        <div className="px-3 pb-4 sm:px-4">
+          <PortalListEmptyCard title="No payments linked yet" workspaceAware={false} dataAttr="lease-payments-empty" />
+        </div>
+      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "manager",
+          kind: "lease",
+          kindLabel: "lease",
+          recordId: detailRow.id,
+          recordLabel: detailRow.residentName,
+          propertyId: detailRow.propertyId,
+          contactIds: detailRow.residentEmail ? [detailRow.residentEmail] : undefined,
+        })
+      ) : (
+        renderLeaseRowDetail(detailRow)
+      );
     return (
       <>
         {leaseModals}
@@ -1043,7 +1165,7 @@ export function ManagerLeasesPipelinePanel({
           title={detailRow.residentName}
           subtitle={detailRow.unit}
           avatarName={detailRow.residentName}
-          backHref={listBasePath ? leaseListHref(listBasePath, tab) : undefined}
+          backHref={backHref}
           hideBackText
           bareHeader
           iconTitleActions
@@ -1057,9 +1179,24 @@ export function ManagerLeasesPipelinePanel({
             ) : undefined
           }
         >
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          </PortalRecordActions>
           <div className="flex min-h-0 flex-1 flex-col">
             <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3">
-              {renderLeaseRowDetail(detailRow)}
+              <PortalRecordSectionChrome
+                sections={sections}
+                recordId={detailRow.id}
+                activeId={activeTab}
+                title={detailRow.residentName}
+                subtitle={detailRow.unit}
+                backHref={backHref}
+                backLabel="All leases"
+                ariaLabel="Lease sections"
+                onHeaderAction={onHeaderAction}
+              >
+                {ownContent}
+              </PortalRecordSectionChrome>
             </PortalPageScrollBody>
           </div>
         </PortalRecordDetailPage>

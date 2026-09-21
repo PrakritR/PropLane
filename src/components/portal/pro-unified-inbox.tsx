@@ -68,6 +68,7 @@ import {
   threadPassesCommunicationFilters,
   type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
+import { recordRoutePath } from "@/lib/portals/record-kinds";
 import { ResidentDirectChatPane } from "@/components/portal/pro-resident-detail-inbox";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -571,13 +572,18 @@ export function ManagerUnifiedInbox({
       listSegment,
       assistantWorkspace,
     );
-    if (!threadFilters || !filterContacts) return withAssistant;
+    // The contacts directory only gates the property/role/person dimensions
+    // (they need it to resolve a match); a record-only filter has everything
+    // it needs on the thread itself and must not wait on that fetch.
+    const hasRecordFilter = Boolean(threadFilters?.recordRefs?.length || threadFilters?.recordKinds?.length);
+    if (!threadFilters || (!filterContacts && !hasRecordFilter)) return withAssistant;
     return withAssistant.filter((t) =>
       isPropLaneAssistantInboxThread(t) ||
       threadPassesCommunicationFilters({
         filters: threadFilters,
-        contacts: filterContacts,
+        contacts: filterContacts ?? [],
         counterpartyEmail: t.email,
+        recordRef: t.recordRef,
       }),
     );
   }, [assistantWorkspace, emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
@@ -650,6 +656,7 @@ export function ManagerUnifiedInbox({
               ?.propertyLabel,
         ),
         category: inboxThreadCategoryLabel(t),
+        recordRef: t.recordRef,
         // Sort on the SAME field the row is labelled with. `lastMsg.at` is the
         // raw stamp its writer happened to build; only `thread.time` is
         // normalized (`appendReplyToInboxThread` advances it to the latest
@@ -1164,6 +1171,11 @@ export function ManagerUnifiedInbox({
               unreadCount={row.unreadCount}
               address={row.address}
               category={row.category}
+              recordChip={
+                row.recordRef
+                  ? { label: row.recordRef.label, href: recordRoutePath("manager", row.recordRef.kind, row.recordRef.id) }
+                  : undefined
+              }
               selected={selectedKey === row.key}
               onOpen={() => {
                 setSelectedKey(row.key);

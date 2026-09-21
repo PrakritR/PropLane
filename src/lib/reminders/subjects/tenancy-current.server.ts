@@ -48,8 +48,8 @@ export async function tenancyReminderIsCurrent(db: SupabaseClient, row: Reminder
   if (!tenancy) return false;
   const date =
     row.kind === "move_in" ? tenancy.moveIn
-    : row.kind === "lease_ending" || row.kind === "lease_ending_manager" ? tenancy.leaseEnd
-    : row.kind === "move_out" || row.kind === "move_out_inspection_manager" ? tenancy.moveOut
+    : row.kind === "lease_ending" || row.kind === "lease_ending_manager" || row.kind === "lease_renewal_offer" ? tenancy.leaseEnd
+    : row.kind === "move_out" || row.kind === "move_out_inspection_manager" || row.kind === "move_out_instructions" || row.kind === "deposit_return_notice" ? tenancy.moveOut
     : null;
   if (row.kind === "deposit_accounting") {
     // The deadline moves with the move-out date; a changed date re-queues under a new anchor.

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Link2, Trash2 } from "lucide-react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect, type CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
@@ -190,42 +190,32 @@ export function ManagerInviteLinkModal({
   const mintDisabled = !isVendor && propertyOptions.length > 0 && selectedPropIds.length === 0;
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
       title={isVendor ? "Create a vendor invite link" : "Create an invite link"}
-      description={
-        isVendor
-          ? "Anyone who opens this link joins your vendor directory on PropLane."
-          : "Anyone who opens this link joins with exactly the access you set here."
-      }
-      assistantContext={isVendor ? "Vendor invite link" : "Co-manager invite link"}
-      assistantStorageScopeKey={isVendor ? "Vendor invite link" : "Co-manager invite link"}
       onClose={() => {
         reset();
         onClose();
       }}
       dataAttr={isVendor ? "vendor-invite-link-modal" : "manager-invite-link-modal"}
-      footer={
-        <ModalFooter>
-          {mintedUrl ? (
-            <Button type="button" onClick={() => reset()} data-attr="invite-link-mint-another">
-              Create another
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              loading={minting}
-              disabled={mintDisabled}
-              onClick={() => mint()}
-              data-attr="invite-link-mint"
-            >
-              Create link
-            </Button>
-          )}
-        </ModalFooter>
+      primaryAction={
+        mintedUrl
+          ? { label: "Create another", onClick: () => reset(), dataAttr: "invite-link-mint-another" }
+          : {
+              label: "Create link",
+              onClick: () => mint(),
+              loading: minting,
+              disabled: mintDisabled,
+              dataAttr: "invite-link-mint",
+            }
       }
     >
       <div className="space-y-5" data-field-select-placement="below">
+        <p className="text-sm text-muted">
+          {isVendor
+            ? "Anyone who opens this link joins your vendor directory on PropLane."
+            : "Anyone who opens this link joins with exactly the access you set here."}
+        </p>
         {mintedUrl ? (
           <div className="rounded-2xl border border-primary/25 bg-primary/[0.05] p-4">
             <p className="text-sm font-semibold text-foreground">Your invite link</p>
@@ -403,6 +393,6 @@ export function ManagerInviteLinkModal({
           </div>
         ) : null}
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }

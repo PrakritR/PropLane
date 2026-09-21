@@ -7,6 +7,7 @@ import { Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalDataTableEmpty,
@@ -49,12 +50,25 @@ import { notifyResidentOfWorkOrderUpdate } from "@/lib/work-order-resident-notif
 import { buildWorkOrderCompletedNotice } from "@/lib/resident-service-notices";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { workOrderDetailHref, workOrderListHref } from "@/lib/portal-detail-routes";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { workOrderDetailHref, workOrderListHref, type ServiceDetailTabId } from "@/lib/portal-detail-routes";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+
+function WorkOrderFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
+      <span className="text-[13px] font-medium">{label}</span>
+      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+    </div>
+  );
+}
 
 function priorityClass(p: string) {
   const x = p.toLowerCase();
@@ -171,6 +185,7 @@ export function ManagerWorkOrdersPanel({
   bucket,
   onAfterSchedule,
   workOrderId: workOrderIdProp,
+  serviceDetailTab,
   listBasePath,
   listAddAction,
 }: {
@@ -179,6 +194,8 @@ export function ManagerWorkOrdersPanel({
   /** After moving a row from Open → Scheduled, switch the parent tab so the row is still visible. */
   onAfterSchedule?: () => void;
   workOrderId?: string;
+  /** The service record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
+  serviceDetailTab?: ServiceDetailTabId;
   listBasePath?: string;
   listAddAction?: {
     label?: string;
@@ -219,6 +236,8 @@ export function ManagerWorkOrdersPanel({
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
+  const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
 
   useEffect(() => {
     void syncManagerVendorsFromServer();
@@ -949,304 +968,308 @@ export function ManagerWorkOrdersPanel({
     </>
   );
 
-  const renderRowDetail = (row: DemoManagerWorkOrderRow, dockActions = false) => {
-    const draft = billDraftById[row.id] ?? defaultBillDraft(row);
-    const linkedCharge = chargeByWoId.get(row.id);
+  /** Overview — the record's core facts (docs/agents/record-page.md); vendor
+   * assignment, schedule and billing move to their own sections below. */
+  const renderOverviewFacts = (row: DemoManagerWorkOrderRow) => (
+    <div className="px-3 pb-4 sm:px-4" data-attr="work-order-overview-facts">
+      <WorkOrderFact label="Property" value={row.propertyName ?? ""} />
+      <WorkOrderFact label="Status" value={row.status || row.bucket} />
+      <WorkOrderFact label="Priority" value={row.priority ?? ""} />
+      <WorkOrderFact label="Resident" value={row.residentName?.trim() ?? ""} />
+      {row.description ? (
+        <p className="mt-4 text-sm leading-relaxed text-muted">{row.description}</p>
+      ) : null}
+      <p className="mt-1.5 text-xs text-muted">
+        Resident preferred arrival:{" "}
+        <span className="font-medium text-muted">{row.preferredArrival?.trim() || "Anytime"}</span>
+      </p>
+      {row.entryPermission || row.entryNotes ? (
+        <p className="mt-1.5 text-xs text-muted">
+          Entry: <span className="font-medium text-muted">{entryPermissionLabel(row.entryPermission)}</span>
+          {row.entryNotes ? <span className="font-medium text-muted"> ({row.entryNotes})</span> : null}
+        </p>
+      ) : null}
+      {row.automationStatus === "vendor_marked_done" ? (
+        <p className="mt-1.5 text-xs font-medium text-muted">
+          Vendor marked this done{row.vendorMarkedDoneNote ? `: "${row.vendorMarkedDoneNote}"` : ""}. Awaiting your approval.
+        </p>
+      ) : row.automationStatus === "paid" ? (
+        <p className="mt-1.5 text-xs font-medium text-muted">Approved and paid.</p>
+      ) : null}
+      {row.photoDataUrls?.length ? (
+        <div className="mt-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {row.photoDataUrls.map((src, index) => {
+              const trimmed = src.trim();
+              if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
+              return (
+                <a
+                  key={`${row.id}-photo-${index}`}
+                  href={trimmed}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block overflow-hidden rounded-xl border border-border bg-accent/30"
+                >
+                  <Image
+                    src={trimmed}
+                    alt={`Service photo ${index + 1}`}
+                    width={240}
+                    height={180}
+                    className="h-28 w-full object-cover"
+                    unoptimized
+                  />
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  /** Vendor & bids — assignment, contact, PropLane's dispatch suggestion, and bids. */
+  const renderVendorBidsBody = (row: DemoManagerWorkOrderRow) => {
     const assignedVendor =
       !row.selfAssigned && row.vendorId
         ? activeVendors.find((v) => v.id === row.vendorId) ?? null
         : null;
     const assignedVendorEmail = assignedVendor?.email?.trim() ?? "";
     const dispatch = (row as WorkOrderRowWithDispatch).dispatch;
-
+    const bids = bidsByWorkOrderId[row.id] ?? [];
     return (
-      <>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <p className="text-xs text-muted">Property</p>
-                            <p className="text-sm font-medium text-foreground">{row.propertyName || "—"}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted">Status</p>
-                            <p className="text-sm font-medium text-foreground">{row.status || row.bucket}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted">Priority</p>
-                            <p className="text-sm font-medium text-foreground">{row.priority || "—"}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted">Resident</p>
-                            <p className="text-sm font-medium text-foreground">{row.residentName?.trim() || "—"}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted">Visit</p>
-                            <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-foreground">
-                              <span>
-                                {row.scheduled && row.scheduled !== "—"
-                                  ? row.scheduled
-                                  : row.proposedVisit
-                                    ? formatScheduledLabel(row.proposedVisit.iso)
-                                    : "Not scheduled"}
-                              </span>
-                              {visitSourcePill(row)}
-                            </p>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <WorkAssignmentPicker
-                              kind="maintenance"
-                              value={workOrderAssigneeFromRow(row, managerUserId, teamMembers)}
-                              teamMembers={teamMembers}
-                              vendors={assignmentVendors}
-                              label="Assigned to"
-                              dataAttr="work-order-assignee"
-                              onChange={(next) => assignWork(row, next)}
-                            />
-                          </div>
-                        </div>
-                        <p className="mt-4 text-sm leading-relaxed text-muted">{row.description}</p>
-                        <p className="mt-1.5 text-xs text-muted">
-                          Resident preferred arrival:{" "}
-                          <span className="font-medium text-muted">{row.preferredArrival?.trim() || "Anytime"}</span>
-                        </p>
-                        {row.entryPermission || row.entryNotes ? (
-                          <p className="mt-1.5 text-xs text-muted">
-                            Entry: <span className="font-medium text-muted">{entryPermissionLabel(row.entryPermission)}</span>
-                            {row.entryNotes ? <span className="font-medium text-muted"> ({row.entryNotes})</span> : null}
-                          </p>
-                        ) : null}
-                        {row.bucket !== "open" && row.scheduled && row.scheduled !== "—" ? (
-                          <p className="mt-1.5 text-xs text-muted">
-                            Visit scheduled for <span className="font-medium text-foreground">{row.scheduled}</span>
-                          </p>
-                        ) : null}
-                        {row.automationStatus === "vendor_marked_done" ? (
-                          <p className="mt-1.5 text-xs font-medium text-muted">
-                            Vendor marked this done{row.vendorMarkedDoneNote ? `: "${row.vendorMarkedDoneNote}"` : ""}. Awaiting your approval.
-                          </p>
-                        ) : row.automationStatus === "paid" ? (
-                          <p className="mt-1.5 text-xs font-medium text-muted">Approved and paid.</p>
-                        ) : null}
-                        {row.photoDataUrls?.length ? (
-                          <div className="mt-4">
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
-                            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                              {row.photoDataUrls.map((src, index) => {
-                                const trimmed = src.trim();
-                                if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
-                                return (
-                                <a
-                                  key={`${row.id}-photo-${index}`}
-                                  href={trimmed}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="block overflow-hidden rounded-xl border border-border bg-accent/30"
-                                >
-                                  <Image
-                                    src={trimmed}
-                                    alt={`Service photo ${index + 1}`}
-                                    width={240}
-                                    height={180}
-                                    className="h-28 w-full object-cover"
-                                    unoptimized
-                                  />
-                                </a>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : null}
+      <div className="px-3 pb-4 sm:px-4" data-attr="work-order-vendor-bids">
+        <WorkAssignmentPicker
+          kind="maintenance"
+          value={workOrderAssigneeFromRow(row, managerUserId, teamMembers)}
+          teamMembers={teamMembers}
+          vendors={assignmentVendors}
+          label="Assigned to"
+          dataAttr="work-order-assignee"
+          onChange={(next) => assignWork(row, next)}
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {row.vendorName ? (
+            <span className="text-xs text-muted">
+              Vendor: <span className="font-medium text-foreground">{row.vendorName}</span>
+            </span>
+          ) : row.selfAssigned ? (
+            <span className="text-xs text-muted">Self-handled</span>
+          ) : null}
+          {assignedVendor?.phone ? (
+            <a href={`tel:${assignedVendor.phone}`} className="text-xs font-medium text-primary hover:underline">
+              Call
+            </a>
+          ) : null}
+          {assignedVendorEmail ? (
+            <a href={`mailto:${assignedVendorEmail}`} className="text-xs font-medium text-primary hover:underline">
+              Email
+            </a>
+          ) : null}
+        </div>
 
-                        {row.bucket === "open" && dispatch ? (
-                          dispatch.status === "proposed" ? (
-                            <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-3">
-                              <p className="text-sm font-semibold text-foreground">PropLane suggests {dispatch.vendorName}</p>
-                              <p className="mt-1 text-xs text-muted">{dispatch.reasoning}</p>
-                              {dispatch.candidates.slice(0, 2).map((c) => (
-                                <p key={c.vendorId} className="mt-0.5 text-[11px] text-muted">
-                                  {c.vendorName} · {c.reason}
-                                </p>
-                              ))}
-                              <div className="mt-2.5 flex flex-wrap gap-2">
-                                <Button
-                                  type="button"
-                                  variant="primary"
-                                  data-attr="dispatch-approve"
-                                  className="h-7 rounded-full px-3 text-xs"
-                                  disabled={dispatchBusyId === row.id}
-                                  onClick={() => handleDispatchDecision(row, "approve")}
-                                >
-                                  {dispatchBusyId === row.id ? "Dispatching…" : "Approve & dispatch"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  data-attr="dispatch-decline"
-                                  className="h-7 rounded-full px-3 text-xs"
-                                  disabled={dispatchBusyId === row.id}
-                                  onClick={() => handleDispatchDecision(row, "decline")}
-                                >
-                                  Decline
-                                </Button>
-                              </div>
-                            </div>
-                          ) : dispatch.status === "approved" || dispatch.status === "auto_dispatched" ? (
-                            <p className="mt-4 text-xs text-muted">
-                              Dispatched by PropLane to <span className="font-medium text-foreground">{dispatch.vendorName}</span>
-                              {dispatch.decidedAtIso ? ` · ${formatScheduledLabel(dispatch.decidedAtIso)}` : ""}
-                            </p>
-                          ) : null
-                        ) : null}
+        {row.bucket === "open" && dispatch ? (
+          dispatch.status === "proposed" ? (
+            <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-3">
+              <p className="text-sm font-semibold text-foreground">PropLane suggests {dispatch.vendorName}</p>
+              <p className="mt-1 text-xs text-muted">{dispatch.reasoning}</p>
+              {dispatch.candidates.slice(0, 2).map((c) => (
+                <p key={c.vendorId} className="mt-0.5 text-[11px] text-muted">
+                  {c.vendorName} · {c.reason}
+                </p>
+              ))}
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  data-attr="dispatch-approve"
+                  className="h-7 rounded-full px-3 text-xs"
+                  disabled={dispatchBusyId === row.id}
+                  onClick={() => handleDispatchDecision(row, "approve")}
+                >
+                  {dispatchBusyId === row.id ? "Dispatching…" : "Approve & dispatch"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  data-attr="dispatch-decline"
+                  className="h-7 rounded-full px-3 text-xs"
+                  disabled={dispatchBusyId === row.id}
+                  onClick={() => handleDispatchDecision(row, "decline")}
+                >
+                  Decline
+                </Button>
+              </div>
+            </div>
+          ) : dispatch.status === "approved" || dispatch.status === "auto_dispatched" ? (
+            <p className="mt-4 text-xs text-muted">
+              Dispatched by PropLane to <span className="font-medium text-foreground">{dispatch.vendorName}</span>
+              {dispatch.decidedAtIso ? ` · ${formatScheduledLabel(dispatch.decidedAtIso)}` : ""}
+            </p>
+          ) : null
+        ) : null}
 
-                        <div className="mt-4 flex flex-wrap items-end gap-x-3 gap-y-2">
-                          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                            Cost
-                            <Input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="$0"
-                              value={draft.cost}
-                              disabled={isWorkOrderCostLockedByVendor(row)}
-                              data-attr="work-order-cost-input"
-                              onChange={(e) =>
-                                setBillDraftById((prev) => ({
-                                  ...prev,
-                                  [row.id]: { ...(prev[row.id] ?? defaultBillDraft(row)), cost: e.target.value },
-                                }))
-                              }
-                              onBlur={() => commitBilling(row)}
-                              className="h-8 w-24 rounded-md text-sm"
-                            />
-                          </label>
-                          {!linkedCharge ? (
-                            <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                              Payment
-                              <Select
-                                className="h-8 rounded-md text-xs"
-                                value={draft.paymentStatus}
-                                data-attr="work-order-payment-status-select"
-                                onChange={(e) => {
-                                  const paymentStatus = e.target.value as "pending" | "paid";
-                                  setBillDraftById((prev) => ({
-                                    ...prev,
-                                    [row.id]: {
-                                      ...(prev[row.id] ?? defaultBillDraft(row)),
-                                      paymentStatus,
-                                    },
-                                  }));
-                                  commitBilling(row, { paymentStatus });
-                                }}
-                              >
-                                <option value="pending">Pending</option>
-                                <option value="paid">Paid</option>
-                              </Select>
-                            </label>
-                          ) : null}
-                          {row.bucket !== "completed" ? (
-                            <p className="self-end pb-1.5 text-[11px] text-muted">
-                              Visit time and vendor: use Schedule visit.
-                            </p>
-                          ) : row.vendorName ? (
-                            <span className="pb-1.5 text-xs text-muted">
-                              Vendor: <span className="font-medium text-foreground">{row.vendorName}</span>
-                            </span>
-                          ) : row.selfAssigned ? (
-                            <span className="pb-1.5 text-xs text-muted">Self-handled</span>
-                          ) : null}
-                          {assignedVendor?.phone ? (
-                            <a href={`tel:${assignedVendor.phone}`} className="pb-1.5 text-xs font-medium text-primary hover:underline">
-                              Call
-                            </a>
-                          ) : null}
-                          {assignedVendorEmail ? (
-                            <a href={`mailto:${assignedVendorEmail}`} className="pb-1.5 text-xs font-medium text-primary hover:underline">
-                              Email
-                            </a>
-                          ) : null}
-                        </div>
+        {bids.length > 0 ? (
+          <div className="mt-3 border-t border-border pt-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Bids</p>
+            <div className="mt-2 space-y-1.5">
+                {bids.map((bid) => {
+                  const pricingPending = bid.amountCents == null;
+                  const totalCents = (bid.amountCents ?? 0) + bid.materialsCents;
+                  return (
+                  <div
+                    key={bid.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
+                  >
+                    <div>
+                      <span className="font-medium text-foreground">{bid.vendorName || "Vendor"}</span>{" "}
+                      <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]">
+                        {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
+                      </span>
+                      {pricingPending ? (
+                        <span className="ml-1 text-muted">
+                          · Consultation{" "}
+                          {bid.consultationVisitAt
+                            ? `scheduled for ${new Date(bid.consultationVisitAt).toLocaleString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}`
+                            : "pending"}{" "}
+                          , pricing pending
+                        </span>
+                      ) : (
+                        <span className="text-muted">
+                          {" "}
+                          · ${(totalCents / 100).toFixed(2)} (labor ${((bid.amountCents ?? 0) / 100).toFixed(2)} + materials $
+                          {(bid.materialsCents / 100).toFixed(2)}) ·{" "}
+                          {bid.proposedTime
+                            ? new Date(bid.proposedTime).toLocaleString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </span>
+                      )}
+                      {bid.note ? <p className="mt-0.5 text-muted">{bid.note}</p> : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={
+                          bid.status === "accepted"
+                            ? "inline-flex rounded-full bg-accent/40 px-2 py-0.5 text-[10px] font-semibold text-foreground ring-1 ring-border"
+                            : bid.status === "declined"
+                              ? "inline-flex rounded-full bg-accent/30 px-2 py-0.5 text-[10px] font-semibold text-muted ring-1 ring-border"
+                              : "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]"
+                        }
+                      >
+                        {bid.status}
+                      </span>
+                      {bid.status === "submitted" && !pricingPending ? (
+                        <Button
+                          type="button"
+                          variant="primary"
+                          data-attr="work-order-accept-bid"
+                          className="h-7 rounded-full px-3 text-xs"
+                          disabled={acceptingBidId === bid.id}
+                          onClick={() => acceptBidHandler(bid)}
+                        >
+                          Accept
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  );
+                })}
+            </div>
+          </div>
+        ) : (
+          <PortalListEmptyCard title="No bids yet" workspaceAware={false} dataAttr="work-order-bids-empty" />
+        )}
+      </div>
+    );
+  };
 
-                        {(bidsByWorkOrderId[row.id] ?? []).length > 0 ? (
-                          <div className="mt-3 border-t border-border pt-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Bids</p>
-                            <div className="mt-2 space-y-1.5">
-                                {(bidsByWorkOrderId[row.id] ?? []).map((bid) => {
-                                  const pricingPending = bid.amountCents == null;
-                                  const totalCents = (bid.amountCents ?? 0) + bid.materialsCents;
-                                  return (
-                                  <div
-                                    key={bid.id}
-                                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
-                                  >
-                                    <div>
-                                      <span className="font-medium text-foreground">{bid.vendorName || "Vendor"}</span>{" "}
-                                      <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]">
-                                        {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
-                                      </span>
-                                      {pricingPending ? (
-                                        <span className="ml-1 text-muted">
-                                          · Consultation{" "}
-                                          {bid.consultationVisitAt
-                                            ? `scheduled for ${new Date(bid.consultationVisitAt).toLocaleString(undefined, {
-                                                month: "short",
-                                                day: "numeric",
-                                                hour: "numeric",
-                                                minute: "2-digit",
-                                              })}`
-                                            : "pending"}{" "}
-                                          , pricing pending
-                                        </span>
-                                      ) : (
-                                        <span className="text-muted">
-                                          {" "}
-                                          · ${(totalCents / 100).toFixed(2)} (labor ${((bid.amountCents ?? 0) / 100).toFixed(2)} + materials $
-                                          {(bid.materialsCents / 100).toFixed(2)}) ·{" "}
-                                          {bid.proposedTime
-                                            ? new Date(bid.proposedTime).toLocaleString(undefined, {
-                                                month: "short",
-                                                day: "numeric",
-                                                hour: "numeric",
-                                                minute: "2-digit",
-                                              })
-                                            : "—"}
-                                        </span>
-                                      )}
-                                      {bid.note ? <p className="mt-0.5 text-muted">{bid.note}</p> : null}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className={
-                                          bid.status === "accepted"
-                                            ? "inline-flex rounded-full bg-accent/40 px-2 py-0.5 text-[10px] font-semibold text-foreground ring-1 ring-border"
-                                            : bid.status === "declined"
-                                              ? "inline-flex rounded-full bg-accent/30 px-2 py-0.5 text-[10px] font-semibold text-muted ring-1 ring-border"
-                                              : "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]"
-                                        }
-                                      >
-                                        {bid.status}
-                                      </span>
-                                      {bid.status === "submitted" && !pricingPending ? (
-                                        <Button
-                                          type="button"
-                                          variant="primary"
-                                          data-attr="work-order-accept-bid"
-                                          className="h-7 rounded-full px-3 text-xs"
-                                          disabled={acceptingBidId === bid.id}
-                                          onClick={() => acceptBidHandler(bid)}
-                                        >
-                                          Accept
-                                        </Button>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                  );
-                                })}
-                            </div>
-                          </div>
-                        ) : null}
+  /** Schedule — current visit state; the visit itself is set from the header "Schedule" action. */
+  const renderScheduleBody = (row: DemoManagerWorkOrderRow) => (
+    <div className="px-3 pb-4 sm:px-4" data-attr="work-order-schedule-facts">
+      <WorkOrderFact
+        label="Visit"
+        value={
+          row.scheduled && row.scheduled !== "—"
+            ? row.scheduled
+            : row.proposedVisit
+              ? formatScheduledLabel(row.proposedVisit.iso)
+              : "Not scheduled"
+        }
+      />
+      {visitSourcePill(row) ? <div className="py-1.5">{visitSourcePill(row)}</div> : null}
+      {row.bucket !== "open" && row.scheduled && row.scheduled !== "—" ? (
+        <p className="mt-1.5 text-xs text-muted">
+          Visit scheduled for <span className="font-medium text-foreground">{row.scheduled}</span>
+        </p>
+      ) : null}
+    </div>
+  );
 
-                        {dockActions ? null : (
-                          <PortalTableDetailActions>{workOrderDetailActions(row)}</PortalTableDetailActions>
-                        )}
-      </>
+  /** Invoice — cost, payment status, and the linked charge (all money through one formatter). */
+  const renderInvoiceBody = (row: DemoManagerWorkOrderRow) => {
+    const draft = billDraftById[row.id] ?? defaultBillDraft(row);
+    const linkedCharge = chargeByWoId.get(row.id);
+    return (
+      <div className="px-3 pb-4 sm:px-4" data-attr="work-order-invoice">
+        <WorkOrderFact label="Cost" value={displayWorkOrderCost(row.cost)} />
+        <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
+            Cost
+            <Input
+              type="text"
+              inputMode="decimal"
+              placeholder="$0"
+              value={draft.cost}
+              disabled={isWorkOrderCostLockedByVendor(row)}
+              data-attr="work-order-cost-input"
+              onChange={(e) =>
+                setBillDraftById((prev) => ({
+                  ...prev,
+                  [row.id]: { ...(prev[row.id] ?? defaultBillDraft(row)), cost: e.target.value },
+                }))
+              }
+              onBlur={() => commitBilling(row)}
+              className="h-8 w-24 rounded-md text-sm"
+            />
+          </label>
+          {!linkedCharge ? (
+            <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
+              Payment
+              <Select
+                className="h-8 rounded-md text-xs"
+                value={draft.paymentStatus}
+                data-attr="work-order-payment-status-select"
+                onChange={(e) => {
+                  const paymentStatus = e.target.value as "pending" | "paid";
+                  setBillDraftById((prev) => ({
+                    ...prev,
+                    [row.id]: {
+                      ...(prev[row.id] ?? defaultBillDraft(row)),
+                      paymentStatus,
+                    },
+                  }));
+                  commitBilling(row, { paymentStatus });
+                }}
+              >
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+              </Select>
+            </label>
+          ) : (
+            <p className="self-end pb-1.5 text-[11px] text-muted">Linked to a resident charge.</p>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -1254,24 +1277,99 @@ export function ManagerWorkOrdersPanel({
     if (!routeWorkOrder) {
       return <PortalDataTableEmpty icon="work-order" message="Service not found." />;
     }
+    const sections = recordSections("manager", "service", {
+      basePath: listBasePath ?? "/portal",
+      serviceKind: "work-order",
+      serviceBucket: bucket,
+    });
+    const activeTab = serviceDetailTab ?? "overview";
+    const backHref = listBasePath ? workOrderListHref(listBasePath, bucket) : "#";
+    // "Close" only applies once a visit is scheduled (Mark complete / Approve & pay);
+    // "Schedule" has nothing left to do once the work is completed — dropped rather
+    // than shown as a dead "Coming soon" action (docs/agents/record-page.md § Known gap).
+    const headerActions = sections.headerActions.filter((action) => {
+      if (action.id === "schedule") return routeWorkOrder.bucket !== "completed";
+      if (action.id === "close") return routeWorkOrder.bucket === "scheduled";
+      return true;
+    });
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "assign-vendor") {
+        setAssignSheetRow(routeWorkOrder);
+        return;
+      }
+      if (actionId === "schedule") {
+        setScheduleVisitRow(routeWorkOrder);
+        return;
+      }
+      if (actionId === "close") {
+        if (routeWorkOrder.automationStatus === "vendor_marked_done") approvePay(routeWorkOrder);
+        else markComplete(routeWorkOrder);
+        return;
+      }
+      if (actionId === "delete") {
+        onDeleteWorkOrder(routeWorkOrder);
+      }
+    };
+    const ownContent =
+      activeTab === "vendor-bids" ? (
+        renderVendorBidsBody(routeWorkOrder)
+      ) : activeTab === "schedule" ? (
+        renderScheduleBody(routeWorkOrder)
+      ) : activeTab === "invoice" ? (
+        renderInvoiceBody(routeWorkOrder)
+      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "manager",
+          kind: "service",
+          kindLabel: "service",
+          recordId: routeWorkOrder.id,
+          recordLabel: routeWorkOrder.title,
+          propertyId: routeWorkOrder.propertyId,
+          contactIds: routeWorkOrder.residentEmail ? [routeWorkOrder.residentEmail] : undefined,
+        })
+      ) : (
+        <>
+          {renderOverviewFacts(routeWorkOrder)}
+          {/*
+            The full action set (Schedule visit / Confirm time / Edit / Auto-schedule /
+            Approve & pay / Mark complete / Delete, gated by bucket and automation state)
+            has no 1:1 mapping onto the registry's four generic header icons, so it stays
+            here, inline, rather than fighting the ONE title-row actions slot the header
+            icons already claim (`PortalRecordActions` publishes a single slot; a second
+            publisher — e.g. the `footer` prop — silently overwrites the first).
+          */}
+          <PortalTableDetailActions>{workOrderDetailActions(routeWorkOrder)}</PortalTableDetailActions>
+        </>
+      );
     return (
       <>
         <PortalRecordDetailPage
           pageTitle="Services"
           title={routeWorkOrder.title}
           subtitle={[routeWorkOrder.reference, routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
-          backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
+          backHref={backHref}
           hideBackText
+          bareHeader
+          iconTitleActions
           dataAttrBack="work-order-detail-back"
-          footerOmitSpacer
-          footer={workOrderDetailActions(routeWorkOrder)}
+          pinScrollBody
         >
-          {/*
-            On the detail ROUTE the actions dock at the bottom like every other
-            detail page; the same body rendered inline under an expanded list row
-            keeps them where they are, because there is no dock there to move to.
-          */}
-          {renderRowDetail(routeWorkOrder, true)}
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={headerActions} onAction={onHeaderAction} />
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            sections={{ ...sections, headerActions }}
+            recordId={routeWorkOrder.id}
+            activeId={activeTab}
+            title={routeWorkOrder.title}
+            subtitle={routeWorkOrder.propertyName}
+            backHref={backHref}
+            backLabel="All services"
+            ariaLabel="Service sections"
+            onHeaderAction={onHeaderAction}
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
         <ScheduleServiceVisitModal
           open={scheduleVisitRow !== null}
@@ -1290,6 +1388,22 @@ export function ManagerWorkOrdersPanel({
             void syncManagerWorkOrdersFromServer({ force: true });
           }}
         />
+        <Modal open={assignSheetRow !== null} title="Assign to" onClose={() => setAssignSheetRow(null)}>
+          {assignSheetRow ? (
+            <WorkAssignmentPicker
+              kind="maintenance"
+              value={workOrderAssigneeFromRow(assignSheetRow, managerUserId, teamMembers)}
+              teamMembers={teamMembers}
+              vendors={assignmentVendors}
+              label="Assigned to"
+              dataAttr="work-order-assignee-sheet"
+              onChange={(next) => {
+                assignWork(assignSheetRow, next);
+                setAssignSheetRow(null);
+              }}
+            />
+          ) : null}
+        </Modal>
       </>
     );
   }
@@ -1358,29 +1472,28 @@ export function ManagerWorkOrdersPanel({
         })}
       </PortalRecordListSurface>
 
-      <Modal
+      <PortalDialog
         open={Boolean(completeRow)}
         onClose={() => setCompleteRow(null)}
+        dismissBlocked={completeBusy}
         title="Complete service"
-        description={
-          completeRow ? `${completeRow.propertyName} · ${completeRow.title}` : undefined
-        }
-        footer={
-          completeRow ? (
-            <ModalFooter>
-              <Button type="button" variant="primary" onClick={() => submitComplete()} disabled={completeBusy}>
-                {completeBusy
-                  ? "Completing…"
-                  : completeDraft.notifyResident && completeRow.residentEmail?.includes("@")
-                    ? "Complete & notify"
-                    : "Complete & log expenses"}
-              </Button>
-            </ModalFooter>
-          ) : undefined
-        }
+        primaryAction={{
+          label: completeBusy
+            ? "Completing…"
+            : completeRow && completeDraft.notifyResident && completeRow.residentEmail?.includes("@")
+              ? "Complete & notify"
+              : "Complete & log expenses",
+          onClick: () => submitComplete(),
+          disabled: completeBusy || !completeRow,
+          loading: completeBusy,
+        }}
       >
         {completeRow ? (
           <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">{completeRow.title}</p>
+              <p className="mt-0.5 text-xs text-muted">{completeRow.propertyName}</p>
+            </div>
             <label className="flex flex-col gap-1 text-xs font-medium text-muted">
               Category
               <Select
@@ -1495,7 +1608,7 @@ export function ManagerWorkOrdersPanel({
             ) : null}
           </div>
         ) : null}
-      </Modal>
+      </PortalDialog>
 
       <Modal
         open={Boolean(approvePayRow)}

@@ -2,6 +2,7 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { trimmedText } from "@/lib/trimmed-text";
+import { RECORD_KINDS, type RecordKind } from "@/lib/portals/record-kinds";
 
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
 
@@ -10,6 +11,15 @@ export type CommunicationThreadFilters = {
   propertyIds: string[];
   roles: CommunicationFilterRole[];
   contactIds: string[];
+  /**
+   * Narrow to threads whose `recordRef` matches one of these exact
+   * (kind, id) pairs — this is how a record's own Communication section
+   * (`RecordCommunicationSection`) scopes the shared inbox components to just
+   * that record, without inventing a parallel list.
+   */
+  recordRefs?: { kind: RecordKind; id: string }[];
+  /** Narrow to threads whose `recordRef.kind` is one of these — the inbox's "About" filter. */
+  recordKinds?: RecordKind[];
 };
 
 export const EMPTY_COMMUNICATION_THREAD_FILTERS: CommunicationThreadFilters = {
@@ -18,8 +28,36 @@ export const EMPTY_COMMUNICATION_THREAD_FILTERS: CommunicationThreadFilters = {
   contactIds: [],
 };
 
+/** Title-case option labels for the "About" filter dropdown — every `RecordKind`, once. */
+export const RECORD_KIND_FILTER_LABELS: Record<RecordKind, string> = {
+  property: "Property",
+  resident: "Resident",
+  payment: "Charge",
+  "outgoing-payment": "Payment",
+  lease: "Lease",
+  application: "Application",
+  inspection: "Inspection",
+  service: "Service",
+  task: "Task",
+  vendor: "Vendor",
+  tour: "Tour",
+  booking: "Booking",
+  document: "Document",
+};
+
+export const RECORD_KIND_FILTER_OPTIONS: { value: RecordKind; label: string }[] = RECORD_KINDS.map((kind) => ({
+  value: kind,
+  label: RECORD_KIND_FILTER_LABELS[kind],
+}));
+
 export function communicationFiltersActive(filters: CommunicationThreadFilters): boolean {
-  return filters.propertyIds.length > 0 || filters.roles.length > 0 || filters.contactIds.length > 0;
+  return (
+    filters.propertyIds.length > 0 ||
+    filters.roles.length > 0 ||
+    filters.contactIds.length > 0 ||
+    (filters.recordRefs?.length ?? 0) > 0 ||
+    (filters.recordKinds?.length ?? 0) > 0
+  );
 }
 
 export function roleLabel(role: CommunicationFilterRole): string {
@@ -88,9 +126,27 @@ export function threadPassesCommunicationFilters(args: {
   isResidentThread?: boolean;
   /** Authoritative SMS thread role, when filtering an SMS conversation. */
   counterpartyRole?: SmsCounterpartyRole;
+  /** The thread's stamped `recordRef`, when it has one. Absent/null never matches a recordRefs/recordKinds filter. */
+  recordRef?: { kind: RecordKind; id: string } | null;
 }): boolean {
   const { filters } = args;
   if (!communicationFiltersActive(filters)) return true;
+
+  // Record dimensions are pure narrowing: a thread with no ref fails outright
+  // rather than falling through to the property/role/person checks below, and
+  // this can only ever REMOVE rows the viewer's other authorization already
+  // let them see — it never adds a thread that authorization excluded.
+  if (filters.recordRefs?.length) {
+    const ok = Boolean(
+      args.recordRef &&
+        filters.recordRefs.some((ref) => ref.kind === args.recordRef!.kind && ref.id === args.recordRef!.id),
+    );
+    if (!ok) return false;
+  }
+  if (filters.recordKinds?.length) {
+    const ok = Boolean(args.recordRef && filters.recordKinds.includes(args.recordRef.kind));
+    if (!ok) return false;
+  }
 
   const adminEmail = PRIMARY_AXIS_ADMIN_EMAIL.toLowerCase();
   const counterparty = trimmedText(args.counterpartyEmail).toLowerCase();

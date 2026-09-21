@@ -39,6 +39,20 @@ const db = {
     if (table === "profile_roles") {
       return { select: () => ({ eq: async () => ({ data: [{ role: "manager" }], error: null }) }) };
     }
+    // `assertSettingsScopeOwned` (PLAN-0920-0845) reads the workspace's owner
+    // before the route's own `saveWorkspacePaymentSettings` runs — every
+    // workspace id this test uses belongs to MANAGER_ID.
+    if (table === "portal_workspaces") {
+      let workspaceId: string | undefined;
+      return {
+        select: () => ({
+          eq: (col: string, val: unknown) => {
+            if (col === "id") workspaceId = String(val);
+            return { maybeSingle: async () => ({ data: { id: workspaceId, owner_user_id: MANAGER_ID }, error: null }) };
+          },
+        }),
+      };
+    }
     return {
       select: () => ({
         limit: async () => ({ data: [], error: null }),
