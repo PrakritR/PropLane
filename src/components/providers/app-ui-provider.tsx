@@ -14,7 +14,10 @@ import { Modal } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { applyDevResetEpoch } from "@/lib/dev/reset-epoch";
 
-type Toast = { id: number; message: string };
+type Toast = { id: number; message: string; undo?: () => void | Promise<void> };
+
+/** Passed to {@link AppUiContextValue.showToast} for a reversible action's one Undo button — never a second button (AGENTS.md § The pop-up). */
+export type ToastOptions = { undo?: () => void | Promise<void> };
 
 /** What {@link AppUiContextValue.confirm} asks the person. */
 export type ConfirmRequest = {
@@ -31,7 +34,8 @@ export type ConfirmRequest = {
 
 type AppUiContextValue = {
   toasts: Toast[];
-  showToast: (message: string) => void;
+  /** One line, bottom center. Pass `{ undo }` for a reversible action — the toast grows exactly one Undo button, never a second. */
+  showToast: (message: string, options?: ToastOptions) => void;
   modal: { title: string; body: string } | null;
   openModal: (payload: { title: string; body: string }) => void;
   closeModal: () => void;
@@ -56,12 +60,18 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
     null,
   );
 
-  const showToast = useCallback((message: string) => {
+  const showToast = useCallback((message: string, options?: ToastOptions) => {
     const id = Date.now() * 1000 + (toastSeq.current++ % 1000);
-    setToasts((t) => [...t, { id, message }]);
-    window.setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, 3200);
+    setToasts((t) => [...t, { id, message, undo: options?.undo }]);
+    // A reversible toast stays up longer — it is the only chance to catch the
+    // action before it is gone for good, where a plain confirmation just needs
+    // to be seen.
+    window.setTimeout(
+      () => {
+        setToasts((t) => t.filter((x) => x.id !== id));
+      },
+      options?.undo ? 6000 : 3200,
+    );
   }, []);
 
   const openModal = useCallback((payload: { title: string; body: string }) => {
@@ -119,9 +129,22 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="pointer-events-auto rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-lg"
+            className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-lg"
           >
-            {t.message}
+            <span className="min-w-0">{t.message}</span>
+            {t.undo ? (
+              <button
+                type="button"
+                className="shrink-0 font-semibold text-primary hover:underline"
+                data-attr="toast-undo"
+                onClick={() => {
+                  setToasts((current) => current.filter((x) => x.id !== t.id));
+                  void t.undo?.();
+                }}
+              >
+                Undo
+              </button>
+            ) : null}
           </div>
         ))}
       </div>

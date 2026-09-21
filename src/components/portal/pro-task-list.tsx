@@ -509,6 +509,7 @@ export function ManagerTaskList({
             variant="outline"
             className={PORTAL_BULK_BAR_BTN}
             data-attr="manager-tasks-bulk-edit"
+            data-record-action-id="edit"
             disabled={bulkBusy}
             onClick={editSelectedTask}
           >
@@ -535,6 +536,7 @@ export function ManagerTaskList({
           variant="primary"
           className={PORTAL_BULK_BAR_BTN}
           data-attr={tabId === "completed" ? "manager-tasks-bulk-reopen" : "manager-tasks-bulk-mark-done"}
+          data-record-action-id="complete"
           disabled={bulkBusy}
           onClick={completeHandler}
         >
@@ -562,6 +564,7 @@ export function ManagerTaskList({
           variant="outline"
           className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
           data-attr="manager-tasks-bulk-delete"
+          data-record-action-id="delete"
           disabled={bulkBusy}
           onClick={() => setDeleteConfirmOpen(true)}
         >

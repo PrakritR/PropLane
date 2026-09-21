@@ -74,6 +74,7 @@ import {
   PortalAdaptiveActionRow,
   type PortalAdaptiveAction,
 } from "@/components/portal/portal-adaptive-action-row";
+import { runRecordActionGate } from "@/lib/portals/record-action-gate";
 import { cn } from "@/lib/utils";
 
 /** Compact outline buttons for the fixed bulk-selection bar (single row on mobile). */
@@ -486,29 +487,52 @@ export function ManagerPaymentsLedgerPanel({
     [showToast],
   );
 
+  /** Reverts exactly the rows `markSelectedAsPaid`/`recordPaid` just marked paid — the Undo toast's one click (AGENTS.md § The pop-up: "reversible actions run immediately with an Undo toast"). Mirrors `moveToPending`/`moveSelectedToPending`. */
+  const revertToPending = async (paidRows: DemoManagerPaymentLedgerRow[]) => {
+    for (const row of paidRows) {
+      if (row.householdChargeId) {
+        if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
+          await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);
+        }
+      } else {
+        markManagerPaymentLedgerPending(row.id);
+      }
+    }
+    onRowsChanged?.();
+    onScheduleChanged?.();
+  };
+
   const markSelectedAsPaid = async () => {
     const targets = rows.filter((row) => selectedIds.has(row.id) && isMarkableAsPaid(row));
     if (targets.length === 0) return;
-    let ok = 0;
+    const paid: DemoManagerPaymentLedgerRow[] = [];
     for (const row of targets) {
       if (row.householdChargeId) {
         if (markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
           await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
-          ok += 1;
+          paid.push(row);
         }
       } else {
         markManagerPaymentLedgerPaid(row.id);
-        ok += 1;
+        paid.push(row);
       }
     }
     setSelectedIds(new Set());
     onRowsChanged?.();
     onScheduleChanged?.();
-    if (ok === 0) {
+    if (paid.length === 0) {
       showToast("Could not mark selected payments as paid.");
       return;
     }
-    showToast(ok === 1 ? "Marked as paid." : `Marked ${ok} payments as paid.`);
+    await runRecordActionGate(
+      {
+        reversible: true,
+        run: () => {},
+        message: paid.length === 1 ? "Marked as paid." : `Marked ${paid.length} payments as paid.`,
+        undo: () => revertToPending(paid),
+      },
+      { confirm, showToast },
+    );
   };
 
   const moveSelectedToPending = async () => {
@@ -1213,22 +1237,31 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const recordPaid = async (row: DemoManagerPaymentLedgerRow, toastMessage: string) => {
-    if (row.householdChargeId) {
-      if (markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
-        await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
-        showToast(toastMessage);
-        navigateToList();
-        onRowsChanged?.();
-        onScheduleChanged?.();
-        return;
-      }
-      showToast("Could not update this line.");
-      return;
+    try {
+      await runRecordActionGate(
+        {
+          reversible: true,
+          run: async () => {
+            if (row.householdChargeId) {
+              if (!markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
+                throw new Error("Could not update this line.");
+              }
+              await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
+            } else {
+              markManagerPaymentLedgerPaid(row.id);
+            }
+            navigateToList();
+            onRowsChanged?.();
+            onScheduleChanged?.();
+          },
+          message: toastMessage,
+          undo: () => revertToPending([row]),
+        },
+        { confirm, showToast },
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not update this line.");
     }
-    markManagerPaymentLedgerPaid(row.id);
-    showToast(toastMessage);
-    navigateToList();
-    onRowsChanged?.();
   };
 
   const removePayment = async (row: DemoManagerPaymentLedgerRow) => {
@@ -1439,6 +1472,7 @@ export function ManagerPaymentsLedgerPanel({
             variant="outline"
             className={PAYMENTS_BULK_BAR_BTN}
             data-attr="payments-mark-selected-paid"
+            data-record-action-id="mark-paid"
             onClick={markSelectedAsPaid}
           >
             Mark as paid
@@ -1504,6 +1538,7 @@ export function ManagerPaymentsLedgerPanel({
             className={PAYMENTS_BULK_BAR_BTN}
             disabled={Boolean(returningDepositId)}
             data-attr="payments-return-deposit"
+            data-record-action-id="return-deposit"
             onClick={() => returnDeposit()}
           >
             {returningDepositId ? "Returning…" : "Return deposit"}
@@ -1535,6 +1570,7 @@ export function ManagerPaymentsLedgerPanel({
             className={PAYMENTS_BULK_BAR_BTN}
             disabled={Boolean(sendingReminderId) || remindableSelectedRows.length === 0}
             data-attr="payments-send-reminder"
+            data-record-action-id="send-reminder"
             title={
               remindableSelectedRows.length === 0
                 ? "Select at least one unpaid charge."
@@ -1570,6 +1606,7 @@ export function ManagerPaymentsLedgerPanel({
             variant="outline"
             className={PAYMENTS_BULK_BAR_BTN}
             data-attr="payments-scheduled-reminders"
+            data-record-action-id="scheduled-reminders"
             onClick={() => openChargeRemindersModal(row)}
           >
             Scheduled reminders
@@ -1592,6 +1629,7 @@ export function ManagerPaymentsLedgerPanel({
             type="button"
             variant="outline"
             className={PAYMENTS_BULK_BAR_BTN}
+            data-record-action-id="move-pending"
             onClick={moveSelectedToPending}
           >
             Move to pending
@@ -1612,6 +1650,7 @@ export function ManagerPaymentsLedgerPanel({
             type="button"
             variant="outline"
             className={PAYMENTS_BULK_BAR_BTN}
+            data-record-action-id="edit"
             onClick={() => startEdit(singleSelectedRow)}
           >
             Edit
@@ -1631,6 +1670,7 @@ export function ManagerPaymentsLedgerPanel({
           type="button"
           variant="outline"
           className={PAYMENTS_BULK_BAR_BTN}
+          data-record-action-id="delete"
           onClick={deleteSelected}
         >
           Delete
