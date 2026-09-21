@@ -41,7 +41,7 @@ import {
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { parseInviteRecipient, inviteRecipientHint } from "@/lib/invite-recipient";
+import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
   WorkspacePermissionsFields,
   RoleCapabilitiesList,
@@ -627,11 +627,6 @@ export function WorkspaceInviteSheet({
               Send
             </Button>
           </div>
-          {sendFocused || sendValue ? (
-            <p className="text-xs text-muted" data-attr="workspace-invite-hint">
-              {inviteRecipientHint(recipient)}
-            </p>
-          ) : null}
         </div>
 
         {/* 2. Permissions — the same Role / Houses / Selected houses system Edit permissions renders */}
