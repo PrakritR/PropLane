@@ -112,13 +112,13 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
 
     const bannerHtml = document.body.innerHTML;
 
-    // "+ Create" is refused, and says why — with the limit and the upgrade path.
-    // The circle reads a bare glyph like every other portal add control; "Create"
+    // "+ Add property" is refused, and says why — with the limit and the upgrade path.
+    // The circle reads a bare glyph like every other portal add control; "Add property"
     // is its ACCESSIBLE name, which is what a user is actually offered here — so
     // match on the role, not the visible glyph. One door in: no menu to open.
     const trigger = document.querySelector('[data-attr="manager-properties-add-top"]') as HTMLElement | null;
     expect(trigger).toBeTruthy();
-    expect(trigger!.getAttribute("aria-label")).toBe("Create");
+    expect(trigger!.getAttribute("aria-label")).toBe("Add property");
     // Radix's dropdown trigger opens on pointerdown, not a bare click event,
     // so the interaction needs `userEvent` here even though nothing else in
     // this test does.
