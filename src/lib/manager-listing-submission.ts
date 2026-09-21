@@ -112,6 +112,18 @@ export type ManagerRoomResidentPrice = {
 };
 
 /**
+ * One resident slot's own move-in facts — their bed, their closet, their spot —
+ * on a shared room. Room-level move-in fields ({@link ManagerRoomSubmission.moveInInstructions}
+ * and its photos/video) stay what every resident of the room gets; this is only
+ * what a single resident needs on top of that.
+ */
+export type ManagerRoomResidentMoveIn = {
+  moveInInstructions: string;
+  moveInPhotoDataUrls: string[];
+  moveInVideoDataUrl: string | null;
+};
+
+/**
  * One span of OCCUPIED dates on a room. A room is available by default; these
  * rows (plus residents' stays and Bookings blocks) are what close it. The wizard
  * edits the manager's own rows; the Airbnb calendar sync writes rows whose id
@@ -195,6 +207,16 @@ export type ManagerRoomSubmission = {
   moveInPhotoDataUrls: string[];
   /** Optional move-in walkthrough video (resident portal only). */
   moveInVideoDataUrl: string | null;
+  /**
+   * One entry per resident slot of a room holding 2+ residents — what only that
+   * resident needs (their bed, their closet, their spot). Index + 1 = slot number,
+   * same convention as {@link residentPrices}. Room-level move-in fields above
+   * stay what every resident of the room gets; this is only the per-slot extra.
+   * Normalization ({@link reconcileRoomResidentMoveIn}) clamps it to
+   * {@link occupancyCapacity} and drops it below capacity 2 or when every entry
+   * is empty.
+   */
+  moveInResidentDetails?: ManagerRoomResidentMoveIn[];
   /** Manager-defined blocks when the room must not be booked (overlaps disallowed with applicant lease). */
   manualUnavailableRanges: ManagerRoomUnavailableRange[];
   /**
@@ -2042,9 +2064,16 @@ function normalizeManagerListingSubmissionV1Base(
       residentPrices: normalizeRoomResidentPriceRows(
         (legacyRoom as ManagerRoomSubmission & { residentPrices?: unknown }).residentPrices,
       ),
+      // Raw-cleaned only here; the capacity clamp and empty-drop need the
+      // normalized room, so `reconcileRoomResidentMoveIn` runs on it below.
+      moveInResidentDetails: normalizeRoomResidentMoveInRows(
+        (legacyRoom as ManagerRoomSubmission & { moveInResidentDetails?: unknown }).moveInResidentDetails,
+      ),
     };
   });
-  const rooms: ManagerRoomSubmission[] = mappedRooms.map(reconcileRoomResidentPricing);
+  const rooms: ManagerRoomSubmission[] = mappedRooms.map((room) =>
+    reconcileRoomResidentMoveIn(reconcileRoomResidentPricing(room)),
+  );
 
   let bundles = sub.bundles;
   if (!Array.isArray(bundles)) bundles = [];
@@ -2812,6 +2841,14 @@ export function duplicateRoomEntry(
     })),
     // Own copies, so editing Resident 2 on the duplicate never edits the source.
     ...(source.residentPrices ? { residentPrices: source.residentPrices.map((row) => ({ ...row })) } : {}),
+    ...(source.moveInResidentDetails
+      ? {
+          moveInResidentDetails: source.moveInResidentDetails.map((row) => ({
+            ...row,
+            moveInPhotoDataUrls: [...row.moveInPhotoDataUrls],
+          })),
+        }
+      : {}),
   };
 }
 
@@ -3073,14 +3110,17 @@ export function clampRoomResidentPrices(
  * Apply the per-resident rules to a NORMALIZED room (its rent, deposit, utilities,
  * mode and capacity are already clean):
  *
- *  - capacity below 2, or the row unticked → both fields dropped, on the room and
- *    on every term entry; the room's own figures are untouched.
- *  - ticked → `residentPrices` clamped to capacity with the room's figures as the
- *    fallback; each term entry marked `"per_resident"` is clamped the same way
- *    with that term's figures (else the room's) as its fallback.
- *  - a term entry saying `"same"` is kept only while the room itself prices per
- *    resident — it is that term's way of turning the row off — and otherwise says
- *    nothing, so it goes.
+ *  - capacity below 2 → both fields dropped everywhere, on the room and on every
+ *    term entry; the room's own figures are untouched.
+ *  - each lease term's tick is its own: a term entry marked `"per_resident"` keeps
+ *    that flag and gets its `residentPrices` clamped to capacity (that term's own
+ *    figures as fallback, else the room's) whenever capacity is at least 2 —
+ *    independent of whether the room itself prices per resident.
+ *  - a term entry saying `"same"` only means something while the room itself
+ *    prices per resident — it is that term's way of turning the row off relative
+ *    to the room default — and otherwise says nothing, so it goes.
+ *  - the room's own tick, when set, clamps `residentPrices` on the room with the
+ *    room's figures as the fallback.
  */
 export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): ManagerRoomSubmission {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
@@ -3098,9 +3138,7 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
     for (const [term, entry] of Object.entries(termPricing)) {
       const { residentPricing, residentPrices, ...rest } = entry;
       const cleaned: ManagerRoomTermPrice = { ...rest };
-      if (perResident && residentPricing === "same") {
-        cleaned.residentPricing = "same";
-      } else if (perResident && residentPricing === "per_resident") {
+      if (capacity >= 2 && residentPricing === "per_resident") {
         cleaned.residentPricing = "per_resident";
         cleaned.residentPrices = clampRoomResidentPrices(residentPrices, capacity, {
           monthlyRent: entry.monthlyRent && entry.monthlyRent > 0 ? entry.monthlyRent : room.monthlyRent,
@@ -3108,6 +3146,8 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
           securityDeposit: entry.securityDeposit ?? room.securityDeposit,
           pricingMode: entry.pricingMode ?? room.pricingMode,
         });
+      } else if (perResident && residentPricing === "same") {
+        cleaned.residentPricing = "same";
       }
       if (Object.keys(cleaned).length > 0) next[term] = cleaned;
     }
@@ -3123,6 +3163,76 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
     out.residentPrices = clampRoomResidentPrices(room.residentPrices, capacity, roomFallback);
   }
   return out;
+}
+
+/* ─────────────── move-in details per resident on a shared room ─────────────── */
+
+function emptyResidentMoveIn(): ManagerRoomResidentMoveIn {
+  return { moveInInstructions: "", moveInPhotoDataUrls: [], moveInVideoDataUrl: null };
+}
+
+function residentMoveInIsEmpty(entry: ManagerRoomResidentMoveIn): boolean {
+  return !entry.moveInInstructions.trim() && entry.moveInPhotoDataUrls.length === 0 && !entry.moveInVideoDataUrl;
+}
+
+/**
+ * Clean the stored rows without judging their count or capacity — that is
+ * {@link reconcileRoomResidentMoveIn}'s job, once the room's normalized capacity
+ * is known. A junk entry is dropped; a non-string instructions value becomes "";
+ * photos keep only string urls; video is a string or null. Returns undefined for
+ * anything that is not a list, so a room without the field stays byte-identical.
+ */
+function normalizeRoomResidentMoveInRows(raw: unknown): ManagerRoomResidentMoveIn[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ManagerRoomResidentMoveIn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const v = item as Record<string, unknown>;
+    out.push({
+      moveInInstructions: typeof v.moveInInstructions === "string" ? v.moveInInstructions.trim() : "",
+      moveInPhotoDataUrls: Array.isArray(v.moveInPhotoDataUrls)
+        ? v.moveInPhotoDataUrls.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+        : [],
+      moveInVideoDataUrl: typeof v.moveInVideoDataUrl === "string" && v.moveInVideoDataUrl ? v.moveInVideoDataUrl : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Apply the per-resident move-in rules to a NORMALIZED room (its capacity is
+ * already clean):
+ *
+ *  - capacity below 2 → the field is dropped; the room's own move-in fields are
+ *    untouched.
+ *  - capacity 2+ → entries are cleaned, padded with empty entries up to
+ *    capacity, and truncated beyond it.
+ *  - once padded/truncated, if every entry is empty (no text, no photos, no
+ *    video), the field is dropped rather than stored as a list of nothing —
+ *    the same "no keys added" rule {@link reconcileRoomResidentPricing} follows.
+ */
+export function reconcileRoomResidentMoveIn(room: ManagerRoomSubmission): ManagerRoomSubmission {
+  const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  const { moveInResidentDetails: rawEntries, ...bare } = room;
+  if (capacity < 2) return bare as ManagerRoomSubmission;
+
+  const cleaned: ManagerRoomResidentMoveIn[] = [];
+  for (let slot = 0; slot < capacity; slot += 1) {
+    const source = rawEntries?.[slot];
+    cleaned.push(
+      source
+        ? {
+            moveInInstructions: source.moveInInstructions ?? "",
+            moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])],
+            moveInVideoDataUrl: source.moveInVideoDataUrl ?? null,
+          }
+        : emptyResidentMoveIn(),
+    );
+  }
+
+  if (cleaned.every(residentMoveInIsEmpty)) return bare as ManagerRoomSubmission;
+
+  return { ...(bare as ManagerRoomSubmission), moveInResidentDetails: cleaned };
 }
 
 export function emptyBathroom(index: number): ManagerBathroomSubmission {
