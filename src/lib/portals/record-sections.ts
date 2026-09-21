@@ -234,7 +234,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     headerActions: [
       { id: "record-payment", label: "Record payment", icon: CreditCard },
       { id: "send-reminder", label: "Send reminder", icon: Send },
-      { id: "edit", label: "Edit", icon: Pencil },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     phonePrimary: "record-payment",

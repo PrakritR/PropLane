@@ -6,8 +6,10 @@ import {
   readChargesForManager,
   type HouseholdCharge,
 } from "@/lib/household-charges";
+import { isUpcomingHouseholdCharge } from "@/lib/household-charge-visibility";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
+import { readCachedShowUpcomingChargesSetting } from "@/lib/payment-automation-settings";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 /**
@@ -91,14 +93,24 @@ export function scopeChargesToManagerPaymentsLedger(
     });
 }
 
-/** Browser-only convenience: read + scope in one call (what both surfaces use). */
+/**
+ * Browser-only convenience: read + scope in one call (what both surfaces use).
+ *
+ * Also drops a not-yet-due ("upcoming") charge when the manager has switched
+ * `showUpcomingCharges` off — read synchronously from the cached mirror in
+ * `payment-automation-settings.ts` so this stays a plain, synchronous helper.
+ * The default (nothing cached yet, or explicitly on) applies no filtering at
+ * all, which is what `manager-payments-dashboard-agreement.test.ts` exercises.
+ */
 export function readManagerPaymentsLedgerCharges(managerUserId: string | null): HouseholdCharge[] {
   const charges = readChargesForManager(managerUserId, {
     linkedPropertyIds: collectLinkedPropertyIdsForModule(managerUserId ?? "", "payments"),
   });
-  return scopeChargesToManagerPaymentsLedger(charges, readManagerApplicationRows()).filter((charge) =>
+  const scoped = scopeChargesToManagerPaymentsLedger(charges, readManagerApplicationRows()).filter((charge) =>
     workspaceContainsProperty(charge.propertyId),
   );
+  if (readCachedShowUpcomingChargesSetting()) return scoped;
+  return scoped.filter((charge) => !isUpcomingHouseholdCharge(charge));
 }
 
 export type ManagerPaymentBucketCounts = { pending: number; overdue: number; paid: number };

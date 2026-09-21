@@ -382,6 +382,35 @@ Pending / Overdue / Paid are in-section status pills, not tabs. `RESIDENT_PAYMEN
 
 `/api/reports/resident-ledger` is live (resident Documents → Rent receipts).
 
+## A not-yet-due charge stays off every resident surface until 7 days before due
+
+`residentCanSeeCharge` / `residentVisibleCharges` (`src/lib/household-charge-visibility.ts`)
+is the ONE visibility rule, and every resident surface applies it: the Payments panel
+(`resident-payments-panel.tsx` — rows, counts, and the amount-due figure all derive
+from that filtered list), the resident dashboard (its Payments rows, count, and
+balance; the tenancy unlock still reads EVERY charge through `chargesImplyTenancy`),
+`queryResidentBalance` (`get_my_balance`), and the `list_my_charges` tool — the
+assistant never talks about a charge the screen does not show. A `pending` charge is
+hidden until its due date is within `RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS` (7,
+inclusive). Always visible: overdue, `processing`, `partially_paid`, and `paid`
+charges; a charge with no parseable due date; every upfront move-in line and any
+`blocksLeaseUntilPaid` charge (`isAlwaysResidentVisibleCharge`); and a charge carrying
+`residentVisibleAt`. Use `residentVisibleCharges` on a list, never the per-charge
+predicate: a move-in group stays whole, so a line whose own due date sits outside the
+window still shows whenever any sibling line does.
+
+`residentVisibleAt` is server-owned. `POST /api/portal/send-payment-reminder` stamps
+it on every charge an accepted manual reminder covered (re-reading the row and merging
+only that field, so a status change that landed during delivery is never overwritten);
+the charges mirror route (`POST /api/portal-household-charges`) and the browser
+reconcile (`reconcileChargeWithLocal`) both carry a stored stamp through a client copy
+that predates it. The manager-side Upcoming group is a different rule
+([financials.md](financials.md) § Manager charge counts). Coverage:
+`tests/unit/household-charge-visibility.test.ts`,
+`tests/unit/resident-payments-visibility.test.ts`,
+`tests/unit/tools/charges-upcoming-visibility.test.ts` (`list_my_charges`), and the
+browser regression `npm run test:payments-upcoming` (`tests/browser/payments-upcoming/`).
+
 ## Paid is reconciled against the ledger, and receipts are named from it
 
 Payments › **Paid** and Documents › **Rent receipts** answer the same question
@@ -499,6 +528,16 @@ The rules that hold it closed:
 
 Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
 `tests/unit/current-resident.test.ts`.
+
+**A migrated month covers the generator.** A migrated rent charge
+(`migrationSourceId` set, `kind: "rent"`, and a `rentMonth`) is all-in —
+`syncAllRecurringRentCharges` skips generating BOTH the recurring rent and utilities
+charges for that resident/property/month, instead of keying off `chargeBusinessKey`
+(which deliberately returns a unique key per migrated row and so never dedupes here).
+The match is on `rentMonth`: the sales-migration `importCharge` stamps it (`YYYY-MM` of
+the fact date) on `chargeKind: "rent"` rows and the Ambika occupancy script sets it
+too; a migrated rent row imported without one does not cover the generator. Coverage:
+`tests/unit/household-charges-migrated-month.test.ts`.
 
 ### Signature freezes the money terms
 

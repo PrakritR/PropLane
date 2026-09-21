@@ -89,6 +89,26 @@ async function removeLedgerEntriesForChargeIds(
   throwIfLedgerError(error);
 }
 
+/**
+ * Deletes the `charge` ledger entry mirrored from one charge (e.g. right after the
+ * charge row itself is deleted from `POST /api/portal-household-charges`'s
+ * `deleteCharge` action), so a removed charge stops contributing to
+ * income/delinquency totals that read `ledger_entries` instead of the charge table.
+ * Only `entry_type = "charge"` rows go: `payment` and `refund` lines are money that
+ * actually moved and stay on the books even when the charge they settled is removed.
+ */
+export async function deleteLedgerEntriesForCharge(
+  db: SupabaseClient,
+  managerUserId: string | null,
+  chargeId: string,
+): Promise<void> {
+  if (!chargeId) return;
+  let query = db.from("ledger_entries").delete().eq("source_charge_id", chargeId).eq("entry_type", "charge");
+  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+  const { error } = await query;
+  throwIfLedgerError(error);
+}
+
 async function removeDuplicateHouseholdChargeRecords(
   db: SupabaseClient,
   chargeIds: string[],

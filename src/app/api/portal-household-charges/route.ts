@@ -19,6 +19,7 @@ import {
 } from "@/lib/payment-automation-settings";
 import { ensureChargeDueDateForReminders } from "@/lib/payment-reminder-bootstrap";
 import {
+  deleteLedgerEntriesForCharge,
   householdChargeLedgerFingerprint,
   reconcileDuplicateChargeList,
   syncLedgerChargeEntry,
@@ -148,12 +149,12 @@ export async function POST(req: Request) {
     if (body.action === "deleteCharge") {
       const id = body.id?.trim();
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const { data: existing } = await db
+        .from("portal_household_charge_records")
+        .select("manager_user_id, property_id")
+        .eq("id", id)
+        .maybeSingle();
       if (user.role !== "admin") {
-        const { data: existing } = await db
-          .from("portal_household_charge_records")
-          .select("manager_user_id, property_id")
-          .eq("id", id)
-          .maybeSingle();
         if (existing && existing.manager_user_id !== user.id) {
           // Foreign row: a co-manager may delete a linked owner's charge only
           // with the payments DELETE grant on its property.
@@ -165,6 +166,17 @@ export async function POST(req: Request) {
         }
       }
       await db.from("portal_household_charge_records").delete().eq("id", id);
+      // A deleted charge must stop contributing to the ledger it was mirrored into —
+      // otherwise income/delinquency reports keep reading a row for a charge no one
+      // can see any more.
+      const ownerId = existing?.manager_user_id
+        ? String(existing.manager_user_id)
+        : user.role === "admin"
+          ? null
+          : user.id;
+      await deleteLedgerEntriesForCharge(db, ownerId, id).catch((err) => {
+        console.error("[portal-household-charges] failed to delete ledger entries for charge", id, err);
+      });
       return NextResponse.json({ ok: true });
     }
 
@@ -237,6 +249,7 @@ export async function POST(req: Request) {
       const existingOwnerById = new Map<string, string | null>();
       const existingPropertyById = new Map<string, string | null>();
       const existingLedgerFingerprintById = new Map<string, string>();
+      const existingResidentVisibleAtById = new Map<string, string>();
       if (chargeIds.length > 0) {
         const { data: existingRows, error: existingRowsError } = await db
           .from("portal_household_charge_records")
@@ -255,6 +268,8 @@ export async function POST(req: Request) {
               id,
               householdChargeLedgerFingerprint(row.row_data as Record<string, unknown>),
             );
+            const stamped = (row.row_data as { residentVisibleAt?: unknown }).residentVisibleAt;
+            if (typeof stamped === "string" && stamped) existingResidentVisibleAtById.set(id, stamped);
           }
         }
       }
@@ -354,6 +369,10 @@ export async function POST(req: Request) {
         } else {
           managerUserId = user.id;
         }
+        // `residentVisibleAt` is server-owned (stamped by the reminder route): a
+        // client copy that predates the stamp must not strip it on its mirror.
+        const storedVisibleAt = existingResidentVisibleAtById.get(id);
+        const rowData = storedVisibleAt && !c.residentVisibleAt ? { ...c, residentVisibleAt: storedVisibleAt } : c;
         mappedRows.push({
           id,
           manager_user_id: managerUserId,
@@ -362,7 +381,7 @@ export async function POST(req: Request) {
           property_id: propertyId,
           kind: typeof c.kind === "string" ? c.kind : null,
           status: typeof c.status === "string" ? c.status : null,
-          row_data: c,
+          row_data: rowData,
           updated_at: now,
         });
       }
