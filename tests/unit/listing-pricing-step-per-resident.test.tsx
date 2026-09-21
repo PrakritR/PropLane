@@ -26,7 +26,7 @@ function seeded(): ManagerListingSubmissionV1 {
     { ...template, id: "r1", name: "Room A", monthlyRent: 1000, utilitiesEstimate: "50", securityDeposit: "200", occupancyCapacity: 1 },
     { ...template, id: "r2", name: "Room B", monthlyRent: 1000, utilitiesEstimate: "75", securityDeposit: "250", occupancyCapacity: 2 },
   ];
-  return { ...base, allowedLeaseTerms: ["Long-term"], rooms };
+  return { ...base, allowedLeaseTerms: ["Long-term", "Month-to-Month"], rooms };
 }
 
 function Harness({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => void } = {}) {
@@ -163,5 +163,25 @@ describe("Pricing card — different rent per resident", () => {
     expect(r2.residentPricing).toBeUndefined();
     expect(r2.residentPrices).toBeUndefined();
     expect(residentBlocks().length).toBe(0);
+  });
+
+  it("ticking it on the Month-to-Month tab keeps the tick and writes the term's rows, leaving Long-term alone", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<Harness onChange={(s) => (latest = s)} />);
+
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Month-to-Month"]') as HTMLElement);
+
+    const sameAsLongTerm = document.querySelector('[data-attr^="listing-v2-same-as-long-term-"]') as HTMLInputElement | null;
+    if (sameAsLongTerm?.checked) fireEvent.click(sameAsLongTerm);
+
+    openRoomCard("Room B");
+    fireEvent.click(perResidentCheckbox());
+
+    expect(residentBlocks().length).toBe(2);
+
+    const r2 = room(latest!, "r2");
+    expect(r2.termPricing?.["Month-to-Month"]?.residentPricing).toBe("per_resident");
+    expect(r2.termPricing?.["Month-to-Month"]?.residentPrices?.length).toBe(2);
+    expect(r2.residentPricing).toBeUndefined();
   });
 });
