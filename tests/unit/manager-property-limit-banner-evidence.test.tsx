@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 // Transform the full portal before the assertion timer starts. The test still
 // seeds and exercises the real component, without charging cold module loading
 // against its behavior deadline.
@@ -118,9 +119,10 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     const trigger = document.querySelector('[data-attr="manager-properties-add-top"]') as HTMLElement | null;
     expect(trigger).toBeTruthy();
     expect(trigger!.getAttribute("aria-label")).toBe("Create");
-    await act(async () => {
-      fireEvent.click(trigger!);
-    });
+    // Radix's dropdown trigger opens on pointerdown, not a bare click event,
+    // so the interaction needs `userEvent` here even though nothing else in
+    // this test does.
+    await userEvent.click(trigger!);
     // A gate is a dialog, not a silent redirect (PLAN-0920-1058 "1d · The
     // pop-up") — clicking + at the cap opens a PortalDialog confirm naming the
     // limit, with an explicit Upgrade action, rather than a toast that

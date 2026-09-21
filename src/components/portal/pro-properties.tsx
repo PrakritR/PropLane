@@ -161,6 +161,7 @@ export function ManagerProperties({
   const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
@@ -617,7 +618,18 @@ export function ManagerProperties({
                * properties and their current residents goes through the
                * portfolio import instead (docs/agents/portfolio-import.md).
                */
-              <DropdownMenu>
+              <DropdownMenu
+                open={createMenuOpen}
+                onOpenChange={(next) => {
+                  // Neither menu item ("Add property" or "Import your
+                  // portfolio") is reachable past the plan's property limit,
+                  // so the gate fires on the trigger itself — the same
+                  // dialog `tryOpenAdd` already shows — rather than opening
+                  // a menu whose choices are all refused anyway.
+                  if (next && !canOpenAdd()) return;
+                  setCreateMenuOpen(next);
+                }}
+              >
                 <DropdownMenuTrigger asChild>
                   <PortalPrimaryIconAction label="Create" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
                 </DropdownMenuTrigger>
