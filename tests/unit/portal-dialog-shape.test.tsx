@@ -199,6 +199,9 @@ describe("PortalDialog adoption — source guard", () => {
     { file: "src/components/portal/vendor-finances-panel.tsx" },
     { file: "src/components/portal/resident-payments-panel.tsx" },
     { file: "src/components/portal/pro-payments-ledger-panel.tsx" },
+    { file: "src/components/portal/pro-applications.tsx" },
+    { file: "src/components/portal/workspace-invite-sheet.tsx" },
+    { file: "src/components/portal/uploaded-lease-review-modal.tsx" },
   ];
 
   it("every adopted dialog renders through PortalDialog, not a hand-rolled Modal footer", () => {
@@ -210,6 +213,18 @@ describe("PortalDialog adoption — source guard", () => {
       const scoped = marker ? source.slice(source.indexOf(marker)) : source;
       expect(scoped, `${file} does not render <PortalDialog`).toContain("<PortalDialog");
     }
+  });
+
+  it("the listing wizard's save-failed dialog reuses ListingSaveFailedDialog, not a hand-rolled three-button Modal", () => {
+    // Deliberately not PortalDialog — the shared save-failed dialog needs
+    // alertdialog semantics and stacking above the wizard's own full-screen
+    // overlay (see save-failed-dialog.tsx's own header comment). The
+    // regression this guards is the wizard growing its OWN inline Modal with
+    // a third footer button again.
+    const source = readSource("src/components/portal/listing-wizard-v2/index.tsx");
+    expect(source).toMatch(/from "@\/components\/portal\/listing-wizard-v2\/save-failed-dialog"/);
+    expect(source).toContain("<ListingSaveFailedDialog");
+    expect(source).not.toMatch(/from "@\/components\/ui\/modal"/);
   });
 
   it("the plan-limit gate opens a dialog, never a silent redirect to billing", () => {
