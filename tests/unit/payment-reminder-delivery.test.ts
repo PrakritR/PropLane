@@ -30,6 +30,18 @@ vi.mock("@/lib/observability/langfuse", () => ({
   traceSystemNotification: vi.fn(async (opts: { run: () => Promise<unknown> }) => opts.run()),
 }));
 
+// This suite drives the raw Resend HTTP call through the durable claim/resolve
+// path — not test-workspace routing, covered by its own tests — so the
+// shared `postResendEmail` boundary's capture checks are stubbed "not
+// captured" here, leaving the stubbed global `fetch` below as the one thing
+// under test.
+vi.mock("@/lib/sms/sms-test-transport.server", () => ({
+  captureSmsTestDelivery: vi.fn().mockReturnValue(false),
+}));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 // The inbox write is another module's concern, covered by its own tests. It is
 // mocked here so "delivery succeeds" is actually true: the db stub below has no
 // thread-lookup chain, so the real writer throws, and the reminder now reports

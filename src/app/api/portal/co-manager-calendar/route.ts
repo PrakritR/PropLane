@@ -7,7 +7,8 @@ import {
   resolveAuthenticatedBusinessAccess,
   resolveTestWorkspaceClassification,
 } from "@/lib/test-workspaces/index.server";
-import { coManagerModuleAllowed, normalizePropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
+import { readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 
 export const runtime = "nodejs";
 
@@ -95,7 +96,7 @@ export async function GET(req: Request) {
     let linkQuery = db
       .from("account_link_invites")
       .select(
-        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, status, test_workspace_id",
+        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role, status, test_workspace_id",
       )
       .eq("status", "accepted")
       .or(`inviter_user_id.eq.${user.id},invitee_user_id.eq.${user.id}`);
@@ -119,10 +120,13 @@ export async function GET(req: Request) {
       const actorIsOwner = ownerId === user.id;
       const actorIsGrantedInvitee = inviteeId === user.id && inviterId === ownerId;
       if (!actorIsOwner && !actorIsGrantedInvitee) continue;
-      const permissions = normalizePropertyCoManagerPermissions(
-        row.property_co_manager_permissions ?? row.co_manager_permissions,
-        assigned,
-      );
+      const permissions = readPropertyPermissionsFromRow({
+        assigned_property_ids: assigned,
+        property_co_manager_permissions: row.property_co_manager_permissions,
+        co_manager_permissions: row.co_manager_permissions,
+        house_scope: row.house_scope as string | null | undefined,
+        team_role: row.team_role as string | null | undefined,
+      });
       if (!actorIsOwner && !coManagerModuleAllowed(permissions, propertyId, "calendar", "read")) continue;
 
       if (inviterId) {

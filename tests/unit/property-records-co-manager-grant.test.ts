@@ -37,6 +37,9 @@ vi.mock("@/lib/application-fee-waiver", () => ({
   sameApplicationFeeWaiverCodeText: (a: string | null | undefined, b: string | null | undefined) =>
     (a ?? "").trim().toUpperCase() === (b ?? "").trim().toUpperCase(),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 
 const route = await import("@/app/api/property-records/route");
 

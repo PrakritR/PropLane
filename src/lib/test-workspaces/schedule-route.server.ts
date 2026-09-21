@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
-import { asStringArray } from "@/lib/account-link-invite-row";
-import {
-  coManagerModuleAllowed,
-  normalizePropertyCoManagerPermissions,
-} from "@/lib/co-manager-permissions";
+import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   isTestWorkspaceFeatureEnabled,
@@ -21,6 +18,8 @@ type TestScheduleLink = {
   assigned_property_ids: unknown;
   property_co_manager_permissions: unknown;
   co_manager_permissions: unknown;
+  house_scope?: string | null;
+  team_role?: string | null;
 };
 
 type TestScheduleProperty = {
@@ -90,10 +89,13 @@ function propertyAccessAllowed(args: {
     if (String(link.inviter_user_id ?? "").trim() !== ownerId) return false;
     const assigned = asStringArray(link.assigned_property_ids).map((id) => id.trim());
     if (!assigned.includes(args.propertyId)) return false;
-    const permissions = normalizePropertyCoManagerPermissions(
-      link.property_co_manager_permissions ?? link.co_manager_permissions,
-      assigned,
-    );
+    const permissions = readPropertyPermissionsFromRow({
+      assigned_property_ids: assigned,
+      property_co_manager_permissions: link.property_co_manager_permissions,
+      co_manager_permissions: link.co_manager_permissions,
+      house_scope: link.house_scope,
+      team_role: link.team_role,
+    });
     return coManagerModuleAllowed(permissions, args.propertyId, "calendar", args.level);
   });
 }
@@ -174,7 +176,7 @@ export async function handleTestWorkspaceScheduleGet(fallback: () => Promise<Res
   const [planned, owned, grants] = await Promise.all([
     ctx.db.from("test_workspace_schedule_records").select("row_data").eq("workspace_id", ctx.workspaceId).eq("record_key", "planned_events").maybeSingle(),
     ctx.db.from("portal_schedule_records").select("id,row_data,updated_at").eq("test_workspace_id", ctx.workspaceId).eq("manager_user_id", ctx.userId).order("updated_at", { ascending: false }).limit(500),
-    ctx.db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions").eq("test_workspace_id", ctx.workspaceId).eq("invitee_user_id", ctx.userId).eq("status", "accepted"),
+    ctx.db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,house_scope,team_role").eq("test_workspace_id", ctx.workspaceId).eq("invitee_user_id", ctx.userId).eq("status", "accepted"),
   ]);
   if (planned.error || owned.error || grants.error) {
     return NextResponse.json({ error: "Failed to load schedule." }, { status: 500 });
@@ -300,7 +302,7 @@ export async function handleTestWorkspaceSchedulePost(req: Request, fallback: (r
   let grantRows: unknown[];
   try {
     const [grants, owners] = await Promise.all([
-      ctx.db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions").eq("test_workspace_id", ctx.workspaceId).eq("invitee_user_id", ctx.userId).eq("status", "accepted"),
+      ctx.db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,house_scope,team_role").eq("test_workspace_id", ctx.workspaceId).eq("invitee_user_id", ctx.userId).eq("status", "accepted"),
       loadTestScheduleProperties(ctx, new Set(propertyId ? [propertyId] : [])),
     ]);
     if (grants.error) return NextResponse.json({ error: "Failed to verify schedule access." }, { status: 500 });
@@ -387,7 +389,7 @@ async function replaceTestWorkspacePlannedEvents(
   let propertyOwners: Map<string, string>;
   try {
     const [grants, owners] = await Promise.all([
-      ctx.db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions").eq("test_workspace_id", ctx.workspaceId).eq("invitee_user_id", ctx.userId).eq("status", "accepted"),
+      ctx.db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,house_scope,team_role").eq("test_workspace_id", ctx.workspaceId).eq("invitee_user_id", ctx.userId).eq("status", "accepted"),
       loadTestScheduleProperties(ctx, propertyIds),
     ]);
     if (grants.error) return NextResponse.json({ error: "Failed to verify schedule access." }, { status: 500 });
