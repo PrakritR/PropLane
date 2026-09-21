@@ -167,14 +167,14 @@ describe("minting a link", () => {
 });
 
 describe("the permissions editor offers no inert choice", () => {
-  const PANEL = read("src/components/portal/pro-account-links-panel.tsx");
+  const FIELDS = read("src/components/portal/workspace-permissions-fields.tsx");
 
   it("replaces the Read toggle with a statement once Write is on", () => {
     // Write implies read, so a lit-and-disabled Read toggle beside it reads as
     // a broken switch rather than as the implication it is.
-    expect(PANEL).toContain('data-attr={`co-manager-${id}-read-implied`}');
-    expect(PANEL).toContain("Read included");
-    expect(PANEL).not.toContain("disabled={disabled || Boolean(levels.edit)}");
+    expect(FIELDS).toContain('data-attr={`co-manager-${id}-read-implied`}');
+    expect(FIELDS).toContain("Read included");
+    expect(FIELDS).not.toContain("disabled={disabled || Boolean(levels.edit)}");
   });
 });
 
