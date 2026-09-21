@@ -23,8 +23,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { ListingSaveFailedDialog } from "@/components/portal/listing-wizard-v2/save-failed-dialog";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
@@ -416,42 +415,17 @@ export function ListingWizardV2({
           })
         }
       />
-      <Modal
+      <ListingSaveFailedDialog
         open={saveFail !== null}
-        title="Could not save"
-        onClose={() => setSaveFail(null)}
-        assistantStrip={false}
-        footer={
-          <ModalFooter>
-            <Button variant="outline" onClick={() => setSaveFail(null)}>
-              Keep editing
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => (saveFail ? handleClose(saveFail.stepIndex) : undefined)}
-            >
-              Try again
-            </Button>
-            <Button
-              variant="danger"
-              data-attr="listing-wizard-close-without-saving"
-              onClick={() => {
-                track("listing_editor_leave_unsaved", { editing });
-                setSaveFail(null);
-                onClose();
-              }}
-            >
-              Leave without saving
-            </Button>
-          </ModalFooter>
-        }
-      >
-        {saveFail ? (
-          <p className="text-[14px] font-medium text-foreground" data-testid="listing-wizard-draft-save-error">
-            {saveFail.message}
-          </p>
-        ) : null}
-      </Modal>
+        reason={saveFail?.message ?? ""}
+        onKeepEditing={() => setSaveFail(null)}
+        onTryAgain={() => (saveFail ? handleClose(saveFail.stepIndex) : undefined)}
+        onLeaveWithoutSaving={() => {
+          track("listing_editor_leave_unsaved", { editing });
+          setSaveFail(null);
+          onClose();
+        }}
+      />
       </>
     </PortalAssistantConfigProvider>
   );

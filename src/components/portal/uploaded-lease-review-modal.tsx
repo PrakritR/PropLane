@@ -1,9 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   resolvedFieldValue,
@@ -283,43 +281,32 @@ export function UploadedLeaseReviewModal({
     // already on the row is the way out — no re-upload, so the executed
     // artifact is untouched.
     const canRetry = Boolean(onRetryRead) && !confirmed && Boolean(row.managerUploadedPdf?.dataUrl);
-    const retryButton = canRetry ? (
-      <Button
-        type="button"
-        variant="outline"
-        className="rounded-full"
-        data-attr="uploaded-lease-retry-read"
-        onClick={() => onRetryRead?.()}
-      >
-        {stillReading ? "Retry read" : neverRead ? "Read it now" : "Read it again"}
-      </Button>
-    ) : null;
-    return (
-      <Modal
-        open={open}
-        title="Imported lease"
-        description={parse.sourceFileName}
-        onClose={onClose}
-        panelClassName={MODAL_LARGE_PANEL_CLASS}
-        footer={
-          stillReading || confirmed ? (
-            retryButton ? <ModalFooter>{retryButton}</ModalFooter> : undefined
-          ) : (
-            <ModalFooter>
-              {retryButton}
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-full"
-                disabled={!attested}
-                data-attr="uploaded-lease-confirm"
-                onClick={() => onConfirm({ overrides: {}, note })}
-              >
-                Confirm and allow signing
-              </Button>
-            </ModalFooter>
-          )
+    const retryAction = canRetry
+      ? {
+          label: stillReading ? "Retry read" : neverRead ? "Read it now" : "Read it again",
+          onClick: () => onRetryRead?.(),
+          dataAttr: "uploaded-lease-retry-read",
         }
+      : null;
+    const confirmAction = {
+      label: "Confirm and allow signing",
+      onClick: () => onConfirm({ overrides: {}, note }),
+      disabled: !attested,
+      dataAttr: "uploaded-lease-confirm",
+    };
+    // Nothing left to attest to (still reading, or already confirmed): the
+    // only possible action is the retry, or — with none available — a plain
+    // acknowledgement close (PortalDialog always names its one primary).
+    const readOnly = stillReading || confirmed;
+    return (
+      <PortalDialog
+        open={open}
+        title={`Imported lease · ${parse.sourceFileName}`}
+        onClose={onClose}
+        size="wizard"
+        dataAttr="uploaded-lease-review-modal"
+        primaryAction={readOnly ? retryAction ?? { label: "Done", onClick: onClose } : confirmAction}
+        secondaryAction={readOnly ? null : retryAction}
       >
         <div className="space-y-4 text-sm">
           <div
@@ -380,33 +367,28 @@ export function UploadedLeaseReviewModal({
             </>
           )}
         </div>
-      </Modal>
+      </PortalDialog>
     );
   }
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
-      title="Review imported lease"
-      description={`${parse.sourceFileName} · ${parse.pageCount} page${parse.pageCount === 1 ? "" : "s"}`}
+      title={`Review imported lease · ${parse.sourceFileName} · ${parse.pageCount} page${parse.pageCount === 1 ? "" : "s"}`}
       onClose={onClose}
-      panelClassName={MODAL_LARGE_PANEL_CLASS}
-      footer={
-        confirmed ? undefined : (
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              disabled={!attested}
-              data-attr="uploaded-lease-confirm"
-              onClick={() => onConfirm({ overrides: drafts, note })}
-            >
-              Confirm and allow signing
-            </Button>
-          </ModalFooter>
-        )
+      size="wizard"
+      dataAttr="uploaded-lease-review-modal"
+      primaryAction={
+        confirmed
+          ? { label: "Done", onClick: onClose }
+          : {
+              label: "Confirm and allow signing",
+              onClick: () => onConfirm({ overrides: drafts, note }),
+              disabled: !attested,
+              dataAttr: "uploaded-lease-confirm",
+            }
       }
+      secondaryAction={null}
     >
       <div className="space-y-4">
         {supersededCause ? (
@@ -628,6 +610,6 @@ export function UploadedLeaseReviewModal({
           </>
         )}
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }

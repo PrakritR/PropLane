@@ -28,8 +28,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Link2, MoreHorizontal } from "lucide-react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Copy, Link2, MoreHorizontal, Share2 } from "lucide-react";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -551,32 +551,23 @@ export function WorkspaceInviteSheet({
 
   if (view === "link") {
     return (
-      <Modal
+      <PortalDialog
         open={open}
         title={`Invite link · ${workspace.name}`}
         onClose={onClose}
-        panelClassName="max-w-lg"
         dataAttr="workspace-invite-sheet"
-        footer={
-          <ModalFooter>
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => setView("form")} data-attr="workspace-invite-back">
-              Back
-            </Button>
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => void shareLink()} data-attr="workspace-invite-share">
-              Share
-            </Button>
-            <Button type="button" variant="primary" className="rounded-full" onClick={onClose} data-attr="workspace-invite-done">
-              Done
-            </Button>
-          </ModalFooter>
-        }
+        secondaryAction={{ label: "Back", onClick: () => setView("form"), dataAttr: "workspace-invite-back" }}
+        primaryAction={{ label: "Done", onClick: onClose, dataAttr: "workspace-invite-done" }}
       >
         <div className="space-y-4">
-          {/* Modal's own header has no action slot for a call site — Copy lives
-              here, top-right of this view's content, per the icon-chrome rule. */}
+          {/* Copy and Share live here, top-right of this view's content, per
+              the icon-chrome rule — utility actions never take a footer slot. */}
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Invite link</p>
-            <PortalIconAction icon={Copy} label="Copy link" onClick={() => void copyLinkUrl(linkUrl ?? "")} data-attr="workspace-invite-copy-link" />
+            <div className="flex items-center gap-1">
+              <PortalIconAction icon={Copy} label="Copy link" onClick={() => void copyLinkUrl(linkUrl ?? "")} data-attr="workspace-invite-copy-link" />
+              <PortalIconAction icon={Share2} label="Share link" onClick={() => void shareLink()} data-attr="workspace-invite-share" />
+            </div>
           </div>
           <Input
             readOnly
@@ -593,40 +584,39 @@ export function WorkspaceInviteSheet({
             </span>
           </div>
         </div>
-      </Modal>
+      </PortalDialog>
     );
   }
 
   return (
-    <Modal open={open} title={`Invite to ${workspace.name}`} onClose={onClose} panelClassName="max-w-lg" dataAttr="workspace-invite-sheet">
+    <PortalDialog
+      open={open}
+      title={`Invite to ${workspace.name}`}
+      onClose={onClose}
+      dataAttr="workspace-invite-sheet"
+      primaryAction={{
+        label: "Send",
+        disabled: !canSend,
+        loading: sending,
+        onClick: () => void send(),
+        dataAttr: "workspace-invite-send",
+      }}
+    >
       <div className="space-y-5">
         {/* 1. Send */}
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <Input
-              aria-label="Add people"
-              placeholder="Phone, email or PropLane code"
-              value={sendValue}
-              onChange={(e) => setSendValue(e.target.value)}
-              onFocus={() => setSendFocused(true)}
-              onBlur={() => setSendFocused(false)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && canSend) void send();
-              }}
-              data-attr="workspace-invite-add"
-            />
-            <Button
-              type="button"
-              variant="primary"
-              className="shrink-0 rounded-full"
-              disabled={!canSend}
-              loading={sending}
-              onClick={() => void send()}
-              data-attr="workspace-invite-send"
-            >
-              Send
-            </Button>
-          </div>
+          <Input
+            aria-label="Add people"
+            placeholder="Phone, email or PropLane code"
+            value={sendValue}
+            onChange={(e) => setSendValue(e.target.value)}
+            onFocus={() => setSendFocused(true)}
+            onBlur={() => setSendFocused(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSend) void send();
+            }}
+            data-attr="workspace-invite-add"
+          />
         </div>
 
         {/* 2. Permissions — the same Role / Houses / Selected houses system Edit permissions renders */}
@@ -743,6 +733,6 @@ export function WorkspaceInviteSheet({
           </ul>
         </div>
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }
