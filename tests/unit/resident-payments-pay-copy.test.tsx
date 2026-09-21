@@ -11,6 +11,16 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 const EMAIL = "maya@example.com";
 const USER_ID = "res-maya";
 
+// The resident 7-day visibility window (`household-charge-visibility.ts`)
+// compares this charge's due date against the real wall clock at render
+// time, so the label is computed relative to "now" rather than pinned to a
+// literal calendar date that would eventually fall outside the window.
+function daysFromNowLabel(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 const CHARGES: HouseholdCharge[] = [
   {
     id: "rent-oct",
@@ -29,7 +39,7 @@ const CHARGES: HouseholdCharge[] = [
     blocksLeaseUntilPaid: false,
     axisPaymentsEnabledSnapshot: true,
     managerStripeConnectReadySnapshot: true,
-    dueDateLabel: "Oct 1, 2026",
+    dueDateLabel: daysFromNowLabel(3),
   },
 ];
 

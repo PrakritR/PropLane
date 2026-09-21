@@ -1,4 +1,5 @@
 import { householdChargeDueDate, isHouseholdChargeOverdue, type HouseholdCharge } from "@/lib/household-charges";
+import { isMoveInScheduleCharge, moveInGroupKey } from "@/lib/move-in-charge-group";
 
 /**
  * `residentVisibleAt` is a new optional row_data field: an ISO timestamp set the moment a
@@ -70,4 +71,35 @@ export function residentCanSeeCharge(
   const due = householdChargeDueDate(charge);
   if (!due) return true;
   return daysBetween(now, due) <= windowDays;
+}
+
+/**
+ * Same rule as {@link residentCanSeeCharge}, but keeps a move-in group's
+ * lines together: a charge that belongs to the same move-in schedule (same
+ * resident + property, upfront move-in lines — see
+ * {@link isMoveInScheduleCharge} in `move-in-charge-group.ts`) is visible
+ * whenever ANY line in that group is individually visible, even one whose own
+ * due date sits outside the window. Filtering per-line here — instead of
+ * calling {@link residentCanSeeCharge} on each charge before it ever reaches
+ * `buildMoveInChargeGroups` — is what keeps a move-in group's total and
+ * breakdown from silently losing a line the resident should still see
+ * together with the rest of the group. A charge outside every move-in group
+ * is filtered by {@link residentCanSeeCharge} alone.
+ */
+export function residentVisibleCharges<T extends HouseholdChargeWithVisibility>(
+  charges: T[],
+  now = new Date(),
+  windowDays: number = RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS,
+): T[] {
+  const groupHasVisibleLine = new Set<string>();
+  for (const charge of charges) {
+    if (!isMoveInScheduleCharge(charge) || !charge.residentEmail.trim() || !charge.propertyId) continue;
+    if (residentCanSeeCharge(charge, now, windowDays)) groupHasVisibleLine.add(moveInGroupKey(charge));
+  }
+  return charges.filter((charge) => {
+    if (isMoveInScheduleCharge(charge) && charge.residentEmail.trim() && charge.propertyId) {
+      if (groupHasVisibleLine.has(moveInGroupKey(charge))) return true;
+    }
+    return residentCanSeeCharge(charge, now, windowDays);
+  });
 }
