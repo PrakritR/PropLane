@@ -11,7 +11,11 @@ import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-ses
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
-import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
+import {
+  allWorkspacePropertyOptions,
+  propertyOptionsFromWorkspacePayload,
+  unionLabeledPropertyOptions,
+} from "@/lib/workspaces/selection";
 import {
   PortalSettingsGroup,
   PortalSettingsLinkRow,
@@ -1464,11 +1468,6 @@ export function PaymentsSettingsPanel({
 
   useReportSettingsPanelFooter(onFooterReady, null);
 
-  const houses = useMemo(
-    () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
-    [propertyOptions, workspaces?.active?.id],
-  );
-
   /* Only workspaces the signed-in manager owns can have their payment setup
      changed here — same fallback `ManagerPaymentSetupPanel` already uses for
      the processing-fee payer: the scope bar's own pick, else the active
@@ -1483,20 +1482,19 @@ export function PaymentsSettingsPanel({
     return ownedWorkspaces[0] ?? null;
   }, [scope.workspaceId, workspaces?.active, workspaces?.workspaces, ownedWorkspaces]);
 
+  const houses = useMemo(() => {
+    if (!effectiveWorkspace) return propertyOptions;
+    const allowed = new Set(effectiveWorkspace.propertyIds.map((id) => id.trim()).filter(Boolean));
+    return unionLabeledPropertyOptions(
+      propertyOptionsFromWorkspacePayload(effectiveWorkspace),
+      propertyOptions.filter((house) => allowed.has(house.id)),
+    );
+  }, [effectiveWorkspace, propertyOptions]);
+
   /* Late fees have no workspace/account rung — every listing carries its own
      value — so the "all properties" bucket is every house in this resolved
      workspace, not just the ones the global switcher currently shows. */
-  const workspaceProperties = useMemo(() => {
-    if (!effectiveWorkspace) return houses;
-    const labels = effectiveWorkspace.propertyLabels ?? {};
-    return effectiveWorkspace.propertyIds
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => ({
-        id,
-        label: (labels[id] ?? "").trim() || houses.find((house) => house.id === id)?.label || "Untitled property",
-      }));
-  }, [effectiveWorkspace, houses]);
+  const workspaceProperties = houses;
 
   const lateFeePropertyCount = scope.propertyIds.length > 0 ? scope.propertyIds.length : workspaceProperties.length;
 
@@ -1639,12 +1637,18 @@ export function CommunicationSettingsPanel({
         const query = params.toString() ? `?${params.toString()}` : "";
         const [settingsRes, numberRes, emailRes] = await Promise.all([
           fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
-          fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }).catch(
-            () => null,
-          ),
-          fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" }).catch(
-            () => null,
-          ),
+          fetch(
+            scopeWorkspaceId
+              ? `/api/manager/messaging-number?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
+              : "/api/manager/messaging-number",
+            { credentials: "include", cache: "no-store" },
+          ).catch(() => null),
+          fetch(
+            scopeWorkspaceId
+              ? `/api/manager/assistant-email?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
+              : "/api/manager/assistant-email",
+            { credentials: "include", cache: "no-store" },
+          ).catch(() => null),
         ]);
         if (!settingsRes.ok) throw new Error("Could not load communication settings.");
         const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings; source?: SettingsResolutionSource };
@@ -1907,12 +1911,29 @@ export function PropertySettingsPanel({
 }) {
   const { userId } = useManagerUserId();
   const workspaces = useWorkspaces();
-  const workspaceName = workspaces?.active?.name;
+  const scope = useSettingsPropertyScope();
+  const scopedWorkspace = scope.workspaceId
+    ? workspaces?.workspaces.find((w) => w.id === scope.workspaceId) ?? null
+    : null;
+  const workspaceName = scopedWorkspace?.name ?? workspaces?.active?.name;
   const options = useMemo(() => {
     const loaded = buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId));
     const source = propertyOptions && propertyOptions.length > 0 ? propertyOptions : loaded;
-    return filterPropertyOptionsForActiveWorkspace(source);
-  }, [propertyOptions, userId, workspaces?.active?.id]);
+    if (!scope.workspaceId) {
+      return unionLabeledPropertyOptions(
+        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
+        source,
+      );
+    }
+    const workspace = scopedWorkspace ?? workspaces?.workspaces.find((w) => w.id === scope.workspaceId);
+    if (!workspace) return source;
+    const fromPayload = propertyOptionsFromWorkspacePayload(workspace);
+    const allowed = new Set(fromPayload.map((option) => option.id));
+    return unionLabeledPropertyOptions(
+      fromPayload,
+      source.filter((option) => allowed.has(option.id)),
+    );
+  }, [propertyOptions, userId, scope.workspaceId, scopedWorkspace, workspaces?.workspaces]);
   useEffect(() => {
     if (selectedPropertyId || !options[0]) return;
     onPropertyIdChange(options[0].id);

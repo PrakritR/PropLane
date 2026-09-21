@@ -2,19 +2,16 @@ import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-se
 
 /**
  * The ONE list of every manager settings module — used to drive the tab
- * switcher inside `ProPortalSettingsModal`, the `/portal/settings/<tab>`
- * section route's nav rail, and this file's own area parser. There used to
- * be a second, private copy of this list hardcoded inside
+ * switcher inside `ProPortalSettingsModal` and this file's own area parser.
+ * There used to be a second, private copy of this list hardcoded inside
  * `pro-portal-settings-modal.tsx`; that file now imports it from here so a
  * new module (or a renamed one) is authored once.
  *
- * The `id` doubles as the `/portal/settings/<id>` URL segment. It is
- * deliberately the same string as `ManagerPortalSettingsTab`, NOT
+ * The `id` is the same string as `ManagerPortalSettingsTab`, NOT
  * `settings-entry-points.ts`'s own kebab `id` field (which disagrees for a
- * couple of modules — "leases" vs the tab "lease", "residents" vs "resident")
- * — introducing a second id-to-tab translation table would be more surface
- * area to keep in sync, not less, for a module set that is otherwise a
- * strict subset of the settings-entry-points registry anyway.
+ * couple of modules — "leases" vs the tab "lease", "residents" vs "resident").
+ * Old `/portal/settings/<id>` URLs redirect onto Profile via
+ * `resolveSettingsRedirectHubTab`.
  *
  * Hub `?tab=` ids can differ: automation → reminders, communication → messaging.
  */
@@ -40,13 +37,13 @@ export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsT
 ];
 
 /**
- * Bare `/portal/settings` lands on Applications — Properties is no longer a
- * settings module (house rules live on the listing; the Property bar scopes
- * every other module).
+ * Bare `/portal/settings` redirects to Profile → Applications — Properties
+ * is no longer a settings module (house rules live on the listing; the
+ * Property bar scopes every other module).
  */
 export const DEFAULT_MANAGER_SETTINGS_TAB: ManagerPortalSettingsTab = "applications";
 
-/** Resolves a raw `/portal/settings/<area>` URL segment to a real tab, or `null` for an unknown one. */
+/** Resolves a raw `/portal/settings/<area>` URL segment (or a leftover `?tab=`) to a real tab, or `null` for an unknown one. */
 export function parseManagerSettingsAreaTab(area: string | undefined | null): ManagerPortalSettingsTab | null {
   if (!area) return null;
   if (area === "leases") return "lease";
@@ -67,4 +64,25 @@ export function managerSettingsHubTab(tab: ManagerPortalSettingsTab | null | und
   if (tab === "automation") return "reminders";
   if (tab === "communication") return "messaging";
   return tab;
+}
+
+/** Profile hub path for a gear-modal tab. */
+export function managerSettingsProfilePath(
+  tab: ManagerPortalSettingsTab | null | undefined,
+  basePath = "/portal",
+): string {
+  return `${basePath}/profile?tab=${managerSettingsHubTab(tab)}`;
+}
+
+/**
+ * Profile `?tab=` for an old `/portal/settings` path segment or query.
+ * Empty/missing → Applications. Unknown → `null` (caller 404s).
+ * `plan` is the listing-wizard upgrade alias for Billing.
+ */
+export function resolveSettingsRedirectHubTab(raw: string | null | undefined): string | null {
+  if (!raw) return managerSettingsHubTab(DEFAULT_MANAGER_SETTINGS_TAB);
+  if (raw === "plan") return "billing";
+  const parsed = parseManagerSettingsAreaTab(raw);
+  if (!parsed) return null;
+  return managerSettingsHubTab(parsed);
 }

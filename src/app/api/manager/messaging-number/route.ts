@@ -44,7 +44,8 @@ const NUMBER_SELECT =
   "phone_number, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, registration_submitted_at, last_provider_event_at, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason, last_error";
 
 /** `?workspaceId=` override for GET/POST, same "selection never widens access" contract as the cookie. */
-function workspaceIdFromQuery(req: Request): string | undefined {
+function workspaceIdFromQuery(req?: Request): string | undefined {
+  if (!req) return undefined;
   try {
     const raw = new URL(req.url).searchParams.get("workspaceId");
     return raw?.trim() || undefined;
@@ -56,11 +57,12 @@ function workspaceIdFromQuery(req: Request): string | undefined {
 async function resolveRequestedWorkspace(
   db: SupabaseClient,
   userId: string,
-  req: Request,
+  req?: Request,
+  bodyWorkspaceId?: string | null,
 ): Promise<ActiveWorkspace> {
-  const queryId = workspaceIdFromQuery(req);
-  return queryId
-    ? resolveActiveWorkspace(db, userId, queryId)
+  const selected = bodyWorkspaceId?.trim() || workspaceIdFromQuery(req);
+  return selected
+    ? resolveActiveWorkspace(db, userId, selected)
     : resolveActiveWorkspaceFromRequest(db, userId);
 }
 
@@ -326,7 +328,7 @@ function publicProvisioningError(error: string): string {
 }
 
 /** Read-only manager messaging status. Never seeds a row or contacts a provider. */
-export async function GET(req: Request) {
+export async function GET(req?: Request) {
   const actor = await requireManagerRouteUser();
   if (!actor)
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -364,7 +366,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const body = parsedBody as { action?: unknown; areaCode?: unknown };
+  const body = parsedBody as { action?: unknown; areaCode?: unknown; workspaceId?: unknown };
   const action = body.action === undefined ? "request_number" : body.action;
   if (action !== "request_number" && action !== "refresh_eligibility") {
     return NextResponse.json(
@@ -382,7 +384,12 @@ export async function POST(req: Request) {
   }
   let workspace: ActiveWorkspace;
   try {
-    workspace = await resolveRequestedWorkspace(actor.db, actor.userId, req);
+    workspace = await resolveRequestedWorkspace(
+      actor.db,
+      actor.userId,
+      req,
+      typeof body.workspaceId === "string" ? body.workspaceId : null,
+    );
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }

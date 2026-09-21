@@ -49,8 +49,9 @@ import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-se
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
-  activeWorkspacePropertyIds,
-  filterPropertyOptionsForActiveWorkspace,
+  allWorkspacePropertyOptions,
+  propertyOptionsFromWorkspacePayload,
+  unionLabeledPropertyOptions,
 } from "@/lib/workspaces/selection";
 import { shouldMountTourSettings } from "@/lib/portal-settings-module-visibility";
 import {
@@ -86,7 +87,7 @@ export type SettingsModulePageHandle = {
    * Flush every autosaving panel this module currently has mounted, `allSettled` so one
    * panel's rejection can never stop a sibling's save. Returns `ok: false` on any failure so
    * the caller can keep its host open/on-tab instead of discarding the edit — both hosts
-   * (the per-tab gear's dialog and the standalone `/portal/settings/<tab>` page) call this
+   * (the per-tab gear's dialog and the Profile hub pane) call this
    * before closing, switching tabs, or navigating away.
    */
   flushPendingSaves: () => Promise<{ ok: boolean }>;
@@ -100,13 +101,12 @@ export type SettingsModuleSaveStatus = {
 
 /**
  * One module's settings UI, portable between two hosts: `ProPortalSettingsModal` (the sheet
- * every section's gear opens) and the standalone `/portal/settings/<tab>` page. This component
+ * every section's gear opens) and the Profile hub pane. This component
  * owns everything a module's panel needs to load, edit, and save itself — it has no idea
  * whether it is inside a dialog or a page.
  *
- * `tab` is the SAME `ManagerPortalSettingsTab` the modal has always kept as its tab id, and it
- * is also the `/portal/settings/<tab>` URL segment (see `portal-settings-section.ts`) — one
- * identifier for all three uses instead of a second id space to keep in sync.
+ * `tab` is the SAME `ManagerPortalSettingsTab` the modal has always kept as its tab id.
+ * Profile hub `?tab=` ids can differ (`managerSettingsHubTab`).
  */
 export const SettingsModulePage = forwardRef<
   SettingsModulePageHandle,
@@ -162,10 +162,20 @@ export const SettingsModulePage = forwardRef<
   const [waiverCode, setWaiverCode] = useState("");
   const [applicationSource, setApplicationSource] = useState<SettingsResolutionSource | null>(null);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
-  const scopedPropertyOptions = useMemo(
-    () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
-    [propertyOptions, workspaces?.active?.id],
-  );
+  const scopedPropertyOptions = useMemo(() => {
+    const listed = workspaces?.workspaces ?? [];
+    if (!scope.workspaceId) {
+      return unionLabeledPropertyOptions(allWorkspacePropertyOptions(listed), propertyOptions);
+    }
+    const workspace = listed.find((item) => item.id === scope.workspaceId);
+    if (!workspace) return propertyOptions;
+    const fromPayload = propertyOptionsFromWorkspacePayload(workspace);
+    const allowed = new Set(fromPayload.map((option) => option.id));
+    return unionLabeledPropertyOptions(
+      fromPayload,
+      propertyOptions.filter((option) => allowed.has(option.id)),
+    );
+  }, [propertyOptions, scope.workspaceId, workspaces?.workspaces]);
   const showApplications = tab === "applications";
   const showLease = tab === "lease";
   const showTours = shouldMountTourSettings(active, tab);
@@ -275,7 +285,11 @@ export const SettingsModulePage = forwardRef<
   const saveApplicationAutomationSettings = useCallback(
     async (fields: { automation?: ApplicationAutomationPreferences; waiverCode?: string }, targetPropertyIds: string[]) => {
       if (demo) return;
-      const allowed = activeWorkspacePropertyIds();
+      const allowed = scope.workspaceId
+        ? (workspaces?.workspaces.find((item) => item.id === scope.workspaceId)?.propertyIds ?? [])
+            .map((id) => id.trim())
+            .filter(Boolean)
+        : null;
       const ids = targetPropertyIds
         .map((id) => id.trim())
         .filter(Boolean)
@@ -337,7 +351,7 @@ export const SettingsModulePage = forwardRef<
         setSaving(false);
       }
     },
-    [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource],
+    [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource, workspaces?.workspaces],
   );
 
   const commitWaiverCode = useCallback(() => {

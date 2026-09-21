@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import {
   PortalSettingsField,
   PortalSettingsGroup,
@@ -82,6 +83,18 @@ export function workEmailAudienceLabel(status: ManagerAssistantEmailStatus): str
 export function ManagerAssistantEmailChannelRow() {
   const { showToast } = useAppUi();
   const router = useRouter();
+  const workspaces = useWorkspaces();
+  const scope = useSettingsPropertyScope();
+  const workspaceName = scope.workspaceId
+    ? workspaces?.workspaces.find((workspace) => workspace.id === scope.workspaceId)?.name
+    : undefined;
+  const emailUrl = scope.workspaceId
+    ? `${ENDPOINT}?workspaceId=${encodeURIComponent(scope.workspaceId)}`
+    : ENDPOINT;
+  const workspaceBody = useMemo(
+    () => (scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+    [scope.workspaceId],
+  );
   const [status, setStatus] = useState<ManagerAssistantEmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
@@ -102,7 +115,7 @@ export function ManagerAssistantEmailChannelRow() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(ENDPOINT, { credentials: "include", cache: "no-store", signal });
+      const res = await fetch(emailUrl, { credentials: "include", cache: "no-store", signal });
       const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
         error?: string;
       };
@@ -114,15 +127,14 @@ export function ManagerAssistantEmailChannelRow() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [emailUrl]);
 
-  // The address belongs to the ACTIVE workspace; read again on a switch.
-  const selectedWorkspace = useSelectedWorkspaceId();
+  // The address belongs to the settings-bar workspace; read again on a pick.
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal));
     return () => controller.abort();
-  }, [load, selectedWorkspace]);
+  }, [load]);
 
   const copyAddress = useCallback(async () => {
     const address = status?.address;
@@ -155,7 +167,7 @@ export function ManagerAssistantEmailChannelRow() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "check_address", local: trimmed }),
+          body: JSON.stringify({ action: "check_address", local: trimmed, ...workspaceBody }),
           signal: controller.signal,
         });
         const body = (await res.json().catch(() => null)) as MailboxLocalCheckResult | null;
@@ -171,7 +183,7 @@ export function ManagerAssistantEmailChannelRow() {
       clearTimeout(handle);
       controller.abort();
     };
-  }, [localInput, addressLocal, status?.address]);
+  }, [localInput, addressLocal, status?.address, workspaceBody]);
 
   const canSaveAddress =
     !savingAddress &&
@@ -188,7 +200,7 @@ export function ManagerAssistantEmailChannelRow() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set_address", local: trimmed }),
+        body: JSON.stringify({ action: "set_address", local: trimmed, ...workspaceBody }),
       });
       const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
         error?: string;
@@ -209,7 +221,7 @@ export function ManagerAssistantEmailChannelRow() {
     } finally {
       setSavingAddress(false);
     }
-  }, [localInput, showToast]);
+  }, [localInput, showToast, workspaceBody]);
 
   /**
    * Settle an unverified plan by itself, instead of behind a button. Reading
@@ -237,7 +249,7 @@ export function ManagerAssistantEmailChannelRow() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "refresh_eligibility" }),
+          body: JSON.stringify({ action: "refresh_eligibility", ...workspaceBody }),
         });
         if (!res.ok) return;
         const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus;
@@ -262,7 +274,7 @@ export function ManagerAssistantEmailChannelRow() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ action, ...workspaceBody }),
         });
         const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
           error?: string;
@@ -295,7 +307,7 @@ export function ManagerAssistantEmailChannelRow() {
         setPendingAction(null);
       }
     },
-    [showToast],
+    [showToast, workspaceBody],
   );
 
   if (loading && !status) {
@@ -504,7 +516,7 @@ export function ManagerAssistantEmailChannelRow() {
       <ChannelRow
         icon={Mail}
         channel={channel}
-        workspace="All workspaces"
+        workspace={workspaceName ?? "All workspaces"}
         status={renaming ? addressAvailabilityLabel(addressCheck, checkingAddress) : workEmailStatusLabel(status)}
         menu={renaming ? undefined : <ChannelRowMenu label="Work email actions" items={menuItems} dataAttr="channel-email-menu" />}
         dataAttr="channel-row-email"

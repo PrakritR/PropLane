@@ -15,10 +15,10 @@
  * those panels now uses (`useReportSettingsSaveStatus`, `useFlushSettingsAutosaveOnUnmount`) —
  * it has the smallest fetch surface of the four, so it is the cleanest place to prove the
  * LIFECYCLE contract without re-testing each panel's own fields (already covered by
- * `settings-module-redraws.test.tsx`, `tour-settings-redraw.test.tsx`, etc). The module-switch
- * ordering test drives Tours through the real standalone page, because that is the host whose
- * flush-before-switch path had no coverage at all (the modal's own version of this ordering is
- * `portal-settings-save-flush.test.tsx`, which this file must not touch).
+ * `settings-module-redraws.test.tsx`, `tour-settings-redraw.test.tsx`, etc). Switching
+ * Profile panes unmounts `SettingsModulePage`, which is the same flush-on-unmount path
+ * the last test here covers. The gear modal's flush-before-close is
+ * `portal-settings-save-flush.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -45,9 +45,7 @@ import {
   type SettingsModulePageHandle,
   type SettingsModuleSaveStatus,
 } from "@/components/portal/settings-module-page";
-import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
-import { DEFAULT_MANAGER_TOUR_SETTINGS } from "@/lib/manager-tour-settings";
 
 /** Every PATCH body any stubbed endpoint below received, tagged by which one. */
 let patches: Array<{ url: string; body: Record<string, unknown> }>;
@@ -68,28 +66,6 @@ function stubCommunicationFetch(options?: { failPatch?: boolean }) {
             });
           }
         }
-        return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
-      }
-      throw new Error(`Unexpected fetch: ${url} (${method})`);
-    }),
-  );
-}
-
-/** Tours' own fetch surface — automation-settings and manager-tour-settings, plus the reminder
- *  rule panel's own load, all three of which `TourSettingsPanel` and its embedded reminder rule
- *  panel fetch on mount regardless of which control this suite actually drives. */
-function stubTourFetch() {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = init?.method ?? "GET";
-      if (url.includes("/api/portal/reminder-settings")) return Response.json({ settings: {} });
-      if (url.includes("/api/portal/manager-tour-settings")) {
-        if (method === "PATCH") patches.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
-        return Response.json({ settings: DEFAULT_MANAGER_TOUR_SETTINGS });
-      }
-      if (url.includes("/api/portal/automation-settings")) {
         return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
       }
       throw new Error(`Unexpected fetch: ${url} (${method})`);
@@ -149,37 +125,6 @@ describe("per-control autosave reports through the host's save status (Defect 1)
 });
 
 describe("a pending debounced save is never lost when the manager leaves first (Defect 2)", () => {
-  it("switching the selected module flushes the outgoing module's pending save before the switch", async () => {
-    stubTourFetch();
-    // `window.location.assign` is not directly spy-able in jsdom (its own property is not
-    // configurable) — replace the whole `location` object, same technique this repo already
-    // uses for `window.history` mocking in `manager-settings-categories.test.tsx`.
-    const assignSpy = vi.fn();
-    const originalLocation = window.location;
-    Object.defineProperty(window, "location", {
-      configurable: true,
-      value: { ...originalLocation, assign: assignSpy },
-    });
-
-    render(<PortalSettingsSectionClient tab="tours" basePath="/portal" />);
-    const increment = await screen.findByRole("button", { name: "Increase notice required" });
-
-    // Change the stepper and switch modules in the SAME window the 600ms debounce is still
-    // running — nothing has fired yet.
-    fireEvent.click(increment);
-    expect(patches).toHaveLength(0);
-    fireEvent.click(document.querySelector('[data-attr="settings-nav-payments"]')!);
-
-    await waitFor(() => expect(assignSpy).toHaveBeenCalled(), { timeout: 3000 });
-
-    // The flush (and the PATCH it produced) happened BEFORE the navigation away, not after.
-    expect(patches).toHaveLength(1);
-    expect(patches[0]!.url).toContain("manager-tour-settings");
-    expect(assignSpy).toHaveBeenCalledWith("/portal/settings/payments");
-
-    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
-  });
-
   it("unmounting flushes a pending debounced save", async () => {
     stubCommunicationFetch();
     const { toggle } = await renderCommunication(() => {});

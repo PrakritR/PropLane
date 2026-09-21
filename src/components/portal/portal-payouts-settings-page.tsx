@@ -76,7 +76,7 @@ function BankRowMenu({ rowId, label, children }: { rowId: string; label: string;
 }
 
 /**
- * Settings → Payouts (manager `/portal/settings/payouts`, vendor twin under
+ * Profile → Payouts (manager `/portal/profile?tab=payouts`, vendor twin under
  * `Vendor → Settings → Payouts`) — one page: Balance with the Withdraw
  * action, Set up (until ready), Bank accounts (Airbnb "How you get paid"
  * shape), Schedule, and History (PLAN-0920-1500 screen 1).

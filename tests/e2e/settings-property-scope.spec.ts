@@ -30,7 +30,7 @@ test.describe("Settings — per-property Operations scope", () => {
   test("pick a house -> edit -> All properties unchanged -> reload keeps it -> reset restores", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await signInAsManager(page);
-    await page.goto("/portal/settings?tab=inspections", { waitUntil: "domcontentloaded" });
+    await page.goto("/portal/profile?tab=inspections", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2500);
 
     const picker = page.locator('[data-attr="settings-property-scope"]');
@@ -70,7 +70,7 @@ test.describe("Settings — per-property Operations scope", () => {
     expect(workspaceAfter).toEqual(workspaceBefore);
 
     // The house's own value persists across a reload with &property=.
-    await page.goto(`/portal/settings?tab=inspections&property=${houseId}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/portal/profile?tab=inspections&property=${houseId}`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2500);
     expect(new URL(page.url()).searchParams.get("property")).toBe(houseId);
     const resetLink = page.locator('[data-attr="settings-property-scope-reset"]');

@@ -81,10 +81,9 @@ export function PortalStripeConnectPanel({
   const payoutSetupStartedThisSession = useRef(false);
   const payoutCompletedFired = useRef(false);
   const resolvedReturnPath = returnPath ?? `${basePath}/payments`;
-  // Payouts is one page now, mounted at Settings → Payouts (PLAN-0920-1500).
-  // The vendor Settings route is a query-param tab (`/vendor/profile?tab=…`);
-  // the manager (and pro) route is a path segment (`/portal/settings/…`).
-  const payoutsPath = basePath === "/vendor" ? `${basePath}/profile?tab=payouts` : `${basePath}/settings/payouts`;
+  // Payouts is one page now, mounted at Profile → Payouts (PLAN-0920-2024).
+  // Vendor and manager both use the Profile hub query (`/…/profile?tab=payouts`).
+  const payoutsPath = `${basePath}/profile?tab=payouts`;
 
   const loadStatus = useCallback(async () => {
     if (isDemoModeActive()) {

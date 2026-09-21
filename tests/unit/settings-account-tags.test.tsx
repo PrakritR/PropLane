@@ -37,6 +37,7 @@ const ALL_NAV_IDS: SettingsGroupId[] = [
   "resident",
   "messaging",
   "payments",
+  "payouts",
   "services",
   "tasks",
   "bookings",
@@ -75,7 +76,7 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
     expect(DEVICE_TAG_PANES.has("workspaces")).toBe(false);
   });
 
-  it("the eleven Portfolio + Operations modules get the full scope bar", () => {
+  it("the Portfolio + Operations modules get the full scope bar", () => {
     const expected: SettingsGroupId[] = [
       "applications",
       "lease",
@@ -83,13 +84,14 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
       "resident",
       "messaging",
       "payments",
+      "payouts",
       "tasks",
       "reminders",
       "bookings",
       "inspections",
       "services",
     ];
-    expect(SCOPED_OPERATIONS_PANES.size).toBe(11);
+    expect(SCOPED_OPERATIONS_PANES.size).toBe(12);
     for (const id of expected) expect(SCOPED_OPERATIONS_PANES.has(id)).toBe(true);
   });
 

@@ -3,8 +3,8 @@
 /**
  * Reminders hub — quiet hours, the per-area reminder matrix, and sent history.
  *
- * This is the `/portal/settings/automation` module (the id and URL segment
- * stay `automation`; the hub query and rail label are `reminders`). Manager
+ * This is the Profile → Reminders module (the tab id stays `automation`;
+ * the hub query and rail label are `reminders`). Manager
  * alert routing lives on Account → Notifications, not here.
  *
  * Top to bottom:
@@ -49,7 +49,9 @@ import {
   useSettingsPropertyScope,
   type SettingsResolutionSource,
 } from "@/components/portal/settings-property-scope";
+import { managerSettingsProfilePath } from "@/lib/portal-settings-section";
 import { scopeTagLabel } from "@/components/portal/settings-scope-bar";
+import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 
 /** 00:00 … 23:00 — the quiet-hours pickers, Pacific wall time. */
 const QUIET_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }));
@@ -127,7 +129,7 @@ export const REMINDER_KIND_MODULE: Record<ReminderSubjectKind, CoManagerPermissi
  * The hub is globals only (PLAN-0915): every automated message is configured
  * in the tab that owns its area, and this index is how a manager gets there.
  */
-const AREA_INDEX: { tab: string; label: string }[] = [
+const AREA_INDEX: { tab: ManagerPortalSettingsTab; label: string }[] = [
   { tab: "applications", label: "Applications" },
   { tab: "tours", label: "Tours" },
   { tab: "lease", label: "Lease, move-in & move-out" },
@@ -376,7 +378,7 @@ export function ManagerPortalAutomationSettingsPanel({
               <PortalSettingsLinkRow
                 key={area.tab}
                 label={area.label}
-                href={`/portal/settings/${area.tab}`}
+                href={managerSettingsProfilePath(area.tab)}
                 dataAttr={`automation-index-${area.tab}`}
               />
             ))}

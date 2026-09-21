@@ -511,6 +511,57 @@ describe("manager messaging-number route", () => {
     ]);
   });
 
+  it("honors ?workspaceId= over the portal cookie", async () => {
+    const db = dbFor({ mode: "automatic", coManager: true });
+    db.__tables.manager_sms_numbers.push({
+      manager_user_id: OWNER,
+      workspace_id: SHARED_WS,
+      phone_number: "+12065550199",
+      provision_state: "active",
+      registration_state: "approved",
+    });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.cookies["proplane-workspace"] = MY_WS;
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+
+    const body = await (
+      await GET(
+        new Request(`https://prop-lane.test/api/manager/messaging-number?workspaceId=${SHARED_WS}`),
+      )
+    ).json();
+
+    expect(body.workspaceRole).toBe("co_manager");
+    expect(body.workspace).toMatchObject({ id: SHARED_WS, owned: false });
+    expect(body.workspaceNumber).toMatchObject({ phoneNumber: "+12065550199" });
+    expect(body.canRequest).toBe(false);
+  });
+
+  it("honors workspaceId in the POST body over the portal cookie", async () => {
+    const db = dbFor({ mode: "automatic", coManager: true });
+    db.__tables.manager_sms_numbers.push({
+      manager_user_id: OWNER,
+      workspace_id: SHARED_WS,
+      phone_number: "+12065550199",
+      provision_state: "active",
+      registration_state: "approved",
+    });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.cookies["proplane-workspace"] = MY_WS;
+
+    const body = await (
+      await POST(
+        new Request("https://prop-lane.test/api/manager/messaging-number", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "refresh_eligibility", workspaceId: SHARED_WS }),
+        }),
+      )
+    ).json();
+
+    expect(body.workspaceRole).toBe("co_manager");
+    expect(body.workspace).toMatchObject({ id: SHARED_WS, owned: false });
+  });
+
   it("keeps the environment kill switch ahead of provider provisioning", async () => {
     const db = dbFor({ mode: "automatic" });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });

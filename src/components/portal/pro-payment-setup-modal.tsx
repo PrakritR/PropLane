@@ -401,9 +401,9 @@ export function ManagerPaymentSetupPanel({
       showToast("Only the property owner (or a co-manager with Bank account access) can change payout bank details.");
       return;
     }
-    // Identity, bank and the balance all live on Settings → Payouts now —
+    // Identity, bank and the balance all live on Profile → Payouts now —
     // this row is a door to it, never its own Stripe popup (PLAN-0920-1500).
-    window.location.href = `${portalBasePath}/settings/payouts`;
+    window.location.href = `${portalBasePath}/profile?tab=payouts`;
   }
 
   const tier = skuTier ?? "free";

@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, Phone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import {
   PortalSettingsField,
   PortalSettingsGroup,
@@ -27,7 +28,6 @@ import {
 } from "@/components/portal/portal-message-compose-fields";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
@@ -168,7 +168,14 @@ export function ManagerMessagingSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const { userId } = useManagerUserId();
-  const workspaceName = useWorkspaces()?.active?.name;
+  const workspaces = useWorkspaces();
+  const scope = useSettingsPropertyScope();
+  const workspaceName = scope.workspaceId
+    ? workspaces?.workspaces.find((workspace) => workspace.id === scope.workspaceId)?.name
+    : undefined;
+  const messagingUrl = scope.workspaceId
+    ? `${ENDPOINT}?workspaceId=${encodeURIComponent(scope.workspaceId)}`
+    : ENDPOINT;
   const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
     null,
   );
@@ -192,7 +199,7 @@ export function ManagerMessagingSettingsPanel({
   // Channels list: which owned workspace's rows are visible, the Add-number
   // sheet's target + busy state, per-row share/remove busy keys, and the
   // "Use in another workspace" picker sheet.
-  const [channelFilter, setChannelFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState(scope.workspaceId || "all");
   const [addNumberOpen, setAddNumberOpen] = useState(false);
   const [addNumberWorkspaceId, setAddNumberWorkspaceId] = useState("");
   const [addNumberBusy, setAddNumberBusy] = useState(false);
@@ -205,8 +212,10 @@ export function ManagerMessagingSettingsPanel({
   } | null>(null);
   const [shareChoice, setShareChoice] = useState("");
 
-  // The line and address belong to the ACTIVE workspace; read again on a switch.
-  const selectedWorkspace = useSelectedWorkspaceId();
+  useEffect(() => {
+    setChannelFilter(scope.workspaceId || "all");
+  }, [scope.workspaceId]);
+
   const load = useCallback(async (signal?: AbortSignal, opts?: { refreshEligibility?: boolean }) => {
     setLoading(true);
     setError(null);
@@ -217,18 +226,21 @@ export function ManagerMessagingSettingsPanel({
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "refresh_eligibility" }),
+          body: JSON.stringify({
+            action: "refresh_eligibility",
+            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+          }),
           signal,
         });
         if (!res.ok) {
-          res = await fetch(ENDPOINT, {
+          res = await fetch(messagingUrl, {
             credentials: "include",
             cache: "no-store",
             signal,
           });
         }
       } else {
-        res = await fetch(ENDPOINT, {
+        res = await fetch(messagingUrl, {
           credentials: "include",
           cache: "no-store",
           signal,
@@ -260,13 +272,13 @@ export function ManagerMessagingSettingsPanel({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [messagingUrl, scope.workspaceId]);
 
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal, { refreshEligibility: true }));
     return () => controller.abort();
-  }, [load, personalPhoneRefreshKey, selectedWorkspace]);
+  }, [load, personalPhoneRefreshKey]);
 
   // Best-effort: a failed read simply leaves the announcement about the number,
   // exactly as it was before there was an email to name.
@@ -274,11 +286,16 @@ export function ManagerMessagingSettingsPanel({
     const controller = new AbortController();
     void (async () => {
       try {
-        const res = await fetch("/api/manager/assistant-email", {
-          credentials: "include",
-          cache: "no-store",
-          signal: controller.signal,
-        });
+        const res = await fetch(
+          scope.workspaceId
+            ? `/api/manager/assistant-email?workspaceId=${encodeURIComponent(scope.workspaceId)}`
+            : "/api/manager/assistant-email",
+          {
+            credentials: "include",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
         if (!res.ok) return;
         const body: unknown = await res.json().catch(() => null);
         if (!isManagerAssistantEmailStatus(body)) return;
@@ -288,7 +305,7 @@ export function ManagerMessagingSettingsPanel({
       }
     })();
     return () => controller.abort();
-  }, [personalPhoneRefreshKey, selectedWorkspace]);
+  }, [personalPhoneRefreshKey, scope.workspaceId]);
 
   const numberInProgress =
     status?.number?.state === "pending_registration" ||
@@ -338,6 +355,7 @@ export function ManagerMessagingSettingsPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action,
+            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
             ...(action === "request_number" && areaCode ? { areaCode } : {}),
           }),
         });
@@ -390,7 +408,7 @@ export function ManagerMessagingSettingsPanel({
         setPendingAction(null);
       }
     },
-    [areaCode, openAnnounceModal, showToast, workEmail],
+    [areaCode, openAnnounceModal, scope.workspaceId, showToast, workEmail],
   );
 
   const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
