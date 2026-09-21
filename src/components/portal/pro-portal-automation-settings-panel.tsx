@@ -50,6 +50,7 @@ import {
   type SettingsResolutionSource,
 } from "@/components/portal/settings-property-scope";
 import { managerSettingsProfilePath } from "@/lib/portal-settings-section";
+import { scopeTagLabel } from "@/components/portal/settings-scope-bar";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 
 /** 00:00 … 23:00 — the quiet-hours pickers, Pacific wall time. */
