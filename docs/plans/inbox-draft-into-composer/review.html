@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inbox draft into composer - review</title>
+  <style>
+    body { font: 16px/1.55 system-ui, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 24px; color: #172334; background: #faf9f5; }
+    .ok { padding: 14px 16px; background: #e9f7ef; border: 1px solid #7bbf98; border-radius: 8px; }
+    code { background: #e9edf0; padding: 2px 5px; border-radius: 4px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    td, th { border: 1px solid #ccd2d8; padding: 8px; text-align: left; vertical-align: top; }
+  </style>
+</head>
+<body>
+  <h1>Review: Draft with PropLane → normal composer</h1>
+  <p class="ok"><strong>Verdict: sound after correction cycle 1.</strong> Ready for your keeper handoff review. No further automated correction cycles.</p>
+  <p>Branch <code>akhil/inbox-draft-into-composer</code> in worktree <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/10/AXIS-2</code>, HEAD <code>794b7de5</code>, feature + correction still uncommitted.</p>
+  <h2>What you asked for</h2>
+  <p>The Draft with PropLane control now generates a real AI draft and puts it in the normal reply text box. There is no second editable AI composer.</p>
+  <h2>How to try it</h2>
+  <ol>
+    <li>Use the worktree above (not the dirty <code>main</code> checkout).</li>
+    <li>Pin a free port 3000-3014, start the app, sign in as <code>akhil-manager@prop-lane.space</code>.</li>
+    <li>Open <code>/portal/communication</code>, pick a person thread.</li>
+    <li>Composer AI menu (sparkle) → <strong>Draft with PropLane</strong>.</li>
+    <li>Confirm the text lands in the normal reply box and you can edit/send from there.</li>
+  </ol>
+  <h2>Review notes</h2>
+  <ul>
+    <li>P1 dirty-composer Insert visibility bug was found and fixed; unit covered.</li>
+    <li>SMS-only panel drafting intentionally deferred.</li>
+    <li>Repo-wide <code>tsc</code> previously OOMed at default heap; touched-file lint + targeted tests are green.</li>
+    <li>Cursor has no GPT-6 Astra reviewer model slug; this review was done in the orchestrating session against the worktree diff.</li>
+  </ul>
+  <p>Artifacts: <code>plan.html</code>, <code>correction-plan1.html</code>, <code>execution-handoff.html</code> in this folder.</p>
+</body>
+</html>

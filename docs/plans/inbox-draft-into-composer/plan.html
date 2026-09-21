@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inbox draft into composer — plan</title>
+  <style>
+    body { font: 16px/1.55 system-ui, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 24px; color: #172334; background: #faf9f5; }
+    h1,h2 { line-height: 1.2; }
+    code, pre { background: #e9edf0; padding: 2px 5px; border-radius: 4px; }
+    pre { padding: 12px; overflow: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    td, th { border: 1px solid #ccd2d8; padding: 8px; text-align: left; vertical-align: top; }
+    .status { padding: 14px 16px; background: #eef6ff; border: 1px solid #8eb6e0; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Inbox "Draft with PropLane" → normal composer</h1>
+  <p class="status"><strong>Plan ready for Sol execution.</strong> Planning session only — no product code in this phase. Branch at plan time: <code>main</code> @ <code>6f24d93b712f140d16af5f10e14b1fd88edd61aa</code>.</p>
+  <p>Full plan markdown: <code>docs/plans/inbox-draft-into-composer/plan.md</code></p>
+  <h2>Goal</h2>
+  <p>The Draft with PropLane / Draft with AI button must generate a real AI reply draft and put that text into the normal chat reply box, not a separate AI composer.</p>
+  <h2>Locked decisions</h2>
+  <ul>
+    <li>Reuse existing inbox draft APIs and non-committal prompts.</li>
+    <li>Send remains explicit on the normal composer (approval gate).</li>
+    <li>Pending <code>aiDraft</code> hydrates the normal box; remove dual-composer UX.</li>
+    <li>Work in a clean branch/worktree named <code>akhil/inbox-draft-into-composer</code>.</li>
+  </ul>
+  <h2>Acceptance</h2>
+  <ol>
+    <li>Click generates with visible drafting state.</li>
+    <li>Success fills the normal reply text box.</li>
+    <li>Edit + Send uses existing channels.</li>
+    <li>Dirty text is not silently wiped; errors are retryable.</li>
+    <li>Tests + seeded browser proof + handoff HTML.</li>
+  </ol>
+</body>
+</html>

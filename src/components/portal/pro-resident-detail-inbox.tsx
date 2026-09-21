@@ -14,7 +14,6 @@ import {
   INBOX_THREAD_ICON_BTN_DANGER,
   InboxComposer,
   AiDraftReplyCard,
-  InboxReplyChannelPicker,
   InboxScheduledCard,
   InboxScheduledThreadList,
   InboxThreadView,
@@ -207,7 +206,35 @@ export function ResidentDirectChatPane({
 }) {
   const { showToast } = useAppUi();
   const [draft, setDraft] = useState("");
+  const draftRef = useRef("");
+  const [draftFocusSignal, setDraftFocusSignal] = useState(0);
+  const adoptedAiDraftRef = useRef<string | null>(null);
+  const [aiDraftInserted, setAiDraftInserted] = useState(false);
+  const updateDraft = useCallback((next: string) => {
+    draftRef.current = next;
+    setDraft(next);
+  }, []);
+  const insertAiDraft = useCallback(
+    (text: string, force = false) => {
+      const normalized = text.trim();
+      if (!normalized) return false;
+      const current = draftRef.current;
+      if (!force && current.trim() && current !== adoptedAiDraftRef.current) {
+        showToast("Draft ready. Your existing reply was kept.");
+        return false;
+      }
+      adoptedAiDraftRef.current = normalized;
+      setAiDraftInserted(true);
+      updateDraft(normalized);
+      setDraftFocusSignal((value) => value + 1);
+      return true;
+    },
+    [showToast, updateDraft],
+  );
   const [aiDraftText, setAiDraftText] = useState("");
+  const aiDraftAdopted = Boolean(
+    aiDraftText.trim() && draft.trim() === aiDraftText.trim(),
+  );
   const [aiDrafting, setAiDrafting] = useState(false);
   const [aiDraftError, setAiDraftError] = useState<string | null>(null);
   const [approvingAiDraft, setApprovingAiDraft] = useState(false);
@@ -292,14 +319,16 @@ export function ResidentDirectChatPane({
     setReplyViaProplane(next.viaProplane);
     setReplyViaEmail(next.viaEmail);
     setReplyViaSms(next.viaSms);
-    setDraft("");
+    adoptedAiDraftRef.current = null;
+    setAiDraftInserted(false);
+    updateDraft("");
     setAiDraftText("");
     setAiDraftError(null);
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
-  }, [email, smsAvailable, emailAvailable, lastInboundChannel]);
+  }, [email, smsAvailable, emailAvailable, lastInboundChannel, updateDraft]);
 
   const messages = useMemo(() => {
     const native = smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [];
@@ -565,7 +594,9 @@ export function ResidentDirectChatPane({
           return;
         }
         // Clear only on success, so a refused schedule never loses the text.
-        setDraft("");
+        adoptedAiDraftRef.current = null;
+        setAiDraftInserted(false);
+        updateDraft("");
         setReplyAttachments([]);
         setScheduleLater(false);
         showToast("Message scheduled.");
@@ -693,7 +724,9 @@ export function ResidentDirectChatPane({
         return;
       }
 
-      setDraft("");
+      adoptedAiDraftRef.current = null;
+      setAiDraftInserted(false);
+      updateDraft("");
       setAiDraftText("");
       setReplyAttachments((prev) => {
         prev.forEach(revokeInboxAttachmentPreview);
@@ -723,6 +756,7 @@ export function ResidentDirectChatPane({
     replyViaSms,
     showToast,
     smsResident,
+    updateDraft,
   ]);
 
   const requestAiDraft = useCallback(async () => {
@@ -747,13 +781,15 @@ export function ResidentDirectChatPane({
       if (!res.ok || !data.ok || !data.draft?.text?.trim()) {
         throw new Error(data.error ?? "Could not draft a reply.");
       }
-      setAiDraftText(data.draft.text.trim());
+      const text = data.draft.text.trim();
+      setAiDraftText(text);
+      insertAiDraft(text);
     } catch (cause) {
       setAiDraftError(cause instanceof Error ? cause.message : "Could not draft a reply.");
     } finally {
       setAiDrafting(false);
     }
-  }, [displayName, email]);
+  }, [displayName, email, insertAiDraft]);
 
   const approveAiDraft = useCallback(async () => {
     const text = aiDraftText.trim();
@@ -765,20 +801,6 @@ export function ResidentDirectChatPane({
       setApprovingAiDraft(false);
     }
   }, [aiDraftText, sendMessage]);
-
-  const replyChannelPicker = (
-    <InboxReplyChannelPicker
-      viaEmail={replyViaEmail}
-      viaSms={replyViaSms}
-      viaProplane={replyViaProplane}
-      onViaProplaneChange={setReplyViaProplane}
-      onViaEmailChange={setReplyViaEmail}
-      onViaSmsChange={setReplyViaSms}
-      emailAvailable={emailAvailable}
-      smsAvailable={smsAvailable}
-      proplaneAvailable
-    />
-  );
 
   const replyChannelMenu = (
     <InboxComposerChannelMenu
@@ -903,29 +925,29 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
-          {/* Draft with AI, Ask PropLane and Schedule live in the composer
+          {/* Draft with PropLane, Ask PropLane and Schedule live in the composer
               row (its ✦ and 🕒 tools). Only a draft in flight, a failed
               draft, or a draft waiting for approval still shows above it. */}
           <AiDraftReplyCard
             drafting={aiDrafting}
             draft={aiDraftText.trim() ? aiDraftText : undefined}
-            onDraftChange={setAiDraftText}
             error={aiDraftError ?? undefined}
             approving={approvingAiDraft || sending}
             onApprove={() => void approveAiDraft()}
             onDiscard={() => {
+              if (adoptedAiDraftRef.current) {
+                adoptedAiDraftRef.current = null;
+                setAiDraftInserted(false);
+                updateDraft("");
+              }
               setAiDraftText("");
               setAiDraftError(null);
             }}
             onGenerate={() => void requestAiDraft()}
-            channelControl={replyChannelPicker}
-            // The draft goes into the reply field below, not into a second
-            // message box beside it.
             onAdopt={(text) => {
-              setDraft(text);
-              setAiDraftText("");
-              setAiDraftError(null);
+              insertAiDraft(text, true);
             }}
+            adopted={aiDraftAdopted}
             hideGenerateButton
           />
           <InboxThreadAssistantStrip
@@ -940,7 +962,15 @@ export function ResidentDirectChatPane({
           />
           <InboxComposer
             value={draft}
-            onChange={setDraft}
+            onChange={(next) => {
+              updateDraft(next);
+              if (!next.trim() && aiDraftInserted) {
+                adoptedAiDraftRef.current = null;
+                setAiDraftInserted(false);
+                setAiDraftText("");
+                setAiDraftError(null);
+              }
+            }}
             onSubmit={() => void sendMessage()}
             sending={sending}
             disabled={
@@ -953,6 +983,7 @@ export function ResidentDirectChatPane({
             placeholder="Write a reply…"
             maxLength={replyViaSms && !replyViaEmail && !replyViaProplane ? 1600 : undefined}
             dataAttr="resident-direct-chat-compose"
+            focusSignal={draftFocusSignal}
             hint={
               scheduleLater && emailAvailable
                 ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
@@ -966,6 +997,7 @@ export function ResidentDirectChatPane({
             trailingControls={
               <>
                 <InboxComposerAiMenu
+                  disabled={aiDrafting}
                   onDraft={aiDrafting || aiDraftText.trim() ? undefined : () => void requestAiDraft()}
                   onAsk={() => setAskAssistantSignal((n) => n + 1)}
                 />

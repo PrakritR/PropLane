@@ -1645,6 +1645,7 @@ export function InboxComposer({
   autoSend = false,
   onAutoSendChange,
   composerRows = 1,
+  focusSignal = 0,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1668,6 +1669,8 @@ export function InboxComposer({
   onAutoSendChange?: (next: boolean) => void;
   /** Visible textarea rows (default 1 — grows with content in CSS). */
   composerRows?: number;
+  /** Increment after programmatically inserting text to focus the textarea. */
+  focusSignal?: number;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /*
@@ -1683,6 +1686,10 @@ export function InboxComposer({
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
+  useEffect(() => {
+    if (!focusSignal) return;
+    inputRef.current?.focus();
+  }, [focusSignal]);
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;
@@ -1841,74 +1848,6 @@ export function InboxComposer({
   );
 }
 
-/**
- * Gmail-style AI assist affordance above the reply composer. Wires to the existing
- * approval-first draft flow — the Draft button calls `onGenerate`; no new model path.
- */
-export function InboxAiAssistBar({
-  drafting = false,
-  draft,
-  onDraftChange,
-  error,
-  approving = false,
-  onApprove,
-  onDiscard,
-  onGenerate,
-}: {
-  drafting?: boolean;
-  draft?: string;
-  onDraftChange?: (next: string) => void;
-  error?: string;
-  approving?: boolean;
-  onApprove: () => void;
-  onDiscard: () => void;
-  onGenerate?: () => void;
-}) {
-  if (drafting) {
-    return (
-      <div className="portal-inbox-ai-assist-bar rounded-xl border border-primary/15 bg-primary/5 px-3 py-2.5" data-attr="inbox-ai-assist-drafting">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">AI reply assist</p>
-        <div className="mt-2 flex items-center gap-2 text-[13px] font-medium text-muted">
-          <Sparkles className="h-3.5 w-3.5 text-primary" strokeWidth={2.25} aria-hidden />
-          <span className="animate-pulse">Drafting from this conversation…</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (draft) {
-    return (
-      <div className="overflow-hidden rounded-xl border border-primary/15 bg-primary/5">
-        <AiDraftReplyCard
-          draft={draft}
-          onDraftChange={onDraftChange}
-          approving={approving}
-          onApprove={onApprove}
-          onDiscard={onDiscard}
-        />
-      </div>
-    );
-  }
-
-  if (!onGenerate) return null;
-
-  return (
-    <div className="portal-inbox-ai-assist-bar px-1 py-1" data-attr="inbox-ai-assist-bar">
-      <Button
-        type="button"
-        variant="outline"
-        className="h-10 min-h-0 w-fit justify-start gap-2 rounded-full border border-primary/15 bg-primary/[0.04] px-2.5 text-[12px] font-medium text-foreground/90 hover:bg-primary/[0.08]"
-        onClick={onGenerate}
-        data-attr="inbox-ai-draft-generate"
-      >
-        <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.25} aria-hidden />
-        Ask PropLane Assistant
-      </Button>
-      {error ? <p className="mt-1.5 px-0.5 text-[11px] text-danger">Couldn’t draft a reply. Try again.</p> : null}
-    </div>
-  );
-}
-
 const INBOX_AI_DRAFT_ACTION_BTN =
   "h-7 min-h-0 gap-1 rounded-lg px-2.5 text-xs font-medium";
 
@@ -1960,28 +1899,18 @@ export function InboundMessageWorkflowCard({
  * person edits their own reply never overwrite it with the original draft.
  */
 function InboxAdoptedDraftBar({
-  draft,
   onAdopt,
   onDiscard,
   onGenerate,
+  adopted,
   busy,
 }: {
-  draft: string;
-  onAdopt: (draft: string) => void;
+  onAdopt: () => void;
   onDiscard: () => void;
   onGenerate?: () => void;
+  adopted: boolean;
   busy?: boolean;
 }) {
-  const adoptedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (adoptedRef.current === draft) return;
-    adoptedRef.current = draft;
-    onAdopt(draft);
-    // `onAdopt` is re-created every render by most call sites; keying the guard
-    // on the draft text is what makes this fire once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
-
   return (
     <div
       className="portal-inbox-ai-draft shrink-0 border-t border-border bg-card px-3.5 pb-1 pt-2.5"
@@ -1990,9 +1919,20 @@ function InboxAdoptedDraftBar({
       <div className="flex items-center gap-3">
         <span className="inline-flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-primary">
           <Sparkles className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} />
-          <span className="truncate">AI draft — edit before sending</span>
+          <span className="truncate">PropLane draft - edit before sending</span>
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-3">
+          {!adopted ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onAdopt}
+              data-attr="inbox-ai-draft-insert"
+              className="text-[12px] font-semibold text-primary transition-colors hover:text-primary/80 disabled:opacity-50"
+            >
+              Insert draft
+            </button>
+          ) : null}
           {onGenerate ? (
             <button
               type="button"
@@ -2034,8 +1974,9 @@ export function AiDraftReplyCard({
   onAutoSendChange,
   scheduledSection,
   maxLength,
-  generateLabel = "Draft with AI",
+  generateLabel = "Draft with PropLane",
   onAdopt,
+  adopted = false,
   hideGenerateButton = false,
 }: {
   /** True while a draft is being generated. */
@@ -2069,6 +2010,8 @@ export function AiDraftReplyCard({
    * Omit it and the legacy two-composer shape is kept for back-compat.
    */
   onAdopt?: (draft: string) => void;
+  /** True once this draft was inserted into the surface's normal composer. */
+  adopted?: boolean;
   /**
    * The surface offers "Draft with AI" elsewhere (the composer's ✦ menu);
    * render nothing while idle instead of a second entry point.
@@ -2086,7 +2029,7 @@ export function AiDraftReplyCard({
             className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary"
             aria-hidden
           />
-          <span>PropLane AI is drafting a reply…</span>
+          <span>PropLane is drafting a reply…</span>
         </div>
         {onAutoSendChange ? (
           <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-[12px] text-foreground">
@@ -2142,10 +2085,10 @@ export function AiDraftReplyCard({
   if (onAdopt) {
     return (
       <InboxAdoptedDraftBar
-        draft={draft}
-        onAdopt={onAdopt}
+        onAdopt={() => onAdopt(draft)}
         onDiscard={onDiscard}
         onGenerate={onGenerate}
+        adopted={adopted}
         busy={approving}
       />
     );
