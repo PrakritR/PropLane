@@ -49,7 +49,11 @@ describe("vendor list sections", () => {
       "documents",
       "activity",
     ]);
-    expect(panel).toContain("VENDOR_RAIL_GROUPS");
+    // The catalog rail is the record-sections registry's own "vendorCatalog"
+    // kind (PLAN-0920-1058, area 1a follow-up), not a hand-built rail — a
+    // hand-rolled VENDOR_RAIL_GROUPS array would be a regression.
+    expect(panel).not.toContain("VENDOR_RAIL_GROUPS");
+    expect(panel).toContain('recordSections("manager", "vendorCatalog"');
     expect(panel).toContain("catalogDetailTab");
     expect(detail).not.toContain("readManagerWorkOrderRows");
     expect(detail).not.toContain("residentConfirmation");

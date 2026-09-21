@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { Mail, Phone, Settings, UserRound } from "lucide-react";
+import { ArrowUpRight, Mail, Phone, Settings, UserRound } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -67,10 +67,6 @@ import {
   vendorCatalogDetailHref,
   vendorDetailHref,
   vendorListHref,
-  VENDOR_DETAIL_TABS,
-  VENDOR_DETAIL_TAB_LABELS,
-  VENDOR_DETAIL_TAB_DESCRIPTIONS,
-  VENDOR_RAIL_GROUPS,
 } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useSearchParams } from "next/navigation";
@@ -695,6 +691,38 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const catalogRosterMatch = catalogDetail
     ? findRosterCatalogMatch(vendors, catalogDetail)
     : null;
+  const catalogSections = recordSections("manager", "vendorCatalog", { basePath });
+  const catalogHeaderActions = catalogRosterMatch
+    ? catalogSections.headerActions.map((action) =>
+        action.id === "add" ? { id: "open", label: "Open", icon: ArrowUpRight } : action,
+      )
+    : catalogSections.headerActions;
+  // The phone's sticky primary follows the same swap, so an already-added vendor
+  // offers Open there too rather than a second Add.
+  const catalogChromeSections = catalogRosterMatch
+    ? { ...catalogSections, headerActions: catalogHeaderActions, phonePrimary: "open" }
+    : catalogSections;
+  const onCatalogHeaderAction = (actionId: string) => {
+    if (actionId === "open") {
+      if (catalogRosterMatch) navigate(vendorDetailHref(basePath, catalogRosterMatch.id, "overview"));
+      return;
+    }
+    if (actionId === "add") {
+      if (catalogDetail) openAddVendorForm(catalogDetail.trade, catalogDetail);
+      return;
+    }
+    if (actionId === "email") {
+      if (catalogDetail?.email) window.location.assign(`mailto:${catalogDetail.email}`);
+      return;
+    }
+    if (actionId === "share" && catalogDetailId) {
+      void navigator.clipboard.writeText(
+        `${window.location.origin}${vendorCatalogDetailHref(basePath, catalogDetailId, catalogDetailTab)}`,
+      );
+      showToast("Vendor link copied.");
+      return;
+    }
+  };
 
   const listBody =
     directoryTab === "catalog" && catalogDetailId ? (
@@ -712,31 +740,18 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         pinScrollBody
       >
         <PortalRecordActions>
-          <Button
-            type="button"
-            disabled={Boolean(catalogRosterMatch)}
-            onClick={() => catalogDetail && openAddVendorForm(catalogDetail.trade, catalogDetail)}
-            data-attr="vendor-catalog-add"
-          >
-            {catalogRosterMatch ? "Added" : "Add"}
-          </Button>
+          <PortalRecordHeaderIconActions actions={catalogHeaderActions} onAction={onCatalogHeaderAction} />
         </PortalRecordActions>
         <PortalRecordSectionChrome
-          items={VENDOR_DETAIL_TABS.map((tab) => ({
-            id: tab,
-            label: VENDOR_DETAIL_TAB_LABELS[tab],
-            description: VENDOR_DETAIL_TAB_DESCRIPTIONS[tab],
-            href: vendorCatalogDetailHref(basePath, catalogDetailId, tab),
-          }))}
+          sections={catalogChromeSections}
+          recordId={catalogDetailId}
           activeId={catalogDetailTab}
-          groups={VENDOR_RAIL_GROUPS}
           title={catalogDetail?.name ?? "PropLane vendor"}
           subtitle={catalogDetail?.trade}
           backHref={vendorListHref(basePath, "catalog")}
           backLabel="PropLane vendors"
           ariaLabel="Vendor sections"
-          currentLabel={VENDOR_DETAIL_TAB_LABELS[catalogDetailTab]}
-          defaultDisclosureOpen={catalogDetailTab === "overview"}
+          onHeaderAction={onCatalogHeaderAction}
         >
           {catalogRosterMatch ? (
             <div data-attr="vendor-catalog-matched-profile">
@@ -750,7 +765,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               />
             </div>
           ) : (
-            <ManagerVendorCatalogDetail catalogId={catalogDetailId} vendor={catalogDetail} tab={catalogDetailTab} basePath={basePath} />
+            <ManagerVendorCatalogDetail
+              catalogId={catalogDetailId}
+              vendor={catalogDetail}
+              tab={catalogDetailTab}
+              inRoster={Boolean(catalogRosterMatch)}
+            />
           )}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>

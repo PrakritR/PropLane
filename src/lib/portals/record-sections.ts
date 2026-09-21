@@ -33,6 +33,7 @@ import {
   residentDetailHref,
   residentServiceDetailHref,
   serviceRequestDetailHref,
+  vendorCatalogDetailHref,
   vendorDetailHref,
   vendorInvoiceDetailHref,
   vendorJobDetailHref,
@@ -47,6 +48,7 @@ import {
   type ServiceDetailTabId,
   type ServiceRequestBucketId,
   type TourDetailTabId,
+  type VendorDetailTabId,
   type VendorInvoiceDetailTabId,
   type VendorJobDetailTabId,
   type VendorPayoutDetailTabId,
@@ -82,6 +84,7 @@ export type ManagerRecordKind =
   | "service"
   | "task"
   | "vendor"
+  | "vendorCatalog"
   | "tour"
   | "booking"
   | "document";
@@ -412,6 +415,33 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       return (recordId, tab) => vendorDetailHref(basePath, recordId, tab as never);
+    },
+  },
+  vendorCatalog: {
+    basePathDefault: "/portal",
+    ownGroups: [
+      { label: "Vendor", ids: [
+        { id: "overview", label: "Overview" },
+        { id: "profile", label: "Profile" },
+        { id: "pricing", label: "Pricing" },
+      ] },
+      { label: "Work", ids: [
+        { id: "jobs", label: "Jobs" },
+        { id: "reviews", label: "Reviews" },
+        { id: "check-ins", label: "Check-ins" },
+      ] },
+    ],
+    headerActions: [
+      { id: "add", label: "Add to your vendors", icon: UserPlus },
+      { id: "email", label: "Email", icon: Mail },
+      { id: "share", label: "Share", icon: Share2 },
+    ],
+    phonePrimary: "add",
+    hasDocuments: true,
+    hasActivity: true,
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      return (recordId, tab) => vendorCatalogDetailHref(basePath, recordId, tab as VendorDetailTabId);
     },
   },
   tour: {
