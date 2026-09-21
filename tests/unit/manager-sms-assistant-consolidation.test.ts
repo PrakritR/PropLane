@@ -28,6 +28,8 @@ describe("manager self-SMS assistant consolidation", () => {
   it("migrates old manager SMS transcripts and removes duplicate Communication rows", () => {
     const sql = readFileSync(join(process.cwd(), "supabase/migrations/20260920120000_merge_manager_sms_into_portal_assistant.sql"), "utf8").toLowerCase();
     expect(sql).toContain("where session.kind = 'manager_sms'");
+    expect(sql).toContain("add column if not exists workspace_id uuid");
+    expect(sql).toContain("agent_sessions_portal_chat_workspace_idx");
     expect(sql).toContain("where kind = 'portal_chat' and portal = 'manager'");
     expect(sql).toContain("update public.agent_messages");
     expect(sql).toContain("update public.agent_pending_actions");

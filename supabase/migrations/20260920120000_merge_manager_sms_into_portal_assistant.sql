@@ -3,6 +3,17 @@
 -- workspace-scoped portal chat. Transport rows are removed only when an exact
 -- assistant turn or its inbound-reply outbox record proves they are mirrors.
 
+-- Some long-lived projects installed the workspace bundle under an apply-time
+-- ledger name but missed this additive session column. Keep this migration
+-- self-contained so the scoped session RPC and history merge never depend on
+-- that historical ledger shape.
+alter table public.agent_sessions
+  add column if not exists workspace_id uuid;
+
+create index if not exists agent_sessions_portal_chat_workspace_idx
+  on public.agent_sessions (user_id, portal, workspace_id, updated_at desc)
+  where kind = 'portal_chat';
+
 alter table public.sms_outbox
   add column if not exists suppress_conversation_log boolean not null default false;
 
