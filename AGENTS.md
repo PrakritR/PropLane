@@ -364,6 +364,9 @@ Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communica
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.
 - SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
 - Residents cannot schedule a compose (deliberate).
+- A thread's `row_data` may carry a `recordRef: {kind,id,label}`; a record page's
+  Communication section (`record-communication-section.tsx`) filters the same
+  inbox down to that one record's threads — see `docs/agents/communication-inbox.md` § recordRef.
 
 ## Inbox attachments
 

@@ -79,6 +79,12 @@ export type AdminPropertyRow = {
   draftMaxStepReached?: number;
   /** True while a draft's id was minted before it had a property name (see `saveManagerPropertyDraftToServer`). */
   draftIdProvisional?: boolean;
+  /** Set by `portfolio-import/create.server.ts` on a draft created from a file upload — never set by the manager's own wizard. */
+  source?: "import";
+  /** The uploaded file this draft came from, paired with `source: "import"` for the Activity entry. */
+  importFile?: string;
+  /** ISO timestamp of that import, paired with `importFile` for the Activity entry. */
+  importedAt?: string;
 };
 
 type SideBuckets = {

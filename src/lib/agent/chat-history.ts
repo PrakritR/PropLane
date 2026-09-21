@@ -82,6 +82,22 @@ function validSearchQuery(search: string | null | undefined): string | null {
   return normalized ? normalized.slice(0, 120) : null;
 }
 
+function scopeQueryToActorWorkspace<T>(
+  query: T,
+  actor: AgentChatHistoryActor,
+  includeWorkspace: boolean,
+): T {
+  const workspaceId = actor.workspace?.id?.trim();
+  if (!includeWorkspace || !workspaceId) return query;
+  const scoped = query as T & {
+    eq: (column: string, value: string) => T;
+    or: (filter: string) => T;
+  };
+  return actor.workspace?.isDefault
+    ? scoped.or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
+    : scoped.eq("workspace_id", workspaceId);
+}
+
 export function isAgentChatSessionId(value: string | null | undefined): value is string {
   return Boolean(value && UUID_RE.test(value));
 }
@@ -126,14 +142,7 @@ export async function listAgentChatThreads(
         .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND)
         .order("updated_at", { ascending: false })
         .limit(AGENT_CHAT_HISTORY_PAGE_SIZE + 1);
-      const workspaceId = actor.workspace?.id?.trim();
-      if (includeWorkspace && workspaceId) {
-        if (actor.workspace?.isDefault) {
-          query = query.or(`workspace_id.eq.${workspaceId},workspace_id.is.null`);
-        } else {
-          query = query.eq("workspace_id", workspaceId);
-        }
-      }
+      query = scopeQueryToActorWorkspace(query, actor, includeWorkspace);
       if (scope?.managerUserId) query = query.eq("sms_test_manager_user_id", scope.managerUserId);
       if (scope?.smsTestMode) query = query.eq("sms_test_mode", scope.smsTestMode);
       if (scope?.workspaceId) query = query.eq("test_workspace_id", scope.workspaceId);
@@ -220,17 +229,24 @@ export async function deleteAgentChatThread(
 ): Promise<AgentChatThreadDeleteResult> {
   if (!isAgentChatSessionId(sessionId)) return { ok: false };
   try {
-    let lookup = actor.db
-      .from("agent_sessions")
-      .select("id")
-      .eq("id", sessionId)
-      .eq("user_id", actor.userId)
-      .eq("portal", portal)
-      .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
-    if (scope?.managerUserId) lookup = lookup.eq("sms_test_manager_user_id", scope.managerUserId);
-    if (scope?.smsTestMode) lookup = lookup.eq("sms_test_mode", scope.smsTestMode);
-    if (scope?.workspaceId) lookup = lookup.eq("test_workspace_id", scope.workspaceId);
-    const { data: ownedSession, error: lookupError } = await lookup.maybeSingle();
+    const findOwnedSession = async (includeWorkspace: boolean) => {
+      let lookup = actor.db
+        .from("agent_sessions")
+        .select("id")
+        .eq("id", sessionId)
+        .eq("user_id", actor.userId)
+        .eq("portal", portal)
+        .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
+      lookup = scopeQueryToActorWorkspace(lookup, actor, includeWorkspace);
+      if (scope?.managerUserId) lookup = lookup.eq("sms_test_manager_user_id", scope.managerUserId);
+      if (scope?.smsTestMode) lookup = lookup.eq("sms_test_mode", scope.smsTestMode);
+      if (scope?.workspaceId) lookup = lookup.eq("test_workspace_id", scope.workspaceId);
+      return lookup.maybeSingle();
+    };
+    let { data: ownedSession, error: lookupError } = await findOwnedSession(true);
+    if (lookupError && isMissingColumn(lookupError, "workspace_id")) {
+      ({ data: ownedSession, error: lookupError } = await findOwnedSession(false));
+    }
     if (lookupError) {
       reportArchiveFailure("find conversation to delete", lookupError);
       return { ok: false, error: "Could not delete the conversation. Try again." };
@@ -250,17 +266,24 @@ export async function deleteAgentChatThread(
       return { ok: false, error: "Could not delete the conversation. Try again." };
     }
 
-    let deletion = actor.db
-      .from("agent_sessions")
-      .delete()
-      .eq("id", sessionId)
-      .eq("user_id", actor.userId)
-      .eq("portal", portal)
-      .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
-    if (scope?.managerUserId) deletion = deletion.eq("sms_test_manager_user_id", scope.managerUserId);
-    if (scope?.smsTestMode) deletion = deletion.eq("sms_test_mode", scope.smsTestMode);
-    if (scope?.workspaceId) deletion = deletion.eq("test_workspace_id", scope.workspaceId);
-    const { data, error } = await deletion.select("id").maybeSingle();
+    const deleteOwnedSession = async (includeWorkspace: boolean) => {
+      let deletion = actor.db
+        .from("agent_sessions")
+        .delete()
+        .eq("id", sessionId)
+        .eq("user_id", actor.userId)
+        .eq("portal", portal)
+        .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
+      deletion = scopeQueryToActorWorkspace(deletion, actor, includeWorkspace);
+      if (scope?.managerUserId) deletion = deletion.eq("sms_test_manager_user_id", scope.managerUserId);
+      if (scope?.smsTestMode) deletion = deletion.eq("sms_test_mode", scope.smsTestMode);
+      if (scope?.workspaceId) deletion = deletion.eq("test_workspace_id", scope.workspaceId);
+      return deletion.select("id").maybeSingle();
+    };
+    let { data, error } = await deleteOwnedSession(true);
+    if (error && isMissingColumn(error, "workspace_id")) {
+      ({ data, error } = await deleteOwnedSession(false));
+    }
     if (error) {
       reportArchiveFailure("delete conversation", error);
       return { ok: false, error: "Could not delete the conversation. Try again." };
@@ -281,7 +304,7 @@ export async function loadAgentChatTranscript(
 ): Promise<AgentChatTranscript | null> {
   if (!isAgentChatSessionId(sessionId)) return null;
   try {
-    const loadSession = async (includeTitle: boolean) => {
+    const loadSession = async (includeTitle: boolean, includeWorkspace: boolean) => {
       let query = actor.db
         .from("agent_sessions")
         .select(includeTitle ? "id, title, updated_at" : "id, updated_at")
@@ -289,14 +312,22 @@ export async function loadAgentChatTranscript(
         .eq("user_id", actor.userId)
         .eq("portal", portal)
         .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
+      query = scopeQueryToActorWorkspace(query, actor, includeWorkspace);
       if (scope?.managerUserId) query = query.eq("sms_test_manager_user_id", scope.managerUserId);
       if (scope?.smsTestMode) query = query.eq("sms_test_mode", scope.smsTestMode);
       if (scope?.workspaceId) query = query.eq("test_workspace_id", scope.workspaceId);
       return query.maybeSingle();
     };
-    let { data: session, error: sessionError } = await loadSession(true);
+    let includeTitle = true;
+    let includeWorkspace = true;
+    let { data: session, error: sessionError } = await loadSession(includeTitle, includeWorkspace);
     if (sessionError && isMissingTitleColumn(sessionError)) {
-      ({ data: session, error: sessionError } = await loadSession(false));
+      includeTitle = false;
+      ({ data: session, error: sessionError } = await loadSession(includeTitle, includeWorkspace));
+    }
+    if (sessionError && isMissingColumn(sessionError, "workspace_id")) {
+      includeWorkspace = false;
+      ({ data: session, error: sessionError } = await loadSession(includeTitle, includeWorkspace));
     }
     if (sessionError || !session?.id) return null;
 

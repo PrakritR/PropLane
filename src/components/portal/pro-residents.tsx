@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2, Mail, Pencil, Settings } from "lucide-react";
+import { Link2, Mail, Settings } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -17,11 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
-import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
-import {
-  PortalPropertySectionList,
-  PortalRecordSectionsDisclosure,
-} from "@/components/portal/portal-property-section-list";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
 import {
   ResidentOverviewPanel,
   type ResidentOverviewServiceItem,
@@ -57,9 +54,6 @@ import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
-  RESIDENT_DETAIL_TAB_LABELS,
-  RESIDENT_DETAIL_TAB_SHORT_LABELS,
-  RESIDENT_DETAIL_TAB_DESCRIPTIONS,
   RESIDENT_DIRECTORY_TABS,
   RESIDENT_DIRECTORY_TAB_LABELS,
   RESIDENT_DETAIL_TABS_BY_STAGE,
@@ -98,6 +92,7 @@ import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-c
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { importedActivity, parseResidentImportFile } from "@/lib/portfolio-import/activity";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
@@ -350,16 +345,6 @@ function residentUnifiedServiceBucketForWorkOrder(
   return "completed";
 }
 
-/** Desktop rail grouping for one resident: who they are, where they live, how to reach them. */
-const RESIDENT_RAIL_GROUPS: Array<{ label: string; ids: ResidentDetailTabId[] }> = [
-  { label: "Resident", ids: ["overview", "application", "background-check"] },
-  { label: "Home", ids: ["lease", "payments", "services", "inspections", "tours"] },
-  { label: "Contact", ids: ["communication"] },
-  // The shared trio's remaining two ids (Communication already lives above,
-  // as a real per-resident inbox) — no heading, universal record chrome.
-  { label: "", ids: ["documents", "activity"] },
-];
-
 /**
  * Routed resident detail tab panel — flat content (no collapsible chevron stack).
  */
@@ -389,6 +374,8 @@ type ActiveResident = {
   axisId: string;
   manuallyAdded?: boolean;
   moveInInstructions?: string;
+  /** Free-text note; portfolio import stamps "Imported from <file>." here (see `@/lib/portfolio-import/activity`). */
+  detail?: string;
   manualResidentDetails?: NonNullable<import("@/data/demo-portal").DemoApplicantRow["manualResidentDetails"]>;
   isPrevious: boolean;
   stage: ResidentDirectoryStage;
@@ -800,6 +787,7 @@ export function ManagerResidents({
           axisId,
           manuallyAdded: row.manuallyAdded,
           moveInInstructions: row.moveInInstructions,
+          detail: row.detail,
           manualResidentDetails: row.manualResidentDetails,
           isPrevious: isPreviousResidentDirectoryRow(row),
           stage,
@@ -2858,25 +2846,30 @@ export function ManagerResidents({
   const residentDetailScrollBodyPadding =
     "pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]";
 
-  // One item list feeds both the desktop rail and the phone tab strip, so a
-  // section can never appear in one and not the other.
-  const residentDetailNavItems = useMemo(
-    () =>
-      selected
-        ? residentDetailTabsAvailable.map((tab) => ({
-            id: tab,
-            label: RESIDENT_DETAIL_TAB_LABELS[tab],
-            shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
-            description: RESIDENT_DETAIL_TAB_DESCRIPTIONS[tab],
-            href:
-              tab === "tours"
-                ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp)
-                : residentDetailHref(portalBase, residentsTab, selected.id, tab),
-            dataAttr: `resident-detail-tab-${tab}`,
-          }))
-        : [],
-    [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp],
-  );
+  /**
+   * The rail, phone chip strip, and sticky primary action all come from the
+   * registry now (PLAN-0920-1058, area 1a — docs/agents/record-page.md). A
+   * resident's own sections are filtered to what this stage actually offers;
+   * the shared trio (Communication always, Documents/Activity here too) is
+   * never filtered. "Send setup" has no registry action id — it is appended
+   * only while this resident has no portal account yet, so it reaches both
+   * the desktop icon row and the phone sticky overflow from one list.
+   */
+  const residentSections = useMemo(() => {
+    const sections = recordSections("manager", "resident", { basePath: portalBase, residentsTab });
+    return {
+      ...sections,
+      headerActions: selectedHasPortalAccount
+        ? sections.headerActions
+        : [...sections.headerActions, { id: "setup", label: "Send setup", icon: Mail }],
+      groups: sections.groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => residentDetailTabsAvailable.includes(item.id as ResidentDetailTabId)),
+        }))
+        .filter((group) => group.items.length > 0),
+    };
+  }, [portalBase, residentDetailTabsAvailable, residentsTab, selectedHasPortalAccount]);
 
   const residentOverviewServices = useMemo((): ResidentOverviewServiceItem[] => {
     if (!selected) return [];
@@ -2912,24 +2905,40 @@ export function ManagerResidents({
     };
   }, [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp]);
 
+  // Wires the phone sticky action (and its ⋯ overflow) from
+  // PortalRecordSectionChrome to the SAME handlers the desktop icon row
+  // calls — real functionality where it exists, "Coming soon" otherwise
+  // (docs/agents/record-page.md § Known gap).
+  const onResidentRecordHeaderAction = (actionId: string) => {
+    if (!selected) return;
+    switch (actionId) {
+      case "message":
+        navigate(residentDetailHref(portalBase, residentsTab, selected.id, "communication"));
+        return;
+      case "edit":
+        openEditResidentModal(selected.id);
+        return;
+      case "setup":
+        openResidentEmailSetup(selected);
+        return;
+      default:
+        showToast("Coming soon");
+    }
+  };
+
   const residentDetailPanel =
     selected ? (
-                          <div className="flex min-h-0 flex-1 lg:flex-row">
-                          <PortalPropertyRail
-                            items={residentDetailNavItems}
+                          <PortalRecordSectionChrome
+                            sections={residentSections}
+                            recordId={selected.id}
                             activeId={resolvedDetailTab}
-                            backHref={residentListHref(portalBase, residentsTab)}
-                            backLabel="All residents"
-                            // Page header already has back + identity; rail is section links only.
-                            showBackLink={false}
-                            showTitleBlock={false}
                             title={selected.name || "Resident"}
                             subtitle={[selected.propertyLabel, selected.roomLabel].filter(Boolean).join(" · ") || selected.email}
-                            groups={RESIDENT_RAIL_GROUPS}
+                            backHref={residentListHref(portalBase, residentsTab)}
+                            backLabel="All residents"
                             ariaLabel="Resident profile sections"
-                            dataAttrBack="resident-rail-back"
-                            className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
-                          />
+                            onHeaderAction={onResidentRecordHeaderAction}
+                          >
                           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
                             <PortalPageChrome>
                               <div
@@ -2937,15 +2946,6 @@ export function ManagerResidents({
                                 data-portal-property-detail-chrome
                               />
                             </PortalPageChrome>
-                            <div className="px-0 pt-3 lg:hidden">
-                              <PortalRecordSectionsDisclosure
-                                currentLabel={RESIDENT_DETAIL_TAB_LABELS[resolvedDetailTab]}
-                                items={residentDetailNavItems}
-                                activeId={resolvedDetailTab}
-                                ariaLabel="Resident profile sections"
-                                defaultOpen={resolvedDetailTab === "overview"}
-                              />
-                            </div>
 
                             {resolvedDetailTab === "overview" ? (
                               <ResidentDetailTabPanel>
@@ -3438,6 +3438,10 @@ export function ManagerResidents({
                                   kindLabel: "resident",
                                   recordId: selected.id,
                                   recordLabel: selected.name,
+                                  activity: importedActivity(
+                                    parseResidentImportFile(selected.detail),
+                                    selected.manualResidentDetails?.importedAt,
+                                  ),
                                 })}
                               </ResidentDetailTabPanel>
                             ) : null}
@@ -3451,7 +3455,7 @@ export function ManagerResidents({
                               </PortalRecordActions>
                             ) : null}
                           </div>
-                          </div>
+                          </PortalRecordSectionChrome>
     ) : null;
 
   const residentsFilterSheet = (
@@ -3590,23 +3594,10 @@ export function ManagerResidents({
           fillBody={residentDetailInternalScroll}
         >
           <PortalRecordActions>
-            <PortalIconAction
-              ring
-              ringPrimary
-              icon={Pencil}
-              label="Edit"
-              data-attr="resident-detail-edit"
-              onClick={() => openEditResidentModal(selected.id)}
+            <PortalRecordHeaderIconActions
+              actions={residentSections.headerActions}
+              onAction={onResidentRecordHeaderAction}
             />
-            {selectedHasPortalAccount ? null : (
-            <PortalIconAction
-              ring
-              icon={Mail}
-              label="Send setup"
-              data-attr="resident-detail-setup"
-              onClick={() => openResidentEmailSetup(selected)}
-            />
-            )}
           </PortalRecordActions>
           {residentDetailPanel}
         </PortalRecordDetailPage>

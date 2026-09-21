@@ -72,7 +72,12 @@ export const NATIVE_BOTTOM_NAV_VENDOR_ORDER = [
 
 /**
  * Native bottom bar order — preserves portal registry order (web sidebar = native bar).
- * Settings is always appended last when present.
+ * Settings is always appended last when present, EXCEPT for the resident derivation
+ * below, which excludes it from the ordered catalog entirely — resident Settings is
+ * reached only via the account/profile menu, never the bottom bar or its More sheet,
+ * mirroring how the manager catalog treats it as a settings entry rather than an
+ * ordinary trailing item (see `splitNativeBottomNavItems`, which drops it from the
+ * manager/vendor/admin bar+More split the same way).
  */
 export function orderNativeBottomNavItems<T extends { section: string }>(
   items: T[],
@@ -90,9 +95,9 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
     );
     const orderedSet = new Set(ordered.map((item) => item.section));
     const trailing = rest.filter((item) => !orderedSet.has(item.section));
-    const body = [...ordered, ...trailing];
-    if (settings) return [...body, settings];
-    return body;
+    // Settings is deliberately NOT appended here — the resident bottom bar / More
+    // sheet catalog never carries it as an ordinary item (it lives in the profile menu).
+    return [...ordered, ...trailing];
   }
 
   if (settings) return [...rest, settings];

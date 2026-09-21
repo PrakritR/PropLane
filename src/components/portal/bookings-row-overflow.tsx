@@ -47,27 +47,27 @@ export function BookingsRowOverflow({
         actions: (
           <>
             {onEditDates ? (
-              <Button type="button" variant="outline" data-attr="bookings-row-edit-dates" onClick={onEditDates}>
+              <Button type="button" variant="outline" data-attr="bookings-row-edit-dates" data-record-action-id="edit-dates" onClick={onEditDates}>
                 {editDatesLabel}
               </Button>
             ) : null}
             {onMoveRoom ? (
-              <Button type="button" variant="outline" data-attr="bookings-row-move-room" onClick={onMoveRoom}>
+              <Button type="button" variant="outline" data-attr="bookings-row-move-room" data-record-action-id="move-room" onClick={onMoveRoom}>
                 Move room
               </Button>
             ) : null}
             {onMessage ? (
-              <Button type="button" variant="outline" data-attr="bookings-row-message" onClick={onMessage}>
+              <Button type="button" variant="outline" data-attr="bookings-row-message" data-record-action-id="message" onClick={onMessage}>
                 {`Message ${label}`}
               </Button>
             ) : null}
             {onCopyLink ? (
-              <Button type="button" variant="outline" data-attr="bookings-row-copy-link" onClick={onCopyLink}>
+              <Button type="button" variant="outline" data-attr="bookings-row-copy-link" data-record-action-id="copy-link" onClick={onCopyLink}>
                 Copy link
               </Button>
             ) : null}
             {onCancel ? (
-              <Button type="button" variant="danger" data-attr="bookings-row-cancel" onClick={onCancel}>
+              <Button type="button" variant="danger" data-attr="bookings-row-cancel" data-record-action-id="delete" onClick={onCancel}>
                 {cancelLabel}
               </Button>
             ) : null}

@@ -110,7 +110,9 @@ describe("resident detail tab chrome", () => {
     expect(residents).not.toContain('data-attr="resident-payments-settings-open"');
     expect(residents).not.toContain('data-attr="resident-payment-setup-open"');
     expect(residents).toContain("iconTitleActions");
-    expect(residents).toContain("PortalRecordSectionsDisclosure");
+    // The phone chip strip (PLAN-0920-1058, area 1a) now comes from the
+    // shared record-page chrome, not a per-panel disclosure.
+    expect(residents).toContain("PortalRecordSectionChrome");
 
     const tours = readFileSync(
       `${process.cwd()}/src/components/portal/pro-resident-tours-panel.tsx`,

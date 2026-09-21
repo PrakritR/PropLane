@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   inboundLogSelects: 0,
   inboundBodies: [] as Record<string, unknown>[],
+  inboundDeletes: 0,
   receiptUpdates: [] as Record<string, unknown>[],
   receipt: { status: "processing" } as Record<string, unknown> | null,
   ownedNumber: true,
@@ -82,6 +83,10 @@ function makeDb() {
               })
             : Promise.resolve({ data: [], error: null }),
         insert: (values: Record<string, unknown>) => { if (table === "inbound_sms_log") mocks.inboundBodies.push(values); return Promise.resolve({ data: null, error: null }); },
+        delete: () => {
+          if (table === "inbound_sms_log") mocks.inboundDeletes += 1;
+          return builder;
+        },
         update: (values: Record<string, unknown>) => {
           isUpdate = true;
           if (table === "sms_inbound_receipts") mocks.receiptUpdates.push(values);
@@ -125,6 +130,7 @@ function inboundRequest() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.inboundBodies = [];
+  mocks.inboundDeletes = 0;
   mocks.inboundLogSelects = 0;
   mocks.receiptUpdates = [];
   mocks.receipt = { status: "processing" };
@@ -148,6 +154,39 @@ beforeEach(() => {
 });
 
 describe("managed Twilio inbound retry", () => {
+  it("removes a fresh manager self-SMS transport row from Communication", async () => {
+    mocks.detectSelfReply.mockResolvedValue({
+      actorUserId: "co-manager",
+      workNumberOwnerId: "11111111-1111-4111-8111-111111111111",
+      access: { mode: "delegated" },
+    });
+    mocks.resolveManagerCtx.mockResolvedValue({
+      ok: true,
+      ctx: { userId: "co-manager", landlordId: "11111111-1111-4111-8111-111111111111" },
+    });
+    mocks.runManagerTurn.mockResolvedValue({
+      reply: "Your assistant answer.",
+      sessionId: "assistant-session",
+      inboundMessageId: "inbound-agent-message",
+      assistantMessageId: "assistant-agent-message",
+    });
+    mocks.runManagerTurn.mockImplementationOnce(async (_db, args: { onInboundPersisted?: () => Promise<boolean> }) => {
+      expect(await args.onInboundPersisted?.()).toBe(true);
+      return {
+        reply: "Your assistant answer.",
+        sessionId: "assistant-session",
+        inboundMessageId: "inbound-agent-message",
+        assistantMessageId: "assistant-agent-message",
+      };
+    });
+    mocks.deliverManagerReply.mockResolvedValue({ ok: true, durablyAccepted: true });
+
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.runManagerTurn).toHaveBeenCalledOnce();
+    expect(mocks.resolveManagerCtx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workspaceId: null }));
+    expect(mocks.inboundDeletes).toBe(1);
+  });
+
   it("keeps the co-manager actor on a prepared reply retry without rerunning the agent", async () => {
     mocks.receipt = { status: "processing", route_kind: "manager_agent", reply_body: "Your assigned house has one request.", counterparty_user_id: "co-manager" };
     mocks.detectSelfReply.mockResolvedValue({ actorUserId: "co-manager", workNumberOwnerId: "11111111-1111-4111-8111-111111111111" });

@@ -19,6 +19,7 @@ import {
   parseManagerBookingBucket,
   managerBookingListHref,
 } from "@/lib/portal-detail-routes";
+import { recordSections } from "@/lib/portals/record-sections";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
@@ -124,10 +125,16 @@ describe("property calendar sub-tabs", () => {
     // ManagerPropertyBookingsPanel and that NOTHING rendered in turn, so one
     // house's occupancy could only be seen by leaving it for the portfolio
     // Bookings page and filtering back down. The wrapper is deleted; the panel
-    // is now a Bookings tab beside Tours.
+    // is now a Bookings tab beside Tours — driven by the property record's own
+    // section registry (the Leasing group), not a hand-written tab list.
+    const propertySections = recordSections("manager", "property", { basePath: "/portal" });
+    const leasingIds = propertySections.groups.flatMap((group) => group.items.map((item) => item.id));
+    expect(leasingIds).toContain("bookings");
+
     const panel = read("src/components/portal/pro-house-properties-panel.tsx");
     expect(panel).toContain("ManagerPropertyBookingsPanel");
     expect(panel).toContain('activeDetailTab === "bookings"');
-    expect(panel).toContain('pushTopTab("bookings", "bookings")');
+    expect(panel).toContain("recordSections(");
+    expect(panel).toContain("PortalRecordSectionChrome");
   });
 });

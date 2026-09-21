@@ -25,6 +25,9 @@ export type ManagerSmsAccess = {
   dataOwnerIds: string[];
   /** Assigned co-managed property ids in this turn. Empty for unrestricted owner. */
   assignedPropertyIds: string[];
+  /** Exact properties behind the destination work number's workspace. */
+  workspacePropertyIds?: string[];
+  workspaceIsDefault?: boolean;
   /** Server-resolved grants, keyed by owner as well as property. Missing means deny. */
   permissionsByOwner?: Record<string, PropertyCoManagerPermissions>;
 };
@@ -88,9 +91,14 @@ export function smsAccessAllowsRow(
   access: ManagerSmsAccess | null | undefined,
   args: { dataOwnerId: string; rowData: unknown; table: string; module?: CoManagerPermissionId },
 ): boolean {
-  if (!access || access.mode === "owner") return true;
-  const assigned = new Set(access.assignedPropertyIds);
+  if (!access) return true;
   const propertyId = propertyIdFromToolRow(args.rowData);
+  if (access.workspacePropertyIds) {
+    if (propertyId && !access.workspacePropertyIds.includes(propertyId)) return false;
+    if (!propertyId && !access.workspaceIsDefault) return false;
+  }
+  if (access.mode === "owner") return true;
+  const assigned = new Set(access.assignedPropertyIds);
   if (access.mode === "combined" && args.dataOwnerId === access.actorUserId) return true;
   if (!access.dataOwnerIds.includes(args.dataOwnerId)) return false;
   const permissionModule = args.module ?? TABLE_MODULE[args.table];
@@ -117,6 +125,7 @@ export function smsAccessAllowsProperty(
   access: ManagerSmsAccess | null | undefined,
   args: { propertyId: string; recordOwnerId: string; actorUserId: string },
 ): boolean {
+  if (access?.workspacePropertyIds && !access.workspacePropertyIds.includes(args.propertyId)) return false;
   if (!access || access.mode === "owner") return args.recordOwnerId === args.actorUserId;
   if (access.mode === "combined" && args.recordOwnerId === args.actorUserId) return true;
   if (!coManagerModuleAllowed(access.permissionsByOwner?.[args.recordOwnerId], args.propertyId, "properties", "read")) return false;

@@ -72,8 +72,14 @@ import {
 } from "@/lib/manager-sms-messages";
 import { formatPacificDate } from "@/lib/pacific-time";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
-import { threadPassesCommunicationFilters, type CommunicationThreadFilters } from "@/lib/communication-thread-filters";
-import { recordRoutePath } from "@/lib/portals/record-kinds";
+import {
+  EMPTY_COMMUNICATION_THREAD_FILTERS,
+  RECORD_KIND_FILTER_OPTIONS,
+  threadPassesCommunicationFilters,
+  type CommunicationThreadFilters,
+} from "@/lib/communication-thread-filters";
+import { recordRoutePath, type RecordKind } from "@/lib/portals/record-kinds";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_resident";
@@ -556,12 +562,23 @@ export function ResidentCommunication({
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [status, setStatus] = useState<CommunicationStatus>(listSegment);
   useEffect(() => setStatus(listSegment), [listSegment]);
+  // The "About" record-kind filter (PLAN-0920-1058 area 1c) — local UI state,
+  // merged onto whatever `threadFilters` the caller already scoped this list
+  // to (a single record's own Communication section passes `recordRefs`).
+  // `threadPassesCommunicationFilters` only narrows, never widens, so this
+  // can only remove rows the viewer's authorization already let them see.
+  const [recordKindFilter, setRecordKindFilter] = useState<RecordKind | "">("");
+
+  const effectiveThreadFilters = useMemo<CommunicationThreadFilters | undefined>(() => {
+    if (!recordKindFilter) return threadFilters;
+    return { ...(threadFilters ?? EMPTY_COMMUNICATION_THREAD_FILTERS), recordKinds: [recordKindFilter] };
+  }, [threadFilters, recordKindFilter]);
 
   const communicationFilterSheet = (
     <PortalFilterSortSheet
-      activeCount={status === "active" ? 0 : 1}
+      activeCount={(status === "active" ? 0 : 1) + (recordKindFilter ? 1 : 0)}
       compactPanel
-      filterFieldCount={1}
+      filterFieldCount={2}
       constrainDropdownToTitleBand={false}
       // The same plain filter glyph the manager's list row uses; the word
       // lives in the tooltip and the active count in the accessible name.
@@ -570,6 +587,14 @@ export function ResidentCommunication({
       dataAttr="resident-communication-filter-open"
     >
       <CommunicationStatusFilterDraft value={status} onChange={setStatus} />
+      <FieldSingleSelect
+        label="About"
+        value={recordKindFilter}
+        onChange={(next) => setRecordKindFilter((next || "") as RecordKind | "")}
+        options={[{ value: "", label: "All records" }, ...RECORD_KIND_FILTER_OPTIONS]}
+        placeholder="All records"
+        dataAttr="resident-communication-filter-about"
+      />
     </PortalFilterSortSheet>
   );
 
@@ -618,7 +643,7 @@ export function ResidentCommunication({
         onAddConversation={openCompose}
         listActions={communicationCommandActions}
         residentUserId={residentUserId}
-        threadFilters={threadFilters}
+        threadFilters={effectiveThreadFilters}
       />
     </PortalCommunicationShell>
   );

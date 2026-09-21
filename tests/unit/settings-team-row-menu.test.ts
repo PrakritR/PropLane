@@ -22,6 +22,12 @@ describe("Settings Team row actions", () => {
     expect(blocks).not.toContain("onPermissions");
   });
 
+  it("labels the ⋯ menu's ownership-transfer item exactly \"Transfer ownership\" (workspace transfer, no trailing ellipsis)", () => {
+    expect(blocks).toContain('label: "Transfer ownership", onSelect: m.onTransfer, dataAttr: "team-member-transfer"');
+    expect(blocks).not.toContain("Transfer ownership…");
+    expect(panel).not.toContain("Transfer ownership…");
+  });
+
   it("says Disconnect, never Remove, wherever a team member is taken off the team", () => {
     expect(panel).toContain('title="Disconnect team member — notification preview"');
     expect(panel).toContain('confirmLabel="Disconnect & send message"');

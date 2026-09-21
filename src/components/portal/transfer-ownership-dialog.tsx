@@ -1,21 +1,20 @@
 "use client";
 
 /**
- * Promotes a team member to main manager of one or more houses in a
- * workspace the viewer owns. Opened from the member's ⋯ menu
- * (`pro-team-blocks.tsx`) and from the teams detail page footer.
+ * Hands the whole workspace to an accepted member. There is no per-house
+ * picking any more — a workspace has exactly one owner
+ * (`portal_workspaces.owner_user_id`), and every house in it belongs to that
+ * owner. Opened from the member's ⋯ menu (`pro-team-blocks.tsx`) and from the
+ * teams detail page footer (`pro-account-links-panel.tsx`).
  *
- * One POST per selected house
- * (`/api/pro/properties/[id]/transfer-ownership`), issued in order and
- * stopped at the first failure so a partial transfer is reported honestly
- * rather than silently retried or rolled back.
+ * One POST to `/api/pro/workspaces/[workspaceId]/transfer-ownership`.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { Home, ShieldCheck, Users, Wallet } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { CoManagerPermissionsEditor } from "@/components/portal/workspace-permissions-fields";
@@ -53,19 +52,16 @@ export function TransferOwnershipDialog({
   onDone: () => void;
 }) {
   const { showToast } = useAppUi();
-  const [scope, setScope] = useState<"all" | "selected">(member.houseScope === "all" ? "all" : "selected");
-  const [selectedHouseIds, setSelectedHouseIds] = useState<string[]>(member.propertyIds ?? []);
   const [role, setRole] = useState<AfterRoleId>("admin");
   const [customPermissions, setCustomPermissions] = useState<CoManagerPermissions>(EMPTY_CO_MANAGER_PERMISSIONS);
   const [confirmText, setConfirmText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // Reset every field whenever the dialog opens (including reopening on a
   // different member), so a stale pick from a previous transfer never rides
   // along into this one.
   useEffect(() => {
     if (!open) return;
-    setScope(member.houseScope === "all" ? "all" : "selected");
-    setSelectedHouseIds(member.propertyIds ?? []);
     setRole("admin");
     setCustomPermissions(EMPTY_CO_MANAGER_PERMISSIONS);
     setConfirmText("");
@@ -74,9 +70,7 @@ export function TransferOwnershipDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, member.userId, workspace.id]);
 
-  const houseLabel = (id: string) => workspace.propertyLabels?.[id]?.trim() || id;
-  const houseIds = scope === "all" ? workspace.propertyIds : selectedHouseIds;
-  const count = houseIds.length;
+  const n = workspace.propertyIds.length;
   const firstName = firstNameOf(member.name);
 
   const formerOwnerPermissions: CoManagerPermissions = useMemo(() => {
@@ -88,46 +82,35 @@ export function TransferOwnershipDialog({
   const confirmed = confirmText.trim().toLowerCase() === workspace.name.trim().toLowerCase();
 
   const submit = async () => {
-    if (!confirmed || houseIds.length === 0) return;
-    let done = 0;
-    // Read WHY the first failing house didn't move (plan limit, ownership,
-    // locked listing) so the toast names the reason instead of just the
-    // house — the response body already carries it.
-    let failureReason: string | null = null;
-    for (const id of houseIds) {
-      try {
-        const res = await fetch(`/api/pro/properties/${encodeURIComponent(id)}/transfer-ownership`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ newManagerUserId: member.userId, formerOwnerPermissions }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          failureReason = data.error?.trim() || null;
-          break;
-        }
-        done += 1;
-      } catch {
-        break;
+    if (!confirmed) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/pro/workspaces/${encodeURIComponent(workspace.id)}/transfer-ownership`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          newOwnerUserId: member.userId,
+          formerOwnerRole: role,
+          formerOwnerPermissions,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(data.error?.trim() || "Could not transfer ownership.");
+        return;
       }
+      showToast(`${workspace.name} transferred to ${member.name}.`);
+      onDone();
+    } finally {
+      setSubmitting(false);
     }
-    const total = houseIds.length;
-    if (done === total) {
-      showToast(`${total} house${total === 1 ? "" : "s"} transferred to ${member.name}.`);
-    } else {
-      const notMoved = houseIds.slice(done).map((id) => houseLabel(id));
-      showToast(
-        `${done} of ${total} transferred. Not moved: ${notMoved.join(", ")}.${failureReason ? ` ${failureReason}` : ""}`,
-      );
-    }
-    onDone();
   };
 
   return (
     <Modal
       open={open}
-      title={`Transfer ownership to ${member.name}`}
+      title={`Transfer ${workspace.name} to ${member.name}`}
       onClose={onClose}
       panelClassName="max-w-lg"
       dataAttr="transfer-ownership-dialog"
@@ -136,7 +119,7 @@ export function TransferOwnershipDialog({
           <Button
             type="button"
             variant="danger"
-            disabled={!confirmed || houseIds.length === 0}
+            disabled={!confirmed || submitting}
             onClick={() => submit()}
             data-attr="transfer-submit"
           >
@@ -146,33 +129,12 @@ export function TransferOwnershipDialog({
       }
     >
       <div className="space-y-4">
-        <FieldSingleSelect
-          label="Houses"
-          value={scope}
-          onChange={(next) => setScope(next as "all" | "selected")}
-          options={[
-            { value: "all", label: `All houses in ${workspace.name} (${workspace.propertyIds.length})` },
-            { value: "selected", label: "Only selected houses" },
-          ]}
-          dataAttr="transfer-houses"
-        />
-        {scope === "selected" ? (
-          <CheckboxMultiSelect
-            label="Selected houses"
-            options={workspace.propertyIds.map((id) => ({ value: id, label: houseLabel(id) }))}
-            selected={selectedHouseIds}
-            onChange={setSelectedHouseIds}
-            emptyLabel="Select houses…"
-            searchPlaceholder="Search houses…"
-            dataAttr="transfer-selected-houses"
-          />
-        ) : null}
-
         <ul className="space-y-2.5" data-attr="transfer-consequences">
           <li className="flex items-start gap-2.5 text-sm text-foreground">
             <Home className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
             <span>
-              {count} house{count === 1 ? "" : "s"} move to {firstName}&apos;s account and leave {workspace.name}.
+              {firstName} becomes the owner of {workspace.name} — all {n} house{n === 1 ? "" : "s"}, and any added
+              later.
             </span>
           </li>
           <li className="flex items-start gap-2.5 text-sm text-foreground">
@@ -182,14 +144,13 @@ export function TransferOwnershipDialog({
           <li className="flex items-start gap-2.5 text-sm text-foreground">
             <Users className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
             <span>
-              {firstName} decides who works on them. Members of {workspace.name} lose these houses unless {firstName}{" "}
-              invites them.
+              Members keep their roles. {firstName} decides who works in {workspace.name} from now on.
             </span>
           </li>
           <li className="flex items-start gap-2.5 text-sm text-foreground">
             <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
             <span className="flex flex-wrap items-center gap-1.5">
-              You stay on them as
+              You stay in it as
               <FieldSingleSelect
                 label="Your role afterwards"
                 hideLabel
@@ -201,6 +162,11 @@ export function TransferOwnershipDialog({
               />
             </span>
           </li>
+          {role === "nothing" ? (
+            <li className="text-sm text-foreground">
+              You leave {workspace.name} entirely. {firstName} can invite you back later.
+            </li>
+          ) : null}
         </ul>
 
         {role === "custom" ? (
@@ -209,7 +175,12 @@ export function TransferOwnershipDialog({
 
         <label className="block">
           <span className="text-xs font-semibold text-muted">Type {workspace.name} to confirm</span>
-          <Input className="mt-1" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} data-attr="transfer-confirm" />
+          <Input
+            className="mt-1"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            data-attr="transfer-confirm"
+          />
         </label>
       </div>
     </Modal>

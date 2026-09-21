@@ -136,6 +136,11 @@ signed-in person across devices:
   and kind. A malformed id is rejected; a foreign/other-portal id returns the
   same not-found response as an unknown id. The client never supplies a role
   or ownership id.
+- A verified manager or co-manager texting the assigned work number continues
+  their newest scoped manager `portal_chat`. Those SMS user/assistant turns are
+  therefore visible in PropLane Assistant and become context for later in-site
+  turns. Web turns only append to the transcript; they never trigger SMS
+  delivery. Self-SMS transport copies are excluded from Communication.
 - Modal assistants remain task-scoped: they send `archive: false`, use
   `kind = 'modal_chat'`, and keep their text-only local storage isolated from
   the archive. Existing old browser history is intentionally not imported,

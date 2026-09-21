@@ -643,7 +643,9 @@ Fork order on an owned number is manager (above) → vendor session, scoped by
 sender AND destination owner (`resolveVendorAgentSessionForInbound(db, from,
 body, managerId)`) → resident → leasing prospect. Before any wallet read the
 route inserts the incoming body into `inbound_sms_log` with `counterparty_role:
-"unknown"`, and each fork then UPDATES that row's identity (the final
+"unknown"`. Human-counterparty forks then UPDATE that row's identity; the
+manager self-SMS fork deletes its transport copy after the same body is durable
+in `agent_messages` (the final
 belt-and-suspenders pass claims only a row still marked `unknown`), so an
 unavailable wallet never drops an incoming text and a handler's resolved
 identity is never overwritten. Inbound segments are debited from available
@@ -662,10 +664,17 @@ credit only; unavoidable excess is absorbed ([comms-billing.md](comms-billing.md
 
 That fork runs the **manager SMS agent**
 (`src/lib/agent/manager-sms-agent.server.ts`) — the manager portal's tool
-catalog, over text, with proposals confirmed by a `YES` reply. Session kind
-`manager_sms`, portal `manager`, so a proposal is an ordinary
-`agent_pending_actions` row executed by the same confirm gate the portal chat
-route uses.
+catalog, over text, with proposals confirmed by a `YES` reply. A self-SMS turn
+continues the authenticated actor's newest manager `portal_chat`, so the text
+and its assistant reply appear in PropLane Assistant with the same persisted
+timestamps and context as in-site turns. In-site turns append to that transcript
+but never send an SMS. Neither transport leg is copied into Communication, so a
+manager-to-self thread cannot reappear there. Proposals remain ordinary manager
+`agent_pending_actions` rows executed by the shared confirm gate. Migration
+`20260920120000_merge_manager_sms_into_portal_assistant.sql` folds existing
+`manager_sms` sessions into the actor's matching workspace archive and removes
+only transport rows whose provider SID proves they duplicate a persisted
+assistant turn.
 
 **Who gets a work number and an assistant email.** Every manager account on
 any plan can provision **its own** number ([comms-billing.md](comms-billing.md));

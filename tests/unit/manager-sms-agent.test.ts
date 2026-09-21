@@ -12,11 +12,16 @@
  */
 import { describe, expect, it } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
-import { agentRegistry, buildManagerSmsRegistry } from "@/lib/tools";
+import { agentRegistry, buildManagerSmsRegistry, MANAGER_PORTAL_ONLY_TOOLS } from "@/lib/tools";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import { MANAGER_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
-import { DELEGATED_SMS_UNSCOPED_TOOLS, type ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+import {
+  DELEGATED_SMS_UNSCOPED_TOOLS,
+  smsAccessAllowsProperty,
+  smsAccessAllowsRow,
+  type ManagerSmsAccess,
+} from "@/lib/sms/manager-sms-access";
 
 const MGR = "11111111-1111-4111-8111-111111111111";
 
@@ -35,7 +40,12 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
   });
 
   it("names the known destructive tools, so a re-flagging is noticed", () => {
-    const withheld = [...agentRegistry.keys()].filter((name) => !registry.has(name)).sort();
+    // Withholding a destructive write tool and withholding a portal-only read
+    // tool (`MANAGER_PORTAL_ONLY_TOOLS`) are two independent rules with two
+    // independent reasons; this test only re-checks the destructive one.
+    const withheld = [...agentRegistry.keys()]
+      .filter((name) => !registry.has(name) && !MANAGER_PORTAL_ONLY_TOOLS.includes(name))
+      .sort();
     expect(withheld).toEqual([
       "allocate_utility_bill",
       "approve_and_pay_work_order",
@@ -90,12 +100,72 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
     expect(delegatedRegistry.has("list_properties")).toBe(true);
   });
 
+  it("withholds landlord-wide tools for an owner using a workspace work number", () => {
+    const workspaceAccess: ManagerSmsAccess = {
+      mode: "owner",
+      workNumberOwnerId: MGR,
+      actorUserId: MGR,
+      dataOwnerIds: [MGR],
+      assignedPropertyIds: [],
+      workspacePropertyIds: ["prop-north"],
+      workspaceIsDefault: false,
+    };
+    const workspaceRegistry = buildManagerSmsRegistry(workspaceAccess);
+    for (const name of DELEGATED_SMS_UNSCOPED_TOOLS) {
+      expect(workspaceRegistry.has(name)).toBe(false);
+    }
+    expect(workspaceRegistry.has("list_residents")).toBe(true);
+    expect(workspaceRegistry.has("list_properties")).toBe(true);
+  });
+
   it("derives the exclusion from the flag, not a name list — a newly destructive tool is withheld automatically", () => {
     const flagged = new Set(
       [...agentRegistry.values()].filter((t) => t.kind === "write" && t.destructive).map((t) => t.name),
     );
-    const missing = [...agentRegistry.keys()].filter((name) => !registry.has(name));
+    const missing = [...agentRegistry.keys()].filter(
+      (name) => !registry.has(name) && !MANAGER_PORTAL_ONLY_TOOLS.includes(name),
+    );
     expect(new Set(missing)).toEqual(flagged);
+  });
+});
+
+describe("manager SMS workspace access", () => {
+  const access: ManagerSmsAccess = {
+    mode: "owner",
+    workNumberOwnerId: MGR,
+    actorUserId: MGR,
+    dataOwnerIds: [MGR],
+    assignedPropertyIds: [],
+    workspacePropertyIds: ["prop-north"],
+    workspaceIsDefault: false,
+  };
+
+  it("allows rows and property lookups only inside the work-number workspace", () => {
+    expect(smsAccessAllowsRow(access, {
+      dataOwnerId: MGR,
+      rowData: { propertyId: "prop-north" },
+      table: "manager_application_records",
+    })).toBe(true);
+    expect(smsAccessAllowsRow(access, {
+      dataOwnerId: MGR,
+      rowData: { propertyId: "prop-south" },
+      table: "manager_application_records",
+    })).toBe(false);
+    expect(smsAccessAllowsRow(access, {
+      dataOwnerId: MGR,
+      rowData: {},
+      table: "manager_application_records",
+    })).toBe(false);
+    expect(smsAccessAllowsProperty(access, {
+      actorUserId: MGR,
+      recordOwnerId: MGR,
+      propertyId: "prop-north",
+    })).toBe(true);
+    expect(smsAccessAllowsProperty(access, {
+      actorUserId: MGR,
+      recordOwnerId: MGR,
+      propertyId: "prop-south",
+    })).toBe(false);
   });
 });
 
@@ -170,6 +240,56 @@ describe("resolveManagerSmsAgentContext", () => {
     expect(res.ctx.landlordId).toBe(MGR);
     expect(res.ctx.userId).toBe(co);
     expect(res.ctx.managerSmsAccess?.mode).toBe("delegated");
+  });
+
+  it("intersects delegated access with the work-number workspace", async () => {
+    const co = "22222222-2222-4222-8222-222222222222";
+    const workspace = "33333333-3333-4333-8333-333333333333";
+    const db = createMemoryDb({
+      profiles: [{ id: co, email: "co@example.com", role: "manager" }],
+      profile_roles: [{ user_id: co, role: "manager" }],
+      portal_workspaces: [{ id: workspace, name: "North", owner_user_id: MGR, is_default: false }],
+      manager_property_records: [
+        { id: "assigned-here", manager_user_id: MGR, workspace_id: workspace },
+        { id: "not-assigned", manager_user_id: MGR, workspace_id: workspace },
+        { id: "assigned-elsewhere", manager_user_id: MGR, workspace_id: "other-workspace" },
+      ],
+    }) as never;
+    const access: ManagerSmsAccess = {
+      mode: "delegated",
+      workNumberOwnerId: MGR,
+      actorUserId: co,
+      dataOwnerIds: [MGR],
+      assignedPropertyIds: ["assigned-here", "assigned-elsewhere"],
+    };
+    const res = await resolveManagerSmsAgentContext(db, {
+      managerUserId: MGR,
+      actorUserId: co,
+      access,
+      workspaceId: workspace,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.ctx.workspace).toEqual({
+      id: workspace,
+      name: "North",
+      isDefault: false,
+      narrowing: true,
+      propertyIds: ["assigned-here"],
+    });
+  });
+
+  it("fails closed when the work-number workspace does not belong to its owner", async () => {
+    const workspace = "33333333-3333-4333-8333-333333333333";
+    const db = createMemoryDb({
+      profiles: [{ id: MGR, email: "owner@example.com", role: "manager" }],
+      profile_roles: [{ user_id: MGR, role: "manager" }],
+      portal_workspaces: [{ id: workspace, name: "Foreign", owner_user_id: "other-owner", is_default: false }],
+    }) as never;
+    await expect(resolveManagerSmsAgentContext(db, {
+      managerUserId: MGR,
+      workspaceId: workspace,
+    })).resolves.toMatchObject({ ok: false, reason: "lookup_failed" });
   });
 
   it("fails CLOSED when the role table cannot be read", async () => {

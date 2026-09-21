@@ -40,6 +40,9 @@ class FakeQuery {
     this.filters.push([col, val]);
     return this;
   }
+  is(col: string, val: unknown) {
+    return this.eq(col, val);
+  }
   in(col: string, vals: unknown[]) {
     this.filters.push([`in:${col}`, vals]);
     return this;
@@ -169,6 +172,9 @@ class FakeWriteQuery {
     this.filters.push((r) => r[col] === val);
     return this;
   }
+  is(col: string, val: unknown) {
+    return this.eq(col, val);
+  }
   in(col: string, vals: unknown[]) {
     const set = new Set(vals.map((v) => String(v)));
     this.filters.push((r) => set.has(String(r[col] ?? "")));
@@ -202,6 +208,14 @@ class FakeWriteQuery {
       this.table === "audit_log" &&
       row.dedupe_key != null &&
       this.rows().some((r) => r.dedupe_key === row.dedupe_key)
+    ) {
+      this.pendingInsert = null;
+      return this;
+    }
+    if (
+      this.table === "agent_messages" &&
+      row.source_message_sid != null &&
+      this.rows().some((r) => r.source_message_sid === row.source_message_sid && r.role === row.role)
     ) {
       this.pendingInsert = null;
       return this;
@@ -270,6 +284,31 @@ export function makeWritableCtx(
   const db = {
     from(table: string) {
       return new FakeWriteQuery(store, table);
+    },
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name !== "find_or_create_manager_sms_portal_session") {
+        return { data: null, error: { message: `unsupported rpc: ${name}` } };
+      }
+      const sessions = (store.agent_sessions ??= []);
+      const existing = sessions
+        .filter((row) => row.kind === "portal_chat" && row.portal === "manager"
+          && row.user_id === args.p_actor_user_id && row.landlord_id === args.p_actor_user_id
+          && (row.workspace_id ?? null) === (args.p_workspace_id ?? null))
+        .sort((a, b) => String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")))[0];
+      if (existing?.id) return { data: existing.id, error: null };
+      const id = `session_${sessions.length}`;
+      sessions.push({
+        id,
+        landlord_id: args.p_actor_user_id,
+        user_id: args.p_actor_user_id,
+        workspace_id: args.p_workspace_id ?? null,
+        portal: "manager",
+        kind: "portal_chat",
+        title: "PropLane Assistant",
+        status: "active",
+        updated_at: new Date().toISOString(),
+      });
+      return { data: id, error: null };
     },
   };
   const ctx = {

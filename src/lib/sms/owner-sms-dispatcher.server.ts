@@ -73,6 +73,7 @@ export type OwnerSmsEnqueueInput = {
   recipientTimezone?: string | null;
   dedupeKey?: string | null;
   traceId?: string | null;
+  suppressConversationLog?: boolean;
   /** Durable final-dispatch fence for the one prospect scheduling follow-up. */
   prospectTourReminderId?: string | null;
   /** Submission identity used only by the final provider-boundary recheck. */
@@ -413,6 +414,7 @@ export async function enqueueOwnerSms(
       recipient_timezone: input.recipientTimezone ?? "America/Los_Angeles",
       dedupe_key: dedupeKey,
       trace_id: input.traceId ?? null,
+      suppress_conversation_log: input.suppressConversationLog === true,
       prospect_tour_reminder_id: input.prospectTourReminderId?.trim() || null,
       prospect_tour_booking_confirmation_id: input.prospectTourBookingConfirmationId?.trim() || null,
       segment_count: segments,
@@ -454,6 +456,7 @@ type ClaimedOutboxRow = {
   recipient_timezone: string;
   dedupe_key: string;
   trace_id: string | null;
+  suppress_conversation_log?: boolean;
   segment_count: number;
   prospect_burst_id: string | null;
   prospect_burst_revision: number | null;
@@ -506,6 +509,23 @@ async function persistSubmittedConversationLog(
   priorAttempts = 0,
   claim: { status: "pending" | "failed"; dueAt: string },
 ): Promise<"persisted" | "failed" | "stale" | "invalid"> {
+  // Mirror deliveries already have a canonical transcript elsewhere. Keep the
+  // owner-scoped outbox identity for authorization and delivery, but do not
+  // project a second copy into Communication.
+  if (row.suppress_conversation_log === true) {
+    const now = new Date();
+    const { data, error } = await db.from("sms_outbox").update({
+      conversation_log_status: "persisted",
+      conversation_log_attempts: priorAttempts + 1,
+      conversation_log_next_attempt_at: null,
+      conversation_log_last_error: null,
+      updated_at: now.toISOString(),
+    }).eq("id", row.id).eq("provider_message_sid", messageSid)
+      .eq("conversation_log_status", claim.status)
+      .eq("conversation_log_next_attempt_at", claim.dueAt)
+      .select("id").maybeSingle();
+    return error ? "failed" : data ? "persisted" : "stale";
+  }
   const key = resolveOutboxConversationKey(row);
   const now = new Date();
   if (key.kind === "invalid") {
@@ -1174,7 +1194,7 @@ export async function reconcileSubmittedSmsConversationLogs(
 > {
   const now = new Date();
   const { data, error: inventoryError } = await db.from("sms_outbox")
-    .select("id,manager_user_id,actor_user_id,recipient_user_id,recipient_email,recipient_phone,body,send_class,purpose,conversation_key,counterparty_role,property_id,recipient_timezone,dedupe_key,trace_id,segment_count,provider_message_sid,provider_from_phone,conversation_log_attempts,conversation_log_next_attempt_at")
+    .select("id,manager_user_id,actor_user_id,recipient_user_id,recipient_email,recipient_phone,body,send_class,purpose,conversation_key,counterparty_role,property_id,recipient_timezone,dedupe_key,trace_id,segment_count,provider_message_sid,provider_from_phone,conversation_log_attempts,conversation_log_next_attempt_at,suppress_conversation_log")
     .in("status", ["submitted", "sent", "delivered", "failed"])
     .in("conversation_log_status", ["pending", "failed"])
     .not("provider_message_sid", "is", null)

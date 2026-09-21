@@ -411,10 +411,12 @@ describe("PRP-470 initial Communication readiness", () => {
     const archived = screen.getByRole("link", { name: /^Archived/ });
     expect(archived).toHaveAttribute("href", "/portal/communication/archived");
     expect(archived).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Active conversations" })).toHaveAttribute(
-      "href",
-      "/portal/communication/active",
-    );
+    // The PropLane Assistant thread is pinned on every manager segment —
+    // Active, Unread, AND Archived — and can never be archived away
+    // (docs/agents/communication-inbox.md), so a manager with no other
+    // archived conversations still sees that one pinned row here instead of
+    // the no-conversations empty card (and its "Active conversations" link).
+    expect(screen.getByText("PropLane Assistant")).toBeTruthy();
   });
 
   it("shows a retryable load error and recovers on retry", async () => {

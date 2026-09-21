@@ -36,10 +36,20 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   const canArchive = permitted && !assistantRow;
   const archiveOrRestore = archived && !assistantRow ? (
     <>
-      <Button variant="outline" onClick={() => bulk.handleRestore()}>Restore</Button>
-      <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button>
+      <Button variant="outline" data-record-action-id="restore" onClick={() => bulk.handleRestore()}>Restore</Button>
+      <Button variant="danger" data-record-action-id="delete" onClick={() => bulk.handleDelete()}>Delete</Button>
     </>
-  ) : canArchive ? <Button variant="outline" onClick={() => bulk.handleArchive()}>Archive</Button> : null;
+  ) : canArchive ? (
+    // Left untagged deliberately: `data-record-action-id="archive"` maps to
+    // `isPostDividerRecordActionId`, which `RecordActionMenu` also reads as
+    // "destructive" — that would pull this reversible action under the
+    // anti-mistap settle guard meant for Delete/Clear. Every leaf in a menu
+    // must be tagged for the canonical order to apply at all, so leaving
+    // Archive untagged simply keeps this menu's pre-existing given order,
+    // which is already correct (there is no message/copy-link to sort
+    // against here).
+    <Button variant="outline" onClick={() => bulk.handleArchive()}>Archive</Button>
+  ) : null;
   const canClearAssistant = assistantRow;
   const canEdit = manager && bulk.canEditContact;
   return (
@@ -49,9 +59,9 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
       actions: permitted && (archiveOrRestore || canEdit || canClearAssistant) ? <>
         {archiveOrRestore}
         {canClearAssistant ? (
-          <Button variant="danger" onClick={() => void bulk.handleClearAssistant(row)}>Clear</Button>
+          <Button variant="danger" data-record-action-id="delete" onClick={() => void bulk.handleClearAssistant(row)}>Clear</Button>
         ) : null}
-        {canEdit ? <Button variant="outline" onClick={bulk.openEdit}>Edit</Button> : null}
+        {canEdit ? <Button variant="outline" data-record-action-id="edit" onClick={bulk.openEdit}>Edit</Button> : null}
       </> : null,
     }}>
       <RecordActionMenu label={row.name} activate={() => bulk.selection.toggleSelected(row.key)} />

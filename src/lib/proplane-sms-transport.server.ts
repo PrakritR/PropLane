@@ -134,6 +134,8 @@ export async function sendPropLaneSms(args: {
   };
   /** A committed autonomous tour must use the booking-keyed outbox operation. */
   prospectTourBookingConfirmationId?: string | null;
+  /** Authorize and deliver normally, but omit the duplicate Communication projection. */
+  suppressConversationLog?: boolean;
   /**
    * When set, logs outbound SMS for the Communication → SMS → Sent tab.
    * Pass `null` to skip (e.g. manager carbon-copy mirrors).
@@ -196,7 +198,7 @@ export async function sendPropLaneSms(args: {
     const claw = await sendClawMessengerText({ to, text });
     if (claw.ok) {
       await logOutboundIfNeeded({
-        log: args.log,
+        log: args.suppressConversationLog ? null : args.log,
         to,
         text,
         fromPhone: from,
@@ -246,6 +248,7 @@ export async function sendPropLaneSms(args: {
     traceId: args.traceId,
     prospectBurst: args.prospectBurst,
     prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
+    suppressConversationLog: args.suppressConversationLog,
   }, db);
   if (!enqueued.ok) return { ok: false, channel: "twilio", error: enqueued.error };
   await dispatchOwnerSmsOutbox({
@@ -306,7 +309,7 @@ export async function sendFromManagerWorkNumber(args: {
     candidateContext?: unknown; candidateShadowSnapshot?: unknown;
   };
   prospectTourBookingConfirmationId?: string | null;
-  /** Skip Communication → SMS Sent logging (manager mirror copies). */
+  /** Skip only the Communication projection; owner identity still authorizes the send. */
   skipLog?: boolean;
 }): Promise<PropLaneSmsResult> {
   const managerUserId = args.managerUserId.trim();
@@ -328,16 +331,15 @@ export async function sendFromManagerWorkNumber(args: {
     traceId: args.traceId,
     prospectBurst: args.prospectBurst,
     prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
-    log: args.skipLog
-      ? null
-      : {
-          managerUserId,
-          residentUserId: args.residentUserId,
-          residentEmail: args.residentEmail,
-          residentPhone: args.to,
-          source: args.source ?? "work_number",
-          counterpartyRole: args.counterpartyRole,
-        },
+    suppressConversationLog: args.skipLog === true,
+    log: {
+      managerUserId,
+      residentUserId: args.residentUserId,
+      residentEmail: args.residentEmail,
+      residentPhone: args.to,
+      source: args.source ?? "work_number",
+      counterpartyRole: args.counterpartyRole,
+    },
   });
 }
 

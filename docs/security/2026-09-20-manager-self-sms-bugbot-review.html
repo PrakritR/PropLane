@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manager self-SMS Bugbot review</title>
+  <style>
+    body { max-width: 860px; margin: 48px auto; padding: 0 24px; font: 16px/1.55 system-ui, sans-serif; color: #172033; }
+    h1, h2 { line-height: 1.2; } code { background: #eef1f5; padding: 2px 5px; border-radius: 4px; }
+    .pass { color: #176b3a; font-weight: 700; } li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>Manager self-SMS Bugbot review</h1>
+  <p><strong>Date:</strong> September 20, 2026<br><strong>Reviewed base:</strong> <code>40ae94bb3</code><br><strong>Reviewed head:</strong> uncommitted manager self-SMS consolidation diff</p>
+  <p class="pass">Verdict: SHIP. No unresolved high- or medium-severity finding.</p>
+  <h2>Findings resolved during review</h2>
+  <ul>
+    <li>Direct manager tools now enforce the destination work number's workspace property set, including owner-mode turns.</li>
+    <li>Every reply branch durably persists the assistant turn and fails closed on persistence failure.</li>
+    <li>First-session creation is serialized by an advisory lock to prevent duplicate portal chats.</li>
+    <li>Transcript load and deletion now apply the same workspace boundary as list and session reuse. Regression tests cover retained cross-workspace UUIDs and legacy null-workspace sessions in the default workspace.</li>
+    <li>The SMS test runner now rejects nullable manager replies before handing them to the string-only result formatter.</li>
+  </ul>
+  <h2>Validation evidence</h2>
+  <ul>
+    <li>Focused SMS suite: 8 files, 78 tests passed in the final reviewer snapshot.</li>
+    <li>Post-fix focused suite: 3 files, 37 tests passed.</li>
+    <li>Targeted ESLint passed.</li>
+    <li><code>git diff --check</code> passed.</li>
+  </ul>
+  <h2>Operational release note</h2>
+  <p>Before applying the migration, verify that no legacy manager-SMS session maps to more than one workspace. The migration intentionally aborts if that invariant is violated.</p>
+</body>
+</html>

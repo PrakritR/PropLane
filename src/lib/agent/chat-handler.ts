@@ -80,6 +80,28 @@ export function sanitizeChatMessages(
     .map((m) => ({ role: m.role, content: m.content.slice(0, maxChars) }));
 }
 
+/**
+ * Server-authoritative archive history plus the one not-yet-persisted browser
+ * turn. This prevents an already-open client from omitting SMS turns that were
+ * appended to the same session on another channel.
+ */
+export function mergePersistedChatHistory(
+  rows: { role: string; content: string }[],
+  currentUserMessage: Anthropic.MessageParam,
+): Anthropic.MessageParam[] {
+  const merged: { role: "user" | "assistant"; content: string }[] = [];
+  for (const row of rows) {
+    const role = row.role === "assistant" ? "assistant" : "user";
+    const content = row.content.trim();
+    if (!content) continue;
+    const previous = merged.at(-1);
+    if (previous?.role === role) previous.content = `${previous.content}\n${content}`;
+    else merged.push({ role, content });
+  }
+  while (merged[0]?.role === "assistant") merged.shift();
+  return [...merged, currentUserMessage];
+}
+
 /** The last user message's text, for trace inputs and persistence. */
 export function lastUserText(messages: Anthropic.MessageParam[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {

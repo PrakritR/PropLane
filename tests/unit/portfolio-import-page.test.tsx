@@ -185,10 +185,12 @@ describe("PortfolioImportReviewStep", () => {
       <PortfolioImportReviewStep proposal={GAP_FIXTURE} saving={false} onAnswer={onAnswer} onSkipToggle={vi.fn()} onContinue={vi.fn()} />,
     );
     fireEvent.click(screen.getByText("Robin Vale"));
-    const select = screen.getByLabelText("Which room does Robin Vale live in?") as HTMLSelectElement;
-    expect(select.tagName).toBe("SELECT");
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(["", "p1:room:a", "p1:room:b"]);
-    fireEvent.change(select, { target: { value: "p1:room:b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Which room does Robin Vale live in?" }));
+    const listbox = screen.getByRole("listbox", { name: "Which room does Robin Vale live in?" });
+    expect(within(listbox).getAllByRole("option").map((o) => o.textContent)).toEqual(["Room A", "Room B"]);
+    const roomB = within(listbox).getByText("Room B");
+    fireEvent.pointerDown(roomB, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(roomB, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(onAnswer).toHaveBeenCalledWith("p1:resident:0", { roomKey: "p1:room:b" });
   });
 

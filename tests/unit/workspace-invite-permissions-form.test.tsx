@@ -242,17 +242,15 @@ describe("Workspace invite sheet — no pills, no subtext", () => {
     expect(sheetSource()).not.toContain("Will email");
   });
 
-  it("Who has access rows carry plain fact text, never a role/reach pill or Badge", () => {
+  it("renders no 'Who has access' member list — the sheet is send-only, one view", () => {
+    // The approved redesign dropped the member list from this sheet entirely
+    // (see workspace-invite-sheet.tsx's header comment and
+    // workspace-invite-sheet.test.tsx's "no 'Who has access' member list"
+    // coverage); Edit permissions on an existing member lives in
+    // pro-account-links-panel.tsx instead.
     const source = sheetSource();
-    const listStart = source.indexOf('data-attr="workspace-invite-access-list"');
-    expect(listStart).toBeGreaterThan(-1);
-    const listSection = source.slice(listStart, source.indexOf("</Modal>", listStart));
-    expect(listSection).not.toMatch(/<Badge\b/);
-    // The old member/owner rows drew a rounded-full role/reach chip; the new
-    // rows are one line of fact text with a person avatar and a ⋯ trigger.
-    expect(listSection).not.toMatch(/rounded-full bg-primary\/10 px-2 py-0\.5/);
-    expect(listSection).toContain("workspace-invite-owner-fact");
-    expect(listSection).toContain("workspace-invite-member-fact");
+    expect(source).not.toContain('data-attr="workspace-invite-access-list"');
+    expect(source).not.toContain("Who has access");
   });
 
   it("renders a live 'Role can' capability list rather than staying silent for stock roles", () => {

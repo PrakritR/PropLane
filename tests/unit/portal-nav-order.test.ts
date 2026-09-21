@@ -145,9 +145,14 @@ describe("resident portal nav grouping", () => {
     expectContiguousBlock(sections, ["applications", "lease", "move-in", "inspections"], "communication", "documents");
   });
 
-  it("approved: ends navigation with documents while account remains in the profile menu", () => {
+  it("approved: ends navigation with documents, then the trailing Settings entry", () => {
     const sections = sectionIds(RESIDENT_APPROVED_PORTAL_SECTIONS);
-    expect(sections.at(-1)).toBe("documents");
+    // Settings (profile) is pinned last in the sidebar registry (above "Need
+    // help?"); Documents is the last ORDINARY nav destination, immediately
+    // before it — the native bottom bar / More sheet catalog then excludes
+    // "profile" entirely (see orderNativeBottomNavItems's resident branch).
+    expect(sections.at(-1)).toBe("profile");
+    expect(sections.at(-2)).toBe("documents");
     expect(sections.indexOf("move-in")).toBeLessThan(sections.indexOf("documents"));
   });
 });

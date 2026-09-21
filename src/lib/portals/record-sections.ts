@@ -29,7 +29,7 @@ import {
   managerTourDetailHref,
   paymentRecordDetailHref,
   propertyDetailHref,
-  PROPERTY_DETAIL_TAB_LABELS,
+  PROPERTY_DETAIL_TOP_TAB_LABELS,
   residentDetailHref,
   residentServiceDetailHref,
   serviceRequestDetailHref,
@@ -167,9 +167,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   property: {
     basePathDefault: "/portal",
     ownGroups: [
-      { label: "Property", ids: ["preview", "house-details", "move-in"].map((id) => ({ id, label: PROPERTY_DETAIL_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TAB_LABELS] })) },
-      { label: "Leasing", ids: ["tours", "bookings", "application", "lease"].map((id) => ({ id, label: PROPERTY_DETAIL_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TAB_LABELS] })) },
-      { label: "Operations", ids: ["requests", "promotion", "ai-info"].map((id) => ({ id, label: PROPERTY_DETAIL_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TAB_LABELS] })) },
+      { label: "Property", ids: ["preview", "house-details", "move-in"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
+      { label: "Leasing", ids: ["tours", "bookings", "application", "lease"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
+      // "requests" reads "Services" everywhere it is shown — the shared
+      // rail matches the panel's own tab, not the schema/route id.
+      { label: "Operations", ids: ["requests", "promotion", "ai-info"].map((id) => ({ id, label: PROPERTY_DETAIL_TOP_TAB_LABELS[id as keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS] })) },
     ],
     headerActions: [
       { id: "view-public", label: "View public", icon: Eye },

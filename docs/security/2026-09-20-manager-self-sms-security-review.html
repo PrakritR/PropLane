@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manager self-SMS security review</title>
+  <style>
+    body { max-width: 860px; margin: 48px auto; padding: 0 24px; font: 16px/1.55 system-ui, sans-serif; color: #172033; }
+    h1, h2 { line-height: 1.2; } code { background: #eef1f5; padding: 2px 5px; border-radius: 4px; }
+    .pass { color: #176b3a; font-weight: 700; } li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>Manager self-SMS security review</h1>
+  <p><strong>Date:</strong> September 20, 2026<br><strong>Reviewed base:</strong> <code>40ae94bb3</code><br><strong>Reviewed head:</strong> uncommitted manager self-SMS consolidation diff</p>
+  <p class="pass">Verdict: SHIP. No unresolved security blocker.</p>
+  <h2>Verified controls</h2>
+  <ul>
+    <li>Identity and tenant scope are derived from the verified sender, work-number owner, actor, and work-number workspace.</li>
+    <li>Session creation is actor-and-workspace scoped and serialized by a service-role-only advisory-lock RPC.</li>
+    <li>Provider SID uniqueness makes retries idempotent and replays the already-persisted assistant reply.</li>
+    <li>Assistant persistence and duplicate Communication cleanup fail closed.</li>
+    <li>Pending actions remain scoped by actor, manager portal, and canonical session.</li>
+    <li>The migration aborts rather than guessing if one legacy session spans multiple workspaces.</li>
+    <li>Historical Communication rows are deleted only when an exact receipt-linked assistant row and matching body prove they are duplicate projections.</li>
+    <li>Owner-mode workspace filtering runs before the owner authorization shortcut, closing cross-workspace row access.</li>
+  </ul>
+  <h2>Validation evidence</h2>
+  <ul>
+    <li>Focused security suite: 4 files, 35 tests passed.</li>
+    <li>Focused SMS suite: 8 files, 73 tests passed before final additions; later focused runs remained green.</li>
+    <li>Targeted ESLint passed.</li>
+    <li><code>git diff --check</code> passed.</li>
+  </ul>
+  <p>The review recommendation remains subject to the normal backup, staging-first, migration-preflight, deployment, and TestFlight gates.</p>
+</body>
+</html>

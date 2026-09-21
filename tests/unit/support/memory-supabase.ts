@@ -83,8 +83,8 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
         for (const r of affected) Object.assign(r, op.patch);
         out = affected;
       } else if (op.kind === "insert") {
-        for (const r of op.rows) rows.push({ ...r });
-        out = op.rows;
+        out = op.rows.map((r) => ({ ...r, id: r.id ?? `memory-${++seq}` }));
+        rows.push(...out);
       } else if (op.kind === "upsert") {
         // Composite keys ("a,b") match Postgres' `on conflict (a, b)`.
         const keys = (op.onConflict || "id").split(",").map((k) => k.trim()).filter(Boolean);

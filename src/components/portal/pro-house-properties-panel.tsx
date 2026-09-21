@@ -5,7 +5,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, CircleOff, Copy, Eye, FileText, Home, Pencil, Share2, Trash2, TriangleAlert, Users } from "lucide-react";
+import { CircleOff, Copy, Eye, FileText, Home, Pencil, Share2, Trash2, TriangleAlert, Users } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -32,7 +32,8 @@ import {
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
-import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
@@ -53,26 +54,18 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
-import {
-  PortalPropertySectionList,
-  type PortalPropertySectionItem,
-} from "@/components/portal/portal-property-section-list";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { importedActivity } from "@/lib/portfolio-import/activity";
 import {
-  PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS,
-  PROPERTY_DETAIL_TOP_TAB_LABELS,
-  PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
   propertyDetailHref,
   propertyListHref,
-  propertyTourListHref,
   propertyDetailTopNavId,
   parsePropertyDetailTab,
   type ManagerTourBucketId,
   type PropertyDetailTabId,
-  type PropertyDetailTopTabId,
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
@@ -712,9 +705,7 @@ function ManagerPropertyInlineDetails({
   // Falls back to "" only in the render that returns null below (no row), where it is
   // never read. Keeps the type a plain string for every href builder downstream.
   const propertyRouteKey = stablePropertyId || row?.adminRefId || "";
-  // Memoized so `topNavItems` below has a stable dependency. Rebuilt inline it
-  // was a fresh array every render, which the compiler reads as a value that may
-  // be mutated later and refuses to preserve the manual memo around.
+  // Memoized so `propertySections` below has a stable dependency.
   // The shared trio (Communication · Documents · Activity) is available at
   // every stage — a draft or unlisted home can still hold files and messages.
   const availableTabs = useMemo<PropertyDetailTabId[]>(
@@ -727,81 +718,25 @@ function ManagerPropertyInlineDetails({
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
-  const topNavItems = useMemo(() => {
-    const items: Array<{
-      id: string;
-      label: string;
-      shortLabel?: string;
-      href: string;
-      dataAttr: string;
-    }> = [];
-    const pushTopTab = (id: PropertyDetailTopTabId, tab: PropertyDetailTabId) => {
-      if (!availableTabs.includes(tab)) return;
-      const href =
-        tab === "tours"
-          ? propertyTourListHref(propertiesBase, stage, propertyRouteKey, "pending")
-          : propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab);
-      items.push({
-        id,
-        label: PROPERTY_DETAIL_TOP_TAB_LABELS[id],
-        shortLabel: PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS[id],
-        href,
-        dataAttr: `property-detail-tab-${id}`,
-      });
-    };
-
-    pushTopTab("preview", "preview");
-    pushTopTab("house-details", "house-details");
-    pushTopTab("move-in", "move-in");
-    pushTopTab("tours", "tours");
-    pushTopTab("bookings", "bookings");
-    pushTopTab("application", "application");
-    pushTopTab("lease", "lease");
-    pushTopTab("requests", "requests");
-    pushTopTab("promotion", "promotion");
-    pushTopTab("ai-info", "ai-info");
-    pushTopTab("communication", "communication");
-    pushTopTab("documents", "documents");
-    pushTopTab("activity", "activity");
-    return items;
-  }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
   /**
-   * The same nine destinations as `topNavItems`, but NONE are dropped: a
-   * section this home cannot use yet stays on the list and says why. The strip
-   * hid them, which is how three features became invisible on a phone.
+   * The rail, phone chip strip, and sticky primary action all come from the
+   * registry now (PLAN-0920-1058, area 1a — docs/agents/record-page.md).
+   * A draft or unlisted home only offers a subset of the property's own
+   * sections; the shared trio is available at every stage, so it is never
+   * filtered out here.
    */
-  const sectionListItems = useMemo<PortalPropertySectionItem[]>(() => {
-    const order: Array<[PropertyDetailTopTabId, PropertyDetailTabId]> = [
-      ["preview", "preview"],
-      ["house-details", "house-details"],
-      ["move-in", "move-in"],
-      ["tours", "tours"],
-      ["bookings", "bookings"],
-      ["application", "application"],
-      ["lease", "lease"],
-      ["requests", "requests"],
-      ["promotion", "promotion"],
-      ["ai-info", "ai-info"],
-      ["communication", "communication"],
-      ["documents", "documents"],
-      ["activity", "activity"],
-    ];
-    return order.map(([id, tab]) => {
-      const available = availableTabs.includes(tab);
-      const href =
-        tab === "tours"
-          ? propertyTourListHref(propertiesBase, stage, propertyRouteKey, "pending")
-          : propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab);
-      return {
-        id,
-        label: PROPERTY_DETAIL_TOP_TAB_LABELS[id],
-        description: PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS[id],
-        href,
-        dataAttr: `property-section-row-${id}`,
-        unavailableReason: available ? undefined : "Available once this home is listed",
-      } satisfies PortalPropertySectionItem;
-    });
-  }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
+  const propertySections = useMemo(() => {
+    const sections = recordSections("manager", "property", { basePath: propertiesBase, stage });
+    return {
+      ...sections,
+      groups: sections.groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => availableTabs.includes(item.id as PropertyDetailTabId)),
+        }))
+        .filter((group) => group.items.length > 0),
+    };
+  }, [availableTabs, propertiesBase, stage]);
 
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
   const isListingPreview = activeDetailTab === "preview";
@@ -1120,18 +1055,75 @@ function ManagerPropertyInlineDetails({
   // render" on. It gates rendering only.
   if (!row || !mock || !managerSubmission) return null;
 
+  // Wires the phone sticky action (and its ⋯ overflow) from
+  // PortalRecordSectionChrome to the SAME handlers the desktop icon row
+  // above already calls — real functionality per bucket, "Coming soon" for a
+  // combination this record does not offer yet (docs/agents/record-page.md
+  // § Known gap).
+  const onPropertyRecordHeaderAction = (actionId: string) => {
+    switch (actionId) {
+      case "view-public":
+        if (bucket === 2 && listingId) {
+          window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener");
+        } else {
+          showToast("Coming soon");
+        }
+        return;
+      case "edit":
+        if (bucket === 5) {
+          if (!skuLoaded) {
+            showToast("Loading subscription…");
+            return;
+          }
+          setDraftEditorOpen(true);
+        } else if (canEditListing && canEditAction) {
+          openFullListingEditor();
+        } else {
+          showToast("Coming soon");
+        }
+        return;
+      case "share":
+        if (bucket === 2 && listingId) {
+          onSendToProspect?.(listingId);
+        } else {
+          showToast("Coming soon");
+        }
+        return;
+      case "copy":
+        if (canDuplicateAction) {
+          runDuplicateProperty();
+        } else {
+          showToast("Coming soon");
+        }
+        return;
+      case "delete":
+        if (bucket === 2 && listingId) {
+          setPendingDestructiveAction("unlist");
+        } else if (bucket === 5) {
+          setPendingDestructiveAction("delete-draft");
+        } else if (bucket === 3 && canDeleteAction) {
+          setPendingDestructiveAction("delete-queue");
+        } else {
+          showToast("Coming soon");
+        }
+        return;
+      default:
+        showToast("Coming soon");
+    }
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 lg:flex-row">
-      <PortalPropertyRail
-        items={topNavItems}
-        activeId={activeTopNavId}
-        backHref={propertyListHref(propertiesBase, stage)}
-        showBackLink={false}
-        showTitleBlock={false}
-        title={managerPropertyRowTitle(row, bucket)}
-        subtitle={row.address}
-        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
-      />
+    <PortalRecordSectionChrome
+      sections={propertySections}
+      recordId={propertyRouteKey}
+      activeId={activeTopNavId}
+      title={managerPropertyRowTitle(row, bucket)}
+      subtitle={row.address}
+      backHref={propertyListHref(propertiesBase, stage)}
+      backLabel="Back to properties"
+      ariaLabel="Property sections"
+      onHeaderAction={onPropertyRecordHeaderAction}
+    >
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <PortalPageChrome>
         <div
@@ -1162,30 +1154,10 @@ function ManagerPropertyInlineDetails({
         )}
       >
       {/*
-        Phones get the list, not the strip. It sits in the SCROLLING body, not
-        the pinned chrome: the chrome is a fixed band, so a disclosure opening
-        inside it expanded to nothing at all. Open on the landing tab so
-        arriving at a property shows everything it can do; collapsed on a deeper
-        tab so the nav never buries the content. Desktop keeps its left rail.
+        Phones get the chip strip from PortalRecordSectionChrome, above this
+        scroll body — no per-panel disclosure to keep in sync (PLAN-0920-1058,
+        area 1a; docs/agents/record-page.md).
       */}
-      <details
-        className="group mb-3 lg:hidden"
-        open={activeDetailTab === "preview"}
-        data-attr="property-sections-disclosure"
-      >
-        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 text-[13.5px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
-          <span className="min-w-0 flex-1 truncate">
-            {PROPERTY_DETAIL_TOP_TAB_LABELS[activeTopNavId]}
-          </span>
-          <span className="text-[12px] font-medium text-muted">All sections</span>
-          <ChevronDown className="size-4 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden />
-        </summary>
-        <PortalPropertySectionList
-          items={sectionListItems}
-          activeId={activeTopNavId}
-          className="mt-2"
-        />
-      </details>
       {/*
         Phone: the Floors · Lease · Amenities tabs belong to the preview, not to
         the page. They sit right under the sections disclosure and stick to the
@@ -1358,6 +1330,7 @@ function ManagerPropertyInlineDetails({
             kindLabel: "home",
             recordId: propertyRouteKey,
             recordLabel: propertyShareLabel,
+            activity: importedActivity(row?.importFile, row?.importedAt),
           })
         : null}
 
@@ -1448,7 +1421,7 @@ function ManagerPropertyInlineDetails({
         scopedTitle="Tour"
       />
     </div>
-    </div>
+    </PortalRecordSectionChrome>
   );
 }
 
