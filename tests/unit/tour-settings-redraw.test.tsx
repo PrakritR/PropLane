@@ -71,8 +71,8 @@ function stubFetch(overrides?: { tourNoticeDays?: number; proposeTourConfirmatio
 function withScope(node: ReactNode) {
   return (
     <SettingsPropertyScopeProvider
-      workspaceId=""
-      onWorkspaceIdChange={() => {}}
+      workspaceIds={[]}
+      onWorkspaceIdsChange={() => {}}
       propertyIds={[]}
       onPropertyIdsChange={() => {}}
       options={[]}

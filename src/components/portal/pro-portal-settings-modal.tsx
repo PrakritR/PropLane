@@ -111,8 +111,10 @@ export function ProPortalSettingsModal({
   const [editorPane, setEditorPane] = useState<SettingsEditorPane>("form");
   const [formBulkActions, setFormBulkActions] = useState<ReactNode | null>(null);
   const [scopePropertyIds, setScopePropertyIds] = useState<string[]>(initialPropertyId ? [initialPropertyId] : []);
-  const [scopeWorkspaceId, setScopeWorkspaceId] = useState("");
+  const [scopeWorkspaceIds, setScopeWorkspaceIds] = useState<string[]>([]);
   const scopePropertyId = scopePropertyIds[0] ?? "";
+  /** Communication is scoped to exactly one workspace — see `SettingsScopeBar`'s `single-workspace` variant. */
+  const isSingleWorkspaceTab = tab === "communication";
   const { userId: managerUserId } = useManagerUserId();
   const { showToast } = useAppUi();
 
@@ -235,8 +237,8 @@ export function ProPortalSettingsModal({
 
   return (
     <SettingsPropertyScopeProvider
-      workspaceId={scopeWorkspaceId}
-      onWorkspaceIdChange={setScopeWorkspaceId}
+      workspaceIds={scopeWorkspaceIds}
+      onWorkspaceIdsChange={setScopeWorkspaceIds}
       propertyIds={scopePropertyIds}
       onPropertyIdsChange={setScopePropertyIds}
       options={propertyOptions}
@@ -261,7 +263,9 @@ export function ProPortalSettingsModal({
       )}
       status={
         <span className="flex items-center gap-2">
-          {showPropertyPicker ? <SettingsScopeBar /> : null}
+          {showPropertyPicker ? (
+            <SettingsScopeBar variant={isSingleWorkspaceTab ? "single-workspace" : "full"} />
+          ) : null}
           <SaveStatus
             status={{
               state: saveStatus.state,

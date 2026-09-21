@@ -99,17 +99,17 @@ function emptyToDash(v: unknown) {
 const SETTINGS_TAB_PARAM = "tab";
 
 /**
- * The eleven Portfolio + Operations modules (PLAN-0920-0845 phase D) — every
- * Portfolio and Operations nav entry, Properties excluded (no longer a
- * settings pane). Each gets the full `SettingsScopeBar` (workspace select,
- * properties multi-select, scope tag, Reset).
+ * The ten Portfolio + Operations modules with a per-house rung
+ * (PLAN-0920-0845 phase D; Communication moved out — see
+ * `SINGLE_WORKSPACE_PANES`). Each gets the full `SettingsScopeBar`: one
+ * multi-select box spanning every workspace and its houses, the "Applies
+ * to · …" tag, and Reset.
  */
 export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "applications",
   "lease",
   "tours",
   "resident",
-  "messaging",
   "payments",
   "tasks",
   "reminders",
@@ -121,9 +121,19 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
 /**
  * Notifications is workspace-only: manager alert routing has no per-house
  * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
- * `workspace-only` variant — no properties picker.
+ * `workspace-only` variant — the same multi-select, restricted to whole
+ * workspaces, no properties picker.
  */
 export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications"]);
+
+/**
+ * Communication is scoped to exactly ONE workspace, never several at once —
+ * a work number and a work email belong to one workspace
+ * (`pro-messaging-settings-panel.tsx`), so it gets the bar's
+ * `single-workspace` variant: a plain single-select, no houses, no multi,
+ * bound straight to the global workspace switcher.
+ */
+export const SINGLE_WORKSPACE_PANES = new Set<SettingsGroupId>(["messaging"]);
 
 /** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -545,7 +555,15 @@ export function PortalProfileClient({
   // "All workspaces" (the account rung); no `?property=` is that workspace's
   // (or the account's) own default.
   const { userId: managerUserId, ready: managerReady } = useManagerUserId();
-  const scopeWorkspaceId = searchParams.get("workspace") ?? "";
+  // `?workspace=` may hold several comma-separated ids (the multi-select can
+  // span workspaces) — same list shape `?property=` already used.
+  const scopeWorkspaceIds = useMemo(() => {
+    const raw = searchParams.get("workspace") ?? "";
+    return raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }, [searchParams]);
   const scopePropertyIds = useMemo(() => {
     const raw = searchParams.get("property") ?? "";
     return raw
@@ -576,12 +594,11 @@ export function PortalProfileClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [managerUserId, propertyTick],
   );
-  const setScopeWorkspaceId = useCallback(
-    (id: string) => {
+  const setScopeWorkspaceIds = useCallback(
+    (ids: string[]) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (id) params.set("workspace", id);
+      if (ids.length > 0) params.set("workspace", ids.join(","));
       else params.delete("workspace");
-      params.delete("property");
       const query = params.toString();
       window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
     },
@@ -733,11 +750,12 @@ export function PortalProfileClient({
           {(() => {
             const scoped = SCOPED_OPERATIONS_PANES.has(paneGroup.id);
             const workspaceOnly = WORKSPACE_ONLY_PANES.has(paneGroup.id);
-            const barred = scoped || workspaceOnly;
+            const singleWorkspace = SINGLE_WORKSPACE_PANES.has(paneGroup.id);
+            const barred = scoped || workspaceOnly || singleWorkspace;
             const accountTagged = ACCOUNT_TAG_PANES.has(paneGroup.id);
             const deviceTagged = DEVICE_TAG_PANES.has(paneGroup.id);
             const headerAction = barred ? (
-              <SettingsScopeBar variant={scoped ? "full" : "workspace-only"} />
+              <SettingsScopeBar variant={scoped ? "full" : singleWorkspace ? "single-workspace" : "workspace-only"} />
             ) : accountTagged ? (
               <PortalSettingsScopeTag>Account</PortalSettingsScopeTag>
             ) : deviceTagged ? (
@@ -793,10 +811,13 @@ export function PortalProfileClient({
                 </PortalSettingsSections>
               </>
             );
-            return barred ? (
+            // `single-workspace` (Communication) reads/writes the global workspace
+            // switcher directly (see `SettingsScopeBar`'s `SingleWorkspaceScopeBar`)
+            // and needs no multi-rung provider wrap at all.
+            return scoped || workspaceOnly ? (
               <SettingsPropertyScopeProvider
-                workspaceId={scopeWorkspaceId}
-                onWorkspaceIdChange={setScopeWorkspaceId}
+                workspaceIds={scopeWorkspaceIds}
+                onWorkspaceIdsChange={setScopeWorkspaceIds}
                 propertyIds={scopePropertyIds}
                 onPropertyIdsChange={setScopePropertyIds}
                 options={scopeOptions}
