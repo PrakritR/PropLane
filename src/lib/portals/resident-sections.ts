@@ -77,12 +77,18 @@ export const RESIDENT_PAYMENTS_LEGACY_TABS: Record<string, { status?: string } |
     charges: {},
   });
 
-/** Sidebar during application phase: Application, Communication, and Dashboard. Account/Settings stays reachable from the top-right profile control, not the sidebar. */
+/**
+ * Sidebar during application phase: Tour, Application, Dashboard, and
+ * Communication, plus Settings pinned last (never stage-locked — see
+ * `STAGE_UNLOCKED_SECTIONS` in `resident-portal-nav.ts`). The top-right
+ * account menu keeps its own duplicate Settings link too.
+ */
 export const RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "tour", label: "Tour", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "communication", label: "Inbox", tabs: [] },
+  { section: "profile", label: "Settings", tabs: [] },
 ];
 
 /**
@@ -100,6 +106,7 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "communication", label: "Inbox", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
+  { section: "profile", label: "Settings", tabs: [] },
 ];
 
 /** Pre-lease workspace: application approved, lease not yet fully signed. */
@@ -111,6 +118,7 @@ export const RESIDENT_PRE_LEASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "payments", label: "Payments", tabs: [] },
   { section: "communication", label: "Inbox", tabs: [] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
+  { section: "profile", label: "Settings", tabs: [] },
 ];
 
 /** @deprecated Use RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS */
@@ -133,6 +141,7 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
   { section: "inspections", label: "Inspections", tabs: [...INSPECTIONS_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
+  { section: "profile", label: "Settings", tabs: [] },
 ];
 
 /** Every resident nav section id (union of limited + approved definitions). */
