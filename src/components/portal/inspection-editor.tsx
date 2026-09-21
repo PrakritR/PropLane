@@ -6,7 +6,6 @@ import { Camera, ChevronRight, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
-import { Modal } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -72,6 +71,8 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const [uploadSourceOpen, setUploadSourceOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
   const [photoSource, setPhotoSource] = useState<PhotoCaptureSource | null>(null);
+  /** Staged pick in the "Add photos to a section" dialog — cleared whenever that dialog (re)opens or closes. */
+  const [pickedUploadItemId, setPickedUploadItemId] = useState<string | null>(null);
   const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string; photo: CapturedPhoto } | null>((resumable ? restored?.active?.pendingPhoto : null) ?? null);
   const live = useRef(true);
   const draftRef = useRef<InspectionEditorDraft | null>(null);
@@ -210,7 +211,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const upload = (itemId: string, source: PhotoCaptureSource) => run(async () => {
     const photo = await capture(source); if (!photo) return;
     if (pendingPhoto) URL.revokeObjectURL(pendingPhoto.photo.previewUrl);
-    setPendingPhoto({ itemId, photo }); setChoosePhoto(false); setPhotoSource(null);
+    setPendingPhoto({ itemId, photo }); setChoosePhoto(false); setPhotoSource(null); setPickedUploadItemId(null);
     await sendPhoto(itemId, photo);
   });
   /**
@@ -223,7 +224,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     setUploadSourceOpen(false);
     const area = roomAreas.find(a => a.id === uploadArea) ?? activeArea;
     if (area?.items.length === 1) void upload(area.items[0]!.id, source);
-    else { setPhotoSource(source); setChoosePhoto(true); }
+    else { setPhotoSource(source); setPickedUploadItemId(null); setChoosePhoto(true); }
   };
   const remove = (photoId: string) => run(async () => {
     const current = await save();
@@ -322,6 +323,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = activeArea ? "Back to room sections" : "Back to inspections";
   const selectedAreas = roomAreas.filter(area => selected.has(area.id));
+  const photoChooserAreas = roomAreas.filter(area => area.id === uploadArea).length
+    ? roomAreas.filter(area => area.id === uploadArea)
+    : activeArea
+      ? [activeArea]
+      : selectedAreas.length
+        ? selectedAreas
+        : roomAreas;
   return <div className="min-w-0 space-y-5" data-attr="inspection-editor">
     {/* The type, the date and the room say everything the old meta row and its paragraph of
         instructions said, in the place a person already reads. */}
@@ -376,13 +384,52 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       {role === "resident" && canEdit && !submittedByResident && !pendingPhoto && <Button disabled={busy || ownPhotoCount === 0} onClick={() => changeSubmission("submit")} data-attr="inspection-resident-submit">Submit photos</Button>}
       {role === "manager" && canEdit && submittedByResident && <Button disabled={busy} onClick={() => changeSubmission("reopen")} data-attr="inspection-resident-reopen">Allow changes</Button>}
     </PortalPageFooterActions>
-    <Modal open={uploadSourceOpen} onClose={() => { if (!busy) setUploadSourceOpen(false); }} dismissBlocked={busy} title="Add photos" assistantStrip={false}>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Button variant="outline" className="h-auto min-h-12 justify-start px-4 py-3 text-left" disabled={busy} onClick={() => pickUploadSource("files")} data-attr="inspection-upload-files">Choose from files</Button>
-        <Button variant="outline" className="h-auto min-h-12 justify-start px-4 py-3 text-left" disabled={busy} onClick={() => pickUploadSource("camera")} data-attr="inspection-upload-camera">Use camera</Button>
+    <PortalDialog
+      open={uploadSourceOpen}
+      onClose={() => { if (!busy) setUploadSourceOpen(false); }}
+      dismissBlocked={busy}
+      title="Add photos"
+      secondaryAction={{ label: "Choose from files", onClick: () => pickUploadSource("files"), disabled: busy, dataAttr: "inspection-upload-files" }}
+      primaryAction={{ label: "Use camera", onClick: () => pickUploadSource("camera"), disabled: busy, dataAttr: "inspection-upload-camera" }}
+    >
+      <p className="text-sm text-muted">Choose where to get the photo from.</p>
+    </PortalDialog>
+    <PortalDialog
+      open={choosePhoto}
+      onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); setPickedUploadItemId(null); } }}
+      dismissBlocked={busy}
+      title="Add photos to a section"
+      primaryAction={{
+        // Distinct from the pinned "Add photos" footer trigger — both can be
+        // on screen at once while this picker is open.
+        label: pickedUploadItemId ? `Use ${photoChooserAreas.flatMap(a => a.items).find(i => i.id === pickedUploadItemId)?.label ?? "this section"}` : "Choose a section",
+        onClick: () => { if (pickedUploadItemId && photoSource) upload(pickedUploadItemId, photoSource); },
+        disabled: busy || !photoSource || !pickedUploadItemId,
+        dataAttr: "inspection-upload-confirm",
+      }}
+    >
+      <div className="space-y-2">
+        {photoChooserAreas.map(area => (
+          <div key={area.id}>
+            <h3 className="py-2 text-sm font-semibold">{area.label}</h3>
+            {area.items.map(item => (
+              <Button
+                key={item.id}
+                variant={pickedUploadItemId === item.id ? "primary" : "outline"}
+                className="mb-2 w-full justify-between"
+                disabled={busy || !photoSource}
+                aria-pressed={pickedUploadItemId === item.id}
+                onClick={() => setPickedUploadItemId(item.id)}
+                data-attr="inspection-upload-section"
+              >
+                {item.label}
+                <Camera className="h-4 w-4" />
+              </Button>
+            ))}
+          </div>
+        ))}
       </div>
-    </Modal>
-    <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(roomAreas.filter(area => area.id === uploadArea).length ? roomAreas.filter(area => area.id === uploadArea) : activeArea ? [activeArea] : selectedAreas.length ? selectedAreas : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
+    </PortalDialog>
     <PortalDialog
       open={confirm !== null}
       onClose={() => { if (!busy) setConfirm(null); }}
