@@ -135,7 +135,9 @@ export function earlyMoveOutFeeForProperty(property: MockProperty | undefined | 
 
 function moveOutDueLabel(newLeaseEnd: string): string {
   const parts = newLeaseEnd.split("-").map(Number);
-  const dt = parts.length === 3 ? new Date(parts[0]!, parts[1]! - 1, parts[2]!) : null;
+  // Noon UTC keeps the calendar day stable when this runs on a UTC host
+  // (local midnight would already be the previous evening in Pacific).
+  const dt = parts.length === 3 ? new Date(Date.UTC(parts[0]!, parts[1]! - 1, parts[2]!, 12)) : null;
   return dt && !Number.isNaN(dt.getTime())
     ? `By ${formatPacificDate(dt, { month: "short", day: "numeric", year: "numeric" })}`
     : "By move-out";

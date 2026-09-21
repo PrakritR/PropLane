@@ -1480,7 +1480,7 @@ export function PaymentsSettingsPanel({
     if (scope.workspaceId) return workspaces?.workspaces.find((w) => w.id === scope.workspaceId) ?? null;
     if (workspaces?.active?.owned) return workspaces.active;
     return ownedWorkspaces[0] ?? null;
-  }, [scope.workspaceId, workspaces?.active, workspaces?.workspaces, ownedWorkspaces]);
+  }, [scope.workspaceId, workspaces, ownedWorkspaces]);
 
   const houses = useMemo(() => {
     if (!effectiveWorkspace) return propertyOptions;
