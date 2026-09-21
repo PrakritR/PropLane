@@ -23,6 +23,7 @@ import {
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 import {
   fromHeaderAddress,
   fromHeaderDisplayName,
@@ -155,10 +156,12 @@ export async function sendLeadInvite(
   }
 
   const from = await managerOutboundFromHeader(db, actor.userId);
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [input.to], subject, text, html }),
+  const res = await postResendEmail({
+    apiKey,
+    actorUserId: actor.userId,
+    payload: { from, to: [input.to], subject, text, html },
+    effectSummary: `${input.kind} invite email to ${input.prospectName?.trim() || input.to} was captured for SMS test mode.`,
+    metadata: { tool: "share_property_link", propertyId: input.propertyId, kind: input.kind },
   });
   const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
   if (!res.ok) {

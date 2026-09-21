@@ -10,7 +10,7 @@ import {
   generateCoManagerInviteToken,
   hashCoManagerInviteToken,
   isCoManagerInvitePath,
-} from "@/lib/co-manager-invite-token";
+} from "@/lib/co-manager-invite-token.server";
 
 describe("co-manager invite accept link", () => {
   it("builds a manager team deep link for an invite id", () => {
@@ -63,10 +63,11 @@ describe("co-manager open invite surfaces", () => {
       "utf8",
     );
     // Send by phone/email/code, copy the minted link, and set role + houses
-    // in one access control — no separate "Continue" step or path chooser.
+    // through the same Role/Houses fields Edit permissions renders — no
+    // separate "Continue" step or path chooser.
     expect(sheet).toContain('data-attr="workspace-invite-send"');
     expect(sheet).toContain('data-attr="workspace-invite-copy"');
-    expect(sheet).toContain('data-attr="workspace-invite-access"');
+    expect(sheet).toContain("<WorkspacePermissionsFields");
     expect(sheet).toContain("<CoManagerPermissionsEditor");
     expect(sheet).toContain("<WorkspaceGrantFields");
     expect(sheet).not.toContain("PortalInvitePaths");

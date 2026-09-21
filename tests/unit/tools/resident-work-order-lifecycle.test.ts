@@ -349,6 +349,10 @@ describe("confirm gate: a manager-portal claim of a resident cancel is refused",
         filters.push(["eq", col, val]);
         return chain;
       },
+      is: (col: string, val: unknown) => {
+        filters.push(["eq", col, val]);
+        return chain;
+      },
       gt: (col: string, val: unknown) => {
         filters.push(["gt", col, val]);
         return chain;
@@ -371,6 +375,9 @@ describe("confirm gate: a manager-portal claim of a resident cancel is refused",
         input: { workOrderId: "WO-A" },
         status: "proposed",
         session_id: null,
+        sms_test_actor_user_id: null,
+        sms_test_manager_user_id: null,
+        sms_test_session_id: null,
         expires_at: new Date(Date.now() + 60_000).toISOString(),
       },
     ];

@@ -314,8 +314,9 @@ function dedupeAdminPropertyRows(rows: AdminPropertyRow[]): AdminPropertyRow[] {
 }
 
 function linkedAdminPropertyRowsForBucket(bucket: AdminPropertyBucketIndex, userId: string): AdminPropertyRow[] {
-  // Gate the Properties tab by the `properties` module grant (empty perms = full
-  // access, per modulePermsAllow). Previously this used the module-agnostic
+  // Gate the Properties tab by the `properties` module grant, which has to be
+  // positively checked — assignment alone confers nothing, per modulePermsAllow.
+  // Previously this used the module-agnostic
   // collectLinkedPropertyIds, so a co-manager granted only e.g. `payments` on a
   // property still saw it in the Properties tab. Buckets 0/2 additionally were
   // not filtering the readLinkedListingsForUser results by the id set at all.
@@ -596,7 +597,17 @@ export function listAdminRow(row: AdminPropertyRow, forManagerUserId?: string | 
  * Build the draft list-row (summary fields + the full submission for resume)
  * from an in-progress wizard submission. Never publishes anything.
  */
-function submissionToDraftAdminRow(
+/**
+ * Exported so a pure-server caller (no `window`) can build the exact row
+ * `saveManagerPropertyDraftToServer` would — that function itself is
+ * browser-only (it round-trips through `POST /api/property-records` via
+ * `fetch`, and `writeSideStorage`/`readSide` no-op off the main thread). The
+ * portfolio-import rebuild's `create.server.ts` calls this directly, then
+ * upserts into `manager_property_records` itself, the same way `create_property`
+ * and every other server-side write tool bypasses the HTTP route (AGENTS.md
+ * "AI Agent & Tool Layer": tools never `fetch()` internal routes).
+ */
+export function submissionToDraftAdminRow(
   input: ManagerPropertyDraftInput,
   managerUserId: string,
   listingId: string,
@@ -631,7 +642,8 @@ function submissionToDraftAdminRow(
  * is both the record primary key and the permanent public listing URL — two mints
  * in the same millisecond must not collide.
  */
-function mintManagerPropertyId(legacy: { buildingName: string; unitLabel: string }): string {
+/** Exported for the same server-side (no `window`) reuse as `submissionToDraftAdminRow` above. */
+export function mintManagerPropertyId(legacy: { buildingName: string; unitLabel: string }): string {
   const suffix = `${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 8)}`;
   const nameSlug = slugPart(legacy.buildingName);
   return nameSlug ? `mgr-${nameSlug}-${slugPart(legacy.unitLabel)}-${suffix}` : `mgr-listing-${suffix}`;

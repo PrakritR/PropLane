@@ -5,12 +5,10 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
@@ -34,7 +32,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
 import { ManagerTaskFilterFields } from "@/components/portal/pro-task-filter-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
-import { TaskTableHeader, TaskTableRow, taskDueState, type TaskDueState } from "@/components/portal/pro-task-row";
+import { TaskListCardRow } from "@/components/portal/pro-task-row";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -50,13 +48,11 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   MANAGER_TASK_LIST_FILTER_LABELS,
-  compareManagerTaskListRows,
   compactTaskLocationLabel,
   openTasksForListTab,
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   selectManagerTaskListRows,
-  type ManagerTaskGroupMode,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
@@ -94,20 +90,10 @@ import {
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import { cn } from "@/lib/utils";
-import {
-  clusterPortalListRows,
-  isPropertyClusterList,
-  type PortalListGroupMode,
-} from "@/lib/portal-list-grouping";
-import type { ResidentIdentityFields, PropertyClusterFields } from "@/lib/resident-row-clustering";
-
-
 
 type TaskListRow =
   | { kind: "task"; id: string; task: ManagerTask }
   | { kind: "service"; id: string; request: ServiceRequest };
-
-type TaskListClusterRow = TaskListRow & ResidentIdentityFields & PropertyClusterFields;
 
 /**
  * "Show 12 tasks" — what pressing Apply will actually leave on screen.
@@ -166,56 +152,10 @@ function TaskFilterApplyLabel({
 
 const tasksSettingsEntry = getSettingsEntryPoint("tasks");
 
-function taskListRowClusterFields(
-  row: TaskListRow,
-  propertyLabelForId: (propertyId?: string) => string,
-): TaskListClusterRow {
-  if (row.kind === "task") {
-    return {
-      ...row,
-      residentName: row.task.assignee?.name ?? "",
-      // A WorkAssignee is a type/id/name snapshot and carries no email, so the
-      // cluster key falls back to the assignee's name — which is the intended
-      // grouping here ("who is this on") rather than a resident identity.
-      residentEmail: "",
-      propertyId: row.task.propertyId,
-      propertyLabel: row.task.propertyTitle ?? propertyLabelForId(row.task.propertyId),
-    };
-  }
-  return {
-    ...row,
-    residentName: row.request.residentName,
-    residentEmail: row.request.residentEmail,
-    propertyId: row.request.propertyId,
-    propertyLabel: propertyLabelForId(row.request.propertyId),
-  };
-}
-
 function serviceRequestBucket(req: ServiceRequest): "pending" | "approved" | "denied" {
   if (req.status === "approved") return "approved";
   if (req.status === "denied") return "denied";
   return "pending";
-}
-
-/**
- * The line under a task's title. The due date and the assignee have their own
- * columns now, so this carries only what the columns do not: where, a
- * scheduled slot (a range, not a bare due date), checklist progress,
- * recurrence, comments.
- */
-function taskRowMetaLine(task: ManagerTask): string {
-  const parts: string[] = [];
-  const location = compactTaskLocationLabel(task);
-  if (location) parts.push(location);
-  if (task.start && task.end) parts.push(formatRangeLabel(task.start, task.end));
-  if (task.checklist?.length) {
-    parts.push(`${task.checklist.filter((item) => item.done).length}/${task.checklist.length} steps`);
-  }
-  if (task.recurrence && task.recurrence !== "none") {
-    parts.push(task.recurrence === "daily" ? "Repeats daily" : task.recurrence === "weekly" ? "Repeats weekly" : "Repeats monthly");
-  }
-  if (task.comments?.length) parts.push(`${task.comments.length} ${task.comments.length === 1 ? "comment" : "comments"}`);
-  return parts.join(" · ");
 }
 
 export function ManagerTaskList({
@@ -242,33 +182,8 @@ export function ManagerTaskList({
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
-  /*
-   * Group by — Property (default) · Assignee · Due — lives in the URL
-   * (`?group=`) so a grouping survives a reload and can be shared. `house` and
-   * `resident` are the shared list-grouping modes (resident = assignee here);
-   * `due` buckets rows by deadline and is this list's own.
-   */
-  const searchParams = useSearchParams();
-  const pathname = usePathname();
-  const groupParam = searchParams?.get("group");
-  const taskGroupMode: ManagerTaskGroupMode =
-    groupParam === "assignee" ? "assignee" : groupParam === "due" ? "due" : "property";
-  const setTaskGroupMode = useCallback(
-    (next: ManagerTaskGroupMode) => {
-      const params = new URLSearchParams(searchParams?.toString() ?? "");
-      if (next === "property") params.delete("group");
-      else params.set("group", next);
-      const query = params.toString();
-      window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
-    },
-    [pathname, searchParams],
-  );
-  const groupMode: PortalListGroupMode = taskGroupMode === "assignee" ? "resident" : "house";
   const [assigneeFilterId, setAssigneeFilterId] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<ManagerTaskPriority | "">("");
-  // Frozen per mount: the due chips only need "today" to be right, and a
-  // minute-level clock would re-render every row for nothing.
-  const [nowMs] = useState(() => Date.now());
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
   const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
   const [listSearch, setListSearch] = useState("");
@@ -406,27 +321,8 @@ export function ManagerTaskList({
       : []),
   ];
 
-  const clusters = useMemo(() => {
-    const raw = clusterPortalListRows(
-      visibleRows.map((row) => taskListRowClusterFields(row, propertyLabelForId)),
-      groupMode,
-      (row) => row.propertyLabel,
-    );
-    if (!isPropertyClusterList(groupMode, raw)) return raw;
-    // The shared clustering keeps every property-less row in its own group
-    // (right for residents, who must not be merged with strangers). A task
-    // with no house is just a task with no house: one "No property" group,
-    // not a stack of headers reading "—".
-    const homeless = raw.filter((c) => !c.rows.some((r) => r.propertyId?.trim()));
-    if (homeless.length < 2) return raw;
-    const merged = { key: "property:none", propertyLabel: "", rows: homeless.flatMap((c) => c.rows) };
-    const kept = raw.filter((c) => !homeless.includes(c));
-    return [...kept, merged];
-  }, [groupMode, propertyLabelForId, visibleRows]);
-
   const taskFilterActiveCount =
     portalFilterActiveCount([
-      taskGroupMode !== "property" ? taskGroupMode : "",
       listFilter !== "all" ? listFilter : "",
       propertyFilterId,
       assigneeFilterId,
@@ -449,7 +345,6 @@ export function ManagerTaskList({
         setPropertyFilterId("");
         setAssigneeFilterId("");
         setPriorityFilter("");
-        setTaskGroupMode("property");
         setSortId("due_soonest");
       }}
       dataAttr="tasks-filter-sheet-open"
@@ -484,8 +379,6 @@ export function ManagerTaskList({
         onAssigneeFilterIdChange={setAssigneeFilterId}
         priorityFilter={priorityFilter}
         onPriorityFilterChange={setPriorityFilter}
-        taskGroupMode={taskGroupMode}
-        onTaskGroupModeChange={setTaskGroupMode}
         sortId={sortId}
         onSortIdChange={setSortId}
       />
@@ -630,31 +523,6 @@ export function ManagerTaskList({
       });
     }
 
-    actions.push({
-      id: "delete",
-      node: (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-          data-attr="manager-tasks-bulk-delete"
-          disabled={bulkBusy}
-          onClick={() => setDeleteConfirmOpen(true)}
-        >
-          Delete
-        </Button>
-      ),
-      menuItem: (
-        <DropdownMenuItem
-          data-attr="manager-tasks-bulk-delete"
-          className="text-danger focus:text-danger"
-          onSelect={() => setDeleteConfirmOpen(true)}
-        >
-          Delete
-        </DropdownMenuItem>
-      ),
-    });
-
     const completeLabel = tabId === "completed" ? "Reopen" : "Mark done";
     const completeHandler = () => {
       void bulkSetCompleted(tabId !== "completed");
@@ -683,135 +551,88 @@ export function ManagerTaskList({
       ),
     });
 
+    // Delete sorts last — the shared ⋯ order puts a record's own actions
+    // (Edit, Mark done/Reopen) before the trailing destructive one
+    // (record-action-order.ts).
+    actions.push({
+      id: "delete",
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          data-attr="manager-tasks-bulk-delete"
+          disabled={bulkBusy}
+          onClick={() => setDeleteConfirmOpen(true)}
+        >
+          Delete
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem
+          data-attr="manager-tasks-bulk-delete"
+          className="text-danger focus:text-danger"
+          onSelect={() => setDeleteConfirmOpen(true)}
+        >
+          Delete
+        </DropdownMenuItem>
+      ),
+    });
+
     return actions;
   }, [bulkBusy, bulkSetCompleted, editSelectedTask, selectedTaskIds.length, tabId]);
 
-  const renderTaskDataList = (rows: TaskListClusterRow[], first = false) => (
-    <div className="rounded-xl border border-border bg-card">
-      {first ? <TaskTableHeader /> : null}
-      {rows.map((row) => {
-        if (row.kind === "task") {
-          const task = row.task;
-          return (
-            <TaskTableRow
-              key={task.id}
-              task={task}
-              context={taskRowMetaLine(task) || undefined}
-              propertyLabel={task.propertyTitle ?? propertyLabelForId(task.propertyId)}
-              showPropertyOnPhone={taskGroupMode !== "property"}
-              viewerUserId={userId}
-              nowMs={nowMs}
-              checked={selectedIds.has(task.id)}
-              onSelectedChange={() => toggleSelected(task.id)}
-              onOpen={() => openTaskRecord(task)}
-              dataAttr="manager-task-row"
-            />
-          );
-        }
-        const request = row.request;
-        const bucket = serviceRequestBucket(request);
-        const location = serviceRequestLocationLabel(request);
+  /**
+   * The flat card list — one row per task or assigned service, already sorted
+   * (`selectManagerTaskListRows`, "due soonest" by default). No property or
+   * assignee group headers: the place line on each card already says the
+   * house, and the ⋯ the list surface draws on a selectable row carries that
+   * row's own actions.
+   */
+  function renderTaskRows(rows: TaskListRow[]) {
+    return rows.map((row) => {
+      if (row.kind === "task") {
+        const task = row.task;
         return (
-          <div
-            key={`service-${request.id}`}
-            className="flex w-full items-center gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0"
-            data-attr="manager-task-service-row"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[14px] font-semibold text-foreground">{request.offerName}</span>
-              <span className="block truncate text-[12px] text-muted">
-                {[location, request.status].filter(Boolean).join(" · ")}
-              </span>
-            </span>
-            <Link
-              href={serviceRequestDetailHref(basePath, bucket, request.id)}
-              className="text-xs font-semibold text-primary"
-              data-attr="manager-task-list-service-link"
-            >
-              Open
-            </Link>
-          </div>
+          <TaskListCardRow
+            key={task.id}
+            task={task}
+            propertyLabel={task.propertyTitle ?? propertyLabelForId(task.propertyId)}
+            viewerUserId={userId}
+            showDoneDate={tabId === "completed"}
+            formatRange={formatRangeLabel}
+            checked={selectedIds.has(task.id)}
+            onSelectedChange={() => toggleSelected(task.id)}
+            onOpen={() => openTaskRecord(task)}
+            dataAttr="manager-task-row"
+          />
         );
-      })}
-    </div>
-  );
-
-  /** Overdue · Today · This week · Later · No date — the Due grouping. */
-  const dueClusters = useMemo(() => {
-    const order: Array<{ key: TaskDueState; label: string }> = [
-      { key: "overdue", label: "Overdue" },
-      { key: "today", label: "Today" },
-      { key: "soon", label: "This week" },
-      { key: "later", label: "Later" },
-      { key: "none", label: "No date" },
-      { key: "done", label: "Done" },
-    ];
-    const buckets = new Map<TaskDueState, TaskListClusterRow[]>();
-    for (const row of clusters.flatMap((c) => c.rows)) {
-      const state = row.kind === "task" ? taskDueState(row.task, nowMs) : "none";
-      buckets.set(state, [...(buckets.get(state) ?? []), row]);
-    }
-    return order.filter((o) => buckets.has(o.key)).map((o) => ({ key: o.key, label: o.label, rows: buckets.get(o.key)! }));
-  }, [clusters, nowMs]);
-
-  function renderTaskClusters(
-    clusters: ReturnType<typeof clusterPortalListRows<TaskListClusterRow>>,
-  ) {
-    const clusterCountLabel = (count: number) =>
-      count === 1 ? "1 task" : `${count} tasks`;
-
-    if (taskGroupMode === "due") {
-      return dueClusters.map((cluster, i) => (
-        <ApplicationHouseholdCluster
-          key={cluster.key}
-          header={
-            <>
-              <span className="truncate text-xs font-semibold text-foreground">{cluster.label}</span>
-              <span className="sr-only">{clusterCountLabel(cluster.rows.length)}</span>
-            </>
-          }
+      }
+      const request = row.request;
+      const bucket = serviceRequestBucket(request);
+      const location = serviceRequestLocationLabel(request);
+      return (
+        <div
+          key={`service-${request.id}`}
+          className="portal-property-row mb-2 flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 shadow-sm max-md:px-2.5 max-md:py-2.5"
+          data-attr="manager-task-service-row"
         >
-          {renderTaskDataList(cluster.rows, i === 0)}
-        </ApplicationHouseholdCluster>
-      ));
-    }
-
-    if (isPropertyClusterList(groupMode, clusters)) {
-      return clusters.map((cluster, i) => (
-        <ApplicationHouseholdCluster
-          key={cluster.key}
-          header={
-            <>
-              <span className="truncate text-xs font-semibold text-foreground">{cluster.propertyLabel || "No property"}</span>
-              <span className="sr-only">{clusterCountLabel(cluster.rows.length)}</span>
-            </>
-          }
-        >
-          {renderTaskDataList(cluster.rows, i === 0)}
-        </ApplicationHouseholdCluster>
-      ));
-    }
-
-    return clusters.map((cluster, i) => (
-      <ApplicationHouseholdCluster
-        key={cluster.key}
-        header={
-          <>
-            <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel || "Unassigned"}</span>
-            {cluster.residentEmail &&
-            cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-              <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-            ) : null}
-            {cluster.propertyLabel ? (
-              <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-            ) : null}
-            <span className="sr-only">{clusterCountLabel(cluster.rows.length)}</span>
-          </>
-        }
-      >
-        {renderTaskDataList(cluster.rows, i === 0)}
-      </ApplicationHouseholdCluster>
-    ));
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-semibold text-foreground">{request.offerName}</span>
+            <span className="block truncate text-[13px] text-muted">
+              {[location, request.status].filter(Boolean).join(" · ")}
+            </span>
+          </span>
+          <Link
+            href={serviceRequestDetailHref(basePath, bucket, request.id)}
+            className="text-xs font-semibold text-primary"
+            data-attr="manager-task-list-service-link"
+          >
+            Open
+          </Link>
+        </div>
+      );
+    });
   }
 
   function openAddTask() {
@@ -995,14 +816,12 @@ export function ManagerTaskList({
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
         {!loading && visibleRows.length > 0 ? (
-          <>
-            <div
-              className={cn("space-y-3", tabId === "completed" && "opacity-80")}
-              data-attr="manager-task-groups"
-            >
-              {renderTaskClusters(clusters)}
-            </div>
-          </>
+          <div
+            className={cn(tabId === "completed" && "opacity-80")}
+            data-attr="manager-task-groups"
+          >
+            {renderTaskRows(visibleRows)}
+          </div>
         ) : null}
 
         {!loading && visibleRows.length === 0 ? (

@@ -14,17 +14,21 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
   BookingsBlockDatesModal,
   type BlockDatesDraft,
+  type BlockDatesSaveResult,
   type BookingsSheetPane,
 } from "@/components/portal/bookings-block-dates-modal";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
+  bookingDeleteRefusalReason,
   bookingEntryKey,
+  bookingOpenTarget,
   bookingSourceLabel,
   formatBookingStayRange,
 } from "@/lib/channel-calendar/bookings-ui";
@@ -32,6 +36,7 @@ import { dayOccupancy } from "@/lib/channel-calendar/bookings-occupancy";
 import { roomCountForProperty } from "@/lib/channel-calendar/bookings-room-counts";
 import { bookingRecordHref, managerBookingDayHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 
@@ -67,7 +72,7 @@ export function BookingsDayPage({
   loading: boolean;
   propertyOptions: ManagerPropertyFilterOption[];
   residentOptions: readonly BlockDatesResidentOption[];
-  onSaveBlock: (draft: BlockDatesDraft) => Promise<void>;
+  onSaveBlock: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   onRemoveBlock: (blockId: string) => Promise<void>;
   showToast: (message: string) => void;
 }) {
@@ -75,6 +80,9 @@ export function BookingsDayPage({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<PropertyBookingEntry | null>(null);
   const [pane, setPane] = useState<BookingsSheetPane>("block");
+  const [deletingEntry, setDeletingEntry] = useState<PropertyBookingEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
 
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
 
@@ -115,9 +123,30 @@ export function BookingsDayPage({
     setSheetOpen(true);
   };
 
-  const cancelBlock = async (entry: PropertyBookingEntry) => {
-    if (!entry.blockId) return;
-    await onRemoveBlock(entry.blockId);
+  // "Delete booking" — refuse outright for an in-house active tenancy (no
+  // existing rule covered this; `bookingDeleteRefusalReason` is the new one),
+  // otherwise confirm before actually removing the hold.
+  const requestDelete = (entry: PropertyBookingEntry) => {
+    const refusal = bookingDeleteRefusalReason(entry, todayKey);
+    if (refusal) {
+      showToast(refusal);
+      return;
+    }
+    setDeletingEntry(entry);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingEntry?.blockId) return;
+    setDeleting(true);
+    try {
+      await onRemoveBlock(deletingEntry.blockId);
+      showToast("Booking deleted.");
+      setDeletingEntry(null);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not delete that booking.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const copyLink = async (entry: PropertyBookingEntry) => {
@@ -193,15 +222,24 @@ export function BookingsDayPage({
               ]
                 .filter(Boolean)
                 .join(" · ");
+              // Every card gets an Edit + Delete pair: a manager-made hold
+              // edits/deletes right here, while a signed lease or channel
+              // import jumps to the record that actually owns it — same
+              // repurposing the Upcoming list uses (bookingOpenTarget) — and
+              // stays undeletable from this sheet.
+              const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
               return (
                 <BookingsRowOverflow
                   key={key}
                   label={name}
-                  onEditDates={isBlock ? () => openEdit(entry) : undefined}
-                  onMoveRoom={isBlock ? () => openEdit(entry) : undefined}
+                  onEditDates={
+                    isBlock ? () => openEdit(entry) : openTarget ? () => navigate(openTarget.href) : undefined
+                  }
+                  editDatesLabel={isBlock ? "Edit booking" : openTarget?.label}
                   onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
                   onCopyLink={() => void copyLink(entry)}
-                  onCancel={isBlock ? () => void cancelBlock(entry) : undefined}
+                  onCancel={isBlock ? () => requestDelete(entry) : undefined}
+                  cancelLabel="Delete booking"
                 >
                   <PortalPersonRecordRow
                     name={`${name} · ${entry.roomLabel}`}
@@ -209,6 +247,13 @@ export function BookingsDayPage({
                     onOpen={() => navigate(bookingRecordHref(basePath, key))}
                     omitActionView
                     dataAttr={`bookings-day-row-${key}`}
+                    // Inside `BookingsRowOverflow`'s context, `RowSelectCheckbox`
+                    // swaps its checkbox for the ⋯ trigger, but only renders at
+                    // all once something asks for it here — without
+                    // `onSelectedChange` this row drew no ⋯ whatsoever, so every
+                    // card's Edit/Delete was unreachable (the actual root cause
+                    // of the day pop-up's dead actions).
+                    onSelectedChange={() => {}}
                   />
                 </BookingsRowOverflow>
               );
@@ -234,6 +279,29 @@ export function BookingsDayPage({
         propertyIds={propertyIds}
         showToast={showToast}
       />
+
+      <PortalDialog
+        open={Boolean(deletingEntry)}
+        onClose={() => (deleting ? undefined : setDeletingEntry(null))}
+        title="Delete booking"
+        tone="danger"
+        dismissBlocked={deleting}
+        dataAttr="bookings-day-delete-confirm"
+        secondaryAction={{ label: "Keep", onClick: () => setDeletingEntry(null), disabled: deleting }}
+        primaryAction={{
+          label: deleting ? "Deleting…" : "Delete",
+          onClick: () => void confirmDelete(),
+          disabled: deleting,
+          loading: deleting,
+          dataAttr: "bookings-day-delete-confirm-primary",
+        }}
+      >
+        <p className="text-sm text-muted">
+          {deletingEntry
+            ? `Delete ${guestName(deletingEntry)}’s booking at ${deletingEntry.roomLabel}? This cannot be undone.`
+            : ""}
+        </p>
+      </PortalDialog>
     </ManagerPortalPageShell>
   );
 }

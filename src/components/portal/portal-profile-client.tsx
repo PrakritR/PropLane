@@ -49,13 +49,9 @@ import {
   PortalSettingsSections,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
-import { ManagerPaymentMethodsPanel } from "@/components/portal/manager-payment-methods-panel";
-import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
-import { ManagerPlanAddonsPanel } from "@/components/portal/manager-plan-addons-panel";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
-import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
@@ -202,7 +198,6 @@ function ManagerMessagingSettingsPane() {
         onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
       />
       <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
-      <ManagerAssistantEmailSettingsPanel />
       <CommunicationSettingsPanel />
     </>
   );
@@ -648,15 +643,13 @@ export function PortalProfileClient({
       case "profile":
         return personalInfoSection;
       case "billing":
-        // Billing is a complete operational surface. It owns its current-plan
-        // state and comparison cards, so Settings deliberately provides no
-        // duplicate heading or card around it.
+        // Billing is a complete operational surface (PLAN-0920-1400): `ManagerPlan`
+        // owns the whole page — Plan, Usage, Extra usage, Add-ons, Payment,
+        // Invoices, Cancellation — in that order, so Settings deliberately
+        // mounts nothing else around it.
         return (
-          <div className="min-w-0 space-y-8">
+          <div className="min-w-0">
             <ManagerPlan embedded showCurrentPlan={false} />
-            <ManagerPlanAddonsPanel />
-            <ManagerPaymentMethodsPanel />
-            <ManagerCommsBillingPanel />
           </div>
         );
       case "messaging":

@@ -28,6 +28,14 @@ export type ResidentPortalAccessState = {
   /** Full workspace (services, payments, move-in) — requires a signed lease. */
   leaseAccessUnlocked: boolean;
   /**
+   * A "Add booking" resident: created from a manager's booking, never an
+   * application or lease. Unlocks Lease/Payments/Documents/Services/My home
+   * the same as an approved-application-plus-signed-lease resident, but
+   * Applications and Lease stay out of the nav (there is nothing there to
+   * show) — see `resolveResidentPortalNavStage`'s `booking_residency` stage.
+   */
+  isBookingResidency: boolean;
+  /**
    * A signed lease is the whole decision. The resident-role check lives in
    * `loadResidentPortalAccessState`, which is where `leaseSigned` comes from —
    * an account without the resident role gets `emptyAccessState`

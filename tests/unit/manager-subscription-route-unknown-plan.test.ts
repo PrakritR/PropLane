@@ -32,6 +32,9 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
 vi.mock("@/lib/manager-tier-sync", () => ({ syncManagerPurchaseTierState: async () => {} }));
+vi.mock("@/lib/supabase/service", () => ({
+  createSupabaseServiceRoleClient: vi.fn(() => ({})),
+}));
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => {
     throw new Error("Stripe is not configured in this test");
@@ -39,6 +42,9 @@ vi.mock("@/lib/stripe", () => ({
 }));
 vi.mock("@/lib/manager-access-server", () => ({
   getManagerPurchaseSku: async () => SKU,
+}));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
 }));
 
 import { GET } from "@/app/api/manager/subscription/route";

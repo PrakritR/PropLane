@@ -54,6 +54,9 @@ let PROPERTY_AVAILABILITY_QUERY_FILTERS: string[] = [];
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => makeServiceClient(),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceRequestScope: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 /** The `timeMax` the route asked Google for, per call. */
 let GOOGLE_TIME_MAX: string[] = [];
 
@@ -100,21 +103,58 @@ function makeServiceClient() {
       if (table === "manager_property_records") {
         return {
           select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
+            eq: () => {
+              const maybeSingle = async () => ({
                 data: {
                   manager_user_id: MANAGER,
                   status: PROPERTY_STATUS,
                   property_data: { id: PROPERTY_ID, buildingName: "Ballard House", address: "1 Ballard Ave" },
                 },
                 error: null,
-              }),
-            }),
+              });
+              return { is: () => ({ maybeSingle }), maybeSingle };
+            },
           }),
         };
       }
       if (table === "portal_schedule_records") {
         let recordType = "";
+        let inColumn = "";
+        let inValues: string[] = [];
+        const result = () => {
+          if (recordType === "manager_property_availability") {
+            const rows = PROPERTY_AVAILABILITY_SLOTS
+              ? [availabilityRow("manager_property_availability", PROPERTY_AVAILABILITY_SLOTS)]
+              : [];
+            PROPERTY_AVAILABILITY_QUERY_FILTERS.push(inColumn);
+            return {
+              data: rows.filter((row) =>
+                inColumn === "manager_user_id"
+                  ? inValues.includes(row.manager_user_id)
+                  : inValues.includes(row.property_id ?? ""),
+              ),
+              error: null,
+            };
+          }
+          if (recordType === "manager_availability") {
+            return {
+              data: GLOBAL_AVAILABILITY_SLOTS
+                ? [availabilityRow("manager_availability", GLOBAL_AVAILABILITY_SLOTS)]
+                : [],
+              error: null,
+            };
+          }
+          if (recordType === "partner_inquiry_request") {
+            return {
+              data: PENDING_INQUIRIES.map((payload) => ({
+                manager_user_id: MANAGER,
+                row_data: { payload },
+              })),
+              error: null,
+            };
+          }
+          return { data: [], error: null };
+        };
         const builder: Record<string, unknown> = {
           select: () => builder,
           eq: (column: string, value: string) => {
@@ -131,41 +171,14 @@ function makeServiceClient() {
           // select used to be a full-table scan, which a `no-store` route pays
           // for on every public booking-page view. Filter here so the fixture
           // proves the scoping, rather than handing back rows regardless.
-          in: async (column: string, values: string[]) => {
-            if (recordType === "manager_property_availability") {
-              const rows = PROPERTY_AVAILABILITY_SLOTS
-                ? [availabilityRow("manager_property_availability", PROPERTY_AVAILABILITY_SLOTS)]
-                : [];
-              PROPERTY_AVAILABILITY_QUERY_FILTERS.push(column);
-              return {
-                data: rows.filter((row) =>
-                  column === "manager_user_id"
-                    ? values.includes(row.manager_user_id)
-                    : values.includes(row.property_id ?? ""),
-                ),
-                error: null,
-              };
-            }
-            if (recordType === "manager_availability") {
-              return {
-                data: GLOBAL_AVAILABILITY_SLOTS
-                  ? [availabilityRow("manager_availability", GLOBAL_AVAILABILITY_SLOTS)]
-                  : [],
-                error: null,
-              };
-            }
-            if (recordType === "partner_inquiry_request") {
-              return {
-                data: PENDING_INQUIRIES.map((payload) => ({
-                  manager_user_id: MANAGER,
-                  row_data: { payload },
-                })),
-                error: null,
-              };
-            }
-            return { data: [], error: null };
+          in: (column: string, values: string[]) => {
+            inColumn = column;
+            inValues = values;
+            return builder;
           },
+          is: () => builder,
           maybeSingle: async () => ({ data: null, error: null }),
+          then: (resolve: (value: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve),
         };
         return builder;
       }

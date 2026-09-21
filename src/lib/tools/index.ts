@@ -140,6 +140,7 @@ import {
   listMyJobsWithThisManagerTool,
 } from "./domains/vendor-work-order";
 import { getPropertyLinksTool, getVendorSmsLinksTool } from "./domains/portal-links";
+import { portfolioImportStatusTool } from "./domains/portfolio-import";
 import {
   buildProspectLinksTool,
   escalateLeasingToManagerTool,
@@ -193,6 +194,9 @@ export const agentRegistry = buildRegistry([
   // Link-first replies: listing / tour / apply / message URLs for a live
   // listing, to paste into a text, inbox reply, or message to a prospect.
   getPropertyLinksTool,
+  // Portal-only (see MANAGER_PORTAL_ONLY_TOOLS below) — status of an upload
+  // the manager is reviewing at /portal/properties/import.
+  portfolioImportStatusTool,
   // Write tools: previewed from the model loop, executed only via the gated
   // confirm endpoint after explicit user confirmation.
   sendRentReminderTool,
@@ -283,6 +287,19 @@ export const agentRegistry = buildRegistry([
 export const MANAGER_INLINE_WRITE_TOOLS: readonly string[] = [updateThreadTool.name];
 
 /**
+ * Non-destructive READ tools withheld from manager SMS anyway, for the same
+ * reason the resident registry has its own `PORTAL_ONLY_TOOLS`
+ * (`resident-index.ts`): the capability only makes sense next to a page the
+ * manager is looking at. `portfolio_import_status` answers "how did my
+ * import go" for an upload made at /portal/properties/import — over SMS
+ * there is no review screen to be asking about, and the spoofable `From`
+ * header reasoning above (destructive tools) does not apply here since this
+ * is read-only; it is withheld purely because the surface it answers about
+ * does not exist on SMS.
+ */
+export const MANAGER_PORTAL_ONLY_TOOLS: readonly string[] = [portfolioImportStatusTool.name];
+
+/**
  * The MANAGER SMS agent's registry: everything the manager portal assistant has,
  * minus every tool flagged `destructive`.
  *
@@ -312,7 +329,9 @@ export function buildManagerSmsRegistry(
   // over every write tool to enforce the identity-field rule. That is real work
   // to repeat on each inbound text.
   managerSmsRegistry ??= buildRegistry(
-    [...agentRegistry.values()].filter((tool) => !(tool.kind === "write" && tool.destructive)),
+    [...agentRegistry.values()].filter(
+      (tool) => !(tool.kind === "write" && tool.destructive) && !MANAGER_PORTAL_ONLY_TOOLS.includes(tool.name),
+    ),
   );
   if (access?.mode !== "delegated") return managerSmsRegistry;
   return buildRegistry(

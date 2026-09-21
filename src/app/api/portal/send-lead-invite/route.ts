@@ -27,8 +27,10 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -131,6 +133,9 @@ export async function POST(req: Request) {
     const effectiveIds = requestedIds;
 
     const svc = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
+      return NextResponse.json({ error: "Listing access is unavailable for this account." }, { status: 403 });
+    }
     const { data: requestor, error: requestorError } = await svc
       .from("profiles")
       .select("role")
@@ -264,10 +269,12 @@ export async function POST(req: Request) {
       }
 
       const from = await managerOutboundFromHeader(svc, user.id);
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [to], subject, text, html }),
+      const res = await postResendEmail({
+        apiKey,
+        actorUserId: user.id,
+        payload: { from, to: [to], subject, text, html },
+        effectSummary: "Lead invite email captured for the test workspace.",
+        metadata: { kind },
       });
       const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
       if (!res.ok) {

@@ -211,6 +211,8 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/lib/portal-base-path-client", () => ({ usePaidPortalBasePath: () => "/portal" }));
 vi.mock("@/lib/manager-applications-storage", () => ({
+  isBookingResidencyRow: (row: unknown) =>
+    (row as { bookingResidency?: unknown } | null)?.bookingResidency === true,
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   syncManagerApplicationsFromServer: () => Promise.resolve(),
   readManagerApplicationRows: () => ROWS,

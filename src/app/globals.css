@@ -2766,10 +2766,15 @@ html[data-communication-surface][data-communication-hide-assistant-fab] .axis-as
 }
 
 html[data-hide-assistant-fab] .portal-assistant-dock-rail,
+html[data-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"],
 html[data-communication-hide-assistant-fab] .portal-assistant-dock-rail,
+html[data-communication-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"],
 html[data-communication-surface][data-communication-thread-reading] .portal-assistant-dock-rail,
+html[data-communication-surface][data-communication-thread-reading] [data-attr="portal-assistant-dock-expand"],
 html[data-communication-surface][data-communication-thread-selected] .portal-assistant-dock-rail,
-html[data-communication-surface][data-communication-hide-assistant-fab] .portal-assistant-dock-rail {
+html[data-communication-surface][data-communication-thread-selected] [data-attr="portal-assistant-dock-expand"],
+html[data-communication-surface][data-communication-hide-assistant-fab] .portal-assistant-dock-rail,
+html[data-communication-surface][data-communication-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"] {
   display: none !important;
 }
 

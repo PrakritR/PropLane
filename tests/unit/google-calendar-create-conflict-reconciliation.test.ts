@@ -16,6 +16,10 @@ vi.mock("@/lib/google-calendar/settings", () => ({
   resolveGoogleCalendarOAuthConfig: () => ({ clientId: "id", clientSecret: "secret" }),
 }));
 vi.mock("@/lib/google-calendar/debug-log.server", () => ({ debugGoogleCalendarLog: () => {} }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn().mockResolvedValue(undefined),
+  TestWorkspaceProviderDisabledError: class TestWorkspaceProviderDisabledError extends Error {},
+}));
 
 import { createGoogleCalendarEvent } from "@/lib/google-calendar/api.server";
 

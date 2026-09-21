@@ -191,16 +191,14 @@ export async function GET(req: Request) {
     const path = new URL(req.url).searchParams.get("path")?.trim() ?? "";
     if (!isLeaseTemplatePath(path)) return notFound();
 
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return notFound();
-
-    const db = createSupabaseServiceRoleClient();
-    const { data: profile } = await db.from("profiles").select("email").eq("id", user.id).maybeSingle();
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-    if (!(await canReadLeaseTemplate(db, user.id, email, path))) return notFound();
+    // Resolve the original authenticated actor and durable business access
+    // before any profile, relationship, or storage read. A still-valid auth
+    // session must not preserve document access after workspace suspension,
+    // expiry, or flag-off.
+    const auth = await getReportsAuthContext();
+    if (!auth) return notFound();
+    const db = auth.db;
+    if (!(await canReadLeaseTemplate(db, auth.userId, auth.email, path))) return notFound();
 
     const { data, error } = await db.storage.from(LEASE_TEMPLATE_BUCKET).download(path);
     if (error || !data) return notFound();

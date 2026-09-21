@@ -3,6 +3,7 @@ import { managerSectionAllowedForTier } from "@/lib/manager-access";
 import { getManagerSubscriptionTier } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export type ReportsAuthContext =
   | {
@@ -54,6 +55,7 @@ export async function getReportsAuthContext(options?: {
   if (!user) return null;
 
   const db = createSupabaseServiceRoleClient();
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
   const admin = await isAdminUser(user.id);
   const { data: profile } = await db
     .from("profiles")

@@ -120,7 +120,8 @@ describe("ManagerTaskList", () => {
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
-    expect(screen.getByText("1 task")).toBeInTheDocument();
+    // A flat card list — no property/assignee group header above the row.
+    expect(document.querySelector('[data-attr="manager-task-groups"]')?.children.length).toBe(1);
     expect(screen.getByRole("button", { name: /Actions for Fix the porch light/i })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /Select all/i })).not.toBeInTheDocument();

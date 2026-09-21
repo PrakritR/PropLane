@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Listing save and publish execution handoff</title>
+<style>body{font:16px/1.55 system-ui;max-width:900px;margin:36px auto;padding:0 20px;color:#172033}code{overflow-wrap:anywhere}h1,h2{line-height:1.2}</style>
+<h1>Listing save and publish execution handoff</h1>
+<p><strong>Plan:</strong> <code>docs/plans/listing-save-publish-release/plan.html</code><br>
+<strong>Branch:</strong> <code>codex/listing-save-publish-release</code><br>
+<strong>Starting HEAD:</strong> <code>9e77b5b8f2a8dc99f27b87dbf866774fc9cf5e89</code></p>
+
+<h2>Implemented behavior</h2>
+<ul>
+  <li>The active <code>ListingEditorV2</code> shows explicit Save and Publish actions on every step while preserving Back and Continue on phone and desktop.</li>
+  <li>Save keeps the editor open. Draft preparation accepts partial data and skips publish-only waiver-code format validation. Close still flushes unsaved work.</li>
+  <li>Publish performs a narrow V2 gate for street, city, canonical state, ZIP, rental model, lease type, and a rentable offering. Whole-place rent and by-room monthly/daily/weekly rent use their existing canonical helpers. Description, deposit and photos remain nonblocking.</li>
+  <li>An invalid Publish navigates to the relevant step, renders a footer alert, and focuses the exact actionable field after the step mounts. Repeated attempts run the same gate.</li>
+  <li>A synchronous lifecycle guard covers preparation/media upload and persistence, disables competing actions, and prevents Save/Publish/close races. Draft IDs and live-edit-in-place behavior remain in the existing persistence hook.</li>
+  <li>Persistence refusals remain visible inline and through the existing toast. Inputs remain mounted for retry.</li>
+</ul>
+
+<h2>Changed files</h2>
+<ul>
+  <li><code>src/components/portal/listing-wizard-v2/index.tsx</code></li>
+  <li><code>src/components/portal/listing-wizard-v2/listing-editor.tsx</code></li>
+  <li><code>src/lib/prepare-listing-submission-for-persist.ts</code></li>
+  <li><code>tests/unit/listing-wizard-v2-save-publish.test.tsx</code></li>
+  <li><code>tests/unit/prepare-listing-submission-for-persist.test.ts</code></li>
+  <li><code>docs/agents/property-drafts.md</code></li>
+</ul>
+
+<h2>Validation evidence</h2>
+<p>Luna ran the focused preparation suite under Node 22 before final integration: 5 tests passed. The first draft of the new editor suite intentionally failed against the pre-fix component; its assertions were then corrected to the final Save-keeps-open and top-level lifecycle contracts. Per the single-heavy-validation rule, no delegate reran focused tests after root started the mandatory one-worker full unit suite. Root owns final unit, lint, build, browser, preflight, review and release evidence.</p>
+<p><code>git diff --check</code> passed after source integration. No server, browser, build, typecheck, database mutation, push or deployment was run by this execution session.</p>
+
+<h2>Known limit</h2>
+<p>The property-record route validates a syntactically valid but server-invalid promo after the listing-row upsert. This existing ordering was not broadened into a route refactor for this release. The UI surfaces the refusal and keeps the editor retryable; final review should record the route ordering as a follow-up if it remains material.</p>
+
+<h2>Next session</h2>
+<p>Review the diff against the plan, consume root's final command and browser evidence, and correct any findings before the keeper is promoted through main, staging and production under the explicit release request.</p>
+</html>

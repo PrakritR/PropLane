@@ -32,10 +32,14 @@ function isEmbeddedDocument(value: string | null | undefined): boolean {
   return text.startsWith("data:") || text.length > 4000;
 }
 
+function hasGeneratedHtml(value: string | null | undefined): boolean {
+  return Boolean(value?.trim());
+}
+
 export function leaseRowCarriesDocumentBytes(row: LeaseListDocumentRow | null | undefined): boolean {
   if (!row) return false;
   return Boolean(
-    isEmbeddedDocument(row.generatedHtml) ||
+    hasGeneratedHtml(row.generatedHtml) ||
       isEmbeddedDocument(row.managerUploadedPdf?.dataUrl) ||
       isEmbeddedDocument(row.managerUploadedPdf?.originalDataUrl),
   );

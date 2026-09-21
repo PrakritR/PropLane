@@ -26,6 +26,8 @@ describe("resident portal redesign completeness", () => {
         "applications",
         "dashboard",
         "communication",
+        // Settings is pinned last and never stage-locked — see
+        // `STAGE_UNLOCKED_SECTIONS` in `resident-portal-nav.ts`.
         "profile",
       ]);
     });
@@ -192,12 +194,19 @@ describe("resident portal redesign completeness", () => {
       const unlockSurfaces = [
         readPanel("resident-payments-panel.tsx"),
         readPanel("resident-services-panel.tsx"),
-        readPanel("resident-move-in-view.tsx"),
       ];
       for (const src of unlockSurfaces) {
         expect(src).toContain("PORTAL_INLINE_UNLOCK_NOTICE_CLASS");
         expect(src).not.toMatch(/glass-card.*unlock/i);
       }
+      // My home's locked stage gate folds the unlock explanation into the
+      // compact empty-state row instead of a separate notice banner — the
+      // no-subtext direction this panel took a step further than the other
+      // two, not a regression to the old two-sentence banner.
+      const moveInLockedGate = readPanel("resident-move-in-view.tsx");
+      expect(moveInLockedGate).not.toContain("PORTAL_INLINE_UNLOCK_NOTICE_CLASS");
+      expect(moveInLockedGate).toContain("Unlocks after both signatures are complete.");
+      expect(moveInLockedGate).not.toMatch(/glass-card.*unlock/i);
       expect(readPanel("resident-payments-panel.tsx")).not.toContain("glass-card");
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
       const routeRenderer = readFileSync(

@@ -101,7 +101,10 @@ import {
   patchScheduledMessage,
   useScheduledPaymentMessages,
 } from "@/components/portal/payment-schedule-ui";
-import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
+import {
+  automationChannelDefaultsFromSettings,
+  scheduledItemsForRecipient,
+} from "@/lib/inbox-scheduled-thread";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import {
@@ -286,7 +289,11 @@ export const ManagerInbox = forwardRef<
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
   const inboxBase = embeddedInCommunication && commBase ? `${commBase}/inbox` : `${portalBase}/inbox`;
-  const { messages: scheduledMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
+  const {
+    messages: scheduledMessages,
+    settings: reminderAutomationSettings,
+    reload: reloadAutomationScheduled,
+  } = useScheduledPaymentMessages({
     includeHidden: false,
   });
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
@@ -457,7 +464,9 @@ export const ManagerInbox = forwardRef<
   const embeddedResidentChat = Boolean(residentEmailNorm);
 
   const emailThreads = useMemo(() => {
-    let base = embeddedInCommunication ? filterEmailInboxThreads(local) : local;
+    let base = embeddedInCommunication
+      ? filterEmailInboxThreads(local, { keepSmsLike: !smsUiEnabled })
+      : local;
     base = filterManagerCommunicationThreads(base);
     const scoped =
       !threadFilters || !filterContacts
@@ -480,6 +489,7 @@ export const ManagerInbox = forwardRef<
     return collapsePersonInboxThreads(vendorScoped, { mergeFolders: embeddedInCommunication });
   }, [
     embeddedInCommunication,
+    smsUiEnabled,
     local,
     threadFilters,
     filterContacts,
@@ -592,10 +602,21 @@ export const ManagerInbox = forwardRef<
   // Mark an unread inbox thread read without a toast — used when a thread is
   // opened in the two-pane view (kept listed under Unopened until refresh via
   // `retainedIds`, matching the explicit "Mark read" behaviour).
-  const markReadSilent = (id: string) => {
-    setLocal((prev) => prev.map((t) => (t.id === id && t.folder === "inbox" ? { ...t, unread: false } : t)));
+  const markReadSilent = useCallback((id: string) => {
+    const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+    const thread = current.find((row) => row.id === id && row.folder === "inbox" && row.unread);
+    if (!thread) return;
+    const changed = { ...thread, unread: false };
+    const next = current.map((row) => row.id === id ? changed : row);
+    // Commit the selected row to the shared store before React's persistence
+    // effect runs. A read must not rewrite the entire mailbox: an unrelated
+    // inaccessible row can reject that replacement before this row is saved.
+    void upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [changed], next).then((ok) => {
+      if (!ok) showToast("Could not mark the conversation as read. Try again.");
+    });
+    setLocal(next);
     setRetainedIds((prev) => new Set(prev).add(id));
-  };
+  }, [showToast]);
 
   const markRead = (id: string) => {
     markReadSilent(id);
@@ -1175,17 +1196,23 @@ export const ManagerInbox = forwardRef<
 
   // ---- Open conversation (right pane) ----------------------------------
   const [reply, setReply] = useState<{ threadId: string | null; text: string }>({ threadId: null, text: "" });
+  const replyRef = useRef(reply);
   const replyDraft = reply.text;
-  const setReplyDraft = useCallback((text: string) => setReply((prev) => ({ ...prev, text })), []);
+  const setReplyDraft = useCallback((text: string) => {
+    const next = { ...replyRef.current, text };
+    replyRef.current = next;
+    setReply(next);
+  }, []);
+  const [replyFocusSignal, setReplyFocusSignal] = useState(0);
+  const adoptedAiDraftByThreadRef = useRef<Map<string, string>>(new Map());
+  const [adoptedAiDraftThreadId, setAdoptedAiDraftThreadId] = useState<string | null>(null);
+  const aiDraftHydratedKeysRef = useRef<Set<string>>(new Set());
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
   const [replyViaSms, setReplyViaSms] = useState(false);
   const [replyViaProplane, setReplyViaProplane] = useState(false);
-  const [aiDraftViaEmail, setAiDraftViaEmail] = useState(true);
-  const [aiDraftViaSms, setAiDraftViaSms] = useState(false);
   const [approvingDraft, setApprovingDraft] = useState(false);
-  const [aiDraftEditText, setAiDraftEditText] = useState("");
   const { enabled: aiAutoSend, setEnabled: setAiAutoSend } = useInboxAiDraftAutoSend();
   const { channelsFor } = useManagerCommunicationDeliverVia();
   const autoSentDraftRef = useRef<string | null>(null);
@@ -1205,19 +1232,51 @@ export const ManagerInbox = forwardRef<
       ),
     [expandedId, emailThreads, local, userId],
   );
+  const activeAiDraftAdopted = Boolean(
+    activeThread?.aiDraft?.status === "pending_approval"
+      && activeThread.aiDraft.text.trim()
+      && reply.threadId === activeThread.id
+      && replyDraft.trim() === activeThread.aiDraft.text.trim(),
+  );
+
+  const insertAiDraftIntoReply = useCallback(
+    (threadId: string, text: string, force = false) => {
+      const normalized = text.trim();
+      if (!normalized) return false;
+      const current = replyRef.current.threadId === threadId
+        ? replyRef.current.text
+        : readInboxReplyDraft(threadId);
+      const previousAiDraft = adoptedAiDraftByThreadRef.current.get(threadId);
+      if (!force && current.trim() && current !== previousAiDraft) {
+        showToast("Draft ready. Your existing reply was kept.");
+        return false;
+      }
+      const next = { threadId, text: normalized };
+      adoptedAiDraftByThreadRef.current.set(threadId, normalized);
+      setAdoptedAiDraftThreadId(threadId);
+      replyRef.current = next;
+      setReply(next);
+      setReplyFocusSignal((value) => value + 1);
+      return true;
+    },
+    [showToast],
+  );
 
   // Opening a thread in the unified Communication list marks it read (dot clears).
   useEffect(() => {
-    if (!activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
+    if (!inboxSynced || !activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
     markReadSilent(activeThread.id);
-  }, [activeThread?.id]);
+  }, [activeThread?.id, inboxSynced, markReadSilent]);
 
   // A draft per conversation — restored when the manager comes back to it.
   // The text and the conversation it belongs to travel as one value, so the
   // write below never files the previous thread's words under the new id.
   useEffect(() => {
     const threadId = activeThread?.id ?? null;
-    setReply({ threadId, text: threadId ? readInboxReplyDraft(threadId) : "" });
+    const next = { threadId, text: threadId ? readInboxReplyDraft(threadId) : "" };
+    setAdoptedAiDraftThreadId(null);
+    replyRef.current = next;
+    setReply(next);
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
@@ -1231,12 +1290,18 @@ export const ManagerInbox = forwardRef<
   }, [activeThread?.id, reply]);
 
   useEffect(() => {
-    if (activeThread?.aiDraft?.status === "pending_approval") {
-      setAiDraftEditText(activeThread.aiDraft.text);
-    } else {
-      setAiDraftEditText("");
-    }
-  }, [activeThread?.aiDraft?.status, activeThread?.aiDraft?.text, activeThread?.id]);
+    if (!activeThread?.aiDraft?.text || activeThread.aiDraft.status !== "pending_approval") return;
+    const key = `${activeThread.id}:${activeThread.aiDraft.generatedAt ?? activeThread.aiDraft.text}`;
+    if (aiDraftHydratedKeysRef.current.has(key)) return;
+    aiDraftHydratedKeysRef.current.add(key);
+    insertAiDraftIntoReply(activeThread.id, activeThread.aiDraft.text);
+  }, [
+    activeThread?.aiDraft?.generatedAt,
+    activeThread?.aiDraft?.status,
+    activeThread?.aiDraft?.text,
+    activeThread?.id,
+    insertAiDraftIntoReply,
+  ]);
 
   const [threadPhoneOpen, setThreadPhoneOpen] = useState(false);
   const [threadPhoneError, setThreadPhoneError] = useState<string | null>(null);
@@ -1363,8 +1428,6 @@ export const ManagerInbox = forwardRef<
       setReplyViaProplane(person.viaProplane);
       setReplyViaEmail(person.viaEmail);
       setReplyViaSms(person.viaSms);
-      setAiDraftViaEmail(person.viaEmail);
-      setAiDraftViaSms(person.viaSms);
       return;
     }
     const preferred = channelsFor("inbox_default");
@@ -1376,8 +1439,6 @@ export const ManagerInbox = forwardRef<
     setReplyViaProplane(false);
     setReplyViaEmail(next.viaEmail);
     setReplyViaSms(next.viaSms);
-    setAiDraftViaEmail(next.viaEmail);
-    setAiDraftViaSms(next.viaSms);
   }, [
     activeIsAssistantThread,
     embeddedInCommunication,
@@ -1471,9 +1532,14 @@ export const ManagerInbox = forwardRef<
   const threadScheduledItems = useMemo(
     () =>
       activeThread
-        ? scheduledItemsForRecipient(activeThread.email, manualScheduledMessages, scheduledMessages)
+        ? scheduledItemsForRecipient(
+            activeThread.email,
+            manualScheduledMessages,
+            scheduledMessages,
+            automationChannelDefaultsFromSettings(reminderAutomationSettings),
+          )
         : [],
-    [activeThread, manualScheduledMessages, scheduledMessages],
+    [activeThread, manualScheduledMessages, reminderAutomationSettings, scheduledMessages],
   );
 
   const reloadScheduled = useCallback(() => {
@@ -1582,8 +1648,7 @@ export const ManagerInbox = forwardRef<
       // Opening an unread inbox message reads it (natural inbox behaviour).
       if (thread.folder === "inbox" && thread.unread) markReadSilent(thread.id);
     },
-    // markReadSilent only closes over stable state setters.
-    [],
+    [markReadSilent, setExpandedId],
   );
 
   const pickReplyAttachments = useCallback(
@@ -1716,6 +1781,8 @@ export const ManagerInbox = forwardRef<
       if (!outcome) return;
       setReplyDraft("");
       clearInboxReplyDraft(activeThread.id);
+      adoptedAiDraftByThreadRef.current.delete(activeThread.id);
+      setAdoptedAiDraftThreadId(null);
       setReplyAttachments((prev) => {
         prev.forEach(revokeInboxAttachmentPreview);
         return [];
@@ -1837,6 +1904,11 @@ export const ManagerInbox = forwardRef<
 
   const discardActiveDraft = useCallback(async () => {
     if (!activeThread?.aiDraft) return;
+    if (adoptedAiDraftByThreadRef.current.has(activeThread.id)) {
+      adoptedAiDraftByThreadRef.current.delete(activeThread.id);
+      setReplyDraft("");
+      clearInboxReplyDraft(activeThread.id);
+    }
     const updated: InboxThread = advanceInboxAiDraft(activeThread);
     const next = local.map((t) => (t.id === activeThread.id ? updated : t));
     setDiscardedDraftIds((prev) => new Set(prev).add(activeThread.id));
@@ -1844,18 +1916,23 @@ export const ManagerInbox = forwardRef<
     setLocal(next);
     await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
     persistInboxRef.current = true;
-  }, [activeThread, local]);
+  }, [activeThread, local, setReplyDraft]);
 
   const approveActiveDraft = useCallback(async () => {
-    const text = aiDraftEditText.trim();
-    if (!activeThread || !text) return;
+    // The normal composer is the only send surface. Auto-send and Approve must
+    // deliver what is on screen (replyDraft), never a hidden server aiDraft that
+    // dirty-composer protection refused to insert.
+    const pending = activeThread?.aiDraft?.text.trim() ?? "";
+    const text = replyDraft.trim();
+    if (!activeThread || !pending || !text) return false;
+    if (text !== pending) return false;
     // Resolve against live availability so auto-send (and a stale picker
     // state right after opening a phone-only thread) still picks SMS when
     // email is impossible — never toast "choose a channel" and stick the
     // auto-send latch forever.
     const channels = {
-      viaEmail: aiDraftViaEmail && activeEmailAvailable,
-      viaSms: aiDraftViaSms && activeSmsAvailable,
+      viaEmail: replyViaEmail && activeEmailAvailable,
+      viaSms: replyViaSms && activeSmsAvailable,
       viaProplane: replyViaProplane && activeProplaneAvailable,
     };
     if (!hasInboxReplyChannelSelected(channels)) {
@@ -1869,7 +1946,13 @@ export const ManagerInbox = forwardRef<
         sms: channels.viaSms,
         proplane: channels.viaProplane,
       });
-      if (outcome) showToast(inboxReplySentToastMessage(outcome));
+      if (outcome) {
+        adoptedAiDraftByThreadRef.current.delete(activeThread.id);
+        setAdoptedAiDraftThreadId(null);
+        setReplyDraft("");
+        clearInboxReplyDraft(activeThread.id);
+        showToast(inboxReplySentToastMessage(outcome));
+      }
       return true;
     } catch (error) {
       autoSentDraftRef.current = null;
@@ -1882,38 +1965,18 @@ export const ManagerInbox = forwardRef<
     } finally {
       setApprovingDraft(false);
     }
-  }, [activeEmailAvailable, activeSmsAvailable, activeProplaneAvailable, activeThread, aiDraftEditText, aiDraftViaEmail, aiDraftViaSms, handleReply, replyViaProplane, showToast]);
-
-  useEffect(() => {
-    if (!activeThread?.aiDraft?.text || activeThread.aiDraft.status !== "pending_approval") return;
-    if (embeddedInCommunication) {
-      const person = resolveCommunicationPersonThreadReplyChannels({
-        emailAvailable: activeEmailAvailable,
-        smsAvailable: activeSmsAvailable,
-        lastInboundChannel: activeLastInboundChannel,
-      });
-      setAiDraftViaEmail(person.viaEmail);
-      setAiDraftViaSms(person.viaSms);
-      setReplyViaProplane(person.viaProplane);
-      return;
-    }
-    const preferred = channelsFor("inbox_default");
-    const next = resolveManagerInboxReplyChannels({
-      emailAvailable: activeEmailAvailable,
-      smsAvailable: activeSmsAvailable,
-      preferred,
-    });
-    setAiDraftViaEmail(next.viaEmail);
-    setAiDraftViaSms(next.viaSms);
   }, [
-    embeddedInCommunication,
-    activeThread?.aiDraft?.text,
-    activeThread?.aiDraft?.status,
-    activeThread?.id,
     activeEmailAvailable,
+    activeProplaneAvailable,
     activeSmsAvailable,
-    activeLastInboundChannel,
-    channelsFor,
+    activeThread,
+    handleReply,
+    replyDraft,
+    replyViaEmail,
+    replyViaProplane,
+    replyViaSms,
+    setReplyDraft,
+    showToast,
   ]);
 
   useEffect(() => {
@@ -1926,10 +1989,12 @@ export const ManagerInbox = forwardRef<
     // A draft the workspace queued FOR review is the one thing auto-send must
     // never touch — the manager turned that on to see it first.
     if (activeThread.aiDraft.requiresReview) return;
+    // Fail closed when the visible composer does not hold this pending draft.
+    if (!activeAiDraftAdopted) return;
     if (approvingDraft || draftingIds.has(activeThread.id)) return;
     if (!hasInboxReplyChannelSelected({
-      viaEmail: activeEmailAvailable && aiDraftViaEmail,
-      viaSms: activeSmsAvailable && aiDraftViaSms,
+      viaEmail: activeEmailAvailable && replyViaEmail,
+      viaSms: activeSmsAvailable && replyViaSms,
       viaProplane: activeProplaneAvailable && replyViaProplane,
     })) return;
     const key = `${activeThread.id}:${activeThread.aiDraft.text}`;
@@ -1940,6 +2005,7 @@ export const ManagerInbox = forwardRef<
     });
   }, [
     aiAutoSend,
+    activeAiDraftAdopted,
     activeThread?.id,
     activeThread?.aiDraft?.text,
     activeThread?.aiDraft?.status,
@@ -1947,8 +2013,8 @@ export const ManagerInbox = forwardRef<
     activeEmailAvailable,
     activeSmsAvailable,
     activeProplaneAvailable,
-    aiDraftViaEmail,
-    aiDraftViaSms,
+    replyViaEmail,
+    replyViaSms,
     replyViaProplane,
     approvingDraft,
     draftingIds,
@@ -1990,24 +2056,6 @@ export const ManagerInbox = forwardRef<
       onViaProplaneChange={setReplyViaProplane}
       onViaEmailChange={setReplyViaEmail}
       onViaSmsChange={setReplyViaSms}
-      emailAvailable={activeEmailAvailable}
-      smsAvailable={activeSmsAvailable}
-      proplaneAvailable={activeProplaneAvailable}
-      onAddEmail={canAddThreadEmail ? openThreadPhone : undefined}
-      onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
-      smsDisabledReason={smsDisabledReason}
-      sendingAs={replySendingAs}
-    />
-  );
-
-  const aiDraftChannelPicker = (
-    <InboxReplyChannelPicker
-      viaEmail={aiDraftViaEmail}
-      viaSms={aiDraftViaSms}
-      viaProplane={replyViaProplane}
-      onViaProplaneChange={setReplyViaProplane}
-      onViaEmailChange={setAiDraftViaEmail}
-      onViaSmsChange={setAiDraftViaSms}
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
@@ -2443,8 +2491,8 @@ export const ManagerInbox = forwardRef<
             busy={scheduledBusyId === item.id}
             recipient={activeThread.email}
             sendAt={item.sendAt}
-            onCancel={() => void cancelScheduledItem(item)}
-            onSendNow={() => void sendScheduledItemNow(item)}
+            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
+            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}
@@ -2486,54 +2534,32 @@ export const ManagerInbox = forwardRef<
                 onSelect={openInboundWorkflow}
               />
             ) : null}
-            {/* Draft with AI, Ask PropLane and Schedule live in the composer
+            {/* Draft with PropLane, Ask PropLane and Schedule live in the composer
                 row (its ✦ and 🕒 tools). Only a draft in flight, a failed
                 draft, or a draft waiting for approval still shows above it. */}
             {showAiDraftUi ? (
               <AiDraftReplyCard
                 drafting={draftingIds.has(activeThread.id) && !activeThread.aiDraft?.text}
                 draft={
-                  activeThread.aiDraft?.status === "pending_approval" ? aiDraftEditText : undefined
+                  activeThread.aiDraft?.status === "pending_approval" ? activeThread.aiDraft.text : undefined
                 }
-                onDraftChange={setAiDraftEditText}
                 error={draftErrors[activeThread.id]}
                 approving={approvingDraft}
                 onApprove={() => void approveActiveDraft()}
                 onDiscard={() => void discardActiveDraft()}
-                channelControl={aiDraftChannelPicker}
-                /*
-                 * Hand the finished draft to the thread's own reply field
-                 * instead of rendering a second message box beside it.
-                 *
-                 * Only the STANDALONE panel opts out, and only while auto-send
-                 * is armed there: adopting discards the draft, and a discarded
-                 * draft is one the auto-send effect can no longer send.
-                 * Communication offers no auto-send control at all
-                 * (`onAutoSendChange` is undefined below), so gating on the
-                 * flag there just resurrected the two-box shape for anyone
-                 * whose stored preference happened to be on.
-                 */
-                onAdopt={
-                  aiAutoSend && !embeddedInCommunication
-                    ? undefined
-                    : (text) => {
-                        setReplyDraft(text);
-                        void discardActiveDraft();
-                      }
-                }
+                onAdopt={(text) => {
+                  insertAiDraftIntoReply(activeThread.id, text, true);
+                }}
+                adopted={activeAiDraftAdopted}
                 autoSend={aiAutoSend}
                 onAutoSendChange={embeddedInCommunication ? undefined : setAiAutoSend}
                 maxLength={
-                  !embeddedInCommunication && aiDraftViaSms && !aiDraftViaEmail ? 1600 : undefined
+                  !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
                 }
-                onGenerate={
-                  activeThread.aiDraft?.status !== "pending_approval"
-                    ? () => {
-                        draftAttemptedRef.current.delete(activeThread.id);
-                        void requestInboxAiDraft(activeThread.id, true);
-                      }
-                    : undefined
-                }
+                onGenerate={() => {
+                  draftAttemptedRef.current.delete(activeThread.id);
+                  void requestInboxAiDraft(activeThread.id, true);
+                }}
                 hideGenerateButton
               />
             ) : null}
@@ -2554,12 +2580,18 @@ export const ManagerInbox = forwardRef<
             />
             <InboxComposer
               value={replyDraft}
-              onChange={setReplyDraft}
+              onChange={(next) => {
+                setReplyDraft(next);
+                if (!next.trim() && adoptedAiDraftThreadId === activeThread.id) {
+                  void discardActiveDraft();
+                }
+              }}
               onSubmit={() => void sendActiveReply()}
               sending={replySending}
               placeholder="Write a reply…"
               maxLength={!embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined}
               dataAttr="inbox-reply"
+              focusSignal={replyFocusSignal}
               hint={
                 scheduleLater && inboxThreadHasEmail(activeThread.email)
                   ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
@@ -2573,6 +2605,7 @@ export const ManagerInbox = forwardRef<
               trailingControls={
                 <>
                   <InboxComposerAiMenu
+                    disabled={draftingIds.has(activeThread.id)}
                     onDraft={
                       showAiDraftUi && activeThread.aiDraft?.status !== "pending_approval"
                         ? () => {

@@ -27,6 +27,7 @@ import type { ManagerReminderRecipient } from "@/lib/reminders/manager-recipient
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 import { managerNotificationCategoryForTask } from "@/lib/manager-notification-preferences";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 /** How far ahead to look. Comfortably past the longest lead time a rule allows. */
 const HORIZON_DAYS = 31;
@@ -49,6 +50,7 @@ export function remindableTasks(tasks: readonly ManagerTask[], now: Date, horizo
   const from = now.getTime();
   const to = from + horizonDays * 24 * 60 * 60 * 1000;
   return tasks.filter((task) => {
+    if (hasSmsTestProvenance(task)) return false;
     if (task.completed) return false;
     if (!task.assignee) return false;
     const anchor = taskAnchorIso(task);

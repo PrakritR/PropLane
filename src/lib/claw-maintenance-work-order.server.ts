@@ -26,6 +26,7 @@ import {
 } from "@/lib/work-order-taxonomy";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 export {
   inferMaintenanceCategoryLabel,
@@ -279,7 +280,7 @@ export async function createWorkOrderFromResidentSms(args: {
         property_id: ctx.propertyId,
         assigned_property_id: ctx.assignedPropertyId ?? ctx.propertyId,
         vendor_user_id: null,
-        row_data: row,
+        row_data: stampSmsTestProvenance(row as unknown as Record<string, unknown>),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" },

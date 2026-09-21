@@ -9,6 +9,10 @@
 // a courtesy; this pins Decline and the request acknowledgement to the same rule.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 const appendResidentPropertyManagerInboxMessage = vi.fn();
 const resolveTourSmsEligibility = vi.fn();
 

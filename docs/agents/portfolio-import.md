@@ -1,91 +1,167 @@
-# Property import (spreadsheet / rent roll / PDF → listing drafts)
+# Portfolio import (rebuilt): spreadsheet / rent roll / PDF → properties, residents, leases, charges, tasks
 
-A manager switching to PropLane uploads whatever file they have — a rent
-roll, an owner's own sheet, an AppFolio or Buildium export, a PDF — and gets
-one listing draft per property, rooms and rents filled in, inside the Add
-property workspace. Read this before touching `src/lib/property-import/`,
-`src/app/api/portal/property-import/`, or
-`src/components/portal/listing-wizard-v2/import-*.tsx`.
+A manager switching to PropLane uploads whatever files they have — a rent
+roll, an owner's own sheet, an AppFolio or Buildium export, PDFs — at
+`/portal/properties/import`, reviews ONE proposal covering everything the
+files describe, and creates it. Read this before touching
+`src/lib/portfolio-import/`, `src/app/api/portal/portfolio-import/`, or
+`src/lib/tools/domains/portfolio-import.ts`.
+
+The property/room side of this (`src/lib/property-import/`) is unchanged and
+still the read `submissionFromImportedProperty` builds a draft from — see its
+own section below. This rebuild adds a SECOND model pass for who lives where
+today, merges both into one proposal, and creates everything (not just
+listing drafts) through the real per-domain creation paths.
 
 ## Shape
 
 ```
-Properties ＋ / Dashboard ＋ / empty state → Create   (pro-properties.tsx, CreateWorkspace)
+/portal/properties/import  (Upload → Review → Create)
         │
-   Basics opens with a "Start from a file" strip above Property type (ImportFileStrip)
-        │   a file picked over typed work asks first: Replace / Keep what I typed
-        ▼
-   ImportFileStrip / Import step (import-upload-step.tsx)  ──►  POST /api/portal/property-import/read  {file, hint?}
-        │                                          read-file.server   → row-numbered cell grids (no interpretation)
-        │                                          understand.server  → ONE complex-tier model call, tool-use schema
-        │                                          ◄── PropertyImportUnderstanding (properties, rooms, rows cited, notes)
+   POST /api/portal/portfolio-import  { files[] (1-50, ≤5MB each), hint? }
+        │   read-file.server (unchanged)     → row-numbered cell grids per file
+        │   understand.server (unchanged)    → properties + rooms (ONE model call, report_properties)
+        │   understand-residents.server      → current residents (ONE model call, report_residents)
+        │   propose.ts                       → merges both into a PortfolioImportProposal (pure)
+        │   store.server                     → persists it under a fresh importId
         │
-   each property → submissionFromImportedProperty (to-submission.ts) → saveManagerPropertyDraftToServer
-        │            (the SAME draft path typing uses; ✦ Imported marks via prefill.source = "file";
-        │             the blank listing's own draft, if it autosaved, is deleted so Drafts holds no orphan)
+   GET  /api/portal/portfolio-import/[importId]           → the stored proposal
+   PATCH .../[importId]  { answers?, skips? }              → merge gap answers / skip an item, recomputes status
         │
-   ONE property   → it replaces the blank listing in place: Basics, filled, with the Import step behind it on the rail
-   SEVERAL        → Import step = Found list: one row per property, ⋯ Open / Merge into… / Not a property, hint + Re-read
-        │              Left rail = editor chrome for the selected draft (Add photos, N things to finish, summaries, Draft).
+   POST .../[importId]/create  { sendInvites, answers?, skips? }
+        │   create.server.ts — ONE property at a time, through the real paths:
+        │     rooms/property  → submissionFromImportedProperty → the SAME draft row
+        │                        saveManagerPropertyDraftToServer would build
+        │                        (its two pure builders, exported, called directly —
+        │                        that function itself is browser-only) → manager_property_records, status "draft"
+        │     residents       → buildImportedResidentRow → manager_application_records
+        │                        → provisionApprovedResidentAccount (auth account)
+        │                        → runExistingResidentOnboarding (lease stub + optional welcome)
+        │     leases          → created BY runExistingResidentOnboarding: no attached signed
+        │                        document → a "manager" bucket lease with managerAttestedTenancyAt,
+        │                        genuinely unsigned
+        │     charges         → a HouseholdCharge row → portal_household_charge_records
+        │                        → syncLedgerChargeEntry (write-through ledger sync)
+        │     tasks           → createManagerTaskRow
+        │   A property that throws is unwound (best-effort compensating deletes of
+        │   what THIS attempt created) and reported in `failures[]`; other properties
+        │   are unaffected.
         │
-   Basics → Rooms → Bathrooms → Shared spaces → Pricing → Review  (ListingWizardV2 with leadingStep + headerCenter + basicsLead)
-            header switcher "1 of 6 · 400 Pike St ▾" moves between drafts (several only); switching flushes first (flushRef)
+   portfolio_import_status (agent tool, manager PORTAL only) → the stored proposal's
+        summary + unresolved gaps, for "how did my import go"
 ```
 
 | Piece | File |
 | --- | --- |
-| Types (isomorphic) | `src/lib/property-import/types.ts` |
-| File → cell grids, caps | `src/lib/property-import/read-file.server.ts` |
-| Whole-file model read, payload validation | `src/lib/property-import/understand.server.ts` |
-| Understood property → listing draft | `src/lib/property-import/to-submission.ts` |
-| Route | `src/app/api/portal/property-import/read/route.ts` |
-| Create workspace, strip + Import step, switcher | `src/components/portal/listing-wizard-v2/create-workspace.tsx`, `import-upload-step.tsx`, `import-property-switcher.tsx` |
-| Editor hooks the import uses | `ListingEditorV2` `leadingStep` / `headerCenter` / `basicsLead` / `initialStep`; `listingRailChrome` on the Import rail; `ListingWizardV2` `flushRef` / `onDirtyChange` |
-| Live proof (dev only) | `scripts/testing/property-import-live-read.mts` |
+| Shared types (the review UI and the server agree on exactly this) | `src/lib/portfolio-import/types.ts` |
+| Resident model pass | `src/lib/portfolio-import/understand-residents.server.ts` |
+| Pure merge into one proposal | `src/lib/portfolio-import/propose.ts` |
+| Persistence (`manager_portfolio_import*` tables) | `src/lib/portfolio-import/store.server.ts` |
+| Creation through the real paths | `src/lib/portfolio-import/create.server.ts` |
+| Placeholder email convention | `src/lib/portfolio-import/placeholder-email.ts` |
+| Routes | `src/app/api/portal/portfolio-import/route.ts` (upload), `.../[importId]/route.ts` (GET/PATCH), `.../[importId]/create/route.ts` |
+| Agent tool (read-only, portal only) | `src/lib/tools/domains/portfolio-import.ts` (`portfolio_import_status`) |
+| Property/room read (unchanged) | `src/lib/property-import/read-file.server.ts`, `understand.server.ts`, `to-submission.ts` |
 
 ## Invariants
 
-- **The drafts are the import.** Nothing is stored server-side by the read;
-  every found property is written as an ordinary listing draft the moment the
-  read lands, through the same save path Add property uses. The Drafts tab
-  is the resume point; there is no import record, banner or separate page.
-  (`manager_portfolio_import*` tables remain from the previous import, unused.)
-- **The model reads everything, and only answers through the tool.** Every
-  kept row of every sheet, row-numbered, goes to `TIER_MODELS.complex` with
-  `tool_choice` forced to `report_properties`; the input schema is the shape
-  we read. `parseUnderstandingPayload` re-validates it (money, counts, rows,
-  enums) — `property-import-understand.test.ts`.
-- **Rent is what the tenant pays.** Market/asking rent, deposit, balance and
-  arrears never become rent (prompt + fixture). Totals, subtotal and header
-  rows are never properties. Resident names are out of scope for this read.
-- **Rows are cited.** Every property and room carries the sheet and the
-  file's own row numbers; the UI shows "rows 4–7".
-- **A building whose units each carry a rent is priced by the room**
-  (`shared_home`), so no unit price is lost — PropLane's rooms are its
-  rentable units (`property-import-to-submission.test.ts`).
-- **Add property is untouched.** `leadingStep` and `headerCenter` are
-  optional; without them the six-step rail renders exactly as before
-  (`listing-wizard-v2-leading-step.test.tsx`). The plan limit is the
-  existing pre-check plus the server's own refusal on each draft save.
-- **Caps.** 5 MB, 2,000 rows across sheets (the reader names the sheet it
-  cut), 60 properties, 8 reads / minute / manager. Under `NODE_ENV=test` or
-  without `ANTHROPIC_API_KEY` the read refuses rather than inventing a
+- **Two model passes over the SAME grids, never a re-read.** Both
+  `understandPropertyImport` (properties/rooms) and `understandResidents`
+  (current residents) consume the identical row-numbered cell grids from
+  `read-file.server.ts`, each answering through exactly one forced tool call.
+  Neither reads the file twice.
+- **Rent is what the tenant pays.** Market/asking rent, deposit, and
+  balance/arrears never become rent — enforced in both model prompts and
+  re-validated when the payload is parsed.
+- **Every proposal item cites its file/sheet/rows or pdf page** (`ImportSource`
+  on every property, room, resident, charge, and task).
+- **A "needs" item never gets created silently.** `create.server.ts` refuses
+  a whole property if any of its (non-skipped) residents still has an
+  unresolved gap after merging the manager's `answers`/`skips` — it does not
+  create the property half-answered. The manager answers the gap or skips
+  that resident first (`PATCH .../[importId]`).
+- **Nothing is fabricated as a signature.** An imported resident's lease is
+  created unsigned; `runExistingResidentOnboarding` sets
+  `managerAttestedTenancyAt` (establishes tenancy, not a signature) rather
+  than inventing manager/resident signatures. Every imported resident
+  therefore also gets an `unsigned_lease` task.
+- **Invites only on explicit opt-in.** `sendInvites` on the create request is
+  the only thing that turns on `runExistingResidentOnboarding`'s welcome
+  email/SMS; the default is off.
+- **Money is whole dollars in this module.** `types.ts`'s money fields match
+  `src/lib/property-import/types.ts`'s convention; a persisting write (a
+  `HouseholdCharge`'s `amountLabel`, the ledger's `amount_cents`) converts at
+  its own boundary, same as every other charge-creation path.
+- **Creation reuses the real paths, never a second one.** Listing drafts,
+  resident onboarding, the household-charge ledger sync, and manager tasks
+  are all the SAME functions every other entry point calls — see the table
+  above. `create.server.ts`'s own header comment explains exactly which
+  pieces are direct service-role writes (mirroring `create_property` and
+  every other server-side write tool, which never `fetch()` an internal
+  route) versus calls into existing shared functions.
+- **Per-property rollback, not a database transaction.** ids inside one
+  property (the draft, the resident row, each charge) are deterministic
+  (`shortHash(importId + proposal key)`), so re-running `create()` after a
+  partial failure upserts the same rows rather than duplicating them. A
+  property that throws partway is unwound with best-effort compensating
+  deletes of what that attempt created before moving to the next property.
+  Manager tasks are stored one JSON array per manager
+  (`manager-tasks.server.ts`) and `createManagerTaskRow` always appends
+  rather than upserting by id, so `create.server.ts` guards retry-safety
+  itself: every import task gets a deterministic id
+  (`task_import_<shortHash(task key)>`, same convention as charges), loaded
+  once per `create()` call against this manager's current tasks, and skipped
+  when that id is already present — a literal retry of the same `create()`
+  call never duplicates a task (or a property, resident, or charge, which
+  were already deterministic upserts).
+- **A room skip is a real server-side skip.** `PortfolioImportUpdateRequest`/
+  `PortfolioImportCreateRequest`'s `skips` accepts a property key, a resident
+  key, OR a room key. `applyAnswersAndSkips` drops a skipped room from
+  `property.rooms` entirely (defensively, only when no resident is tied to
+  it), so it is never created as an unoccupied room in the draft. The review
+  screen's `EmptyRoomRow` "Skip" button (only ever shown for a room no
+  resident occupies) round-trips through the same `PATCH` a resident skip
+  does — never local-only UI state.
+- **Caps.** 50 files per upload, 5 MB each, 8 uploads/minute/manager (same
+  budget as `property-import/read`). Under `NODE_ENV=test` or without
+  `ANTHROPIC_API_KEY` both model passes refuse rather than inventing a
   portfolio.
 - **Untrusted input.** Sheet text is data; the manager's hint is the only
-  instruction the model follows. Langfuse-traced with `landlordId`.
+  instruction either pass follows. Both traced with `landlordId`.
+- **The agent tool is portal-only.** `portfolio_import_status` is withheld
+  from manager SMS (`MANAGER_PORTAL_ONLY_TOOLS` in `src/lib/tools/index.ts`)
+  because the review screen it answers about doesn't exist there. It is
+  read-only — there is no `portfolio_import_create` tool; creation stays a
+  page action the manager explicitly takes, same as approving an application
+  isn't an agent tool either.
 
-## Analytics
+## What changed from the pre-rebuild version
 
-PostHog `property_import_read` / `property_import_reread` {sourceKind,
-sheets, rowsRead, propertyCount, roomCount, needsLookCount, withHint} on the
-server; `property_import_opened` {propertyCount} on the client. No file
-names, no addresses. `data-attr` on every control (`import-*`).
+The version removed in commit `8302fa69` ("chore(import): remove the
+portfolio import until it is rebuilt") parsed a rent roll by matching its own
+header row against a canonical column list (`column-map.ts` / `build-draft.ts`).
+That never produced a usable draft from a real spreadsheet — no layout
+consistently matched. This rebuild replaces the whole read with two model
+passes over the raw grid (exactly how `property-import`'s property/room read
+already works), and only reuses the pre-rebuild code that had nothing to do
+with header matching: the placeholder-email convention, and the receipt
+(prepare/complete/fail) persistence shape in `store.server.ts`, itself
+unchanged from `sales-migration`'s pattern.
+
+The `manager_portfolio_import*` tables survived the removal and are reused
+here, widened additively (`20260920240000_portfolio_import_rebuild.sql`) to
+accept a multi-file upload instead of exactly one file per row. The stored
+`draft` jsonb column now holds `{version: 2, proposal}` (the rebuilt
+`PortfolioImportProposal`); a pre-rebuild `{version: 1, table, draft}` row, if
+one somehow still existed, is never read as a proposal.
 
 ## Fixtures
 
-`tests/fixtures/portfolio-import/`: AppFolio csv, Buildium xlsx, generic csv,
-rent-roll pdf, a text-less scan, and `owner-messy.xlsx` (title rows, merged
-header, blank spacers, Market Rent beside Rent, totals rows, three tabs;
-`scripts/testing/generate-owner-messy-fixture.mjs`). Live results on
-2026-09-15: owner-messy → 4 properties / 9 rooms; buildium, appfolio, pdf →
-2 properties / 7 units each, totals and Market Rent skipped, rows cited.
+`tests/fixtures/portfolio-import/`: `appfolio-rent-roll.csv`,
+`buildium-rent-roll.xlsx`, `generic.csv`, `owner-messy.xlsx` (title rows,
+merged header, blank spacers, Market Rent beside Rent, totals rows, three
+tabs), `rent-roll.pdf`, `scan-no-text.pdf` (text-less scan — exercises the
+unreadable-PDF refusal). See `docs/agents/portfolio-import.md`'s git history
+for the last recorded live-read results against these fixtures for the
+property/room pass; the resident pass has not yet been proven against them
+live (see the AREA 5 build handoff for what still needs a live pass).

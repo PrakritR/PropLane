@@ -1,0 +1,7 @@
+{
+  "target": "staging",
+  "project": "xwszcafaontidfgznlxd",
+  "certificate_verification": "verify-full/system",
+  "exit_code": 2,
+  "error": "TLS read-only verification failed; driver details suppressed"
+}

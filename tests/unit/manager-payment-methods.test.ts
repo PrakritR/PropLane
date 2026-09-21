@@ -16,6 +16,9 @@ vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: mocks.auth,
 }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }) }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({
     customers: {

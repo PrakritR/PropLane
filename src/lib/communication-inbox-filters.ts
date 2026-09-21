@@ -96,7 +96,9 @@ export function threadMatchesVendorContact(
 
 /**
  * Unread conversations Active would show: collapse person rows, drop leftover
- * workspace assistant notices, and ignore archived SMS bindings.
+ * workspace assistant notices, and ignore archived SMS bindings. Inbound-SMS
+ * notices remain countable because the SMS UI defaults off; in that state they
+ * fall through into this same conversation list.
  */
 export function countVisibleUnreadCommunication(
   rows: PersistedInboxThread[],
@@ -118,7 +120,6 @@ export function countVisibleUnreadCommunication(
   const archivedSms = opts.archivedSmsIds;
   return collapsed.filter((thread) => {
     if (thread.folder !== "inbox" || !thread.unread) return false;
-    if (isSmsLikeInboxThread(thread)) return false;
     const binding = thread.smsConversationKey?.trim();
     if (binding && archivedSms?.has(binding)) return false;
     return true;

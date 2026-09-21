@@ -80,6 +80,25 @@ export function buildConversationKey(args: {
 }
 
 /**
+ * One prospect identity decision for the leasing runner and its tour tools.
+ * Authenticated SMS tests use the isolated session as their conversation ref;
+ * actor ownership remains a separate fence in every test RPC.
+ */
+export function buildProspectConversationKey(args: {
+  ownerManagerUserId: string | null | undefined;
+  testSessionId?: string | null;
+  counterpartyPhone?: string | null;
+}): string {
+  return buildConversationKey({
+    ownerManagerUserId: args.ownerManagerUserId,
+    role: "prospect",
+    ...(String(args.testSessionId ?? "").trim()
+      ? { counterpartyUserId: args.testSessionId }
+      : { counterpartyPhone: args.counterpartyPhone }),
+  });
+}
+
+/**
  * Best-effort role inference for legacy rows and read-time fallback, from the
  * signals already available without the persisted column: whether the
  * counterparty is a linked Axis account, their tenancy status, and the Claw

@@ -10,6 +10,7 @@ import { buildScreeningRecommendation } from "@/lib/screening/recommendation";
 import { getManagerScreeningSettings } from "@/lib/screening/settings";
 import type { ApplicationScreeningReport, ScreeningProviderReport } from "@/lib/screening/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 export type OrderScreeningResult =
   | { ok: true; row: DemoApplicantRow; screening: ApplicationScreeningReport }
@@ -133,6 +134,14 @@ export async function orderScreeningForApplication(opts: {
   managerUserId: string;
   skipBilling?: boolean;
 }): Promise<OrderScreeningResult> {
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: opts.managerUserId,
+    kind: "payment",
+    summary: "Applicant screening refused for a test workspace.",
+    db: opts.db,
+  })).captured) {
+    return { ok: false, status: 403, error: "Screening is unavailable for test accounts.", code: "test_workspace_provider_disabled" };
+  }
   if (!screeningConfigured()) {
     return { ok: false, status: 503, error: "Screening is not configured. Add CERTN_API_KEY.", code: "not_configured" };
   }

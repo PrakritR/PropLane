@@ -8,12 +8,27 @@ on:
     branches: [main, staging]
   pull_request:
   workflow_dispatch:
+    inputs:
+      build_only:
+        description: "Run only the build and encrypted local QA artifact job on the exact release keeper"
+        required: false
+        type: boolean
+        default: false
+      e2e_scope:
+        description: "Select the manual browser scope"
+        required: false
+        type: choice
+        default: full
+        options:
+          - full
+          - property_metadata
   schedule:
     - cron: "0 6 * * *"
 
 jobs:
   unit:
     runs-on: ubuntu-24.04
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -47,6 +62,7 @@ jobs:
   # so it reports on the others without ever cancelling one.
   integration:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -67,6 +83,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -134,7 +151,7 @@ jobs:
   e2e-full:
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -143,7 +160,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Run full E2E suite
+        if: github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'
+        run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
+          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
+          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
+          E2E_TESTS_ENABLED: "1"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Run property metadata E2E scope
+        if: github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
+        run: npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts
         env:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
@@ -198,7 +236,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     needs: [unit, lint, build]
-    if: always()
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
     steps:
       - name: Require every validation job to succeed
         env:
@@ -227,8 +265,31 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Bind local QA build origin
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
+        run: echo "NEXT_PUBLIC_APP_URL=http://localhost:3010" >> "$GITHUB_ENV"
       - run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Run property metadata ship preflight
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
+        run: npm run ship:preflight
+      - name: Package encrypted local QA build
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
+        run: node scripts/package-local-qa-build.mjs
+        env:
+          # This is the only server-only input passed to the build above. Public
+          # URL/anon inputs are intentionally public and are not scan targets.
+          QA_BUILD_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
+      - name: Upload encrypted local QA build
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: local-qa-build-${{ github.sha }}
+          path: local-qa-build-artifact/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

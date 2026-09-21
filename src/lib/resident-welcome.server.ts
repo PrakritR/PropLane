@@ -27,6 +27,7 @@ import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { ensureResidentSetupTokenForApplication } from "@/lib/auth/resident-setup-token";
 import { resolveManagerReachabilityForResident } from "@/lib/manager-reachability-for-resident.server";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { postResendEmail as postCapturedResendEmail } from "@/lib/resend-delivery.server";
 
 // Domain is matched as dot-separated labels (no char class overlaps the "." delimiter)
 // so there is exactly one way to parse a match — avoids polynomial backtracking on
@@ -54,6 +55,7 @@ function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {
 }
 
 async function postResendEmail(input: {
+  actorUserId: string;
   apiKey: string;
   from: string;
   to: string;
@@ -63,19 +65,18 @@ async function postResendEmail(input: {
   mailtoHref: string;
 }): Promise<{ ok: true; id: string | null } | { ok: false; status: 502; error: string; mailtoHref: string }> {
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const res = await postCapturedResendEmail({
+      apiKey: input.apiKey,
+      actorUserId: input.actorUserId,
+      payload: {
         from: input.from,
         to: [input.to],
         subject: input.subject,
         text: input.text,
         html: input.html,
-      }),
+      },
+      effectSummary: input.subject || `Resident welcome email to ${input.to} captured for SMS test mode.`,
+      metadata: { recipient: input.to },
     });
     const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
     if (!res.ok) {
@@ -250,6 +251,7 @@ export async function deliverResidentWelcome(
 
     const from = await managerOutboundFromHeader(db, actor.userId);
     const sent = await postResendEmail({
+      actorUserId: actor.userId,
       apiKey,
       from,
       to,
@@ -415,6 +417,7 @@ export async function deliverExistingResidentWelcome(
 
     const from = await managerOutboundFromHeader(db, actor.userId);
     const sent = await postResendEmail({
+      actorUserId: actor.userId,
       apiKey,
       from,
       to,

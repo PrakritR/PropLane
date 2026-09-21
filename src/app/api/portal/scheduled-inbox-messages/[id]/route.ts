@@ -5,7 +5,7 @@ import {
   isResidentOriginatedScheduledRow,
   updateScheduledInboxMessage,
   updateScheduledInboxMessageForResident,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 

@@ -1,6 +1,6 @@
 # Agent tooling index (MCP, docs, Lavish)
 
-One-page map for **phase ③ Execute** — what to connect, what to read, when to use
+One-page map for execution — what to connect, what to read, when to use
 which tool. Captain workflow phases: **`docs/agents/captain-dev-workflow.md`**.
 
 ---
@@ -11,7 +11,7 @@ Enable in **Cursor → Settings → Tools & MCP**. OAuth on first use unless not
 
 | Server | Use when | Notes |
 | --- | --- | --- |
-| **linear** | List/update issues in chat; read ticket context | Filing new tickets: prefer `npm run linear:ticket` (API key). [Setup](../cursor-linear-mcp.md) |
+| **linear** | Read ticket context when requested | No new tickets unless Prakrit explicitly asks. [Setup](../cursor-linear-mcp.md) |
 | **supabase** | Schema introspection, dev DB queries | Project ref = **dev/test only** (`emstjswhotsnyksqhqyf`). Never production. |
 | **playwright** | Browser automation against localhost | Allowed origins include :3000, :3010, :3011, prop-lane.space |
 | **chrome-devtools** | Live page debug, network, a11y tree | `--autoConnect` to local Chrome |
@@ -29,8 +29,8 @@ app routes and agent tools, not ad-hoc SQL on production.
 
 | Command | Phase | Purpose |
 | --- | --- | --- |
-| `npm run linear:ticket -- --chat "…"` | ① | Create Linear issue (auto priority + assignee) |
-| `npm run linear:triage` | ① | Re-apply assignee + priority on open backlog |
+| `npm run linear:ticket -- --chat "…"` | Explicit request only | Create the ticket Prakrit asked for |
+| `npm run linear:triage` | Explicit request only | Re-apply assignee + priority on open backlog |
 | `npm run linear:export -- --ticket PRP-###` | ② | Shareable `ticket.md` |
 | `npm run lavish:plan -- --ticket PRP-### …` | ② | Scaffold `plan.html` |
 | `npx -y lavish-axi <plan.html>` | ② | Open Lavish review |
@@ -51,7 +51,7 @@ new worktrees.
 
 | Doc | When |
 | --- | --- |
-| `docs/agents/AGENTS-prakrit.md` | Prakrit / captain: ticket → Lavish → promote |
+| `docs/agents/AGENTS-prakrit.md` | Prakrit: Lavish → approved build → validated keeper → integration |
 | `docs/agents/AGENTS-akhil.md` | Akhil: working style; no ticket/plan unless asked |
 | `docs/agents/captain-dev-workflow.md` | Full Prakrit pipeline |
 | `docs/linear-ticket-system.md` | Filing, labels, project folders, **priority & backlog sort** |
@@ -101,9 +101,11 @@ Match PropLane visual language when mocking UI — copy from real components
 
 Paste into security-review, bugbot, explore:
 
-> Phases ①–② required: Linear ticket + Lavish plan approved before build.
+> Lavish plan and explicit build approval required for product changes. No
+> Linear ticket unless Prakrit asks for one.
 > Dev/test data only. Read `docs/agents/<area>.md` + `docs/portal-ui-system.md`
-> for UI. Keeper branch only; no promote to `prakrit` without captain.
+> for UI. Use the assigned standing keeper. Integrate completed, validated work
+> into `prakrit` under AGENTS-prakrit.md; retain the keeper after integration.
 
 ---
 

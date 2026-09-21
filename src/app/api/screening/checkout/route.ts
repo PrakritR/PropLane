@@ -36,6 +36,7 @@ import { SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,12 @@ export async function POST(req: Request) {
     const addOnProducts = (body.addOnProducts ?? []).filter(isCheckrAddOn) as CheckrAddOnSlug[];
 
     const db = createSupabaseServiceRoleClient();
+    await assertTestWorkspaceProviderEffectAllowed({
+      userId: user.id,
+      kind: "payment",
+      summary: "Screening checkout refused for a test workspace.",
+      db,
+    });
     const admin = await isAdminUser(user.id);
     const { data: record } = await db
       .from("manager_application_records")

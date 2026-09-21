@@ -318,9 +318,6 @@ export function ResidentAddServiceModal({
         </ModalFooter>
       }
     >
-      <p className="text-xs text-muted">
-        Choose a property service or describe a repair. Your manager receives one service list for both.
-      </p>
       <div className="mt-4">
         <ServiceIntakeFormFields
           catalogOffers={catalogOffers}

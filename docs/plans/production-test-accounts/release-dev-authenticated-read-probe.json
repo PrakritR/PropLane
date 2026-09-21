@@ -1,0 +1,44 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "checks": [
+    {
+      "actor": "managerA",
+      "authenticated": true,
+      "ownProfileVisible": true,
+      "ownMembershipVisible": true,
+      "directReadBlocked": true
+    },
+    {
+      "actor": "residentA",
+      "authenticated": true,
+      "ownProfileVisible": true,
+      "ownMembershipVisible": true,
+      "directReadBlocked": true
+    },
+    {
+      "actor": "managerB",
+      "authenticated": true,
+      "ownProfileVisible": true,
+      "ownMembershipVisible": true,
+      "directReadBlocked": true
+    },
+    {
+      "actor": "normal",
+      "authenticated": true,
+      "ownProfileVisible": true,
+      "ownMembershipVisible": false,
+      "directReadBlocked": null
+    }
+  ],
+  "rollbackResidue": 0,
+  "membershipStates": [
+    {
+      "state": "active",
+      "expired": false
+    },
+    {
+      "state": "active",
+      "expired": false
+    }
+  ]
+}

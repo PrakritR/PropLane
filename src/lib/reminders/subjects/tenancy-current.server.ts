@@ -8,12 +8,14 @@ import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import { reminderAnchorMatches } from "@/lib/reminders/current.server";
 import { tenancyAnchorIso, tenancyRowFromRecord } from "@/lib/reminders/subjects/tenancy.server";
 import { normalizeLeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 export async function tenancyReminderIsCurrent(db: SupabaseClient, row: ReminderQueueRow, expectedAnchor: unknown): Promise<boolean> {
   if (row.kind === "countersign_overdue" || row.kind === "renewal_offer_expiry") {
     const { data, error } = await db.from("portal_lease_pipeline_records").select("id, manager_user_id, resident_email, row_data").eq("id", row.subjectId).maybeSingle();
     if (error) throw error;
     if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
+    if (hasSmsTestProvenance(data.row_data)) return false;
     const lease = normalizeLeasePipelineRow(data.row_data);
     if (lease.fullySignedAt || lease.voidedAt) return false;
     if (row.kind === "countersign_overdue") {
@@ -31,6 +33,7 @@ export async function tenancyReminderIsCurrent(db: SupabaseClient, row: Reminder
     if (error) throw error;
     if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
     const charge = (data.row_data ?? {}) as Record<string, unknown>;
+    if (hasSmsTestProvenance(charge)) return false;
     const status = String(charge.status ?? "").toLowerCase();
     if (status === "paid" || status === "void" || status === "canceled") return false;
     const userId = typeof row.payload.recipientUserId === "string" ? row.payload.recipientUserId : "";
@@ -44,6 +47,7 @@ export async function tenancyReminderIsCurrent(db: SupabaseClient, row: Reminder
   const { data, error } = await db.from("manager_application_records").select("id, manager_user_id, resident_email, row_data").eq("id", row.subjectId).maybeSingle();
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
+  if (hasSmsTestProvenance(data.row_data)) return false;
   const tenancy = tenancyRowFromRecord({ id: String(data.id), manager_user_id: data.manager_user_id, resident_email: data.resident_email, row_data: (data.row_data ?? {}) as Record<string, unknown> });
   if (!tenancy) return false;
   const date =

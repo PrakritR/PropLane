@@ -122,9 +122,9 @@ export function PromotionNewModal({
   // Snapshot of the flyer draft as it was seeded. Anything the user changes from
   // this counts as "entered content" for the discard warn, and it's what we reset
   // back to when the flyer form is abandoned on a switch.
-  const flyerBaseRef = useRef<PromotionDraft>(draft);
-  const flyerBasePropertyRef = useRef<string>(draft.propertyKey);
-  const textDirtyRef = useRef(false);
+  const [flyerBase, setFlyerBase] = useState<PromotionDraft>(() => draft);
+  const [flyerBaseProperty, setFlyerBaseProperty] = useState(() => draft.propertyKey);
+  const [textDirty, setTextDirty] = useState(false);
   const textComposerRef = useRef<PromotionTextComposerHandle>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
@@ -134,9 +134,9 @@ export function PromotionNewModal({
     if (!open) return;
     setKind(initialKind);
     setStepIdx(initialStepId === "content" ? 1 : initialStepId === "preview" ? 2 : 0);
-    flyerBaseRef.current = draft;
-    flyerBasePropertyRef.current = draft.propertyKey;
-    textDirtyRef.current = false;
+    setFlyerBase(draft);
+    setFlyerBaseProperty(draft.propertyKey);
+    setTextDirty(false);
     setUploadFile(null);
     setUploadFileName(null);
     setUploadError(null);
@@ -149,13 +149,13 @@ export function PromotionNewModal({
   // already open (the demo autofill does). Both are autofill, not typed content,
   // so they re-baseline rather than tripping the discard warning.
   useEffect(() => {
-    if (!open || draft.propertyKey === flyerBasePropertyRef.current) return;
-    flyerBaseRef.current = draft;
-    flyerBasePropertyRef.current = draft.propertyKey;
-  }, [open, draft]);
+    if (!open || draft.propertyKey === flyerBaseProperty) return;
+    setFlyerBase(draft);
+    setFlyerBaseProperty(draft.propertyKey);
+  }, [open, draft, flyerBaseProperty]);
 
   const handleTextDirty = useCallback((dirty: boolean) => {
-    textDirtyRef.current = dirty;
+    setTextDirty(dirty);
   }, []);
 
   const confirm = useConfirm();
@@ -165,9 +165,9 @@ export function PromotionNewModal({
     if (flyerBusy || textBusy || uploadBusy) return;
     const leavingDirty =
       kind === "flyer"
-        ? flyerContentChanged(draft, flyerBaseRef.current)
+        ? flyerContentChanged(draft, flyerBase)
         : kind === "text"
-          ? textDirtyRef.current
+          ? textDirty
           : Boolean(uploadFile);
     if (
       leavingDirty &&
@@ -182,8 +182,8 @@ export function PromotionNewModal({
     }
     // Discard the form we're leaving: the flyer draft resets to its baseline
     // (seed + property autofill); the text composer unmounts when kind changes.
-    if (kind === "flyer") setDraft(flyerBaseRef.current);
-    textDirtyRef.current = false;
+    if (kind === "flyer") setDraft(flyerBase);
+    setTextDirty(false);
     setUploadFile(null);
     setUploadFileName(null);
     setUploadError(null);
@@ -220,9 +220,9 @@ export function PromotionNewModal({
   };
   const leavingDirty =
     kind === "flyer"
-      ? flyerContentChanged(draft, flyerBaseRef.current)
+      ? flyerContentChanged(draft, flyerBase)
       : kind === "text"
-        ? textDirtyRef.current
+        ? textDirty
         : Boolean(uploadFile);
 
   if (!open) return null;

@@ -17,6 +17,14 @@ export type AgentChatHistoryActor = {
   workspace?: { id: string; isDefault?: boolean };
 };
 
+/** Extra identity constraints for authenticated, non-delivering SMS tests. */
+export type AgentChatHistoryScope = {
+  sessionKind?: string;
+  managerUserId?: string;
+  smsTestMode?: "manager" | "prospect" | "resident";
+  workspaceId?: string;
+};
+
 export type AgentChatThreadSummary = {
   id: string;
   title: string;
@@ -88,6 +96,7 @@ export async function listAgentChatThreads(
   portal: AgentPortal,
   cursor?: string | null,
   search?: string | null,
+  scope?: AgentChatHistoryScope,
 ): Promise<AgentChatThreadList> {
   try {
     const searchQuery = validSearchQuery(search);
@@ -114,7 +123,7 @@ export async function listAgentChatThreads(
         .select(includeTitle ? "id, title, updated_at" : "id, updated_at")
         .eq("user_id", actor.userId)
         .eq("portal", portal)
-        .eq("kind", PORTAL_CHAT_SESSION_KIND)
+        .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND)
         .order("updated_at", { ascending: false })
         .limit(AGENT_CHAT_HISTORY_PAGE_SIZE + 1);
       const workspaceId = actor.workspace?.id?.trim();
@@ -125,6 +134,9 @@ export async function listAgentChatThreads(
           query = query.eq("workspace_id", workspaceId);
         }
       }
+      if (scope?.managerUserId) query = query.eq("sms_test_manager_user_id", scope.managerUserId);
+      if (scope?.smsTestMode) query = query.eq("sms_test_mode", scope.smsTestMode);
+      if (scope?.workspaceId) query = query.eq("test_workspace_id", scope.workspaceId);
       if (matchingSessionIds) query = query.in("id", matchingSessionIds);
       const before = validCursor(cursor ?? null);
       if (before) query = query.lt("updated_at", before);
@@ -204,17 +216,21 @@ export async function deleteAgentChatThread(
   actor: AgentChatHistoryActor,
   portal: AgentPortal,
   sessionId: string,
+  scope?: AgentChatHistoryScope,
 ): Promise<AgentChatThreadDeleteResult> {
   if (!isAgentChatSessionId(sessionId)) return { ok: false };
   try {
-    const { data: ownedSession, error: lookupError } = await actor.db
+    let lookup = actor.db
       .from("agent_sessions")
       .select("id")
       .eq("id", sessionId)
       .eq("user_id", actor.userId)
       .eq("portal", portal)
-      .eq("kind", PORTAL_CHAT_SESSION_KIND)
-      .maybeSingle();
+      .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
+    if (scope?.managerUserId) lookup = lookup.eq("sms_test_manager_user_id", scope.managerUserId);
+    if (scope?.smsTestMode) lookup = lookup.eq("sms_test_mode", scope.smsTestMode);
+    if (scope?.workspaceId) lookup = lookup.eq("test_workspace_id", scope.workspaceId);
+    const { data: ownedSession, error: lookupError } = await lookup.maybeSingle();
     if (lookupError) {
       reportArchiveFailure("find conversation to delete", lookupError);
       return { ok: false, error: "Could not delete the conversation. Try again." };
@@ -234,15 +250,17 @@ export async function deleteAgentChatThread(
       return { ok: false, error: "Could not delete the conversation. Try again." };
     }
 
-    const { data, error } = await actor.db
+    let deletion = actor.db
       .from("agent_sessions")
       .delete()
       .eq("id", sessionId)
       .eq("user_id", actor.userId)
       .eq("portal", portal)
-      .eq("kind", PORTAL_CHAT_SESSION_KIND)
-      .select("id")
-      .maybeSingle();
+      .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
+    if (scope?.managerUserId) deletion = deletion.eq("sms_test_manager_user_id", scope.managerUserId);
+    if (scope?.smsTestMode) deletion = deletion.eq("sms_test_mode", scope.smsTestMode);
+    if (scope?.workspaceId) deletion = deletion.eq("test_workspace_id", scope.workspaceId);
+    const { data, error } = await deletion.select("id").maybeSingle();
     if (error) {
       reportArchiveFailure("delete conversation", error);
       return { ok: false, error: "Could not delete the conversation. Try again." };
@@ -259,18 +277,23 @@ export async function loadAgentChatTranscript(
   actor: AgentChatHistoryActor,
   portal: AgentPortal,
   sessionId: string,
+  scope?: AgentChatHistoryScope,
 ): Promise<AgentChatTranscript | null> {
   if (!isAgentChatSessionId(sessionId)) return null;
   try {
-    const loadSession = async (includeTitle: boolean) =>
-      actor.db
+    const loadSession = async (includeTitle: boolean) => {
+      let query = actor.db
         .from("agent_sessions")
         .select(includeTitle ? "id, title, updated_at" : "id, updated_at")
         .eq("id", sessionId)
         .eq("user_id", actor.userId)
         .eq("portal", portal)
-        .eq("kind", PORTAL_CHAT_SESSION_KIND)
-        .maybeSingle();
+        .eq("kind", scope?.sessionKind ?? PORTAL_CHAT_SESSION_KIND);
+      if (scope?.managerUserId) query = query.eq("sms_test_manager_user_id", scope.managerUserId);
+      if (scope?.smsTestMode) query = query.eq("sms_test_mode", scope.smsTestMode);
+      if (scope?.workspaceId) query = query.eq("test_workspace_id", scope.workspaceId);
+      return query.maybeSingle();
+    };
     let { data: session, error: sessionError } = await loadSession(true);
     if (sessionError && isMissingTitleColumn(sessionError)) {
       ({ data: session, error: sessionError } = await loadSession(false));
@@ -280,7 +303,8 @@ export async function loadAgentChatTranscript(
     const now = new Date().toISOString();
     const [{ data: messageRows, error: messagesError }, { data: actionRows, error: actionsError }] = await Promise.all([
       actor.db.from("agent_messages").select("role, content").eq("session_id", sessionId).order("created_at", { ascending: true }),
-      actor.db
+      (() => {
+        let query = actor.db
         .from("agent_pending_actions")
         .select("id, preview")
         .eq("session_id", sessionId)
@@ -289,7 +313,11 @@ export async function loadAgentChatTranscript(
         .eq("status", "proposed")
         .gt("expires_at", now)
         .order("created_at", { ascending: false })
-        .limit(1),
+        .limit(1);
+        if (scope?.managerUserId) query = query.eq("sms_test_manager_user_id", scope.managerUserId);
+        if (scope?.workspaceId) query = query.eq("test_workspace_id", scope.workspaceId);
+        return query;
+      })(),
     ]);
     if (messagesError) return null;
     const messages = ((messageRows ?? []) as { role?: string; content?: string }[])
@@ -297,7 +325,11 @@ export async function loadAgentChatTranscript(
         (row.role === "user" || row.role === "assistant") && typeof row.content === "string" && row.content.trim().length > 0,
       )
       .map((row) => ({ role: row.role, content: row.content }));
-    const action = actionsError ? null : (actionRows ?? [])[0] as { id?: string; preview?: ActionPreview } | undefined;
+    // This surface uses literal SMS replies, not the portal confirmation-card
+    // protocol. Returning a card would bypass the exercised YES/NO path.
+    const action = scope?.smsTestMode || actionsError
+      ? null
+      : (actionRows ?? [])[0] as { id?: string; preview?: ActionPreview } | undefined;
     return {
       id: String(session.id),
       title: (() => {

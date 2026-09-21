@@ -12,6 +12,7 @@ import {
   connectAccountReadyForAchPayouts,
   connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
+  isApplicationCollected,
   isStripeConnectAccountAccessError,
   clearManagerConnectAccountId,
   resolveManagerConnectAccountId,
@@ -28,6 +29,13 @@ export const runtime = "nodejs";
  * `/api/stripe/connect/account-session` in PropLane's own modal, so this
  * route no longer mints or returns any Stripe-hosted URL.
  *
+ * PLAN-0920-1500 Part C: a NEW (application-collected) account never gets
+ * `mode: "embedded"` from this route — it 409s `USE_IN_APP_IDENTITY`, and the
+ * client opens PropLane's own Verify-identity sheet instead
+ * (`/api/stripe/connect/identity`). A legacy `stripe_dashboard.type: "express"`
+ * account is untouched and keeps finishing through the embedded response
+ * below (Decide 2 of the plan: "keep them").
+ *
  * A saved account id Stripe can no longer retrieve is NEVER cleared silently
  * — that used to happen on every access error, even on a routine load, which
  * meant a transient platform-key hiccup could strand a manager's saved id
@@ -35,6 +43,13 @@ export const runtime = "nodejs";
  * `needsRelink`; only an explicit `{ relink: true }` body (the user's own
  * "Reconnect" action) clears it and creates a fresh one, and the id being
  * replaced is logged first.
+ *
+ * `relink: true` is honored only when the saved account is re-checked at
+ * request time and genuinely can't be retrieved (`isStripeConnectAccountAccessError`).
+ * A saved account Stripe CAN still retrieve is healthy — relink is refused
+ * with 409 and the id is left untouched, so a stale client-side "reconnect"
+ * click (or a request replayed against a since-recovered account) can't
+ * discard a working Connect account.
  */
 export async function POST(req: Request) {
   try {
@@ -72,16 +87,22 @@ export async function POST(req: Request) {
     try {
       const stripe = getStripe();
       if (relink) {
-        // Explicit user action ("Reconnect" / "Start over"): log the id being
-        // replaced, then clear it before creating a fresh account.
+        // Explicit user action ("Reconnect" / "Start over") — but only honored
+        // when the saved account is genuinely unreachable, re-checked right
+        // now rather than trusting client-supplied intent. A healthy account
+        // is refused, not replaced.
         const staleAccountId = await resolveManagerConnectAccountId(service, payoutOwnerId);
-        if (staleAccountId && (await retrieveManagerConnectAccountOrNull(stripe, staleAccountId))) {
-          return NextResponse.json(
-            { code: "CONNECT_ACCOUNT_HEALTHY", error: "Your saved Stripe account is still connected." },
-            { status: 409 },
-          );
-        }
         if (staleAccountId) {
+          const stillRetrievable = await retrieveManagerConnectAccountOrNull(stripe, staleAccountId);
+          if (stillRetrievable) {
+            return NextResponse.json(
+              {
+                code: "CONNECT_ACCOUNT_HEALTHY",
+                error: "Your Stripe payout account is connected and reachable — reconnect isn't needed.",
+              },
+              { status: 409 },
+            );
+          }
           console.error(
             `[stripe-connect] onboard relink: replacing account ${staleAccountId} for owner ${payoutOwnerId} (requested by ${user.id})`,
           );
@@ -97,6 +118,22 @@ export async function POST(req: Request) {
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
+
+      // PLAN-0920-1500 Part C: a new (application-collected) account never
+      // gets a hosted or embedded onboarding step from this route — identity
+      // and bank details are PropLane's own in-app forms. A legacy
+      // `stripe_dashboard.type: "express"` account keeps the embedded-mode
+      // response below (Decide 2: "keep them").
+      if (isApplicationCollected(acct)) {
+        return NextResponse.json(
+          {
+            code: "USE_IN_APP_IDENTITY",
+            accountId,
+            error: "Finish verification in Payouts — identity and bank details are collected in PropLane.",
+          },
+          { status: 409 },
+        );
+      }
 
       return NextResponse.json({
         mode: "embedded" as const,

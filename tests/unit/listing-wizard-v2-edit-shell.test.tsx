@@ -4,9 +4,8 @@
 // (each section says what it currently holds), a listing with gaps carries a
 // "things to finish" card, and the status block says the home is live.
 //
-// Saving: typing and X write on their own on every section, so the footer
-// carries Continue rather than a Save on the way through. The Review step is
-// the one exception — it ends the flow, so it holds Save beside Publish.
+// Save and Publish remain available on every section so a manager can preserve
+// partial work or publish as soon as the required fields are complete.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -25,7 +24,7 @@ function subWith(over: Partial<ManagerListingSubmissionV1>): ManagerListingSubmi
   return { ...createDefaultListingSubmission(), ...over };
 }
 
-function mount(sub: ManagerListingSubmissionV1, isEdit: boolean, onSaveExit = vi.fn(), onPublish = vi.fn()) {
+function mount(sub: ManagerListingSubmissionV1, isEdit: boolean, onSave = vi.fn(async () => true), onPublish = vi.fn()) {
   render(
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
       <ListingEditorV2
@@ -33,13 +32,13 @@ function mount(sub: ManagerListingSubmissionV1, isEdit: boolean, onSaveExit = vi
         submission={sub}
         onChange={() => {}}
         onClose={() => {}}
-        onSaveExit={onSaveExit}
+        onSave={onSave}
         onPublish={onPublish}
         isEdit={isEdit}
       />
     </PortalAssistantConfigProvider>,
   );
-  return { onSaveExit, onPublish };
+  return { onSave, onPublish };
 }
 
 afterEach(() => cleanup());
@@ -79,20 +78,21 @@ describe("the rail on an edit", () => {
 });
 
 describe("the footer on an edit", () => {
-  it("continues to the next section — typing and X save, not a footer Save", () => {
+  it("offers Continue, Save, and Publish on an earlier section", () => {
     mount(subWith({}), true);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
   });
 
   it("review on a live listing has Save beside Publish", () => {
-    const { onSaveExit, onPublish } = mount(subWith({}), true);
+    const { onSave, onPublish } = mount(subWith({}), true);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSaveExit).toHaveBeenCalledWith(LISTING_V2_STEPS.length - 1);
+    expect(onSave).toHaveBeenCalledWith(LISTING_V2_STEPS.length - 1);
     expect(onPublish).not.toHaveBeenCalled();
   });
 
@@ -100,7 +100,8 @@ describe("the footer on an edit", () => {
     mount(subWith({}), false);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
   });
 
   it("shows Ask PropLane in the header when assistant config is present", () => {

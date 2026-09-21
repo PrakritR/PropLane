@@ -15,8 +15,9 @@ import {
   buildManagerTourUrl,
   buildPropertyMessageHref,
 } from "@/lib/manager-property-links";
-import { residentPortalUrl } from "@/lib/claw-resident-links";
+import { residentPortalPath } from "@/lib/claw-resident-links";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { getPublicListings } from "@/lib/public-listings.server";
 import {
   normalizeManagerListingSubmissionV1,
@@ -48,12 +49,14 @@ function str(obj: Record<string, unknown> | null, key: string): string | null {
 }
 
 /**
- * Origin for links embedded in SMS. Phone-reachable only — never localhost.
- * Always uses the canonical PropLane production domain. Legacy Axis-host
- * environment values may remain for old infrastructure, but must never leak
- * into a prospect-facing agent reply.
+ * Origin for links embedded in SMS. Carrier traffic always uses the canonical
+ * production domain. An authenticated classified workspace test may use the
+ * trusted deployment origin bound by its server route; arbitrary request hosts
+ * and unclassified contexts never influence this value.
  */
 export function publicOrigin(): string {
+  const test = currentSmsTestTransport();
+  if (test?.workspaceId && test.appOrigin) return test.appOrigin;
   return PRODUCTION_APP_ORIGIN;
 }
 
@@ -637,7 +640,7 @@ export const getNearbyTransitTool = defineTool({
 export const buildProspectLinksTool = defineTool({
   name: "build_prospect_links",
   description:
-    "Build the listing, tour, apply, message, and browse URLs for a matched property (any live PropLane listing on the shared line). Call it as soon as a listing is matched, then send the link that answers the request: listingUrl for any question about the home (rent, rooms, availability, photos, video, amenities, requirements), tourUrl when they want to tour or see it in person, applyUrl when they want to apply or ask what is needed to rent, messageUrl to leave a longer note for the manager. Apply links prefill the prospect's phone and optional room/bundle so the form is already filled. Links always use the production domain, never localhost.",
+    "Build the listing, tour, apply, message, and browse URLs for a matched property (any live PropLane listing on the shared line). Call it as soon as a listing is matched, then send the link that answers the request: listingUrl for any question about the home (rent, rooms, availability, photos, video, amenities, requirements), tourUrl when they want to tour or see it in person, applyUrl when they want to apply or ask what is needed to rent, messageUrl to leave a longer note for the manager. Apply links prefill the prospect's phone and optional room/bundle so the form is already filled. Use the tool-returned origin: production for carrier SMS and the authorized deployment for an authenticated private-workspace SMS test.",
   kind: "read",
   inputSchema: z
     .object({
@@ -719,7 +722,8 @@ export const buildProspectLinksTool = defineTool({
  * Canonical, origin-correct PropLane links for the general handoffs a prospect
  * asks about (browse all homes, start an application, book a tour, pricing,
  * resident portal to sign a lease). Pure URL builder — no DB, no scope — so the
- * agent never has to invent a URL (and never emits a localhost link). Use for
+ * agent never has to invent a URL. Carrier turns use production; authenticated
+ * private-workspace tests may use their authorized deployment origin. Use for
  * "how do I apply / where do I see all listings / how do I sign my lease" when
  * no specific property is matched yet.
  */
@@ -732,17 +736,17 @@ export function proplaneSiteLinks(origin: string) {
     pricing: `${base}/pricing`,
     demo: `${base}/demo`,
     docs: `${base}/docs`,
-    residentPortal: residentPortalUrl("login"),
-    residentSignup: residentPortalUrl("signup"),
-    signLease: residentPortalUrl("lease"),
-    payRent: residentPortalUrl("payments"),
+    residentPortal: `${base}${residentPortalPath("login")}`,
+    residentSignup: `${base}${residentPortalPath("signup")}`,
+    signLease: `${base}${residentPortalPath("lease")}`,
+    payRent: `${base}${residentPortalPath("payments")}`,
   };
 }
 
 export const getSiteLinksTool = defineTool({
   name: "get_site_links",
   description:
-    "Canonical PropLane site links (production domain, never localhost): browse all homes, start an application, pricing, the live demo, and the resident portal for signing in, signing a lease, or paying rent. Use when a prospect asks a general 'where do I …' question and no single property is matched, or when a current resident texts the leasing line about paying or their lease. For a specific matched listing use build_prospect_links instead.",
+    "Canonical PropLane site links for the current authorized deployment (production for carrier SMS; the authenticated private-workspace deployment for an SMS test): browse all homes, start an application, pricing, the live demo, and the resident portal for signing in, signing a lease, or paying rent. Use when a prospect asks a general 'where do I …' question and no single property is matched, or when a current resident texts the leasing line about paying or their lease. For a specific matched listing use build_prospect_links instead.",
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async () => {

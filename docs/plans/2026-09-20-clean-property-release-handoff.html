@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clean property release execution handoff</title>
+<style>
+  body{max-width:940px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui;color:#20262d}
+  code{background:#edf0f2;padding:.1em .25em;overflow-wrap:anywhere}
+  table{border-collapse:collapse;width:100%}td,th{padding:10px;text-align:left;border-bottom:1px solid #ccd2d8;vertical-align:top}
+  li{margin:.45em 0}.pending{color:#8a4b08}.done{color:#17633a}
+</style>
+<h1>Clean property release execution handoff</h1>
+<p>20 September 2026. The narrow property metadata release is assembled in <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code> on <code>akhil/ship-property-preservation-20260920</code>, starting from production commit <code>05be85d4e3fd6305d9af888e6f4c22bdb136914f</code>. This execution did not import the broad keeper, auth work, conversation work, schema changes, or fixture cleanup.</p>
+
+<h2>Frozen application source</h2>
+<p class="done">The only application source change is the serializer correction copied byte-for-byte from <code>7ab8ec1ed</code>. Its two focused unit files are also exact copies from that commit.</p>
+<table>
+  <tr><th>Path</th><th>Frozen Git blob</th><th>Purpose</th></tr>
+  <tr><td><code>src/lib/demo-property-pipeline.ts</code></td><td><code>6b90be9d04a1f4faf0a721deaf1da65c3c9f8942</code></td><td>Preserve <code>undefined</code> as an omitted JSON key while retaining explicit <code>null</code>; strip only <code>publicProjection</code>.</td></tr>
+  <tr><td><code>tests/unit/property-record-upsert-payload.test.ts</code></td><td><code>52ec6ccde600551e033c3a8abfbd162f13ccd847</code></td><td>Cover omitted, explicit-null, object and both background mirror payload directions.</td></tr>
+  <tr><td><code>tests/unit/property-records-omitted-payload-preservation.test.ts</code></td><td><code>c3a1a93cfe9da6f3e25f0f4355ddb8b9a9372206</code></td><td>Cover route preservation for property-only and row-only writes plus explicit clears.</td></tr>
+</table>
+
+<h2>Release validation additions</h2>
+<ul>
+  <li><code>tests/e2e/property-metadata-omission-preservation.spec.ts</code> fails closed unless the configured Supabase URL is exactly the HTTPS dev/test origin <code>https://emstjswhotsnyksqhqyf.supabase.co</code>, with no credentials, port, path, query or fragment. It signs in through the real seeded manager helper and selects an existing owned live/review record only when both metadata buckets are meaningful and the listing id agrees with the database id. It reads that record before and after a Properties page load, captures the actual property mirror request and response, requires a successful observed write, verifies <code>propertyData</code> is present and <code>rowData</code> is absent, and proves the stored <code>row_data</code> blob is unchanged. Test-side database access is read-only.</li>
+  <li><code>.github/workflows/test.yml</code> adds the optional manual <code>e2e_scope</code> choice with default <code>full</code> and bounded choice <code>property_metadata</code>. Scheduled and default manual runs remain full. Both commands retain the dev/test environment, the existing job keeps one Playwright worker and zero retries through the shared config, and artifacts remain unconditional.</li>
+  <li>The manual property scope runs <code>npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts</code>. The build job also runs an unmasked <code>npm run ship:preflight</code> for that exact scope after a successful build.</li>
+  <li><code>tests/unit/ci-test-workflow.test.ts</code> asserts the input contract, both scope commands, dev/test environment inheritance and the bounded preflight condition.</li>
+</ul>
+
+<h2>Evidence and ownership</h2>
+<p>No Node command, test, build, typecheck, browser, server, dependency install, graph command, database command or Git mutation was run by the source-only execution delegates. Root owns Git, remote CI, runtime and database validation. Production-baseline workflow run <code>35505176580</code> already records successful unit, build, lint and integration checks at <code>05be85d4e</code>; its full browser failure is diagnostic and does not validate this change.</p>
+<p>Root separately verified migration inventory and schema parity with no schema mutation required. Deployment verification must use Git workflow and commit status evidence because the local Vercel API returned HTTP 403.</p>
+
+<h2>Pending release gates</h2>
+<ol class="pending">
+  <li>Commit the frozen source and confirm the production diff contains only the three property files, the focused browser spec, workflow assertions, workflow routing and release documents.</li>
+  <li>Run remote whole-unit, lint, build, integration and the manual <code>property_metadata</code> browser scope. Record every exit and the preflight result without relabeling failures.</li>
+  <li>Run a fresh Astra correctness, security, performance and native-parity review against the final narrow diff and this handoff.</li>
+  <li>After green gates, fast-forward keeper to <code>main</code>, then <code>staging</code>, then <code>production</code>. The dated waiver may waive staging QA but does not permit skipping the staging branch.</li>
+  <li>Verify the production Vercel deployment and internal TestFlight distribution. Update Linear only after the independent property fix is actually shipped; keep the unfinished conversation tickets deferred.</li>
+</ol>
+
+<h2>Known limits</h2>
+<p>The browser regression intentionally reuses a stable seeded property instead of creating quota-sensitive fixtures. It proves the property-only live-row mirror path that caused the loss. The row-only pending mirror direction and explicit-null behavior remain covered at the unit and route layers. No auth acceptance, conversation behavior, schema migration, production data write, UI change or inbox change is part of this release.</p>
+</html>

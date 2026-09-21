@@ -2,7 +2,7 @@ import { parseScheduledMessageListId } from "@/lib/payment-automation-server";
 import { upsertScheduledMessageOverride } from "@/lib/payment-automation-settings";
 import { parseCombinedScheduledMessageListId } from "@/lib/combined-payment-reminders";
 import { decodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
-import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages";
+import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";

@@ -17,6 +17,7 @@ import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server
 import { loadVendorDispatchSettings } from "@/lib/vendor-dispatch-settings";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { suggestVendorsForWorkOrder } from "@/lib/work-order-auto-match";
+import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import {
   evaluateDispatchGuardrails,
   guardrailsAllowAutoDispatch,
@@ -108,7 +109,7 @@ export async function prepareDispatch(db: Db, workOrderId: string): Promise<void
 
   await db
     .from("portal_work_order_records")
-    .update({ row_data: { ...row, dispatch }, updated_at: nowIso })
+    .update({ row_data: stampSmsTestProvenance({ ...row, dispatch }), updated_at: nowIso })
     .eq("id", workOrderId);
   await db
     .from("audit_log")
@@ -267,7 +268,7 @@ export async function executeDispatch(
 
   const { error: updateError } = await db
     .from("portal_work_order_records")
-    .update({ vendor_user_id: vendorUserId, row_data: nextRow, updated_at: nowIso })
+    .update({ vendor_user_id: vendorUserId, row_data: stampSmsTestProvenance(nextRow as unknown as Record<string, unknown>), updated_at: nowIso })
     .eq("id", args.workOrderId);
   if (updateError) {
     // Clear the dedupe key so a retry can record a fresh attempt (email_failed pattern).
@@ -283,7 +284,7 @@ export async function executeDispatch(
     if (syncedRow.googleCalendarEventId !== nextRow.googleCalendarEventId) {
       await db
         .from("portal_work_order_records")
-        .update({ row_data: syncedRow, updated_at: nowIso })
+        .update({ row_data: stampSmsTestProvenance(syncedRow as unknown as Record<string, unknown>), updated_at: nowIso })
         .eq("id", args.workOrderId);
     }
   }
@@ -364,7 +365,7 @@ export async function declineDispatch(
   const declined: WorkOrderDispatch = { ...row.dispatch, status: "declined", decidedAtIso: nowIso, decidedBy: "manager" };
   await db
     .from("portal_work_order_records")
-    .update({ row_data: { ...row, dispatch: declined }, updated_at: nowIso })
+    .update({ row_data: stampSmsTestProvenance({ ...row, dispatch: declined }), updated_at: nowIso })
     .eq("id", args.workOrderId);
   await db.from("audit_log").insert({
     actor_user_id: args.actorUserId,

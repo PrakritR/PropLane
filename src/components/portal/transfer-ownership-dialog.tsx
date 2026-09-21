@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { CoManagerPermissionsEditor } from "@/components/portal/pro-account-links-panel";
+import { CoManagerPermissionsEditor } from "@/components/portal/workspace-permissions-fields";
 import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { EMPTY_CO_MANAGER_PERMISSIONS, type CoManagerPermissions } from "@/lib/co-manager-permissions";
 import type { PortalWorkspace, WorkspaceMember } from "@/lib/workspaces/types";

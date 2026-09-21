@@ -8,6 +8,7 @@ import { track } from "@/lib/analytics/posthog";
 import { collectManagerExport } from "@/lib/account-export/collect-manager-export.server";
 import { buildEncryptedExportFile, exportFileName } from "@/lib/account-export/build-export-file.server";
 import { EXPORT_FILE_MIME, validateExportPassword } from "@/lib/account-export/export-password";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 /** Reading every owned table for a large portfolio, then scrypt, is well past the default. */
@@ -36,6 +37,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
+    const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Export access is unavailable for this account." }, { status: 403 });
+    }
+
     let body: { password?: unknown };
     try {
       body = (await req.json()) as { password?: unknown };
@@ -48,7 +54,6 @@ export async function POST(req: Request) {
     }
     const password = body.password as string;
 
-    const db = createSupabaseServiceRoleClient();
     const [{ data: roleRows, error: roleError }, { data: profile }] = await Promise.all([
       db.from("profile_roles").select("role").eq("user_id", user.id),
       db.from("profiles").select("role, email").eq("id", user.id).maybeSingle(),

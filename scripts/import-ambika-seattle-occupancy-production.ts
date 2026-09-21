@@ -633,7 +633,7 @@ async function main() {
         .eq("id", next.id)
         .eq("manager_user_id", AMBIKA_MANAGER_ID);
       if (isRoomCapacityError(error)) {
-        warnings.push(`${stay.name}: skipped — ${error.message}`);
+        warnings.push(`${stay.name}: skipped — ${error?.message ?? "room capacity conflict"}`);
         continue;
       }
       check(error);
@@ -647,7 +647,7 @@ async function main() {
         row_data: sealed,
       });
       if (isRoomCapacityError(error)) {
-        warnings.push(`${stay.name}: skipped — ${error.message}`);
+        warnings.push(`${stay.name}: skipped — ${error?.message ?? "room capacity conflict"}`);
         continue;
       }
       check(error);

@@ -41,6 +41,12 @@ export type PropertyBookingEntry = {
   reason?: string;
   /** Blocks only — who the room is being held for, when the manager named someone. */
   residentName?: string;
+  /** Blocks only — the resident's email, when the manager attached one. */
+  residentEmail?: string;
+  /** Blocks only — the resident's phone (E.164), when the manager attached one. */
+  residentPhone?: string;
+  /** Blocks only — true when this hold created a resident account that skips application/lease. */
+  isBookingResidency?: boolean;
   /** PropLane stays only — the lease this booking was derived from, so its record page can link back to it. */
   leaseId?: string;
 };
@@ -61,6 +67,10 @@ export type RoomDateBlock = {
    */
   residentName?: string;
   residentEmail?: string;
+  /** Optional: the resident's phone (E.164), collected the same way as email. */
+  residentPhone?: string;
+  /** True when this hold created (or attached) a resident account that skips application/lease. */
+  isBookingResidency?: boolean;
   createdAt: string;
 };
 
@@ -130,6 +140,9 @@ export function roomBlockEntries(
       blockId: block.id,
       reason: block.reason,
       ...(block.residentName?.trim() ? { residentName: block.residentName.trim() } : {}),
+      ...(block.residentEmail?.trim() ? { residentEmail: block.residentEmail.trim() } : {}),
+      ...(block.residentPhone?.trim() ? { residentPhone: block.residentPhone.trim() } : {}),
+      ...(block.isBookingResidency ? { isBookingResidency: true } : {}),
     });
   }
   return out;

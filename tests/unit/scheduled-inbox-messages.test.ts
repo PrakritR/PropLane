@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RESIDENT_SCHEDULED_MESSAGE_CONTENT_FORBIDDEN,
+  isUpcomingScheduledInboxMessage,
   isResidentOriginatedScheduledRow,
-  updateScheduledInboxMessage,
 } from "@/lib/scheduled-inbox-messages";
+import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages.server";
 
 function mockDbForUpdate(rowData: Record<string, unknown>) {
   const update = vi.fn().mockReturnValue({
@@ -59,6 +60,10 @@ describe("updateScheduledInboxMessage", () => {
   it("detects legacy resident rows via senderUserId", () => {
     expect(isResidentOriginatedScheduledRow({ senderUserId: "res-1" })).toBe(true);
     expect(isResidentOriginatedScheduledRow({ senderPortal: "manager" })).toBe(false);
+  });
+
+  it("keeps a held sending occurrence visible after its scheduled date", () => {
+    expect(isUpcomingScheduledInboxMessage("2020-01-01T00:00:00.000Z", "sending")).toBe(true);
   });
 
   it("allows manager cancel on resident-originated scheduled messages", async () => {

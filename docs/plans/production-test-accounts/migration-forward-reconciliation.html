@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Test-workspace migration forward reconciliation</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 1120px; margin: 40px auto; padding: 0 22px; line-height: 1.5; }
+    h1 { margin-bottom: .2rem; } h2 { margin-top: 2rem; }
+    .meta, .note { color: #596579; } .ok { color: #087443; font-weight: 650; }
+    .fix { color: #a24b00; font-weight: 650; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+    th, td { text-align: left; vertical-align: top; border: 1px solid #c8d0db; padding: .65rem; }
+    th { background: #edf2f7; } code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+    ul { padding-left: 1.3rem; }
+  </style>
+</head>
+<body>
+  <h1>Test-workspace migration forward reconciliation</h1>
+  <p class="meta">Candidate audit on 2026-09-19. Scope: the six immutable prototype migrations applied to dev, compared to the latest predecessor definitions and all later definitions in this candidate. No database was contacted or changed.</p>
+
+  <h2>Decision</h2>
+  <p><span class="fix">One forward migration is required.</span> <code>20260917201500_sms_test_pending_action_and_delivery_provenance.sql</code> replaced <code>claim_prospect_tour_google_calendar_cleanup</code> with a test-session exclusion but omitted the in-flight Google-create-intent fence added by <code>20260916100500_prospect_tour_google_create_intents.sql</code>. The new <code>20260919113000_reconcile_sms_test_google_cleanup_claim_fence.sql</code> restores both predicates. The six applied migrations remain untouched.</p>
+
+  <h2>Replacement audit</h2>
+  <table>
+    <thead><tr><th>Prototype migration</th><th>Functions or policies examined</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>20260917120000</code></td>
+        <td>
+          New identity-specific functions: <code>record_authenticated_sms_test_ingress</code>, <code>claim_prospect_burst_identity_core</code>, <code>claim_authenticated_sms_test_burst</code>, authenticated inline-action authorize/release, <code>complete_authenticated_sms_test_burst</code>, identity offer/confirmation cores, and authenticated offer/confirmation wrappers.<br><br>
+          Replaced live wrappers: <code>claim_prospect_sms_burst</code>, <code>prepare_prospect_sms_tour_offer</code>, and <code>confirm_prospect_sms_tour_offer</code>.
+        </td>
+        <td><span class="ok">No forward change.</span> The identity core retains the existing live-phone source-revision and lease conditions while adding an exact authenticated-session branch. The live confirmation still enters <code>mutate_confirmed_tour_schedule</code>; later workspace namespacing therefore remains in effect. Test confirmation is intentionally captured and never creates an outbox/provider obligation.</td>
+      </tr>
+      <tr>
+        <td><code>20260917193000</code></td>
+        <td><code>merge_prospect_sms_tour_context</code> replaces the prior live wrapper; identity core and authenticated wrapper are new.</td>
+        <td><span class="ok">No forward change.</span> The live path retains stale-worker, terminal-state, correction, and lease checks from the prior tour-context merge. The new authenticated branch requires the active test session and does not weaken the live identity predicate.</td>
+      </tr>
+      <tr>
+        <td><code>20260917201500</code></td>
+        <td>New immutable-provenance triggers for pending actions and derived vendor sessions; <code>mutate_confirmed_tour_schedule</code>; <code>capture_confirmed_tour_google_calendar_cleanup</code>; <code>claim_prospect_tour_google_calendar_cleanup</code>.</td>
+        <td><span class="fix">Forward reconciliation required only for cleanup claim.</span> The capture trigger still delegates ordinary rows to the original enqueue routine, and the independent create-intent guard remains installed. Its claim replacement, however, removed the separate <code>not exists (... create_intents ...)</code> fence. The forward definition combines that fence with <code>sms_test_session_id is null</code>.</td>
+      </tr>
+      <tr>
+        <td><code>20260918130000</code></td>
+        <td><code>mutate_confirmed_tour_schedule</code>.</td>
+        <td><span class="ok">No forward change.</span> This correctly narrows pre-stamping to cancellation and deletion. The later workspace wrapper retains the same condition, so stale or conflicting replacements cannot incorrectly retain test provenance.</td>
+      </tr>
+      <tr>
+        <td><code>20260918131500</code></td>
+        <td>New classification/provenance functions: membership guard, user/email lookup, provenance derivation, global-singleton guard, namespaced schedule mutator, planned-slice replacement, agent-message inheritance, immutable provenance guard, and current-membership lookup. It also replaces <code>mutate_confirmed_tour_schedule_core</code> and <code>mutate_confirmed_tour_schedule</code>. Policies: workspace/member self-read and the raw listing-read policy.</td>
+        <td><span class="ok">No forward change.</span> The final schedule algorithm keeps the current lifecycle CAS inputs (<code>expected_start</code>, <code>expected_end</code>, generation, and known-generation flag), reservation conflict checks, booking status updates, and advisory locks. It selects a separate workspace schedule namespace while retaining the normal singleton for ordinary rows. The derived-provenance functions are additive and do not replace a customer-data writer.</td>
+      </tr>
+      <tr>
+        <td><code>20260918133000</code></td>
+        <td>Drops <code>manager_property_records_select_live</code>.</td>
+        <td><span class="ok">No forward change.</span> The policy was accidentally recreated by <code>18131500</code>; this immutable follow-up removes it. It must remain absent. The production apply plan must execute the bounded migration bundle transactionally so no failure can leave the raw-table policy exposed.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Complete function and policy inventory</h2>
+  <table>
+    <thead><tr><th>Migration</th><th>Exact objects</th><th>Latest predecessor or final owner</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>17120000</code></td>
+        <td><code>record_authenticated_sms_test_ingress</code>; <code>claim_prospect_burst_identity_core</code>; <code>claim_prospect_sms_burst</code>; <code>claim_authenticated_sms_test_burst</code>; <code>authorize_authenticated_sms_test_inline_action</code>; <code>release_authenticated_sms_test_inline_action</code>; <code>complete_authenticated_sms_test_burst</code>; <code>prepare_prospect_tour_offer_identity_core</code>; <code>prepare_prospect_sms_tour_offer</code>; <code>prepare_authenticated_sms_test_tour_offer</code>; <code>confirm_prospect_tour_offer_identity_core</code>; <code>confirm_prospect_sms_tour_offer</code>; <code>confirm_authenticated_sms_test_tour_offer</code>.</td>
+        <td>Live claim and confirmation supersede the latest <code>15113000</code> forms; live prepare supersedes <code>15103000</code>. All identity-specific functions are new.</td>
+        <td>Keep. No later prototype replaces these except the shared schedule target they invoke.</td>
+      </tr>
+      <tr>
+        <td><code>17193000</code></td>
+        <td><code>merge_prospect_sms_tour_context_identity_core</code>; <code>merge_prospect_sms_tour_context</code>; <code>merge_authenticated_sms_test_tour_context</code>.</td>
+        <td>The live wrapper supersedes <code>15103000</code>; the core and authenticated wrapper are new.</td>
+        <td>Keep.</td>
+      </tr>
+      <tr>
+        <td><code>17201500</code></td>
+        <td><code>prevent_agent_pending_action_sms_test_provenance_change</code>; <code>prevent_agent_session_sms_test_origin_change</code>; <code>mutate_confirmed_tour_schedule</code>; <code>capture_confirmed_tour_google_calendar_cleanup</code>; <code>claim_prospect_tour_google_calendar_cleanup</code>.</td>
+        <td>The first two are new. Schedule wrapper supersedes <code>16103000</code>; capture supersedes <code>15120100</code>; cleanup claim supersedes the fenced <code>16100500</code> definition.</td>
+        <td>Keep all except cleanup claim receives the forward replacement.</td>
+      </tr>
+      <tr>
+        <td><code>18130000</code></td>
+        <td><code>mutate_confirmed_tour_schedule</code>.</td>
+        <td>Supersedes <code>17201500</code>; itself superseded by <code>18131500</code>.</td>
+        <td>Keep immutable body; final wrapper preserves its cancel/delete-only pre-stamp decision.</td>
+      </tr>
+      <tr>
+        <td><code>18131500</code></td>
+        <td><code>prevent_test_workspace_membership_reclassification</code>; <code>test_workspace_for_user</code>; <code>test_workspace_for_email</code>; <code>derive_test_workspace_provenance</code>; <code>prevent_test_workspace_global_schedule_singleton</code>; <code>mutate_confirmed_tour_schedule_namespace</code>; <code>mutate_confirmed_tour_schedule_core</code>; <code>mutate_confirmed_tour_schedule</code>; <code>replace_manager_planned_schedule_slice_namespace</code>; <code>inherit_agent_message_test_workspace</code>; <code>prevent_test_workspace_provenance_change</code>; <code>current_test_workspace_membership</code>. Policies: <code>test_workspace_members_select_own</code>, <code>test_workspaces_select_own</code>, and <code>manager_property_records_select_live</code>.</td>
+        <td>All except core/wrapper are new. Core and wrapper are the final schedule owners. The last policy reintroduced a policy removed by <code>20260809120000</code>.</td>
+        <td>Keep functions and self-read policies. Do not retain the raw listing policy.</td>
+      </tr>
+      <tr>
+        <td><code>18133000</code></td>
+        <td><code>drop policy manager_property_records_select_live</code>.</td>
+        <td>Final policy owner for that raw listing policy.</td>
+        <td>Keep. It resolves the temporary policy recreation once the bounded migration bundle completes.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Current behavior preserved</h2>
+  <ul>
+    <li><strong>Google Calendar:</strong> cleanup cannot be claimed while a deterministic create intent is still <code>creating</code>, <code>cleanup_required</code>, <code>reconcile_current</code>, or <code>reconciling</code>; captured SMS-test cleanup remains excluded.</li>
+    <li><strong>Tour CAS:</strong> the final namespaced mutator is the only later replacement of the wrapper. It retains expected-window/generation rejection, ownership checks, reservation locks, and conflict checks.</li>
+    <li><strong>Outbox and credits:</strong> none of the six migrations replaces <code>begin_sms_outbox_submission</code>, <code>begin_prospect_tour_booking_confirmation_submission</code>, <code>spend_sms_segment_budget</code>, <code>spend_sms_outbox_segment_budget</code>, or <code>claim_comms_budget_alert</code>. Live paths therefore retain their existing outbox, booking, and credit fences. Authenticated SMS tests complete as captured records and do not enter those delivery paths.</li>
+    <li><strong>Listing RLS:</strong> no reconciliation migration recreates a listing policy. The only current result is the explicit drop in <code>18133000</code>.</li>
+  </ul>
+
+  <h2>Verification performed</h2>
+  <p>Read-only migration-history inspection and function-order comparison only. No migration apply, database query, commit, push, browser session, server, or broad test run was performed. The follow-up migration is intentionally small enough for the existing database migration and integration suites to exercise during the release owner’s validation slot.</p>
+</body>
+</html>

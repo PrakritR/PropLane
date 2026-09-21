@@ -40,7 +40,8 @@ const PATCH_ROUTE = readFileSync(
 
 describe("anything selectable in the invite sheet's house picker is acceptable to the server", () => {
   it("offers only the workspace's own server-synced houses", () => {
-    expect(SHEET).toContain("options={workspace.propertyIds.map((id) => ({");
+    expect(SHEET).toContain("workspace.propertyIds.map((id) => ({");
+    expect(SHEET).toContain("houseOptions={houseOptions}");
   });
 
   it("never reaches into the browser-local pending-listing cache that caused the sync gap", () => {

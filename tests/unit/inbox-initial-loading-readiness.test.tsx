@@ -411,7 +411,10 @@ describe("PRP-470 initial Communication readiness", () => {
     const archived = screen.getByRole("link", { name: /^Archived/ });
     expect(archived).toHaveAttribute("href", "/portal/communication/archived");
     expect(archived).toHaveAttribute("aria-current", "page");
-    expect(screen.getByText("PropLane Assistant")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Active conversations" })).toHaveAttribute(
+      "href",
+      "/portal/communication/active",
+    );
   });
 
   it("shows a retryable load error and recovers on retry", async () => {

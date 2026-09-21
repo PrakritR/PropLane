@@ -5,6 +5,9 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: () => ({ a
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: mocks.from }) }));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: mocks.admin }));
 vi.mock("@/lib/tour-notification-delivery.server", () => ({ notifyTenantTourRescheduled: mocks.notify }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 
 import { POST } from "@/app/api/portal-tour-inquiries/propose-reschedule/route";
 

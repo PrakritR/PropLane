@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool, defineWriteTool } from "../../registry";
 import type { VendorAgentContext } from "../../vendor-context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../../audit";
-import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
+import { sendVendorSponsoredOutbound, type VendorSponsoredOutboundResult } from "@/lib/vendor-sponsored-outbound.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { VENDOR_INBOX_SCOPE, applyPortalInboxThreadScope } from "@/lib/portal-inbox-thread-scope";
 import { contentHash, linkedManagerContacts, type LinkedManagerContact } from "./load-vendor-rows";
@@ -81,6 +81,30 @@ async function vendorFromName(ctx: VendorAgentContext): Promise<string> {
   return String(data?.full_name ?? "").trim() || ctx.email;
 }
 
+type ManagerDelivery = { managerId: string; state: "sent" | "sending" | "failed" | "refused" };
+type ManagerAttempt = { ok: boolean; state: ManagerDelivery["state"] };
+
+function summarizeManagerDelivery(results: ManagerAttempt[], targets: LinkedManagerContact[]): {
+  delivery: "sent" | "sending" | "failed" | "refused" | "mixed";
+  outcomes: ManagerDelivery[];
+  allSent: boolean;
+} {
+  const outcomes = results.map((result, index) => ({
+    managerId: targets[index]!.id,
+    state: result.state,
+  }));
+  const states = outcomes.map((outcome) => outcome.state);
+  const allSent = states.length > 0 && states.every((state) => state === "sent");
+  const delivery = allSent ? "sent"
+    : new Set(states).size === 1 ? states[0]!
+      : "mixed";
+  return { delivery, outcomes, allSent };
+}
+
+function toManagerAttempt(result: VendorSponsoredOutboundResult): ManagerAttempt {
+  return result.ok ? { ok: true, state: result.delivery } : { ok: false, state: "refused" };
+}
+
 export const sendMessageToManagerTool = defineWriteTool({
   name: "send_message_to_manager",
   description:
@@ -130,27 +154,61 @@ export const sendMessageToManagerTool = defineWriteTool({
       throw new Error("Could not record the action; no message was sent.");
     }
 
-    // deliverPortalInboxMessage re-filters recipients through
-    // filterRecipientsBySenderScope with the vendor sender — an out-of-scope
-    // recipient is dropped server-side even if it slipped past preview.
-    const result = await deliverPortalInboxMessage(ctx.db, {
-      senderUserId: ctx.userId,
-      senderEmail: ctx.email,
-      fromName: await vendorFromName(ctx),
+    const actor = { userId: ctx.userId, email: ctx.email, name: await vendorFromName(ctx) };
+    const requestFor = (target: LinkedManagerContact, preflight = false) => ({
+      channel: "email" as const,
       subject,
       text: body,
-      toUserIds: resolved.targets.map((t) => t.id),
-      senderRole: "vendor",
-      deliverToPortalInbox: true,
-      deliverViaEmail: Boolean(process.env.RESEND_API_KEY?.trim()),
-      deliverViaSms: false,
+      recipientUserId: target.id,
+      // The audit/content/day fence remains stable across a retry even when a
+      // retryable outcome cleared its audit dedupe key.
+      sendId: `${dedupeKey}:${target.id}`,
+      preflight,
     });
-    if (!result.ok) {
-      await updateAuditResult(ctx, dedupeKey, { failed: true }, { clearDedupeKey: true });
-      throw new Error(result.error);
+
+    // Resolve authorization and channel targets for every manager first. No
+    // outbox/provider operation starts until the entire batch has passed.
+    const preflight = await Promise.all(resolved.targets.map(async (target) => {
+      try {
+        return toManagerAttempt(await sendVendorSponsoredOutbound(ctx.db, actor, requestFor(target, true)));
+      } catch {
+        // A preflight has no provider/outbox side effect. Treat its failure as
+        // a batch refusal so no manager reaches the real-delivery pass.
+        return { ok: false, state: "refused" } as const;
+      }
+    }));
+    if (!preflight.every((result) => result.ok)) {
+      await updateAuditResult(ctx, dedupeKey, {
+        recipientCount: resolved.targets.length,
+        delivery: "refused",
+        // This is all-or-none: successful authorization checks were never
+        // deliveries, so every child is truthfully recorded as refused.
+        outcomes: resolved.targets.map((target) => ({ managerId: target.id, state: "refused" as const })),
+      }, { clearDedupeKey: true });
+      throw new Error("Message was refused before delivery; no manager was contacted.");
     }
 
-    await updateAuditResult(ctx, dedupeKey, { recipientCount: result.recipientCount });
-    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => t.name).join(", ")}.`, resultSummary: { recipientCount: result.recipientCount } };
+    const delivered = await Promise.all(resolved.targets.map(async (target) => {
+      try {
+        return toManagerAttempt(await sendVendorSponsoredOutbound(ctx.db, actor, requestFor(target)));
+      } catch {
+        // The helper can throw after a provider dispatch while persisting its
+        // inbox/binding projection. The stable child key lets a retry safely
+        // reconcile that unknown outcome without claiming success here.
+        return { ok: false, state: "failed" } as const;
+      }
+    }));
+    const summary = summarizeManagerDelivery(delivered, resolved.targets);
+    await updateAuditResult(ctx, dedupeKey, {
+      recipientCount: resolved.targets.length,
+      delivery: summary.delivery,
+      outcomes: summary.outcomes,
+    }, { clearDedupeKey: !summary.allSent });
+    if (!summary.allSent) {
+      throw new Error(summary.delivery === "sending"
+        ? "Message delivery is still pending; retry uses the same message identity."
+        : "Message delivery did not complete for every manager; retry uses the same message identity.");
+    }
+    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => t.name).join(", ")}.`, resultSummary: { recipientCount: resolved.targets.length, delivery: "sent" } };
   },
 });

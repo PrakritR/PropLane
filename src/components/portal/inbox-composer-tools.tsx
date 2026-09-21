@@ -16,7 +16,7 @@ import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
 import { cn } from "@/lib/utils";
 
 /**
- * The reply composer's one-row tools — ✦ (Draft with AI · Ask PropLane),
+ * The reply composer's one-row tools — ✦ (Draft with PropLane · Ask PropLane),
  * 🕒 schedule, and the channel menu — that sit between the reply field and
  * Send. They replaced three stacked rows of chips above the field: a reply
  * used to be four rows tall before a word was typed. Each tool is an icon
@@ -47,7 +47,7 @@ export function InboxComposerAiMenu({
         <button
           type="button"
           aria-label="AI"
-          title="Draft with AI · Ask PropLane"
+          title="Draft with PropLane · Ask PropLane"
           disabled={disabled}
           className={cn(TOOL_BTN, TOOL_BTN_ICON_ONLY, "text-primary")}
           data-attr="inbox-composer-ai-menu"
@@ -59,7 +59,7 @@ export function InboxComposerAiMenu({
         {onDraft ? (
           <DropdownMenuItem onSelect={onDraft} data-attr="inbox-ai-draft-generate">
             <Sparkles strokeWidth={2.25} />
-            Draft with AI
+            Draft with PropLane
           </DropdownMenuItem>
         ) : null}
         {onAsk ? (

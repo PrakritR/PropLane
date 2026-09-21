@@ -1,6 +1,8 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountTransfersActive } from "@/lib/stripe-connect";
+import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
+import { identityStatusFromAccount } from "@/lib/stripe-connect-identity.server";
 import { createNsfFeeForFailedPayment } from "@/lib/nsf-fees";
 import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
@@ -12,6 +14,21 @@ import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
 import { notifyAutopayDeclined, runAttempt } from "@/lib/resident-autopay.server";
 import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+
+async function refuseClassifiedFinancialMutation(
+  db: SupabaseClient,
+  userId: string,
+  operation: string,
+): Promise<boolean> {
+  return (await captureTestWorkspaceEffectForUser({
+    userId,
+    kind: "payment",
+    summary: "Stripe financial mutation was refused for a test workspace.",
+    metadata: { operation },
+    db,
+  })).captured;
+}
 
 export async function resolveUserIdByConnectAccountId(
   db: SupabaseClient,
@@ -27,9 +44,13 @@ export async function resolveUserIdByConnectAccountId(
 }
 
 export async function handleStripeAccountUpdated(db: SupabaseClient, account: Stripe.Account): Promise<void> {
-  const userId = account.metadata?.axis_user_id?.trim();
-  const targetId = userId || (await resolveUserIdByConnectAccountId(db, account.id)) || null;
+  // Signed metadata is only a candidate. The durable Connect mapping owns the
+  // mutation and must agree before profile state changes.
+  const targetId = (await resolveUserIdByConnectAccountId(db, account.id)) || null;
   if (!targetId) return;
+  const claimedId = account.metadata?.axis_user_id?.trim();
+  if (claimedId && claimedId !== targetId) throw new Error("Stripe account ownership mismatch.");
+  if (await refuseClassifiedFinancialMutation(db, targetId, "connect_account_updated")) return;
 
   await db
     .from("profiles")
@@ -39,6 +60,23 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
       updated_at: new Date().toISOString(),
     })
     .eq("id", targetId);
+
+  // Display-only cache for Settings → Payouts (`payout_identity_status`,
+  // PLAN-0920-1500 Part C) — scoped to THIS event's account only; the
+  // identity route itself always reads Stripe fresh, this just saves that
+  // page an extra round trip.
+  const snapshot = identityStatusFromAccount(account);
+  await db.from("payout_identity_status").upsert(
+    {
+      owner_user_id: targetId,
+      status: snapshot.status,
+      currently_due: snapshot.currentlyDue,
+      pending_verification: snapshot.pendingVerification,
+      disabled_reason: snapshot.disabledReason,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "owner_user_id" },
+  );
 }
 
 export async function handleStripeTransferCreated(db: SupabaseClient, transfer: Stripe.Transfer): Promise<void> {
@@ -47,6 +85,10 @@ export async function handleStripeTransferCreated(db: SupabaseClient, transfer: 
       ? transfer.source_transaction
       : transfer.source_transaction?.id ?? null;
   if (!chargeId) return;
+
+  const payment = await ledgerPaymentForStripeCharge(db, chargeId);
+  if (!payment?.manager_user_id) return;
+  if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "transfer_created")) return;
 
   const patch: Record<string, unknown> = {
     stripe_transfer_id: transfer.id,
@@ -64,6 +106,22 @@ export async function handleStripeTransferReversed(db: SupabaseClient, transfer:
     updated_at: new Date().toISOString(),
   };
 
+  const chargeId =
+    typeof transfer.source_transaction === "string"
+      ? transfer.source_transaction
+      : transfer.source_transaction?.id ?? null;
+  const { data: storedTransfer, error: transferReadError } = await db
+    .from("ledger_entries")
+    .select("manager_user_id")
+    .eq("stripe_transfer_id", transfer.id)
+    .eq("entry_type", "payment")
+    .maybeSingle();
+  if (transferReadError) throw new Error(transferReadError.message);
+  const transferOwner = String(storedTransfer?.manager_user_id ?? "").trim()
+    || (chargeId ? String((await ledgerPaymentForStripeCharge(db, chargeId))?.manager_user_id ?? "").trim() : "");
+  if (!transferOwner) return;
+  if (await refuseClassifiedFinancialMutation(db, transferOwner, "transfer_reversed")) return;
+
   const byTransferId = await db
     .from("ledger_entries")
     .update(patch)
@@ -72,10 +130,6 @@ export async function handleStripeTransferReversed(db: SupabaseClient, transfer:
 
   if (byTransferId.error) throw new Error(byTransferId.error.message);
 
-  const chargeId =
-    typeof transfer.source_transaction === "string"
-      ? transfer.source_transaction
-      : transfer.source_transaction?.id ?? null;
   if (!chargeId) return;
 
   await db
@@ -193,7 +247,27 @@ export async function handleConnectPayoutEvent(
   if (!connectAccountId) return;
   const managerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
   if (!managerUserId) return;
+  if (await refuseClassifiedFinancialMutation(db, managerUserId, "connect_payout")) return;
   await upsertStripePayoutRecord(db, managerUserId, payout, connectAccountId, stripe);
+}
+
+/**
+ * `account.external_account.created|updated|deleted` — a bank account or
+ * debit card was added, changed (e.g. micro-deposit verification landed), or
+ * removed on a connected account. Scoped by `event.account` (never the event
+ * payload's own account id) since these are Connect events delivered to the
+ * platform endpoint. Refreshes the display cache from a fresh Stripe read
+ * rather than trying to reconstruct the row from the webhook payload alone.
+ */
+export async function handleExternalAccountEvent(
+  stripe: Stripe,
+  db: SupabaseClient,
+  connectAccountId: string | null | undefined,
+): Promise<void> {
+  if (!connectAccountId) return;
+  const ownerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
+  if (!ownerUserId) return;
+  await refreshPayoutDestinationsCacheFromStripe(stripe, db, ownerUserId, connectAccountId);
 }
 
 async function ledgerPaymentForStripeCharge(
@@ -225,6 +299,7 @@ export async function handleStripeRefund(
 ): Promise<void> {
   const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId);
   if (!payment?.source_charge_id || !payment.manager_user_id) return;
+  if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "refund")) return;
 
   const refundCents = refund.amount ?? 0;
   if (refundCents <= 0) return;
@@ -265,7 +340,7 @@ export async function upsertStripeDisputeRecord(
   sourceChargeId: string | null,
 ): Promise<void> {
   const stripeChargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id ?? "";
-  await db.from("stripe_disputes").upsert(
+  const { error } = await db.from("stripe_disputes").upsert(
     {
       manager_user_id: managerUserId,
       stripe_dispute_id: dispute.id,
@@ -284,17 +359,21 @@ export async function upsertStripeDisputeRecord(
     },
     { onConflict: "stripe_dispute_id" },
   );
+  if (error) throw new Error(error.message);
 }
 
-export async function handleStripeDisputeEvent(db: SupabaseClient, dispute: Stripe.Dispute): Promise<void> {
+export async function handleStripeDisputeEvent(db: SupabaseClient, dispute: Stripe.Dispute): Promise<boolean> {
   const stripeChargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
-  if (!stripeChargeId) return;
+  if (!stripeChargeId) return false;
 
   const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId);
   const managerUserId = payment?.manager_user_id;
-  if (!managerUserId) return;
+  if (!managerUserId) return false;
+
+  if (await refuseClassifiedFinancialMutation(db, managerUserId, "dispute")) return true;
 
   await upsertStripeDisputeRecord(db, dispute, managerUserId, payment?.source_charge_id ?? null);
+  return true;
 }
 
 /**
@@ -404,6 +483,9 @@ export async function handlePaymentIntentFailed(
     if (!row || row.status === "paid") continue;
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge) continue;
+    const managerUserId = String(row.manager_user_id ?? charge.managerUserId ?? "");
+    if (!managerUserId) continue;
+    if (await refuseClassifiedFinancialMutation(db, managerUserId, "payment_failed")) continue;
 
     const failedCharge = {
       ...charge,
@@ -423,7 +505,6 @@ export async function handlePaymentIntentFailed(
       { onConflict: "id" },
     );
 
-    const managerUserId = String(row.manager_user_id ?? charge.managerUserId ?? "");
     if (managerUserId) {
       await createNsfFeeForFailedPayment(db, charge, managerUserId).catch(() => undefined);
       await emitHouseholdChargeTransition(db, {

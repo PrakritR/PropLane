@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronsLeft } from "lucide-react";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
@@ -15,7 +14,6 @@ import {
   toggleAssistantDock,
   undockAssistantFromRail,
 } from "@/lib/axis-assistant/dock-store";
-import { cn } from "@/lib/utils";
 
 function useAssistantDockState(initial: { collapsed: boolean; docked: boolean }) {
   const collapsed = useSyncExternalStore(
@@ -34,7 +32,8 @@ function useAssistantDockState(initial: { collapsed: boolean; docked: boolean })
 
 /**
  * Desktop right rail — shown only after the user docks the popup assistant.
- * Collapses to a narrow icon column; hidden entirely until docked.
+ * Collapsing returns the full content width; the expand control lives in the
+ * portal top bar instead of a leftover strip.
  */
 export function PortalAssistantRail({
   managerName,
@@ -58,40 +57,23 @@ export function PortalAssistantRail({
     openAxisAssistant();
   }, []);
 
-  if (isSmall || !docked) return null;
+  if (isSmall || !docked || collapsed) return null;
 
   return (
     <aside
-      className={cn(
-        "portal-assistant-rail relative z-30 hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-background lg:flex",
-        collapsed ? "w-[58px]" : "w-[var(--portal-assistant-rail-width)]",
-      )}
+      className="portal-assistant-rail relative z-30 hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-background lg:flex"
       data-attr="portal-assistant-rail"
       aria-label="PropLane Assistant"
     >
-      {collapsed ? (
-        <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
-          <button
-            type="button"
-            onClick={toggleAssistantDock}
-            aria-label="Expand PropLane Assistant"
-            aria-expanded={false}
-            className="grid h-8 w-8 place-items-center rounded-[8px] text-muted transition-colors duration-150 hover:bg-[var(--secondary)]/60 hover:text-foreground"
-          >
-            <ChevronsLeft className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col p-2 pt-0">
-          <AssistantDockPanel
-            managerName={managerName}
-            endpoint={endpoint}
-            onCollapse={toggleAssistantDock}
-            onClose={undockToPopup}
-            className="h-full"
-          />
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col p-2 pt-0">
+        <AssistantDockPanel
+          managerName={managerName}
+          endpoint={endpoint}
+          onCollapse={toggleAssistantDock}
+          onClose={undockToPopup}
+          className="h-full"
+        />
+      </div>
     </aside>
   );
 }

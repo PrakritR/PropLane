@@ -67,6 +67,8 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
   PROPERTY_PIPELINE_EVENT: "property-pipeline",
   loadResidentPropertyFromServer: async () => null,
   syncPropertyPipelineFromServer: async () => {},
+  subscribePropertyCatalogScope: () => () => {},
+  propertyCatalogScopeKey: () => "test-scope",
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline",

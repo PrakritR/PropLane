@@ -8,6 +8,7 @@ import {
   type PendingAction,
   type ToolTraceEntry,
   type AssistantChatThreadSummary,
+  type SmsTestTurnMetadata,
 } from "@/lib/axis-assistant/use-assistant-conversation";
 
 export type AssistantConversationValue = {
@@ -27,6 +28,7 @@ export type AssistantConversationValue = {
   hasMoreHistory: boolean;
   multiThread: boolean;
   lastTools: ToolTraceEntry[];
+  lastSmsTestTurn: SmsTestTurnMetadata | null;
   /** traceId -> this user's thumbs rating, so a rated reply keeps showing it. */
   ratings: Record<string, "up" | "down">;
   submitFeedback: (traceId: string, rating: "up" | "down") => Promise<boolean>;

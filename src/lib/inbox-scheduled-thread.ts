@@ -18,6 +18,7 @@ import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminder
 export type ThreadScheduledItem = {
   id: string;
   source: "manual" | "automation";
+  deliveryStatus?: "scheduled" | "sending";
   sendAt: string;
   /** Human "sends <when>" label. */
   sendLabel: string;
@@ -53,21 +54,59 @@ export function threadScheduledItemFromManualMessage(
   return {
     id: message.id,
     source: "manual",
+    deliveryStatus: message.status === "sending" ? "sending" : "scheduled",
     sendAt: message.sendAt,
-    sendLabel: formatScheduledSendAt(message.sendAt),
+    sendLabel: message.status === "sending" ? "Sending / needs review" : formatScheduledSendAt(message.sendAt),
     subject: message.subject,
     body: message.body,
-    editable: !isResidentOriginatedScheduledMessage(message),
+    editable: message.status === "scheduled" && !isResidentOriginatedScheduledMessage(message),
     channel: message.deliverViaSms && !message.deliverViaEmail ? "sms" : "email",
     deliverViaEmail: message.deliverViaEmail !== false,
     deliverViaSms: message.deliverViaSms === true,
   };
 }
 
+/**
+ * The manager's own payment-reminder delivery settings, in the shape the card
+ * needs. A reminder with no override of its own sends on THESE channels, so the
+ * card has to display them rather than an invented email-only default.
+ *
+ * Structurally typed against `ManagerAutomationSettings` so this module stays
+ * free of the settings module (and its Supabase import) — the callers already
+ * hold the settings object.
+ */
+export type ScheduledAutomationChannelDefaults = {
+  deliverViaEmail: boolean;
+  deliverViaSms: boolean;
+};
+
+export function automationChannelDefaultsFromSettings(
+  settings:
+    | { paymentReminderDeliverViaEmail?: boolean; paymentReminderDeliverViaSms?: boolean }
+    | null
+    | undefined,
+): ScheduledAutomationChannelDefaults | undefined {
+  if (!settings) return undefined;
+  return {
+    deliverViaEmail: settings.paymentReminderDeliverViaEmail !== false,
+    deliverViaSms: settings.paymentReminderDeliverViaSms === true,
+  };
+}
+
 /** Map one automated payment-reminder row to the inline thread card shape. */
 export function threadScheduledItemFromAutomationMessage(
   message: ScheduledPaymentMessage,
+  defaults?: ScheduledAutomationChannelDefaults,
 ): ThreadScheduledItem {
+  /*
+    A reminder the manager has not re-pointed carries no channel of its own, so
+    what it WILL do is whatever the automation's delivery settings say. Show
+    that. Only when the caller has no settings to hand does this fall back to
+    the email-only shape the card has always displayed — presentation, never a
+    stored decision.
+  */
+  const deliverViaEmail = message.deliverViaEmail ?? defaults?.deliverViaEmail ?? true;
+  const deliverViaSms = message.deliverViaSms ?? defaults?.deliverViaSms ?? false;
   return {
     id: message.id,
     source: "automation",
@@ -80,15 +119,9 @@ export function threadScheduledItemFromAutomationMessage(
         ? `${message.bundledChargeIds.length} payments${message.propertyLabel ? ` · ${message.propertyLabel}` : ""}`
         : [message.chargeTitle, message.propertyLabel].filter(Boolean).join(" · ") || undefined,
     editable: true,
-    /*
-      A reminder the manager has not re-pointed carries no channel of its own,
-      and the automation's delivery settings decide at send time. The card has
-      to show SOMETHING, so absence falls back to the email-only shape it has
-      always displayed — the fallback is presentation, never a stored decision.
-    */
-    channel: message.deliverViaSms && !message.deliverViaEmail ? "sms" : "email",
-    deliverViaEmail: message.deliverViaEmail ?? true,
-    deliverViaSms: message.deliverViaSms ?? false,
+    channel: deliverViaSms && !deliverViaEmail ? "sms" : "email",
+    deliverViaEmail,
+    deliverViaSms,
   };
 }
 
@@ -102,6 +135,7 @@ export function scheduledItemsForRecipient(
   recipientEmail: string,
   manual: ScheduledInboxMessageRecord[],
   automation: ScheduledPaymentMessage[],
+  automationDefaults?: ScheduledAutomationChannelDefaults,
 ): ThreadScheduledItem[] {
   const target = normalizeEmail(recipientEmail);
   if (!target) return [];
@@ -109,7 +143,7 @@ export function scheduledItemsForRecipient(
   const items: ThreadScheduledItem[] = [];
 
   for (const message of manual) {
-    if (message.status !== "scheduled") continue;
+    if (message.status !== "scheduled" && message.status !== "sending") continue;
     if (!isUpcomingScheduledInboxMessage(message.sendAt, message.status)) continue;
     if (normalizeEmail(message.recipientEmail) !== target) continue;
     items.push(threadScheduledItemFromManualMessage(message));
@@ -119,7 +153,7 @@ export function scheduledItemsForRecipient(
     if (message.status !== "scheduled") continue;
     if (!isUpcomingScheduledInboxMessage(message.sendAt, message.status)) continue;
     if (normalizeEmail(message.residentEmail) !== target) continue;
-    items.push(threadScheduledItemFromAutomationMessage(message));
+    items.push(threadScheduledItemFromAutomationMessage(message, automationDefaults));
   }
 
   return items.sort((a, b) => a.sendAt.localeCompare(b.sendAt));

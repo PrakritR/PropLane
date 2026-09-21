@@ -10,6 +10,16 @@ request (listing, tour, apply, payments, lease, invoices) instead of running
 the flow by text. Tools, prompts, and the origin rule:
 `docs/ai-assistant.md` "Links first".
 
+## Where numbers and the work email are managed
+
+Settings → Communication → Channels (`ManagerMessagingSettingsPanel` in
+`src/components/portal/pro-messaging-settings-panel.tsx`) is the one list: a
+row per work number per workspace plus the work email row, each with a ⋯ menu
+for its actions (PLAN-0920-1530). Every number's status word comes from
+`src/lib/sms/work-number-status.ts`; the email row's inline rename and its
+actions live in `src/components/portal/pro-assistant-email-settings-panel.tsx`
+(`ManagerAssistantEmailChannelRow`), composed into the same list.
+
 ## Work-order reference routing
 
 Inbound `WO-1042`, `wo 1042`, `#1042`, `status 1042`, or a message containing
@@ -83,6 +93,15 @@ through it or through the workspace-keyed helpers in
 
 The work EMAIL follows the identical rule — one address per workspace, held by
 its owner. See `docs/agents/inbound-email-inbox.md` "One work email per WORKSPACE".
+
+**A workspace may hold up to 2 numbers (part 3, Sep 2026).** `workspace_work_numbers`
+is the many-to-many join table and the only truth for "which numbers does this
+workspace hold" — `manager_sms_numbers.workspace_id` stays each number's fixed
+HOME placement, untouched. A shared number's thread is ONE thread, visible and
+sendable from every holding workspace (`conversation-visibility.server.ts`,
+`resolveOwnerSendNumberRow`). Manage assignment only through
+`src/lib/sms/work-numbers.server.ts` and `PATCH /api/manager/messaging-number`,
+never by writing the join table directly.
 
 ## Conversation houses (which house a thread is about)
 

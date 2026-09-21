@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerBill } from "@/lib/manager-bills";
 import { mapManagerBillRow, MANAGER_BILL_SELECT } from "@/lib/manager-bills";
 import { postGlBillApproved, postGlBillPaid } from "@/lib/reports/gl-posting";
+import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
 
 export type CreateManagerBillInput = {
   managerUserId: string;
@@ -33,6 +34,7 @@ export async function createManagerBill(db: SupabaseClient, input: CreateManager
       vendor_invoice_id: input.vendorInvoiceId ?? null,
       category_code: input.categoryCode ?? "maintenance",
       status: input.status ?? "pending_approval",
+      ...smsTestProvenanceColumns(),
       updated_at: now,
     })
     .select(MANAGER_BILL_SELECT)
@@ -57,7 +59,7 @@ export async function approveManagerBill(
   const now = new Date().toISOString();
   const { data, error } = await db
     .from("manager_bills")
-    .update({ status: "approved", approved_at: now, approved_by: approvedBy, updated_at: now })
+    .update({ status: "approved", approved_at: now, approved_by: approvedBy, updated_at: now, ...smsTestProvenanceColumns() })
     .eq("id", billId)
     .eq("manager_user_id", managerUserId)
     .select(MANAGER_BILL_SELECT)
@@ -133,6 +135,7 @@ export async function payManagerBill(
       paid_at: now,
       paid_expense_entry_id: expenseId,
       updated_at: now,
+      ...smsTestProvenanceColumns(),
     })
     .eq("id", billId)
     .eq("manager_user_id", managerUserId)

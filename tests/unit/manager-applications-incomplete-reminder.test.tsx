@@ -24,6 +24,8 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: () => {} }),
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
+  isBookingResidencyRow: (row: unknown) =>
+    (row as { bookingResidency?: unknown } | null)?.bookingResidency === true,
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   syncManagerApplicationsFromServer: () => Promise.resolve(ROWS),
   readManagerApplicationRows: () => ROWS,
@@ -82,10 +84,9 @@ describe("manager Applications — incomplete detail reminder", () => {
     ];
     render(<ManagerApplications bucket="incomplete" applicationId="PROPLANE-E2E86A70" />);
 
-    expect(screen.getAllByText("Send reminder").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
-    expect(screen.queryByText("Approve")).toBeNull();
-    expect(screen.getAllByText("Reject").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Reject" }).length).toBeGreaterThan(0);
     // The download control is no longer on the detail body: 3c23cfc2 set
     // `showDownload={false}` there and folded it into the footer's combined
     // download menu, which opens on click. This test is about Send reminder and
@@ -112,7 +113,7 @@ describe("manager Applications — incomplete detail reminder", () => {
       },
     ];
     render(<ManagerApplications bucket="incomplete" applicationId="PROPLANE-LEGACY" />);
-    expect(screen.getAllByText("Send reminder").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
   });
 
   it("does not offer Send reminder on the Incomplete tab list", () => {

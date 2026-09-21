@@ -34,7 +34,7 @@ describe("promo / waiver code lives on checkout only", () => {
       "utf8",
     );
     const commsCreditSrc = readFileSync(
-      join(process.cwd(), "src/components/portal/manager-comms-billing-panel.tsx"),
+      join(process.cwd(), "src/components/portal/manager-usage-panel.tsx"),
       "utf8",
     );
     // Neither panel renders the actual promo/waiver code field — only

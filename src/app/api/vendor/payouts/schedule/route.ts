@@ -3,7 +3,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { writePayoutSchedule } from "@/lib/stripe-payouts.server";
+import { stripePayoutErrorResponse, writePayoutSchedule } from "@/lib/stripe-payouts.server";
 import { validateScheduleRequestBody } from "@/lib/stripe-payouts";
 
 export const runtime = "nodejs";
@@ -43,10 +43,9 @@ export async function PUT(req: Request) {
           { status: 503 },
         );
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("vendor/payouts/schedule PUT", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("vendor/payouts/schedule PUT", e);
   }
 }

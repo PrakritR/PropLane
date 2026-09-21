@@ -32,6 +32,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { fileWorkflowFromInboundEmailReply } from "@/lib/inbox/inbound-message-workflows.server";
 import { verifyResendWebhookSignature } from "@/lib/inbound-email/verify-signature";
 import { rateLimit } from "@/lib/rate-limit";
+import { ingestVendorWorkIdentityEmail } from "@/lib/vendor-work-identity-inbound.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -159,6 +160,16 @@ export async function POST(req: Request) {
       return appended ? ok({ reply: true }) : ok({ reply: true, idempotent: true });
     }
     // Token owner no longer resolves — fall through to the support ingest.
+  }
+
+  // A vendor-sponsored address is an owned identity. Store it inline before
+  // the manager assistant or shared support mailbox can claim the message.
+  try {
+    const vendorInbound = await ingestVendorWorkIdentityEmail(createSupabaseServiceRoleClient(), parsed);
+    if (vendorInbound.handled) return ok({ vendorIdentity: true, ...(vendorInbound.idempotent ? { idempotent: true } : {}) });
+  } catch (e) {
+    console.error("vendor inbound email ingest failed", parsed.emailId, e);
+    return new Response("Ingest failed", { status: 500 });
   }
 
   if (isAssistantEmailAddress(parsed.toEmails)) {

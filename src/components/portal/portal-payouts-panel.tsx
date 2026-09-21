@@ -1,25 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowUp, Calendar, Landmark, Settings, Wrench, Zap } from "lucide-react";
+import { type ReactNode } from "react";
+import { AlertTriangle, ArrowUp, Calendar, Landmark, Wrench, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
-import { PortalPayoutSetupCard, type PortalPayoutSetupStatus } from "@/components/portal/portal-payout-setup-card";
-import { PortalPayOutSheet } from "@/components/portal/portal-pay-out-sheet";
-import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
+import { type PortalPayoutSetupStatus } from "@/components/portal/portal-payout-setup-card";
+import { type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
-import { track } from "@/lib/analytics/track-client";
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import { cn } from "@/lib/utils";
+
+/**
+ * Payouts is one page now, mounted at Settings → Payouts
+ * (`portal-payouts-settings-page.tsx`, PLAN-0920-1500) for both the manager
+ * (`/portal/settings/payouts`) and the vendor (`Vendor → Settings →
+ * Payouts`). This file no longer owns a page — `render-portal-section.tsx`
+ * and `vendor-finances-panel.tsx` redirect the old `/payments/payouts` /
+ * `/financials/payouts` paths straight to it. What survives here are the
+ * pieces the settings page mounts: shared types, formatters, `ScheduleCard`
+ * and `HistorySection`.
+ */
 
 export type PortalPayoutsPortalKind = "manager" | "vendor";
 
@@ -69,16 +73,6 @@ export type PortalPayoutBalance = {
   needsRelink?: boolean;
 };
 
-const PORTAL_API_BASE: Record<PortalPayoutsPortalKind, string> = {
-  manager: "/api/stripe",
-  vendor: "/api/vendor",
-};
-
-const PORTAL_CONNECT_BASE: Record<PortalPayoutsPortalKind, string> = {
-  manager: "/api/stripe/connect",
-  vendor: "/api/vendor/stripe-connect",
-};
-
 const SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[] = [
   { value: "weekly", label: "Every Friday" },
   { value: "daily", label: "Every day" },
@@ -86,21 +80,36 @@ const SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[]
   { value: "manual", label: "Manual" },
 ];
 
-function formatMoney(cents: number, currency: string): string {
+export function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: (currency || "usd").toUpperCase() }).format(
     cents / 100,
   );
 }
 
-function formatDate(iso: string | null | undefined): string | null {
+export function formatDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function capitalize(value: string): string {
-  return value.length ? value[0]!.toUpperCase() + value.slice(1) : value;
+/**
+ * Today's balance has exactly one bank on it — synthesizes the single-entry
+ * `PayoutWithdrawAccount` list `PayoutWithdrawSheet` expects for a caller
+ * with no live bank-accounts route yet (`portal-payouts-settings-page.tsx`'s
+ * fallback path).
+ */
+export function bankToWithdrawAccounts(bank: PortalPayoutBank | null): PayoutWithdrawAccount[] {
+  if (!bank) return [];
+  return [
+    {
+      id: "default",
+      label: bank.bankName,
+      last4: bank.last4,
+      kind: "bank",
+      instantEligible: bank.instantEligible,
+    },
+  ];
 }
 
 /** A per-row ⋯ that owns its own scope — mirrors `BookingsRowOverflow`, the shared way to give one record its own menu outside a bulk-select list. */
@@ -112,75 +121,8 @@ function PayoutRowMenu({ rowId, label, children }: { rowId: string; label: strin
   );
 }
 
-function PayoutBalanceCard({ balance, onPayOut }: { balance: PortalPayoutBalance; onPayOut: () => void }) {
-  const nextPayout = formatDate(balance.schedule.nextPayoutAt);
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm" data-attr="payouts-balance-card">
-      <div className="flex flex-wrap items-end justify-between gap-4 max-md:flex-col max-md:items-stretch">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available now</p>
-          <p className="mt-1 text-[32px] font-extrabold leading-none tracking-tight text-foreground" data-attr="payouts-available">
-            {formatMoney(balance.availableCents, balance.currency)}
-          </p>
-        </div>
-        <Button
-          type="button"
-          onClick={onPayOut}
-          disabled={balance.availableCents <= 0}
-          data-attr="payouts-pay-out-open"
-          className="max-md:w-full"
-        >
-          Pay out
-        </Button>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted">
-        <PortalRowFact icon={Landmark}>
-          On the way {formatMoney(balance.onTheWayCents, balance.currency)}
-          {nextPayout ? ` · arrives ${nextPayout}` : ""}
-        </PortalRowFact>
-        <PortalRowFact icon={Zap}>Clearing {formatMoney(balance.pendingCents, balance.currency)}</PortalRowFact>
-      </div>
-    </div>
-  );
-}
-
-function GetsPaidToCard({ bank, onChangeBank }: { bank: PortalPayoutBank | null; onChangeBank: () => void }) {
-  return (
-    <PortalSettingsSection title="Gets paid to">
-      <PortalSettingsGroup>
-        {bank ? (
-          <div className="flex items-center gap-3 px-4 py-3.5">
-            <div
-              aria-hidden
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/[0.08] text-primary"
-            >
-              <Landmark className="size-5" strokeWidth={1.6} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-foreground">
-                {bank.bankName} ····{bank.last4}
-              </p>
-              <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted">
-                <span>{capitalize(bank.accountType)}</span>
-                {bank.instantEligible ? <PortalRowFact icon={Zap}>Instant eligible</PortalRowFact> : null}
-                {bank.verifiedAt ? <PortalRowFact icon={ArrowUp}>Verified {formatDate(bank.verifiedAt)}</PortalRowFact> : null}
-              </p>
-            </div>
-            <PayoutRowMenu rowId="gets-paid-to" label="Bank account">
-              <Button type="button" variant="outline" onClick={onChangeBank} data-attr="payouts-change-bank">
-                Change bank
-              </Button>
-            </PayoutRowMenu>
-          </div>
-        ) : (
-          <div className="px-4 py-3.5 text-sm text-muted">No bank linked</div>
-        )}
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
-  );
-}
-
-function ScheduleCard({
+/** Exported so `portal-payouts-settings-page.tsx`'s Schedule section mounts the identical control. */
+export function ScheduleCard({
   schedule,
   availableCents,
   currency,
@@ -296,7 +238,8 @@ function PayoutHistoryRow({
   );
 }
 
-function HistorySection({
+/** Exported so `portal-payouts-settings-page.tsx`'s History section mounts the identical rows. */
+export function HistorySection({
   rows,
   currency,
   search,
@@ -341,226 +284,5 @@ function HistorySection({
         ))}
       </PortalRecordListSurface>
     </div>
-  );
-}
-
-function PayoutsChrome({
-  portal,
-  search,
-  onSearchChange,
-  onOpenSettings,
-  children,
-}: {
-  portal: PortalPayoutsPortalKind;
-  search: string;
-  onSearchChange: (value: string) => void;
-  onOpenSettings: () => void;
-  children: ReactNode;
-}) {
-  const commandBar = (
-    <PortalListControlStack
-      className="mb-3"
-      variant="command"
-      search={{ value: search, onChange: onSearchChange, placeholder: "Search payouts", dataAttr: "payouts-search" }}
-      actions={<PortalIconAction icon={Settings} label="Payout settings" data-attr="payouts-settings" onClick={onOpenSettings} />}
-    />
-  );
-  // Vendor mounts inside Vendor Finances' own Income/Invoices/Payouts chrome
-  // (`VendorFinancesChrome`), which already owns the page shell — a second
-  // one here would nest two page titles.
-  if (portal === "vendor") {
-    return (
-      <div className="space-y-3">
-        {commandBar}
-        {children}
-      </div>
-    );
-  }
-  return (
-    <ManagerPortalPageShell title="Payments" hideTitleOnMobileNav compactFilterRow>
-      {commandBar}
-      {children}
-    </ManagerPortalPageShell>
-  );
-}
-
-/**
- * The Payouts page — one balance, one Pay out button, the bank it lands in,
- * the automatic schedule, and the payout history — mounted for both the
- * manager (`/portal/payments/payouts`) and the vendor
- * (`/vendor/financials/payouts`) with the same panel (PLAN-0920-0853).
- */
-export function PortalPayoutsPanel({ portal }: { portal: PortalPayoutsPortalKind }) {
-  const { showToast } = useAppUi();
-  const apiBase = PORTAL_API_BASE[portal];
-  const connectBase = PORTAL_CONNECT_BASE[portal];
-
-  const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [payOutOpen, setPayOutOpen] = useState(false);
-  const [retryRow, setRetryRow] = useState<PortalPayoutHistoryRow | null>(null);
-  const [bankSettingsOpen, setBankSettingsOpen] = useState(false);
-
-  const loadBalance = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const res = await fetch(`${apiBase}/payouts/balance`, { credentials: "include" });
-      const body = (await res.json().catch(() => ({}))) as Partial<PortalPayoutBalance> & { error?: string };
-      if (!res.ok) {
-        setLoadError(body.error ?? "Could not load payouts.");
-        return;
-      }
-      setBalance(body as PortalPayoutBalance);
-    } catch {
-      setLoadError("Could not load payouts.");
-    } finally {
-      setLoading(false);
-    }
-  }, [apiBase]);
-
-  useEffect(() => {
-    setLoading(true);
-    void loadBalance();
-    // Re-run once per mount only — a schedule/pay-out action reloads itself explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase]);
-
-  const handleScheduleChange = useCallback(
-    async (interval: PortalPayoutScheduleInterval) => {
-      setBalance((current) => (current ? { ...current, schedule: { ...current.schedule, interval } } : current));
-      try {
-        const res = await fetch(`${apiBase}/payouts/schedule`, {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ interval }),
-        });
-        const body = (await res.json().catch(() => ({}))) as Partial<PortalPayoutBalance["schedule"]> & { error?: string };
-        if (!res.ok) {
-          showToast(body.error ?? "Could not update the schedule.");
-          void loadBalance();
-          return;
-        }
-        setBalance((current) => (current ? { ...current, schedule: { ...current.schedule, ...body } } : current));
-        track("payout_schedule_changed", { portal, interval });
-      } catch {
-        showToast("Could not update the schedule.");
-        void loadBalance();
-      }
-    },
-    [apiBase, loadBalance, portal, showToast],
-  );
-
-  const handleReceipt = useCallback((row: PortalPayoutHistoryRow) => {
-    // A receipt link is only ever safe to open when it is actually an
-    // outbound https URL — never `javascript:`/`data:`/relative-scheme
-    // trickery from a row shape this client does not fully control.
-    if (row.receiptUrl && row.receiptUrl.startsWith("https:")) {
-      window.open(row.receiptUrl, "_blank", "noopener");
-    }
-  }, []);
-
-  // Retry is an outward money movement, not a re-fetch — it must go through
-  // the SAME confirmation sheet a fresh "Pay out" does rather than firing a
-  // one-click POST from a row's ⋯ menu. The sheet prefills the failed row's
-  // own amount/method (both GROSS — see `PortalPayOutSheet`'s doc comment)
-  // and the user still has to press "Pay out $X" to confirm.
-  const handleRetry = useCallback((row: PortalPayoutHistoryRow) => {
-    setRetryRow(row);
-    setPayOutOpen(true);
-  }, []);
-
-  const closePayOut = useCallback(() => {
-    setPayOutOpen(false);
-    setRetryRow(null);
-  }, []);
-
-  const closeBankSettings = useCallback(() => {
-    setBankSettingsOpen(false);
-    void loadBalance();
-  }, [loadBalance]);
-
-  let content: ReactNode;
-  if (loading) {
-    content = <PortalRecordListSurface loading dataAttr="payouts-loading" />;
-  } else if (loadError) {
-    content = (
-      <PortalRecordListSurface
-        loadError={loadError}
-        onRetry={() => {
-          setLoading(true);
-          void loadBalance();
-        }}
-        dataAttr="payouts-error"
-      />
-    );
-  } else if (!balance) {
-    content = null;
-  } else if (balance.needsRelink || !balance.setup.ready) {
-    content = (
-      <PortalPayoutSetupCard
-        connectBase={connectBase}
-        setup={balance.setup}
-        needsRelink={balance.needsRelink === true}
-        onReady={() => void loadBalance()}
-      />
-    );
-  } else {
-    content = (
-      <div className="space-y-4">
-        <PayoutBalanceCard
-          balance={balance}
-          onPayOut={() => {
-            track("payout_started", { portal });
-            setPayOutOpen(true);
-          }}
-        />
-        <div className="grid gap-3 md:grid-cols-2">
-          <GetsPaidToCard bank={balance.bank} onChangeBank={() => setBankSettingsOpen(true)} />
-          <ScheduleCard
-            schedule={balance.schedule}
-            availableCents={balance.availableCents}
-            currency={balance.currency}
-            onChange={handleScheduleChange}
-          />
-        </div>
-        <HistorySection
-          rows={balance.history}
-          currency={balance.currency}
-          search={search}
-          onClearSearch={() => setSearch("")}
-          portal={portal}
-          onReceipt={handleReceipt}
-          onRetry={handleRetry}
-        />
-        <PortalPayOutSheet
-          open={payOutOpen}
-          onClose={closePayOut}
-          apiBase={apiBase}
-          currency={balance.currency}
-          availableCents={balance.availableCents}
-          instantAvailableCents={balance.instantAvailableCents}
-          bank={balance.bank}
-          initialAmountCents={retryRow?.amountCents}
-          initialMethod={retryRow?.method}
-          onSuccess={(result) => {
-            closePayOut();
-            track("payout_completed", { portal, method: result.method, amount_cents: result.amountCents });
-            void loadBalance();
-          }}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <PayoutsChrome portal={portal} search={search} onSearchChange={setSearch} onOpenSettings={() => setBankSettingsOpen(true)}>
-      {content}
-      <Modal open={bankSettingsOpen} title="Bank account" onClose={closeBankSettings} panelClassName="max-w-lg" scrollableContent={false}>
-        <StripeConnectEmbedded connectBase={connectBase} component="account_management" onExit={closeBankSettings} />
-      </Modal>
-    </PayoutsChrome>
   );
 }

@@ -29,6 +29,7 @@ export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsT
   { id: "tasks", label: "Tasks" },
   { id: "resident", label: "Residents" },
   { id: "payments", label: "Payments" },
+  { id: "payouts", label: "Payouts" },
   { id: "services", label: "Services" },
   { id: "communication", label: "Communication" },
   { id: "bookings", label: "Bookings" },

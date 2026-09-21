@@ -18,6 +18,7 @@ import {
 import { track } from "@/lib/analytics/track-client";
 import { ModalShell } from "@/components/ui/modal";
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
+import { AssistantSmsTestControl } from "@/components/portal/assistant-sms-test-control";
 import { AssistantChatHistoryPanel } from "@/components/portal/assistant-chat-history-panel";
 import {
   AssistantEmptyState,
@@ -31,6 +32,7 @@ import {
   useOptionalAssistantConversation,
 } from "@/lib/axis-assistant/assistant-conversation-context";
 import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
+import { propertyCatalogScopeKey, subscribePropertyCatalogScope } from "@/lib/demo-property-pipeline";
 import { useActiveWorkspaceIdentity } from "@/hooks/use-selected-workspace-id";
 import { useAssistantDisplayMode } from "@/hooks/use-assistant-display-mode";
 import { useIsClient } from "@/hooks/use-is-client";
@@ -53,7 +55,7 @@ import {
   subscribeAxisAssistantOpen,
   subscribeAxisAssistantPrompt,
 } from "@/lib/axis-assistant/open-store";
-import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
+import { PortalAssistantConfigProvider, usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { registerPortalAssistant } from "@/lib/general-assistant/open-store";
 import { cn } from "@/lib/utils";
 import {
@@ -62,6 +64,16 @@ import {
 } from "@/lib/axis-assistant/fab-visibility";
 
 const AxisAssistantPresenceContext = createContext(false);
+
+type SmsTestCapabilityPayload = {
+  targets: Array<{
+    listingId: string;
+    managerUserId: string;
+    title: string;
+    address: string;
+    stage?: "prospect" | "submitted" | "approved";
+  }>;
+};
 
 /** True when the layout wraps children in {@link AxisAssistant}. */
 export function useHasAxisAssistant() {
@@ -192,6 +204,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [historyPortal, setHistoryPortal] = useState<HTMLElement | null>(null);
   const keyboardInset = useVisualViewportBottomInset(open && panelReady);
+  const smsTestActive = usePortalAssistantConfig()?.smsTest?.active ?? false;
 
   const firstName = managerName?.trim().split(/\s+/)[0] || null;
   const visibleMessages = visibleConversationMessages(messages);
@@ -325,6 +338,8 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
             className="[html[data-native]_&]:py-1.5"
           />
 
+          <AssistantSmsTestControl />
+
           {multiThread ? (
             <AssistantChatHistoryPanel
               open={historyOpen}
@@ -355,7 +370,11 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
                 hasConversation ? "min-h-0 flex-1" : "min-h-0 flex-1 [html[data-native]_&]:flex-none",
               )}
             >
-              {!hasConversation ? (
+              {!hasConversation && smsTestActive ? (
+                <p className="m-auto max-w-sm rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-center text-xs leading-relaxed text-muted">
+                  Send the same short replies you would text. Type YES or NO when the SMS assistant asks for confirmation.
+                </p>
+              ) : !hasConversation ? (
                 <AssistantEmptyState
                   firstName={firstName}
                   showQueue={endpoint === MANAGER_ASSISTANT_ENDPOINT}
@@ -403,7 +422,8 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
               onAttachmentError={(message) => setError(message)}
               loading={loading}
               inputRef={inputRef}
-              placeholder="Ask about your portfolio…"
+              placeholder={smsTestActive ? "Type an SMS message…" : "Ask about your portfolio…"}
+              allowAttachments={!smsTestActive}
               onSend={() => void send()}
             />
           </form>
@@ -423,6 +443,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
 export function AxisAssistant({
   managerName,
   endpoint,
+  smsTestPortal,
   dockable = false,
   children,
 }: {
@@ -433,6 +454,8 @@ export function AxisAssistant({
    * context resolver rejects non-managers; the public demo passes the sandboxed
    * `/api/agent/demo-chat`. */
   endpoint?: string;
+  /** Opts an authenticated manager or resident portal into non-production SMS testing. */
+  smsTestPortal?: "manager" | "resident";
   /**
    * Opt this portal into the docked presentation: it must render
    * `<PortalAssistantDockRail />` somewhere the rail can occupy the full-height
@@ -474,14 +497,116 @@ export function AxisAssistant({
 
   const chatEndpoint = endpoint ?? "/api/agent/chat";
   const workspace = useActiveWorkspaceIdentity();
+  const catalogScopeKey = useSyncExternalStore(subscribePropertyCatalogScope, propertyCatalogScopeKey, () => "server");
+  const capabilityScopeKey = JSON.stringify([catalogScopeKey, userId, workspace.id, authReady, smsTestPortal, chatEndpoint]);
+  type SmsControlState = {
+    scopeKey: string;
+    capability: SmsTestCapabilityPayload | null;
+    visible: boolean;
+    loading: boolean;
+    error: string | null;
+    active: boolean;
+    targetId: string;
+  };
+  const emptySmsState: SmsControlState = {
+    scopeKey: capabilityScopeKey,
+    capability: null,
+    visible: false,
+    loading: Boolean(smsTestPortal && authReady && userId),
+    error: null,
+    active: false,
+    targetId: "",
+  };
+  const [storedSmsState, setSmsState] = useState<SmsControlState>(emptySmsState);
+  // Mask the old target and active endpoint during render, before effect cleanup.
+  const smsState = storedSmsState.scopeKey === capabilityScopeKey ? storedSmsState : emptySmsState;
+  const [smsCapabilityAttempt, setSmsCapabilityAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!smsTestPortal || !authReady || !userId || isDemoModeActive()) return;
+    const controller = new AbortController();
+    const isCurrent = () => !controller.signal.aborted
+      && propertyCatalogScopeKey() === catalogScopeKey;
+    const update = (patch: Partial<SmsControlState>) => {
+      if (!isCurrent()) return;
+      setSmsState((current) => {
+        if (!isCurrent()) return current;
+        const base: SmsControlState = current.scopeKey === capabilityScopeKey ? current : {
+          scopeKey: capabilityScopeKey, capability: null, visible: false,
+          loading: true, error: null, active: false, targetId: "",
+        };
+        return { ...base, ...patch };
+      });
+    };
+    void fetch(`/api/agent/sms-test/capability?portal=${smsTestPortal}`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json() as {
+          capability?: { targets?: SmsTestCapabilityPayload["targets"] };
+          error?: string;
+        };
+        if (!isCurrent()) return;
+        if (!response.ok || !data.capability) {
+          if (response.status === 404) {
+            update({ capability: null, visible: false, active: false, targetId: "", error: null });
+            return;
+          }
+          update({ visible: true });
+          throw new Error(data.error ?? "SMS test mode is unavailable.");
+        }
+        const targets = Array.isArray(data.capability.targets) ? data.capability.targets : [];
+        update({ visible: true, error: null, capability: { targets }, active: false, targetId: "" });
+      })
+      .catch((error: unknown) => {
+        update({ active: false, capability: null, targetId: "", visible: true,
+          error: error instanceof Error ? error.message : "SMS test mode is unavailable." });
+      })
+      .finally(() => update({ loading: false }));
+    return () => controller.abort();
+  }, [authReady, userId, catalogScopeKey, capabilityScopeKey, smsCapabilityAttempt, smsTestPortal]);
+
+  const smsTestEndpoint = smsTestPortal
+    ? `/api/agent/sms-test?portal=${smsTestPortal}${smsState.targetId ? `&targetListingId=${encodeURIComponent(smsState.targetId)}` : ""}`
+    : chatEndpoint;
+  const activeEndpoint = smsState.active ? smsTestEndpoint : chatEndpoint;
+  const updateCurrentSmsState = (patch: Partial<SmsControlState>) => {
+    if (propertyCatalogScopeKey() !== catalogScopeKey) return;
+    setSmsState((current) => current.scopeKey === capabilityScopeKey ? { ...current, ...patch } : current);
+  };
+  const smsTestConfig = smsTestPortal && smsState.visible
+    ? {
+        active: smsState.active,
+        loading: smsState.loading,
+        error: smsState.error,
+        portal: smsTestPortal,
+        targets: smsState.capability?.targets ?? [],
+        selectedTargetId: smsState.targetId,
+        onSelectTarget: (listingId: string) => updateCurrentSmsState({ targetId: listingId }),
+        onToggle: () => {
+          if (!smsState.loading && !smsState.error && smsState.capability) {
+            updateCurrentSmsState({ active: !smsState.active });
+          }
+        },
+        onRetry: () => {
+          updateCurrentSmsState({ loading: true, error: null, active: false });
+          setSmsCapabilityAttempt((attempt) => attempt + 1);
+        },
+      }
+    : undefined;
 
   return (
-    <PortalAssistantConfigProvider endpoint={chatEndpoint} managerName={managerName ?? null}>
+    <PortalAssistantConfigProvider endpoint={activeEndpoint} managerName={managerName ?? null} smsTest={smsTestConfig}>
       <AxisAssistantPresenceContext.Provider value={true}>
         <AxisAssistantDockContext.Provider value={dockState}>
-          <AssistantConversationProvider endpoint={chatEndpoint} archiveKey={workspace.id ?? ""}>
+          <AssistantConversationProvider
+            endpoint={activeEndpoint}
+            archiveKey={`${userId ?? "anonymous"}:${workspace.id ?? ""}`}
+          >
             <MemoizedLayoutSlot>{children}</MemoizedLayoutSlot>
-            <AxisAssistantChrome managerName={managerName} endpoint={chatEndpoint} />
+            <AxisAssistantChrome managerName={managerName} endpoint={activeEndpoint} />
           </AssistantConversationProvider>
         </AxisAssistantDockContext.Provider>
       </AxisAssistantPresenceContext.Provider>

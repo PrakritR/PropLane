@@ -2088,14 +2088,21 @@ export function ManagerHousePropertiesPanel({
         actions={
           onAddProperty
             ? [
-                // One way in: Create opens the editor, and importing a file is
-                // a strip at the top of its Basics step.
+                // Create opens the editor, whose Basics step also takes a
+                // single-property file; a whole rent roll of several
+                // properties and their current residents goes through the
+                // portfolio import instead (docs/agents/portfolio-import.md).
                 {
                   label: "Create",
                   onClick: onAddProperty,
                   disabled: addPropertyDisabled,
                   reason: addPropertyDisabled ? "Loading your plan…" : undefined,
                   dataAttr: "manager-properties-create",
+                },
+                {
+                  label: "Import your portfolio",
+                  onClick: () => router.push("/portal/properties/import"),
+                  dataAttr: "manager-properties-import-portfolio",
                 },
               ]
             : []

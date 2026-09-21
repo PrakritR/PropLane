@@ -16,9 +16,14 @@ import {
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
-import { resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
+import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
-import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
+import {
+  assignNumberToWorkspace,
+  listWorkspaceNumbers,
+  provisionNumberForWorkspace,
+  unassignNumber,
+} from "@/lib/sms/work-numbers.server";
 import {
   effectiveRegistrationState,
   isProvisioningEnabled,
@@ -37,6 +42,27 @@ export const runtime = "nodejs";
 
 const NUMBER_SELECT =
   "phone_number, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, registration_submitted_at, last_provider_event_at, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason, last_error";
+
+/** `?workspaceId=` override for GET/POST, same "selection never widens access" contract as the cookie. */
+function workspaceIdFromQuery(req: Request): string | undefined {
+  try {
+    const raw = new URL(req.url).searchParams.get("workspaceId");
+    return raw?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveRequestedWorkspace(
+  db: SupabaseClient,
+  userId: string,
+  req: Request,
+): Promise<ActiveWorkspace> {
+  const queryId = workspaceIdFromQuery(req);
+  return queryId
+    ? resolveActiveWorkspace(db, userId, queryId)
+    : resolveActiveWorkspaceFromRequest(db, userId);
+}
 
 async function buildStatus(
   db: SupabaseClient,
@@ -78,6 +104,18 @@ async function buildStatus(
     loadManagerAutomationSettings(db, userId).catch(() => null),
     resolveWorkspaceWorkNumbers(db, userId).catch(() => null),
   ]);
+  // Full per-workspace number lists (up to 2, sharing included) for the
+  // grouped Settings → Communication → Work numbers view. Only fetched for
+  // workspaces the viewer OWNS — a shared workspace's single line still
+  // comes from `workspaceNumber` below.
+  const heldByWorkspace = new Map(
+    await Promise.all(
+      (all?.numbers ?? [])
+        .filter((n) => n.owned)
+        .map(async (n) => [n.workspaceId, await listWorkspaceNumbers(db, n.workspaceId).catch(() => [])] as const),
+    ),
+  );
+
   const pureCoManager = !workspace.owned;
 
   const configuredMode = runtimeResult.error
@@ -194,6 +232,7 @@ async function buildStatus(
       ownerName: n.ownerName,
       phoneNumber: normalizeProvisionState(n.provisionState) === "active" ? n.phoneNumber : null,
       provisionState: n.provisionState,
+      numbers: n.owned ? heldByWorkspace.get(n.workspaceId) ?? [] : undefined,
     })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
     sendingAvailable: sendEnvEnabled && modeAllowsManager,
@@ -272,6 +311,10 @@ const PUBLIC_PROVISIONING_ERROR_PATTERNS: RegExp[] = [
   /^No SMS-capable numbers are available (?:in area code \d{3} right now|right now — try again shortly)\.$/,
   /^Provider setup is awaiting reconciliation\.$/,
   /^Provider cleanup requires review\.$/,
+  /^A workspace can hold at most 2 work numbers\.$/,
+  /^This workspace already has its own number\. Share a number in from another workspace instead of buying a second one\.$/,
+  /^You're at your included work numbers\. Add an extra work number in Billing & plan to buy another\.$/,
+  /^You cannot request a number for that workspace\.$/,
 ];
 
 function publicProvisioningError(error: string): string {
@@ -283,14 +326,14 @@ function publicProvisioningError(error: string): string {
 }
 
 /** Read-only manager messaging status. Never seeds a row or contacts a provider. */
-export async function GET() {
+export async function GET(req: Request) {
   const actor = await requireManagerRouteUser();
   if (!actor)
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   let workspace: ActiveWorkspace;
   try {
-    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+    workspace = await resolveRequestedWorkspace(actor.db, actor.userId, req);
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
@@ -339,7 +382,7 @@ export async function POST(req: Request) {
   }
   let workspace: ActiveWorkspace;
   try {
-    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+    workspace = await resolveRequestedWorkspace(actor.db, actor.userId, req);
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
@@ -443,7 +486,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const result = await provisionManagerNumber(
+  const result = await provisionNumberForWorkspace(
     actor.db,
     actor.userId,
     { workspaceId: workspace.id, ...(areaCode ? { areaCode } : {}) },
@@ -465,4 +508,53 @@ export async function POST(req: Request) {
   return NextResponse.json(next, {
     headers: { "Cache-Control": "private, no-store" },
   });
+}
+
+/**
+ * Share a number into a second workspace, or remove it from one. Both ids are
+ * re-derived server-side (`assignNumberToWorkspace` / `unassignNumber`) —
+ * the request body never grants authority on its own.
+ */
+export async function PATCH(req: Request) {
+  const actor = await requireManagerRouteUser();
+  if (!actor)
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+  const parsedBody = await req.json().catch(() => ({}) as unknown);
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return NextResponse.json({ error: "Request body must be a JSON object." }, { status: 400 });
+  }
+  const body = parsedBody as { numberId?: unknown; workspaceId?: unknown; action?: unknown };
+  const numberId = typeof body.numberId === "string" ? body.numberId.trim() : "";
+  const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+  const action = body.action;
+  if (!numberId || !workspaceId || (action !== "assign" && action !== "unassign")) {
+    return NextResponse.json(
+      { error: "numberId, workspaceId, and action (\"assign\" or \"unassign\") are required." },
+      { status: 400 },
+    );
+  }
+
+  const result =
+    action === "assign"
+      ? await assignNumberToWorkspace(actor.db, actor.userId, { numberId, workspaceId })
+      : await unassignNumber(actor.db, actor.userId, { numberId, workspaceId });
+
+  if (!result.ok) {
+    const status =
+      result.code === "not_authorized" ? 403 : result.code === "not_found" ? 404 : 409;
+    return NextResponse.json(
+      { error: result.error, code: result.code },
+      { status, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
+
+  let workspace: ActiveWorkspace;
+  try {
+    workspace = await resolveActiveWorkspace(actor.db, actor.userId, workspaceId);
+  } catch {
+    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "private, no-store" } });
+  }
+  const next = publicStatus(await buildStatus(actor.db, actor.userId, workspace));
+  return NextResponse.json(next, { headers: { "Cache-Control": "private, no-store" } });
 }

@@ -306,6 +306,12 @@ export async function purgeVendorPortalData(
 ): Promise<void> {
   const userId = input.userId.trim();
   if (!userId) return;
+  // Provider identifiers must outlive the account long enough for the release
+  // worker to reconcile them.  The RPC disables sends in the same operation;
+  // a queue failure deliberately aborts deletion rather than orphaning a paid
+  // platform number.
+  const { error: releaseError } = await db.rpc("queue_vendor_work_identity_release", { p_vendor_user_id: userId });
+  if (releaseError) throw new Error(releaseError.message);
   await purgeAccountStorageFolder(db, "vendor-documents", `vendor-documents/${userId}`);
   await runManifestPurge(db, "vendor", { userId, email: normalizeEmail(input.email) }, input.complete !== false);
 }

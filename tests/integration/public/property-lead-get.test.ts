@@ -5,6 +5,10 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceRequestScope: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
 import { GET as getPropertyLead } from "@/app/api/public/property-lead/route";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -12,8 +16,9 @@ function makeDb() {
   return {
     from: vi.fn((table: string) => ({
       select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          maybeSingle: vi.fn(async () =>
+        eq: vi.fn(() => {
+          const result = {
+            maybeSingle: vi.fn(async () =>
             table === "manager_property_records"
               ? {
                   data: {
@@ -43,8 +48,12 @@ function makeDb() {
                   },
                   error: null,
                 },
-          ),
-        })),
+            ),
+            is: vi.fn(),
+          };
+          result.is.mockReturnValue(result);
+          return result;
+        }),
       })),
     })),
   };

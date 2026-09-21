@@ -146,6 +146,24 @@ describe("inbox bubble alignment", () => {
     const ice = document.querySelector('[data-inbox-bubble-kind="assistant"]');
     expect(ice?.className).toMatch(/ml-auto/);
   });
+
+  it("renders assistant markdown as formatted headings and lists", () => {
+    const { container } = render(
+      <InboxBubble
+        message={{
+          id: "assistant-overview",
+          author: "PropLane Assistant",
+          body: "Here's what I can help with:\n\n**Your Portfolio**\n- Check property listings\n- Review rental applications",
+          at: "2:14 PM",
+          direction: "assistant",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Your Portfolio").tagName).toBe("STRONG");
+    expect(container.querySelectorAll("ul li")).toHaveLength(2);
+    expect(container.textContent).not.toContain("**");
+  });
 });
 
 describe("inbox bubble channel tag and subject line", () => {

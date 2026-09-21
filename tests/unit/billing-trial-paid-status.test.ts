@@ -6,7 +6,7 @@ describe("Billing names trial vs paid and work number stays paid-only", () => {
   it("Billing shows Free trial vs Paid plan and Activate paid plan", () => {
     const plan = readFileSync(join(process.cwd(), "src/components/portal/pro-plan.tsx"), "utf8");
     expect(plan).toContain("Free trial of");
-    expect(plan).toContain("Paid ${tierLabel(currentTier)} plan");
+    expect(plan).toContain("`${tierLabel(currentTier)} plan`");
     expect(plan).toContain('data-attr="billing-plan-status"');
     expect(plan).toContain('data-attr="billing-activate-paid-plan"');
     expect(plan).toContain("Activate paid plan");

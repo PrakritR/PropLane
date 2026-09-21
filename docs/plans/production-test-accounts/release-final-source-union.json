@@ -1,0 +1,1695 @@
+{
+  "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
+  "branch": "akhil/test-workspace-release-20260919",
+  "sourceFileCount": 417,
+  "scope": "Complete current source/test/SQL/script/workflow union for the final keeper prepared after 7166e901ac34a777d7c4060c4feedd94dd6ec1fe. It includes application source frozen and compiled at 235bc7fc516a6589de068b0abd75948764f418b3, the reviewed co-manager SMS-test scope and classified resident-link correction, and the evidence-based focused E2E corrections including the approved-resident pre-lease stage contract. Review and evidence documents and logs are excluded.",
+  "inputs": [
+    "docs/plans/production-test-accounts/release-correction2-source-union.json",
+    "docs/plans/production-test-accounts/release-resumed-correction-manifest.json",
+    "docs/plans/production-test-accounts/release-resumed-r1-r2-manifest.json",
+    "docs/plans/production-test-accounts/release-resumed-r3-manifest.json",
+    "docs/plans/production-test-accounts/release-baseline-repair-manifest.json",
+    "docs/plans/production-test-accounts/release-ci-correction-handoff.html",
+    "docs/security/2026-09-19-encrypted-qa-ci-fresh-review.html",
+    "docs/security/2026-09-19-test-workspace-server-boundary-review.html",
+    "docs/security/2026-09-19-test-workspace-combined-rehearsal-review.html",
+    "docs/security/2026-09-19-test-workspace-apply-transport-review.html",
+    "docs/security/2026-09-19-test-workspace-final-396-security.html",
+    "docs/security/2026-09-19-test-workspace-final-396-bugbot.html",
+    "docs/security/2026-09-19-listing-close-save-test-review.html",
+    "docs/security/2026-09-19-sms-trusted-clock-review.html",
+    "docs/security/2026-09-19-sms-test-manager-scope-resident-links-review.html",
+    "docs/security/2026-09-19-e2e-current-ui-auth-overflow-review.html",
+    "docs/security/2026-09-19-resident-pre-lease-e2e-review.html"
+  ],
+  "files": [
+    {
+      "path": ".github/workflows/test.yml",
+      "sha256": "6baecdfddd80112c6f14189d222a54cbe4dda0b95ebe5d5f75b86787eb7b6fc6"
+    },
+    {
+      "path": "scripts/apply-test-workspace-release-migrations.mjs",
+      "sha256": "6d7f08088a5752161025c6a03899294c5f51e13f55019a207258b473a8dd86da"
+    },
+    {
+      "path": "scripts/check-migration-parity.mjs",
+      "sha256": "3ae56b274144b84ee4732fbfe6089c0c2360d3fb2d87d2c28924877206c95a31"
+    },
+    {
+      "path": "scripts/decrypt-local-qa-build.mjs",
+      "sha256": "403fdc623a611b6304c6fe6eb1803588357865e27601f6522e3504c8a2520f49"
+    },
+    {
+      "path": "scripts/historical-migration-parity-attestation.mjs",
+      "sha256": "f27739cd7019b5dd9c29ec2b682c7866886b9089c295ff48b7d11c81e8a1f596"
+    },
+    {
+      "path": "scripts/import-ambika-seattle-occupancy-production.ts",
+      "sha256": "bad516d5c930fb136a42501d2458f753e38ec408a92bfe2a96df6ba26ba0f64a"
+    },
+    {
+      "path": "scripts/package-local-qa-build.mjs",
+      "sha256": "7f7df7c54c7e9d42029cb4e3208c6c40e5ca85205056e24734e731993d6b82f0"
+    },
+    {
+      "path": "scripts/prepare-test-workspace-baseline-prerequisites.mjs",
+      "sha256": "ec1af950eb15b10fa3ab7d8fc884c4d3d1255318a44dbae327547f41fb4b07a4"
+    },
+    {
+      "path": "scripts/prepare-test-workspace-release-migrations.mjs",
+      "sha256": "eeb4ab3b8a67493af24ab6d6e75a98322ac5cc8f7a4a1852242f49ef66f29637"
+    },
+    {
+      "path": "scripts/test-workspace-acceptance-probe.mjs",
+      "sha256": "54d9ab000ebc9a168c439ce9fc548c5a0ec2b6ee4caff231dfe7954d976b2362"
+    },
+    {
+      "path": "scripts/testing/test-workspace-release-local-rehearsal.mjs",
+      "sha256": "12019cc88c8e92f97b92e4b459de00d65d22a680b4783c3f65c6c64b95571ffa"
+    },
+    {
+      "path": "src/app/admin/layout.tsx",
+      "sha256": "edd4b94656d6bef3eb7c93e7b30f334c586b097bbec81f65a076ca60cd5dd4a4"
+    },
+    {
+      "path": "src/app/api/admin/test-workspaces/route.ts",
+      "sha256": "bd73f3cc82a3ef55ed7b27dd9aaaa6b31d0b11a8026f46192ba40600351e297c"
+    },
+    {
+      "path": "src/app/api/agent/pending-actions/route.ts",
+      "sha256": "6e7cde4fa37e0956cd35be06dfad5b36183e29993153a69081172a7c0cda9419"
+    },
+    {
+      "path": "src/app/api/agent/sms-test/capability/route.ts",
+      "sha256": "3ea1e8a060af3e072a692734fcf5e17f80c0ef8f787a1b6afc25bf0a21000c06"
+    },
+    {
+      "path": "src/app/api/agent/sms-test/route.ts",
+      "sha256": "a60daf42b7194269eda0cf6e5aa597eec34d972eaf0ccc1012e94776f96fb809"
+    },
+    {
+      "path": "src/app/api/cron/send-lease-signing-reminders/route.ts",
+      "sha256": "9f87f610313a750e6c12611581fccca8c79a48c9055fbcbe3bad7cc312bf16b8"
+    },
+    {
+      "path": "src/app/api/cron/send-payment-reminders/route.ts",
+      "sha256": "640d975fa9fde95ce3dbd4fa15bb580fc4e7ad84d42b41eae2714577ee8cbd7a"
+    },
+    {
+      "path": "src/app/api/cron/send-scheduled-inbox-messages/route.ts",
+      "sha256": "84063a2b489cec9e3bc759c96c1545361399051565ae5a55f61df4f303b48987"
+    },
+    {
+      "path": "src/app/api/listing-photos/route.ts",
+      "sha256": "a3b011c482bb57aa2ec21341f7798721e67c2f98263b626e355edf0399d74b5f"
+    },
+    {
+      "path": "src/app/api/manager-applications/route.ts",
+      "sha256": "7461a083f0568b87c9ae55b823e3e2328258777a7d79e3adc29bc23678091019"
+    },
+    {
+      "path": "src/app/api/manager/amend-lease/route.ts",
+      "sha256": "d0cfda9e646c27837abaa1c9f727a853340b621c3e453dfef241ac4ad6fd9a01"
+    },
+    {
+      "path": "src/app/api/manager/phone/route.ts",
+      "sha256": "7842cf835ca4ab14fe155c596ff0673cebb15b261cd579ec89c1d1677fde083c"
+    },
+    {
+      "path": "src/app/api/manager/pricing-oauth-continue/route.ts",
+      "sha256": "9b7d154e1f2be0d8f1793b2b390275fa8c9ba1074485788126a101846919c39b"
+    },
+    {
+      "path": "src/app/api/manager/subscription/route.ts",
+      "sha256": "ce577e0f4f6e635487ea3128cbc6c018224123795eff096485d05cc8cdcaa6f2"
+    },
+    {
+      "path": "src/app/api/manager/update-lease-packet/route.ts",
+      "sha256": "1c72ae403f7132babd18b4fa4f91d261270a010ab1fdf784824c500ea5157615"
+    },
+    {
+      "path": "src/app/api/portal-lease-pipeline/route.ts",
+      "sha256": "c04fcab72ceec9302e9481cecb25a1ef74321d71f7ca5f30b1c229a2a66dc248"
+    },
+    {
+      "path": "src/app/api/portal-promotions/route.ts",
+      "sha256": "b9a99f5f02b5ffdc9f2d3d92693f8b21e464e09a83b265b7e97aca0265ac650e"
+    },
+    {
+      "path": "src/app/api/portal-schedule-records/route.ts",
+      "sha256": "8c5369d339524b7a3ec90c6c42a9ecf94157c0a80faa0df8ccea8d25298884e6"
+    },
+    {
+      "path": "src/app/api/portal-service-requests/route.ts",
+      "sha256": "21f3684e66ec1486e778402d23b9cfb340806041afc05bf26d0aef4650aa1d62"
+    },
+    {
+      "path": "src/app/api/portal-tour-inquiries/accept/route.ts",
+      "sha256": "4d85bcee0c50f7cc4fe65cef8767b247cc565bd436f2182fb820888db81e7371"
+    },
+    {
+      "path": "src/app/api/portal-tour-inquiries/cancel/route.ts",
+      "sha256": "dd3154e4b62df390c26ba68867215cac98f8a845dda83833ad7278279526efb3"
+    },
+    {
+      "path": "src/app/api/portal-tour-inquiries/delete-planned/route.ts",
+      "sha256": "12ee35dec87bceac0f58a44bd251b7986202f2666c8a2891d655e33f2a4895a6"
+    },
+    {
+      "path": "src/app/api/portal-tour-inquiries/delete/route.ts",
+      "sha256": "d653d1b2d6ad3ada1babc639c818d1bb785f3e0cee300c50d97255af78fc387d"
+    },
+    {
+      "path": "src/app/api/portal-tour-inquiries/propose-reschedule/route.ts",
+      "sha256": "8cdfaf6257823d632123633d7ded7c55bb0913112ba486dd6bcd79e29f7c7f51"
+    },
+    {
+      "path": "src/app/api/portal-tour-inquiries/reschedule/route.ts",
+      "sha256": "821a307086982f062e6d3e97dcb3040e5d5f2449555c34f8743f51b35540d415"
+    },
+    {
+      "path": "src/app/api/portal-vendors/route.ts",
+      "sha256": "7a9e9c9c12e4e6986382e833130c763efca5b327b0406535ef31a489976d8864"
+    },
+    {
+      "path": "src/app/api/portal/applicant-ids/route.ts",
+      "sha256": "1dc30eb01105e0812b42b985183faa84cad127cecdbfdc8bc1ac1603ee073aad"
+    },
+    {
+      "path": "src/app/api/portal/application-photos/route.ts",
+      "sha256": "fd6e034b986e85d7368d726855a580402f7d910771eb37c11daaa5e8bff87734"
+    },
+    {
+      "path": "src/app/api/portal/co-manager-calendar/route.ts",
+      "sha256": "2535eb1a0e82d152ac1ff28bc3becdce82510a58bf1e6d87ae66473906a7f959"
+    },
+    {
+      "path": "src/app/api/portal/data-export/route.ts",
+      "sha256": "ac6b64cbe63d6d75a0cd4fa822aba469cf413a7edf840a886832beeaae2c5fc6"
+    },
+    {
+      "path": "src/app/api/portal/delete-resident-access/route.ts",
+      "sha256": "f58b4efd89f1148a1a337b5e9ba368c617a4eae6926feaa2fa2192d04eacbab7"
+    },
+    {
+      "path": "src/app/api/portal/deposit-return/route.ts",
+      "sha256": "d8dfd96c3dd28722d6ae1a135524d8d879365bb67a82c615db1fcf7e19244033"
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/connect/route.ts",
+      "sha256": "a444c287e6aec6c25a417abe62615470331a1921fbb60bd38c443c2d7cc6c800"
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/events/route.ts",
+      "sha256": "e5c8dbbab9f7d5f22aabc1ce87b02f4cd8ed32ac1046b8acbd65332705f35a08"
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/link-session/route.ts",
+      "sha256": "a6302f42e706436cb7908591cc3a2e052eca17982a794f9e4cb2dd5f9f054f46"
+    },
+    {
+      "path": "src/app/api/portal/google-calendar/route.ts",
+      "sha256": "a587e8cca2604304a1c79a83244e20993ea5929f32473d85e97701d429b303ef"
+    },
+    {
+      "path": "src/app/api/portal/inbox-attachments/route.ts",
+      "sha256": "158246dd517be3a07ee73fad444e1ae96c1a29fcfc74743120d83345bd20f4d0"
+    },
+    {
+      "path": "src/app/api/portal/inbox-eligible-contacts/route.ts",
+      "sha256": "8b2f6ab13d6c2f3a2264a6af761a23a8c19af3d5b78843e29fcbcc8610e29693"
+    },
+    {
+      "path": "src/app/api/portal/lease-template/route.ts",
+      "sha256": "83a1865b19015cddf0655dd222f63133c99f1a0d65e525f5ec3b0684940aab5e"
+    },
+    {
+      "path": "src/app/api/portal/onboard-existing-resident/route.ts",
+      "sha256": "f359c8a212f38c95646f23d821affb5ba759fe7ff71108543b31b7995d367d1f"
+    },
+    {
+      "path": "src/app/api/portal/property-access-info/route.ts",
+      "sha256": "90dfcc4a8dc5b526fa54aaaf1f8f437d7359a3aac96dae4b6f44290f14af392d"
+    },
+    {
+      "path": "src/app/api/portal/purge-orphaned-records/route.ts",
+      "sha256": "6620facc5a21e09a460bd89ba3acbd374c7f5c6fcd72fc156b8b373170da196f"
+    },
+    {
+      "path": "src/app/api/portal/record-share-link/route.ts",
+      "sha256": "94ef87888abb47c315d9da4dae5eeb45018766875fb558a126fc006d0c8af39e"
+    },
+    {
+      "path": "src/app/api/portal/record-share-link/send/route.ts",
+      "sha256": "8b199d7fdfa8fd0880c93e5cd4d7f51fabfb8651400d111a647b415b1be714c9"
+    },
+    {
+      "path": "src/app/api/portal/resident-application-autofill/route.ts",
+      "sha256": "12514276580dcae74058f3a31fc0fb9cdbe1e6edf4868a7771f4297b038ad2cf"
+    },
+    {
+      "path": "src/app/api/portal/resident-property/route.ts",
+      "sha256": "9c585ad24a6eebe188f531fda729b768455440db1d62a597ec637953a2ab19e2"
+    },
+    {
+      "path": "src/app/api/portal/resident-service-fee/route.ts",
+      "sha256": "626f3592a5426a7dc37acc87a217423b4ca5be93235d10d02b2adfaf5f0257c7"
+    },
+    {
+      "path": "src/app/api/portal/scheduled-inbox-messages/[id]/route.ts",
+      "sha256": "aeae611a45dc4696b79606ae2ef2e5eedfa4e8d6353f48d4e879b7dd8d9d89dd"
+    },
+    {
+      "path": "src/app/api/portal/scheduled-inbox-messages/[id]/send-now/route.ts",
+      "sha256": "5d5c2b455944f4a768b5dd515d9340eb000650526e847d09a36f008499a96c63"
+    },
+    {
+      "path": "src/app/api/portal/scheduled-inbox-messages/route.ts",
+      "sha256": "624bd4bc861789b89efd77d6e047fa3909b22c8c44f787ebe94a5e4e9832b631"
+    },
+    {
+      "path": "src/app/api/portal/scheduled-messages/[id]/route.ts",
+      "sha256": "13a7308252a392a140af5dfeabf50d4775f4c585901cdae219a892d5d454cd6a"
+    },
+    {
+      "path": "src/app/api/portal/scheduled-messages/[id]/send-now/route.ts",
+      "sha256": "757670d94fbf6b89c0dd41ff47684ce3d755baeba6d023dcb78ea7f0c1424cb1"
+    },
+    {
+      "path": "src/app/api/portal/send-application-completion-reminder/route.ts",
+      "sha256": "4d56400ce746a11aa086cf890ea2e4096284c650d14a315c75823c0e179a9b13"
+    },
+    {
+      "path": "src/app/api/portal/send-application-started/route.ts",
+      "sha256": "546277f19e39b4ee1f19e8be61a13ce9255c98784679a841d79f73344f4002b4"
+    },
+    {
+      "path": "src/app/api/portal/send-application-submitted/route.ts",
+      "sha256": "d4a07d773f401a4875d8345cf2b95090c551b8b7181d26a09c0dd2dc368610e9"
+    },
+    {
+      "path": "src/app/api/portal/send-inbox-message/route.ts",
+      "sha256": "468ac57545e5a9a672f4e9b98b5475703507347c47deb6296cf2765359bd3407"
+    },
+    {
+      "path": "src/app/api/portal/send-lead-invite/route.ts",
+      "sha256": "ef333ca207bc7043c5ecc01a944a079c99da809f31ee27c81c5ce06cd7e252e5"
+    },
+    {
+      "path": "src/app/api/portal/send-manager-application-started/route.ts",
+      "sha256": "d5008b90cfc2cafb306c095536c321d09ef914a96a3212ccc5de85d55de14c11"
+    },
+    {
+      "path": "src/app/api/portal/send-payment-reminder/route.ts",
+      "sha256": "95c71b137f83f35fab61ea2d6ee37dee6bdf1ec56d9e9ae21ddd107550806e8d"
+    },
+    {
+      "path": "src/app/api/portal/send-resident-welcome/route.ts",
+      "sha256": "e25a3e4cde4ea209832c8ade2742bc89afa1e09cfef1314d4b7432da5d88decd"
+    },
+    {
+      "path": "src/app/api/portal/send-task-reminder/route.ts",
+      "sha256": "62aae973242fe8820c2edf9b773af77ce336021f014d073de38bd0eeb1919b09"
+    },
+    {
+      "path": "src/app/api/portal/send-vendor-invite/route.ts",
+      "sha256": "1c98e33283a84c75accdb845608cd24c7cecab9ada00714f3a0ea3d59391fd57"
+    },
+    {
+      "path": "src/app/api/portal/send-vendor-visit-email/route.ts",
+      "sha256": "127a429ec08acaf0431c23f245d10a1159e9f30f0546eeb62cbfc229ef1c63c7"
+    },
+    {
+      "path": "src/app/api/portal/service-requests/send-reminder/route.ts",
+      "sha256": "00dd2cf00234693637d923b76e7a8b2a972729abf15cf655886a1dc3af7c1e87"
+    },
+    {
+      "path": "src/app/api/portal/work-order-bids/route.ts",
+      "sha256": "e1e1fcd20d2d4c6f93c06d85ee8ca44351cdbf007ce47fefc9843b0456404eba"
+    },
+    {
+      "path": "src/app/api/portal/work-order-vendor-offers/route.ts",
+      "sha256": "de2ac4ddce65a62626b4d98ad53e4dc5c3cf4f4d0c6ecea494f13c7ce68c8f76"
+    },
+    {
+      "path": "src/app/api/portal/work-orders/en-route/route.ts",
+      "sha256": "1369017163cd67fa8cc9cf6e8c6428da61187a5d4e5df14c13a402dde2da0849"
+    },
+    {
+      "path": "src/app/api/portal/work-orders/mark-done/route.ts",
+      "sha256": "3191e19bc2f20ef91ca96f36d35efe5d50fc430794391c3236ca6b28c9df8cd5"
+    },
+    {
+      "path": "src/app/api/portal/work-orders/send-reminder/route.ts",
+      "sha256": "7df686f4cce91045c6fba43381e86102acc496257698699bd55cc1932bc31792"
+    },
+    {
+      "path": "src/app/api/portal/work-orders/set-vendor-price/route.ts",
+      "sha256": "e130abb0230695517c2a3b4489982ef4df8d7a6a5afc1ab7ceec2ac8cee9f227"
+    },
+    {
+      "path": "src/app/api/portal/work-orders/visit-scheduled/route.ts",
+      "sha256": "cfd4db7311c53c20f89078e6a94aabdd272f1a440c8643454142724c848a282a"
+    },
+    {
+      "path": "src/app/api/pro/account-links/[inviteId]/route.ts",
+      "sha256": "0f81d3c8c4ee39b1ac617b44a706f9fa788382edce97537b8132c97cb3b06d06"
+    },
+    {
+      "path": "src/app/api/pro/account-links/redeem/route.ts",
+      "sha256": "4ba857d4aec9bf02837a82b56a198038ab3be459b95da656fae3113cd843d1f4"
+    },
+    {
+      "path": "src/app/api/pro/account-links/route.ts",
+      "sha256": "4b6cc6f56437989b267a5b429630763b5d49a5d811416c8c1799a9fd38762066"
+    },
+    {
+      "path": "src/app/api/property-records/public/route.ts",
+      "sha256": "a4bca6dc0d7295a34616c2e302b5a99b8494db4001bb376433aa66b9c887c5e4"
+    },
+    {
+      "path": "src/app/api/property-records/route.ts",
+      "sha256": "735486f4c3c3f8dccecb3cc96d6661c5d572ba5603566958f7e0296b676653ae"
+    },
+    {
+      "path": "src/app/api/public/property-lead-message/route.ts",
+      "sha256": "39d608aa9140d81bba17b7b13ca83a0cefec430098e6094c9782229b9973c080"
+    },
+    {
+      "path": "src/app/api/public/property-lead/route.ts",
+      "sha256": "8126147e21bfaa8fa74d4b4b7b97e17dcf528b493a2aeb5c2a072cfee65a5020"
+    },
+    {
+      "path": "src/app/api/public/property-tour-availability/route.ts",
+      "sha256": "ad526cf2ba82f15713b2e84ec60f1bf8b65a0e52f5625d2dac85b819a28a4fa6"
+    },
+    {
+      "path": "src/app/api/screening/checkout/route.ts",
+      "sha256": "0d274a276c0bc43b87f1fc6982bc60eb90e864f48581c5e575ff06b106b09c3c"
+    },
+    {
+      "path": "src/app/api/stripe/checkout-portal/route.ts",
+      "sha256": "a1da69d3c6ecfb54fd564c6dd3e509c5eed9ed2e12c2563e1dfda01eee9141a7"
+    },
+    {
+      "path": "src/app/api/stripe/checkout/route.ts",
+      "sha256": "07313007f5e5c6a1240720543222b516ca65757a722f94a94295fd69883aa9c4"
+    },
+    {
+      "path": "src/app/api/stripe/connect/account-session/route.ts",
+      "sha256": "9277ba9d99dc7d052eb856924f9d2e00e192bcb068b9bed6de70f85618ec36c8"
+    },
+    {
+      "path": "src/app/api/stripe/resident-payment-methods/route.ts",
+      "sha256": "bf0c996a5f211740a69a2bc4bba66ff869842592816113d9701e741ee48b9dbb"
+    },
+    {
+      "path": "src/app/api/stripe/webhook/route.ts",
+      "sha256": "b126826529f89a753530af8b85413c19d45a180fda4f72c35ea95a6d415f53cc"
+    },
+    {
+      "path": "src/app/api/twilio/voice/status/route.ts",
+      "sha256": "7a3d62c92f311c60366d8fc5939083b490d6a538e0850c6af0761ba4aa0c6ce4"
+    },
+    {
+      "path": "src/app/api/workspaces/route.ts",
+      "sha256": "872f078413c9b4cf2a11b9afde171e7e1d882fbdfdf41bb516b4a7db310c6741"
+    },
+    {
+      "path": "src/app/auth/confirm/page.tsx",
+      "sha256": "47254685fc112fc9703f431182e5076c4362f5bde20e1723ba6050f163e0df51"
+    },
+    {
+      "path": "src/app/auth/test-workspace-setup/page.tsx",
+      "sha256": "e4da1589d802ca8867c4bff8fc74d55e8bd575f27f4698dda16692b352932025"
+    },
+    {
+      "path": "src/app/portal/layout.tsx",
+      "sha256": "9b06480a05fd3a5b53fbcf001ebf38cf900fb64efc498ee7187b260499931388"
+    },
+    {
+      "path": "src/app/resident/layout.tsx",
+      "sha256": "96a9597ea118794607616d69cb574be6fb0a4b87f41b14d0c49e460e4ad53373"
+    },
+    {
+      "path": "src/components/portal/admin-portal-nav-icons.tsx",
+      "sha256": "2974d09163f568410676cccb0e2b6452faf837575c1ed7de8b8a1f94c3af4b7b"
+    },
+    {
+      "path": "src/components/portal/admin-test-workspaces-client.tsx",
+      "sha256": "70b342cba872200f259a02942bd4db6bca78d253502c3adf113232b391303092"
+    },
+    {
+      "path": "src/components/portal/assistant-chat-composer.tsx",
+      "sha256": "8beb60fccbc45d3398b1a806dfe0189a39d2f12ef34064442bda627840c42cf6"
+    },
+    {
+      "path": "src/components/portal/assistant-dock-panel.tsx",
+      "sha256": "603150162f21b2ac21ebe9032092859979af463ed238b5963df5f1460c2d8536"
+    },
+    {
+      "path": "src/components/portal/assistant-sms-test-control.tsx",
+      "sha256": "afc6020d96d1112c1043111e75488097174831960e9e017e03d406a5e5a3b034"
+    },
+    {
+      "path": "src/components/portal/axis-assistant.tsx",
+      "sha256": "6a9b669d409c7626c8a4fd935eadabc7b94a18306ceca7585ae7f070a9a36009"
+    },
+    {
+      "path": "src/components/portal/channel-calendar-link-modal.tsx",
+      "sha256": "b9bf04b696f8898b5a749e1c2acf18112c7a0d80c4186f5225f5e68294104b54"
+    },
+    {
+      "path": "src/components/portal/filter-field-lists.tsx",
+      "sha256": "ab5cd85dc653278ad5dec4bf4796bb7c0d59b59c6b41a38f985a84c70e1f04ee"
+    },
+    {
+      "path": "src/components/portal/portal-sign-out-button.tsx",
+      "sha256": "f02756b29072acf3c4c5e778338f1407f058f59eb0964b1cbb0c6a19d9e277b2"
+    },
+    {
+      "path": "src/components/portal/pro-add-listing-form.tsx",
+      "sha256": "136ab98dea8068c0f4223e014b98c33830eb0054c7c00fe8d5349d421f9c17ef"
+    },
+    {
+      "path": "src/components/portal/pro-inbox.tsx",
+      "sha256": "bda6e0e3f6f5cf28980bda5c133e24e793c8c5767a9f3237571aa4ebcd7ffd7c"
+    },
+    {
+      "path": "src/components/portal/pro-team-blocks.tsx",
+      "sha256": "719bc4ca9461ad1d880df1503cfd37d219e0c01d4c1f5a9909b18e8c42444ddc"
+    },
+    {
+      "path": "src/components/portal/promotion-new-modal.tsx",
+      "sha256": "e712a2e09b59919f8c892f264650382fb094712c635321c8093ec78f06e640b7"
+    },
+    {
+      "path": "src/components/portal/resident-inbox-panel.tsx",
+      "sha256": "5842a752defbfe6004611fbcf4fffa509e0713fc63568cc8a55fa7fb27fb4e68"
+    },
+    {
+      "path": "src/components/portal/resident-services-panel.tsx",
+      "sha256": "bf6433f961cf2294be2375eaf789af2593bbea634468aaec388d650e27114901"
+    },
+    {
+      "path": "src/components/portal/test-account-banner.tsx",
+      "sha256": "f8c215d0e9946c4d7f67ee990341f038473f39e2ab8c93888bbad516f0e26b63"
+    },
+    {
+      "path": "src/components/portal/test-account-unavailable.tsx",
+      "sha256": "1bce3b23f735406e05e12fdc95f1100f4fe1b9604abd09dabc2e0a5cead1dda2"
+    },
+    {
+      "path": "src/components/ui/field-select-menu.tsx",
+      "sha256": "a1c54653e30a974a0d0e1e05368203cbbb2212f349b32dbdc0b28bc5e8ebfe47"
+    },
+    {
+      "path": "src/lib/action-events.server.ts",
+      "sha256": "3ff44eb1cbab1581b6e0af096750ae37f2fc9d1885d0353fd97a98110522df09"
+    },
+    {
+      "path": "src/lib/agent-notify.server.ts",
+      "sha256": "1e9e3042c0158bc5128ede6cbcf0cec3919bc9726590286d61059798107a788e"
+    },
+    {
+      "path": "src/lib/agent/assistant-stream.ts",
+      "sha256": "1e230aff178b05da85e93f6fd3dc2760f3639ab2632e83f9caed2584d519d04a"
+    },
+    {
+      "path": "src/lib/agent/chat-history-route.ts",
+      "sha256": "28dff875c12e18029047540aa9d43fdd92a9509d2acece7d47eb11e6f0a81366"
+    },
+    {
+      "path": "src/lib/agent/chat-history.ts",
+      "sha256": "0b83726a2bc851e3a95402eca41d355a2b97ea76718503af3eb049ed3c43f5fb"
+    },
+    {
+      "path": "src/lib/agent/leasing-sms-agent.server.ts",
+      "sha256": "5d65914f8ce8cc73d2d9c9a650291ed9490460bc11f920e44afaa9c914f6ffaa"
+    },
+    {
+      "path": "src/lib/agent/leasing-sms-system-prompt.ts",
+      "sha256": "9ffcc8e04a54faf2c348392ced642bb2a8e7585137a12db78604aa6fad30fc2b"
+    },
+    {
+      "path": "src/lib/agent/manager-email-agent.server.ts",
+      "sha256": "4fd129388fd9fa916e256d484ce2704c7b17901fa8d00bdb5334c517564f669e"
+    },
+    {
+      "path": "src/lib/agent/manager-sms-agent.server.ts",
+      "sha256": "7161bc12e8176c490de5ce166750bcb55da341010225b9673e1855886d70e349"
+    },
+    {
+      "path": "src/lib/agent/resident-sms-agent.server.ts",
+      "sha256": "3d81ac810b455ffa49ce195d489f85ae29474cbd19f2ced92608261697ea8349"
+    },
+    {
+      "path": "src/lib/agent/sms-agent-turn.server.ts",
+      "sha256": "e83e719a5e75c49383b2cfd31b8dd4e5e780fd86e01f2f9965758cdd1ee5174a"
+    },
+    {
+      "path": "src/lib/agent/sms-test-context.server.ts",
+      "sha256": "0376708bb2fcbb62b485ed86bd4f6398ef678297dcaa0b189389870033d4e6ed"
+    },
+    {
+      "path": "src/lib/agent/sms-test-runner.server.ts",
+      "sha256": "fc906f1d96d4818b8d5a163c926785e5a74e386d904a949502d46b7005703b95"
+    },
+    {
+      "path": "src/lib/app-url.ts",
+      "sha256": "cd2dfc924efa4ccc90ef7df7ff8c71153479fa9edb1c3e6ed6326b466c854894"
+    },
+    {
+      "path": "src/lib/application-submitted-notification.server.ts",
+      "sha256": "718529eb0ac7b3728eeb7934c7f8b2a36e830c363ea1bd6a467df421178bed81"
+    },
+    {
+      "path": "src/lib/auth/account-purge-manifest.ts",
+      "sha256": "77ad6b822d0483db08792d840b9888a7d1353fe994c59fd2a5b947bc2779976f"
+    },
+    {
+      "path": "src/lib/auth/workspace-add-property.server.ts",
+      "sha256": "ed828cff2d64d75e1240e92cce68b236150a844b3f26706149062c14f9da3677"
+    },
+    {
+      "path": "src/lib/axis-assistant/assistant-conversation-context.tsx",
+      "sha256": "ffe4f774f2a0a4b40199fc31c4424a32d70d9102dd7a91fa180655f4dc1b376a"
+    },
+    {
+      "path": "src/lib/axis-assistant/portal-assistant-context.tsx",
+      "sha256": "3a21bed7f89c5c0582e919380631887079f750c6b3a3d5a799f4f4cf4611afb2"
+    },
+    {
+      "path": "src/lib/axis-assistant/sms-test-turn-state.ts",
+      "sha256": "dac8d3fb2bec25909b475d2f060a237a16193b20a1cf1a1926431ad8ea8b588f"
+    },
+    {
+      "path": "src/lib/axis-assistant/use-assistant-conversation.ts",
+      "sha256": "378e8d04d71270e195099ae4dd2b259a8a054a8d650dac17380c9db4e49fe40d"
+    },
+    {
+      "path": "src/lib/claw-maintenance-work-order.server.ts",
+      "sha256": "d0b3d49351341edf9e95f0f8e58f0d0866d66651c19d892d0dd4a2b5a054a4d3"
+    },
+    {
+      "path": "src/lib/comms-billing/agent-usage.server.ts",
+      "sha256": "3c3592ae1e128fda66282bed395ee52db2d31e90da3014d684e20ebcf65d4b18"
+    },
+    {
+      "path": "src/lib/comms-billing/credit-purchase.server.ts",
+      "sha256": "17dee7b6e0efbdc7b53c2a46705871655b71f1ac504cf64c6682622ec12b7654"
+    },
+    {
+      "path": "src/lib/communication-inbox-filters.ts",
+      "sha256": "a9a1666bb9a49f63091849c86dc973e92f16ef9b0f477283ac78591ced57bdbe"
+    },
+    {
+      "path": "src/lib/cosigner-notification.server.ts",
+      "sha256": "9983e809518b5ee25f8a08945d14f256929788884b73b477e87b09386e96cd69"
+    },
+    {
+      "path": "src/lib/demo-property-pipeline.ts",
+      "sha256": "8a23db9681015f63c7ae035209539217283e3a699e2df54a2927a31d4e4c7263"
+    },
+    {
+      "path": "src/lib/google-calendar/api.server.ts",
+      "sha256": "2015c6b3045dec430d8237ec29fc7b4d96c8544866bd2f47d8b4873c3c9c81ab"
+    },
+    {
+      "path": "src/lib/google-calendar/sync.server.ts",
+      "sha256": "f0aed61ae44ba64da8b5ef4cf6c161e2d8f5d1ef1065a657ef15987a4ad95407"
+    },
+    {
+      "path": "src/lib/inbox-recipient-scope.ts",
+      "sha256": "0d47756d50365486761e74bab6023e0cced783b238946ef33dba1346b0e84e35"
+    },
+    {
+      "path": "src/lib/inspections/model.ts",
+      "sha256": "77860e3e723f4829dbcadc874df3dd566a750c29c2ea8f915cc6226f8dc0efa2"
+    },
+    {
+      "path": "src/lib/inspections/server.ts",
+      "sha256": "f456f391812b1018a690cdf063545f66c8ebdd61e514a15d8a1ebad8b1ac6394"
+    },
+    {
+      "path": "src/lib/lead-invite.server.ts",
+      "sha256": "537016dafb20746e60fc40c7522081f1b1c0076aa7f1b45660e7428b963b4f16"
+    },
+    {
+      "path": "src/lib/lease-amendment.server.ts",
+      "sha256": "cc6efb2c500944a8a4454d10ac0b6ce276f8ebd7d5f1e940ff9ed33d351bec02"
+    },
+    {
+      "path": "src/lib/lease-packet-edit.server.ts",
+      "sha256": "a7b2e2f695b4d0660fd1a26fc621729ea5b4bc99f89b5c1b32cd3dfeaa927847"
+    },
+    {
+      "path": "src/lib/lease-pipeline-list-projection.ts",
+      "sha256": "19b92de1a9caa2a4809b4d83e926dee647313c3638ca9693696d02522acdbd77"
+    },
+    {
+      "path": "src/lib/lease-pipeline-storage.ts",
+      "sha256": "0163f3c50be52333045842f7a0d8ea6fb9e6ee04258d7f584c1347243cf6320e"
+    },
+    {
+      "path": "src/lib/listing-media-client.ts",
+      "sha256": "d2a29c45c947242efa18d9c2babc6f51045a4e50681b3cba07451b5cc5668f6d"
+    },
+    {
+      "path": "src/lib/listing-media-storage.ts",
+      "sha256": "10f2fb5efcdd4bd74880f831f4d1596581d4f79208a6a081e10aedc642b58cdc"
+    },
+    {
+      "path": "src/lib/manager-assistant-email/process-assistant-inbound.server.ts",
+      "sha256": "b2685f5a8505a7d142cf53959baaf78c1bbf0efeb4e8725603efc1ee5f0d569f"
+    },
+    {
+      "path": "src/lib/manager-attention-digest.server.ts",
+      "sha256": "5309a16946f03de123fb8bbe702760007074bcaff52a874633f9dfffae75dc0b"
+    },
+    {
+      "path": "src/lib/manager-bills.server.ts",
+      "sha256": "93dcb5ccffd2e59b434a9fee838de2c9e139e57ef5da7e9cdec0107570ca8fa2"
+    },
+    {
+      "path": "src/lib/manager-bills.ts",
+      "sha256": "d03b8e2e7f8ee83d5184086c158f1952d1960317a38f08b6b912d8415810e3fc"
+    },
+    {
+      "path": "src/lib/manager-default-tasks.server.ts",
+      "sha256": "3ccab18e21d41c08af0592b1fb126d5d1b4b578d2dabf098626a151a5b5d9618"
+    },
+    {
+      "path": "src/lib/manager-purchase-from-session.ts",
+      "sha256": "d3f19d9614f7dbcb8c4888d85a120f0f3282c6903d430abad366ed9c85b8b3de"
+    },
+    {
+      "path": "src/lib/manager-route-guard.server.ts",
+      "sha256": "4c44f1b8713e04cd183e19699068e03f390cd47afdf0c0f39be11f30db1606a9"
+    },
+    {
+      "path": "src/lib/manager-stripe-customer.server.ts",
+      "sha256": "61f50a32e9fb318bd638cb1173c8537559208540fcf285f210faaeb03c730954"
+    },
+    {
+      "path": "src/lib/manager-stripe-subscription-sync.ts",
+      "sha256": "0a3f9a3582f5b8bfc72caa1515fc1f5824910141e58e49dd634f6bd85362ff29"
+    },
+    {
+      "path": "src/lib/manager-tasks.ts",
+      "sha256": "896195f4f77ee6507022722a716c5932182bdd8222ec1fc2ddbc08a7b922d1ee"
+    },
+    {
+      "path": "src/lib/payment-reminder-delivery.ts",
+      "sha256": "8f3d3001da8a73f6cad33b8db70b90e9bb2228891707645ed66384624f9378c5"
+    },
+    {
+      "path": "src/lib/planned-schedule-persistence.server.ts",
+      "sha256": "4183b7c95b1accc45db66cf2b9868114a404f6026230cb421407a9b0b7a3fd50"
+    },
+    {
+      "path": "src/lib/portal-email-send.server.ts",
+      "sha256": "642f6fccd2fd6856da7638b7b0b2546096398ee768ccaf67debf393112ea15f5"
+    },
+    {
+      "path": "src/lib/portal-inbox-thread-scope.ts",
+      "sha256": "445cc98a46ff86b88606c51ec0d3a123656456737562db4195352e7d3f55afc2"
+    },
+    {
+      "path": "src/lib/portal-record-api.ts",
+      "sha256": "ac749932a8b0c052e18813978d353cfa18424b7406f7d542de9951e34d6dd30a"
+    },
+    {
+      "path": "src/lib/portal-record-share-links.server.ts",
+      "sha256": "44a7641564de00efe739d8e6d52399264bdc3e74bfa6c92ad27fd156fd3e5d5d"
+    },
+    {
+      "path": "src/lib/portals/admin.ts",
+      "sha256": "dbbb6defb865d76485796725394ad68d8150bb2790396e0ed32687a5bbf150b3"
+    },
+    {
+      "path": "src/lib/portals/nav-groups.ts",
+      "sha256": "648cff62327eaa8d768a8ebbaa026053f1e82d69841a82827ce1f3ab14b4c357"
+    },
+    {
+      "path": "src/lib/property-lead-notification.server.ts",
+      "sha256": "d4030349e3496c9753405750147a31cc290145fa6153c64abf50c2e4df80efcc"
+    },
+    {
+      "path": "src/lib/property-lead-prospect-handoff.server.ts",
+      "sha256": "14566406dd53b41046a1135cc99c5263a74fecb882d90ee255e49a2593fc39d2"
+    },
+    {
+      "path": "src/lib/proplane-sms-transport.server.ts",
+      "sha256": "5182047185c3f077c8063cf6a4beae1ce6a495a867882e9b1737d667e4873213"
+    },
+    {
+      "path": "src/lib/prospect-tour-scheduling-context.server.ts",
+      "sha256": "71d9738d3454cd76eb44d6392751abcd44b7d5ea6931d367d45dc82be3357fac"
+    },
+    {
+      "path": "src/lib/public-listings.server.ts",
+      "sha256": "5f7e5d6992996035a1545a501755df9101e9bda4aa60539d9cc133688993f3b2"
+    },
+    {
+      "path": "src/lib/push-notifications.server.ts",
+      "sha256": "60ae18499caf4227f0324e4a439fc83f53fbd9164295864285aa8e1a9583d244"
+    },
+    {
+      "path": "src/lib/reminders/current.server.ts",
+      "sha256": "629b0d898723269f74bef999e3fb0f7119aa238353da4bd255351a731a5ebad8"
+    },
+    {
+      "path": "src/lib/reminders/subjects/applications.server.ts",
+      "sha256": "afdc4abee5053c6eef4c77c972a50ccf36e96faa4f39aca3c964b3b194ceebdd"
+    },
+    {
+      "path": "src/lib/reminders/subjects/bookings.server.ts",
+      "sha256": "2c1f295f45fa2a35c295fca8eb8fc6be79c621819a13ac9f140d4535d57331c4"
+    },
+    {
+      "path": "src/lib/reminders/subjects/inspections.server.ts",
+      "sha256": "3b662a31754ea3502676ff252a15c102286e4fddde51e257e06773d979e725f7"
+    },
+    {
+      "path": "src/lib/reminders/subjects/leases.server.ts",
+      "sha256": "16012be93c657bcb4b364ca4b78286656823d11564606c0eea1e648961c2a8c5"
+    },
+    {
+      "path": "src/lib/reminders/subjects/leasing-current.server.ts",
+      "sha256": "983139814507efecc1a50b12bc1e57bb0a0dea7e3b31f9e17b9da86352839e59"
+    },
+    {
+      "path": "src/lib/reminders/subjects/outgoing-payments.server.ts",
+      "sha256": "bde22670dad97cb32621a567e3c69dc05762b9380783d0379466c17410f655d5"
+    },
+    {
+      "path": "src/lib/reminders/subjects/records.server.ts",
+      "sha256": "48898ca83ca623d27aed56bddefc24029a7cce8da0c370abf5264f9c535e3286"
+    },
+    {
+      "path": "src/lib/reminders/subjects/services-current.server.ts",
+      "sha256": "0237bdf121fe5041b3794ef5ec156afde613e146a6861b4a60541bbc94acda5c"
+    },
+    {
+      "path": "src/lib/reminders/subjects/tasks.server.ts",
+      "sha256": "0ad257e165799f65693ff160b68bc9af77fadb91f4714481481b5047e12392f7"
+    },
+    {
+      "path": "src/lib/reminders/subjects/tenancy-current.server.ts",
+      "sha256": "dca0a4d92c40eb5e01504f1cb862824e88b50e6c59dc0f7573b58f2c3b42d4b7"
+    },
+    {
+      "path": "src/lib/reminders/subjects/tours.server.ts",
+      "sha256": "7bc70c2289e7110dcd3a49f882d9a45691a5c439fb718b5533ae4e323d92e4c6"
+    },
+    {
+      "path": "src/lib/render-portal-section.tsx",
+      "sha256": "9521e164ac0284f8b59b8861ad4b8c49d623ffdffa01025b5263614bf04bcaf8"
+    },
+    {
+      "path": "src/lib/reports/auth.ts",
+      "sha256": "23076588dbbfae880e6e7f093508bf167e6facb0fc957c5e388027c5a0fb4057"
+    },
+    {
+      "path": "src/lib/resend-delivery.server.ts",
+      "sha256": "17c6ec941c89b2447d5795e7a9d719a8d2b1ad962a98ef8db377939e8e27acca"
+    },
+    {
+      "path": "src/lib/resident-apply-invite-email.ts",
+      "sha256": "89beb02f81a48b6c4e2be3b1d375b82a642b7802c53be9b8b378c617bcff3ef4"
+    },
+    {
+      "path": "src/lib/resident-outbound-sms.server.ts",
+      "sha256": "b4a00f10bfcb1dffbefdca12e71276f2c8f5d3854c525792afe543ddf5c2b2e4"
+    },
+    {
+      "path": "src/lib/resident-welcome.server.ts",
+      "sha256": "32a54204a75f6de42fe8feb2e31669a5be115633465dcd10c79d10a01a2e9275"
+    },
+    {
+      "path": "src/lib/resident-work-order-reminder.server.ts",
+      "sha256": "0edb4f69e140cab64cbaeee5c32f968fa56b2cff8da379a756f0bb9c0837fd37"
+    },
+    {
+      "path": "src/lib/scheduled-inbox-messages.server.ts",
+      "sha256": "574e079e88ab9a081129cd940ff18d2de915e1462e799e2a45e37d3897c6750d"
+    },
+    {
+      "path": "src/lib/scheduled-inbox-messages.ts",
+      "sha256": "29f623d1bf2ef1c2d4cb7647e375e5f8c608eee10bdcc63ee7773d67301a2157"
+    },
+    {
+      "path": "src/lib/screening/order-screening.ts",
+      "sha256": "6370842fe3db2c71fc703eb36d1626b157225efb3786104d5560671d59bcad11"
+    },
+    {
+      "path": "src/lib/send-scheduled-inbox-message-now.ts",
+      "sha256": "ac850bc271d664d0d835a8e17c4ccb1ea0bd17e9e7c1371ab7ebc37134474fe7"
+    },
+    {
+      "path": "src/lib/sms-conversation-identity.ts",
+      "sha256": "89fc3b0bc4240c29e45cd4ba1833f69e175fd2c07c250ebd992d7a5b05cc0667"
+    },
+    {
+      "path": "src/lib/sms-inbox-notice.server.ts",
+      "sha256": "bcc7c7aadff4276d13141c25c43dd15941111fb56a5c9fdd2f141b39c59545f2"
+    },
+    {
+      "path": "src/lib/sms/manager-number-provisioning.server.ts",
+      "sha256": "0442ef5a5284facf8c4ce7d4dc445c2e917acfe71ebbde935f65674bdb120687"
+    },
+    {
+      "path": "src/lib/sms/manager-sms-access.server.ts",
+      "sha256": "3ce7412e5c2d28f85abe777eef5f82b90d70961e57480c62373993d19545a9b3"
+    },
+    {
+      "path": "src/lib/sms/owner-sms-dispatcher.server.ts",
+      "sha256": "fc70782bcc36e3d278b563e2b5902c2d57395b1e992764de63ef307c22c35d6a"
+    },
+    {
+      "path": "src/lib/sms/prospect-tour-reminder.server.ts",
+      "sha256": "111ace0066d67e0361fa81c8d0b11e8d579f6fd096a17329ab30ca3cf5387bf5"
+    },
+    {
+      "path": "src/lib/sms/sms-test-burst.server.ts",
+      "sha256": "9a9d6548843a8d59799a426d71dfca596205a9e474e4211f2c39a6b1a13ac2cc"
+    },
+    {
+      "path": "src/lib/sms/sms-test-provenance.server.ts",
+      "sha256": "d52e1d91123879669cb793e94242831289a03ad4df2b13f4feb710912aff6e1d"
+    },
+    {
+      "path": "src/lib/sms/sms-test-provenance.ts",
+      "sha256": "aa15f70998f673824f225db0e6c819a04073c799e78cadd901e67c686f7fa04b"
+    },
+    {
+      "path": "src/lib/sms/sms-test-transport.server.ts",
+      "sha256": "b9b8e9716bb757e26eb2118195435de26c63ea4d65e2dfbc243b1c96392d09fe"
+    },
+    {
+      "path": "src/lib/sms/weekly-rent-reminder.server.ts",
+      "sha256": "2550964c023274278dbcd256423fabd775cc65249e9d312ff6c6788a8efce77c"
+    },
+    {
+      "path": "src/lib/stripe-application-fee.ts",
+      "sha256": "88014238dc7746a655347cc5611197bd0c4649ce2f1052526da112a732efa92f"
+    },
+    {
+      "path": "src/lib/stripe-connect-account.ts",
+      "sha256": "bc3db00a80c5f356aaade5772e1c76a6b34ad4d92d04270de3b4f9721ed87c67"
+    },
+    {
+      "path": "src/lib/stripe-household-charge-checkout.server.ts",
+      "sha256": "2b51bb3ff16d1b2e3ba6e2fca38e25393d9d38ddaa621591c1a2b381a9e9b1bf"
+    },
+    {
+      "path": "src/lib/stripe-household-charge.ts",
+      "sha256": "fa3c9a6b3f7f62158ef5bd71df00f365b16880c0891897dd9f3328aa78e2d69e"
+    },
+    {
+      "path": "src/lib/stripe-resident-customer.ts",
+      "sha256": "8eeaac41258fb3c868c1bb80b8e4fecd89d9c5c9110d0641a680795713ec484b"
+    },
+    {
+      "path": "src/lib/stripe-screening.ts",
+      "sha256": "106334794be5d39c2baa91f5990e98003067634e1a010f2a67ed6a22d95a1a7c"
+    },
+    {
+      "path": "src/lib/stripe-webhook-financials.ts",
+      "sha256": "be313d048c584deda375c60a46fe68e09097db7c9a72eb890706a2e26679d107"
+    },
+    {
+      "path": "src/lib/stripe/manager-checkout.ts",
+      "sha256": "7c2c3ac601a20b8a9aad64f76e1ed162951e7c4a4a928692a4594bc7060b92c4"
+    },
+    {
+      "path": "src/lib/test-workspaces/deliver-auth-invite.server.ts",
+      "sha256": "5e8afdc402028fc3d49c35431a65ab0a0760b5783a16295d7f33516ec909f4d3"
+    },
+    {
+      "path": "src/lib/test-workspaces/effects.server.ts",
+      "sha256": "87b7be1f976758b7ca3c3e934ff98c54f03bd8fd407ee1741dfb5b070e9b5932"
+    },
+    {
+      "path": "src/lib/test-workspaces/index.server.ts",
+      "sha256": "61d7f440a8f102f1acd21c7446b121b71a41308b38ecf192411b2915e83d49e9"
+    },
+    {
+      "path": "src/lib/test-workspaces/schedule-route.server.ts",
+      "sha256": "09ca6d138e993dbd41ef2265b87bbe2ef372b5a6191e96642dd6d8572836e052"
+    },
+    {
+      "path": "src/lib/tools/confirm-gate.server.ts",
+      "sha256": "cec027dceae4511939c46b43c92e8baa303980c0f3a1f6ddd4cb0a9797f388d9"
+    },
+    {
+      "path": "src/lib/tools/context.ts",
+      "sha256": "5add2b1fa391dad8d12e1cfef0ca29e53785d38e881cc29540c92323b83695c2"
+    },
+    {
+      "path": "src/lib/tools/domains/applications.ts",
+      "sha256": "58be135a550896263db2c20c79a97842f52c23b5a24dfaac3c235dff1f7e2d84"
+    },
+    {
+      "path": "src/lib/tools/domains/calendar.ts",
+      "sha256": "35c0d850e701b6c058464b40b2e301e3d72635b33781c4763f8f639d8641aa10"
+    },
+    {
+      "path": "src/lib/tools/domains/charges.ts",
+      "sha256": "8d030f1a7cbfadc03018ff67f43c2154e577607bbedb7a6072a760b4aec5af3a"
+    },
+    {
+      "path": "src/lib/tools/domains/leases.ts",
+      "sha256": "c23855bc957309731f86af789ee1765e686262a24b3a702c4b3afc5edbe2df1e"
+    },
+    {
+      "path": "src/lib/tools/domains/leasing-sms.ts",
+      "sha256": "3d5bba557da021efce72b3877ca4750eff4ca3961097af10ea966cb6f4006f96"
+    },
+    {
+      "path": "src/lib/tools/domains/messaging.ts",
+      "sha256": "3b963eff67dbca25411aa247fdded1ad8dcd0fbca19ffeddd65d602aa038201b"
+    },
+    {
+      "path": "src/lib/tools/domains/payments.ts",
+      "sha256": "5c7b7f188ecdb4bc51f8dfb2c6f042a14c8514b97ed6f4911a882292a1dc8a94"
+    },
+    {
+      "path": "src/lib/tools/domains/portal-links.ts",
+      "sha256": "8a220b05fd2a8ff2904ea7479faf62d929b98cd25555bdfc95736a299d1f5c23"
+    },
+    {
+      "path": "src/lib/tools/domains/resident/messaging.ts",
+      "sha256": "9a7ebd653e1277d08122197f152563c16f2341c2f56d7ee90d42a35563247a58"
+    },
+    {
+      "path": "src/lib/tools/domains/resident/services.ts",
+      "sha256": "955871988602e0d4bfe1729e5240700e60f30a6858309b745e69fc26e5bc066f"
+    },
+    {
+      "path": "src/lib/tools/domains/residents.ts",
+      "sha256": "778833d3c0dc75cc58f08c4191f166370688101744f2c2c62a16a3e5ab30e99d"
+    },
+    {
+      "path": "src/lib/tools/domains/services-write.ts",
+      "sha256": "8dcf7591c19eae2fb8d6cbc26739e0cb01b768d7ea639cf84c9b8fb96af9aa27"
+    },
+    {
+      "path": "src/lib/tools/domains/tours.ts",
+      "sha256": "ea93b0a286995c8605b0ededb08248056670920192349085524dbb4490562e82"
+    },
+    {
+      "path": "src/lib/tools/domains/utility-allocation.ts",
+      "sha256": "fdb403eccf846f1a1bc9dd79ae22b1274225a9df0f56bd7e0073b084ec672323"
+    },
+    {
+      "path": "src/lib/tools/domains/work-orders.ts",
+      "sha256": "bcbab9b0f83f9c3260a87ff4f1939aeb82fad70a8124c87592750128b1c5c2cf"
+    },
+    {
+      "path": "src/lib/tools/pending-actions.ts",
+      "sha256": "8f015359247d0cef709af2f4f7a24bde1c31ba9f358b18f1e3a23b53bbdb65b5"
+    },
+    {
+      "path": "src/lib/tools/resident-context.ts",
+      "sha256": "540357ab5390cd6eedbdf0b39384cd0ef63f2d93003f543c03e92ba2907a34b9"
+    },
+    {
+      "path": "src/lib/tour-availability.server.ts",
+      "sha256": "f00f98f62700cebd0ad54d3f7c0733d5ff991e30cf6192f5e7686bba103ef082"
+    },
+    {
+      "path": "src/lib/tour-notification-delivery.server.ts",
+      "sha256": "a49ee3e9f605a139c37a72b8c2d22549186e6204d531ef6f87c80cb432d06470"
+    },
+    {
+      "path": "src/lib/tour-reminder.server.ts",
+      "sha256": "dd8137bd690d1adb0d820c97942f886ecca1a54553906c0ec99dd5294d994217"
+    },
+    {
+      "path": "src/lib/tour-schedule-persistence.server.ts",
+      "sha256": "cec0dfe3e54a45b84cfd39a25567f8071eedece8c41310c72801dbd244fbdb3e"
+    },
+    {
+      "path": "src/lib/twilio.ts",
+      "sha256": "0c37896e47ad11aeb8e5c85253d87a3b374c415bcab850a6b084f56e1cfe794e"
+    },
+    {
+      "path": "src/lib/vendor-invite.server.ts",
+      "sha256": "9615a7c736df676575337051e15dd0371e31fce53a15c28b1c3cceb3ab2753aa"
+    },
+    {
+      "path": "src/lib/vendor-notification-delivery.ts",
+      "sha256": "73035ee720c168c34967dea13dcc1c35d0d9629bf794f7fc8577a5e8d6710666"
+    },
+    {
+      "path": "src/lib/voice/voice-summary-email.server.ts",
+      "sha256": "55e9dddbeea109d8a2edf2034defbd9d521cfcebafcd9c102032b81042a28096"
+    },
+    {
+      "path": "src/lib/webhooks/deliver.server.ts",
+      "sha256": "0302631f3dfdd3c4484225e2a625dd899dff8ba05851028097332ec162191a7e"
+    },
+    {
+      "path": "src/lib/work-order-approve-pay.server.ts",
+      "sha256": "549f17fdb5d7005060ef4d844c5d5554c5badb907d64cf47c355ce5f63c33b26"
+    },
+    {
+      "path": "src/lib/work-order-bids.server.ts",
+      "sha256": "7f5eb10aaca7770e1fa43626f0f18a6e2d029322f32b99ef08a380f481da9065"
+    },
+    {
+      "path": "src/lib/work-order-dispatch.server.ts",
+      "sha256": "a1d45735343c3ecd40d276f33a1aa8b773c78e6fe0f06f3b4cf51e2cc66c2936"
+    },
+    {
+      "path": "src/lib/work-order-offers.server.ts",
+      "sha256": "88358253597e5590086f7ee437d511dd24b99c89858569efe635094d986e4f03"
+    },
+    {
+      "path": "supabase/migrations/20260917120000_authenticated_sms_test_identity.sql",
+      "sha256": "146335b64c2b0d99888ab1a2340e8721f469a83e91bf9a02524cf8eed051b1fa"
+    },
+    {
+      "path": "supabase/migrations/20260917193000_authenticated_sms_test_tour_context.sql",
+      "sha256": "a7ecaf2504e7eda820e4059e2341f965b31769c1ac82d0c468b6fe6dcb5cec6d"
+    },
+    {
+      "path": "supabase/migrations/20260917201500_sms_test_pending_action_and_delivery_provenance.sql",
+      "sha256": "41ea1c43af24d96b90452f103db8e6670995dc6f519c02cb70152317479353cc"
+    },
+    {
+      "path": "supabase/migrations/20260918130000_sms_test_tour_wrapper_failed_replace_guard.sql",
+      "sha256": "9f667d62dfd5acdba18d0f8c49e5a15d536cd87030ee1a08cb82a9f10b10c298"
+    },
+    {
+      "path": "supabase/migrations/20260918131500_test_workspaces.sql",
+      "sha256": "54a71a6bdb59ca7123a24235106199a6ed3b97e20ec5595d49a1a049a452b601"
+    },
+    {
+      "path": "supabase/migrations/20260918133000_remove_raw_live_listing_read_policy.sql",
+      "sha256": "5d53108acf2a8155aeedcb8aacf44c8cb450978621d5124e0d201c32e622a4fd"
+    },
+    {
+      "path": "supabase/migrations/20260919113000_reconcile_sms_test_google_cleanup_claim_fence.sql",
+      "sha256": "cdc40f142b47c647e81b50ca66d7b0a1641c9a3907f88f1011a40ca3ef28f722"
+    },
+    {
+      "path": "supabase/migrations/20260919120000_harden_test_workspace_schedule_slice.sql",
+      "sha256": "ffef538feb885bfbca0c311e0482572ea81aa12ce86099c15f70204cdca35de5"
+    },
+    {
+      "path": "supabase/migrations/20260919123000_revoke_classified_test_workspace_direct_access.sql",
+      "sha256": "52c4f59995d8812cbb504db4485aa18076fc53050904d0d1a814bfd5c82f8d80"
+    },
+    {
+      "path": "supabase/migrations/20260919124500_harden_late_test_workspace_direct_access.sql",
+      "sha256": "f25bc175cfcc79aa29994c705e70a20e44bca8f97fbad97b05c629c25c24a282"
+    },
+    {
+      "path": "tests/e2e/listing-editor-close-save.spec.ts",
+      "sha256": "074b75117d137b607756e813b97c0d82d50e5ebf6ea2d00a0432be2db47d75aa"
+    },
+    {
+      "path": "tests/e2e/public-partner.spec.ts",
+      "sha256": "b8e3d8543e094d3320afea38b89f6eb9a4adfe4302cc76470f3e262bb6b55c1f"
+    },
+    {
+      "path": "tests/e2e/resident-login-and-application.spec.ts",
+      "sha256": "0daaf647f9abbad327586301bc43203f15133ac13ee47861a90411ed00dcb8b5"
+    },
+    {
+      "path": "tests/e2e/resident-portal-ui-bug-hunt.spec.ts",
+      "sha256": "d9bae939aacacf0e702ef7bf64ef28a2e4a14ded8d87545bf5d17db4a1e3c738"
+    },
+    {
+      "path": "tests/e2e/resident-portal.spec.ts",
+      "sha256": "6f03bcea73919ce23a8c4d09ca1718a8b039ba95d0c305083c270c4cacc558fe"
+    },
+    {
+      "path": "tests/e2e/tour-scheduling.spec.ts",
+      "sha256": "5a7e0c7c83e8af599af7797d514f0842391ecd43a45e036f1425996c6e28a656"
+    },
+    {
+      "path": "tests/integration/portal/agent-action-confirm.test.ts",
+      "sha256": "4e344c7c10f5852d2ddf4bc47c4e0044550550906c489de14500553c0bf15481"
+    },
+    {
+      "path": "tests/integration/portal/lease-template-access.test.ts",
+      "sha256": "6102146da1e3a500bbbbd8bd19987d5f48ecfd35736fd81c0488483752338ed1"
+    },
+    {
+      "path": "tests/integration/portal/portal-vendors.test.ts",
+      "sha256": "3edd75051405985e6a6003fa3cc3cd276345b476c69fc3c3464d05e79ee6f45a"
+    },
+    {
+      "path": "tests/integration/portal/property-access-info.test.ts",
+      "sha256": "a2858d864a9bc10a3297b8bb054658c4f4da7f0c7bf163afce672e337bc66871"
+    },
+    {
+      "path": "tests/integration/portal/scheduled-inbox-messages.test.ts",
+      "sha256": "8d637466598b5be43414089198747db32f0e7d089be020466a3e79d71edc79df"
+    },
+    {
+      "path": "tests/integration/portal/scheduled-messages.test.ts",
+      "sha256": "81acd154def371123167074a7966adb11213e01179efb191759def35f35491ee"
+    },
+    {
+      "path": "tests/integration/portal/send-inbox-message.test.ts",
+      "sha256": "2c014b130861b9a0938ea71a6baac1eae9d19ee38ace3fb068aa65e44211c069"
+    },
+    {
+      "path": "tests/integration/portal/send-lead-invite.test.ts",
+      "sha256": "11131d1c59e364e6da93c4da6adedf2d35b4d950d402b72d511ccc290b126986"
+    },
+    {
+      "path": "tests/integration/portal/send-payment-reminder.test.ts",
+      "sha256": "68c95be831ba59bd3a3f8c005e6576ebb901d0aa7046bf0f3f5f61d37d0c6aca"
+    },
+    {
+      "path": "tests/integration/portal/set-vendor-price.test.ts",
+      "sha256": "f859658ca199bba93cb09584f1ffd7c9ba51cd8fc657e067eaa2484e94a09b1c"
+    },
+    {
+      "path": "tests/integration/public/property-lead-get.test.ts",
+      "sha256": "8c82844707f0224dcd68b0e3f1116d6e36d1252d09e5ef07ed1210ae153a256c"
+    },
+    {
+      "path": "tests/integration/public/property-lead-message.test.ts",
+      "sha256": "4c91ddb2a5175ed03a0ecb4519feb80afeb42d7f93e3d84840e3476e22be0eb5"
+    },
+    {
+      "path": "tests/integration/public/property-records-public.test.ts",
+      "sha256": "d9f9f6f60996064930404fa4b3b03e728e7273113c145c4c4a4de811e18bc70f"
+    },
+    {
+      "path": "tests/integration/stripe/ach-checkout.test.ts",
+      "sha256": "af4dbceb889860085ef03756478f2fc2754b186046b2e824bba1fa1eaeed3359"
+    },
+    {
+      "path": "tests/integration/stripe/subscription-billing.test.ts",
+      "sha256": "f5f34d12e8cf9c3d5232bd0f8d6b9a861949e03187818cc5b2144718285ac718"
+    },
+    {
+      "path": "tests/integration/stripe/webhook.test.ts",
+      "sha256": "eac767a92feb8d44901d4b7f71411cd8994ff9c8e5718ba350b4460189614750"
+    },
+    {
+      "path": "tests/unit/admin-backfill-ledger-route.test.ts",
+      "sha256": "f29821424fa495407a6f100240289d76ecc182624be75e4bf07bfec6f9c9d1c7"
+    },
+    {
+      "path": "tests/unit/agent-link-origins.test.ts",
+      "sha256": "eaf298c6d500e5b0f5444e4c239378f55540563c8d0f029d7e71ee5ccae0b768"
+    },
+    {
+      "path": "tests/unit/agent-payments-gating.test.ts",
+      "sha256": "8ef1e4b49db74e5a2a84234438df86e734c00a12dd65e49171b29f205867b0d4"
+    },
+    {
+      "path": "tests/unit/agent-pending-actions-route.test.ts",
+      "sha256": "09d56f5b954d367e1bb26ecc08c0069427e996b902189e64504e29b966d309c9"
+    },
+    {
+      "path": "tests/unit/agent/chat-history.test.ts",
+      "sha256": "e7e5fb9fd6577f04dd9a6c2ba8c8ae4449743ed8b96321e7fef6f1fe73444c15"
+    },
+    {
+      "path": "tests/unit/agent/link-first-communication.test.ts",
+      "sha256": "e92461bce8795432c2f321f8ce1c6ea6e97c99e9794dcedab52e6f7a6784b42a"
+    },
+    {
+      "path": "tests/unit/app-url.test.ts",
+      "sha256": "6b13a4623c0fc484f9da37d54666cfe2bbc30295cc85e83e99d24ff9ea2e16e6"
+    },
+    {
+      "path": "tests/unit/assistant-chat-composer-attachment-mode.test.tsx",
+      "sha256": "c91362b37856ab32245e011863500196484581e889c506510c9c1a83dc159964"
+    },
+    {
+      "path": "tests/unit/assistant-conversation-context-send.test.tsx",
+      "sha256": "bb579e42155acd033f799cf1d39294df19379f220ddf633dc87f31d5a9168047"
+    },
+    {
+      "path": "tests/unit/assistant-conversation-history.test.tsx",
+      "sha256": "fb704bfb71ced369b584a081eec7be5191c12eb5cc0b70a86b5d9234963845c9"
+    },
+    {
+      "path": "tests/unit/calendar-meeting-search.test.ts",
+      "sha256": "d7cfd8d2595a9bcacbb697d8f1270edc7e31d0bbebbc4bd007431147387d55a5"
+    },
+    {
+      "path": "tests/unit/calendar-shows-scheduled-work.test.ts",
+      "sha256": "7a82d69bba0aef22e1032574744e85b62e8b2b4529b4e85cdef4cc688a6d9103"
+    },
+    {
+      "path": "tests/unit/ci-test-workflow.test.ts",
+      "sha256": "fcd60227aa98d69a9325e18cfca32920dad2108923ef8e9ca8efa2823ed0e14c"
+    },
+    {
+      "path": "tests/unit/comms-credit-purchase.test.ts",
+      "sha256": "6b7236110669ba546bf942221dd82fd54f34be28bb8c88b3e62cb46192a37d08"
+    },
+    {
+      "path": "tests/unit/communication-inbox-filters.test.ts",
+      "sha256": "e0491150052e0858ebad414bb7b76c4dfa2b9826f01b440d422307962b016b3c"
+    },
+    {
+      "path": "tests/unit/deposit-return-route.test.ts",
+      "sha256": "57879f43deb3bc30f648aca1526cf498614800f92e05e96912e14a2a388a1d43"
+    },
+    {
+      "path": "tests/unit/evidence-property-calendar-conflicts.test.tsx",
+      "sha256": "5f0f5354c3d4e0098a318f6efd3e105f3a6ef1a41a4c488202c4fb0b56f301cb"
+    },
+    {
+      "path": "tests/unit/filter-field-lists.test.tsx",
+      "sha256": "ab0b0525d5ce5beaa5baec493f62ef1f4f26a80a2ad4aa92d193b532e2347d23"
+    },
+    {
+      "path": "tests/unit/google-calendar-conditional-tour-write.test.ts",
+      "sha256": "d128f4e1277f6ff8ccf114404df0ae5408993cd1d8076150d146753bc3dfb95a"
+    },
+    {
+      "path": "tests/unit/google-calendar-create-conflict-reconciliation.test.ts",
+      "sha256": "d144c04d54a617721357498a5e0c2a295dbd7412d1555b7bc58b82ef31d1bfac"
+    },
+    {
+      "path": "tests/unit/google-calendar-events-pagination.test.ts",
+      "sha256": "3340e00cf691dd7791d13a44f1418b8ed81a358ea36ad882814c5d73f7dabecd"
+    },
+    {
+      "path": "tests/unit/historical-migration-parity-attestation.test.ts",
+      "sha256": "37b45670345b5e66dce0f206461d5911b9ecb9ae1edad3d43656a368344d5528"
+    },
+    {
+      "path": "tests/unit/household-charge-processing.test.ts",
+      "sha256": "e0d7b6d02f7499165496d390ae85fc4198ab6c86d7129b0f7b5e96d9f2c169ef"
+    },
+    {
+      "path": "tests/unit/household-charges.test.ts",
+      "sha256": "6c450fdcfe1ae4c78889bc5f1b3eac0561c956319479d9b64db5062cc74461e2"
+    },
+    {
+      "path": "tests/unit/inbox-initial-loading-readiness.test.tsx",
+      "sha256": "b2dff6a1cf1df8ba65483225e5af7f1148b6d41926039d644dc6610855f5c2bd"
+    },
+    {
+      "path": "tests/unit/inbox-recipient-scope.test.ts",
+      "sha256": "25eba4d5718a338894285ce572888318d21ed3fe77788d5530fab360020480a6"
+    },
+    {
+      "path": "tests/unit/lead-invite-inbox.test.ts",
+      "sha256": "03852e9f2576ecc332ab76f499d063cc8b5f2a67b7af87112e781ba2dad8b06f"
+    },
+    {
+      "path": "tests/unit/lease-bulk-bar-actions.test.ts",
+      "sha256": "390b28a089f611b93207de2a1b6b4d18f721b7112fa39304e5a67cad0e9e3d45"
+    },
+    {
+      "path": "tests/unit/lease-document-preview-scroll.test.tsx",
+      "sha256": "32cce388b994ec4378abad325209ff76fbe26f79dfab5589bb25c39fd17c56da"
+    },
+    {
+      "path": "tests/unit/lease-pipeline-list-projection.test.ts",
+      "sha256": "9ac2125e4225af5b768a441cade6c8a5c49634847644b1c9a66da2d6e8e83ea1"
+    },
+    {
+      "path": "tests/unit/leasing-sms-agent.test.ts",
+      "sha256": "6004660dcf894a6fce413eb4930f078a1673b3e204e9a8a01e4360f6cdcfa4d2"
+    },
+    {
+      "path": "tests/unit/leasing-sms-test-session.test.ts",
+      "sha256": "77d3423aafd61644223429261beb5f21f1c3537d71269bf932372f58e522ae40"
+    },
+    {
+      "path": "tests/unit/listing-media-shared-uploader-contract.test.ts",
+      "sha256": "22c7fa29831ae175a203e51e7145c66ec3c8745ee2355ccb25f4e109678a08fa"
+    },
+    {
+      "path": "tests/unit/listing-room-detail-rent.test.tsx",
+      "sha256": "dacfd133b2784407527be710ff23d5f0c57b7c75a2cd48c04e545d615de532f3"
+    },
+    {
+      "path": "tests/unit/local-qa-build-artifact.test.ts",
+      "sha256": "1cd30818d0176a07c6191547f14db09a03e31bbde9903b1894f38868707887ef"
+    },
+    {
+      "path": "tests/unit/manager-applications-incomplete-reminder.test.tsx",
+      "sha256": "d2d71208adb83bd1787ad59edf407f47511ce8f0af64a4a254c153275baa5e48"
+    },
+    {
+      "path": "tests/unit/manager-co-manager-sms-regression.test.ts",
+      "sha256": "343f44db22918e81cc17ff6938f0704b3ef6b2cfe221a89b736b37a57d6b811d"
+    },
+    {
+      "path": "tests/unit/manager-payment-methods.test.ts",
+      "sha256": "83552f4ccb09fb1b5c211354b684d97ee331add4b2ba0e0d419087210da2b44a"
+    },
+    {
+      "path": "tests/unit/manager-property-application-questions-panel.test.tsx",
+      "sha256": "ab422d0ef3f7b7431b11445f3b5c0031594bc11a767cdfc5a37fc1d94bb02f8d"
+    },
+    {
+      "path": "tests/unit/manager-property-lease-panel.test.tsx",
+      "sha256": "f04e429aa2f98934e29c7263fa13589c882794b240e341faa2107349cc721045"
+    },
+    {
+      "path": "tests/unit/manager-property-room-move-in-panel.test.tsx",
+      "sha256": "bd9dae04eb90e0240f1b3280e47f1fd188cc3247063093f8165cdfe3dd72cb97"
+    },
+    {
+      "path": "tests/unit/manager-purchase-from-session.test.ts",
+      "sha256": "7c268b6cabc871a5b05bd01258f689e67ca9a0407fd687e53b12cd44ddd01db5"
+    },
+    {
+      "path": "tests/unit/manager-sms-access.test.ts",
+      "sha256": "3fa720f9e11fd8fdfe636e410288e76be021810f11ffb95cbf4e5972a9b4470c"
+    },
+    {
+      "path": "tests/unit/manager-stripe-subscription-sync.test.ts",
+      "sha256": "363adce09900c8f26a2a60d79bb0749687c5fbfd6fd73444d96046fbf060f436"
+    },
+    {
+      "path": "tests/unit/manager-subscription-route-unknown-plan.test.ts",
+      "sha256": "73740f1b4276224026bd5d1ad2a2b1c5aa9f4924562c6571d4bbf5a42448aae4"
+    },
+    {
+      "path": "tests/unit/onboard-existing-resident-cross-manager-write.test.ts",
+      "sha256": "86bec422f7f1c16701dd210ade6570458327c06c9c982651d42c9955bc58d376"
+    },
+    {
+      "path": "tests/unit/portal-inbox-scope-effective-viewer.test.ts",
+      "sha256": "5a12adbda5da2e28f103038c693da8060d5fe080f11edf19fe4c073506861f56"
+    },
+    {
+      "path": "tests/unit/portal-record-share-authorize.test.ts",
+      "sha256": "0f3f9ce85ea4f60e4c0e794c739abe6000da16852e993d1e0a56425afec0637c"
+    },
+    {
+      "path": "tests/unit/portal-record-share-links.test.ts",
+      "sha256": "a98e3a22a134edd967844554163fb75896e4d29e35b0593ebbaba93edcebfec4"
+    },
+    {
+      "path": "tests/unit/portal-settings-mobile-back.test.tsx",
+      "sha256": "c3ae6ee6e21b978bbe467db10ac7238818f390b3e0c8685c32c12544fe739294"
+    },
+    {
+      "path": "tests/unit/portal-tour-inquiries-delete-route.test.ts",
+      "sha256": "eaa92fdf2831687951d2eec928740942ec70aeed7200219a200a4da4669c07d9"
+    },
+    {
+      "path": "tests/unit/property-records-delete-missing-row.test.ts",
+      "sha256": "f93e200e44dd7ac3e6a6fef9d80dbd4670aaea567e8d1b056482a9bb251aac95"
+    },
+    {
+      "path": "tests/unit/property-records-draft-skips-waiver-validation.test.ts",
+      "sha256": "02b7b3ab7b2d4babc5e5f70ca8f2e536ac78a5c1b321e887e7fa38efeec0b72d"
+    },
+    {
+      "path": "tests/unit/property-records-owner-not-reassignable.test.ts",
+      "sha256": "b34ca6a79b0c7a9f0539960ef86d2470cf8f1a8478f18c3c6cdf9eeaddf898d4"
+    },
+    {
+      "path": "tests/unit/property-records-plan-property-limit.test.ts",
+      "sha256": "16d19ff363a471baebaee45c000882792b545f3968bcf2fd2d29939dd1eeaa23"
+    },
+    {
+      "path": "tests/unit/propose-tour-reschedule-route.test.ts",
+      "sha256": "2be0389d500fd7b530c1e74e900a7b2a5dc38b226a89f3c1275fabaa3838c559"
+    },
+    {
+      "path": "tests/unit/public-listings-cta-phone.test.ts",
+      "sha256": "c4c04316f43db8102696528c0cea3a5472557be7008fe3203033f6ce32f0c09a"
+    },
+    {
+      "path": "tests/unit/public-tour-availability-subtraction.test.ts",
+      "sha256": "16725ddc0d953b893845c2df9686879f2c8687cd497c253395f525e4cdfbd131"
+    },
+    {
+      "path": "tests/unit/reports/auth.test.ts",
+      "sha256": "6eca92618dfdfc342f3ce3dc5a3de3df1815afb2acfdc0fb51c00304da457374"
+    },
+    {
+      "path": "tests/unit/resident-ledger-write-refused.test.ts",
+      "sha256": "bdb8ceb48703f3f1b93764ffeba482ae2cfb84b7af7ac296f4bcd2ed9b6c88ce"
+    },
+    {
+      "path": "tests/unit/scheduled-inbox-messages.test.ts",
+      "sha256": "439652e6a30ec9eba2880c53ed5e087e05cc98ec0909fad967f3e4948eba8329"
+    },
+    {
+      "path": "tests/unit/security/application-document-route.test.ts",
+      "sha256": "8f80e7d3c2903ee47f8a83c91bc3bb9400e44695cadb274df304f980e99c2f7f"
+    },
+    {
+      "path": "tests/unit/send-application-submitted-handoff-route.test.ts",
+      "sha256": "69de868c17919d3a0045eabf2eaaf90f71ed2530450b1ae05ec6c11fd88c8a28"
+    },
+    {
+      "path": "tests/unit/settings-module-redraws.test.tsx",
+      "sha256": "65fb73547ff412f92e22248f7fde405b162f07c2a0be31f33c14708da79f9493"
+    },
+    {
+      "path": "tests/unit/sms-test-billing.test.ts",
+      "sha256": "81af2120db4f0a8671f4689b60da2ad8d66e3a24cf00fe5b46638ea0c094348e"
+    },
+    {
+      "path": "tests/unit/sms-test-burst.test.ts",
+      "sha256": "dfca628d445d4b400bce298de3c5c518cc55885ccf82b8b642633dc4eb6a2d0c"
+    },
+    {
+      "path": "tests/unit/sms-test-capability-route.test.ts",
+      "sha256": "eadc179798e91d5585656eb5408d8efc1725b387a51bff4310eda39dfa6df871"
+    },
+    {
+      "path": "tests/unit/sms-test-context.test.ts",
+      "sha256": "9c5ec8a96caa73ae7cfb995411799b8598cbb1c59dd945ea444e43b214cbf897"
+    },
+    {
+      "path": "tests/unit/sms-test-external-effects.test.ts",
+      "sha256": "1215d041bcad8949908b98f5822a880f1a26a7c2e97d63d1d8b9fdbfb4285dfb"
+    },
+    {
+      "path": "tests/unit/sms-test-identity-migration.test.ts",
+      "sha256": "45ee70c389dad524c80e76bf529c7ca3eeb8d4c7d0d4d09ea29253a1e01ded71"
+    },
+    {
+      "path": "tests/unit/sms-test-provenance.test.ts",
+      "sha256": "1a7cd5c80cd1b0a8fd97edb24628cf87d923f1bebacf4e8cbbfd321807a0430f"
+    },
+    {
+      "path": "tests/unit/sms-test-provider-boundaries.test.ts",
+      "sha256": "4a17e7420104c3f8b635849abbb2762f41f9cac40cbb375691f0e8669418a3ae"
+    },
+    {
+      "path": "tests/unit/sms-test-raw-twilio-webhook.test.ts",
+      "sha256": "381f9abc8418b74d910d24caa14785c914781f1b52f614f4bc42e897237cbfd1"
+    },
+    {
+      "path": "tests/unit/sms-test-route.test.ts",
+      "sha256": "a997faf944c10d0d4901fb7ada7f21793af95a63222e45484f9c5b1459e5c8a2"
+    },
+    {
+      "path": "tests/unit/sms-test-runner.test.ts",
+      "sha256": "879a6f0f8b82d5424e139e7faf2e41bb6a303b6289cff975392226fdac13d05c"
+    },
+    {
+      "path": "tests/unit/sms-test-session-isolation.test.ts",
+      "sha256": "1b0fb3edb65bf6b2dbaa4927b8dda77c074da07f4d4d657bb46974299b3ad82e"
+    },
+    {
+      "path": "tests/unit/sms-test-tour-context.test.ts",
+      "sha256": "f494a2dd84c3f4cf9b1184924677ad98bf3ddedbebc084b8908bd7cb09905cdf"
+    },
+    {
+      "path": "tests/unit/sms-test-tour-persistence.test.ts",
+      "sha256": "23e2d3cf8bf46c8dfb86ea0a30e55a7c9c987d5ad3e4fa0d9388d927be1feb98"
+    },
+    {
+      "path": "tests/unit/sms-test-transport.test.ts",
+      "sha256": "e7aacfde2be8c1b903dee581bd5fcc471c94b1eb396a7f644575a61827209952"
+    },
+    {
+      "path": "tests/unit/sms-test-turn-state.test.ts",
+      "sha256": "959850775f9781893d427e4ae25f8065f6e9af0777cdb31976d6fbcf15151772"
+    },
+    {
+      "path": "tests/unit/stripe-application-fee.test.ts",
+      "sha256": "c2513efc627bc574375452297a132a043186dde08b4de78c35eddfe4edfe9607"
+    },
+    {
+      "path": "tests/unit/stripe-connect-account-persistence.test.ts",
+      "sha256": "4988217a44c195355e0d481ea8eca40f4507f35f986a269c3c5f1da33d28ca24"
+    },
+    {
+      "path": "tests/unit/stripe-household-charge.test.ts",
+      "sha256": "7d4d96d151c2cdad0a2d32bb8c3a8cfa54a55de2cbe2ab1a2688090e4746fa2e"
+    },
+    {
+      "path": "tests/unit/stripe-webhook-financials.test.ts",
+      "sha256": "e1490a9998ab42bee318711a1acf4f2671285554b44179161c6dbe36d0a0c768"
+    },
+    {
+      "path": "tests/unit/test-workspace-admin-route.test.ts",
+      "sha256": "617fd9976757812e54c6bc614f6d2c7c1f5ad5a8de973e2502245f23ba5af1a5"
+    },
+    {
+      "path": "tests/unit/test-workspace-baseline-prerequisites.test.ts",
+      "sha256": "6ca262368c5c16f7220364a76897237004065883a115737917099539512c271a"
+    },
+    {
+      "path": "tests/unit/test-workspace-capability-boundary.test.ts",
+      "sha256": "1d0e71efa9d44e3036c7685b20d101b8befa328be229285a55c4589c426e5d49"
+    },
+    {
+      "path": "tests/unit/test-workspace-checkout-boundaries.test.ts",
+      "sha256": "e2074bb862605970d8f9275d34b3643fb33bb5ec2f5eb5bdd316767d890d2ba0"
+    },
+    {
+      "path": "tests/unit/test-workspace-classification.test.ts",
+      "sha256": "b83eca59c20c7cb40fe99d206baceca480801cd1398351a9961e6bb4cd446d98"
+    },
+    {
+      "path": "tests/unit/test-workspace-client-scope-races.test.tsx",
+      "sha256": "3b77534405495a8495ae1674fe7ae82c0ff8115ed85799f6f95ad9562e4b025d"
+    },
+    {
+      "path": "tests/unit/test-workspace-confirmation.test.ts",
+      "sha256": "d4f72d3ffdc9b949c9a6f09430ed12db7db45808465c357d865f5c5d1b75d551"
+    },
+    {
+      "path": "tests/unit/test-workspace-effect-boundary.test.ts",
+      "sha256": "b0243011e3f5217a1d7b51455ceaaa11807528b100a10a42bcb1d056f23c2883"
+    },
+    {
+      "path": "tests/unit/test-workspace-history-boundary.test.ts",
+      "sha256": "6c0889941b1b10408decc99ac26ada1ed6ca87b343a3cec74a11657492c4f733"
+    },
+    {
+      "path": "tests/unit/test-workspace-lease-template-route.test.ts",
+      "sha256": "dcec7e59128a22729323d333f58b5c7c730296d591aca131618e8dac87d05d38"
+    },
+    {
+      "path": "tests/unit/test-workspace-link-boundary.test.ts",
+      "sha256": "d2ac8f94e752f34337b6673fef5834a9bf322412e0b7d178eb88f5d182c5466e"
+    },
+    {
+      "path": "tests/unit/test-workspace-listing-media-route.test.ts",
+      "sha256": "68ee89ee7a83e57583d94b00f9f5c7e148079af0d0dd85213c9261f0900bfe3c"
+    },
+    {
+      "path": "tests/unit/test-workspace-migration-contract.test.ts",
+      "sha256": "f92b8a7fa7a7327e3b610cc0bd5e76ff66d20ff9792e0a813b0930448c22de5f"
+    },
+    {
+      "path": "tests/unit/test-workspace-private-read-routes.test.ts",
+      "sha256": "e1e68a5d583fb207074cbbda608afc6863a771638b452419c51d7f9aaf32e17b"
+    },
+    {
+      "path": "tests/unit/test-workspace-property-records-route.test.ts",
+      "sha256": "987a71f97dbc4275018b158daef956dc67a9b219310905eb4781de63f3deca5c"
+    },
+    {
+      "path": "tests/unit/test-workspace-provider-route-boundary.test.ts",
+      "sha256": "2079ceb4bdd99457b2db412cb25c9a667d70128b4577778e80e8c0cc75c93dbe"
+    },
+    {
+      "path": "tests/unit/test-workspace-public-catalog-cache.test.ts",
+      "sha256": "56bde69ca6aa2024aaf98caa93b4120b3ce434df6707006fddf4044ff6bbcba8"
+    },
+    {
+      "path": "tests/unit/test-workspace-public-listings.test.ts",
+      "sha256": "1cf43b9f0e66d4c5b0894f1c993efa39292cde54787d3636126bdc843ead4013"
+    },
+    {
+      "path": "tests/unit/test-workspace-release-migration-preparation.test.ts",
+      "sha256": "cf28e21ee03b66a514edb70602b7b37d5d6f3fe85d7cb4c68268149158f2cee9"
+    },
+    {
+      "path": "tests/unit/test-workspace-release-transport.test.ts",
+      "sha256": "ba5dbb663c3c49bbe80911465de951219f58e6b7f19b50e42c4ff3a3261d8b92"
+    },
+    {
+      "path": "tests/unit/test-workspace-schedule-route.test.ts",
+      "sha256": "3c264ff9538971f8f3d27e42f6a49a3425b7cc639d583044f38006bd15b67856"
+    },
+    {
+      "path": "tests/unit/test-workspace-sms-boundary.test.ts",
+      "sha256": "875cc1d702a6dc34701f1eaab630ae7efa916c17552cfdbc8ebb711b1f08d7db"
+    },
+    {
+      "path": "tests/unit/test-workspace-sms-scope.test.ts",
+      "sha256": "3e0534b1e993ba17d4c962560deefcf7a92dc259a223267686e71e48cd5cd00e"
+    },
+    {
+      "path": "tests/unit/tools/confirm-gate-portal-scope.test.ts",
+      "sha256": "b54a60eadc96c5bdefe6fbbb0b571f54b720b2b067a6c5fbc1c66b1d51d077ee"
+    },
+    {
+      "path": "tests/unit/tools/inbox-calendar.test.ts",
+      "sha256": "5d88c8a9ed94e56a41717dd2327090b7be073711e7811efc4f4afce72366932b"
+    },
+    {
+      "path": "tests/unit/tools/pending-actions.test.ts",
+      "sha256": "3a87f5adc7d727580793beabd77ad5a5e91a6467606ee71eec3a64d6f0bd65d6"
+    },
+    {
+      "path": "tests/unit/tools/property-resident-writes.test.ts",
+      "sha256": "587ba58fb22938f70f46606b4ca934a733052c6b9f3cd605985da73d89ff866a"
+    },
+    {
+      "path": "tests/unit/tools/resident-work-order-lifecycle.test.ts",
+      "sha256": "cac7b394535628e6108505ff7d04cd538c03c1003b9ba558aca39490820130fa"
+    },
+    {
+      "path": "tests/unit/tools/send-rent-reminder-preview.test.ts",
+      "sha256": "15520ef874273ff4de6fdda9956c4d1cbdbb5c66bc1cf35bb62ec802a7cb7819"
+    },
+    {
+      "path": "tests/unit/tour-availability-co-manager-union.test.ts",
+      "sha256": "39f0e6bcef3e13aa5c252af7f576e6409a481d142819b50f75d5db7e04163f0c"
+    },
+    {
+      "path": "tests/unit/tour-decline-guest-on-deletion-hold.test.ts",
+      "sha256": "ae776ddbbb4afd87558810d638889d915a14347cb174c15a600079d0b2131c32"
+    },
+    {
+      "path": "tests/unit/tour-guest-sms-consent.test.ts",
+      "sha256": "d307be09c5f39e0c898b915dba59c682cbc08d100388d1bfddffe0a85cce946f"
+    },
+    {
+      "path": "tests/unit/tour-lifecycle-sms-provenance.test.ts",
+      "sha256": "a3ad1bf9dc2b55503ecf4119dfbc2c71afe6580fde18c3d721be723e8864f605"
+    },
+    {
+      "path": "tests/unit/tour-proposal.test.ts",
+      "sha256": "e0a6dd2b01e5afca767372d55849eab3a808a3b86c90bc5aa61db8a94161a67f"
+    },
+    {
+      "path": "tests/unit/tour-settings-redraw.test.tsx",
+      "sha256": "eeccf82d5652119f52aaf73b3a1bd63455225a12261a89372fb24e6e74c1c049"
+    },
+    {
+      "path": "tests/unit/vendor-catalog-privacy.test.ts",
+      "sha256": "9d23930b39f6b6d37760150a89475c5794a634d0fbdece5bbf39bd64f6809f90"
+    },
+    {
+      "path": "tests/unit/withdrawn-approval-ui.test.tsx",
+      "sha256": "fb34fde4a346fad34c845243be13239c5c9937d69dcd5d25a52c75e707214a91"
+    },
+    {
+      "path": "tests/unit/workspace-add-property-owner.test.ts",
+      "sha256": "e67fa05f39d8c7652fdd7ef87405a862b237d0d1b5d32679c5de3defcb72e809"
+    },
+    {
+      "path": "tests/unit/workspaces-create-route-contract.test.ts",
+      "sha256": "925640ffa03199ee233b18fbd8c10f7e9acaa2edf055079f30007f5ab88c034e"
+    },
+    {
+      "path": "tests/unit/workspaces-delete-route-contract.test.ts",
+      "sha256": "e698c7121e7a4eec961dbce6bc4c3c277bc1be8ae9bbcd876c65c38a830b5246"
+    }
+  ]
+}

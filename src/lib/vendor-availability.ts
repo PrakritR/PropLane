@@ -1,3 +1,5 @@
+import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
+
 /**
  * Vendor availability: recurring weekly windows + one-off blocked dates, and
  * the pure slot-resolution algorithm managers use to auto-schedule a visit
@@ -18,6 +20,8 @@ export const VENDOR_WORK_MEETING_ID_PREFIX = "vendor-work-";
 export const DEFAULT_VISIT_DURATION_MINUTES = 60;
 export const SLOT_STEP_MINUTES = 30;
 export const MINUTES_PER_DAY = 1440;
+
+const VENDOR_AVAILABILITY_TTL_MS = 15_000;
 
 export type VendorFlexibleTiming = "morning" | "afternoon" | "evening";
 
@@ -143,7 +147,7 @@ export const WEEKDAY_LABELS: Record<number, string> = {
   6: "Sat",
 };
 
-function pacificPartsAt(date: Date) {
+export function pacificDateTimeParts(date: Date) {
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: TIME_ZONE,
     year: "numeric",
@@ -168,14 +172,14 @@ function pacificPartsAt(date: Date) {
 }
 
 /** Pacific wall-clock (year, month 1-12, day, minuteOfDay) -> the UTC instant it corresponds to. */
-function pacificWallClockToUtc(year: number, month: number, day: number, minuteOfDay: number): Date {
+export function pacificWallClockToUtc(year: number, month: number, day: number, minuteOfDay: number): Date {
   const hour = Math.floor(minuteOfDay / 60);
   const minute = minuteOfDay % 60;
   let guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
   // Two correction passes converge reliably since the Pacific/UTC offset is a
   // stable integer number of hours except across the DST-transition instant itself.
   for (let i = 0; i < 2; i += 1) {
-    const parts = pacificPartsAt(guess);
+    const parts = pacificDateTimeParts(guess);
     const dayDiffMs = Date.UTC(year, month - 1, day) - Date.UTC(parts.year, parts.month - 1, parts.day);
     const minuteDiffMs = (minuteOfDay - (parts.hour * 60 + parts.minute)) * 60_000;
     guess = new Date(guess.getTime() + dayDiffMs + minuteDiffMs);
@@ -248,7 +252,7 @@ export function resolveNextAvailableSlot(options: {
   if (tenantPreferredIso) {
     const preferred = new Date(tenantPreferredIso);
     if (!Number.isNaN(preferred.getTime()) && !overlapsBusy(busy, preferred.toISOString(), durationMinutes)) {
-      const parts = pacificPartsAt(preferred);
+      const parts = pacificDateTimeParts(preferred);
       const minute = parts.hour * 60 + parts.minute;
       const key = dateKey(parts.year, parts.month, parts.day);
       const weekday = preferred.getUTCDay();
@@ -307,8 +311,8 @@ export function resolveNextAvailableSlot(options: {
 
   const busyByDate = new Map<string, Array<{ start: number; end: number }>>();
   for (const window of busy) {
-    const start = pacificPartsAt(new Date(window.startIso));
-    const end = pacificPartsAt(new Date(window.endIso));
+    const start = pacificDateTimeParts(new Date(window.startIso));
+    const end = pacificDateTimeParts(new Date(window.endIso));
     const key = dateKey(start.year, start.month, start.day);
     const startMinute = start.hour * 60 + start.minute;
     const sameDay = dateKey(end.year, end.month, end.day) === key;
@@ -318,7 +322,7 @@ export function resolveNextAvailableSlot(options: {
     busyByDate.set(key, list);
   }
 
-  const fromParts = pacificPartsAt(from);
+  const fromParts = pacificDateTimeParts(from);
   const fromMinuteFloor = fromParts.hour * 60 + fromParts.minute;
   const fromUtcMidnight = Date.UTC(fromParts.year, fromParts.month - 1, fromParts.day);
 
@@ -366,16 +370,73 @@ export function resolveNextAvailableSlot(options: {
   return null;
 }
 
-export async function fetchVendorAvailability(vendorId?: string): Promise<VendorAvailabilityRule[]> {
+type AvailabilityRefreshEntry = {
+  rules: VendorAvailabilityRule[] | null;
+  loadedAt: number;
+  refresher: CoalescedRefresher<VendorAvailabilityRule[]>;
+};
+
+const availabilityRefreshEntries = new Map<string, AvailabilityRefreshEntry>();
+
+type VendorAvailabilityReadOptions = { force?: boolean; viewerId?: string };
+
+function vendorAvailabilityRefreshKey(vendorId?: string, viewerId?: string): string {
+  // The endpoint is authorization-scoped: never reuse a prior viewer's rules
+  // during the TTL window after sign-out/sign-in.
+  const viewer = viewerId?.trim() || "anonymous";
+  return vendorId?.trim() ? `viewer:${viewer}:vendor:${vendorId.trim()}` : `viewer:${viewer}:self`;
+}
+
+function availabilityRefreshEntry(vendorId?: string, viewerId?: string): AvailabilityRefreshEntry {
+  const key = vendorAvailabilityRefreshKey(vendorId, viewerId);
+  const existing = availabilityRefreshEntries.get(key);
+  if (existing) return existing;
   const url = vendorId ? `/api/vendor/availability?vendorId=${encodeURIComponent(vendorId)}` : "/api/vendor/availability";
-  try {
-    const res = await fetch(url, { credentials: "include" });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.rules) ? (data.rules as VendorAvailabilityRule[]) : [];
-  } catch {
-    return [];
-  }
+  const entry: AvailabilityRefreshEntry = {
+    rules: null,
+    loadedAt: 0,
+    refresher: null as unknown as CoalescedRefresher<VendorAvailabilityRule[]>,
+  };
+  entry.refresher = createCoalescedRefresher(async () => {
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      const data = res.ok ? await res.json() : null;
+      const rules = Array.isArray(data?.rules) ? (data.rules as VendorAvailabilityRule[]) : [];
+      entry.rules = rules;
+      entry.loadedAt = Date.now();
+      return rules;
+    } catch {
+      entry.rules = [];
+      entry.loadedAt = Date.now();
+      return [];
+    }
+  });
+  availabilityRefreshEntries.set(key, entry);
+  return entry;
+}
+
+export function invalidateVendorAvailability(vendorId?: string, viewerId?: string): void {
+  const entry = availabilityRefreshEntries.get(vendorAvailabilityRefreshKey(vendorId, viewerId));
+  if (!entry) return;
+  entry.rules = null;
+  entry.loadedAt = 0;
+}
+
+/**
+ * Drops every cached/in-flight availability entry. Production code never
+ * needs this — the TTL and `invalidateVendorAvailability` already cover real
+ * usage — but tests that render the availability editor more than once in
+ * the same module instance need a way to stop an earlier render's cache
+ * from swallowing a later render's fetch.
+ */
+export function resetVendorAvailabilityCacheForTests(): void {
+  availabilityRefreshEntries.clear();
+}
+
+export async function fetchVendorAvailability(vendorId?: string, opts: VendorAvailabilityReadOptions = {}): Promise<VendorAvailabilityRule[]> {
+  const entry = availabilityRefreshEntry(vendorId, opts.viewerId);
+  if (!opts.force && entry.rules && Date.now() - entry.loadedAt < VENDOR_AVAILABILITY_TTL_MS) return entry.rules;
+  return entry.refresher.run(Boolean(opts.force));
 }
 
 async function postAvailability(body: Record<string, unknown>): Promise<{ ok: boolean; rule?: VendorAvailabilityRule; error?: string }> {
@@ -388,6 +449,7 @@ async function postAvailability(body: Record<string, unknown>): Promise<{ ok: bo
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: data.error ?? "Request failed." };
+    invalidateVendorAvailability();
     return { ok: true, rule: data.rule };
   } catch {
     return { ok: false, error: "Network error." };

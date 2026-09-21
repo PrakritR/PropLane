@@ -17,6 +17,10 @@ import {
   PLANNED_EVENTS_RECORD_ID,
   projectScheduleRecordsForViewer,
 } from "@/lib/schedule-record-projection.server";
+import {
+  handleTestWorkspaceScheduleGet,
+  handleTestWorkspaceSchedulePost,
+} from "@/lib/test-workspaces/schedule-route.server";
 
 export const runtime = "nodejs";
 
@@ -399,5 +403,10 @@ const route = createJsonRecordRoute({
   },
 });
 
-export const GET = route.GET;
-export const POST = route.POST;
+export function GET() {
+  return handleTestWorkspaceScheduleGet(() => route.GET());
+}
+
+export function POST(req: Request) {
+  return handleTestWorkspaceSchedulePost(req, (request) => route.POST(request));
+}

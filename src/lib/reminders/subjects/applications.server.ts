@@ -20,6 +20,8 @@ import {
   inProgressApplicationResumeUrl,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
+import { isBookingResidencyRow } from "@/lib/manager-applications-storage";
 
 const MAX_ROWS = 500;
 /** Ignore stale drafts that have not moved in months. */
@@ -80,10 +82,16 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
 
   const candidates = rows
     .map((record) => {
+      if (hasSmsTestProvenance(record.row_data)) return null;
       const row = hydrateApplicationRow(record);
       const managerUserId = String(record.manager_user_id ?? row.managerUserId ?? "").trim();
       const anchorIso = applicationAnchorIso(record);
       if (!managerUserId || !anchorIso || !withinAge(anchorIso, now)) return null;
+      // Never a real submitted application — `shouldOfferApplicationCompletionReminder`
+      // already returns false for it (bucket "pending", not in-progress, not
+      // withdrawn), but this stays explicit rather than relying on that as an
+      // implementation detail (booking-residency-hidden-from-applications.test.ts).
+      if (isBookingResidencyRow(row)) return null;
       if (!shouldOfferApplicationCompletionReminder(row)) return null;
       const applicantEmail = (row.email?.trim() || record.resident_email?.trim() || "").toLowerCase();
       if (!applicantEmail.includes("@")) return null;
@@ -243,6 +251,7 @@ export async function sweepApplicationPostTourReminders(
   const endedTours = events.filter((event) => {
     if (!event || typeof event !== "object") return false;
     const row = event as Record<string, unknown>;
+    if (hasSmsTestProvenance(row)) return false;
     if (row.kind !== "tour") return false;
     if (String(row.canceledAt ?? "").trim()) return false;
     if (!String(row.managerUserId ?? "").trim()) return false;

@@ -13,6 +13,10 @@ import { isKnownProductionWebHost, resolveShareableAppOrigin } from "@/lib/app-u
 import { sanitizeOAuthReturnPath } from "@/lib/auth/oauth-return-path";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import { TOUR_HORIZON_MAX_DAYS } from "@/lib/tour-slot-math";
+import {
+  assertTestWorkspaceProviderEffectAllowed,
+  TestWorkspaceProviderDisabledError,
+} from "@/lib/test-workspaces/effects.server";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -29,6 +33,29 @@ export class GoogleCalendarNotLinkedError extends Error {
     super(message);
     this.name = "GoogleCalendarNotLinkedError";
   }
+}
+
+/**
+ * External Google calls are never available to a durable test identity. Keep
+ * this in the provider module so callbacks, delayed recovery, polls, watches,
+ * and direct route handlers share one boundary rather than relying on SMS ALS.
+ */
+export async function assertGoogleCalendarProviderAllowed(
+  db: SupabaseClient,
+  managerUserId: string,
+  operation: string,
+): Promise<void> {
+  await assertTestWorkspaceProviderEffectAllowed({
+    userId: managerUserId,
+    kind: "calendar",
+    summary: "Google Calendar operation refused for a test workspace.",
+    metadata: { operation },
+    db,
+  });
+}
+
+export function isGoogleCalendarProviderDisabledError(error: unknown): boolean {
+  return error instanceof TestWorkspaceProviderDisabledError;
 }
 
 function clientId(): string {
@@ -205,6 +232,7 @@ export async function exchangeGoogleCalendarCode(
   code: string,
   browserOrigin: string,
 ): Promise<GoogleCalendarConnection> {
+  await assertGoogleCalendarProviderAllowed(db, managerUserId, "oauth_exchange");
   const redirectUri = googleCalendarOAuthRedirectUri(browserOrigin);
   const body = new URLSearchParams({
     code,
@@ -293,6 +321,7 @@ export async function getGoogleCalendarAccessToken(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<{ connection: GoogleCalendarConnection; accessToken: string }> {
+  await assertGoogleCalendarProviderAllowed(db, managerUserId, "access_token");
   if (!isGoogleCalendarOAuthConfigured()) {
     throw new GoogleCalendarNotLinkedError("Google Calendar is not configured.");
   }
