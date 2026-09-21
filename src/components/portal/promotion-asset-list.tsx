@@ -1,12 +1,21 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-} from "@/components/portal/portal-property-detail-section";
+/**
+ * The manager's Promotions list: one white card per promotion, the shape
+ * every other portal list has (AGENTS.md → Portal UI system: "Every list tab
+ * copies Properties"). A tile (the promotion's own image thumbnail when it
+ * has one, a kind glyph otherwise), the promotion's own title, the property
+ * as the place line, glyph facts — kind, last updated — and the ⋯ the list
+ * surface draws on a selectable row, carrying Edit / Delete.
+ *
+ * No checkboxes on the row itself and no pill: the tab (All / Text / Image)
+ * already says the bucket (`tests/unit/portal-list-rows-no-pills.test.ts`).
+ */
+
+import { Clock, FileText, Image as ImageIcon, Megaphone } from "lucide-react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import { ROW_SELECT_INPUT_CLASS } from "@/components/ui/row-select-checkbox";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PROMOTION_TEXT_FORMAT_OPTIONS } from "@/lib/promotion-text";
 import { cn } from "@/lib/utils";
 import {
   promotionAssetKindIndices,
@@ -20,14 +29,64 @@ function promotionKindLabel(kind: PromotionAsset["kind"]): string {
   return "Upload";
 }
 
-function rowTitle(asset: PromotionAsset, indexWithinKind: number): string {
+function rowTitle(asset: PromotionAsset, indexWithinKind: number, propertyLabel: string): string {
   const stored =
     asset.kind === "flyer"
       ? (asset.flyerEntry?.title ?? "")
       : asset.kind === "upload"
         ? (asset.uploadEntry?.title ?? "")
         : (asset.textEntry?.title ?? "");
-  return stored.trim() || promotionAssetListTitle(asset, indexWithinKind);
+  const trimmed = stored.trim();
+  if (trimmed) return trimmed;
+  const fallback = promotionAssetListTitle(asset, indexWithinKind);
+  // A genuinely untitled row reads "<Kind> · <house>" rather than a bare
+  // sequence number — the house is what tells two untitled promotions apart.
+  return propertyLabel ? `${fallback} · ${propertyLabel}` : fallback;
+}
+
+/** The specific text format ("Listing blurb", "Instagram caption", …) reads better than the generic "Text". */
+function promotionRowKindFact(asset: PromotionAsset): string {
+  if (asset.kind === "text" && asset.textEntry) {
+    return (
+      PROMOTION_TEXT_FORMAT_OPTIONS.find((option) => option.id === asset.textEntry!.copy.format)?.label ??
+      "Text"
+    );
+  }
+  return promotionKindLabel(asset.kind);
+}
+
+function promotionRowUpdatedAt(asset: PromotionAsset): string {
+  const iso =
+    asset.flyerEntry?.updatedAt ?? asset.textEntry?.updatedAt ?? asset.uploadEntry?.updatedAt ?? asset.row.updatedAt;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** A real photo only — never a fabricated stand-in. */
+function promotionRowThumbnail(asset: PromotionAsset): string | null {
+  if (asset.kind === "upload" && asset.uploadEntry && asset.uploadEntry.kind !== "pdf") {
+    return asset.uploadEntry.fileUrl;
+  }
+  if (asset.kind === "flyer" && asset.flyerEntry?.inputs.images?.[0]) {
+    return asset.flyerEntry.inputs.images[0]!;
+  }
+  return null;
+}
+
+function PromotionRowTile({ asset }: { asset: PromotionAsset }) {
+  const tileClass = "h-[4.125rem] w-[5.5rem] rounded-[10px] max-md:h-[3.125rem] max-md:w-16";
+  const thumbnail = promotionRowThumbnail(asset);
+  if (thumbnail) {
+    // eslint-disable-next-line @next/next/no-img-element -- a data: URL thumbnail; next/image cannot optimize it.
+    return <img src={thumbnail} alt="" aria-hidden className={cn(tileClass, "object-cover")} />;
+  }
+  const Icon = asset.kind === "text" ? FileText : asset.kind === "upload" ? ImageIcon : Megaphone;
+  return (
+    <div aria-hidden className={cn(tileClass, "grid place-items-center bg-accent/60 text-muted/80")}>
+      <Icon className="size-[22px]" strokeWidth={1.5} />
+    </div>
+  );
 }
 
 function promotionAssetCanEdit(asset: PromotionAsset, onEdit?: (asset: PromotionAsset) => void): boolean {
@@ -37,19 +96,23 @@ function promotionAssetCanEdit(asset: PromotionAsset, onEdit?: (asset: Promotion
 export function PromotionAssetStack({
   assets,
   onView,
-  onEdit,
   emptyMessage = "No promotions yet.",
   showPropertyLabel = true,
-  variant = "plain",
   selectedIds,
   onToggleSelected,
 }: {
   assets: PromotionAsset[];
   onView?: (asset: PromotionAsset) => void;
+  /**
+   * @deprecated Edit now reaches a row only through the shared ⋯ (the list's
+   * own selection context), never a button this component draws itself.
+   * Kept so existing callers still compile.
+   */
   onEdit?: (asset: PromotionAsset) => void;
   emptyMessage?: string;
-  /** When false (property Promotion tab), the property name is omitted from the subtitle. */
+  /** When false (property Promotion tab), the property name is omitted from the place line. */
   showPropertyLabel?: boolean;
+  /** @deprecated Every list is a card list now; kept so existing callers still compile. */
   variant?: "card" | "plain";
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
@@ -60,78 +123,44 @@ export function PromotionAssetStack({
   }
 
   const kindIndices = promotionAssetKindIndices(assets);
-  const selectionMode = Boolean(selectedIds && onToggleSelected);
+  const selectable = Boolean(onToggleSelected);
 
-  const rows = assets.map((asset) => {
+  return (
+    <div data-attr="promotion-list-rows">
+      {assets.map((asset) => {
         const indexWithinKind = kindIndices.get(asset.id) ?? 0;
-        const title = rowTitle(asset, indexWithinKind);
-        const canEdit = promotionAssetCanEdit(asset, onEdit);
-        const subtitleParts = [
-          showPropertyLabel ? asset.propertyLabel : null,
-          promotionKindLabel(asset.kind),
-          asset.subtitle,
-        ].filter(Boolean);
-
-        if (selectionMode) {
-          return (
-            <div key={asset.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  className={cn(ROW_SELECT_INPUT_CLASS, "mt-0.5 shrink-0")}
-                  checked={selectedIds!.has(asset.id)}
-                  data-attr={`promotion-select-${asset.id}`}
-                  onChange={() => onToggleSelected!(asset.id)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">{title}</p>
-                  <p className="mt-0.5 text-xs text-muted">{subtitleParts.join(" · ")}</p>
-                </div>
-              </label>
-            </div>
-          );
-        }
-
+        const propertyLabel = showPropertyLabel ? asset.propertyLabel : "";
+        const title = rowTitle(asset, indexWithinKind, propertyLabel);
+        const updated = promotionRowUpdatedAt(asset);
         return (
-          <div key={asset.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-            <div className="min-w-0 flex-1">
-              {onView && asset.kind === "upload" ? (
-                <button
-                  type="button"
-                  className="min-w-0 text-left text-sm font-semibold text-foreground hover:underline"
-                  data-attr="promotion-row"
-                  onClick={() => onView(asset)}
-                >
-                  {title}
-                </button>
-              ) : (
-                <p className="text-sm font-semibold text-foreground">{title}</p>
-              )}
-              <p className="mt-0.5 text-xs text-muted">{subtitleParts.join(" · ")}</p>
-            </div>
-            {canEdit ? (
-              <div className="flex shrink-0 flex-nowrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                  data-attr={`promotion-row-edit-${asset.id}`}
-                  onClick={() => onEdit?.(asset)}
-                >
-                  Edit
-                </Button>
-              </div>
-            ) : null}
-          </div>
+          <PortalPropertyRecordRow
+            key={asset.id}
+            title={title}
+            address={propertyLabel || promotionRowKindFact(asset)}
+            leading={<PromotionRowTile asset={asset} />}
+            leadingShape="square"
+            facts={
+              <>
+                <PortalRowFact icon={Megaphone} srLabel="Kind">
+                  {promotionRowKindFact(asset)}
+                </PortalRowFact>
+                {updated ? (
+                  <PortalRowFact icon={Clock} srLabel="Updated">
+                    Updated {updated}
+                  </PortalRowFact>
+                ) : null}
+              </>
+            }
+            checked={selectable ? selectedIds?.has(asset.id) : undefined}
+            onSelectedChange={selectable ? () => onToggleSelected!(asset.id) : undefined}
+            onOpen={onView ? () => onView(asset) : undefined}
+            omitActionView
+            dataAttr={`promotion-row-${asset.id}`}
+          />
         );
-      });
-
-  if (variant === "plain") {
-    return <>{rows}</>;
-  }
-
-  return <div className="divide-y divide-border/50 overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm">{rows}</div>;
+      })}
+    </div>
+  );
 }
 
 export { promotionAssetCanEdit };
