@@ -131,9 +131,10 @@ describe("SettingsScopeBar", () => {
 
   it("properties menu has no Select all or Clear", () => {
     render(<Harness />);
-    openMenu("Properties");
-    expect(screen.queryByText("Select all")).toBeNull();
-    expect(screen.queryByText("Clear")).toBeNull();
+    const listbox = openMenu("Properties");
+    expect(within(listbox).queryByText("Select all")).toBeNull();
+    expect(within(listbox).queryByText("Clear")).toBeNull();
+    expect(within(listbox).getByText("Ballard House")).toBeTruthy();
   });
 
   it("lists houses from the workspace payload when the local store is empty", () => {
