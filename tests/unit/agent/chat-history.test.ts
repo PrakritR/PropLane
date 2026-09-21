@@ -11,7 +11,7 @@ import { appendAgentMessages, ensureAgentSession } from "@/lib/agent/sessions";
 
 type Row = Record<string, unknown> & { id: string };
 type TableName = "agent_sessions" | "agent_messages" | "agent_pending_actions";
-type Filter = { op: "eq" | "gt" | "lt" | "in" | "ilike"; column: string; value: unknown };
+type Filter = { op: "eq" | "gt" | "lt" | "in" | "ilike" | "workspace_or_null"; column: string; value: unknown };
 
 const USER_A = "00000000-0000-4000-8000-000000000001";
 const USER_B = "00000000-0000-4000-8000-000000000002";
@@ -34,6 +34,7 @@ function makeDb(
     filters.every(({ op, column, value }) => {
       if (op === "eq") return row[column] === value;
       if (op === "in") return Array.isArray(value) && value.includes(row[column]);
+      if (op === "workspace_or_null") return row[column] === value || row[column] == null;
       if (op === "ilike") {
         const needle = String(value).replace(/^%|%$/g, "").toLocaleLowerCase();
         return String(row[column] ?? "").toLocaleLowerCase().includes(needle);
@@ -120,6 +121,12 @@ function makeDb(
         filters.push({ op: "ilike", column, value });
         return chain;
       };
+      chain.or = (filter: string) => {
+        const match = /^workspace_id\.eq\.([^,]+),workspace_id\.is\.null$/.exec(filter);
+        if (!match) throw new Error(`Unsupported test OR filter: ${filter}`);
+        filters.push({ op: "workspace_or_null", column: "workspace_id", value: match[1] });
+        return chain;
+      };
       chain.order = (column: string, options: { ascending?: boolean } = {}) => {
         orderBy = { column, ascending: options.ascending !== false };
         return chain;
@@ -173,6 +180,45 @@ function portalSession(id: string, updatedAt: string, overrides: Partial<Row> = 
 }
 
 describe("portal chat archive", () => {
+  it("cannot load or delete a retained session id from another manager workspace", async () => {
+    const workspaceA = "40000000-0000-4000-8000-000000000001";
+    const workspaceB = "40000000-0000-4000-8000-000000000002";
+    const db = makeDb({
+      agent_sessions: [
+        portalSession(SESSION_A, "2026-09-20T12:00:00.000Z", { workspace_id: workspaceA }),
+        portalSession(SESSION_B, "2026-09-20T13:00:00.000Z", { workspace_id: workspaceB }),
+      ],
+      agent_messages: [
+        { id: "ma", session_id: SESSION_A, role: "user", content: "North question", created_at: "2026-09-20T12:00:00.000Z" },
+        { id: "mb", session_id: SESSION_B, role: "user", content: "South question", created_at: "2026-09-20T13:00:00.000Z" },
+      ],
+    });
+    const actor = { userId: USER_A, db, workspace: { id: workspaceA, isDefault: false } };
+
+    await expect(loadAgentChatTranscript(actor, "manager", SESSION_B)).resolves.toBeNull();
+    await expect(deleteAgentChatThread(actor, "manager", SESSION_B)).resolves.toEqual({ ok: false });
+    expect(db.tables.agent_sessions.some((row) => row.id === SESSION_B)).toBe(true);
+    await expect(loadAgentChatTranscript(actor, "manager", SESSION_A)).resolves.toMatchObject({ id: SESSION_A });
+  });
+
+  it("lets the default workspace load legacy null-workspace sessions but not another workspace", async () => {
+    const defaultWorkspace = "40000000-0000-4000-8000-000000000001";
+    const otherWorkspace = "40000000-0000-4000-8000-000000000002";
+    const legacy = portalSession(SESSION_A, "2026-09-20T12:00:00.000Z", { workspace_id: null });
+    const foreign = portalSession(SESSION_B, "2026-09-20T13:00:00.000Z", { workspace_id: otherWorkspace });
+    const db = makeDb({
+      agent_sessions: [legacy, foreign],
+      agent_messages: [
+        { id: "ma", session_id: SESSION_A, role: "user", content: "Legacy question", created_at: "2026-09-20T12:00:00.000Z" },
+        { id: "mb", session_id: SESSION_B, role: "user", content: "Other question", created_at: "2026-09-20T13:00:00.000Z" },
+      ],
+    });
+    const actor = { userId: USER_A, db, workspace: { id: defaultWorkspace, isDefault: true } };
+
+    await expect(loadAgentChatTranscript(actor, "manager", SESSION_A)).resolves.toMatchObject({ id: SESSION_A });
+    await expect(loadAgentChatTranscript(actor, "manager", SESSION_B)).resolves.toBeNull();
+  });
+
   it("scopes an SMS-test archive by kind, manager, mode, and workspace and never restores a confirmation card", async () => {
     const smsSession = portalSession(SESSION_A, "2026-08-04T12:00:00.000Z", {
       kind: "resident_sms_test:manager-a:listing-a",

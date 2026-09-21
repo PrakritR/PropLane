@@ -333,7 +333,12 @@ export function buildManagerSmsRegistry(
       (tool) => !(tool.kind === "write" && tool.destructive) && !MANAGER_PORTAL_ONLY_TOOLS.includes(tool.name),
     ),
   );
-  if (access?.mode !== "delegated") return managerSmsRegistry;
+  if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return managerSmsRegistry;
+  if (access?.mode !== "delegated") {
+    return buildRegistry(
+      [...managerSmsRegistry.values()].filter((tool) => !delegatedSmsWithholdsTool(tool.name)),
+    );
+  }
   return buildRegistry(
     [...managerSmsRegistry.values()].filter((tool) => CO_MANAGER_SCOPED_TOOLS.has(tool.name) && !delegatedSmsWithholdsTool(tool.name)),
   );

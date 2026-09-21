@@ -171,7 +171,7 @@ export async function runSmsTestTurn(args: {
         },
       },
     ));
-    if (!captured.result) throw new Error("The manager SMS test turn did not produce a reply.");
+    if (!captured.result?.reply) throw new Error("The manager SMS test turn did not produce a reply.");
     return turnResult(args.context, captured.result, captured.effects);
   }
 

@@ -36,6 +36,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
 import { MANAGER_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { managerSmsScopePrompt } from "@/lib/sms/manager-sms-access";
+import { withManagerWorkspacePrompt } from "@/lib/agent/manager-workspace-scope";
 import {
   resolveManagerWorkOrderReference,
   workOrderReferencePromptContext,
@@ -50,11 +51,16 @@ import {
 
 type Db = SupabaseClient;
 
-export type ManagerSmsTurn = SmsAgentTurn;
+export type ManagerSmsTurn = SmsAgentTurn | {
+  reply: null;
+  sessionId: string;
+  inboundMessageId: string;
+};
 
 const MANAGER_SMS_SURFACE: SmsAgentSurface = {
   sessionKind: "manager_sms",
   portal: "manager",
+  sharePortalChatSession: true,
   basePrompt: MANAGER_SMS_AGENT_SYSTEM_PROMPT,
   promptId: PROMPT_IDS.managerSmsAgent,
   traceName: "manager-sms-agent-turn",
@@ -98,18 +104,23 @@ export async function runManagerSmsAgentTurn(
     managerPhoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
+    onInboundPersisted?: () => Promise<boolean>;
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null };
   },
 ): Promise<ManagerSmsTurn | null> {
   const access = args.ctx.managerSmsAccess;
   const scopeNote = access ? managerSmsScopePrompt(access) : "";
-  const surface: SmsAgentSurface = scopeNote
-    ? { ...MANAGER_SMS_SURFACE, basePrompt: `${MANAGER_SMS_AGENT_SYSTEM_PROMPT}\n\n${scopeNote}` }
-    : MANAGER_SMS_SURFACE;
+  const scopedPrompt = withManagerWorkspacePrompt(
+    scopeNote ? `${MANAGER_SMS_AGENT_SYSTEM_PROMPT}\n\n${scopeNote}` : MANAGER_SMS_AGENT_SYSTEM_PROMPT,
+    args.ctx.workspace,
+  );
+  const surface: SmsAgentSurface = scopedPrompt === MANAGER_SMS_AGENT_SYSTEM_PROMPT
+    ? MANAGER_SMS_SURFACE
+    : { ...MANAGER_SMS_SURFACE, basePrompt: scopedPrompt };
   const referenceResolution = resolveWorkOrderReference(args.inboundText).length
     ? await resolveManagerWorkOrderReference(args.ctx, args.inboundText)
     : null;
-  return runSmsAgentTurn<AgentContext>(db, {
+  const turn = await runSmsAgentTurn<AgentContext>(db, {
     ctx: args.ctx,
     surface,
     registry: buildManagerSmsRegistry(access),
@@ -117,6 +128,8 @@ export async function runManagerSmsAgentTurn(
     phoneE164: args.managerPhoneE164,
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
+    onInboundPersisted: args.onInboundPersisted,
+    workspaceId: args.ctx.workspace?.id ?? null,
     testActor: args.testActor ? { ...args.testActor, mode: "manager" } : undefined,
     precomputedReply:
       referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
@@ -139,15 +152,29 @@ export async function runManagerSmsAgentTurn(
           : undefined,
     },
   });
+  if (turn || !args.inboundMessageSid?.trim()) return turn;
+  const { data: persistedInbound } = await db
+    .from("agent_messages")
+    .select("id, session_id")
+    .eq("source_message_sid", args.inboundMessageSid.trim())
+    .eq("role", "user")
+    .maybeSingle();
+  return persistedInbound?.id && persistedInbound.session_id
+    ? {
+        reply: null,
+        sessionId: String(persistedInbound.session_id),
+        inboundMessageId: String(persistedInbound.id),
+      }
+    : null;
 }
 
 /**
  * Send the manager agent's reply back to the manager's own cell, from their
  * work number.
  *
- * The conversation key uses role `manager` with the manager as their own
- * counterparty, so this assistant thread is structurally distinct from every
- * resident/prospect thread on the same number and can never merge with one.
+ * The reply is deliberately not logged into Communication. Both sides of this
+ * assistant turn already live in the shared portal-chat transcript; logging a
+ * transport copy would recreate the duplicate manager-to-self SMS thread.
  */
 export async function deliverManagerSmsReply(args: {
   managerUserId: string;
@@ -180,5 +207,6 @@ export async function deliverManagerSmsReply(args: {
     purpose: "manager_conversation",
     actorUserId,
     traceId: args.traceId,
+    skipLog: true,
   });
 }

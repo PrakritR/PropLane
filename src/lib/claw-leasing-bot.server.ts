@@ -782,15 +782,21 @@ export async function handleClawLeasingInbound(args: {
     // On the shared line `scopedManagerId` is null, so the manager is resolved
     // from their verified personal phone; an ambiguous or unverified match
     // resolves to nobody and we stay silent rather than answer as a stranger.
+    // The shared Claw line is retired and has no workspace identity. Do not
+    // create an unscoped manager assistant transcript from that legacy route.
+    if (!scopedManagerId) return { ok: true, intent: "unknown", replied: false };
     const db = dbForManager ?? createSupabaseServiceRoleClient();
     const managerUserId = managerInbound?.workNumberOwnerId
       || scopedManagerId
       || (await resolveManagerUserIdFromVerifiedPhone(from));
     if (!managerUserId) return { ok: true, intent: "unknown", replied: false };
+    const { resolveOwnedWorkNumber } = await import("@/lib/sms/resolve-owned-work-number.server");
+    const ownedWorkNumber = workNumber ? await resolveOwnedWorkNumber(db, workNumber) : null;
     const identity = await resolveManagerSmsAgentContext(db, {
       managerUserId,
       actorUserId: managerInbound?.actorUserId ?? managerUserId,
       access: managerInbound?.access,
+      workspaceId: ownedWorkNumber?.workspaceId ?? null,
     });
     if (!identity.ok) return { ok: true, intent: "unknown", replied: false };
     const turn = await runManagerSmsAgentTurn(db, {
@@ -799,7 +805,7 @@ export async function handleClawLeasingInbound(args: {
       inboundText: text,
       inboundMessageSid: messageId || null,
     });
-    if (!turn) return { ok: true, intent: "unknown", replied: false };
+    if (!turn?.reply) return { ok: true, intent: "unknown", replied: false };
     const send = await deliverManagerSmsReply({
       managerUserId,
       actorUserId: managerInbound?.actorUserId ?? managerUserId,

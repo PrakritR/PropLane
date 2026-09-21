@@ -31,6 +31,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
 import type { AgentContext } from "@/lib/tools/context";
+import { loadWorkspaceById } from "@/lib/workspaces/active.server";
 
 export type ManagerSmsIdentityFailure = "no_profile" | "not_a_manager" | "lookup_failed";
 
@@ -49,6 +50,7 @@ export async function resolveManagerSmsAgentContext(
     managerUserId: string;
     actorUserId?: string;
     access?: ManagerSmsAccess;
+    workspaceId?: string | null;
   },
 ): Promise<ManagerSmsIdentity> {
   const workNumberOwnerId = args.managerUserId.trim();
@@ -82,6 +84,48 @@ export async function resolveManagerSmsAgentContext(
 
   const access = args.access;
   const landlordId = access?.mode === "delegated" ? workNumberOwnerId : actorUserId;
+  let workspace: AgentContext["workspace"];
+  let scopedAccess = access;
+  const workspaceId = args.workspaceId?.trim();
+  if (workspaceId) {
+    const resolved = await loadWorkspaceById(db, workspaceId);
+    if (!resolved || resolved.ownerUserId !== workNumberOwnerId) {
+      return { ok: false, reason: "lookup_failed" };
+    }
+    const { data: propertyRows, error: propertyError } = await db
+      .from("manager_property_records")
+      .select("id")
+      .eq("manager_user_id", resolved.ownerUserId)
+      .eq("workspace_id", resolved.id);
+    if (propertyError) return { ok: false, reason: "lookup_failed" };
+    const workspacePropertyIds = (propertyRows ?? [])
+      .map((row) => String(row.id ?? "").trim())
+      .filter(Boolean);
+    const allowed = access?.mode === "delegated"
+      ? new Set(access.assignedPropertyIds)
+      : null;
+    workspace = {
+      id: resolved.id,
+      name: resolved.name,
+      isDefault: resolved.isDefault,
+      narrowing: true,
+      propertyIds: allowed
+        ? workspacePropertyIds.filter((id) => allowed.has(id))
+        : workspacePropertyIds,
+    };
+    const baseAccess = access ?? {
+      mode: "owner" as const,
+      workNumberOwnerId,
+      actorUserId,
+      dataOwnerIds: [actorUserId],
+      assignedPropertyIds: [],
+    };
+    scopedAccess = {
+      ...baseAccess,
+      workspacePropertyIds: [...workspace.propertyIds],
+      workspaceIsDefault: workspace.isDefault,
+    };
+  }
 
   return {
     ok: true,
@@ -92,7 +136,8 @@ export async function resolveManagerSmsAgentContext(
       roles,
       isAdmin,
       db: db as AgentContext["db"],
-      ...(access ? { managerSmsAccess: access } : {}),
+      ...(scopedAccess ? { managerSmsAccess: scopedAccess } : {}),
+      ...(workspace ? { workspace } : {}),
     },
   };
 }
