@@ -471,8 +471,9 @@ export async function renderPortalSection(
     return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
   }
 
-  // Account entry remains reachable from the top-right profile control, but it
-  // is intentionally absent from resident and vendor sidebars/registries.
+  // Settings (account entry) sits as its own trailing sidebar group for
+  // resident and vendor too, same as pro/manager — see `nav-groups.ts`'s
+  // "settings" group. The top-right account menu keeps its own duplicate link.
   if (kind === "resident" && section === "profile") {
     if (tabParts?.length) notFound();
     return <ResidentProfileSection />;

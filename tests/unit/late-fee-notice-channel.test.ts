@@ -92,9 +92,24 @@ function makeDb() {
         },
         or: () => builder,
         limit: async () => resultFor(),
-        maybeSingle: async () => ({
-          data: table === "profiles" ? { full_name: "Dana Doe", email: "dana@example.com", sms_from_number: "+15550100" } : null,
-        }),
+        // The per-property settings resolver (`resolveSettingsScope`) reads
+        // `manager_property_records` by id/owner before falling back to the
+        // account row — it must find the row (with no stored override) rather
+        // than a missing row, or it throws `ForeignPropertyError` and the
+        // route silently falls back to built-in defaults instead of the
+        // mocked account settings.
+        maybeSingle: async () => {
+          if (table === "profiles") {
+            return {
+              data: { full_name: "Dana Doe", email: "dana@example.com", sms_from_number: "+15550100" },
+              error: null,
+            };
+          }
+          if (table === "manager_property_records") {
+            return { data: { id: "prop-1", row_data: {} }, error: null };
+          }
+          return { data: null, error: null };
+        },
         upsert: async () => ({ data: null, error: null }),
         then: (resolve: (v: unknown) => unknown) => Promise.resolve(resultFor()).then(resolve),
       };

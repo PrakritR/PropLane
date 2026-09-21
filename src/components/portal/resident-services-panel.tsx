@@ -1377,7 +1377,6 @@ export function ResidentServicesPanel({
             </ModalFooter>
           }
         >
-          <p className="text-xs text-muted">Update your maintenance request. Your property manager sees these changes.</p>
           <div className="mt-4 grid gap-3">
             <div>
               <p className="mb-1 text-[11px] font-medium text-muted">Title</p>
@@ -1488,7 +1487,6 @@ export function ResidentServicesPanel({
               </ModalFooter>
             }
           >
-            <p className="text-xs text-muted">Update your maintenance request. Your property manager sees these changes.</p>
             <div className="mt-4 grid gap-3">
               <div>
                 <p className="mb-1 text-[11px] font-medium text-muted">Title</p>

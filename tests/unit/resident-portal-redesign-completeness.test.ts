@@ -26,6 +26,9 @@ describe("resident portal redesign completeness", () => {
         "applications",
         "dashboard",
         "communication",
+        // Settings is pinned last and never stage-locked — see
+        // `STAGE_UNLOCKED_SECTIONS` in `resident-portal-nav.ts`.
+        "profile",
       ]);
     });
 
