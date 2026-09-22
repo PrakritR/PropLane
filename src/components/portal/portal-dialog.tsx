@@ -19,8 +19,10 @@ import { cn } from "@/lib/utils";
  * The footer is exactly one text secondary (left, defaults to "Cancel") and
  * one filled primary (right) whose label names the outcome ("Record $1,200",
  * never "Save"). `tone="danger"` fills the primary red for a destructive
- * confirm. The in-modal "Ask PropLane" assistant strip is chrome for an
- * editing workspace, not a pop-up — every `PortalDialog` renders without it.
+ * confirm. Pass `primaryAction={null}` to omit the footer on a browse-only
+ * dialog (dismiss via the header ×). The in-modal "Ask PropLane" assistant
+ * strip is chrome for an editing workspace, not a pop-up — every
+ * `PortalDialog` renders without it.
  */
 
 export type PortalDialogAction = {
@@ -126,6 +128,8 @@ export function PortalDialog({
    * genuinely no way back (rare) — never to make room for a second filled button.
    */
   secondaryAction,
+  /** Header chrome before the × — Message, prev/next, Add. Never a second footer button. */
+  headerAction,
   children,
   dataAttr,
   /** Outside click / Escape / the header ✕ are ignored — a nested confirm is open on top. */
@@ -139,8 +143,10 @@ export function PortalDialog({
   step?: PortalDialogStep;
   size?: "default" | "wizard";
   tone?: "default" | "danger";
-  primaryAction: PortalDialogAction;
+  /** Omit with `null` on a browse-only dialog — no footer, dismiss via ×. */
+  primaryAction?: PortalDialogAction | null;
   secondaryAction?: PortalDialogAction | null;
+  headerAction?: ReactNode;
   children: ReactNode;
   dataAttr?: string;
   dismissBlocked?: boolean;
@@ -161,6 +167,7 @@ export function PortalDialog({
       assistantStrip={false}
       fullScreenMobile={isWizard}
       panelClassName={isWizard ? "max-w-[720px]" : "max-w-[560px]"}
+      status={headerAction}
       title={
         onBack ? (
           <span className="flex min-w-0 items-center gap-1.5">
@@ -180,7 +187,11 @@ export function PortalDialog({
         )
       }
       description={step ? <StepDots current={step.current} total={step.total} /> : undefined}
-      footer={<PortalDialogFooter tone={tone} primaryAction={primaryAction} secondaryAction={resolvedSecondary} />}
+      footer={
+        primaryAction ? (
+          <PortalDialogFooter tone={tone} primaryAction={primaryAction} secondaryAction={resolvedSecondary} />
+        ) : undefined
+      }
     >
       <div className={className}>{children}</div>
     </Modal>

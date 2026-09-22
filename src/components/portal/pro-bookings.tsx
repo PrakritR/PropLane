@@ -82,6 +82,8 @@ type BookingsWorkspaceProps = {
   propertyTick: number;
   refreshSignal: number;
   onRefreshSignal?: () => void;
+  /** Highlights the month cell while the day popup is open. */
+  selectedDayKey?: string;
 };
 
 /**
@@ -106,6 +108,7 @@ function useBookingsWorkspace({
   propertyTick,
   refreshSignal,
   onRefreshSignal,
+  selectedDayKey,
 }: BookingsWorkspaceProps) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
@@ -332,7 +335,7 @@ function useBookingsWorkspace({
   ]);
 
   /**
-   * The day page always lives at `/portal/bookings/<date>` regardless of
+   * The day popup always lives at `/portal/bookings/<date>` regardless of
    * whether this workspace is the portfolio page or a house's embedded
    * Bookings tab — there is no property-scoped day route.
    */
@@ -456,6 +459,7 @@ function useBookingsWorkspace({
         variant="standalone"
         calendarOnly
         onDayClick={goToDayPage}
+        selectedDayKey={selectedDayKey}
         searchQuery={listSearch}
       />
     ) : (
@@ -603,7 +607,7 @@ export function ManagerBookings({
   /** Present for the booking record page (`/bookings/<id>/<tab>`) — routes here instead of a bucket. */
   bookingId?: string;
   bookingTab?: string;
-  /** Present for the day page (`/bookings/<yyyy-mm-dd>`) — routes here instead of a bucket. */
+  /** Present for the day popup (`/bookings/<yyyy-mm-dd>`) — overlays the calendar tab. */
   dayKey?: string;
 }) {
   const { userId, ready: authReady } = useManagerUserId();
@@ -641,32 +645,18 @@ export function ManagerBookings({
     return propertyOptions.map((option) => option.id);
   }, [workspacePropertyIds, propertyOptions]);
 
+  const navigate = usePortalNavigate();
   const workspace = useBookingsWorkspace({
-    bucket,
+    bucket: dayKey ? "calendar" : bucket,
     basePath,
     propertyIds,
     propertyOptions,
     propertyTick,
     refreshSignal,
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
+    selectedDayKey: dayKey,
   });
   const { controlStack, content, modals, rawEntries, entriesLoading, residentOptions, saveBlock, removeBlock } = workspace;
-
-  if (dayKey) {
-    return (
-      <BookingsDayPage
-        dayKey={dayKey}
-        basePath={basePath}
-        entries={rawEntries}
-        loading={entriesLoading}
-        propertyOptions={propertyOptions}
-        residentOptions={residentOptions}
-        onSaveBlock={saveBlock}
-        onRemoveBlock={removeBlock}
-        showToast={showToast}
-      />
-    );
-  }
 
   if (bookingId) {
     return (
@@ -704,6 +694,20 @@ export function ManagerBookings({
       {controlStack}
       {modals}
       <PortalPageScrollBody>{content}</PortalPageScrollBody>
+      {dayKey ? (
+        <BookingsDayPage
+          dayKey={dayKey}
+          basePath={basePath}
+          entries={rawEntries}
+          loading={entriesLoading}
+          propertyOptions={propertyOptions}
+          residentOptions={residentOptions}
+          onSaveBlock={saveBlock}
+          onRemoveBlock={removeBlock}
+          showToast={showToast}
+          onClose={() => navigate(managerBookingListHref(basePath, "calendar"))}
+        />
+      ) : null}
     </ManagerPortalPageShell>
   );
 }
