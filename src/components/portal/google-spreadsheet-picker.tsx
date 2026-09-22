@@ -12,21 +12,36 @@ type PickerToken = {
   clientId: string | null;
 };
 
+type GooglePickerApi = {
+  PickerBuilder: new () => {
+    addView: (view: unknown) => GooglePickerBuilder;
+    setOAuthToken: (token: string) => GooglePickerBuilder;
+    setDeveloperKey: (key: string) => GooglePickerBuilder;
+    setCallback: (cb: (data: PickerCallbackData) => void) => GooglePickerBuilder;
+    build: () => { setVisible: (visible: boolean) => void };
+  };
+  ViewId: { SPREADSHEETS: unknown };
+  Action: { PICKED: string; CANCEL: string };
+};
+
+type GooglePickerBuilder = {
+  addView: (view: unknown) => GooglePickerBuilder;
+  setOAuthToken: (token: string) => GooglePickerBuilder;
+  setDeveloperKey: (key: string) => GooglePickerBuilder;
+  setCallback: (cb: (data: PickerCallbackData) => void) => GooglePickerBuilder;
+  build: () => { setVisible: (visible: boolean) => void };
+};
+
+type PickerCallbackData = {
+  action: string;
+  docs?: Array<{ id?: string; name?: string }>;
+};
+
 declare global {
   interface Window {
     gapi?: { load: (name: string, cb: () => void) => void };
     google?: {
-      picker: {
-        PickerBuilder: new () => {
-          addView: (view: unknown) => unknown;
-          setOAuthToken: (token: string) => unknown;
-          setDeveloperKey: (key: string) => unknown;
-          setCallback: (cb: (data: { action: string; docs?: Array<{ id?: string; name?: string }> }) => void) => unknown;
-          build: () => { setVisible: (visible: boolean) => void };
-        };
-        ViewId: { SPREADSHEETS: unknown };
-        Action: { PICKED: string; CANCEL: string };
-      };
+      picker: GooglePickerApi;
     };
   }
 }
@@ -64,7 +79,7 @@ async function openOfficialPicker(token: PickerToken): Promise<PickedSheet | nul
       .addView(pickerApi.ViewId.SPREADSHEETS)
       .setOAuthToken(token.accessToken)
       .setDeveloperKey(token.apiKey!)
-      .setCallback((data) => {
+      .setCallback((data: PickerCallbackData) => {
         if (data.action === pickerApi.Action.CANCEL) {
           resolve(null);
           return;
@@ -75,7 +90,7 @@ async function openOfficialPicker(token: PickerToken): Promise<PickedSheet | nul
           resolve(id ? { id, name: doc?.name?.trim() || "Spreadsheet" } : null);
         }
       });
-    const picker = (builder as { build: () => { setVisible: (visible: boolean) => void } }).build();
+    const picker = builder.build();
     picker.setVisible(true);
   });
 }
@@ -160,7 +175,7 @@ export function GoogleSpreadsheetPicker({
       open={open}
       onClose={onClose}
       title="Select a spreadsheet"
-      primary={{
+      primaryAction={{
         label: "Select",
         disabled: !selected || loading,
         onClick: () => {
