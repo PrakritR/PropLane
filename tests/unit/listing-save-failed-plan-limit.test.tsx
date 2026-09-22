@@ -193,15 +193,48 @@ describe("ListingSaveFailedDialog — plan_limit (workspace record cap)", () => 
 
 describe("ListingSaveFailedDialog — leaving the editor for the plan page", () => {
   it("opens a second tab on the website, leaving the editor mounted and asking nothing", () => {
-    const open = vi.fn(() => ({}) as Window);
+    const opened = { opener: window } as unknown as Window;
+    const open = vi.fn(() => opened);
     vi.stubGlobal("open", open);
     renderPlanLimit();
 
     fireEvent.click(upgradeLink());
 
-    expect(open).toHaveBeenCalledWith(MANAGER_PLAN_PORTAL_URL, "_blank", "noopener,noreferrer");
+    // Never `noopener` in the features string: every browser returns null when
+    // it is set, which this helper could not tell from a blocked pop-up. The
+    // opener is severed on the window it got back instead.
+    expect(open).toHaveBeenCalledWith(MANAGER_PLAN_PORTAL_URL, "_blank");
+    expect((opened as { opener: unknown }).opener).toBeNull();
     expect(leaveConfirm()).toBeNull();
     expect(screen.getByText("Workspace is full")).toBeInTheDocument();
+  });
+
+  it("still counts the tab as opened when the new window refuses the opener write", () => {
+    const opened = {} as Window;
+    Object.defineProperty(opened, "opener", {
+      get: () => window,
+      set: () => {
+        throw new Error("cross-origin");
+      },
+    });
+    vi.stubGlobal("open", vi.fn(() => opened));
+    renderPlanLimit();
+
+    fireEvent.click(upgradeLink());
+
+    expect(leaveConfirm()).toBeNull();
+    expect(screen.getByText("Workspace is full")).toBeInTheDocument();
+  });
+
+  it("confirms when window.open itself throws", () => {
+    vi.stubGlobal("open", vi.fn(() => {
+      throw new Error("blocked");
+    }));
+    renderPlanLimit();
+
+    fireEvent.click(upgradeLink());
+
+    expect(screen.getByText("Leave without saving?")).toBeInTheDocument();
   });
 
   it("in the native shell it never opens a tab — it confirms first, and Stay keeps the editor", () => {

@@ -2764,7 +2764,7 @@ export function ManagerAddListingForm({
       showToast("Maximum 20 rooms.");
       return;
     }
-    const copy = duplicateRoomEntry(sub.rooms[i]!, { siblingNames: sub.rooms.map((r) => r.name) });
+    const copy = duplicateRoomEntry(sub.rooms[i]!);
     expandListingItem(listingItemKey("room", copy.id));
     setSub((s) => ({
       ...s,
@@ -2778,7 +2778,7 @@ export function ManagerAddListingForm({
       showToast("Maximum 12 bathrooms.");
       return;
     }
-    const copy = duplicateBathroomEntry(sub.bathrooms[i]!, { siblingNames: sub.bathrooms.map((b) => b.name) });
+    const copy = duplicateBathroomEntry(sub.bathrooms[i]!);
     expandListingItem(listingItemKey("bathroom", copy.id));
     setSub((s) => ({
       ...s,

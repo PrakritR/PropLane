@@ -153,6 +153,21 @@ export function bathroomDescriptionMatches(a: ManagerBathroomSubmission, b: Mana
   return BATHROOM_INHERIT_FIELDS.every((field) => defaultValuesMatch(bathroomFieldValue(a, field), bathroomFieldValue(b, field)));
 }
 
+/**
+ * Nothing on this bathroom has been described yet. `type` is read out of the
+ * fixtures and so is never unset — every card has one from the moment it is
+ * minted — which is why blankness is judged on the fields a manager fills.
+ *
+ * A listing mints its bathrooms identical, so two untouched cards match each
+ * other by value without anything ever having been copied, and
+ * "Same as Bathroom X" must stay silent until one of them says something.
+ */
+export function bathroomDescriptionIsBlank(bath: ManagerBathroomSubmission): boolean {
+  return BATHROOM_INHERIT_FIELDS.every(
+    (field) => field === "type" || defaultValueIsUnset(bathroomFieldValue(bath, field)),
+  );
+}
+
 /* ── shared spaces ── */
 
 export function sharedSpaceFieldValue(space: ManagerSharedSpaceSubmission, field: keyof SharedSpaceDefaults): DefaultValue {

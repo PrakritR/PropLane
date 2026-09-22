@@ -189,9 +189,13 @@ export function useListingPersistence({
       setBusy(true);
       try {
         let serverError = "";
+        let serverCode: string | undefined;
+        let serverLimitInfo: PropertyRecordLimitInfo | undefined;
         const opts = {
-          onError: (message: string) => {
+          onError: (message: string, code?: string, _status?: number, limitInfo?: PropertyRecordLimitInfo) => {
             serverError = message;
+            serverCode = code;
+            serverLimitInfo = limitInfo;
           },
         };
         const draftId = draftIdRef.current;
@@ -199,12 +203,19 @@ export function useListingPersistence({
           ? await publishManagerPropertyDraftToServer(draftId, submission, userId, opts)
           : await submitManagerPendingPropertyToServer(submission, userId, opts);
         if (!id) {
+          // Publish hits the SAME per-workspace record cap the draft save does
+          // (a brand-new listing published without ever being saved inserts the
+          // first row here). It is never a "Try again" failure, so it carries
+          // the same kind the save path uses and reaches the upgrade prompt.
+          const isWorkspaceFull = serverCode === WORKSPACE_PROPERTY_LIMIT_ERROR_CODE;
           const message = serverError || "Could not publish this listing.";
-          trackPublishRefused("server", message, Boolean(draftIdRef.current));
+          trackPublishRefused(isWorkspaceFull ? "plan_limit" : "server", message, Boolean(draftIdRef.current));
           return {
             ok: false,
             message,
             reason: serverError || "Check your connection and try again.",
+            kind: isWorkspaceFull ? "plan_limit" : undefined,
+            limitInfo: isWorkspaceFull ? serverLimitInfo : undefined,
           };
         }
         draftIdRef.current = null;

@@ -285,6 +285,19 @@ function mirrorPropertyRecord(input: {
  */
 export type PropertyRecordLimitInfo = { limit?: number; current?: number; draftCount?: number };
 
+/**
+ * The server's own explanation of a refused property-record write. `code` is
+ * the route's machine tag (`property_record_limit` for the workspace's own
+ * record ceiling), which is what separates a refusal with a real way past it
+ * from an ordinary transient one — never the presence of a message.
+ */
+export type PropertyRecordWriteErrorHandler = (
+  message: string,
+  code?: string,
+  status?: number,
+  limitInfo?: PropertyRecordLimitInfo,
+) => void;
+
 export async function upsertPropertyRecordToServer(input: {
   id: string;
   managerUserId: string | null;
@@ -1031,7 +1044,7 @@ export async function publishManagerListingSubmissionToServer(
   listingId: string,
   input: ManagerPropertyDraftInput,
   managerUserId: string,
-  opts?: { onError?: (message: string) => void },
+  opts?: { onError?: PropertyRecordWriteErrorHandler },
 ): Promise<boolean> {
   if (!managerUserId.trim() || !listingId.trim()) return false;
   const legacy = deriveLegacyFields(input);
@@ -1071,7 +1084,7 @@ export async function publishManagerListingSubmissionToServer(
 export async function submitManagerPendingPropertyToServer(
   input: ManagerPropertyDraftInput,
   managerUserId: string,
-  opts?: { onError?: (message: string) => void },
+  opts?: { onError?: PropertyRecordWriteErrorHandler },
 ): Promise<string | null> {
   if (!managerUserId.trim()) return null;
   const legacy = deriveLegacyFields(input);

@@ -54,13 +54,13 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   `updateExtraListingFromSubmissionOnServer` and never fork a draft.
   Closing with X flushes remaining dirty work, then leaves. A failed draft write leaves
   the wizard OPEN with the work intact rather than closing on a lie — **but a
-  failed save is never a locked door.** The inline notice names the server's
-  own reason (`saveManagerPropertyDraftToServer` threads `onError` from
+  failed save is never a locked door.** The refusal is shown ONCE, in the
+  server's own words (`saveManagerPropertyDraftToServer` threads `onError` from
   `upsertPropertyRecordToServer`; before that every 400/403/500 read as "check
-  your connection") and offers a "Close without saving" link; a second close
-  request (✕, backdrop, Escape) retries the save once more and, if it still
-  fails, closes anyway with the manager told nothing was kept. The same
-  arm-then-close-anyway rule covers a close in EDIT mode and an expired session.
+  your connection"), and the manager chooses what happens next — that dialog and
+  its two variants, including the workspace-full one that offers an upgrade
+  instead of a dead "Try again", are documented where they live:
+  `src/components/portal/listing-wizard-v2/save-failed-dialog.tsx`.
   Server side, a `status: "draft"` write skips the application-fee promo-code
   validation in `POST /api/property-records` — a draft is unvalidated by
   contract, and that check refused whole draft saves for a half-typed code
@@ -114,5 +114,8 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   `deleteSubmissionMediaObjects` therefore takes every surviving submission
   (`survivingSubmissions`: the other side-bucket rows, the live catalog and the
   pending queue) and skips any path still referenced; deleting the leftover
-  duplicate must never strip the surviving draft's photos. Draft *count* is
-  deliberately uncapped.
+  duplicate must never strip the surviving draft's photos. Draft *count* carries
+  no cap of its own — but a draft is still a property record, so it counts
+  against the workspace's `WORKSPACE_PROPERTY_LIMIT`
+  (`src/lib/workspaces/types.ts`, enforced by the database trigger), which is
+  what the wizard's workspace-full save refusal is about.

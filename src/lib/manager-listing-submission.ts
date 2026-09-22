@@ -1538,29 +1538,22 @@ function isDefaultSlotName(name: string, prefix: string): boolean {
   return trimmed.length === 0 || new RegExp(`^${prefix} \\d+$`).test(trimmed);
 }
 
-/** Smallest "<prefix> N" not already taken by a sibling, starting after the current count. */
-function nextDefaultSlotName(prefix: string, siblingNames: readonly string[]): string {
-  const taken = new Set(siblingNames.map((n) => n.trim()).filter((n) => n.length > 0));
-  let n = siblingNames.length + 1;
-  while (taken.has(`${prefix} ${n}`)) n += 1;
-  return `${prefix} ${n}`;
-}
-
 /**
- * Name for a duplicated room/bathroom card. An untouched source (still its
- * default "<prefix> N" slot name, or blank) hands the copy the NEXT free
- * default slot name, so the copy stays untouched and the ✕ guard
- * (`isRoomSlotRemovable` / `isBathroomSlotRemovable`) still accepts it. A
- * custom-named source keeps today's "<name> (copy)".
+ * Name for a duplicated room/bathroom card.
+ *
+ * An untouched source (still its default "<prefix> N" slot name, or blank)
+ * hands the copy NO name at all, so the step labels it positionally exactly
+ * like every other untouched card. Minting an explicit "<prefix> N" instead
+ * froze a number while its blank siblings kept re-labelling around it, and any
+ * later add or remove put two identically labelled cards side by side — in the
+ * card list and in the "Same as" options. A nameless copy cannot collide, and
+ * the ✕ guard (`isRoomSlotRemovable` / `isBathroomSlotRemovable`) already
+ * reads a blank name as untouched. A custom-named source keeps
+ * "<name> (copy)".
  */
-function duplicateSlotName(
-  name: string,
-  prefix: string,
-  keepName: boolean,
-  siblingNames: readonly string[],
-): string {
+function duplicateSlotName(name: string, prefix: string, keepName: boolean): string {
   if (keepName) return name;
-  if (isDefaultSlotName(name, prefix)) return nextDefaultSlotName(prefix, siblingNames);
+  if (isDefaultSlotName(name, prefix)) return "";
   return `${name.trim()} (copy)`;
 }
 
@@ -2853,12 +2846,12 @@ export function emptyCustomApplicationField(section?: string): ManagerCustomAppl
 /** Copy a room for the add-listing form (new id so file inputs / keys stay unique). */
 export function duplicateRoomEntry(
   source: ManagerRoomSubmission,
-  opts?: { keepName?: boolean; siblingNames?: readonly string[] },
+  opts?: { keepName?: boolean },
 ): ManagerRoomSubmission {
   return {
     ...source,
     id: rid("room"),
-    name: duplicateSlotName(source.name, "Room", opts?.keepName === true, opts?.siblingNames ?? []),
+    name: duplicateSlotName(source.name, "Room", opts?.keepName === true),
     photoDataUrls: [...source.photoDataUrls],
     videoDataUrl: source.videoDataUrl,
     moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])],
@@ -2887,7 +2880,7 @@ export function duplicateRoomEntry(
 /** Copy a bathroom card. Pass `roomIdMap` when the rooms themselves were reminted. */
 export function duplicateBathroomEntry(
   source: ManagerBathroomSubmission,
-  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string>; siblingNames?: readonly string[] },
+  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string> },
 ): ManagerBathroomSubmission {
   const assigned = opts?.roomIdMap
     ? remapIds(source.assignedRoomIds, opts.roomIdMap)
@@ -2895,7 +2888,7 @@ export function duplicateBathroomEntry(
   return {
     ...source,
     id: rid("bath"),
-    name: duplicateSlotName(source.name, "Bathroom", opts?.keepName === true, opts?.siblingNames ?? []),
+    name: duplicateSlotName(source.name, "Bathroom", opts?.keepName === true),
     photoDataUrls: [...(source.photoDataUrls ?? [])],
     videoDataUrl: source.videoDataUrl ?? null,
     assignedRoomIds: assigned,

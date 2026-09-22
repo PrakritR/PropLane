@@ -41,6 +41,13 @@ import { getListingRichContent } from "@/data/listing-rich-content";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { ListingPublishedDialog } from "@/components/portal/listing-wizard-v2/listing-published-dialog";
+import {
+  clearJustPublishedListing,
+  peekJustPublishedListing,
+  takeJustPublishedListing,
+  writeJustPublishedListing,
+  type JustPublishedListing,
+} from "@/lib/manager-listing-just-published";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
@@ -320,6 +327,7 @@ function ManagerPropertyInlineDetails({
   row,
   dataRevision,
   onUpdated,
+  onPublishedListing,
   onAfterUnlist,
   showToast,
   managerUserId,
@@ -338,6 +346,13 @@ function ManagerPropertyInlineDetails({
   /** Bumps when local property pipeline storage changes so listing submissions re-read. */
   dataRevision: number;
   onUpdated: () => void;
+  /**
+   * Draft → live publish reports back an id. It is handed UP, with the display
+   * name captured before the publish, because publishing moves the row out of
+   * this stage's bucket and both unmounts this component and changes the route
+   * — the confirmation has to be handed across that boundary (PRP-496).
+   */
+  onPublishedListing: (listing: JustPublishedListing) => void;
   onAfterUnlist?: (propertyKey: string) => void;
   showToast: (m: string) => void;
   managerUserId: string | null;
@@ -457,13 +472,6 @@ function ManagerPropertyInlineDetails({
   const displaySub = portalSub?.sub ?? null;
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
-  /**
-   * Draft → live publish reports back an id — hold it (and the display name
-   * captured at that instant, before `onUpdated()` can move the row out of
-   * this stage's bucket and blank `row`) for the confirmation dialog instead
-   * of navigating immediately (PRP-496).
-   */
-  const [publishedListing, setPublishedListing] = useState<{ id: string; name: string } | null>(null);
   const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
   const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
@@ -684,6 +692,7 @@ function ManagerPropertyInlineDetails({
           onClose: () => setDraftEditorOpen(false),
           onPublished: (listingId?: string) => {
             setDraftEditorOpen(false);
+            const publishedName = propertyShareLabel;
             onUpdated();
             // This detail page IS the draft's URL, and publishing moves the row
             // out of the Drafts bucket — staying put rendered "Property not
@@ -694,7 +703,7 @@ function ManagerPropertyInlineDetails({
             // being pushed there immediately (PRP-496).
             const published = listingId?.trim();
             if (published) {
-              setPublishedListing({ id: published, name: propertyShareLabel });
+              onPublishedListing({ id: published, name: publishedName });
             } else {
               showToast("Listing submitted and published.");
             }
@@ -1392,36 +1401,6 @@ function ManagerPropertyInlineDetails({
         <ListingEditorLoadingModal onClose={() => setDraftEditorOpen(false)} />
       ) : null}
 
-      <ListingPublishedDialog
-        open={publishedListing !== null}
-        name={publishedListing?.name ?? "Listing"}
-        listingId={publishedListing?.id ?? ""}
-        onViewListing={() => {
-          const id = publishedListing?.id;
-          setPublishedListing(null);
-          if (id) {
-            detailRouter.replace(propertyDetailHref(propertiesBase, "listed", id, "preview"), { scroll: false });
-          }
-        }}
-        onBackToProperties={() => {
-          setPublishedListing(null);
-          detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
-        }}
-        // Only when this page really has a share sheet. Handing the dialog an
-        // onShare it cannot honour would swallow its own copy-link-with-toast
-        // fallback and leave Share doing nothing but closing the dialog.
-        onShare={
-          onSendToProspect
-            ? () => {
-                const id = publishedListing?.id;
-                setPublishedListing(null);
-                if (id) onSendToProspect(id);
-              }
-            : undefined
-        }
-        showToast={showToast}
-      />
-
       {destructiveModalCopy ? (
         <ConfirmDeleteModal
           open={pendingDestructiveAction !== null}
@@ -1463,23 +1442,7 @@ function ManagerPropertyInlineDetails({
   );
 }
 
-export function ManagerHousePropertiesPanel({
-  showToast,
-  activeStage,
-  onStageChange,
-  onSendToProspect,
-  skuTier,
-  skuLoaded,
-  propertiesBase,
-  propertyKey: propertyKeyProp,
-  detailTab: detailTabProp,
-  propertyTourBucket = "pending",
-  propertyTourId,
-  onAddProperty,
-  addPropertyDisabled = false,
-  searchQuery = "",
-  onClearSearch,
-}: {
+type ManagerHousePropertiesPanelProps = {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
   onStageChange: (stage: ManagerStageKey) => void;
@@ -1497,6 +1460,119 @@ export function ManagerHousePropertiesPanel({
   searchQuery?: string;
   /** Clears the parent-owned search box from the no-match card. */
   onClearSearch?: () => void;
+};
+
+/**
+ * Publishing a draft is the one action that removes the row it was started
+ * from: the record leaves the Drafts bucket, so the detail page the wizard was
+ * finished on stops being that record's URL and the panel sends the manager to
+ * the Listed detail route. `[stage]` is a dynamic segment, so that navigation
+ * remounts this component — no dialog state can survive it. The confirmation
+ * therefore travels as a one-shot marker
+ * (`src/lib/manager-listing-just-published.ts`) and is taken by whichever mount
+ * lands on the published listing (PRP-496).
+ */
+export function ManagerHousePropertiesPanel(props: ManagerHousePropertiesPanelProps) {
+  const router = useRouter();
+  const { propertiesBase, showToast, onSendToProspect, propertyKey, activeStage } = props;
+  const routeKey = propertyKey ? decodeURIComponent(propertyKey) : "";
+  /**
+   * Seeded during the FIRST render, not from an effect: the body's own
+   * stage-correcting redirect runs its effect before this one (children first),
+   * and it has to already know a publish landing is in progress or it fires the
+   * very redirect this handoff exists to avoid. The effect below then clears
+   * the storage slot, so from that point on this state is the only copy — a
+   * dismiss really does end the suppression.
+   */
+  const [publishedListing, setPublishedListing] = useState<JustPublishedListing | null>(() =>
+    peekJustPublishedListing(routeKey),
+  );
+
+  useEffect(() => {
+    if (!routeKey) {
+      clearJustPublishedListing();
+      return;
+    }
+    const taken = takeJustPublishedListing(routeKey);
+    if (taken) setPublishedListing((current) => (current?.id === taken.id ? current : taken));
+  }, [activeStage, routeKey]);
+
+  const announcePublished = useCallback(
+    (listing: JustPublishedListing) => {
+      writeJustPublishedListing(listing);
+      // Also held HERE, on the page the publish was issued from, and set before
+      // the navigation is asked for. Publishing empties the drafts bucket this
+      // page is routed by, so the body's stage correction resolves in the very
+      // same flush and would fire a competing redirect to whichever stage
+      // MANAGER_STAGES names first. The guard has to hold on both sides of the
+      // navigation; the storage marker is what carries it across.
+      setPublishedListing(listing);
+      router.replace(propertyDetailHref(propertiesBase, "listed", listing.id, "preview"), { scroll: false });
+    },
+    [propertiesBase, router],
+  );
+
+  return (
+    <>
+      <ManagerHousePropertiesPanelBody
+        {...props}
+        onPublishedListing={announcePublished}
+        justPublishedListingId={publishedListing?.id ?? null}
+      />
+      <ListingPublishedDialog
+        open={publishedListing !== null}
+        name={publishedListing?.name ?? "Listing"}
+        listingId={publishedListing?.id ?? ""}
+        // The navigation already happened — this page IS the listing.
+        onViewListing={() => setPublishedListing(null)}
+        onBackToProperties={() => {
+          setPublishedListing(null);
+          router.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
+        }}
+        // Only when this page really has a share sheet. Handing the dialog an
+        // onShare it cannot honour would swallow its own copy-link-with-toast
+        // fallback and leave Share doing nothing but closing the dialog.
+        onShare={
+          onSendToProspect
+            ? () => {
+                const id = publishedListing?.id;
+                setPublishedListing(null);
+                if (id) onSendToProspect(id);
+              }
+            : undefined
+        }
+        showToast={showToast}
+      />
+    </>
+  );
+}
+
+function ManagerHousePropertiesPanelBody({
+  showToast,
+  activeStage,
+  onStageChange,
+  onSendToProspect,
+  skuTier,
+  skuLoaded,
+  propertiesBase,
+  propertyKey: propertyKeyProp,
+  detailTab: detailTabProp,
+  propertyTourBucket = "pending",
+  propertyTourId,
+  onAddProperty,
+  addPropertyDisabled = false,
+  searchQuery = "",
+  onClearSearch,
+  onPublishedListing,
+  justPublishedListingId,
+}: ManagerHousePropertiesPanelProps & {
+  onPublishedListing: (listing: JustPublishedListing) => void;
+  /**
+   * The listing whose publish confirmation is on screen right now, or null.
+   * Owned by the panel above so that dismissing the dialog releases the
+   * stage-correcting redirect below instead of leaving it wedged.
+   */
+  justPublishedListingId: string | null;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1960,6 +2036,13 @@ export function ManagerHousePropertiesPanel({
 
   useEffect(() => {
     if (!routePropertyStageElsewhere || !propertyKeyProp) return;
+    // A publish already sent this manager to the Listed detail route, and its
+    // confirmation is on screen. Racing it with a stage correction would land
+    // them on whichever stage MANAGER_STAGES names first and lose the
+    // confirmation with it. `justPublishedListingId` is a dep, so closing the
+    // dialog releases the correction rather than stranding this page on
+    // "Loading this property…".
+    if (justPublishedListingId && justPublishedListingId === decodeURIComponent(propertyKeyProp)) return;
     router.replace(
       propertyDetailHref(
         propertiesBase,
@@ -1969,7 +2052,14 @@ export function ManagerHousePropertiesPanel({
       ),
       { scroll: false },
     );
-  }, [detailTabProp, propertiesBase, propertyKeyProp, router, routePropertyStageElsewhere]);
+  }, [
+    detailTabProp,
+    justPublishedListingId,
+    propertiesBase,
+    propertyKeyProp,
+    router,
+    routePropertyStageElsewhere,
+  ]);
 
   if (!authReady) {
     return <p className="text-sm text-muted">Loading your properties…</p>;
@@ -1985,6 +2075,7 @@ export function ManagerHousePropertiesPanel({
       row={row}
       dataRevision={tick}
       onUpdated={handlePropertyUpdated}
+      onPublishedListing={onPublishedListing}
       onAfterUnlist={handleAfterUnlist}
       showToast={showToast}
       managerUserId={managerUserId}

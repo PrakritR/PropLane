@@ -67,7 +67,11 @@ afterward simply makes them stop matching. The picker's own value is derived
 fresh on every render, never stored: it reads back whichever other record
 this one still equals (`roomDescriptionMatches` /
 `bathroomDescriptionMatches` / `roomPricingMatches`), or "—" when none does.
-Two blank rooms never match on Pricing (`roomPricingHasAnyValue`).
+**A Rooms or Bathrooms card that describes nothing yet always reads "—"**
+(`roomDescriptionIsBlank` / `bathroomDescriptionIsBlank`): every record is
+minted identical, so matching a sibling by value there would announce a copy
+that never happened. Two blank rooms never match on Pricing
+(`roomPricingHasAnyValue`).
 
 The description fields a room's copy touches are exactly
 `ROOM_DESCRIPTION_FIELDS` — floor, beds, occupancy, furnishing, room
@@ -123,9 +127,8 @@ The Applications card sits directly under the lease-types card.
 `applicationFee` is the one amount; `applicationFeeByLeaseType` (keyed by the
 displayed lease type) holds only the types priced differently, behind
 "Different application fee per lease type". A blank row follows the one
-amount, the way a room follows the Default room. `shortTermApplicationFee` is
-the legacy stay fallback and mirrors the Short-term row.
-`listingApplicationFeeRaw(listing, rentalType, leaseTerm)`
+amount. `shortTermApplicationFee` is the legacy stay fallback and mirrors the
+Short-term row. `listingApplicationFeeRaw(listing, rentalType, leaseTerm)`
 (`src/lib/listing-application-fee.ts`) is the one reader; the applicant's
 fee preview and checkout send the chosen lease term as a selector and the
 server still resolves the amount from the stored listing.
@@ -167,7 +170,7 @@ derivation of the renter-facing label, and every change writes the derived
 keep working. A room saved with only a future `moveInAvailableDate` reads as
 occupied until the day before. Airbnb rows are identified by their id prefix and
 are never edited here — the calendar sync owns them. Availability is per room and
-never inherits from the Default card.
+never inherits from a Default card.
 
 Spec: `tests/unit/room-availability-timeline.test.ts`,
 `tests/unit/listing-wizard-v2-occupied-dates.test.tsx`.
@@ -179,6 +182,15 @@ focused and commit on every keystroke and again on blur. Rendering the model's
 formatted string mid-typing put the caret in front of the digits on iOS and,
 when the round trip was lost, showed nothing. The size placeholder is a dash,
 never a number.
+
+**No money row carries an example amount.** A `MoneyInput`'s placeholder is the
+figure it actually inherits — the long-term term's, or nothing — never a
+made-up "1,100" or "50", because a manager reads a greyed number as a value
+the listing already holds. So a new listing opens Pricing entirely blank, with
+"Charge an application fee" unticked until the manager turns it on — only a
+listing that already stores a fee, a per-type amount, the legacy stay fee or
+a waiver code opens ticked (PRP-499,
+`tests/unit/listing-pricing-blank-defaults.test.tsx`).
 
 Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
 `tests/unit/listing-wizard-v2-rooms-all-rooms.test.tsx`,

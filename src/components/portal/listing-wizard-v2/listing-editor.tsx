@@ -104,6 +104,7 @@ import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manag
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { isValidZipInput } from "@/lib/listing-form-inputs";
 import {
+  bathroomDescriptionIsBlank,
   bathroomDescriptionMatches,
   bathroomTypeOf,
   copyBathroomDescriptionFrom,
@@ -134,6 +135,7 @@ import {
   applyHouseDefaultsToRooms,
   copyRoomDescriptionFrom,
   houseDefaultsForSubmission,
+  roomDescriptionIsBlank,
   roomDescriptionMatches,
   roomInheritsDefault,
   roomFollowsTermDefault,
@@ -1288,8 +1290,14 @@ function StepRooms({
     { value: "", label: "—" },
     ...rooms.filter((r) => r.id !== room.id).map((r) => ({ value: r.id, label: roomLabel(r, rooms.indexOf(r)) })),
   ];
-  /** The first other room this room's description still matches, or "" — derived every render, never stored. */
-  const sameAsValue = (room: ManagerRoomSubmission) => rooms.find((r) => r.id !== room.id && roomDescriptionMatches(r, room))?.id ?? "";
+  /**
+   * The first other room this room's description still matches, or "" —
+   * derived every render, never stored. A card that describes nothing yet
+   * reads "—": every room is minted identical, so matching a sibling by value
+   * there announces a copy that never happened.
+   */
+  const sameAsValue = (room: ManagerRoomSubmission) =>
+    roomDescriptionIsBlank(room) ? "" : rooms.find((r) => r.id !== room.id && roomDescriptionMatches(r, room))?.id ?? "";
   const applySameAs = (room: ManagerRoomSubmission, otherId: string) => {
     if (!otherId) return;
     const source = rooms.find((r) => r.id === otherId);
@@ -1343,8 +1351,8 @@ function StepRooms({
                 ui?.showToast("Maximum 20 rooms.");
                 return;
               }
-              const copy = duplicateRoomEntry(room, { siblingNames: rooms.map((r) => r.name) });
               const idx = rooms.findIndex((r) => r.id === room.id);
+              const copy = duplicateRoomEntry(room);
               writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
               setOpen(copy.id);
             }}
@@ -1547,8 +1555,13 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
     { value: "", label: "—" },
     ...baths.filter((b) => b.id !== bath.id).map((b) => ({ value: b.id, label: bathLabel(b, baths.indexOf(b)) })),
   ];
-  /** The first other bathroom this bathroom's description still matches, or "" — derived every render, never stored. */
-  const sameAsValue = (bath: ManagerBathroomSubmission) => baths.find((b) => b.id !== bath.id && bathroomDescriptionMatches(b, bath))?.id ?? "";
+  /**
+   * The first other bathroom this bathroom's description still matches, or ""
+   * — derived every render, never stored. A card that describes nothing yet
+   * reads "—", for the same reason rooms do.
+   */
+  const sameAsValue = (bath: ManagerBathroomSubmission) =>
+    bathroomDescriptionIsBlank(bath) ? "" : baths.find((b) => b.id !== bath.id && bathroomDescriptionMatches(b, bath))?.id ?? "";
   const applySameAs = (bath: ManagerBathroomSubmission, otherId: string) => {
     if (!otherId) return;
     const source = baths.find((b) => b.id === otherId);
@@ -1583,8 +1596,8 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 ui?.showToast("Maximum 12 bathrooms.");
                 return;
               }
-              const copy = duplicateBathroomEntry(bath, { siblingNames: baths.map((b) => b.name) });
               const idx = baths.findIndex((b) => b.id === bath.id);
+              const copy = duplicateBathroomEntry(bath);
               patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
               setOpen(copy.id);
             }}

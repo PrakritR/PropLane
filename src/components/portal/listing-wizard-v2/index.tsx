@@ -415,6 +415,18 @@ export function ListingWizardV2({
             const result = await publish(prepared.submission);
             if (!result.ok) {
               setActionError(result.message);
+              // The workspace's own record cap refuses Publish exactly as it
+              // refuses a draft save, and a toast is a dead end there. Route it
+              // to the same upgrade prompt instead of only announcing it.
+              if (result.kind === "plan_limit") {
+                setSaveFail({
+                  message: result.message,
+                  kind: result.kind,
+                  limitInfo: result.limitInfo,
+                  stepIndex: stepRef.current,
+                });
+                return false;
+              }
               showToast?.(result.message);
               return false;
             }
