@@ -17,6 +17,26 @@ export type AgentWorkspaceScope = {
   propertyIds: readonly string[];
 };
 
+/**
+ * Stamped on `AgentContext.workspace` when the manager's own workspace could
+ * NOT be resolved (`resolveAgentContext`'s workspace load failed). This must
+ * fail CLOSED, never open: `propertyInAgentWorkspace`/`rowAllowedInAgentWorkspace`
+ * treat a genuinely ABSENT scope (`undefined`, used only where workspace
+ * scoping does not apply at all — vendor/leasing agent turns, or a manager-SMS
+ * turn with no workspace selected) as "not narrowing", so a silent resolution
+ * failure must never collapse to that same `undefined` shape or every tool
+ * would read as the whole, unpartitioned account. `isDefault: false` +
+ * `narrowing: true` + `propertyIds: []` denies every property AND every
+ * untagged/account-level row until the scope resolves on a retry.
+ */
+export const UNRESOLVED_AGENT_WORKSPACE_SCOPE: AgentWorkspaceScope = {
+  id: "",
+  name: "",
+  isDefault: false,
+  narrowing: true,
+  propertyIds: [],
+};
+
 export function propertyInAgentWorkspace(
   workspace: AgentWorkspaceScope | undefined,
   propertyId: string | null | undefined,

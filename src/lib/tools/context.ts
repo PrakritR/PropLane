@@ -16,6 +16,7 @@ import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 import type { AgentWorkspaceScope } from "@/lib/agent/manager-workspace-scope";
+import { UNRESOLVED_AGENT_WORKSPACE_SCOPE } from "@/lib/agent/manager-workspace-scope";
 import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
 
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
@@ -149,7 +150,13 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
       propertyIds: active.propertyIds.map((id) => id.trim()).filter(Boolean),
     };
   } catch {
-    workspace = undefined;
+    // FAIL CLOSED: a workspace that could not be resolved must never read as
+    // "not narrowing" (that shape is reserved for a turn where workspace
+    // scoping genuinely does not apply). Leaving this `undefined` here used to
+    // make every tool's `!workspace => allow` fallback treat a resolution
+    // FAILURE identically to an intentionally unpartitioned account, handing
+    // the assistant the whole account instead of refusing until it resolves.
+    workspace = UNRESOLVED_AGENT_WORKSPACE_SCOPE;
   }
 
   return {
