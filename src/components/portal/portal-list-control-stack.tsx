@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CalendarOff,
   CalendarPlus,
+  CalendarSync,
   Copy,
   Phone,
   RefreshCw,
@@ -40,11 +41,12 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Copy, // Copy link
   CalendarPlus, // Add availability
   CalendarOff, // Block dates
+  CalendarSync, // Link calendars
+  RefreshCw, // Update from sheet
   BookOpen, // Vendor catalog
   Wrench, // Payment setup
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
-  RefreshCw, // Update from sheet (Bookings band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
@@ -290,7 +292,9 @@ export function PortalListControlStack({
           aria-hidden
         />
         <Input
+          id="portal-list-search"
           type="search"
+          name="q"
           value={search.value}
           onChange={(e) => search.onChange(e.target.value)}
           placeholder={search.placeholder}
@@ -399,7 +403,9 @@ export function PortalListControlStack({
               )}
             >
               <Input
+                id="portal-list-search"
                 type="search"
+                name="q"
                 value={search.value}
                 onChange={(e) => search.onChange(e.target.value)}
                 placeholder={search.placeholder}

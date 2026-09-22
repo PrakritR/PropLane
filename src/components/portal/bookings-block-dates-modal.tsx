@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
@@ -255,13 +255,13 @@ export function BookingsBlockDatesModal({
       // else (no one / an existing pick / an edit) closes as before.
       if (isNewResident && result?.message) {
         setInviteResult(result.message);
-        setStepIdx(3);
+        setStepIdx(2);
       } else {
         onClose();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn’t save booking. House and move-in are required.");
-      setStepIdx(3);
+      setStepIdx(2);
     } finally {
       setBusy(false);
     }
@@ -270,11 +270,6 @@ export function BookingsBlockDatesModal({
   if (!open) return null;
 
   const steps: AddWorkspaceStep[] = [
-    {
-      id: "booking",
-      label: "Booking",
-      summary: reason.trim() || "Reason",
-    },
     {
       id: "property",
       label: "Property",
@@ -304,7 +299,7 @@ export function BookingsBlockDatesModal({
         current={current}
         onJump={setStepIdx}
         onClose={onClose}
-        dirty={Boolean(propertyId || checkIn || reason.trim() || residentChoice)}
+        dirty={Boolean(propertyId || checkIn || residentChoice)}
         discardTitle={editingBlockId ? "Discard these edits?" : "Discard this booking?"}
         assistantContext={editingBlockId ? "Edit booking" : "Add booking"}
         assistantScopeKey={editingBlockId ? "edit-booking" : "add-booking"}
@@ -325,29 +320,11 @@ export function BookingsBlockDatesModal({
         dataAttrPrefix="bookings-block-dates"
         finishDataAttr={inviteResult ? "bookings-block-dates-done" : "bookings-block-dates-save"}
       >
-        <div hidden={stepId !== "booking"}>
-          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-reason">
-              Reason
-            </label>
-            <Textarea
-              id="bookings-block-reason"
-              rows={3}
-              value={reason}
-              maxLength={200}
-              placeholder="Repairs, owner stay, deep clean…"
-              onChange={(e) => setReason(e.target.value)}
-              disabled={busy}
-              data-attr="bookings-block-reason"
-            />
-          </div>
-        </div>
-
         <div hidden={stepId !== "property"}>
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS}>
+            <div className={MODAL_FIELD_LABEL_CLASS}>
               Property
-            </label>
+            </div>
             <Select
               value={propertyId}
               onChange={(e) => {
@@ -449,9 +426,9 @@ export function BookingsBlockDatesModal({
 
           {propertyId ? (
             <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-              <label className={MODAL_FIELD_LABEL_CLASS}>
+              <div className={MODAL_FIELD_LABEL_CLASS}>
                 Room
-              </label>
+              </div>
               <Select
                 value={roomChoice}
                 onChange={(e) => setRoomChoice(e.target.value)}
@@ -545,12 +522,6 @@ export function BookingsBlockDatesModal({
               <dt className="text-sm text-muted">When</dt>
               <dd className="text-right text-sm font-semibold text-foreground">{checkIn && checkOut ? whenSummary : "—"}</dd>
             </div>
-            {reason.trim() ? (
-              <div className="flex items-start justify-between gap-4 py-3">
-                <dt className="text-sm text-muted">Reason</dt>
-                <dd className="text-right text-sm font-semibold text-foreground">{reason.trim()}</dd>
-              </div>
-            ) : null}
           </dl>
 
           {existingBlocks.length > 0 ? (
@@ -584,7 +555,7 @@ export function BookingsBlockDatesModal({
                           setEditingBlockId,
                           residentOptions,
                         );
-                        setStepIdx(2);
+                        setStepIdx(1);
                       }}
                       onCancel={
                         onDeleteBlock && entry.blockId

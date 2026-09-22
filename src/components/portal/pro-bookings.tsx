@@ -15,10 +15,10 @@ import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
-import { CalendarOff, CalendarSync, RefreshCw, Settings } from "lucide-react";
+import { CalendarSync, RefreshCw, Settings } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 import { Button } from "@/components/ui/button";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -452,11 +452,11 @@ function useBookingsWorkspace({
             onClick={() => void updateFromSheet()}
           />
           <PortalIconAction
-            icon={CalendarOff}
-            label="Add booking"
-            data-attr="bookings-block-dates-open"
+            icon={CalendarSync}
+            label="Link calendars"
+            data-attr="portfolio-bookings-link-airbnb"
             disabled={linkDisabled}
-            onClick={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
+            onClick={() => setCalendarsOpen(true)}
           />
           <PortalIconAction
             icon={Settings}
@@ -469,11 +469,10 @@ function useBookingsWorkspace({
       }
       primary={
         <PortalPrimaryIconAction
-          label="Link calendars"
-          icon={CalendarSync}
+          label={portalListAddPrimaryLabel("booking")}
           disabled={linkDisabled}
-          data-attr="portfolio-bookings-link-airbnb"
-          onClick={() => setCalendarsOpen(true)}
+          data-attr="bookings-block-dates-open"
+          onClick={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
         />
       }
       activeFilterChips={activeFilterChips}
