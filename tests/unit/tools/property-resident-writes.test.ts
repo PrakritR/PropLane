@@ -329,13 +329,16 @@ describe("create_property", () => {
  * the cap lives. So a Free manager whose "+ Add property" button is disabled
  * could just ask the assistant to create the listing instead.
  */
-describe("create_property respects the plan's listing cap", () => {
+describe("create_property respects the plan's DOOR cap (PLAN-DOOR step 2: Free is doors, not listings)", () => {
   const draft = { title: "Loft", address: "9 Z St", beds: 3, baths: 1, rentUsd: 1800 };
 
-  it("refuses a create that would take a second listing slot on Free", async () => {
+  it("refuses a create that would push the account past Free's door cap", async () => {
     EFFECTIVE_TIER = "free";
+    // Two existing "unrecorded" listings already hold the 2-door cap; the stub
+    // has no rooms/place-category on file, so each one counts 1 door
+    // (`doorCountForListing`'s own floor) — a third would be a third door.
     const { ctx, tables } = makeWriteCtx({
-      manager_property_records: [liveProperty("manager_a", "p_live")],
+      manager_property_records: [liveProperty("manager_a", "p_live"), liveProperty("manager_a", "p_live_2")],
     });
 
     const res = await executeWrite(createPropertyTool, ctx, draft);
@@ -344,7 +347,7 @@ describe("create_property respects the plan's listing cap", () => {
     // The manager reads the same sentence the portal shows, not a bare failure.
     if (!res.ok) expect(res.error).toBe(managerPropertyLimitMessage("free"));
     // Nothing was inserted, and the refusal did not burn the dedupe key.
-    expect(tables.manager_property_records).toHaveLength(1);
+    expect(tables.manager_property_records).toHaveLength(2);
     expect(auditRows(tables)).toEqual([]);
   });
 
@@ -359,6 +362,18 @@ describe("create_property respects the plan's listing cap", () => {
     expect(tables.manager_property_records![0]).toMatchObject({ status: "pending" });
   });
 
+  it("allows a SECOND listing on Free — the cap is 2 doors, not 1 property", async () => {
+    EFFECTIVE_TIER = "free";
+    const { ctx, tables } = makeWriteCtx({
+      manager_property_records: [liveProperty("manager_a", "p_live")],
+    });
+
+    const res = await executeWrite(createPropertyTool, ctx, draft);
+
+    expect(res.ok).toBe(true);
+    expect(tables.manager_property_records).toHaveLength(2);
+  });
+
   it("does not count another manager's listings against this one", async () => {
     EFFECTIVE_TIER = "free";
     const { ctx, tables } = makeWriteCtx({
@@ -369,6 +384,18 @@ describe("create_property respects the plan's listing cap", () => {
 
     expect(res.ok).toBe(true);
     expect(tables.manager_property_records).toHaveLength(2);
+  });
+
+  it("never refuses Pro or Business for listing count, however many they already hold", async () => {
+    EFFECTIVE_TIER = "pro";
+    const { ctx, tables } = makeWriteCtx({
+      manager_property_records: Array.from({ length: 40 }, (_, i) => liveProperty("manager_a", `p_live_${i}`)),
+    });
+
+    const res = await executeWrite(createPropertyTool, ctx, draft);
+
+    expect(res.ok).toBe(true);
+    expect(tables.manager_property_records).toHaveLength(41);
   });
 
   it("leaves a landlord with no numeric cap unaffected", async () => {
@@ -493,15 +520,21 @@ describe("update_property", () => {
  * and ask the assistant to "set the first one live again" — the exact action the
  * portal's Relist button refuses.
  */
-describe("update_property respects the plan's listing cap", () => {
+describe("update_property respects the plan's DOOR cap (PLAN-DOOR step 2: Free is doors, not listings)", () => {
   function unlistedProperty(managerUserId: string, id: string): Row {
     return { ...liveProperty(managerUserId, id), status: "unlisted" };
   }
 
-  it("refuses a relist that would take a second listing slot on Free", async () => {
+  it("refuses a relist that would push the account past Free's door cap", async () => {
     EFFECTIVE_TIER = "free";
+    // Two existing live "unrecorded" listings already hold the 2-door cap;
+    // relisting a third pushes to 3 doors.
     const { ctx, tables } = makeWriteCtx({
-      manager_property_records: [unlistedProperty("manager_a", "p_down"), liveProperty("manager_a", "p_live")],
+      manager_property_records: [
+        unlistedProperty("manager_a", "p_down"),
+        liveProperty("manager_a", "p_live"),
+        liveProperty("manager_a", "p_live_2"),
+      ],
     });
 
     const res = await executeWrite(updatePropertyTool, ctx, { propertyId: "p_down", status: "live" });
@@ -526,11 +559,28 @@ describe("update_property respects the plan's listing cap", () => {
     expect(tables.manager_property_records![0]!.status).toBe("live");
   });
 
-  it("never charges an over-limit account for an ordinary edit or an unlist", async () => {
-    // Block the transition INTO a slot, never the state of being over the cap.
+  it("allows a relist that lands exactly AT the 2-door cap, not just under it", async () => {
     EFFECTIVE_TIER = "free";
     const { ctx, tables } = makeWriteCtx({
-      manager_property_records: [liveProperty("manager_a", "p1"), liveProperty("manager_a", "p2")],
+      manager_property_records: [unlistedProperty("manager_a", "p_down"), liveProperty("manager_a", "p_live")],
+    });
+
+    const res = await executeWrite(updatePropertyTool, ctx, { propertyId: "p_down", status: "live" });
+
+    expect(res.ok).toBe(true);
+    expect(tables.manager_property_records![0]!.status).toBe("live");
+  });
+
+  it("never charges an over-cap account for an ordinary edit or an unlist", async () => {
+    // Block the transition INTO a slot, never the state of being over the cap.
+    // Three live "unrecorded" listings (3 doors) already exceed Free's 2-door cap.
+    EFFECTIVE_TIER = "free";
+    const { ctx, tables } = makeWriteCtx({
+      manager_property_records: [
+        liveProperty("manager_a", "p1"),
+        liveProperty("manager_a", "p2"),
+        liveProperty("manager_a", "p3"),
+      ],
     });
 
     const edit = await executeWrite(updatePropertyTool, ctx, { propertyId: "p1", rentUsd: 2400 });
@@ -540,6 +590,21 @@ describe("update_property respects the plan's listing cap", () => {
     expect(unlist.ok).toBe(true);
     expect((tables.manager_property_records![0]!.row_data as Row).monthlyRent).toBe(2400);
     expect(tables.manager_property_records![1]!.status).toBe("unlisted");
+  });
+
+  it("never refuses Pro or Business for listing count, however many they already hold", async () => {
+    EFFECTIVE_TIER = "business";
+    const { ctx, tables } = makeWriteCtx({
+      manager_property_records: [
+        unlistedProperty("manager_a", "p_down"),
+        ...Array.from({ length: 200 }, (_, i) => liveProperty("manager_a", `p_live_${i}`)),
+      ],
+    });
+
+    const res = await executeWrite(updatePropertyTool, ctx, { propertyId: "p_down", status: "live" });
+
+    expect(res.ok).toBe(true);
+    expect(tables.manager_property_records![0]!.status).toBe("live");
   });
 
   it("leaves a landlord with no numeric cap unaffected", async () => {
@@ -1026,11 +1091,13 @@ describe("assistant transcript at the plan's listing cap", () => {
     say("assistant write tools — real handlers, real plan quota");
     say("=".repeat(78));
     say();
-    say('Manager on Free (1 listing) already has one live listing "p_live".');
+    say('Manager on Free (2-door cap) already has two live listings, "p_live" and "p_live_2".');
     say();
 
     EFFECTIVE_TIER = "free";
-    const create = makeWriteCtx({ manager_property_records: [liveProperty("manager_a", "p_live")] });
+    const create = makeWriteCtx({
+      manager_property_records: [liveProperty("manager_a", "p_live"), liveProperty("manager_a", "p_live_2")],
+    });
     const draft = { title: "Loft", address: "9 Z St", beds: 3, baths: 1, rentUsd: 1800 };
     const createRes = await executeWrite(createPropertyTool, create.ctx, draft);
 
@@ -1049,6 +1116,7 @@ describe("assistant transcript at the plan's listing cap", () => {
       manager_property_records: [
         { ...liveProperty("manager_a", "p_down"), status: "unlisted" },
         liveProperty("manager_a", "p_live"),
+        liveProperty("manager_a", "p_live_2"),
       ],
     });
     const relistRes = await executeWrite(updatePropertyTool, relist.ctx, { propertyId: "p_down", status: "live" });
@@ -1070,7 +1138,7 @@ describe("assistant transcript at the plan's listing cap", () => {
     const editRes = await executeWrite(updatePropertyTool, edit.ctx, { propertyId: "p1", rentUsd: 2400 });
     const unlistRes = await executeWrite(updatePropertyTool, edit.ctx, { propertyId: "p2", status: "unlisted" });
 
-    say("  the same account, ALREADY over the cap with two live listings:");
+    say("  the same account, already AT the door cap with two live listings:");
     say(`    edit the rent on p1     -> ${editRes.ok ? "ok" : `refused: ${editRes.error}`}`);
     say(`    unlist p2               -> ${unlistRes.ok ? "ok" : `refused: ${unlistRes.error}`}`);
     say(`    nothing deleted or hidden: ${JSON.stringify(

@@ -11,6 +11,7 @@ import {
 } from "@/lib/lead-invite.server";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
+import { doorCountForListing } from "@/lib/billing/door-count";
 import { acceptedPaymentMethodsForListing } from "@/lib/payment-policy";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
 import { copyListingMediaBetweenSubmissions } from "@/lib/listing-media-copy";
@@ -328,6 +329,10 @@ export const createPropertyTool = defineWriteTool({
     // the authenticated context, never from model-supplied input. Checked BEFORE
     // the audit log so a refusal does not burn the dedupe key for a listing that
     // was never created.
+    //
+    // No `incomingDoors` — this stub has no rooms array or place category, and
+    // the default (1, `doorCountForListing`'s own floor for "nothing recorded")
+    // is exactly right for it.
     const quota = await assertManagerPropertyListingQuota(ctx.db, {
       ownerUserId: ctx.landlordId,
       recordId: rowData.id,
@@ -528,11 +533,17 @@ export const updatePropertyTool = defineWriteTool({
     // own button refuses. Checked BEFORE the audit log so a refusal does not
     // burn the dedupe key for an update that never happened.
     if (input.status) {
+      // Free's cap is doors, not listings (`assertManagerPropertyListingQuota`) — size it from the
+      // record's OWN stored submission, never from this tool's flat `beds`/`baths` input, the same
+      // "property_data first, then row_data" read `loadOwnedPropertyRecord`'s preview already uses.
+      const storedSubmission =
+        asObject(rec.property_data)?.listingSubmission ?? asObject(rec.row_data)?.submission;
       const quota = await assertManagerPropertyListingQuota(ctx.db, {
         ownerUserId: ctx.landlordId,
         recordId: rec.id,
         nextStatus: input.status,
         existingStatus: rec.status,
+        incomingDoors: doorCountForListing(storedSubmission).doors,
       });
       // The refusal carries `managerPropertyLimitMessage`, so the manager reads
       // the same sentence here as in the portal.

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MANAGER_PLAN_TIERS, type PlanTierId } from "@/data/manager-plan-tiers";
 import { BUSINESS_MAX_PROPERTIES, FREE_MAX_PROPERTIES, PRO_MAX_PROPERTIES } from "@/lib/manager-access";
+import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY, SiteIntro, SiteSection } from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,7 @@ export function SitePricingTeaser() {
       <SiteIntro
         eyebrow="Pricing"
         id="site-pricing-title"
-        title="Free for one home. $20 for two. $200 for twenty."
+        title={`Free for one home. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors} doors. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
         lede="No card to start."
         align="center"
       />

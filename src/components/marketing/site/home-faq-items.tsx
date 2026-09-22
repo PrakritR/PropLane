@@ -1,5 +1,9 @@
 import Link from "next/link";
 import type { SiteFaqItem } from "@/components/marketing/site/faq";
+import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
+
+const PRO_MONTHLY_USD = formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents);
+const BUSINESS_MONTHLY_USD = formatRateCardUsd(RATE_CARD.business.floorMonthlyCents);
 
 /**
  * The questions a prospect actually asks before signing up. Every answer is
@@ -24,7 +28,7 @@ export const HOME_FAQ_ITEMS: SiteFaqItem[] = [
   },
   {
     q: "How much does it cost?",
-    a: "Free is $0. Pro is $20 a month (up to 2 properties, plus residents, leases, and the inbox). Business is $200 a month (up to 20 properties and priority support). A year up front is two months free.",
+    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and the inbox, priced by doors past the first 20). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, priced by doors past the first 120). A year up front is two months free.`,
   },
   {
     q: "Do I need a credit card to try it?",

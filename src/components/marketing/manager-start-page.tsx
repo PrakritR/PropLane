@@ -6,6 +6,10 @@ import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { persistManagerPricingOffer, readManagerPricingOffer } from "@/lib/auth/manager-pricing-oauth-storage";
 import { MANAGER_PLAN_TIERS, isPlanTierId, type ManagerPlanTierDefinition, type PlanTierId } from "@/data/manager-plan-tiers";
 import { loadManagerPlanTiers } from "@/lib/site-content";
+import { annualDiscountPercent } from "@/lib/billing/rate-card";
+
+/** Pro and Business round to the same annual discount off the rate card; either name works here. */
+const ANNUAL_DISCOUNT_PERCENT = annualDiscountPercent("pro");
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import "@/components/marketing/landing-proplane.css";
@@ -113,7 +117,7 @@ export function ManagerStartPage() {
                     : "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
                 }`}
               >
-                20% off
+                {ANNUAL_DISCOUNT_PERCENT}% off
               </span>
             </button>
           </div>

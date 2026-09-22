@@ -69,7 +69,7 @@ describe("ensureAddonPrice", () => {
   });
 
   it("uses the Price another process just created when this one loses the lookup_key race", async () => {
-    const lookupKey = planAddonLookupKey("extra_listing", "business");
+    const lookupKey = planAddonLookupKey("extra_seat", "business");
     const raceError = Object.assign(new Error("already exists"), { code: "resource_already_exists" });
     const prices = {
       list: vi
@@ -80,7 +80,7 @@ describe("ensureAddonPrice", () => {
     };
     const products = { create: vi.fn().mockResolvedValue({ id: lookupKey }) };
 
-    const priceId = await ensureAddonPrice({ prices, products } as never, "extra_listing", "business");
+    const priceId = await ensureAddonPrice({ prices, products } as never, "extra_seat", "business");
 
     expect(priceId).toBe("price_won_the_race");
     expect(prices.list).toHaveBeenCalledTimes(2);

@@ -1,6 +1,10 @@
 "use client";
 
 import type { ManagerPlanTierDefinition, PlanTierId } from "@/data/manager-plan-tiers";
+import { annualDiscountPercent } from "@/lib/billing/rate-card";
+
+/** Pro and Business round to the same annual discount off the rate card; either name works here. */
+const ANNUAL_DISCOUNT_PERCENT = annualDiscountPercent("pro");
 
 /** Excluded feature. A greyed CHECK still reads as "included" at a glance. */
 function ExcludedIcon() {
@@ -62,7 +66,7 @@ export function ManagerPlanBillingToggle({
                     : "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
                 }`}
               >
-                20% off
+                {ANNUAL_DISCOUNT_PERCENT}% off
               </span>
             ) : null}
           </button>

@@ -15,7 +15,9 @@
  *   transient database error, with copy telling them to upgrade.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FREE_MAX_PROPERTIES } from "@/lib/manager-access";
+import { RATE_CARD } from "@/lib/billing/rate-card";
+
+const FREE_DOOR_CAP = RATE_CARD.free.includedDoors;
 
 let EFFECTIVE_TIER: string | null = "free";
 let TIER_READ_ERROR: string | null = null;
@@ -30,7 +32,15 @@ vi.mock("@/lib/manager-access-server", () => ({
 
 const { assertManagerPropertyListingQuota } = await import("@/lib/manager-property-quota.server");
 
-/** Just enough of the client for the two reads the gate makes: the settings row and the slot count. */
+/**
+ * Just enough of the client for the reads the gate makes: the settings row,
+ * the slot count, and — for Free's door cap — `loadManagerDoorCount`'s row
+ * read. The shared `.then()` resolves BOTH `count` (for `countManagerListingSlots`)
+ * and `data` (for `loadManagerDoorCount`) from the same filtered rows, since
+ * neither caller reads the field the other one wants. `SLOT_ROWS` carry no
+ * `row_data`/`property_data`, so every row reads as "unrecorded" — 1 door
+ * each, `doorCountForListing`'s own floor for a listing with nothing on file.
+ */
 function makeDb() {
   return {
     from(table: string) {
@@ -56,7 +66,7 @@ function makeDb() {
           if (SETTINGS_READ_ERROR) return { data: null, error: SETTINGS_READ_ERROR };
           return { data: SETTINGS_ROW, error: null };
         },
-        then(resolve: (v: { count: number | null; error: unknown }) => unknown) {
+        then(resolve: (v: { count: number | null; data: unknown[]; error: unknown }) => unknown) {
           const statuses = (filters["in:status"] ?? []) as string[];
           const rows = SLOT_ROWS.filter(
             (r) =>
@@ -65,7 +75,7 @@ function makeDb() {
               r.id !== filters["neq:id"],
           );
           void table;
-          return Promise.resolve({ count: rows.length, error: null }).then(resolve);
+          return Promise.resolve({ count: rows.length, data: rows, error: null }).then(resolve);
         },
       };
       return q;
@@ -100,16 +110,23 @@ beforeEach(() => {
   SETTINGS_READ_ERROR = null;
 });
 
-describe("with no override, the plan cap is unchanged", () => {
+describe("with no override, Free's plan cap is doors, not listings (PLAN-DOOR step 2)", () => {
   it("allows the first free listing", async () => {
     expect(await assertQuota()).toEqual({ ok: true });
   });
 
-  it("refuses the second with the plan's own copy", async () => {
-    SLOT_ROWS = liveRows(FREE_MAX_PROPERTIES);
+  it("allows a second listing that stays within the door cap", async () => {
+    // 1 existing "unrecorded" listing (1 door) + 1 incoming = 2, at the cap but not over it.
+    SLOT_ROWS = liveRows(FREE_DOOR_CAP - 1);
+    expect(await assertQuota()).toEqual({ ok: true });
+  });
+
+  it("refuses a listing that would push the account past the door cap, with the plan's own copy", async () => {
+    SLOT_ROWS = liveRows(FREE_DOOR_CAP);
     const verdict = await assertQuota();
-    expect(verdict).toMatchObject({ ok: false, status: 403, limit: FREE_MAX_PROPERTIES });
+    expect(verdict).toMatchObject({ ok: false, status: 403, limit: FREE_DOOR_CAP, current: FREE_DOOR_CAP });
     expect((verdict as { error: string }).error).toContain("Free includes");
+    expect((verdict as { error: string }).error).toContain("door");
   });
 });
 

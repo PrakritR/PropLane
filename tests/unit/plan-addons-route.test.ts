@@ -68,7 +68,7 @@ describe("PATCH /api/manager/plan-addons", () => {
   it("rejects an unauthenticated request before any plan or Stripe read", async () => {
     mocks.requireManagerRouteUser.mockResolvedValue(null);
 
-    const response = await PATCH(request({ changes: [{ addonId: "extra_listing", quantity: 1 }] }));
+    const response = await PATCH(request({ changes: [{ addonId: "extra_seat", quantity: 1 }] }));
 
     expect(response.status).toBe(401);
     expect(mocks.getEffectiveManagerSkuTier).not.toHaveBeenCalled();
@@ -76,7 +76,7 @@ describe("PATCH /api/manager/plan-addons", () => {
   });
 
   it("applies a multi-row batch as ONE Stripe subscription update and one database write", async () => {
-    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_LISTING_BUSINESS", "price_listing_biz");
+    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_WORKSPACE_BUSINESS", "price_workspace_biz");
     vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_SEAT_BUSINESS", "price_seat_biz");
     const db = makeDb();
     mocks.createSupabaseServiceRoleClient.mockReturnValue(db);
@@ -85,7 +85,7 @@ describe("PATCH /api/manager/plan-addons", () => {
     const update = vi.fn().mockResolvedValue({
       items: {
         data: [
-          { id: "si_listing", price: "price_listing_biz" },
+          { id: "si_workspace", price: "price_workspace_biz" },
           { id: "si_seat", price: "price_seat_biz" },
         ],
       },
@@ -97,7 +97,7 @@ describe("PATCH /api/manager/plan-addons", () => {
     const response = await PATCH(
       request({
         changes: [
-          { addonId: "extra_listing", quantity: 2 },
+          { addonId: "extra_workspace", quantity: 2 },
           { addonId: "extra_seat", quantity: 1 },
         ],
       }),
@@ -110,7 +110,7 @@ describe("PATCH /api/manager/plan-addons", () => {
       "sub_test",
       expect.objectContaining({
         items: [
-          { price: "price_listing_biz", quantity: 2 },
+          { price: "price_workspace_biz", quantity: 2 },
           { price: "price_seat_biz", quantity: 1 },
         ],
         proration_behavior: "create_prorations",
@@ -119,7 +119,7 @@ describe("PATCH /api/manager/plan-addons", () => {
     expect(db.upsert).toHaveBeenCalledTimes(1);
     expect((db.upsertCalls[0] as unknown[]).length).toBe(2);
     expect(body.stripeSynced).toBe(true);
-    expect(body.addons.find((a) => a.id === "extra_listing")?.quantity).toBe(2);
+    expect(body.addons.find((a) => a.id === "extra_workspace")?.quantity).toBe(2);
     expect(body.addons.find((a) => a.id === "extra_seat")?.quantity).toBe(1);
   });
 
@@ -143,7 +143,7 @@ describe("PATCH /api/manager/plan-addons", () => {
   });
 
   it("writes nothing when the Stripe subscription update fails", async () => {
-    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_LISTING_BUSINESS", "price_listing_biz");
+    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_SEAT_BUSINESS", "price_seat_biz");
     const db = makeDb();
     mocks.createSupabaseServiceRoleClient.mockReturnValue(db);
     mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business" });
@@ -153,7 +153,7 @@ describe("PATCH /api/manager/plan-addons", () => {
       subscriptions: { update, retrieve: vi.fn().mockResolvedValue({ status: "active" }) },
     });
 
-    const response = await PATCH(request({ changes: [{ addonId: "extra_listing", quantity: 3 }] }));
+    const response = await PATCH(request({ changes: [{ addonId: "extra_seat", quantity: 3 }] }));
     const body = (await response.json()) as { error: string; code: string };
 
     expect(response.status).toBe(402);
@@ -187,7 +187,7 @@ describe("PATCH /api/manager/plan-addons", () => {
     mocks.getManagerPurchaseSku.mockResolvedValue({ tier: "pro", billing: "apple", stripeSubscriptionId: null });
     mocks.getStripe.mockReturnValue({ subscriptions: { update: vi.fn(), retrieve: vi.fn() } });
 
-    const response = await PATCH(request({ changes: [{ addonId: "extra_listing", quantity: 1 }] }));
+    const response = await PATCH(request({ changes: [{ addonId: "extra_seat", quantity: 1 }] }));
     const body = (await response.json()) as { stripeSynced: boolean };
 
     expect(response.status).toBe(200);

@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { MANAGER_PLAN_TIERS, type ManagerPlanTierDefinition, type PlanTierId } from "@/data/manager-plan-tiers";
 import { PLAN_ADDONS, formatAddonPrice } from "@/lib/plan-addons";
+import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
@@ -22,8 +23,7 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description:
-    "PropLane pricing: free for one home, then Pro at $20/mo or Business at $200/mo. 14-day trial, no card required.",
+  description: `PropLane pricing: free for one home, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo. 14-day trial, no card required.`,
 };
 
 const CTA_BASE = MANAGER_GET_STARTED_HREF;
@@ -121,7 +121,7 @@ const FAQ: SiteFaqItem[] = [
   },
   {
     q: "How does annual billing work?",
-    a: `Paying for the year up front is two months free: Pro is ${MANAGER_PLAN_TIERS[1]!.annual.headline} a year instead of $240, and Business is ${MANAGER_PLAN_TIERS[2]!.annual.headline} instead of $2,400. Included communication credit is the same on annual plans.`,
+    a: `Paying for the year up front is two months free: Pro is ${MANAGER_PLAN_TIERS[1]!.annual.headline} a year instead of ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents * 12)}, and Business is ${MANAGER_PLAN_TIERS[2]!.annual.headline} instead of ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents * 12)}. Included communication credit is the same on annual plans.`,
   },
 ];
 

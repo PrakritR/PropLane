@@ -18,6 +18,7 @@
  * `POST /api/property-records` — is derived from it.
  */
 import { describe, expect, it } from "vitest";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 import {
   BUSINESS_MAX_PROPERTIES,
   FREE_MAX_PROPERTIES,
@@ -68,8 +69,9 @@ describe("resolveEffectiveManagerSkuTier", () => {
  */
 describe("managerPropertyLimitMessage", () => {
   it("names the limit and the plans that lift it", () => {
+    // Free's cap is DOORS (PLAN-DOOR step 2), not the legacy property count.
     expect(managerPropertyLimitMessage("free")).toBe(
-      `Free includes ${FREE_MAX_PROPERTIES} property. Upgrade to Pro or Business to add more.`,
+      `Free includes ${RATE_CARD.free.includedDoors} doors. Upgrade to Pro or Business for more doors.`,
     );
     expect(managerPropertyLimitMessage("pro")).toBe(
       `Pro includes up to ${PRO_MAX_PROPERTIES} properties. Upgrade to Business to add more.`,
@@ -86,7 +88,7 @@ describe("managerPropertyLimitMessage", () => {
     // App Store Guideline 2.1(b): no subscription upgrade CTAs outside IAP. The
     // manager must still learn WHY the publish was refused.
     const native = managerPropertyLimitMessage("free", { omitUpgradeCta: true });
-    expect(native).toBe(`Free includes ${FREE_MAX_PROPERTIES} property.`);
+    expect(native).toBe(`Free includes ${RATE_CARD.free.includedDoors} doors.`);
     expect(native).not.toContain("Upgrade");
   });
 

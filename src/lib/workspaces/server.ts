@@ -265,7 +265,9 @@ export async function loadWorkspacePlan(
     // Grandfathered: a plan cap (e.g. Business 3 -> 2, PLAN-0920) never
     // strands a workspace the account already owns.
     workspaceLimit: Math.max(computedWorkspaceLimit, owned.length),
-    propertyLimit: planPropertyLimit === null ? null : planPropertyLimit + addonUnitsForCap(extra, "extra_listing", tier),
+    // `extra_listing` is retired (PLAN-DOOR step 2: paid tiers price doors, not
+    // listing count) — this is the plan figure alone now, with no add-on boost.
+    propertyLimit: planPropertyLimit,
     recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT,
     teamLimit: planTeamLimit === null ? null : planTeamLimit + addonUnitsForCap(extra, "extra_seat", tier),
     usage: {
