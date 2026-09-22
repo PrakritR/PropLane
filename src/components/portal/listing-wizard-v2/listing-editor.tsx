@@ -1343,7 +1343,7 @@ function StepRooms({
                 ui?.showToast("Maximum 20 rooms.");
                 return;
               }
-              const copy = duplicateRoomEntry(room);
+              const copy = duplicateRoomEntry(room, { siblingNames: rooms.map((r) => r.name) });
               const idx = rooms.findIndex((r) => r.id === room.id);
               writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
               setOpen(copy.id);
@@ -1583,7 +1583,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 ui?.showToast("Maximum 12 bathrooms.");
                 return;
               }
-              const copy = duplicateBathroomEntry(bath);
+              const copy = duplicateBathroomEntry(bath, { siblingNames: baths.map((b) => b.name) });
               const idx = baths.findIndex((b) => b.id === bath.id);
               patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
               setOpen(copy.id);
