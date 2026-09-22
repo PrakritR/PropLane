@@ -3,6 +3,7 @@ import type { ManagerBill } from "@/lib/manager-bills";
 import { mapManagerBillRow, MANAGER_BILL_SELECT } from "@/lib/manager-bills";
 import { postGlBillApproved, postGlBillPaid } from "@/lib/reports/gl-posting";
 import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
+import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
 
 export type CreateManagerBillInput = {
   managerUserId: string;
@@ -19,6 +20,20 @@ export type CreateManagerBillInput = {
 
 export async function createManagerBill(db: SupabaseClient, input: CreateManagerBillInput): Promise<ManagerBill> {
   if (input.amountCents <= 0) throw new Error("Bill amount must be positive.");
+
+  // A bill tied to a house must land in the manager's active workspace —
+  // never let an API caller write into a house outside it just because the
+  // property picker on-screen only ever offered in-workspace choices. An
+  // account-level bill (no house, e.g. a portfolio subscription) has no
+  // workspace to land in; it is scoped on read by the same default-workspace
+  // rule instead (see `resolveActiveWorkspaceRowScope`), so it is never
+  // refused here.
+  if (input.propertyId) {
+    const scope = await resolveActiveWorkspaceRowScope(db, input.managerUserId);
+    if (scope.propertyIds !== null && !scope.propertyIds.includes(input.propertyId)) {
+      throw new Error("This property is outside your active workspace.");
+    }
+  }
 
   const now = new Date().toISOString();
   const { data, error } = await db
@@ -44,6 +59,16 @@ export async function createManagerBill(db: SupabaseClient, input: CreateManager
   return mapManagerBillRow(data as Record<string, unknown>);
 }
 
+/**
+ * A bill outside the manager's active workspace is refused exactly like a
+ * missing one — same error, so the workspace boundary never leaks which
+ * bills exist elsewhere.
+ */
+async function assertBillInActiveWorkspace(db: SupabaseClient, managerUserId: string, bill: ManagerBill): Promise<void> {
+  const scope = await resolveActiveWorkspaceRowScope(db, managerUserId);
+  if (!rowAllowedInWorkspaceScope(scope, bill.propertyId)) throw new Error("Bill not found.");
+}
+
 export async function approveManagerBill(
   db: SupabaseClient,
   managerUserId: string,
@@ -52,6 +77,7 @@ export async function approveManagerBill(
 ): Promise<ManagerBill> {
   const bill = await loadBill(db, managerUserId, billId);
   if (!bill) throw new Error("Bill not found.");
+  await assertBillInActiveWorkspace(db, managerUserId, bill);
   if (bill.status !== "draft" && bill.status !== "pending_approval") {
     throw new Error("Bill cannot be approved from current status.");
   }
@@ -87,6 +113,7 @@ export async function payManagerBill(
 ): Promise<ManagerBill> {
   const bill = await loadBill(db, managerUserId, billId);
   if (!bill) throw new Error("Bill not found.");
+  await assertBillInActiveWorkspace(db, managerUserId, bill);
   if (bill.status !== "approved" && bill.status !== "scheduled") {
     throw new Error("Bill must be approved before payment.");
   }
