@@ -41,10 +41,6 @@ export function PortalRecordDetailPage({
    */
   scrollBody = true,
   dataAttrBack = "portal-record-detail-back",
-  /** Pinned bottom bar (Pay, Download, …) — same pattern as resident profile detail tabs. */
-  footer,
-  /** Scroll clearance lives on the scroller — skip the in-flow spacer band above a pinned footer. */
-  footerOmitSpacer = false,
 }: {
   /** @deprecated Detail chrome no longer renders a duplicate section title. */
   pageTitle?: string;
@@ -79,8 +75,6 @@ export function PortalRecordDetailPage({
   pinScrollBody?: boolean;
   scrollBody?: boolean;
   dataAttrBack?: string;
-  footer?: ReactNode;
-  footerOmitSpacer?: boolean;
 }) {
   const navigate = usePortalNavigate();
   usePortalStickyPageChrome(pinScrollBody);
@@ -111,9 +105,6 @@ export function PortalRecordDetailPage({
       />
       </div>
       <div className={cn(bodyFill && "flex min-h-0 flex-1 flex-col")}>{body}</div>
-      {/* A footer handed in here is published into the header too (round 3:
-          no pinned bar). The prop stays so callers do not change. */}
-      {footer ? <PortalRecordActions>{footer}</PortalRecordActions> : null}
     </div>
     </PortalTitleActionsProvider>
   );

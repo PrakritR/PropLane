@@ -38,6 +38,9 @@ describe("vendor list sections", () => {
   it("gives catalog entries the same seven-section rail without fabricating private history", () => {
     const panel = read("src/components/portal/pro-vendors-panel.tsx");
     const detail = read("src/components/portal/pro-vendor-catalog-detail.tsx");
+    // "services" and "invoices" (PLAN-0921-1029, area 2) are the manager's
+    // OWN vendor kind's trimmed picker ids, added additively to this shared
+    // type — the catalog kind's own seven sections below are unchanged.
     expect(VENDOR_DETAIL_TABS).toEqual([
       "overview",
       "profile",
@@ -45,6 +48,8 @@ describe("vendor list sections", () => {
       "pricing",
       "reviews",
       "check-ins",
+      "services",
+      "invoices",
       "communication",
       "documents",
       "activity",

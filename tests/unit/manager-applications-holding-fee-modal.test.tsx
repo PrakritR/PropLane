@@ -94,7 +94,7 @@ describe("manager Applications — holding fee toggle on detail route", () => {
       },
     ];
 
-    render(<ManagerApplications bucket="pending" applicationId="AXIS-DEMOPRIYA" />);
+    render(<ManagerApplications bucket="pending" applicationId="AXIS-DEMOPRIYA" applicationDetailTab="application-form" />);
 
     expect(document.querySelector('[data-attr="application-holding-fee-toggle"]')).not.toBeNull();
     expect(document.querySelector('input[data-attr="application-holding-fee-checkbox"]')).not.toBeNull();

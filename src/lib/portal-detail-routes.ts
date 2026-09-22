@@ -522,22 +522,25 @@ export function managerTourListHref(basePath: string, bucket: ManagerTourBucketI
   return `${basePath}/tours/${bucket}`;
 }
 
-/** Tour record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
-export const TOUR_DETAIL_TABS = [
-  "overview",
-  "prospect",
-  "slot",
-  "follow-up",
-  "communication",
-  "activity",
-] as const;
+/**
+ * Tour record rail tabs (PLAN-0921-1029, area 2): trimmed to Overview ·
+ * Communication — "prospect", "slot" and "follow-up" fold into Overview's own
+ * fact cards (Prospect, Listing) instead of staying separate tabs.
+ */
+export const TOUR_DETAIL_TABS = ["overview", "communication"] as const;
 export type TourDetailTabId = (typeof TOUR_DETAIL_TABS)[number];
+
+const TOUR_DETAIL_TAB_ALIASES: Record<string, TourDetailTabId> = {
+  prospect: "overview",
+  slot: "overview",
+  "follow-up": "overview",
+};
 
 export function parseTourDetailTab(raw: string | undefined | null): TourDetailTabId {
   if (raw && (TOUR_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as TourDetailTabId;
   }
-  return "overview";
+  return (raw && TOUR_DETAIL_TAB_ALIASES[raw]) || "overview";
 }
 
 export function managerTourDetailHref(
@@ -631,23 +634,30 @@ export function vendorWorkOrderListHref(
   return `${basePath}/work-orders/${tab}`;
 }
 
-/** Vendor job (work order) record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
+/**
+ * Vendor job (work order) record rail tabs (PLAN-0921-1029, area 2): trimmed
+ * to Overview · Schedule · Invoice · Communication. "scope-photos" folds into
+ * Overview's Job fact card.
+ */
 export const VENDOR_JOB_DETAIL_TABS = [
   "overview",
-  "scope-photos",
   "schedule",
-  "bid-invoice",
+  "invoice",
   "communication",
-  "documents",
-  "activity",
 ] as const;
 export type VendorJobDetailTabId = (typeof VENDOR_JOB_DETAIL_TABS)[number];
+
+const VENDOR_JOB_DETAIL_TAB_ALIASES: Record<string, VendorJobDetailTabId> = {
+  "scope-photos": "overview",
+  "bid-invoice": "invoice",
+  documents: "overview",
+};
 
 export function parseVendorJobDetailTab(raw: string | undefined | null): VendorJobDetailTabId {
   if (raw && (VENDOR_JOB_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as VendorJobDetailTabId;
   }
-  return "overview";
+  return (raw && VENDOR_JOB_DETAIL_TAB_ALIASES[raw]) || "overview";
 }
 
 export function vendorJobDetailHref(
@@ -789,26 +799,31 @@ export function applicationListHref(basePath: string, tab: ApplicationListTabId)
  * top-level list; `"background-check"` still parses (old links, sent
  * messages, bookmarks) and resolves to `"screening"`.
  */
+/**
+ * PLAN-0921-1029, area 2: trimmed to Overview · Application form · Screening ·
+ * Communication. "applicants" and "decision" fold into Application form /
+ * Overview's own fact cards rather than staying separate tabs.
+ */
 export const APPLICATION_DETAIL_TABS = [
   "overview",
-  "applicants",
+  "application-form",
   "screening",
-  "decision",
   "communication",
-  "documents",
-  "activity",
 ] as const;
 export type ApplicationDetailTabId = (typeof APPLICATION_DETAIL_TABS)[number];
 export const DEFAULT_APPLICATION_DETAIL_TAB: ApplicationDetailTabId = "overview";
 
 export const APPLICATION_DETAIL_TAB_LABELS: Record<ApplicationDetailTabId, string> = {
   overview: "Overview",
-  applicants: "Applicants",
+  "application-form": "Application form",
   screening: "Screening",
-  decision: "Decision",
   communication: "Communication",
-  documents: "Documents",
-  activity: "Activity",
+};
+
+const APPLICATION_DETAIL_TAB_ALIASES: Record<string, ApplicationDetailTabId> = {
+  applicants: "application-form",
+  decision: "overview",
+  documents: "application-form",
 };
 
 export function parseApplicationDetailTab(raw: string | undefined | null): ApplicationDetailTabId {
@@ -817,7 +832,7 @@ export function parseApplicationDetailTab(raw: string | undefined | null): Appli
   if (raw && (APPLICATION_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ApplicationDetailTabId;
   }
-  return DEFAULT_APPLICATION_DETAIL_TAB;
+  return (raw && APPLICATION_DETAIL_TAB_ALIASES[raw]) || DEFAULT_APPLICATION_DETAIL_TAB;
 }
 
 export function applicationDetailHref(
@@ -889,12 +904,18 @@ export function residentApplicationListHref(
   return `${basePath}/applications/${bucket}`;
 }
 
+/** Resident application record rail tabs (PLAN-0921-1029, area 2, new kind): Overview · Application form · Communication. */
+export const RESIDENT_APPLICATION_DETAIL_TABS = ["overview", "application-form", "communication"] as const;
+export type ResidentApplicationDetailTabId = (typeof RESIDENT_APPLICATION_DETAIL_TABS)[number];
+
 export function residentApplicationDetailHref(
   basePath: string,
   bucket: ResidentApplicationBucketId,
   applicationId: string,
+  tab: ResidentApplicationDetailTabId = "overview",
 ): string {
-  return `${basePath}/applications/${bucket}/${encodeURIComponent(applicationId)}`;
+  const base = `${basePath}/applications/${bucket}/${encodeURIComponent(applicationId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
 }
 
 /** Manager Documents › Leasing › Applications list. */
@@ -952,13 +973,29 @@ export function residentLeaseListHref(
   return `${basePath}/lease/${bucket}`;
 }
 
+/**
+ * Resident lease record rail tabs (PLAN-0921-1029, area 2): Overview · Lease
+ * document · Payments · Communication.
+ */
+export const RESIDENT_LEASE_DETAIL_TABS = ["overview", "lease-document", "payments", "communication"] as const;
+export type ResidentLeaseDetailTabId = (typeof RESIDENT_LEASE_DETAIL_TABS)[number];
+
+export function parseResidentLeaseDetailTab(raw: string | undefined | null): ResidentLeaseDetailTabId {
+  if (raw && (RESIDENT_LEASE_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as ResidentLeaseDetailTabId;
+  }
+  return "overview";
+}
+
 /** Resident Lease section detail. */
 export function residentLeaseDetailHref(
   basePath: string,
   bucket: ResidentLeaseBucketId,
   leaseDetailId: string,
+  tab: ResidentLeaseDetailTabId = "overview",
 ): string {
-  return `${basePath}/lease/${bucket}/${encodeURIComponent(leaseDetailId)}`;
+  const base = `${basePath}/lease/${bucket}/${encodeURIComponent(leaseDetailId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
 }
 
 /** @deprecated Legacy single-segment detail URLs still resolve; prefer bucketed hrefs. */
@@ -1059,24 +1096,34 @@ export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string
   return `${basePath}/leases/${tab}`;
 }
 
-/** Lease record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
+/**
+ * Lease record rail tabs (PLAN-0921-1029, area 2): trimmed to the kept-sections
+ * table — Overview · Lease document · Payments · Communication. "terms" and
+ * "signatures" fold into the Lease document view (its fact bar + signature
+ * block); "amendments" folds into that same view's version history. Old
+ * links to any of the three still resolve — they just land on Lease document
+ * rather than 404 or silently falling back to Overview.
+ */
 export const LEASE_DETAIL_TABS = [
   "overview",
-  "terms",
-  "signatures",
-  "amendments",
+  "lease-document",
   "payments",
   "communication",
-  "documents",
-  "activity",
 ] as const;
 export type LeaseDetailTabId = (typeof LEASE_DETAIL_TABS)[number];
+
+const LEASE_DETAIL_TAB_ALIASES: Record<string, LeaseDetailTabId> = {
+  terms: "lease-document",
+  signatures: "lease-document",
+  amendments: "lease-document",
+  documents: "lease-document",
+};
 
 export function parseLeaseDetailTab(raw: string | undefined | null): LeaseDetailTabId {
   if (raw && (LEASE_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as LeaseDetailTabId;
   }
-  return "overview";
+  return (raw && LEASE_DETAIL_TAB_ALIASES[raw]) || "overview";
 }
 
 export function leaseDetailHref(
@@ -1132,12 +1179,25 @@ export function residentChargesListHref(basePath: string, bucket: PaymentBucketI
   return `${basePath}/payments/${bucket}`;
 }
 
+/** Resident payment record rail tabs (PLAN-0921-1029, area 2): Overview · Communication. */
+export const RESIDENT_PAYMENT_DETAIL_TABS = ["overview", "communication"] as const;
+export type ResidentPaymentDetailTabId = (typeof RESIDENT_PAYMENT_DETAIL_TABS)[number];
+
+export function parseResidentPaymentDetailTab(raw: string | undefined | null): ResidentPaymentDetailTabId {
+  if (raw && (RESIDENT_PAYMENT_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as ResidentPaymentDetailTabId;
+  }
+  return "overview";
+}
+
 export function residentChargeDetailHref(
   basePath: string,
   bucket: PaymentBucketId,
   chargeId: string,
+  tab: ResidentPaymentDetailTabId = "overview",
 ): string {
-  return `${basePath}/payments/${bucket}/${encodeURIComponent(chargeId)}`;
+  const base = `${basePath}/payments/${bucket}/${encodeURIComponent(chargeId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
 }
 
 /** Manager add-on service request buckets (Appendix D5). */
@@ -1162,23 +1222,34 @@ export function serviceRequestListHref(basePath: string, bucket: ServiceRequestB
  * (`ServiceRecordTabId` below). Shared by both add-on requests and work
  * orders since both route through the one Services rail.
  */
+/**
+ * PLAN-0921-1029, area 2: trimmed to Overview · Vendor & schedule · Photos ·
+ * Payments · Communication. "vendor-bids" and "schedule" merge into one
+ * "vendor-schedule" section; "invoice" folds into the Payments section
+ * (a service's invoice IS its charge).
+ */
 export const SERVICE_DETAIL_TABS = [
   "overview",
-  "vendor-bids",
-  "schedule",
-  "invoice",
+  "vendor-schedule",
+  "photos",
+  "payments",
   "communication",
-  "documents",
-  "activity",
 ] as const;
 export type ServiceDetailTabId = (typeof SERVICE_DETAIL_TABS)[number];
 export const DEFAULT_SERVICE_DETAIL_TAB: ServiceDetailTabId = "overview";
+
+const SERVICE_DETAIL_TAB_ALIASES: Record<string, ServiceDetailTabId> = {
+  "vendor-bids": "vendor-schedule",
+  schedule: "vendor-schedule",
+  invoice: "payments",
+  documents: "photos",
+};
 
 export function parseServiceDetailTab(raw: string | undefined | null): ServiceDetailTabId {
   if (raw && (SERVICE_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ServiceDetailTabId;
   }
-  return DEFAULT_SERVICE_DETAIL_TAB;
+  return (raw && SERVICE_DETAIL_TAB_ALIASES[raw]) || DEFAULT_SERVICE_DETAIL_TAB;
 }
 
 export function serviceRequestDetailHref(
@@ -1216,66 +1287,65 @@ export function workOrderDetailHref(
   return tab === DEFAULT_SERVICE_DETAIL_TAB ? path : `${path}/${tab}`;
 }
 
-/** Routed tabs shared by service, task, and inspection records. */
-export const SERVICE_RECORD_TABS = ["overview", "communication", "payments", "vendor", "resident", "documents", "activity"] as const;
+/**
+ * Routed tabs shared by task and inspection records (PLAN-0921-1029, area 2):
+ * trimmed to Overview · Rooms · Payments · Communication. "rooms" is new
+ * (inspection's room checklist, formerly the whole Overview tab); "vendor",
+ * "resident", "documents" and "activity" fold into Overview's own fact cards
+ * instead of staying separate tabs — a task has no rooms, so its own
+ * `ownGroups` simply never lists that id.
+ */
+export const SERVICE_RECORD_TABS = ["overview", "rooms", "payments", "communication"] as const;
 export type ServiceRecordTabId = (typeof SERVICE_RECORD_TABS)[number];
+
+const SERVICE_RECORD_TAB_ALIASES: Record<string, ServiceRecordTabId> = {
+  vendor: "overview",
+  resident: "overview",
+  documents: "overview",
+  activity: "overview",
+};
 
 export const SERVICE_RECORD_TAB_LABELS: Record<ServiceRecordTabId, string> = {
   overview: "Overview",
+  rooms: "Rooms",
   communication: "Communication",
   payments: "Payments",
-  vendor: "Vendor",
-  resident: "Resident",
-  documents: "Documents",
-  activity: "Activity",
 };
 
 export const SERVICE_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
   overview: "Status, assignment, next visit",
+  rooms: "Room-by-room checklist",
   communication: "Thread for this service",
   payments: "Outgoing and charges",
-  vendor: "Who is assigned",
-  resident: "Who this is for",
-  documents: "Files about this service",
-  activity: "What changed and when",
 };
 
 export const SERVICE_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
   { label: "Service", ids: ["overview", "communication"] },
   { label: "Money", ids: ["payments"] },
-  { label: "People", ids: ["vendor", "resident"] },
 ];
 
 export const TASK_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
   overview: "Status, assignment, due",
+  rooms: "Not used by tasks",
   communication: "Thread for this task",
   payments: "None yet",
-  vendor: "Who is assigned",
-  resident: "Linked resident",
-  documents: "None yet",
-  activity: "What changed and when",
 };
 
 export const TASK_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
   { label: "Task", ids: ["overview", "communication"] },
-  { label: "Money", ids: ["payments"] },
-  { label: "People", ids: ["vendor", "resident"] },
 ];
 
 export const INSPECTION_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
   overview: "Kind, status, date",
+  rooms: "Room-by-room checklist",
   communication: "Thread for this report",
   payments: "None",
-  vendor: "Assigned vendor",
-  resident: "Whose room this is",
-  documents: "Files about this report",
-  activity: "What changed and when",
 };
 
 export const INSPECTION_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
-  { label: "Inspection", ids: ["overview", "communication"] },
-  { label: "People", ids: ["resident", "vendor"] },
+  { label: "Inspection", ids: ["overview", "rooms"] },
   { label: "Money", ids: ["payments"] },
+  { label: "", ids: ["communication"] },
 ];
 
 export const PAYMENT_RECORD_TABS = ["overview", "communication", "service", "vendor", "resident", "documents", "activity"] as const;
@@ -1310,7 +1380,7 @@ export function parseServiceRecordTab(raw: string | undefined | null): ServiceRe
   if (raw && (SERVICE_RECORD_TABS as readonly string[]).includes(raw)) {
     return raw as ServiceRecordTabId;
   }
-  return "overview";
+  return (raw && SERVICE_RECORD_TAB_ALIASES[raw]) || "overview";
 }
 
 export function parsePaymentRecordTab(raw: string | undefined | null): PaymentRecordTabId {
@@ -1415,7 +1485,13 @@ export function vendorCatalogDetailHref(
 }
 
 /** Routed detail tabs for a manager vendor — same chrome as a resident. */
-export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "pricing", "reviews", "check-ins", "communication", "documents", "activity"] as const;
+/**
+ * "services" and "invoices" (PLAN-0921-1029, area 2) are the manager's OWN
+ * vendor kind's trimmed tabs; "profile", "jobs", "pricing", "reviews" and
+ * "check-ins" stay valid for the vendor CATALOG kind, which shares this same
+ * type — purely additive, so the catalog's own rail is untouched.
+ */
+export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "pricing", "reviews", "check-ins", "services", "invoices", "communication", "documents", "activity"] as const;
 export type VendorDetailTabId = (typeof VENDOR_DETAIL_TABS)[number];
 
 export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
@@ -1425,6 +1501,8 @@ export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
   pricing: "Pricing",
   reviews: "Reviews",
   "check-ins": "Check-ins",
+  services: "Services",
+  invoices: "Invoices",
   communication: "Communication",
   documents: "Documents",
   activity: "Activity",
@@ -1437,6 +1515,8 @@ export const VENDOR_DETAIL_TAB_DESCRIPTIONS: Record<VendorDetailTabId, string> =
   pricing: "Rates for this vendor",
   reviews: "Ratings from your completed services",
   "check-ins": "Scheduled questions",
+  services: "Work assigned to this vendor",
+  invoices: "Charges from this vendor",
   communication: "Messages with this vendor",
   documents: "Files about this vendor",
   activity: "What changed and when",

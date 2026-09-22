@@ -13,7 +13,7 @@ import { PortalListGroupFilterFields } from "@/components/portal/portal-list-gro
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import {
   PORTAL_DATA_TABLE_WRAP,
@@ -434,13 +434,12 @@ export function ManagerBackgroundChecks({
           dataAttrBack="background-check-detail-back"
           pinScrollBody
           scrollBody={false}
-          footerOmitSpacer
-          footer={
-            detailScreeningFooterActions ? (
-              <ResidentDocumentsDetailFooter>{detailScreeningFooterActions}</ResidentDocumentsDetailFooter>
-            ) : undefined
-          }
         >
+          {detailScreeningFooterActions ? (
+            <PortalRecordActions>
+              <ResidentDocumentsDetailFooter>{detailScreeningFooterActions}</ResidentDocumentsDetailFooter>
+            </PortalRecordActions>
+          ) : null}
           <div className="flex min-h-0 flex-1 flex-col">
             {/*
               The action dock is `position: fixed` and rendered with omitSpacer,

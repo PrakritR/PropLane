@@ -72,15 +72,13 @@ import {
   managerTaskDetailHref,
   managerTaskListHref,
   parseServiceRecordTab,
-  paymentListHref,
+  propertyDetailHref,
   serviceRequestDetailHref,
   vendorDetailHref,
-  workOrderDetailHref,
   type ManagerTaskListTabId,
 } from "@/lib/portal-detail-routes";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
-import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -173,6 +171,10 @@ export function ManagerTaskList({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, email: managerEmail, ready } = useManagerUserId();
+  // `Date.now()` cannot be called during render (react-hooks/purity) — a lazy
+  // `useState` initializer is the established pattern elsewhere in this app
+  // (portal-calendar-panels.tsx, admin-dashboard.tsx).
+  const [nowMs] = useState(() => Date.now());
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -699,62 +701,68 @@ export function ManagerTaskList({
             ariaLabel="Task sections"
             onHeaderAction={onTaskHeaderAction}
           >
-            {recordTab === "overview" ? (
-              <div className="grid gap-3 px-1 py-3 sm:grid-cols-2">
-                <div>
-                  <p className="text-sm font-semibold">Status</p>
-                  <p className="text-sm">{routeTask.completed ? "Done" : "Open"}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">Assignee</p>
-                  <p className="text-sm">{routeTask.assignee?.name || "Unassigned"}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">Property</p>
-                  <p className="text-sm">{routeTask.propertyTitle || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">Due</p>
-                  <p className="text-sm">
-                    {routeTask.start && routeTask.end
-                      ? formatRangeLabel(routeTask.start, routeTask.end)
-                      : routeTask.dueDate
-                        ? new Date(routeTask.dueDate).toLocaleDateString()
-                        : "—"}
-                  </p>
-                </div>
-              </div>
-            ) : recordTab === "payments" ? (
-              <PortalRecordRelatedPanel
-                title="Payments"
-                href={paymentListHref(basePath, "outgoing", "pending")}
-                empty="No payment on this task yet."
-              />
-            ) : recordTab === "vendor" ? (
-              <PortalRecordRelatedPanel
-                title="Vendor"
-                value={routeTask.assignee?.type === "vendor" ? routeTask.assignee.name : undefined}
-                href={
-                  routeTask.assignee?.type === "vendor"
-                    ? vendorDetailHref(basePath, routeTask.assignee.id)
-                    : undefined
-                }
-                empty="Unassigned."
-              />
-            ) : recordTab === "resident" ? (
-              <PortalRecordRelatedPanel
-                title="Resident"
-                empty="No resident on this task."
-              />
-            ) : (
-              renderRecordSection(recordTab, {
-                role: "manager",
-                kind: "task",
-                kindLabel: "task",
-                recordId: routeTask.id,
-                recordLabel: routeTask.title,
-              })
-            )}
+            {(() => {
+              const dueLabel = routeTask.start && routeTask.end
+                ? formatRangeLabel(routeTask.start, routeTask.end)
+                : routeTask.dueDate
+                  ? new Date(routeTask.dueDate).toLocaleDateString()
+                  : "—";
+              const dueSoon = !routeTask.completed && Boolean(routeTask.dueDate) && new Date(routeTask.dueDate!).getTime() - nowMs <= 3 * 24 * 60 * 60 * 1000;
+              const vendorAssignee = routeTask.assignee?.type === "vendor" ? routeTask.assignee : undefined;
+              return recordTab === "communication" ? (
+                renderRecordSection("communication", {
+                  role: "manager",
+                  kind: "task",
+                  kindLabel: "task",
+                  recordId: routeTask.id,
+                  recordLabel: routeTask.title,
+                })
+              ) : (
+                renderRecordSection("overview", {
+                  role: "manager",
+                  kind: "task",
+                  kindLabel: "task",
+                  recordId: routeTask.id,
+                  recordLabel: routeTask.title,
+                  overviewTiles: [
+                    { id: "status", label: "Status", value: routeTask.completed ? "Done" : "Open" },
+                    { id: "due", label: "Due", value: dueLabel, tone: dueSoon ? "danger" : "default" },
+                    { id: "assignee", label: "Assignee", value: routeTask.assignee?.name || "Unassigned" },
+                    { id: "priority", label: "Priority", value: routeTask.priority ? MANAGER_TASK_PRIORITY_LABELS[routeTask.priority] : "—" },
+                  ],
+                  overviewNeeds: dueSoon
+                    ? [{ id: "due", title: "Due soon", detail: dueLabel }]
+                    : [],
+                  overviewCards: [
+                    {
+                      id: "task",
+                      title: "Task",
+                      action: { label: "Property", href: routeTask.propertyId ? propertyDetailHref(basePath, "all", routeTask.propertyId, "preview") : `${basePath}/properties/all` },
+                      rows: [
+                        { label: "Property", value: routeTask.propertyTitle || "—" },
+                        { label: "Assignee", value: routeTask.assignee?.name || "Unassigned" },
+                        ...(routeTask.notes ? [{ label: "Details", value: routeTask.notes }] : []),
+                      ],
+                    },
+                    {
+                      id: "payments",
+                      title: "Payments",
+                      kind: "rows",
+                      rows: [],
+                      emptyLabel: "No charges yet",
+                    },
+                    {
+                      id: "vendor",
+                      title: "Vendor",
+                      rows: [
+                        { label: "Assigned", value: vendorAssignee ? vendorAssignee.name : "Unassigned" },
+                      ],
+                      action: vendorAssignee ? { label: "Vendor record", href: vendorDetailHref(basePath, vendorAssignee.id) } : undefined,
+                    },
+                  ],
+                })
+              );
+            })()}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
         {userId ? (

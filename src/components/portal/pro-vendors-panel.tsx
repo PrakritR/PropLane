@@ -697,10 +697,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         action.id === "add" ? { id: "open", label: "Open", icon: ArrowUpRight } : action,
       )
     : catalogSections.headerActions;
-  // The phone's sticky primary follows the same swap, so an already-added vendor
-  // offers Open there too rather than a second Add.
   const catalogChromeSections = catalogRosterMatch
-    ? { ...catalogSections, headerActions: catalogHeaderActions, phonePrimary: "open" }
+    ? { ...catalogSections, headerActions: catalogHeaderActions }
     : catalogSections;
   const onCatalogHeaderAction = (actionId: string) => {
     if (actionId === "open") {

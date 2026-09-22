@@ -123,8 +123,20 @@ import { residentBrowseFromApplicationHref } from "@/lib/resident-public-nav";
 import {
   residentApplicationDetailHref,
   residentApplicationListHref,
+  RESIDENT_APPLICATION_DETAIL_TABS,
   type ResidentApplicationBucketId,
+  type ResidentApplicationDetailTabId,
 } from "@/lib/portal-detail-routes";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+
+function parseResidentApplicationDetailTab(raw: string | undefined | null): ResidentApplicationDetailTabId {
+  if (raw && (RESIDENT_APPLICATION_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as ResidentApplicationDetailTabId;
+  }
+  return "overview";
+}
 import { buildResidentApplicationWorkspaceState } from "@/lib/rental-application/resident-application-workspace";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
@@ -258,6 +270,7 @@ export function ResidentApplicationsPanel({
   applyMode: applyModeProp = false,
   bucket: bucketProp = "pending",
   applicationId: applicationIdProp,
+  applicationDetailTab,
   basePath = RESIDENT_PORTAL_BASE_PATH,
   signedInNonResident = false,
   hasResidentRole = true,
@@ -266,6 +279,7 @@ export function ResidentApplicationsPanel({
   applyMode?: boolean;
   bucket?: ManagerApplicationBucket;
   applicationId?: string;
+  applicationDetailTab?: string;
   basePath?: string;
   /** Signed-in manager/vendor on the apply gate — server-resolved. */
   signedInNonResident?: boolean;
@@ -1331,6 +1345,11 @@ export function ResidentApplicationsPanel({
         </ManagerPortalPageShell>
       );
     }
+    const activeAppTab = parseResidentApplicationDetailTab(applicationDetailTab);
+    const appSections = recordSections("resident", "application", {
+      basePath,
+      bucket: detailRow.bucket as ResidentApplicationBucketId,
+    });
     return (
       <>
         {withdrawModal}
@@ -1376,8 +1395,57 @@ export function ResidentApplicationsPanel({
                 )
               }
             />
-          ) : (
+          ) : (editingId === detailRow.id && detailRow.bucket === "pending" && detailRow.application && !isInProgressApplicationRow(detailRow)) || isInProgressApplicationRow(detailRow) ? (
+            // Editing or still in progress — there is nothing to overview
+            // yet, so this keeps showing the editor/wizard directly, exactly
+            // as before the record-page shell (PLAN-0921-1029, area 2) existed.
             renderApplicationDetailBody(detailRow)
+          ) : (
+            <PortalRecordSectionChrome
+              sections={appSections}
+              recordId={detailRow.id}
+              activeId={activeAppTab}
+              title={stripPropertyRoomCountSuffix(detailRow.property || detailRow.name || "Application")}
+              backHref={residentApplicationListHref(basePath, detailRow.bucket as ResidentApplicationBucketId)}
+              backLabel="All applications"
+              ariaLabel="Application sections"
+            >
+              {activeAppTab === "application-form" ? (
+                renderApplicationDetailBody(detailRow)
+              ) : activeAppTab === "communication" ? (
+                renderRecordSection("communication", {
+                  role: "resident",
+                  kind: "application",
+                  kindLabel: "application",
+                  recordId: detailRow.id,
+                  recordLabel: applicantDisplayName(detailRow),
+                })
+              ) : (
+                renderRecordSection("overview", {
+                  role: "resident",
+                  kind: "application",
+                  kindLabel: "application",
+                  recordId: detailRow.id,
+                  recordLabel: applicantDisplayName(detailRow),
+                  overviewTiles: [
+                    { id: "status", label: "Status", value: detailRow.bucket === "approved" ? "Approved" : detailRow.bucket === "rejected" ? "Declined" : "Pending", tone: detailRow.bucket === "rejected" ? "danger" : "default" },
+                    { id: "home", label: "Home", value: detailRow.property || "—" },
+                  ],
+                  overviewNeeds: [],
+                  overviewCards: [
+                    {
+                      id: "application-form",
+                      title: "Application form",
+                      action: { label: "Read what you sent", href: residentApplicationDetailHref(basePath, detailRow.bucket as ResidentApplicationBucketId, detailRow.id, "application-form") },
+                      rows: [
+                        { label: "Applicant", value: applicantDisplayName(detailRow) },
+                        { label: "Email", value: detailRow.email || "—" },
+                      ],
+                    },
+                  ],
+                })
+              )}
+            </PortalRecordSectionChrome>
           )}
         </PortalRecordDetailPage>
       </>

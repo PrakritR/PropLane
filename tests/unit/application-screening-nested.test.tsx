@@ -91,19 +91,16 @@ afterEach(() => {
 });
 
 describe("application detail tabs", () => {
-  it("the rail has Overview, Applicants, Screening, Decision plus the shared trio", async () => {
+  it("the rail has the registry's trimmed sections (PLAN-0921-1029): Overview, Application form, Screening, Communication", async () => {
     ROWS = [ROW];
     render(<ManagerApplications bucket="pending" applicationId="AXIS-9001" />);
     const rail = await screen.findByRole("navigation", { name: "Application sections" });
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual([
       "Overview",
-      "Applicants",
+      "Application form",
       "Screening",
-      "Decision",
       "Communication",
-      "Documents",
-      "Activity",
     ]);
   });
 

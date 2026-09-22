@@ -408,7 +408,8 @@ export async function renderPortalSection(
     if (!tabParts?.length) {
       redirect(`${def.basePath}/applications/pending`);
     }
-    if (tabParts.length > 2) notFound();
+    // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
+    if (tabParts.length > 3) notFound();
     const tabRaw = tabParts[0]!;
     const applicationBucket = RESIDENT_APP_BUCKETS.includes(
       tabRaw as (typeof RESIDENT_APP_BUCKETS)[number],
@@ -424,11 +425,13 @@ export async function renderPortalSection(
       );
     }
     const applicationId = decodeURIComponent(tabParts[1]!);
+    const applicationDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;
     return (
       <ResidentApplicationsPanel
         bucket={applicationBucket}
         basePath={def.basePath}
         applicationId={applicationId}
+        applicationDetailTab={applicationDetailTab}
       />
     );
   }
@@ -1367,7 +1370,8 @@ export async function renderPortalSection(
           : "pending";
       redirect(`${def.basePath}/payments/${bucket}`);
     }
-    if (tabParts.length > 2) notFound();
+    // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
+    if (tabParts.length > 3) notFound();
     const tabRaw = tabParts[0]!;
     const paymentBucket = PAY_BUCKETS.includes(tabRaw as (typeof PAY_BUCKETS)[number])
       ? (tabRaw as (typeof PAY_BUCKETS)[number])
@@ -1376,11 +1380,13 @@ export async function renderPortalSection(
       redirect(`${def.basePath}/payments/${paymentBucket}`);
     }
     const chargeId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+    const chargeDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;
     return (
       <ResidentPaymentsPanel
         bucket={paymentBucket}
         basePath={def.basePath}
         chargeId={chargeId}
+        chargeDetailTab={chargeDetailTab}
       />
     );
   }
@@ -1427,7 +1433,8 @@ export async function renderPortalSection(
     if (!tabParts?.length) {
       redirect(`${def.basePath}/lease/pending`);
     }
-    if (tabParts.length > 2) notFound();
+    // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
+    if (tabParts.length > 3) notFound();
     const tabRaw = tabParts[0]!;
     const leaseBucket = LEASE_BUCKETS.includes(tabRaw as (typeof LEASE_BUCKETS)[number])
       ? (tabRaw as (typeof LEASE_BUCKETS)[number])
@@ -1440,11 +1447,13 @@ export async function renderPortalSection(
       return <ResidentLeasePanel basePath={def.basePath} bucket={leaseBucket} />;
     }
     const leaseDetailId = decodeURIComponent(tabParts[1]!);
+    const leaseDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;
     return (
       <ResidentLeasePanel
         basePath={def.basePath}
         bucket={leaseBucket}
         leaseDetailId={leaseDetailId}
+        leaseDetailTab={leaseDetailTab}
       />
     );
   }

@@ -299,8 +299,12 @@ describe("resident portal redesign completeness", () => {
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const lease = readPanel("resident-lease-panel.tsx");
-      expect(lease).toContain("leaseDetailFooter");
-      expect(lease).toContain("ResidentDocumentsDetailFooter");
+      // PLAN-0921-1029: the record page has no footer at all — this content
+      // publishes straight into the header's icon slot via PortalRecordActions.
+      expect(lease).toContain("leaseDetailActions");
+      expect(lease).toContain("<PortalRecordActions>");
+      expect(lease).not.toContain("ResidentDocumentsDetailFooter");
+      expect(lease).not.toContain("footer={");
       expect(lease).not.toContain("Request edits");
       expect(lease).not.toContain("resident-lease-request-edits");
       expect(lease).not.toContain("PortalPageHeaderMobileActionsRow");

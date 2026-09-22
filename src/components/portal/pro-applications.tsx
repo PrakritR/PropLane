@@ -2,7 +2,7 @@
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/fi
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -33,8 +33,6 @@ import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
-  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
-  ResidentDocumentsDetailFooter,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
@@ -632,6 +630,8 @@ export function ManagerApplications({
   const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
+  /** Icon-only Download/Run/Re-run screening actions, published into the record header while the Screening tab is open (docs/agents/record-page.md § Known gap). */
+  const [screeningHeaderActions, setScreeningHeaderActions] = useState<ReactNode>(null);
   useEffect(() => {
     if (!authReady) return;
     const sync = () => setRows(readManagerApplicationRows());
@@ -1905,13 +1905,12 @@ export function ManagerApplications({
             dataAttrBack="application-detail-back"
             pinScrollBody
             scrollBody={false}
-            footerOmitSpacer
-            footer={(() => {
-              const actions = renderCosignerDetailActions(detailRow, activeCosignerSubmission);
-              if (!actions) return undefined;
-              return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
-            })()}
           >
+            {(() => {
+              const actions = renderCosignerDetailActions(detailRow, activeCosignerSubmission);
+              if (!actions) return null;
+              return <PortalRecordActions>{actions}</PortalRecordActions>;
+            })()}
             <div className="flex min-h-0 flex-1 flex-col">
               <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]">
                 <ManagerCosignerReadonlyReview
@@ -1951,19 +1950,8 @@ export function ManagerApplications({
       }
     };
     const ownContent =
-      activeTab === "applicants" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="application-applicants-facts">
-          <ApplicationFact label="Applicant" value={applicantDisplayName(detailRow)} />
-          <ApplicationFact label="Email" value={detailRow.email ?? ""} />
-          <ApplicationFact label="Phone" value={detailRow.application?.phone ?? ""} />
-          <ApplicationFact label="Property" value={detailRow.property ?? ""} />
-          {detailRow.application?.hasCosigner === "yes" ? (
-            <ApplicationFact
-              label="Co-signer"
-              value={detailCosignerSubmissions[0]?.fullName || "Invited, not yet submitted"}
-            />
-          ) : null}
-        </div>
+      activeTab === "application-form" ? (
+        renderApplicationDetail(detailRow)
       ) : activeTab === "screening" ? (
         applicationShowsBackgroundCheck(detailRow) ? (
           <ApplicationScreeningPanel
@@ -1973,6 +1961,7 @@ export function ManagerApplications({
             bareCanvas
             headerActionsPlacement="parent"
             compactTabFooterActions
+            onHeaderActionsChange={setScreeningHeaderActions}
             onUpdated={handleScreeningFlowComplete}
             onOpenScreeningModal={(opts) =>
               openDetailScreeningModal(detailRow, { ...opts, cosignerSubmissionId: activeScreeningCosignerId })
@@ -1991,13 +1980,8 @@ export function ManagerApplications({
             />
           </div>
         )
-      ) : activeTab === "decision" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="application-decision-facts">
-          <ApplicationFact label="Status" value={applicationDecisionStatusLabel(detailRow)} />
-          <ApplicationFact label="Property" value={detailRow.property ?? ""} />
-        </div>
-      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
-        renderRecordSection(activeTab, {
+      ) : activeTab === "communication" ? (
+        renderRecordSection("communication", {
           role: "manager",
           kind: "application",
           kindLabel: "application",
@@ -2007,7 +1991,43 @@ export function ManagerApplications({
           contactIds: detailRow.email ? [detailRow.email] : undefined,
         })
       ) : (
-        renderApplicationDetail(detailRow)
+        renderRecordSection("overview", {
+          role: "manager",
+          kind: "application",
+          kindLabel: "application",
+          recordId: detailRow.id,
+          recordLabel: applicantDisplayName(detailRow),
+          overviewTiles: [
+            { id: "status", label: "Status", value: applicationDecisionStatusLabel(detailRow), tone: detailRow.bucket === "pending" ? "danger" : "default", detail: detailRow.bucket === "pending" ? "Decision needed" : undefined },
+            { id: "income", label: "Income", value: detailRow.application?.monthlyIncome ? `$${detailRow.application.monthlyIncome}` : "—", detail: "per month" },
+            { id: "property", label: "Property", value: detailRow.property ?? "—" },
+            { id: "phone", label: "Phone", value: detailRow.application?.phone ?? "—" },
+          ],
+          overviewNeeds: [
+            ...(detailRow.bucket === "pending" ? [{ id: "decision", title: "Decision pending", detail: "Awaiting your review" }] : []),
+          ],
+          overviewCards: [
+            {
+              id: "application-form",
+              title: "Application form",
+              action: { label: "Read the application", href: applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id, "application-form") },
+              rows: [
+                { label: "Applicant", value: applicantDisplayName(detailRow) },
+                { label: "Email", value: detailRow.email ?? "—" },
+                { label: "Phone", value: detailRow.application?.phone ?? "—" },
+                ...(detailRow.application?.hasCosigner === "yes" ? [{ label: "Co-signer", value: detailCosignerSubmissions[0]?.fullName || "Invited, not yet submitted" }] : []),
+              ],
+            },
+            {
+              id: "housing",
+              title: "Housing",
+              rows: [
+                { label: "Property", value: detailRow.property ?? "—" },
+                { label: "Status", value: applicationDecisionStatusLabel(detailRow) },
+              ],
+            },
+          ],
+        })
       );
 
     return (
@@ -2025,21 +2045,21 @@ export function ManagerApplications({
           dataAttrBack="application-detail-back"
           pinScrollBody
           scrollBody={false}
-          footerOmitSpacer
-          footer={(() => {
-            const actions = renderApplicationRowActions(detailRow);
-            if (!actions) return undefined;
-            return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
-          })()}
         >
           {/*
-            No second `PortalRecordActions` here: the footer below already
-            publishes into this same title-row icon slot (`iconTitleActions`),
-            and the slot holds only ONE publisher — a second one would
-            silently overwrite it (docs/agents/record-page.md). Approve /
-            Reject already live there; `onHeaderAction` below still drives the
-            rail's own phone sticky action independently.
+            Only ONE publisher into this title-row icon slot at a time
+            (docs/agents/record-page.md) — Approve / Reject / Download / Delete
+            live here; `onHeaderAction` below still drives the rail's own
+            phone sticky action independently.
           */}
+          {(() => {
+            if (activeTab === "screening" && screeningHeaderActions) {
+              return <PortalRecordActions>{screeningHeaderActions}</PortalRecordActions>;
+            }
+            const actions = renderApplicationRowActions(detailRow);
+            if (!actions) return null;
+            return <PortalRecordActions>{actions}</PortalRecordActions>;
+          })()}
           <div className="flex min-h-0 flex-1 flex-col">
             {/*
               The action dock (Share / Approve / Reject / Holding fee /

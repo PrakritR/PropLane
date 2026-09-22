@@ -32,7 +32,6 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
-import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
@@ -116,15 +115,6 @@ const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
  * never a bare glyph.
  */
 const TOUR_DETAIL_ICON_BTN = "h-10 min-h-10 w-10 rounded-full px-0";
-
-function TourFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
-      <span className="text-[13px] font-medium">{label}</span>
-      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
-    </div>
-  );
-}
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
@@ -1654,41 +1644,12 @@ export function ManagerTours({
         showToast("Coming soon");
       }
     };
+    const sourceLabel =
+      detailRow.source === "inquiry" ? "Inquiry" : detailRow.source === "proposal" ? "Proposed" : "Planned";
+    const needsConfirm = isPendingInquiry(detailRow) || isPendingProposal(detailRow);
     const ownContent =
-      activeTab === "prospect" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="tour-prospect-facts">
-          <TourFact label="Guest" value={detailRow.guestName} />
-          <TourFact label="Email" value={detailRow.guestEmail} />
-          <TourFact label="Phone" value={detailRow.guestPhone} />
-          <TourFact
-            label="Source"
-            value={
-              detailRow.source === "inquiry" ? "Inquiry" : detailRow.source === "proposal" ? "Proposed" : "Planned"
-            }
-          />
-        </div>
-      ) : activeTab === "slot" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="tour-slot-facts">
-          <TourFact label="Property" value={detailRow.propertyTitle} />
-          <TourFact label="Room" value={detailRow.roomLabel ?? ""} />
-          <TourFact label="When" value={detailRow.whenLabel} />
-          <TourFact label="Format" value={tourFormatLabel(detailRow.tourFormat)} />
-          <TourFact label="Status" value={detailRow.statusLabel} />
-        </div>
-      ) : activeTab === "follow-up" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="tour-follow-up-facts">
-          {detailRow.notes ? (
-            <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground/90">{detailRow.notes}</p>
-          ) : (
-            <PortalListEmptyCard
-              title="No follow-up notes yet"
-              workspaceAware={false}
-              dataAttr="tour-follow-up-empty"
-            />
-          )}
-        </div>
-      ) : activeTab === "communication" || activeTab === "activity" ? (
-        renderRecordSection(activeTab, {
+      activeTab === "communication" ? (
+        renderRecordSection("communication", {
           role: "manager",
           kind: "tour",
           kindLabel: "tour",
@@ -1699,6 +1660,43 @@ export function ManagerTours({
         })
       ) : (
         <>
+          {renderRecordSection("overview", {
+            role: "manager",
+            kind: "tour",
+            kindLabel: "tour",
+            recordId: detailRow.id,
+            recordLabel: detailRow.guestName,
+            overviewTiles: [
+              { id: "when", label: "When", value: detailRow.whenLabel },
+              { id: "status", label: "Status", value: detailRow.statusLabel, detail: needsConfirm ? "Needs confirm" : undefined, tone: needsConfirm ? "danger" : "default" },
+              { id: "prospect", label: "Prospect", value: sourceLabel },
+              { id: "room", label: "Room", value: detailRow.roomLabel || detailRow.propertyTitle },
+            ],
+            overviewNeeds: needsConfirm
+              ? [{ id: "confirm", title: "Confirm the tour", detail: detailRow.whenLabel, onClick: () => onHeaderAction("confirm") }]
+              : [],
+            overviewCards: [
+              {
+                id: "prospect",
+                title: "Prospect",
+                rows: [
+                  { label: "Name", value: detailRow.guestName },
+                  { label: "Email", value: detailRow.guestEmail || "—" },
+                  { label: "Phone", value: detailRow.guestPhone || "—" },
+                  { label: "Source", value: sourceLabel },
+                ],
+              },
+              {
+                id: "listing",
+                title: "Listing",
+                rows: [
+                  { label: "Property", value: detailRow.propertyTitle },
+                  { label: "Room", value: detailRow.roomLabel || "—" },
+                  { label: "Format", value: tourFormatLabel(detailRow.tourFormat) },
+                ],
+              },
+            ],
+          })}
           {renderDetailPanel(detailRow)}
           {detailActions ? (
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3 sm:px-4" data-attr="tour-overview-actions">

@@ -56,9 +56,18 @@ export function PortalRecordListSurface({
   isEmpty = false,
   className,
   dataAttr, loading = false, loadError, onRetry,
+  listControls,
 }: {
   /** The record rows. Rendered as-is so each tab keeps its own row variant. */
   children?: ReactNode;
+  /**
+   * The list's Group/Sort menus (`PortalListControls`) — only a list that
+   * declares group/sort options passes this; every other list keeps today's
+   * flat rendering exactly as it was. The surface itself never groups rows:
+   * the caller groups its own typed rows with `list-grouping.ts` and wraps
+   * them in `PortalListGroup` before handing them to `children`.
+   */
+  listControls?: ReactNode;
   /**
    * The dashed ADD row. It renders only while the list is EMPTY — a populated
    * list adds from the page head, and the dashed box under twenty rows was a
@@ -141,6 +150,11 @@ export function PortalRecordListSurface({
       <PortalRecordShareHost>
       <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}` } : null}>
       <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr}>
+        {listControls ? (
+          <div className="mb-3 flex items-center justify-end" data-attr="portal-list-controls-row">
+            {listControls}
+          </div>
+        ) : null}
         {loading ? <div role="status" aria-label="Loading records" className="space-y-3 rounded-2xl border border-border bg-card p-5">
           <span className="sr-only">Loading records…</span>
           {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-accent/50 motion-reduce:animate-none" />)}
