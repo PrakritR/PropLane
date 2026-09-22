@@ -8,8 +8,10 @@ import {
   CalendarPlus,
   Copy,
   Phone,
+  RefreshCw,
   Search,
-  Settings, Settings2,
+  Settings,
+  Settings2,
   Share2,
   SlidersHorizontal,
   Wrench,
@@ -42,6 +44,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Wrench, // Payment setup
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
+  RefreshCw, // Update from sheet (Bookings band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
