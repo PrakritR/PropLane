@@ -1081,6 +1081,7 @@ function RoomCardBody({
   const amenities = room.roomAmenitiesText || "";
   const size = room.sizeSqft ?? 0;
   const floorOptions = floorLevelSelectOptions(storiesId, room.floor).map((l) => ({ value: l, label: l }));
+  const floorShown = (room.floor ?? "").trim() || floorOptions[0]?.value || "";
   const writeFurnishing = (next: string) => onRoom({ furnishing: next });
   const writeBeds = (next: ManagerRoomBed[]) => onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
   const help = (title: string, text: string) => (
@@ -1112,7 +1113,7 @@ function RoomCardBody({
         </FactRow>
       )}
       <FactRow label={help("Floor", ROOM_HELP.floor)}>
-        <RowSelectCell ariaLabel={`Floor for ${who}`} value={room.floor} options={floorOptions} placeholder="Floor…" onChange={(v) => onRoom({ floor: v })} />
+        <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floorOptions} placeholder="Floor…" onChange={(v) => onRoom({ floor: v })} />
       </FactRow>
 
       <MoreRows dataAttr="listing-v2-room-more">
@@ -1221,6 +1222,7 @@ function StepRooms({
   const baths = sub.bathrooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const noun = wholePlace ? "bedroom" : "room";
+  const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
 
   const writeRooms = (next: ManagerRoomSubmission[]) => {
     const prevIds = rooms.map((room) => room.id);
@@ -1309,11 +1311,12 @@ function StepRooms({
     const furnishing = room.furnishing || "";
     const beds = room.beds ?? [];
     const bedText = isFurnished(furnishing) && beds.length > 0 ? bedsLine(beds).toLowerCase() : "";
+    const floorShown = room.floor || groundFloor || "Floor not set";
     const parts = wholePlace
-      ? [room.floor || "Floor not set", furnishingSummary(furnishing), bedText]
+      ? [floorShown, furnishingSummary(furnishing), bedText]
       : [
           `${residents} ${residents === 1 ? "resident" : "residents"}`,
-          room.floor || "Floor not set",
+          floorShown,
           accessLabel(accessForRoom(room.id))?.toLowerCase() ? `${accessLabel(accessForRoom(room.id))!.toLowerCase()} bath` : "",
           furnishingSummary(furnishing),
           bedText,

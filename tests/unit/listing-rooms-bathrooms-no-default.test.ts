@@ -194,6 +194,24 @@ describe("Same as Room X — live", () => {
   });
 });
 
+describe("a new room's floor — live", () => {
+  it("shows the listing's ground floor on the card without writing one", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("rooms", seededRooms(), (s) => seen.push(s));
+    fireEvent.click(screen.getByRole("button", { name: "Add room" }));
+
+    const added = seen.at(-1)!.rooms.at(-1)!;
+    expect(added.floor).toBe("");
+
+    const trigger = screen.getByRole("button", { name: "Floor for Room 3" });
+    fireEvent.click(trigger);
+    const options = [...document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelectorAll("[data-field-select-option-value]")];
+    const groundFloor = options[0]!.getAttribute("data-field-select-option-value")!;
+    expect(trigger.textContent).toContain(groundFloor);
+    expect(seen.at(-1)!.rooms.at(-1)!.floor).toBe("");
+  });
+});
+
 describe("Same as Bathroom X — live", () => {
   it("picking Same as Bathroom 1 on Bathroom 2 fills its floor, type and finishes, and leaves Who uses it untouched", () => {
     const seen: ManagerListingSubmissionV1[] = [];

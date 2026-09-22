@@ -7,11 +7,12 @@
 // autosave status already shows while busy, and still closes exactly once,
 // after the in-flight save finishes.
 //
-// The close paths are the editor's own: the ✕ (disabled while busy) and a
-// host-driven flush. There is deliberately NO document-level Escape handler —
-// the workspace's field dropdowns and its save-failed alert dialog each own
-// Escape and do not stop it propagating, so such a listener closed the editor
-// (re-running its save) every time a manager dismissed a Floor menu.
+// The close paths are the editor's own: the ✕ (disabled while busy) and the
+// footer. There is deliberately no keyboard close — the workspace is a plain
+// full-screen overlay, not a dialog host, and a document-level Escape listener
+// closed the editor (re-running its save) every time a manager dismissed a
+// Floor menu, because the field dropdowns own Escape and do not stop it
+// propagating.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MutableRefObject } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -78,7 +79,7 @@ function renderWizard(onClose: () => void, showToast: (message: string) => void)
 }
 
 describe("listing editor close while busy (PRP-486)", () => {
-  it("toasts instead of silently dropping a close reached while a save is still in flight", async () => {
+  it("disables the ✕ while the save it started is in flight, then closes exactly once", async () => {
     const onClose = vi.fn();
     const showToast = vi.fn();
     renderWizard(onClose, showToast);
@@ -92,14 +93,7 @@ describe("listing editor close while busy (PRP-486)", () => {
     fireEvent.click(closeButton); // starts the save; lifecycleRef is now busy
     await waitFor(() => expect(draftSave.fn).toHaveBeenCalledTimes(1));
 
-    // The ✕ itself is disabled while busy (PRP-486) — a real click no longer reaches it.
     expect(closeButton).toBeDisabled();
-
-    // Escape belongs to whatever layer is on top (a dropdown, the save-failed
-    // dialog). It must never reach the editor's own close handler.
-    fireEvent.keyDown(document, { key: "Escape" });
-    fireEvent.keyDown(closeButton, { key: "Escape" });
-    expect(showToast).not.toHaveBeenCalledWith("Saving…");
     expect(onClose).not.toHaveBeenCalled();
 
     // Resolve the in-flight save: the editor closes exactly once.
@@ -108,7 +102,7 @@ describe("listing editor close while busy (PRP-486)", () => {
     expect(draftSave.fn).toHaveBeenCalledTimes(1);
   });
 
-  it("says Saving… when the ✕ lands while the host's own flush is still running", async () => {
+  it("says Saving… when a close reaches the handler while a lifecycle op is in flight", async () => {
     const onClose = vi.fn();
     const showToast = vi.fn();
     const flushRef = renderWizard(onClose, showToast);

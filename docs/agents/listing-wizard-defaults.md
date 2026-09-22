@@ -63,7 +63,9 @@ listing and the lease read exactly what the card shows.
   move-in checklists, move-in instructions, entry photos and arrival clip
   behind More ▾. Adding a room makes the same blank the Basics bedroom count
   makes (`emptyRoom`) with one resident and no name — no seeding from another
-  room.
+  room. Like a bathroom, a blank card SHOWS the listing's ground floor
+  (`floorLevelSelectOptions(listingStoriesId, "")[0]`) on its Floor row and in
+  its summary line, and writes one only when the manager picks.
 - **Bathrooms**: Floor, Type and Finishes on the card; Who uses it (unless
   whole-place or no rooms yet); Description, Photos and Video behind More ▾.
   Adding a bathroom — and every card the Basics bathroom count makes — is a

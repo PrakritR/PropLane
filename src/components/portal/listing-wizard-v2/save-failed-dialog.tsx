@@ -30,6 +30,15 @@
  *    before anything writes — so there is no destructive "leave" choice and
  *    no trash icon (PLAN-0921-1648).
  *
+ * Upgrade plan and Manage drafts both point INSIDE the portal, so neither is a
+ * `target="_blank"`: the native shell hands a new-tab link to the system
+ * browser, which carries no portal session (`AGENTS.md` § Web + native). On the
+ * website they open a second tab when the browser allows one — the editor and
+ * its unsaved listing stay mounted, which is what the "Kept while this window
+ * stays open" row promises. Everywhere else (native, or a blocked pop-up) the
+ * navigation would unmount the editor and discard that listing, so it goes
+ * through the standard "Leave without saving?" confirm first.
+ *
  * Built on the Radix Dialog primitive this app already uses for its modals (the
  * same one `ui/modal.tsx` wraps and `import-upload-step` opens directly), with
  * `role="alertdialog"` and focus trapped. It portals above the listing editor's
@@ -39,21 +48,33 @@
  * autofocus hook, all load-bearing for a data-loss-prevention confirm.
  */
 
-import { useRef } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
 import { ArrowUpCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmRows } from "@/components/portal/portal-dialog";
+import { ConfirmRows, PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 import type { PropertyRecordLimitInfo } from "@/lib/demo-property-pipeline";
+import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { WORKSPACE_PROPERTY_LIMIT } from "@/lib/workspaces/types";
 
 /** This editor is manager-only; the Properties list always lives here. */
 const MANAGER_PORTAL_BASE = "/portal";
+
+/**
+ * A second tab, and only when the browser really gave us one. Never in the
+ * native shell: there `_blank` leaves the WebView for the system browser, which
+ * has no portal session and shows a login wall instead of the plan page.
+ */
+function openInSecondTab(href: string): boolean {
+  if (typeof window === "undefined" || isNativeRuntimeSync()) return false;
+  if (typeof window.open !== "function") return false;
+  return Boolean(window.open(href, "_blank", "noopener,noreferrer"));
+}
 
 export function ListingSaveFailedDialog({
   open,
@@ -83,9 +104,23 @@ export function ListingSaveFailedDialog({
   const isPlanLimit = kind === "plan_limit";
   const limit = limitInfo?.limit ?? WORKSPACE_PROPERTY_LIMIT;
   const current = limitInfo?.current ?? limit;
+  const [leaveTo, setLeaveTo] = useState<{ href: string; label: string } | null>(null);
+
+  const goTo = (href: string, label: string) => (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (openInSecondTab(href)) return;
+    setLeaveTo({ href, label });
+  };
+  const leaveNow = () => {
+    const href = leaveTo?.href;
+    setLeaveTo(null);
+    if (href) window.location.assign(href);
+  };
+
   return (
+    <>
     <Dialog.Root
-      open={open}
+      open={open && leaveTo === null}
       onOpenChange={(next) => {
         if (!next) onKeepEditing();
       }}
@@ -137,7 +172,7 @@ export function ListingSaveFailedDialog({
                     ...(limitInfo?.draftCount != null
                       ? [{ label: "Includes drafts", value: `${limitInfo.draftCount} drafts` }]
                       : []),
-                    { label: "Your work", value: "Kept in this window" },
+                    { label: "Your work", value: "Kept while this window stays open" },
                   ]}
                 />
               </div>
@@ -160,17 +195,10 @@ export function ListingSaveFailedDialog({
                 >
                   Keep editing
                 </Button>
-                {/*
-                  * Both open in a NEW tab. The editor is still mounted behind
-                  * this dialog holding the listing that could not be saved, so
-                  * navigating this tab away would discard exactly the work the
-                  * "Kept in this window" row promises is safe.
-                  */}
                 <Button asChild variant="secondary" className="rounded-full">
                   <Link
                     href={propertyListHref(MANAGER_PORTAL_BASE, "drafts")}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    onClick={goTo(propertyListHref(MANAGER_PORTAL_BASE, "drafts"), "Drafts")}
                     data-attr="listing-save-limit-manage-drafts"
                   >
                     Manage drafts
@@ -179,8 +207,7 @@ export function ListingSaveFailedDialog({
                 <Button asChild variant="primary" className="rounded-full">
                   <Link
                     href={MANAGER_PLAN_PORTAL_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    onClick={goTo(MANAGER_PLAN_PORTAL_URL, "Your plan")}
                     data-attr="listing-save-limit-upgrade"
                   >
                     Upgrade plan
@@ -212,5 +239,22 @@ export function ListingSaveFailedDialog({
         </div>
       </Dialog.Portal>
     </Dialog.Root>
+    <PortalDialog
+      open={leaveTo !== null}
+      onClose={() => setLeaveTo(null)}
+      title="Leave without saving?"
+      tone="danger"
+      dataAttr="listing-save-limit-leave-confirm"
+      primaryAction={{ label: "Leave", onClick: leaveNow, dataAttr: "listing-save-limit-leave" }}
+      secondaryAction={{ label: "Stay", onClick: () => setLeaveTo(null), dataAttr: "listing-save-limit-stay" }}
+    >
+      <ConfirmRows
+        rows={[
+          { label: "Going to", value: leaveTo?.label ?? "" },
+          { label: "This listing", value: "Not saved — it is discarded" },
+        ]}
+      />
+    </PortalDialog>
+    </>
   );
 }
