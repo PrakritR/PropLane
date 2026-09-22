@@ -40,6 +40,7 @@ import { ListingStickySubnav } from "@/components/marketing/listing-detail-subna
 import { getListingRichContent } from "@/data/listing-rich-content";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
+import { ListingPublishedDialog } from "@/components/portal/listing-wizard-v2/listing-published-dialog";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
@@ -456,6 +457,13 @@ function ManagerPropertyInlineDetails({
   const displaySub = portalSub?.sub ?? null;
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
+  /**
+   * Draft → live publish reports back an id — hold it (and the display name
+   * captured at that instant, before `onUpdated()` can move the row out of
+   * this stage's bucket and blank `row`) for the confirmation dialog instead
+   * of navigating immediately (PRP-496).
+   */
+  const [publishedListing, setPublishedListing] = useState<{ id: string; name: string } | null>(null);
   const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
   const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
@@ -676,19 +684,19 @@ function ManagerPropertyInlineDetails({
           onClose: () => setDraftEditorOpen(false),
           onPublished: (listingId?: string) => {
             setDraftEditorOpen(false);
-            showToast("Listing submitted and published.");
             onUpdated();
             // This detail page IS the draft's URL, and publishing moves the row
             // out of the Drafts bucket — staying put rendered "Property not
-            // found." as the reward for finishing the wizard. Follow the record
-            // to its Listed URL instead; the id is unchanged by publishing
-            // (draft → live is the same record), so the link is stable (PRP-429).
+            // found." as the reward for finishing the wizard. The id is
+            // unchanged by publishing (draft → live is the same record), so the
+            // confirmation dialog's "View listing" can still follow it to a
+            // stable Listed URL (PRP-429) — the manager picks that instead of
+            // being pushed there immediately (PRP-496).
             const published = listingId?.trim();
             if (published) {
-              detailRouter.replace(
-                propertyDetailHref(propertiesBase, "listed", published, "preview"),
-                { scroll: false },
-              );
+              setPublishedListing({ id: published, name: propertyShareLabel });
+            } else {
+              showToast("Listing submitted and published.");
             }
           },
           onSaved: () => onUpdated(),
@@ -1383,6 +1391,29 @@ function ManagerPropertyInlineDetails({
       {draftEditorOpen && !draftFormProps ? (
         <ListingEditorLoadingModal onClose={() => setDraftEditorOpen(false)} />
       ) : null}
+
+      <ListingPublishedDialog
+        open={publishedListing !== null}
+        name={publishedListing?.name ?? "Listing"}
+        listingId={publishedListing?.id ?? ""}
+        onViewListing={() => {
+          const id = publishedListing?.id;
+          setPublishedListing(null);
+          if (id) {
+            detailRouter.replace(propertyDetailHref(propertiesBase, "listed", id, "preview"), { scroll: false });
+          }
+        }}
+        onBackToProperties={() => {
+          setPublishedListing(null);
+          detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
+        }}
+        onShare={() => {
+          const id = publishedListing?.id;
+          setPublishedListing(null);
+          if (id) onSendToProspect?.(id);
+        }}
+        showToast={showToast}
+      />
 
       {destructiveModalCopy ? (
         <ConfirmDeleteModal

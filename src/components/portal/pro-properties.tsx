@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
+import { ListingPublishedDialog } from "@/components/portal/listing-wizard-v2/listing-published-dialog";
 import {
   ManagerHousePropertiesPanel,
   MANAGER_STAGES,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/demo/demo-playback";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
+import { propertyRowTitle } from "@/lib/property-row-summary";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { resolveAddPropertyWorkspaceAction } from "@/lib/workspaces/add-property-gate";
 import {
@@ -178,6 +180,8 @@ export function ManagerProperties({
   }, []);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
+  /** Set the moment publish reports back an id — the confirmation dialog replaces the old immediate navigation (PRP-496). */
+  const [publishedDialog, setPublishedDialog] = useState<{ listingId: string; name: string } | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
@@ -720,14 +724,22 @@ export function ManagerProperties({
             onPublished={(listingId) => {
               setWizardOpen(false);
               setResumeDraftId(null);
-              showToast("Listing submitted and published.");
-              // Identical to the previous wizard's path — open the listing the
-              // manager just made rather than leaving them on a stage that no
-              // longer holds the row (PRP-429).
+              const id = listingId?.trim();
+              // The manager picks where to go next from the confirmation dialog
+              // (View listing / Share / Back to properties) instead of being
+              // pushed straight to the listing detail route (PRP-496). Refresh
+              // first so the row the dialog names for id actually exists in the
+              // local mirror; a stage that no longer holds the row is why the
+              // wizard used to navigate the manager there at all (PRP-429).
               void refreshPending().then(() => {
-                const id = listingId?.trim();
-                if (!id) return;
-                router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
+                if (!id) {
+                  showToast("Listing submitted and published.");
+                  return;
+                }
+                const row = readAdminPropertyRows(2, scopeUserId).find(
+                  (r) => r.listingId === id || r.adminRefId === id,
+                );
+                setPublishedDialog({ listingId: id, name: row ? propertyRowTitle(row) : "Listing" });
               });
             }}
             initialSubmission={resumeDraftRow?.submission ?? null}
@@ -746,6 +758,23 @@ export function ManagerProperties({
         properties={shareableProperties}
         preselectedPropertyId={shareListingPropertyId}
         preselectedPropertyIds={shareListingPropertyIds}
+      />
+      <ListingPublishedDialog
+        open={publishedDialog !== null}
+        name={publishedDialog?.name ?? "Listing"}
+        listingId={publishedDialog?.listingId ?? ""}
+        onViewListing={() => {
+          const id = publishedDialog?.listingId;
+          setPublishedDialog(null);
+          if (id) router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
+        }}
+        onBackToProperties={() => setPublishedDialog(null)}
+        onShare={() => {
+          const id = publishedDialog?.listingId;
+          setPublishedDialog(null);
+          if (id) openShareListing(id);
+        }}
+        showToast={showToast}
       />
       <PortalDialog
         open={planLimitDialogOpen}
