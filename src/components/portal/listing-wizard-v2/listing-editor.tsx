@@ -3042,6 +3042,7 @@ export function ListingEditorV2({
   return (
     <ListingWorkspace
       title={title}
+      closeDisabled={busy}
       subtitle={[submission.address, submission.city, submission.state].filter(Boolean).join(", ") || undefined}
       badge={
         isEdit ? (
