@@ -108,6 +108,11 @@ export async function queryProfitability(
   const emptyScope = scopedPropertyIds !== null && scopedPropertyIds.length === 0;
   const workspaceNarrowing = (filters.workspacePropertyIds ?? null) !== null;
 
+  // An empty scope means the workspace holds no houses — never "no filter".
+  // Skip the ledger/expense reads entirely (same as the vendor-payout read
+  // below) rather than fetching the unfiltered account and relying on
+  // `emptyScope` downstream to discard it — PostgREST's `.in()` also does not
+  // accept an empty list, so this can never pass one.
   let ledgerQuery = db
     .from("ledger_entries")
     .select("property_id, posted_date, category_code, amount_cents, stripe_fee_cents, net_cents")
@@ -137,8 +142,8 @@ export async function queryProfitability(
 
   const [display, ledger, expenses, comms, vendorPayouts, commsAllowance] = await Promise.all([
     loadManagerReportDisplayContext(db, managerUserId),
-    ledgerQuery,
-    expenseQuery,
+    emptyScope ? Promise.resolve({ data: [], error: null }) : ledgerQuery,
+    emptyScope ? Promise.resolve({ data: [], error: null }) : expenseQuery,
     commsQuery,
     emptyScope ? Promise.resolve([]) : loadPaidVendorPayouts(db, managerUserId, range, scopedPropertyIds),
     loadCommsAllowance(managerUserId),
