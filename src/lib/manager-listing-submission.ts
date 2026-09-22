@@ -1538,9 +1538,23 @@ function isDefaultSlotName(name: string, prefix: string): boolean {
   return trimmed.length === 0 || new RegExp(`^${prefix} \\d+$`).test(trimmed);
 }
 
-/** Smallest "<prefix> N" not already taken by a sibling, starting after the current count. */
-function nextDefaultSlotName(prefix: string, siblingNames: readonly string[]): string {
-  const taken = new Set(siblingNames.map((n) => n.trim()).filter((n) => n.length > 0));
+/**
+ * Smallest "<prefix> N" not already taken by a sibling, starting after the
+ * current count.
+ *
+ * A blank-named sibling still WEARS a name in the step — the cards label
+ * themselves positionally ("Room 3" for the third card) — so it occupies the
+ * slot at the position it will hold once the copy has been inserted at
+ * `insertIndex`. Ignoring those positional labels is how a copy explicitly
+ * named "Room 3" ended up beside a blank card also reading "Room 3".
+ */
+function nextDefaultSlotName(prefix: string, siblingNames: readonly string[], insertIndex?: number): string {
+  const at = insertIndex == null ? siblingNames.length : Math.max(0, Math.min(insertIndex, siblingNames.length));
+  const taken = new Set<string>();
+  siblingNames.forEach((raw, i) => {
+    const trimmed = raw.trim();
+    taken.add(trimmed.length > 0 ? trimmed : `${prefix} ${(i >= at ? i + 1 : i) + 1}`);
+  });
   let n = siblingNames.length + 1;
   while (taken.has(`${prefix} ${n}`)) n += 1;
   return `${prefix} ${n}`;
@@ -1558,9 +1572,10 @@ function duplicateSlotName(
   prefix: string,
   keepName: boolean,
   siblingNames: readonly string[],
+  insertIndex?: number,
 ): string {
   if (keepName) return name;
-  if (isDefaultSlotName(name, prefix)) return nextDefaultSlotName(prefix, siblingNames);
+  if (isDefaultSlotName(name, prefix)) return nextDefaultSlotName(prefix, siblingNames, insertIndex);
   return `${name.trim()} (copy)`;
 }
 
@@ -2853,12 +2868,12 @@ export function emptyCustomApplicationField(section?: string): ManagerCustomAppl
 /** Copy a room for the add-listing form (new id so file inputs / keys stay unique). */
 export function duplicateRoomEntry(
   source: ManagerRoomSubmission,
-  opts?: { keepName?: boolean; siblingNames?: readonly string[] },
+  opts?: { keepName?: boolean; siblingNames?: readonly string[]; insertIndex?: number },
 ): ManagerRoomSubmission {
   return {
     ...source,
     id: rid("room"),
-    name: duplicateSlotName(source.name, "Room", opts?.keepName === true, opts?.siblingNames ?? []),
+    name: duplicateSlotName(source.name, "Room", opts?.keepName === true, opts?.siblingNames ?? [], opts?.insertIndex),
     photoDataUrls: [...source.photoDataUrls],
     videoDataUrl: source.videoDataUrl,
     moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])],
@@ -2887,7 +2902,7 @@ export function duplicateRoomEntry(
 /** Copy a bathroom card. Pass `roomIdMap` when the rooms themselves were reminted. */
 export function duplicateBathroomEntry(
   source: ManagerBathroomSubmission,
-  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string>; siblingNames?: readonly string[] },
+  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string>; siblingNames?: readonly string[]; insertIndex?: number },
 ): ManagerBathroomSubmission {
   const assigned = opts?.roomIdMap
     ? remapIds(source.assignedRoomIds, opts.roomIdMap)
@@ -2895,7 +2910,7 @@ export function duplicateBathroomEntry(
   return {
     ...source,
     id: rid("bath"),
-    name: duplicateSlotName(source.name, "Bathroom", opts?.keepName === true, opts?.siblingNames ?? []),
+    name: duplicateSlotName(source.name, "Bathroom", opts?.keepName === true, opts?.siblingNames ?? [], opts?.insertIndex),
     photoDataUrls: [...(source.photoDataUrls ?? [])],
     videoDataUrl: source.videoDataUrl ?? null,
     assignedRoomIds: assigned,

@@ -30,18 +30,25 @@ vi.mock("@/lib/manager-access", () => ({
 }));
 
 import { LISTING_V2_STEPS, ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
+import {
+  useListingPersistence,
+  type ListingPersistenceResult,
+} from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { WORKSPACE_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/workspaces/types";
 
 /** Drives the hook exactly as the wizard does, without mounting the whole flow. */
 function Harness({
   onPublished,
   onMessage,
+  onFailure,
   propertyCount = 0,
 }: {
   onPublished: (id: string) => void;
   onMessage: (m: string) => void;
+  /** The whole refusal, so a test can read the `kind` the save-failed dialog branches on. */
+  onFailure?: (result: Extract<ListingPersistenceResult, { ok: false }>) => void;
   propertyCount?: number;
 }) {
   const base = createDefaultListingSubmission();
@@ -66,8 +73,10 @@ function Harness({
       onSaveExit={() => {}}
       onPublish={async () => {
         const result = await publish(sub);
-        if (!result.ok) onMessage(result.message);
-        else onPublished(result.id);
+        if (!result.ok) {
+          onMessage(result.message);
+          onFailure?.(result);
+        } else onPublished(result.id);
       }}
     />
   );
@@ -129,6 +138,51 @@ describe("publishing from the redesigned wizard", () => {
     await waitFor(() => expect(onMessage).toHaveBeenCalledWith(expect.stringContaining("plan limit")));
     expect(onPublished).not.toHaveBeenCalled();
     expect(submitPending).not.toHaveBeenCalled();
+  });
+
+  it("marks the workspace record cap as a plan_limit, so Publish reaches the upgrade prompt too", async () => {
+    // The very same 10-record cap the draft save hits: a brand-new listing
+    // published without ever being saved inserts its first row here, and a
+    // toast with no way out is the dead end PLAN-0921-1648 set out to remove.
+    submitPending.mockImplementation(
+      async (
+        _sub: unknown,
+        _user: unknown,
+        opts: { onError: (m: string, code?: string, status?: number, limitInfo?: unknown) => void },
+      ) => {
+        opts.onError("This workspace has reached 10 property records, including drafts.", WORKSPACE_PROPERTY_LIMIT_ERROR_CODE, 403, {
+          limit: 10,
+          current: 10,
+          draftCount: 4,
+        });
+        return null;
+      },
+    );
+    const onFailure = vi.fn();
+    render(<Harness onPublished={vi.fn()} onMessage={vi.fn()} onFailure={onFailure} />);
+    await goToReview();
+    fireEvent.click(publishButton());
+    await waitFor(() => expect(onFailure).toHaveBeenCalled());
+    const result = onFailure.mock.calls[0]![0] as Extract<ListingPersistenceResult, { ok: false }>;
+    expect(result.kind).toBe("plan_limit");
+    expect(result.limitInfo).toEqual({ limit: 10, current: 10, draftCount: 4 });
+  });
+
+  it("leaves an ordinary server refusal without a plan_limit kind", async () => {
+    submitPending.mockImplementation(
+      async (_sub: unknown, _user: unknown, opts: { onError: (m: string) => void }) => {
+        opts.onError("Select an owned workspace before adding a property.");
+        return null;
+      },
+    );
+    const onFailure = vi.fn();
+    render(<Harness onPublished={vi.fn()} onMessage={vi.fn()} onFailure={onFailure} />);
+    await goToReview();
+    fireEvent.click(publishButton());
+    await waitFor(() => expect(onFailure).toHaveBeenCalled());
+    const result = onFailure.mock.calls[0]![0] as Extract<ListingPersistenceResult, { ok: false }>;
+    expect(result.kind).toBeUndefined();
+    expect(result.limitInfo).toBeUndefined();
   });
 
   it("surfaces the server's own refusal rather than a generic failure", async () => {

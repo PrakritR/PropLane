@@ -102,8 +102,22 @@ describe('"Same as" copies one room onto another, once', () => {
     expect(list.querySelector('[data-field-select-option-value="r1"]')).toBeNull();
   });
 
-  it("two rooms that start identical already read as matching each other", () => {
+  it("two untouched rooms read — , never each other: nothing was ever copied", () => {
     open();
+    openCard("Room A");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("—");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).not.toContain("Room B");
+  });
+
+  it("two rooms that describe the same thing read as matching each other", () => {
+    const base = seeded();
+    open({
+      ...base,
+      rooms: [
+        { ...base.rooms[0]!, id: "r1", name: "Room A", floor: "2nd floor" },
+        { ...base.rooms[1]!, id: "r2", name: "Room B", floor: "2nd floor" },
+      ],
+    } as ManagerListingSubmissionV1);
     openCard("Room A");
     expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("Room B");
   });
@@ -161,7 +175,17 @@ describe('"Same as" copies one room onto another, once', () => {
 
   it("reads back the room this room's description now matches, and — again once it is edited", () => {
     const seen: ManagerListingSubmissionV1[] = [];
-    open(seeded(), (s) => seen.push(s));
+    const base = seeded();
+    open(
+      {
+        ...base,
+        rooms: [
+          { ...base.rooms[0]!, id: "r1", name: "Room A" },
+          { ...base.rooms[1]!, id: "r2", name: "Room B", floor: "2nd floor" },
+        ],
+      } as ManagerListingSubmissionV1,
+      (s) => seen.push(s),
+    );
     openCard("Room A");
     pick("Same as for Room A", "r2");
     // Room A now matches Room B by value; reopening should read it back.

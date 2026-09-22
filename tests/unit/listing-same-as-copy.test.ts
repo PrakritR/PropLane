@@ -12,10 +12,12 @@ import { describe, expect, it } from "vitest";
 import {
   copyRoomDescriptionFrom,
   ROOM_DESCRIPTION_FIELDS,
+  roomDescriptionIsBlank,
   roomDescriptionMatches,
 } from "@/lib/listing-house-defaults";
 import {
   copyBathroomDescriptionFrom,
+  bathroomDescriptionIsBlank,
   bathroomDescriptionMatches,
 } from "@/lib/listing-record-defaults";
 import { emptyBathroom, emptyRoom, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -194,5 +196,60 @@ describe("bathroomDescriptionMatches", () => {
     const a = { ...emptyBathroom(1), assignedRoomIds: ["r1"], allResidents: false };
     const b = { ...emptyBathroom(2), assignedRoomIds: ["r2", "r3"], allResidents: true };
     expect(bathroomDescriptionMatches(a, b)).toBe(true);
+  });
+});
+
+/**
+ * Two untouched cards are equal by value the moment a listing mints them, so
+ * a picker driven by `roomDescriptionMatches` alone announced "Same as Room 1"
+ * on a brand-new listing where nothing had ever been copied. Blankness is the
+ * gate: until a card describes something, it matches nobody.
+ */
+describe("roomDescriptionIsBlank", () => {
+  it("is true for a freshly minted room, whatever its name, price or availability says", () => {
+    expect(roomDescriptionIsBlank(emptyRoom(0))).toBe(true);
+    expect(
+      roomDescriptionIsBlank({
+        ...emptyRoom(1),
+        name: "Sunroom",
+        monthlyRent: 1200,
+        availability: "occupied",
+        securityDeposit: "500",
+      }),
+    ).toBe(true);
+  });
+
+  it("is false once any single description field is set", () => {
+    expect(roomDescriptionIsBlank({ ...emptyRoom(0), floor: "2nd floor" })).toBe(false);
+    expect(roomDescriptionIsBlank({ ...emptyRoom(0), furnishing: "furnished" })).toBe(false);
+    expect(roomDescriptionIsBlank({ ...emptyRoom(0), occupancyCapacity: 2 })).toBe(false);
+    expect(roomDescriptionIsBlank({ ...emptyRoom(0), moveInInspectionRequired: true })).toBe(false);
+    expect(roomDescriptionIsBlank({ ...emptyRoom(0), photoDataUrls: ["p"] })).toBe(false);
+    expect(roomDescriptionIsBlank({ ...emptyRoom(0), beds: [{ type: "Queen", count: 1 }] })).toBe(false);
+  });
+
+  it("a copy of a described room is not blank", () => {
+    const source = { ...emptyRoom(0), detail: "Bright corner room" };
+    expect(roomDescriptionIsBlank(copyRoomDescriptionFrom(source, emptyRoom(1)))).toBe(false);
+  });
+});
+
+describe("bathroomDescriptionIsBlank", () => {
+  it("is true for a freshly minted bathroom of either type — a type is never something the manager filled in", () => {
+    expect(bathroomDescriptionIsBlank(emptyBathroom(0))).toBe(true);
+    expect(bathroomDescriptionIsBlank(emptyBathroom(1))).toBe(true);
+  });
+
+  it("is true however its rooms are assigned — who uses it is not a description", () => {
+    expect(
+      bathroomDescriptionIsBlank({ ...emptyBathroom(1), assignedRoomIds: ["r1"], allResidents: true, name: "Powder room" }),
+    ).toBe(true);
+  });
+
+  it("is false once any single description field is set", () => {
+    expect(bathroomDescriptionIsBlank({ ...emptyBathroom(1), location: "2nd floor" })).toBe(false);
+    expect(bathroomDescriptionIsBlank({ ...emptyBathroom(1), amenitiesText: "Heated floor" })).toBe(false);
+    expect(bathroomDescriptionIsBlank({ ...emptyBathroom(1), detail: "Renovated" })).toBe(false);
+    expect(bathroomDescriptionIsBlank({ ...emptyBathroom(1), photoDataUrls: ["p"] })).toBe(false);
   });
 });

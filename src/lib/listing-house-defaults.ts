@@ -751,6 +751,25 @@ export function roomDescriptionMatches(a: ManagerRoomSubmission, b: ManagerRoomS
   return ROOM_DESCRIPTION_FIELDS.every((field) => sameValue(roomDefaultFieldValue(a, field), roomDefaultFieldValue(b, field)));
 }
 
+/** A room holding nothing at all — the baseline every field's default is read from. */
+const BLANK_ROOM_DESCRIPTION = {} as ManagerRoomSubmission;
+
+/**
+ * Nothing on this room has been described yet — every
+ * {@link ROOM_DESCRIPTION_FIELDS} field still reads the value a card holds
+ * before anyone touches it.
+ *
+ * A listing mints its rooms identical, so two untouched cards match each other
+ * by value without anything ever having been copied. "Same as Room X" is a
+ * record of a copy, so it has to stay silent until the card actually describes
+ * something.
+ */
+export function roomDescriptionIsBlank(room: ManagerRoomSubmission): boolean {
+  return ROOM_DESCRIPTION_FIELDS.every((field) =>
+    sameValue(roomDefaultFieldValue(room, field), roomDefaultFieldValue(BLANK_ROOM_DESCRIPTION, field)),
+  );
+}
+
 /**
  * The per-term Default rooms a submission carries, or, for a term the block
  * does not cover, the most common value the rooms hold on it — so a listing

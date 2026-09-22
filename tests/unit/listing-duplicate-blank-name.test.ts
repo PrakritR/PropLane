@@ -52,6 +52,41 @@ describe("duplicating an untouched room takes the next default slot name", () =>
     expect(isRoomSlotRemovable(copy)).toBe(false);
   });
 
+  it("never collides with the positional label a blank sibling wears after the copy is inserted", () => {
+    // Two untouched cards with no names at all: the step labels them "Room 1"
+    // and "Room 2" by position. Inserting the copy at index 1 pushes the second
+    // blank card to position 3, so "Room 3" is NOT free — it is what that card
+    // will read as.
+    const rooms = [
+      { ...emptyRoom(0), name: "" },
+      { ...emptyRoom(1), name: "" },
+    ];
+
+    const copy = duplicateRoomEntry(rooms[0]!, { siblingNames: rooms.map((r) => r.name), insertIndex: 1 });
+
+    const labels = [rooms[0]!, copy, rooms[1]!].map((r, i) => r.name.trim() || `Room ${i + 1}`);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels).toEqual(["Room 1", "Room 4", "Room 3"]);
+    expect(isRoomSlotRemovable(copy)).toBe(true);
+  });
+
+  it("does the same for bathrooms", () => {
+    const bathrooms = [
+      { ...emptyBathroom(0), name: "" },
+      { ...emptyBathroom(1), name: "" },
+    ];
+
+    const copy = duplicateBathroomEntry(bathrooms[0]!, {
+      siblingNames: bathrooms.map((b) => b.name),
+      insertIndex: 1,
+    });
+
+    const labels = [bathrooms[0]!, copy, bathrooms[1]!].map((b, i) => b.name.trim() || `Bathroom ${i + 1}`);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels).toEqual(["Bathroom 1", "Bathroom 4", "Bathroom 3"]);
+    expect(isBathroomSlotRemovable(copy)).toBe(true);
+  });
+
   it("renumbers around an existing gap so the new default name never collides", () => {
     // Room 1, Room 2, and a duplicate already sitting at "Room 4" (e.g. from
     // an earlier duplicate) — the next free default slot is Room 5, not Room 3.

@@ -320,6 +320,7 @@ function ManagerPropertyInlineDetails({
   row,
   dataRevision,
   onUpdated,
+  onPublishedListing,
   onAfterUnlist,
   showToast,
   managerUserId,
@@ -338,6 +339,13 @@ function ManagerPropertyInlineDetails({
   /** Bumps when local property pipeline storage changes so listing submissions re-read. */
   dataRevision: number;
   onUpdated: () => void;
+  /**
+   * Draft → live publish reports back an id. It is handed UP, with the display
+   * name captured before the publish, because publishing moves the row out of
+   * this stage's bucket and unmounts this component — the confirmation dialog
+   * has to be owned by something that survives that (PRP-496).
+   */
+  onPublishedListing: (listing: { id: string; name: string }) => void;
   onAfterUnlist?: (propertyKey: string) => void;
   showToast: (m: string) => void;
   managerUserId: string | null;
@@ -457,13 +465,6 @@ function ManagerPropertyInlineDetails({
   const displaySub = portalSub?.sub ?? null;
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
-  /**
-   * Draft → live publish reports back an id — hold it (and the display name
-   * captured at that instant, before `onUpdated()` can move the row out of
-   * this stage's bucket and blank `row`) for the confirmation dialog instead
-   * of navigating immediately (PRP-496).
-   */
-  const [publishedListing, setPublishedListing] = useState<{ id: string; name: string } | null>(null);
   const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
   const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
@@ -684,6 +685,7 @@ function ManagerPropertyInlineDetails({
           onClose: () => setDraftEditorOpen(false),
           onPublished: (listingId?: string) => {
             setDraftEditorOpen(false);
+            const publishedName = propertyShareLabel;
             onUpdated();
             // This detail page IS the draft's URL, and publishing moves the row
             // out of the Drafts bucket — staying put rendered "Property not
@@ -694,7 +696,7 @@ function ManagerPropertyInlineDetails({
             // being pushed there immediately (PRP-496).
             const published = listingId?.trim();
             if (published) {
-              setPublishedListing({ id: published, name: propertyShareLabel });
+              onPublishedListing({ id: published, name: publishedName });
             } else {
               showToast("Listing submitted and published.");
             }
@@ -1392,36 +1394,6 @@ function ManagerPropertyInlineDetails({
         <ListingEditorLoadingModal onClose={() => setDraftEditorOpen(false)} />
       ) : null}
 
-      <ListingPublishedDialog
-        open={publishedListing !== null}
-        name={publishedListing?.name ?? "Listing"}
-        listingId={publishedListing?.id ?? ""}
-        onViewListing={() => {
-          const id = publishedListing?.id;
-          setPublishedListing(null);
-          if (id) {
-            detailRouter.replace(propertyDetailHref(propertiesBase, "listed", id, "preview"), { scroll: false });
-          }
-        }}
-        onBackToProperties={() => {
-          setPublishedListing(null);
-          detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
-        }}
-        // Only when this page really has a share sheet. Handing the dialog an
-        // onShare it cannot honour would swallow its own copy-link-with-toast
-        // fallback and leave Share doing nothing but closing the dialog.
-        onShare={
-          onSendToProspect
-            ? () => {
-                const id = publishedListing?.id;
-                setPublishedListing(null);
-                if (id) onSendToProspect(id);
-              }
-            : undefined
-        }
-        showToast={showToast}
-      />
-
       {destructiveModalCopy ? (
         <ConfirmDeleteModal
           open={pendingDestructiveAction !== null}
@@ -1463,23 +1435,7 @@ function ManagerPropertyInlineDetails({
   );
 }
 
-export function ManagerHousePropertiesPanel({
-  showToast,
-  activeStage,
-  onStageChange,
-  onSendToProspect,
-  skuTier,
-  skuLoaded,
-  propertiesBase,
-  propertyKey: propertyKeyProp,
-  detailTab: detailTabProp,
-  propertyTourBucket = "pending",
-  propertyTourId,
-  onAddProperty,
-  addPropertyDisabled = false,
-  searchQuery = "",
-  onClearSearch,
-}: {
+type ManagerHousePropertiesPanelProps = {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
   onStageChange: (stage: ManagerStageKey) => void;
@@ -1497,6 +1453,75 @@ export function ManagerHousePropertiesPanel({
   searchQuery?: string;
   /** Clears the parent-owned search box from the no-match card. */
   onClearSearch?: () => void;
+};
+
+/**
+ * Publishing a draft is the one action that removes the row it was started
+ * from: the record leaves the drafts bucket, the routed detail entry goes
+ * null, and the body below either unmounts or remounts under a new row key.
+ * The confirmation dialog therefore lives HERE, above that boundary, and the
+ * body only reports the id and the name it captured (PRP-496). The body owning
+ * it is why the dialog never appeared on the draft → live path at all.
+ */
+export function ManagerHousePropertiesPanel(props: ManagerHousePropertiesPanelProps) {
+  const router = useRouter();
+  const [publishedListing, setPublishedListing] = useState<{ id: string; name: string } | null>(null);
+  const { propertiesBase, showToast, onSendToProspect } = props;
+  return (
+    <>
+      <ManagerHousePropertiesPanelBody {...props} onPublishedListing={setPublishedListing} />
+      <ListingPublishedDialog
+        open={publishedListing !== null}
+        name={publishedListing?.name ?? "Listing"}
+        listingId={publishedListing?.id ?? ""}
+        onViewListing={() => {
+          const id = publishedListing?.id;
+          setPublishedListing(null);
+          if (id) {
+            router.replace(propertyDetailHref(propertiesBase, "listed", id, "preview"), { scroll: false });
+          }
+        }}
+        onBackToProperties={() => {
+          setPublishedListing(null);
+          router.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
+        }}
+        // Only when this page really has a share sheet. Handing the dialog an
+        // onShare it cannot honour would swallow its own copy-link-with-toast
+        // fallback and leave Share doing nothing but closing the dialog.
+        onShare={
+          onSendToProspect
+            ? () => {
+                const id = publishedListing?.id;
+                setPublishedListing(null);
+                if (id) onSendToProspect(id);
+              }
+            : undefined
+        }
+        showToast={showToast}
+      />
+    </>
+  );
+}
+
+function ManagerHousePropertiesPanelBody({
+  showToast,
+  activeStage,
+  onStageChange,
+  onSendToProspect,
+  skuTier,
+  skuLoaded,
+  propertiesBase,
+  propertyKey: propertyKeyProp,
+  detailTab: detailTabProp,
+  propertyTourBucket = "pending",
+  propertyTourId,
+  onAddProperty,
+  addPropertyDisabled = false,
+  searchQuery = "",
+  onClearSearch,
+  onPublishedListing,
+}: ManagerHousePropertiesPanelProps & {
+  onPublishedListing: (listing: { id: string; name: string }) => void;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1985,6 +2010,7 @@ export function ManagerHousePropertiesPanel({
       row={row}
       dataRevision={tick}
       onUpdated={handlePropertyUpdated}
+      onPublishedListing={onPublishedListing}
       onAfterUnlist={handleAfterUnlist}
       showToast={showToast}
       managerUserId={managerUserId}

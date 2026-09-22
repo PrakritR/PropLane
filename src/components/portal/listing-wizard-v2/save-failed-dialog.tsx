@@ -69,11 +69,28 @@ const MANAGER_PORTAL_BASE = "/portal";
  * A second tab, and only when the browser really gave us one. Never in the
  * native shell: there `_blank` leaves the WebView for the system browser, which
  * has no portal session and shows a login wall instead of the plan page.
+ *
+ * `noopener` is NOT passed in the features string: the HTML spec requires
+ * `window.open` to return null whenever it is set, which is indistinguishable
+ * from a blocked pop-up and would send every web manager into the
+ * "Leave without saving?" confirm for a tab that really opened. The opener is
+ * severed on the returned window instead, which is the same protection.
  */
 function openInSecondTab(href: string): boolean {
   if (typeof window === "undefined" || isNativeRuntimeSync()) return false;
   if (typeof window.open !== "function") return false;
-  return Boolean(window.open(href, "_blank", "noopener,noreferrer"));
+  try {
+    const opened = window.open(href, "_blank");
+    if (!opened) return false;
+    try {
+      (opened as { opener: unknown }).opener = null;
+    } catch {
+      /* A cross-origin window refuses the write; the tab is open either way. */
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function ListingSaveFailedDialog({
