@@ -24,9 +24,11 @@ import {
   type AvailabilityKind,
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
-import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
-import { CalendarClock, Plus, X } from "lucide-react";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { CalendarClock, Mail, Plus, X } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ConfirmRows, PortalDialog, type PortalDialogAction } from "@/components/portal/portal-dialog";
+import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -621,6 +623,73 @@ export type DemoMeeting = {
 /** A meeting consumes a half hour unless it is explicitly non-blocking. */
 export function meetingConsumesTourSlot(meeting: DemoMeeting): boolean {
   return meeting.blocksTourAvailability !== false;
+}
+
+const EVENT_DURATION_SELECT_OPTIONS = [
+  ...EVENT_DURATION_PRESET_MINUTES.map((minutes) => ({
+    value: String(minutes),
+    label: `${minutes} min`,
+  })),
+  { value: "custom", label: "Custom" },
+];
+
+/**
+ * Footer + Message chrome for a calendar event (PLAN-0922-1013). One secondary
+ * + one primary, or no footer on a browse-only visit. Message is a header icon.
+ */
+export function calendarEventDialogActions(meeting: DemoMeeting): {
+  title: string;
+  primaryLabel: string | null;
+  primaryDataAttr?: string;
+  secondaryLabel: string | null;
+  secondaryDataAttr?: string;
+  showMessage: boolean;
+  messageLabel: string;
+} {
+  const isConfirmedTour = meeting.kind === "tour" && meeting.source === "planned";
+  const isManagerTask = meeting.kind === "task" && Boolean(meeting.sourceTaskId);
+  const isGuestFacingTour = meeting.kind === "tour";
+  const canDelete = calendarMeetingSupportsDelete(meeting);
+  const secondaryLabel = !canDelete
+    ? null
+    : isManagerTask
+      ? "Delete task"
+      : meeting.source === "planned" || isPropPlaneGoogleTourMeeting(meeting)
+        ? "Delete event"
+        : meeting.kind === "tour"
+          ? "Delete tour"
+          : "Delete request";
+  let primaryLabel: string | null = !canDelete
+    ? null
+    : isManagerTask
+      ? "Edit task"
+      : isConfirmedTour
+        ? "Cancel tour"
+        : meeting.source === "inquiry"
+          ? meeting.kind === "tour"
+            ? "Confirm tour"
+            : "Approve"
+          : null;
+  // A deletable personal event has no other commit — Delete is the primary so
+  // the footer exists (visit / service stays footer-less).
+  let resolvedSecondary = secondaryLabel;
+  if (canDelete && !primaryLabel && secondaryLabel) {
+    primaryLabel = secondaryLabel;
+    resolvedSecondary = null;
+  }
+  return {
+    title: isGoogleCalendarPrivateBlock(meeting) ? meetingCalendarGridLabel(meeting) : meeting.title,
+    primaryLabel,
+    primaryDataAttr: isManagerTask
+      ? "calendar-task-edit"
+      : isConfirmedTour
+        ? "tour-cancel-open"
+        : undefined,
+    secondaryLabel: resolvedSecondary,
+    secondaryDataAttr: canDelete && resolvedSecondary ? "tour-delete-open" : undefined,
+    showMessage: Boolean(meeting.email?.trim()),
+    messageLabel: isConfirmedTour || isGuestFacingTour ? "Message resident" : "Message",
+  };
 }
 
 /**
@@ -2447,16 +2516,6 @@ export function PortalCalendarPanels({
     selectedBlock.meeting.source === "planned";
 
   /**
-   * Whether PropLane already emailed the guest "your tour is confirmed" — true
-   * for a Google-sourced PropLane tour too, so the delete warning still names
-   * the consequence even where cancel is unreachable.
-   */
-  const selectedTourGuestAlreadyTold =
-    selectedBlock?.kind === "meeting" &&
-    selectedBlock.meeting.kind === "tour" &&
-    (selectedBlock.meeting.source === "planned" || isPropPlaneGoogleTourMeeting(selectedBlock.meeting));
-
-  /**
    * Is the thing being deleted a tour someone outside PropLane is waiting on?
    *
    * The delete confirmation is armed for EVERY deletable meeting, including a
@@ -2498,62 +2557,255 @@ export function PortalCalendarPanels({
       ? "Keep event"
       : "Keep tour";
 
-  useEffect(() => {
-    if (!selectedBlock) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeSelectedBlock();
+  const selectedMeetingChrome =
+    selectedBlock?.kind === "meeting" ? calendarEventDialogActions(selectedBlock.meeting) : null;
+
+  const selectedBlockTitle =
+    selectedBlock?.kind === "meeting"
+      ? selectedMeetingChrome?.title ?? selectedBlock.meeting.title
+      : "Availability block";
+
+  const pendingInDialogDelete =
+    pendingTourAction === "delete" &&
+    selectedBlock?.kind === "meeting" &&
+    !selectedIsPendingTourInquiry &&
+    !selectedIsConfirmedTour;
+
+  const meetingFactRows = (() => {
+    if (selectedBlock?.kind !== "meeting") return [];
+    const meeting = selectedBlock.meeting;
+    const status =
+      meeting.statusLabel ??
+      (meeting.source === "planned" || isPropPlaneGoogleTourMeeting(meeting) ? "Confirmed" : "Requested");
+    const property = meeting.propertyTitle
+      ? [
+          compactTaskPropertyLabel(meeting.propertyId, meeting.propertyTitle),
+          compactTaskRoomLabel(meeting.roomLabel),
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "";
+    const notesValue = meeting.notes
+      ? (() => {
+          const { preview, truncated } = taskNotesPreview(meeting.notes);
+          const showFull = !truncated || taskNotesExpanded;
+          return (
+            <div className="text-right">
+              <p className={`whitespace-pre-wrap ${showFull ? "" : "line-clamp-4"}`}>
+                {showFull ? meeting.notes : preview}
+              </p>
+              {truncated ? (
+                <button
+                  type="button"
+                  className="mt-1 text-xs font-semibold text-primary"
+                  onClick={() => setTaskNotesExpanded((open) => !open)}
+                >
+                  {taskNotesExpanded ? "Show less" : "Show full checklist"}
+                </button>
+              ) : null}
+            </div>
+          );
+        })()
+      : null;
+    const durationValue =
+      meeting.source === "inquiry" && !meeting.isPeerTour ? (
+        <div className="flex flex-col items-end gap-2">
+          <PortalFormSingleSelect
+            label="Duration"
+            labelClassName="sr-only"
+            value={durationChoice === "custom" ? "custom" : String(durationChoice)}
+            onChange={(next) => {
+              if (next === "custom") {
+                setDurationChoice("custom");
+                return;
+              }
+              const minutes = Number(next);
+              setDurationChoice(minutes);
+              setCustomDurationText(String(minutes));
+            }}
+            options={EVENT_DURATION_SELECT_OPTIONS}
+            dataAttr="event-duration"
+            keepMenuWithinModalTree
+          />
+          {durationChoice === "custom" ? (
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-muted">
+              <Input
+                type="number"
+                min={MIN_EVENT_DURATION_MINUTES}
+                max={MAX_EVENT_DURATION_MINUTES}
+                step={5}
+                value={customDurationText}
+                onChange={(e) => setCustomDurationText(e.target.value)}
+                className="h-9 w-24 rounded-xl"
+                aria-label="Custom duration in minutes"
+                data-attr="event-duration-custom"
+              />
+              min
+            </label>
+          ) : null}
+        </div>
+      ) : null;
+    const rows: Array<{ label: string; value: ReactNode }> = [
+      { label: "Time", value: formatRangeLabel(meeting.startIso, meeting.endIso) },
+      { label: "Status", value: status },
+    ];
+    if (durationValue) rows.push({ label: "Duration", value: durationValue });
+    if (meeting.name) rows.push({ label: "Name", value: meeting.name });
+    if (meeting.email) rows.push({ label: "Email", value: meeting.email });
+    if (meeting.phone) rows.push({ label: "Phone", value: formatTourContactPhoneDisplay(meeting.phone) });
+    if (property) rows.push({ label: "Property", value: property });
+    if (notesValue) rows.push({ label: "Notes", value: notesValue });
+    if (meeting.instructions) rows.push({ label: "Details", value: meeting.instructions });
+    return rows;
+  })();
+
+  const meetingPrimaryAction = ((): PortalDialogAction | null => {
+    if (selectedBlock?.kind !== "meeting" || !selectedMeetingChrome) return null;
+    if (pendingInDialogDelete) {
+      return {
+        label: selectedDeleteLabel,
+        onClick: () => deleteSelectedMeeting(),
+        loading: tourActionBusy,
+        dataAttr: "tour-delete-submit",
+      };
+    }
+    if (!selectedMeetingChrome.primaryLabel) return null;
+    if (selectedIsManagerTask) {
+      return {
+        label: "Edit task",
+        dataAttr: "calendar-task-edit",
+        onClick: () => {
+          setTaskEditId(selectedBlock.meeting.sourceTaskId ?? null);
+          setTaskFormOpen(true);
+        },
+      };
+    }
+    if (selectedIsConfirmedTour) {
+      return {
+        label: "Cancel tour",
+        dataAttr: "tour-cancel-open",
+        onClick: openConfirmedTourCancelPreview,
+      };
+    }
+    if (selectedBlock.meeting.source === "inquiry") {
+      return selectedBlock.meeting.kind === "tour"
+        ? { label: "Confirm tour", onClick: openTourConfirmPreview }
+        : { label: "Approve", onClick: () => approveSelectedInquiry() };
+    }
+    return {
+      label: selectedMeetingChrome.primaryLabel,
+      dataAttr: "tour-delete-open",
+      onClick: () => {
+        if (selectedIsPendingTourInquiry) openTourDeletePreview();
+        else if (selectedIsConfirmedTour) openConfirmedTourDeletePreview();
+        else setPendingTourAction("delete");
+      },
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [closeSelectedBlock, selectedBlock]);
+  })();
+
+  const meetingSecondaryAction = ((): PortalDialogAction | null | undefined => {
+    if (selectedBlock?.kind !== "meeting") return undefined;
+    if (pendingInDialogDelete) {
+      return {
+        label: selectedKeepLabel,
+        onClick: () => setPendingTourAction(null),
+        disabled: tourActionBusy,
+      };
+    }
+    if (!selectedMeetingChrome?.secondaryLabel) return meetingPrimaryAction ? undefined : null;
+    return {
+      label: selectedMeetingChrome.secondaryLabel,
+      dataAttr: "tour-delete-open",
+      onClick: () => {
+        if (selectedIsPendingTourInquiry) openTourDeletePreview();
+        else if (selectedIsConfirmedTour) openConfirmedTourDeletePreview();
+        else setPendingTourAction("delete");
+      },
+    };
+  })();
+
+  const availabilityPrimaryAction: PortalDialogAction | null =
+    selectedBlock?.kind === "availability"
+      ? {
+          label: "Save changes",
+          disabled:
+            blockWeekdays.length === 0 ||
+            blockEndSlotExclusive <= blockStartSlot ||
+            (showAppliesTo && blockKinds.length === 0),
+          onClick: () => applyRecurringBlock(selectedBlock),
+        }
+      : null;
+
+  const availabilitySecondaryAction: PortalDialogAction | undefined =
+    selectedBlock?.kind === "availability"
+      ? {
+          label: "Delete block",
+          onClick: () => {
+            if (selectedBlock.isDefault) {
+              removeDefaultRun(selectedBlock.dateStr, selectedBlock.startSlot, selectedBlock.endSlotExclusive);
+            } else {
+              removeOpenRun(
+                selectedBlock.dateStr,
+                selectedBlock.startSlot,
+                selectedBlock.endSlotExclusive,
+                selectedBlock.kinds,
+              );
+            }
+            closeSelectedBlock();
+          },
+        }
+      : undefined;
 
   const selectedBlockModal = (
-    selectedBlock ? (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Close calendar details"
-        className="absolute inset-0 modal-overlay"
-        onClick={closeSelectedBlock}
-      />
-      {/* The height cap and `overflow-y-auto` are load-bearing, not styling: the
-          parent is `fixed inset-0` (so the PAGE cannot scroll) and `.modal-panel`
-          sets no cap of its own. Without them a tour inquiry carrying
-          name/email/phone/property/room/notes renders taller than a 667px phone
-          and the Approve/Delete row is simply unreachable. */}
-      <div
-        className="modal-panel relative z-[81] max-h-[min(600px,calc(100svh-2rem))] w-full max-w-[540px] overflow-y-auto rounded-3xl border border-border p-4 shadow-2xl sm:p-5"
-      >
-      <div className="mb-4 flex items-center justify-between gap-3 border-b border-border pb-3">
-        <h3 className="min-w-0 text-base font-bold text-foreground">
-          {selectedBlock.kind === "meeting"
-            ? isGoogleCalendarPrivateBlock(selectedBlock.meeting)
-              ? meetingCalendarGridLabel(selectedBlock.meeting)
-              : selectedBlock.meeting.title
-            : "Availability block"}
-        </h3>
-        <button
-          type="button"
-          onClick={closeSelectedBlock}
-          aria-label="Close"
-          className={MODAL_HEADER_CLOSE_CLASS}
-        >
-          <X className="h-5 w-5" aria-hidden />
-        </button>
-      </div>
+    <PortalDialog
+      open={Boolean(selectedBlock)}
+      onClose={closeSelectedBlock}
+      title={selectedBlockTitle}
+      size="default"
+      tone={pendingInDialogDelete ? "danger" : "default"}
+      dismissBlocked={tourActionBusy}
+      dataAttr="calendar-event-detail-modal"
+      headerAction={
+        selectedBlock?.kind === "meeting" &&
+        selectedMeetingChrome?.showMessage &&
+        !pendingInDialogDelete ? (
+          <PortalIconAction
+            icon={Mail}
+            label={selectedMeetingChrome.messageLabel}
+            data-attr="tour-open-message-thread"
+            onClick={() =>
+              openGuestMessageCompose(selectedBlock.meeting.email, selectedBlock.meeting.phone)
+            }
+          />
+        ) : undefined
+      }
+      primaryAction={
+        selectedBlock?.kind === "availability"
+          ? availabilityPrimaryAction
+          : meetingPrimaryAction
+      }
+      secondaryAction={
+        selectedBlock?.kind === "availability"
+          ? availabilitySecondaryAction
+          : meetingSecondaryAction
+      }
+    >
       {selectedBlock?.kind === "meeting" ? (
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">
-            <p className="font-semibold text-foreground">{formatRangeLabel(selectedBlock.meeting.startIso, selectedBlock.meeting.endIso)}</p>
-            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-              {selectedBlock.meeting.statusLabel ??
-                (selectedBlock.meeting.source === "planned" || isPropPlaneGoogleTourMeeting(selectedBlock.meeting)
-                  ? "Confirmed"
-                  : "Requested")}
-            </p>
-          </div>
-
-          {isGoogleCalendarPrivateBlock(selectedBlock.meeting) ? (
+        <div className="space-y-4">
+          {pendingInDialogDelete ? (
+            <ConfirmRows
+              rows={[
+                { label: "Event", value: selectedBlock.meeting.title },
+                {
+                  label: "When",
+                  value: formatRangeLabel(selectedBlock.meeting.startIso, selectedBlock.meeting.endIso),
+                },
+                ...(selectedBlock.meeting.name
+                  ? [{ label: "Guest", value: selectedBlock.meeting.name }]
+                  : []),
+              ]}
+            />
+          ) : isGoogleCalendarPrivateBlock(selectedBlock.meeting) ? (
             <p className="text-sm text-muted">
               {selectedBlock.meeting.blocksTourAvailability === false
                 ? "This time is marked Free on your linked Google Calendar. Personal event details stay on Google — tour slots here still count as open."
@@ -2561,350 +2813,53 @@ export function PortalCalendarPanels({
             </p>
           ) : (
             <>
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            {selectedBlock.meeting.name ? (
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Name</p>
-                <p className="mt-1 font-medium text-foreground">{selectedBlock.meeting.name}</p>
-              </div>
-            ) : null}
-            {selectedBlock.meeting.email ? (
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Email</p>
-                <p className="mt-1 break-words font-medium text-foreground">{selectedBlock.meeting.email}</p>
-              </div>
-            ) : null}
-            {selectedBlock.meeting.phone ? (
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Phone</p>
-                <p className="mt-1 font-medium text-foreground">
-                  {formatTourContactPhoneDisplay(selectedBlock.meeting.phone)}
+              <ConfirmRows rows={meetingFactRows} />
+              {selectedIsConfirmedTour && !selectedBlock.meeting.isPeerTour ? (
+                <TourReminderTourPanel
+                  plannedEventId={selectedBlock.meeting.sourceId}
+                  tourStartIso={selectedBlock.meeting.startIso}
+                  tourEndIso={selectedBlock.meeting.endIso}
+                  recipientEmail={selectedBlock.meeting.email}
+                  recipientName={selectedBlock.meeting.name}
+                  recipientPhone={selectedBlock.meeting.phone?.trim() || undefined}
+                  propertyTitle={
+                    selectedBlock.meeting.propertyTitle
+                      ? `${selectedBlock.meeting.propertyTitle}${selectedBlock.meeting.roomLabel ? ` · ${selectedBlock.meeting.roomLabel}` : ""}`
+                      : undefined
+                  }
+                  instructions={selectedBlock.meeting.instructions}
+                />
+              ) : null}
+              {selectedBlock.meeting.isPeerTour ? (
+                <p className="text-sm text-muted">
+                  Hosted by {selectedBlock.meeting.hostLabel ?? "your co-manager"}.
                 </p>
-              </div>
-            ) : null}
-            {selectedBlock.meeting.propertyTitle ? (
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Property</p>
-                <p className="mt-1 break-words font-medium text-foreground">
-                  {[
-                    compactTaskPropertyLabel(
-                      selectedBlock.meeting.propertyId,
-                      selectedBlock.meeting.propertyTitle,
-                    ),
-                    compactTaskRoomLabel(selectedBlock.meeting.roomLabel),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              </div>
-            ) : null}
-          </div>
-
-          {selectedBlock.meeting.notes ? (
-            <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Notes</p>
-              {(() => {
-                const { preview, truncated } = taskNotesPreview(selectedBlock.meeting.notes);
-                const showFull = !truncated || taskNotesExpanded;
-                return (
-                  <>
-                    <p className={`mt-1.5 whitespace-pre-wrap text-muted ${showFull ? "" : "line-clamp-4"}`}>
-                      {showFull ? selectedBlock.meeting.notes : preview}
-                    </p>
-                    {truncated ? (
-                      <button
-                        type="button"
-                        className="mt-2 text-xs font-semibold text-primary"
-                        onClick={() => setTaskNotesExpanded((open) => !open)}
-                      >
-                        {taskNotesExpanded ? "Show less" : "Show full checklist"}
-                      </button>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </div>
-          ) : null}
-
-          {selectedBlock.meeting.instructions ? (
-            <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-info">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-700 portal-calendar-callout-sky-sub [html[data-theme=dark]_&]:portal-calendar-callout-sky-sub">Confirmation details</p>
-              <p className="mt-1.5 whitespace-pre-wrap text-sky-950 portal-calendar-callout-sky-title [html[data-theme=dark]_&]:portal-calendar-callout-sky-title">{selectedBlock.meeting.instructions}</p>
-            </div>
-          ) : null}
-
-          {selectedIsConfirmedTour && !selectedBlock.meeting.isPeerTour ? (
-            <TourReminderTourPanel
-              plannedEventId={selectedBlock.meeting.sourceId}
-              tourStartIso={selectedBlock.meeting.startIso}
-              tourEndIso={selectedBlock.meeting.endIso}
-              recipientEmail={selectedBlock.meeting.email}
-              recipientName={selectedBlock.meeting.name}
-              recipientPhone={selectedBlock.meeting.phone?.trim() || undefined}
-              propertyTitle={
-                selectedBlock.meeting.propertyTitle
-                  ? `${selectedBlock.meeting.propertyTitle}${selectedBlock.meeting.roomLabel ? ` · ${selectedBlock.meeting.roomLabel}` : ""}`
-                  : undefined
-              }
-              instructions={selectedBlock.meeting.instructions}
-            />
-          ) : null}
-
-          {selectedBlock.meeting.isPeerTour ? (
-            <div className="rounded-2xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">
-              Hosted by {selectedBlock.meeting.hostLabel ?? "your co-manager"}. You can view this tour because you were also available when it was booked.
-            </div>
-          ) : null}
-
-          {selectedBlock.meeting.source === "inquiry" && !selectedBlock.meeting.isPeerTour ? (
-            <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Duration</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {EVENT_DURATION_PRESET_MINUTES.map((minutes) => (
-                  <button
-                    key={minutes}
-                    type="button"
-                    data-attr="event-duration-preset"
-                    onClick={() => {
-                      setDurationChoice(minutes);
-                      setCustomDurationText(String(minutes));
-                    }}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      durationChoice === minutes
-                        ? "border-primary bg-primary/[0.12] text-primary"
-                        : "border-border bg-card text-muted hover:border-primary/30"
-                    }`}
-                  >
-                    {minutes} min
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  data-attr="event-duration-custom"
-                  onClick={() => setDurationChoice("custom")}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    durationChoice === "custom"
-                      ? "border-primary bg-primary/[0.12] text-primary"
-                      : "border-border bg-card text-muted hover:border-primary/30"
-                  }`}
-                >
-                  Custom
-                </button>
-                {durationChoice === "custom" ? (
-                  <label className="flex items-center gap-1.5 text-xs font-semibold text-muted">
-                    <Input
-                      type="number"
-                      min={MIN_EVENT_DURATION_MINUTES}
-                      max={MAX_EVENT_DURATION_MINUTES}
-                      step={5}
-                      value={customDurationText}
-                      onChange={(e) => setCustomDurationText(e.target.value)}
-                      className="h-9 w-24 rounded-xl"
-                      aria-label="Custom duration in minutes"
-                    />
-                    min
-                  </label>
-                ) : null}
-              </div>
-              <p className="mt-2 text-xs text-muted">
-                Will be scheduled for{" "}
-                <span className="font-semibold text-foreground">
-                  {formatRangeLabel(
-                    selectedBlock.meeting.startIso,
-                    endIsoForDuration(selectedBlock.meeting.startIso, selectedDurationMinutes),
-                  )}
-                </span>
-              </p>
-            </div>
-          ) : null}
-
+              ) : null}
             </>
           )}
-
-          {pendingTourAction === "delete" && !selectedIsPendingTourInquiry && !selectedIsConfirmedTour ? (
-            <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-pending" data-attr="tour-delete-confirm">
-              <p className="font-semibold text-foreground">
-                {selectedIsGuestFacingTour ? "Delete without telling the guest?" : "Delete this event?"}
-              </p>
-              <p className="mt-1 text-xs text-muted">
-                {selectedIsGuestFacingTour
-                  ? "This removes the event from your calendar and sends nothing."
-                  : "This removes the event from your calendar. It cannot be undone."}
-                {selectedTourGuestAlreadyTold
-                  ? " The guest was already told this tour is confirmed, so they will still expect it. Use Cancel tour instead unless you have already reached them."
-                  : ""}
-              </p>
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-            {calendarMeetingSupportsDelete(selectedBlock.meeting) ? (
-              <>
-            {pendingTourAction ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 shrink-0 whitespace-nowrap rounded-full px-3 text-xs sm:h-10 sm:px-5 sm:text-sm"
-                  onClick={() => setPendingTourAction(null)}
-                >
-                  {selectedKeepLabel}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  loading={tourActionBusy}
-                  className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-3 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
-                  data-attr="tour-delete-submit"
-                  onClick={() => deleteSelectedMeeting()}
-                >
-                  {selectedDeleteLabel}
-                </Button>
-              </>
-            ) : (
-              <>
-            {selectedIsManagerTask ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
-                data-attr="calendar-task-edit"
-                onClick={() => {
-                  setTaskEditId(selectedBlock.meeting.sourceTaskId ?? null);
-                  setTaskFormOpen(true);
-                }}
-              >
-                Edit service
-              </Button>
-            ) : null}
-            {selectedBlock.meeting.email?.trim() && !pendingTourAction ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
-                data-attr="tour-open-message-thread"
-                onClick={() =>
-                  openGuestMessageCompose(selectedBlock.meeting.email, selectedBlock.meeting.phone)
-                }
-              >
-                {selectedIsConfirmedTour || selectedIsGuestFacingTour ? "Message resident" : "Message"}
-              </Button>
-            ) : null}
-            {selectedIsConfirmedTour ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-3 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
-                data-attr="tour-cancel-open"
-                onClick={openConfirmedTourCancelPreview}
-              >
-                Cancel tour
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-4 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
-              data-attr="tour-delete-open"
-              onClick={() => {
-                if (selectedIsPendingTourInquiry) openTourDeletePreview();
-                else if (selectedIsConfirmedTour) openConfirmedTourDeletePreview();
-                else setPendingTourAction("delete");
-              }}
-            >
-              {selectedDeleteLabel}
-            </Button>
-            {selectedBlock.meeting.source === "inquiry" ? (
-              selectedBlock.meeting.kind === "tour" ? (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="h-9 min-w-0 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
-                  onClick={openTourConfirmPreview}
-                >
-                  Confirm tour
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="h-9 shrink-0 whitespace-nowrap rounded-full px-3 text-xs sm:h-10 sm:px-5 sm:text-sm"
-                  onClick={() => approveSelectedInquiry()}
-                >
-                  Approve
-                </Button>
-              )
-            ) : null}
-              </>
-            )}
-              </>
-            ) : null}
-          </div>
         </div>
       ) : selectedBlock?.kind === "availability" ? (
-        <div className="space-y-5">
-          {/*
-            Edit uses the SAME form as "Create recurring availability block",
-            pre-filled from the clicked block, so a manager changes hours, days,
-            kind or repeat in one place instead of only being able to delete
-            (PLAN-0916-0041). Save re-applies the block and strips the original;
-            Delete removes it.
-          */}
-          <p className="text-base font-semibold text-foreground">Edit availability block</p>
-          <RecurringBlockModalFormFields
-            blockSummary={blockSummary}
-            blockWeekdays={blockWeekdays}
-            toggleBlockWeekday={toggleBlockWeekday}
-            blockStartSlot={blockStartSlot}
-            setBlockStartSlot={setBlockStartSlot}
-            blockEndSlotExclusive={blockEndSlotExclusive}
-            setBlockEndSlotExclusive={setBlockEndSlotExclusive}
-            blockCadence={blockCadence}
-            setBlockCadence={setBlockCadence}
-            blockOccurrences={blockOccurrences}
-            setBlockOccurrences={setBlockOccurrences}
-            blockOccurrencesDraft={blockOccurrencesDraft}
-            setBlockOccurrencesDraft={setBlockOccurrencesDraft}
-            slotRowIndices={slotRowIndices}
-            showAppliesTo={showAppliesTo}
-            blockKinds={blockKinds}
-            setBlockKinds={setBlockKinds}
-          />
-          <div className="flex flex-nowrap items-center justify-between gap-1.5 border-t border-border pt-4 sm:gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-3 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
-              onClick={() => {
-                if (selectedBlock.isDefault) {
-                  removeDefaultRun(selectedBlock.dateStr, selectedBlock.startSlot, selectedBlock.endSlotExclusive);
-                } else {
-                  removeOpenRun(selectedBlock.dateStr, selectedBlock.startSlot, selectedBlock.endSlotExclusive, selectedBlock.kinds);
-                }
-                closeSelectedBlock();
-              }}
-            >
-              Delete block
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              className="h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
-              disabled={
-                blockWeekdays.length === 0 ||
-                blockEndSlotExclusive <= blockStartSlot ||
-                (showAppliesTo && blockKinds.length === 0)
-              }
-              onClick={() => applyRecurringBlock(selectedBlock)}
-            >
-              Save changes
-            </Button>
-          </div>
-        </div>
+        <RecurringBlockModalFormFields
+          blockSummary={blockSummary}
+          blockWeekdays={blockWeekdays}
+          toggleBlockWeekday={toggleBlockWeekday}
+          blockStartSlot={blockStartSlot}
+          setBlockStartSlot={setBlockStartSlot}
+          blockEndSlotExclusive={blockEndSlotExclusive}
+          setBlockEndSlotExclusive={setBlockEndSlotExclusive}
+          blockCadence={blockCadence}
+          setBlockCadence={setBlockCadence}
+          blockOccurrences={blockOccurrences}
+          setBlockOccurrences={setBlockOccurrences}
+          blockOccurrencesDraft={blockOccurrencesDraft}
+          setBlockOccurrencesDraft={setBlockOccurrencesDraft}
+          slotRowIndices={slotRowIndices}
+          showAppliesTo={showAppliesTo}
+          blockKinds={blockKinds}
+          setBlockKinds={setBlockKinds}
+        />
       ) : null}
-      </div>
-    </div>
-    ) : null
+    </PortalDialog>
   );
 
   const tourGuestNotifyPreviewModal = tourGuestNotifyPreview ? (

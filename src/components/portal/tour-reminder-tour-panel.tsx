@@ -135,7 +135,15 @@ export function TourReminderTourPanel({
   }
 
   if (loading) {
-    return <p className="text-sm text-muted">Loading tour reminder…</p>;
+    return (
+      <div
+        className="flex items-start justify-between gap-4 py-2"
+        data-attr="tour-reminder-loading"
+      >
+        <span className="text-sm text-muted">Reminder</span>
+        <span className="h-3 w-24 animate-pulse rounded bg-muted/60" aria-hidden />
+      </div>
+    );
   }
 
   if (!reminders.length) {
