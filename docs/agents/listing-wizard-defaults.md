@@ -1,10 +1,13 @@
 # Listing wizard: the Default card
 
-The Rooms and Bathrooms steps of the v2 listing wizard
-(`src/components/portal/listing-wizard-v2/listing-editor.tsx`) each start with
-one **Default** card — "Default room", "Default bathroom" — and one card per
-record. The Pricing step's two top cards are the same Default room. The Shared
-spaces step has no Default card: a shared space is its own record (see below).
+The **Pricing** step of the v2 listing wizard
+(`src/components/portal/listing-wizard-v2/listing-editor.tsx`,
+`listing-pricing-step.tsx`) is the only step left with a Default card: its two
+top cards are the Default room, one per lease type. Rooms, Bathrooms and
+Shared spaces have no Default card (PLAN-0921-1648 finished what PLAN-0920-0631
+started for Shared spaces) — every record there is its own, full stop, and
+"Same as Room X" / "Same as Bathroom X" is the one way a record starts from
+another's description (see below).
 
 ## The Default card is a card, not a record
 
@@ -12,27 +15,28 @@ A record still carries its own copy of every value. The Default card is what
 the top card shows on reopen, never a source a reader downstream resolves:
 the public listing, the preview rail, the assistant and the resident's move-in
 page read `room.photoDataUrls`, `room.moveInInstructions` and so on exactly as
-before. Two optional blocks on the submission hold the cards
-(`houseDefaults`, `bathroomDefaults`, `src/lib/manager-listing-submission.ts`);
-an older listing without them infers each card from its records
-(`houseDefaultsForSubmission`, `bathroomDefaultsForSubmission`).
+before. One optional block on the submission holds it
+(`houseDefaults`, `src/lib/manager-listing-submission.ts`); an older listing
+without it infers the card from its rooms (`houseDefaultsForSubmission`).
+`bathroomDefaults` and `sharedSpaceDefaults` are the same idea for bathrooms
+and shared spaces, but both are legacy now — see below.
 
-## A record follows the Default card **per field**
+## A room follows the Pricing Default card **per field**
 
 - A field follows when its value equals the Default card's or is empty. Lists
   (photos) compare by value.
-- Changing one field on a record makes **only that field** the record's own.
+- Changing one field on a room makes **only that field** the room's own.
   A room on its own floor still takes a new default size, amenities or
-  checklist. The step remembers hand edits per field for the session
-  (`useOwnFields`), so a value set while the Default card was still blank is
-  not swept up by the first default.
-- Unticking "Same as default …" is the one whole-record freeze; Reset (per
-  row, or ↺ under the name) copies the Default card back, blanks included.
-  The Pricing step's tick and ↺ do the same (`resetRoomFieldToDefault`) —
-  never blank the room, because Review, the applicant's room list and the
-  signed lease read the record, not the card. A listing opened with a blank
-  follower on rent, utilities or deposit is filled from the card once
-  (`fillRoomsFollowingDefaults`, in the wizard shell) and autosaved.
+  checklist. The step remembers hand edits per field for the session, so a
+  value set while the Default card was still blank is not swept up by the
+  first default.
+- Unticking "Same as default room" is the one whole-record freeze; Reset (per
+  row, or ↺ under the name) copies the Default card back, blanks included
+  (`resetRoomFieldToDefault`) — never blank the room, because Review, the
+  applicant's room list and the signed lease read the record, not the card. A
+  listing opened with a blank follower on rent, utilities or deposit is filled
+  from the card once (`fillRoomsFollowingDefaults`, in the wizard shell) and
+  autosaved.
 - "Make all the same" overwrites every record and asks first when a record has
   its own photos or clip.
 - Pictures, clips and words are a record's own the moment it has any while the
@@ -41,31 +45,88 @@ an older listing without them infers each card from its records
 - Inference: facts take the most common value; a photo list or clip is
   inferred only when **every** record carries the same one.
 
-Library: `src/lib/listing-house-defaults.ts` (rooms),
-`src/lib/listing-record-defaults.ts` (bathrooms, plus the shared-space readers
-below). `roomsFollowingDefaults` is the older per-record reading the previous
-wizard still uses; the v2 Rooms step does not call it.
+Library: `src/lib/listing-house-defaults.ts`. `roomsFollowingDefaults` is the
+older per-record reading the previous (non-v2) wizard still uses.
 
-## A shared space is its own record
+## Rooms, Bathrooms and Shared spaces are each their own record
 
-The Shared spaces step (PLAN-0920-0631) draws one card per space and nothing
-above them: name, Duplicate, ✕ and the chevron; rows Type, Floor and Who may
-use it; More ▾ holds What is in it, Size (sq ft, `sizeSqft`, like a room's),
-Description, Photos and Video. There is no
-"Default shared space" card, no "This shared space only · Reset" tick, no
-per-row Reset and no "Make all the same". A new space starts on the listing's
-ground floor (`floorLevelSelectOptions(listingStoriesId, "")[0]`) with
-Everyone allowed and everything else blank. "Who may use it" is Everyone as an
-empty `roomAccessIds` (a list naming every current room reads the same,
-`src/lib/listing-shared-space-access.ts`).
+All three steps draw one card per record and nothing above them: name (or a
+fixed type on Bathrooms), Duplicate, ✕ and the chevron; the important rows are
+on the card, everything else waits behind one More ▾. None of the three has a
+Default card, a "This … only · Reset" tick, a per-row Reset, or "Make all the
+same" — every value a record carries is its own, so Review, the public
+listing and the lease read exactly what the card shows.
 
-The stored `sharedSpaceDefaults` block is **legacy**: a listing saved while
-the card existed still carries it, the normaliser keeps it and
-`sharedSpaceDefaultsForSubmission` still reads it (the address-prefill path
-fills a blank space from it), but the wizard never draws or writes it. Every
-space always held its own copy of every value, so an old listing reads
-exactly as before. Guard:
-`tests/unit/listing-shared-spaces-no-default.test.ts`.
+- **Rooms**: Residents per room (not on a whole-place listing), Bathroom
+  access, Floor on the card; Furnishing (with Beds and Included while
+  furnished), Room amenities, Size, Photos, Video, Description, Availability,
+  move-in checklists, move-in instructions, entry photos and arrival clip
+  behind More ▾. Adding a room makes the same blank the Basics bedroom count
+  makes (`emptyRoom`) with one resident and no name — no seeding from another
+  room. Like a bathroom, a blank card SHOWS the listing's ground floor
+  (`floorLevelSelectOptions(listingStoriesId, "")[0]`) on its Floor row and in
+  its summary line, and writes one only when the manager picks.
+- **Bathrooms**: Floor, Type and Finishes on the card; Who uses it (unless
+  whole-place or no rooms yet); Description, Photos and Video behind More ▾.
+  Adding a bathroom — and every card the Basics bathroom count makes — is a
+  full bath with no rooms assigned and NO floor written: the Floor control
+  shows the listing's ground floor
+  (`floorLevelSelectOptions(listingStoriesId, "")[0]`) as a display default
+  and writes one only when the manager picks. A stamped floor reads as a
+  filled-in card to `isBathroomSlotRemovable`, and lowering the count would
+  then refuse forever.
+- **Shared spaces** (PLAN-0920-0631): Type, Floor and Who may use it on the
+  card; What is in it, Size (sq ft, `sizeSqft`, like a room's — labelled "Lot
+  size" for an outdoor space), Description, Photos and Video behind More ▾. A
+  new space starts on the ground floor with Everyone allowed and everything
+  else blank. "Who may use it" is Everyone as an empty `roomAccessIds` (a list
+  naming every current room reads the same,
+  `src/lib/listing-shared-space-access.ts`).
+
+Guards: `tests/unit/listing-shared-spaces-no-default.test.ts`,
+`tests/unit/listing-rooms-bathrooms-no-default.test.ts`.
+
+## "Same as Room X" / "Same as Bathroom X": a one-time copy, nothing stored
+
+The first row an open Rooms or Bathrooms card unfolds is **Same as** — a pick
+of "—" plus every other room's (or bathroom's) name. Picking one copies that
+record's description onto this one **once, right now**
+(`copyRoomDescriptionFrom` / `copyBathroomDescriptionFrom`,
+`src/lib/listing-house-defaults.ts` / `src/lib/listing-record-defaults.ts`) —
+never a standing link, so editing either record afterward simply makes them
+stop matching. The picker's own value is derived fresh on every render, never
+stored: it reads back whichever other record this one's description still
+equals (`roomDescriptionMatches` / `bathroomDescriptionMatches`), or "—" when
+none does.
+
+The description fields a room's copy touches are exactly
+`ROOM_DESCRIPTION_FIELDS` — floor, beds, occupancy, furnishing, room
+amenities, size, the two move-in checklists, photos, video, description,
+move-in instructions, entry photos, arrival clip. It never touches `id`,
+`name`, `availability`, `moveInAvailableDate`, `manualUnavailableRanges`, any
+price or per-resident-pricing field, or `ownRoomFields` itself. A bathroom's
+copy is the same idea over `BATHROOM_INHERIT_FIELDS` (floor, type, finishes,
+description, photos, video) and never touches `id`, `name`, `assignedRoomIds`,
+`allResidents`, `accessKindByRoomId` or the access kind — who uses a bathroom
+survives every copy untouched.
+
+`room.ownRoomFields` still records which fields a hand edit or a "Same as"
+copy last touched (kept for whatever else reads it), but nothing in the Rooms
+step reads it back any more — there is no card left for a field to "follow"
+or "detach from".
+
+Guards: `tests/unit/listing-same-as-copy.test.ts` (the pure functions),
+`tests/unit/listing-rooms-bathrooms-no-default.test.ts` (the picker, live).
+
+## `bathroomDefaults` and `sharedSpaceDefaults` are legacy readers
+
+Both blocks are read-only now. A listing saved while the Default bathroom or
+Default shared space card existed still carries its block; the normaliser
+keeps it and `bathroomDefaultsForSubmission` / `sharedSpaceDefaultsForSubmission`
+still read it (the address-prefill path fills a blank record from it on an
+older listing), but neither wizard step draws or writes either block again.
+Every record always held its own copy of every value, so an old listing reads
+exactly as before.
 
 ## Fees live on the card that charges them
 
@@ -156,30 +217,22 @@ Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
 `tests/unit/listing-wizard-v2-basics-bathrooms.test.tsx`,
 `tests/unit/listing-house-defaults.test.ts`,
 `tests/unit/listing-record-defaults.test.ts`,
-`tests/unit/listing-shared-spaces-no-default.test.ts`.
+`tests/unit/listing-shared-spaces-no-default.test.ts`,
+`tests/unit/listing-rooms-bathrooms-no-default.test.ts`,
+`tests/unit/listing-same-as-copy.test.ts`.
 
-## The Rooms step names its top card "All rooms" (PLAN-0914-1734)
+## Secondary Rooms fields stay behind one More ▾
 
-The Rooms step's own top card reads **All rooms**, not "Default room" — the
-Bathrooms and Shared spaces steps keep "Default bathroom" / "Default shared
-space". Each room gets a **Same as all rooms** checkbox next to its name
-(`SameAsAllToggle`'s `allLabel` prop): ticked, every tracked field is dashed
-and following; a hand edit (or an untick) detaches just that field, which
-turns solid and grows a "Reset to All rooms" tag. This is the same per-field
-follow/reset mechanic every Default card already had — no second mechanism —
-except that here it survives a reload: touching a field, resetting it, or
-duplicating a room writes `room.ownRoomFields` (the touched field names) on
-the submission itself (`ManagerRoomSubmission.ownRoomFields`,
-`manager-listing-submission.ts`), and the Rooms step seeds its per-field
-"own" tracking from it on mount. Nothing outside the Rooms step editor reads
-that list — a room's own value is still what Review, the public listing and
-the lease read, exactly as every other Default card's records are. Bathrooms
-and Shared spaces have not been given this persistence; their per-field
-tracking stays a session convenience, so a field whose value happens to equal
-the top card's after a reload reads as following again. Secondary Rooms
-fields (furnishing, amenities, size, photos, checklists…) stay behind one
-More ▾, and a column label's ⓘ opens one line on tap — never a sentence
-printed under the label.
+Furnishing, Room amenities, Size, Photos, Video, Description, Availability,
+the move-in checklists, move-in instructions, entry photos and arrival clip
+all sit behind Rooms' one More ▾, and a column label's ⓘ opens one line on
+tap — never a sentence printed under the label. `ManagerRoomSubmission.ownRoomFields`
+(`manager-listing-submission.ts`) still records which description fields a
+hand edit or a "Same as Room X" copy last touched, kept only because it is a
+persisted field other code may still read; nothing in the Rooms step reads it
+back any more now that there is no top card for a field to follow or detach
+from (PLAN-0921-1648 retired the "All rooms" card and its checkbox —
+`SameAsAllToggle` is Pricing's alone now).
 
 ## Partial months (PLAN-0920-0423)
 

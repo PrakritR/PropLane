@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 //
-// Reset is per field, not per card: a row that holds its own value carries a
-// Reset that puts THAT field back on the "Every …" card and leaves the rest of
-// the card alone. A row that already follows the top card shows no Reset.
+// PLAN-0921-1648: Rooms and Bathrooms lost their per-field Reset along with
+// their "Every …" card, joining Shared spaces (PLAN-0920-0631) — every record
+// on all three steps is its own, full stop, and no field carries a Reset tag
+// back to anything. "Same as Room X" / "Same as Bathroom X" is the one way a
+// record starts from another's description now; it is covered in
+// listing-same-as-copy.test.ts and listing-rooms-bathrooms-no-default.test.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -79,34 +82,29 @@ const optionValues = (label: string) => {
   return values;
 };
 
-describe("per-field Reset on the listing cards", () => {
-  it("rooms: a following row has no Reset; an own row does, and it resets only that field", () => {
+describe("no per-field Reset on the listing cards (PLAN-0921-1648)", () => {
+  it("rooms: a room's floor is its own — no Every card to follow and no Reset", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", (s) => seen.push(s));
+    expect(screen.queryByRole("button", { name: "Floor for every room" })).toBeNull();
     openCard("Room A");
     const floors = optionValues("Floor for Room A");
     expect(floors.length).toBeGreaterThan(1);
     expect(screen.queryByRole("button", { name: /Reset floor for Room A/ })).toBeNull();
-
     pick("Floor for Room A", floors[1]!);
-    pick("Floor for every room", floors[0]!);
     expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")?.floor).toBe(floors[1]);
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")?.floor).toBe(floors[0]);
-
-    fireEvent.click(screen.getByRole("button", { name: /Reset floor for Room A/ }));
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")?.floor).toBe(floors[0]);
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")?.floor ?? "").toBe("");
     expect(screen.queryByRole("button", { name: /Reset floor for Room A/ })).toBeNull();
   });
 
-  it("bathrooms: Reset on Type puts that one bathroom's type back on every bathroom", () => {
+  it("bathrooms: a bathroom's type is its own — no Every card to follow and no Reset", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
-    pick("Type of every bathroom", "full");
+    expect(screen.queryByRole("button", { name: "Type of every bathroom" })).toBeNull();
     openCard("Upstairs");
-    pick("Type of Upstairs", "half");
-    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b1")?.bathtub).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: /Reset type of Upstairs/ }));
+    pick("Type of Upstairs", "full");
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b1")?.bathtub).toBe(true);
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.bathtub ?? false).toBe(false);
     expect(screen.queryByRole("button", { name: /Reset type of Upstairs/ })).toBeNull();
   });
 
