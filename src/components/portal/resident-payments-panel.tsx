@@ -57,6 +57,7 @@ import {
   syncHouseholdChargesFromServer,
   type HouseholdCharge,
 } from "@/lib/household-charges";
+import { residentVisibleCharges } from "@/lib/household-charge-visibility";
 import { syncManagerApplicationsFromServer, MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
@@ -372,7 +373,17 @@ export function ResidentPaymentsPanel({
   const charges = useMemo(() => {
     void tick;
     if (!email) return [] as HouseholdCharge[];
-    return readChargesForResident(email, userId);
+    // A not-yet-due charge stays off the resident's screen until it is within
+    // `RESIDENT_CHARGE_VISIBILITY_WINDOW_DAYS` of its due date (or a manager
+    // surfaces it early via a manual reminder). This is the single source
+    // every row list, count, and the "amount due" figure below derives from,
+    // so filtering here keeps all of them in agreement with the assistant's
+    // own resident charges tool, which applies the same underlying rule.
+    // `residentVisibleCharges` (rather than a plain per-charge filter) keeps a
+    // move-in group's lines together: the group below (`buildMoveInChargeGroups`)
+    // must never lose a line just because that one line's own due date sits
+    // outside the window while a sibling line makes the group visible.
+    return residentVisibleCharges(readChargesForResident(email, userId));
   }, [email, userId, tick]);
 
   // Payments the LEDGER recorded whose charge row no longer exists. Without

@@ -22,6 +22,16 @@ vi.mock("@/hooks/use-portal-session", () => ({
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/hooks/use-native-platform", () => ({ useNativePlatform: () => null }));
+// The resident 7-day visibility window (`household-charge-visibility.ts`)
+// compares this charge's due date against the real wall clock at render
+// time, so the label is computed relative to "now" rather than pinned to a
+// literal calendar date that would eventually fall outside the window.
+function daysFromNowLabel(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 vi.mock("@/lib/household-charges", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/household-charges")>();
   const charges = [
@@ -42,8 +52,7 @@ vi.mock("@/lib/household-charges", async (importOriginal) => {
       blocksLeaseUntilPaid: false,
       axisPaymentsEnabledSnapshot: true,
       managerStripeConnectReadySnapshot: true,
-      dueDateLabel: "Oct 1, 2026",
-      rentMonth: "2026-10",
+      dueDateLabel: daysFromNowLabel(3),
     },
   ];
   return { ...actual, syncHouseholdChargesFromServer: () => Promise.resolve(), readChargesForResident: () => charges };

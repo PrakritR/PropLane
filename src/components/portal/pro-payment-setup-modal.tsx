@@ -679,7 +679,7 @@ export function ManagerPaymentSetupPanel({
         </section>
       ) : null}
 
-      {activeWorkspaceId ? (
+      {section !== "fee" && activeWorkspaceId ? (
         <section className="space-y-4">
           <FieldSingleSelect
             label="Residents can set up autopay"

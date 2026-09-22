@@ -27,6 +27,39 @@ vi.mock("@/lib/manager-subscription-client", () => ({
   loadManagerSubscriptionTierClient: vi.fn(async () => "pro"),
   loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false),
 }));
+// PLAN-0920-2357 stream C: an owned active workspace so `activeWorkspaceId` is
+// truthy in both split mounts below — the autopay row only renders once one
+// exists, and the duplicate-row bug only reproduces once it does.
+vi.mock("@/components/portal/workspace-provider", () => ({
+  useWorkspaces: () => ({
+    workspaces: [
+      {
+        id: "ws1",
+        name: "Workspace",
+        ownerUserId: "owner-1",
+        owned: true,
+        isDefault: true,
+        propertyIds: [],
+        propertyPermissions: {},
+      },
+    ],
+    active: {
+      id: "ws1",
+      name: "Workspace",
+      ownerUserId: "owner-1",
+      owned: true,
+      isDefault: true,
+      propertyIds: [],
+      propertyPermissions: {},
+    },
+    plan: null,
+    error: null,
+    loading: false,
+    refresh: vi.fn(),
+    mutate: vi.fn(),
+    select: vi.fn(),
+  }),
+}));
 
 import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
 
@@ -120,5 +153,40 @@ describe("ManagerPaymentSetupPanel: the incomplete-onboarding pill and sentence 
     const card = screen.getByTestId("payment-setup-stripe-card");
     expect(card.tagName).toBe("BUTTON");
     expect(card).toHaveTextContent("Set up");
+  });
+});
+
+describe("ManagerPaymentSetupPanel: autopay rows render once across the split setup+fee mount", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows each autopay row label exactly once when Payments settings mounts both section=\"setup\" and section=\"fee\" (PaymentsSettingsPanel's actual shape)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/stripe/connect/status")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ connected: true, chargesEnabled: true, payoutsEnabled: true, paymentReady: true }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ settings: null }) };
+      }),
+    );
+    await act(async () => {
+      render(
+        <>
+          <ManagerPaymentSetupPanel active section="setup" propertyOptions={[{ id: "home", label: "Test home" }]} />
+          <ManagerPaymentSetupPanel active section="fee" propertyOptions={[{ id: "home", label: "Test home" }]} />
+        </>,
+      );
+    });
+
+    expect(screen.getAllByText("Residents can set up autopay")).toHaveLength(1);
+    expect(screen.getAllByText("Autopay retries a declined payment")).toHaveLength(1);
   });
 });

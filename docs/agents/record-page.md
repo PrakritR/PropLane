@@ -37,6 +37,10 @@ Property and Resident keep their own already-working header actions instead of t
 real functionality it does not cover 1:1 yet is never dropped. Bookings' `record-payment` header action is a
 narrower case: it is dropped from the header entirely (never rendered, never "Coming soon") on any booking
 without a verified charge path, per the plan's own "omit — never Coming soon" rule for that one id.
+Payment's header (`record-payment`, `send-reminder`, `delete`) is fully wired in
+`pro-payments-ledger-panel.tsx` through the same reversible paths the row ⋯ menu uses; it has no
+`edit` — amount edits stay in the row ⋯ menu's Edit dialog — and `record-payment` is omitted (phone
+primary falls back to Send reminder) when nothing is left to pay.
 
 ## The day page pattern
 

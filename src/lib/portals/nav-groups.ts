@@ -7,11 +7,10 @@ import type { PortalKind } from "@/lib/portal-types";
  * buckets sections under headings.
  *
  * `label: null` renders the items with no heading (Home row).
- * `profile` (Settings) is pinned as its own trailing group at the bottom of the
- * pro/manager, resident, and vendor desktop sidebars — right above the sidebar's
- * own "Need help?" link (see `portal-sidebar.tsx`'s `firstTrailingGroupIdx`).
- * The top-right account menu keeps its own duplicate link; admin has no Settings
- * row here and still reaches it only from the account menu. Admin Feedback
+ * `profile` (Settings) has no row in ANY desktop sidebar — pro/manager,
+ * resident, vendor, and admin all reach it only from the top-right account
+ * menu (and, on a phone, the profile menu). It is excluded from sidebar
+ * grouping entirely (see `SIDEBAR_EXCLUDED_SECTIONS`). Admin Feedback
  * (`bugs-feedback`) is a standalone Operations item; manager/resident/vendor
  * feedback stays inside Settings (embedded panel).
  */
@@ -21,9 +20,8 @@ export type NavGroupConfig = { id: string; label: string | null; sections: strin
  * Sections never rendered in the desktop sidebar UNLESS a portal's own group
  * config explicitly assigns them (assignment in `groupNavItems` happens
  * before this set is even consulted — it only decides where an otherwise
- * UNASSIGNED section goes). `profile` is assigned by the trailing "settings"
- * group for pro/manager, resident, and vendor; admin's groups never mention
- * it, so it stays excluded there and reachable only from the account menu.
+ * UNASSIGNED section goes). No portal's group config assigns `profile`, so it
+ * stays excluded everywhere and reachable only from the account menu.
  */
 export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
   "profile",
@@ -39,8 +37,8 @@ export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
 export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolean {
   if (section === "bugs-feedback") return kind !== "admin";
   // Settings reaches a phone through the account menu / mobile profile menu,
-  // never the mobile nav strip or native bottom bar — independent of whether
-  // the DESKTOP sidebar shows it (see the trailing "settings" group below).
+  // never the mobile nav strip or native bottom bar — same as the desktop
+  // sidebar, which also has no Settings row (see SIDEBAR_EXCLUDED_SECTIONS).
   if (section === "profile") return true;
   // App download page: reachable from Settings, never a nav destination.
   if (section === "app" && (kind === "manager" || kind === "pro")) return true;
@@ -66,9 +64,6 @@ const PRO_GROUPS: NavGroupConfig[] = [
   // Team (co-managers) is managed under Settings → Workspaces / Team; the /teams
   // routes stay reachable for deep links and detail pages. Vendors is a section.
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
-  // Trailing, unlabeled, always last — see `firstTrailingGroupIdx` in
-  // `portal-sidebar.tsx`, which pins this group just above "Need help?".
-  { id: "settings", label: null, sections: ["profile"] },
 ];
 
 const ADMIN_GROUPS: NavGroupConfig[] = [
@@ -83,8 +78,6 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "my-home", label: "My home", sections: ["lease", "move-in", "services", "inspections"] },
   { id: "finances", label: "Finances", sections: ["payments", "documents"] },
   { id: "messages", label: "Messages", sections: ["communication"] },
-  // Trailing, unlabeled, always last — pinned just above "Need help?".
-  { id: "settings", label: null, sections: ["profile"] },
 ];
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
@@ -92,8 +85,6 @@ const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
-  // Trailing, unlabeled, always last — pinned just above "Need help?".
-  { id: "settings", label: null, sections: ["profile"] },
 ];
 
 export const PORTAL_NAV_GROUPS: Record<PortalKind, NavGroupConfig[]> = {

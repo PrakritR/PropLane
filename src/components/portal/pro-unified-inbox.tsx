@@ -46,6 +46,12 @@ import {
   inboxThreadUnreadCount,
 } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import {
+  buildActiveCommunicationThreads,
+  emailThreadPersonKey,
+  smsConversationPersonKey,
+  smsConversationRowId,
+} from "@/lib/communication-active-rows";
 import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
   assistantUnifiedListItemFromThread,
@@ -91,8 +97,6 @@ import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
   unifiedInboxKey,
-  unifiedInboxPersonKey,
-  unifiedInboxSmsBindingKey,
   type CommunicationListSort,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
@@ -113,9 +117,8 @@ import {
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
 } from "@/lib/manager-sms-archive.client";
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
+import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
 import { startObservedInboxReadOperation } from "@/lib/portal-inbox-read-operation.client";
-
-const SMS_HIDDEN_STORAGE_KEY = "axis_manager_sms_hidden_v2";
 
 function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return a.size === b.size && [...a].every((value) => b.has(value));
@@ -127,15 +130,11 @@ function previewLine(body: string, max = 80) {
   return `${t.slice(0, max)}…`;
 }
 
-function smsConversationId(resident: ManagerSmsResidentConversation): string {
-  return (
-    resident.conversationKey ??
-    resident.phone ??
-    resident.residentUserId ??
-    resident.residentEmail ??
-    resident.name
-  );
-}
+// Alias so every existing call site keeps reading naturally; the actual
+// derivation is shared with the sidebar badge (`communication-active-rows.ts`)
+// so a hidden/archived id lookup here and the badge's own lookup can never
+// disagree.
+const smsConversationId = smsConversationRowId;
 
 function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
   const smsBindingKeys = [...new Set(
@@ -155,23 +154,8 @@ function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
     memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
     ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
-    personKey:
-      (smsBindingKeys.length === 1 ? unifiedInboxSmsBindingKey(smsBindingKeys[0]) : undefined) ??
-      (smsBindingKeys.length > 1 ? `email-explicit-binding:${t.id}` : unifiedInboxPersonKey(t.email)),
+    personKey: emailThreadPersonKey(t),
   };
-}
-
-function loadSmsHiddenIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(SMS_HIDDEN_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0));
-  } catch {
-    return new Set();
-  }
 }
 
 function iosListTimestamp(iso: string | null | undefined): string {
@@ -567,20 +551,17 @@ export function ManagerUnifiedInbox({
   }, [viewerId]);
 
   const filteredEmail = useMemo(() => {
-    // When SMS UI is hidden, KEEP SMS-like inbound notices so an inbound text is
-    // still visible in the person's conversation instead of vanishing into a
-    // hidden SMS panel.
-    const base = collapsePersonInboxThreads(
-      filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled }),
-      { mergeFolders: true },
-    );
-    const withAssistant = withPinnedPropLaneAssistantThreads(
-      base,
-      "manager",
+    // The exact rows the Active tab shows — lifted into a shared builder so the
+    // Communication sidebar badge can never drift from what this list renders.
+    // `withPinnedPropLaneAssistantThreads` ignores `listSegment` for the
+    // manager portal (it always keeps the workspace's Assistant thread live),
+    // so hardcoding "active" inside the builder is not a behaviour change here.
+    const withAssistant = buildActiveCommunicationThreads(emailThreads, {
+      portal: "manager",
       viewerId,
-      listSegment,
-      assistantWorkspace,
-    );
+      workspace: assistantWorkspace,
+      smsUiEnabled,
+    });
     // The contacts directory only gates the property/role/person dimensions
     // (they need it to resolve a match); a record-only filter has everything
     // it needs on the thread itself and must not wait on that fetch.
@@ -595,7 +576,7 @@ export function ManagerUnifiedInbox({
         recordRef: t.recordRef,
       }),
     );
-  }, [assistantWorkspace, emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
+  }, [assistantWorkspace, emailThreads, threadFilters, filterContacts, smsUiEnabled, viewerId]);
 
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
@@ -642,10 +623,9 @@ export function ManagerUnifiedInbox({
         readSourcesComplete: t.readSourcesComplete,
         ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
         ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
-        // Who this is with, so a text thread with the same person folds in.
-        personKey:
-          (smsBindingKeys.length === 1 ? unifiedInboxSmsBindingKey(smsBindingKeys[0]) : undefined) ??
-          (smsBindingKeys.length > 1 ? `email-explicit-binding:${t.id}` : unifiedInboxPersonKey(t.email)),
+        // Who this is with, so a text thread with the same person folds in —
+        // shared with the sidebar badge (`communication-active-rows.ts`).
+        personKey: emailThreadPersonKey(t),
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: isPropLaneAssistantInboxThread(t)
@@ -723,10 +703,9 @@ export function ManagerUnifiedInbox({
           threadId: rowId,
           // Only a resolved address merges. An unknown number carries none, so
           // it stays its own conversation rather than being guessed onto a
-          // resident.
-          personKey: explicitlyBoundSmsKeys.has(resident.conversationKey ?? "")
-            ? unifiedInboxSmsBindingKey(resident.conversationKey)
-            : unifiedInboxPersonKey(resident.residentEmail),
+          // resident. Shared with the sidebar badge
+          // (`communication-active-rows.ts`).
+          personKey: smsConversationPersonKey(resident, explicitlyBoundSmsKeys),
           personEmail: resident.residentEmail?.trim() || undefined,
           smsBindingKey: resident.conversationKey?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.

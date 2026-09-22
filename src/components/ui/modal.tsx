@@ -278,6 +278,7 @@ function ModalPanelInner({
   scrollableContent = true,
   headerAction,
   status,
+  subheader,
   TitlePrimitive,
   DescriptionPrimitive,
   ClosePrimitive,
@@ -287,6 +288,7 @@ function ModalPanelInner({
   children: ReactNode;
   footer?: ReactNode;
   status?: ReactNode;
+  subheader?: ReactNode;
   dense: boolean;
   onClose: () => void;
   showAssistantStrip: boolean;
@@ -353,6 +355,7 @@ function ModalPanelInner({
             </button>
           </ClosePrimitive>
         </div>
+        {subheader ? <div className="mt-2 min-w-0">{subheader}</div> : null}
         {description ? (
           <DescriptionPrimitive asChild>
             <p id="modal-description" className="text-sm leading-relaxed text-muted">
@@ -461,6 +464,7 @@ export function Modal({
   dataAttr,
   dismissBlocked = false,
   status,
+  subheader,
 }: {
   open: boolean;
   title: ReactNode;
@@ -474,6 +478,8 @@ export function Modal({
    * the one place the user learns their edit landed.
    */
   status?: ReactNode;
+  /** Row rendered under the title, outside the title's flex row (e.g. a scope picker). */
+  subheader?: ReactNode;
   panelClassName?: string;
   stackClassName?: string;
   dense?: boolean;
@@ -528,6 +534,7 @@ export function Modal({
   const panelInnerProps = {
     title,
     status,
+    subheader,
     description,
     children,
     footer,

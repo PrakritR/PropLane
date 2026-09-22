@@ -31,6 +31,7 @@ import {
   readChargesForResident,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
+import { residentVisibleCharges } from "@/lib/household-charge-visibility";
 import {
   LEASE_PIPELINE_EVENT,
   findLeaseForResidentEmail,
@@ -555,6 +556,7 @@ export function ResidentDashboard({
         inbox: 0,
         inboxThreads: [] as ReturnType<typeof loadPersistedInbox>,
         pendingCharges: [] as ReturnType<typeof readChargesForResident>,
+        hasTenancyCharges: false,
         applicationRows: [] as ReturnType<typeof applicationsForResidentEmail>,
         workOrders: [] as DemoManagerWorkOrderRow[],
         serviceRequests: [] as ServiceRequest[],
@@ -584,7 +586,12 @@ export function ResidentDashboard({
     const inbox = countUnopenedPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK);
 
     const charges = email ? readChargesForResident(email, residentUserId) : [];
-    const pendingCharges = charges
+    // Tenancy is decided on everything the resident is billed, but what the
+    // dashboard SHOWS (count, balance, rows) is the same visibility set the
+    // Payments tab and the assistant use — a not-yet-due recurring charge stays
+    // off every resident surface until it is close to due.
+    const hasTenancyCharges = chargesImplyTenancy(charges.filter((c) => c.status === "pending"));
+    const pendingCharges = residentVisibleCharges(charges)
       .filter((c) => c.status === "pending")
       .sort((a, b) => {
         const aOverdue = isHouseholdChargeOverdue(a);
@@ -598,6 +605,7 @@ export function ResidentDashboard({
       inbox,
       inboxThreads,
       pendingCharges,
+      hasTenancyCharges,
       applicationRows: email ? applicationsForResidentEmail(email) : [],
       serviceItems,
     };
@@ -609,6 +617,7 @@ export function ResidentDashboard({
     inbox,
     inboxThreads,
     pendingCharges,
+    hasTenancyCharges,
     applicationRows,
     serviceItems,
   } = data;
@@ -617,7 +626,7 @@ export function ResidentDashboard({
   // overdue payments" group linking to /resident/payments — which the stage
   // guard then bounced straight back here. An application or holding fee is
   // what a prospect owes, so only a tenancy charge unlocks the group.
-  const canUsePayments = applicationApproved || chargesImplyTenancy(pendingCharges);
+  const canUsePayments = applicationApproved || hasTenancyCharges;
   const pendingApplicationRows = applicationRows.filter((r) => r.bucket === "pending");
   const pendingApplicationCount = pendingApplicationRows.length;
   const pendingTours = useMemo(

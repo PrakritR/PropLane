@@ -18,6 +18,11 @@ import {
 
 export type PaymentListSort = "dueSoon" | "dueLatest" | "amountDesc" | "amountAsc" | "resident";
 
+const SHOW_UPCOMING_CHARGES_OPTIONS = [
+  { value: "show", label: "Show" },
+  { value: "hide", label: "Hide" },
+];
+
 export function PaymentFilterSortFields({
   propertyOptions,
   propertyFilters,
@@ -32,6 +37,9 @@ export function PaymentFilterSortFields({
   defaultListSort = "dueSoon",
   groupMode,
   onGroupModeChange,
+  showUpcomingChargesField = false,
+  showUpcomingCharges = true,
+  onShowUpcomingChargesChange,
 }: {
   propertyOptions: { id: string; label: string }[];
   propertyFilters: string[];
@@ -46,6 +54,10 @@ export function PaymentFilterSortFields({
   defaultListSort?: PaymentListSort;
   groupMode: PortalListGroupMode;
   onGroupModeChange: (next: PortalListGroupMode) => void;
+  /** Only the manager's incoming (resident rent) ledger has an Upcoming group to show/hide. */
+  showUpcomingChargesField?: boolean;
+  showUpcomingCharges?: boolean;
+  onShowUpcomingChargesChange?: (next: boolean) => void;
 }) {
   const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
     propertyFilters,
@@ -61,6 +73,13 @@ export function PaymentFilterSortFields({
     listSort,
     onListSortChange,
     defaultListSort,
+  );
+  // Registered even when the field is hidden (outgoing direction) — hooks
+  // cannot be conditional; a no-op onApply keeps that safe.
+  const [draftShowUpcomingCharges, setDraftShowUpcomingCharges] = usePortalFilterDraft(
+    showUpcomingCharges,
+    onShowUpcomingChargesChange ?? (() => {}),
+    true,
   );
 
   const propertyListOptions = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
@@ -144,6 +163,24 @@ export function PaymentFilterSortFields({
             value={draftListSort}
             onChange={(value) => setDraftListSort(value as PaymentListSort)}
             dataAttr="payments-filter-sort"
+          />
+        </FilterCollapsibleSection>
+      ) : null}
+
+      {showUpcomingChargesField ? (
+        <FilterCollapsibleSection
+          sectionId="upcoming-charges"
+          label="Upcoming charges"
+          summary={draftShowUpcomingCharges ? "Show" : "Hide"}
+          empty={draftShowUpcomingCharges}
+          menuOptionCount={SHOW_UPCOMING_CHARGES_OPTIONS.length}
+          dataAttr="payments-filter-upcoming-charges-trigger"
+        >
+          <FilterSingleSelectList
+            options={SHOW_UPCOMING_CHARGES_OPTIONS}
+            value={draftShowUpcomingCharges ? "show" : "hide"}
+            onChange={(value) => setDraftShowUpcomingCharges(value === "show")}
+            dataAttr="payments-filter-upcoming-charges"
           />
         </FilterCollapsibleSection>
       ) : null}

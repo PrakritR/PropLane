@@ -4,6 +4,7 @@ import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { loadPaymentReminderChargeForActor, resolvePaymentReminderCapability } from "@/lib/payment-reminder-capability.server";
 import { track } from "@/lib/analytics/posthog";
 import { chargeDueLabel, isUnpaidHouseholdCharge } from "@/lib/household-charges";
+import type { HouseholdChargeWithVisibility } from "@/lib/household-charge-visibility";
 import { buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { deliverManualPaymentReminder } from "@/lib/manual-payment-reminder-delivery.server";
@@ -72,6 +73,10 @@ export async function POST(req: Request) {
     if (coveredChargeIds.length > 25) {
       return NextResponse.json({ ok: false, error: "Too many charges in one reminder." }, { status: 400 });
     }
+    // Kept from the validation reads below so a successful send can stamp
+    // `residentVisibleAt` on every covered charge's own row without a second
+    // round trip per charge.
+    const coveredChargesById = new Map<string, HouseholdChargeWithVisibility>([[chargeId, ownedCharge]]);
     for (const coveredId of coveredChargeIds) {
       if (coveredId === chargeId) continue;
       const covered = await loadPaymentReminderChargeForActor(db, actor.userId, coveredId, admin);
@@ -80,6 +85,7 @@ export async function POST(req: Request) {
           !isUnpaidHouseholdCharge(covered.charge)) {
         return NextResponse.json({ ok: false, error: "The reminder group changed. Refresh payments and try again." }, { status: 409 });
       }
+      coveredChargesById.set(coveredId, covered.charge);
     }
     const { data: ownerProfile } = await db.from("profiles")
       .select("email")
@@ -237,6 +243,37 @@ export async function POST(req: Request) {
       sms_sent: smsSent,
       sms_queued: smsQueued,
     });
+    // A manual reminder is the manager choosing to surface a charge early —
+    // stamp every covered charge so the resident sees it immediately, ahead of
+    // the normal 7-day visibility window (`residentCanSeeCharge`). The row is
+    // re-read right before the write and only `residentVisibleAt` is merged in,
+    // so a status change that landed during delivery (a Stripe webhook marking
+    // it paid, an autopay update) is never overwritten with the pre-send copy.
+    // Best-effort, since a failure here should never fail an otherwise-sent
+    // reminder.
+    if (accepted) {
+      const residentVisibleAt = new Date().toISOString();
+      await Promise.all(
+        [...coveredChargesById.entries()].map(async ([id, charge]) => {
+          if (charge.residentVisibleAt) return;
+          try {
+            const { data: fresh } = await db
+              .from("portal_household_charge_records")
+              .select("row_data")
+              .eq("id", id)
+              .maybeSingle();
+            const current = (fresh?.row_data ?? null) as HouseholdChargeWithVisibility | null;
+            if (!current || current.residentVisibleAt) return;
+            await db
+              .from("portal_household_charge_records")
+              .update({ row_data: { ...current, residentVisibleAt } })
+              .eq("id", id);
+          } catch {
+            /* best-effort visibility stamp; the reminder itself already sent */
+          }
+        }),
+      );
+    }
     return NextResponse.json({
       ok: accepted && !externalUnknown && !inFlight,
       status,

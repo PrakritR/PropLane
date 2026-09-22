@@ -1,7 +1,8 @@
-import { withPinnedPropLaneAssistantThreads, type CommunicationAssistantPortal } from "@/lib/communication-assistant-inbox-list";
+import type { CommunicationAssistantPortal } from "@/lib/communication-assistant-inbox-list";
 import type { ManagerAssistantWorkspace } from "@/lib/communication-manager-assistant-thread";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
-import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { countUnreadActiveCommunication } from "@/lib/communication-active-rows";
+import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 /** True when a contact label looks like a phone number rather than a person/email. */
 export function isPhoneLikeContact(value: string | null | undefined): boolean {
@@ -95,10 +96,11 @@ export function threadMatchesVendorContact(
 }
 
 /**
- * Unread conversations Active would show: collapse person rows, drop leftover
- * workspace assistant notices, and ignore archived SMS bindings. Inbound-SMS
- * notices remain countable because the SMS UI defaults off; in that state they
- * fall through into this same conversation list.
+ * Unread conversations Active would show. Thin alias of
+ * `countUnreadActiveCommunication` (`@/lib/communication-active-rows`), kept
+ * here so every existing import path keeps working — the real pipeline lives
+ * there, lifted straight out of the Active list's own row-building code so the
+ * badge can never drift from what Active actually renders.
  */
 export function countVisibleUnreadCommunication(
   rows: PersistedInboxThread[],
@@ -107,21 +109,14 @@ export function countVisibleUnreadCommunication(
     viewerId: string | null | undefined;
     workspace?: ManagerAssistantWorkspace | null;
     archivedSmsIds?: ReadonlySet<string>;
+    smsUiEnabled?: boolean;
   },
 ): number {
-  const pinned = withPinnedPropLaneAssistantThreads(
-    filterManagerCommunicationThreads(rows),
-    opts.portal,
-    opts.viewerId,
-    "active",
-    opts.workspace,
-  );
-  const collapsed = collapsePersonInboxThreads(pinned, { mergeFolders: true });
-  const archivedSms = opts.archivedSmsIds;
-  return collapsed.filter((thread) => {
-    if (thread.folder !== "inbox" || !thread.unread) return false;
-    const binding = thread.smsConversationKey?.trim();
-    if (binding && archivedSms?.has(binding)) return false;
-    return true;
-  }).length;
+  return countUnreadActiveCommunication(rows, {
+    portal: opts.portal,
+    viewerId: opts.viewerId,
+    workspace: opts.workspace,
+    archivedSmsIds: opts.archivedSmsIds,
+    smsUiEnabled: opts.smsUiEnabled ?? false,
+  });
 }
