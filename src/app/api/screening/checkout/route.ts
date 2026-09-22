@@ -12,7 +12,7 @@
  */
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
+import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -92,10 +92,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Application has no assigned manager." }, { status: 400 });
     }
     if (!admin && managerUserId !== user.id) {
-      const linked = await collectLinkedPropertyIdsForUser(db, user.id);
       const propertyId = String(record?.property_id ?? "").trim();
       const assignedPropertyId = String(record?.assigned_property_id ?? "").trim();
-      if (!((propertyId && linked.has(propertyId)) || (assignedPropertyId && linked.has(assignedPropertyId)))) {
+      // Assignment alone is not the grant: starting a paid screening checkout
+      // requires `applications` at EDIT on the property
+      // (docs/agents/co-manager-access.md "Empty used to mean FULL").
+      const allowed =
+        (propertyId &&
+          (await managerHasCoManagerPermissionForProperty(db, user.id, propertyId, "applications", "edit"))) ||
+        (assignedPropertyId &&
+          (await managerHasCoManagerPermissionForProperty(db, user.id, assignedPropertyId, "applications", "edit")));
+      if (!allowed) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
     }

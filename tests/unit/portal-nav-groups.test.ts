@@ -14,15 +14,14 @@ import {
 } from "@/lib/portals/resident-sections";
 
 const CASES = [
-  // Settings (profile) is pinned as its own trailing sidebar group for
-  // pro/manager, resident, and vendor (see `nav-groups.ts`'s "settings" group);
-  // the account menu keeps a duplicate link. Admin still reaches Settings only
-  // from the account menu, and exposes Feedback as its own sidebar item under
-  // Operations instead.
+  // Settings (profile) has no sidebar row anywhere — every portal reaches it
+  // only from the account menu. Admin exposes Feedback as its own sidebar
+  // item under Operations; manager/resident/vendor feedback stays embedded
+  // inside Settings.
   {
     kind: "pro" as const,
     sections: proPortal.sections.map((s) => s.section),
-    sidebarShowsProfile: true,
+    sidebarShowsProfile: false,
     sidebarShowsFeedback: false,
   },
   {
@@ -40,13 +39,13 @@ const CASES = [
         ...RESIDENT_APPROVED_PORTAL_SECTIONS.map((s) => s.section),
       ]),
     ],
-    sidebarShowsProfile: true,
+    sidebarShowsProfile: false,
     sidebarShowsFeedback: false,
   },
   {
     kind: "vendor" as const,
     sections: vendorPortal.sections.map((s) => s.section),
-    sidebarShowsProfile: true,
+    sidebarShowsProfile: false,
     sidebarShowsFeedback: false,
   },
 ];
@@ -140,7 +139,7 @@ describe("groupNavItems", () => {
     expect(last?.items.some((i) => i.section === "mystery")).toBe(true);
   });
 
-  it("shows all resident sections in sidebar groups, with Settings trailing (locks are stage-based)", () => {
+  it("shows all resident sections in sidebar groups, with Settings excluded (locks are stage-based)", () => {
     const items = [
       { section: "tour", label: "Tour", href: "/resident/tour" },
       { section: "applications", label: "Application", href: "/resident/applications" },
@@ -150,8 +149,8 @@ describe("groupNavItems", () => {
       { section: "profile", label: "Settings", href: "/resident/profile" },
     ];
     const result = groupNavItems("resident", items);
-    expect(result.map((g) => g.id)).toEqual(["home", "my-home", "messages", "settings"]);
+    expect(result.map((g) => g.id)).toEqual(["home", "my-home", "messages"]);
     expect(result[0]?.items.map((i) => i.section)).toEqual(["dashboard", "tour", "applications"]);
-    expect(result.at(-1)).toEqual({ id: "settings", label: null, items: [{ section: "profile", label: "Settings", href: "/resident/profile" }] });
+    expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("profile");
   });
 });

@@ -9,8 +9,37 @@ import {
 } from "@/lib/co-manager-permissions";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
+
+/**
+ * Whether the viewer's ACTIVE workspace is their own default workspace — the
+ * one place an account-level lease (no `property_id` yet) stays visible.
+ * Mirrors the untagged-row rule the inbox already uses
+ * (`src/lib/communication/conversation-visibility.server.ts`,
+ * `untaggedOwnedVisible`): resolved locally rather than through
+ * `activeWorkspacePropertyScope` because that helper only returns property
+ * ids, not whether the active workspace is owned and default. A resolution
+ * failure or "no workspaces at all" never narrows, so this defaults `true` —
+ * the same "never narrow on a failure" contract `activeWorkspacePropertyScope`
+ * follows by returning `null` in those same cases.
+ */
+async function activeWorkspaceIsOwnDefault(db: ServiceClient, userId: string): Promise<boolean> {
+  try {
+    const { loadWorkspaces } = await import("@/lib/workspaces/server");
+    const workspaces = await loadWorkspaces(db, userId);
+    if (workspaces.length === 0) return true;
+    const { cookies } = await import("next/headers");
+    const { WORKSPACE_COOKIE } = await import("@/lib/workspaces/types");
+    const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+    const active = workspaces.find((w) => w.id === selected) ?? workspaces[0];
+    if (!active) return true;
+    return Boolean(active.owned && active.isDefault);
+  } catch {
+    return true;
+  }
+}
 
 export type LeaseScopeRecord = {
   id: string;
@@ -184,7 +213,14 @@ export async function fetchLeasesForManagerUser(
   select = "id, row_data, updated_at, manager_user_id, property_id",
   limit = 500,
 ): Promise<LeaseScopeRecord[]> {
-  const linkedPropertyIds = await linkedLeasePropertyIds(db, userId);
+  const [linkedPropertyIds, workspaceScope, untaggedOwnedVisible] = await Promise.all([
+    linkedLeasePropertyIds(db, userId),
+    // Active-workspace narrowing (the shared three rules): `null` = not
+    // narrowing, an array = restrict to those houses, empty = the workspace
+    // holds none.
+    activeWorkspacePropertyScope(db, userId),
+    activeWorkspaceIsOwnDefault(db, userId),
+  ]);
 
   const { data: ownedRows, error: ownedError } = await db
     .from("portal_lease_pipeline_records")
@@ -197,14 +233,29 @@ export async function fetchLeasesForManagerUser(
 
   const byId = new Map<string, LeaseScopeRecord>();
   for (const row of (ownedRows ?? []) as unknown as LeaseScopeRecord[]) {
-    if (row.id) byId.set(row.id, row);
+    if (!row.id) continue;
+    if (workspaceScope === null) {
+      byId.set(row.id, row);
+      continue;
+    }
+    const pid = row.property_id?.trim() || "";
+    // A lease with no property yet (not tied to a house until it is filed
+    // under one) is account-level: visible only when the active workspace is
+    // the viewer's own default, the same rule the inbox already applies to a
+    // house-less conversation.
+    if (pid ? workspaceScope.includes(pid) : untaggedOwnedVisible) {
+      byId.set(row.id, row);
+    }
   }
 
-  if (linkedPropertyIds.size > 0) {
+  const scopedLinkedPropertyIds =
+    workspaceScope === null ? linkedPropertyIds : new Set([...linkedPropertyIds].filter((id) => workspaceScope.includes(id)));
+
+  if (scopedLinkedPropertyIds.size > 0) {
     const { data: linkedRows, error: linkedError } = await db
       .from("portal_lease_pipeline_records")
       .select(select)
-      .in("property_id", [...linkedPropertyIds])
+      .in("property_id", [...scopedLinkedPropertyIds])
       .order("updated_at", { ascending: false })
       .limit(limit);
 
@@ -212,6 +263,8 @@ export async function fetchLeasesForManagerUser(
 
     for (const row of (linkedRows ?? []) as unknown as LeaseScopeRecord[]) {
       if (!row.id || byId.has(row.id)) continue;
+      // Permission check still runs against the FULL linked set (a workspace
+      // is a narrowing of what the viewer may see, never a widening of it).
       if (leaseRecordVisibleToManager(row, userId, linkedPropertyIds)) {
         byId.set(row.id, row);
       }

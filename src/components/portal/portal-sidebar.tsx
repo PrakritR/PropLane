@@ -320,11 +320,11 @@ export function PortalSidebar({
   }, [activeSectionSubTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
-  // "settings" (Settings/profile) is the trailing group added in `nav-groups.ts`
-  // for pro/manager, resident, and vendor — it gets the same bottom-pinned
-  // treatment as "account"/"more" so it lands just above "Need help?".
+  // A trailing "account" or "more" group (unassigned sections) gets pinned to
+  // the bottom of the sidebar, just above "Need help?". Settings (profile) has
+  // no sidebar row at all — see `SIDEBAR_EXCLUDED_SECTIONS` in `nav-groups.ts`.
   const firstTrailingGroupIdx = useMemo(
-    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more" || g.id === "settings"),
+    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
     [navGroups],
   );
 

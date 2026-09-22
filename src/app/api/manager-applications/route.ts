@@ -41,6 +41,7 @@ import {
   isTestWorkspaceFeatureEnabled,
   resolveTestWorkspaceClassification,
 } from "@/lib/test-workspaces/index.server";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
@@ -556,6 +557,25 @@ async function revokeMaterializedApplicationConsentAfterWrite(
  *  - A FOREIGN existing row (owned by a linked owner) → writable only with the
  *    applications OR residents EDIT grant on the row's property; owner preserved.
  */
+/**
+ * Refuse a manager write whose property lies outside the caller's ACTIVE
+ * workspace. `null` scope (no workspaces, or the load failed) never narrows,
+ * same as every read above. A blank `propertyId` is passed through here —
+ * that mirrors the read path, where a property-less application never
+ * appears in any workspace-scoped list regardless, so there is nothing a
+ * property-less write could leak by going ungated.
+ */
+async function assertPropertyInActiveWorkspace(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  callerId: string,
+  propertyId: string,
+): Promise<boolean> {
+  if (!propertyId) return true;
+  const scope = await activeWorkspacePropertyScope(db, callerId);
+  if (scope === null) return true;
+  return scope.includes(propertyId);
+}
+
 async function resolveApplicationWriteOwner(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   callerId: string,
@@ -587,13 +607,23 @@ async function resolveApplicationWriteOwner(
       (await managerHasCoManagerPermissionForProperty(db, callerId, pid, "residents", "edit")));
 
   if (existingOwner) {
-    if (existingOwner === callerId) return { ok: true, owner: callerId };
+    if (existingOwner === callerId) {
+      // An update to the caller's own row must still refuse a row the
+      // caller's active workspace does not hold (e.g. a direct API replay
+      // against a row that belongs to a workspace they have since switched
+      // away from) — checked on the STORED property, the row as it exists.
+      const ownPid = String(existing?.property_id || existing?.assigned_property_id || "").trim();
+      if (!(await assertPropertyInActiveWorkspace(db, callerId, ownPid))) return { ok: false, owner: callerId };
+      return { ok: true, owner: callerId };
+    }
     // Foreign existing row: anchor the permission check on the STORED property,
     // never the client-supplied row (which could be spoofed to a property the
     // caller can edit). The owner is always preserved.
     const pid = String(existing?.property_id || existing?.assigned_property_id || "").trim();
     if (!pid) return { ok: false, owner: existingOwner };
-    return { ok: await canEditProperty(pid), owner: existingOwner };
+    if (!(await canEditProperty(pid))) return { ok: false, owner: existingOwner };
+    if (!(await assertPropertyInActiveWorkspace(db, callerId, pid))) return { ok: false, owner: existingOwner };
+    return { ok: true, owner: existingOwner };
   }
 
   // New row: attribution follows the ACTUAL grant. If the property was assigned
@@ -601,8 +631,16 @@ async function resolveApplicationWriteOwner(
   // owner (so it lands in their queue); otherwise it is the caller's own new row.
   const pid = String(row.propertyId || row.application?.propertyId || row.assignedPropertyId || "").trim();
   const linkedOwner = pid ? await linkedOwnerForProperty(db, callerId, pid) : null;
-  if (!linkedOwner) return { ok: true, owner: callerId };
-  return { ok: await canEditProperty(pid), owner: linkedOwner };
+  if (!linkedOwner) {
+    // A create must land in the active workspace: a new row on a property
+    // outside it is refused rather than silently created somewhere the
+    // caller cannot currently see it.
+    if (!(await assertPropertyInActiveWorkspace(db, callerId, pid))) return { ok: false, owner: null };
+    return { ok: true, owner: callerId };
+  }
+  if (!(await canEditProperty(pid))) return { ok: false, owner: linkedOwner };
+  if (!(await assertPropertyInActiveWorkspace(db, callerId, pid))) return { ok: false, owner: linkedOwner };
+  return { ok: true, owner: linkedOwner };
 }
 
 async function fetchApplicationsForManagerUser(
@@ -613,12 +651,17 @@ async function fetchApplicationsForManagerUser(
   // each tab by its own module grant). So a co-manager's linked rows are included
   // when EITHER `applications` OR `residents` is granted on the property — a
   // co-manager with neither grant gets none of the owner's linked rows.
-  const [appIds, resIds, ownedPropertyIds] = await Promise.all([
+  const [appIds, resIds, ownedPropertyIds, workspaceScope] = await Promise.all([
     linkedPropertyIdsForModule(db, userId, "applications"),
     linkedPropertyIdsForModule(db, userId, "residents"),
     // Same helper the by-id action guard (`managerCanAccessApplicationRecord`)
     // uses, so the list and the guards resolve direct ownership identically.
     managerOwnedPropertyIdSet(db, userId),
+    // The viewer's ACTIVE workspace, resolved server-side from the selection
+    // cookie. This feeds BOTH the Applications tab and the Residents tab
+    // (this one query backs both), plus the "approved" bucket the Leases tab
+    // reads through this same function.
+    activeWorkspacePropertyScope(db, userId),
   ]);
   // Every property this manager owns TODAY, unioned with co-manager-linked ones,
   // is a second, attribution-INDEPENDENT way in: the primary `manager_user_id ===
@@ -634,6 +677,24 @@ async function fetchApplicationsForManagerUser(
   // source of truth for who should see the row.
   const propertyScopedIds = new Set<string>([...ownedPropertyIds, ...appIds, ...resIds]);
   await purgeOrphanHousingRecordsForManager(db, userId, propertyScopedIds);
+
+  // Active-workspace narrowing, the same three rules everywhere:
+  // `null` (no workspaces, or the load failed) never narrows; a resolved
+  // array — even an empty one — restricts every property-scoped id to houses
+  // the ACTIVE workspace actually holds. An application/lease/resident row
+  // ties to its house by `property_id` OR `assigned_property_id` (assigned
+  // after a room/bundle pick), so both are checked against this same set.
+  // A group application's members are independent rows keyed by their own
+  // property — this never treats the group specially, so a member whose
+  // house the active workspace holds still shows even if a housemate's
+  // different house does not (PLAN docs/agents/group-applications.md "a
+  // group that spans houses"), and no member vanishes while the workspace
+  // genuinely holds their house.
+  const scopedPropertyIds =
+    workspaceScope === null
+      ? propertyScopedIds
+      : new Set([...propertyScopedIds].filter((id) => workspaceScope.includes(id)));
+
   const select = "id, row_data, occupancy_start, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
 
   const { data: ownedRows, error: ownedError } = await db
@@ -651,12 +712,17 @@ async function fetchApplicationsForManagerUser(
       String(row.property_id ?? "").trim(),
       String(row.assigned_property_id ?? "").trim(),
     ].filter(Boolean);
-    if (liveIds.length === 0 || liveIds.every((id) => !propertyScopedIds.has(id))) continue;
+    // A draft with no property at all was already excluded here before
+    // workspace scoping existed (the pre-property case is rarer than the
+    // read-path table suggests — this route drops it outright, which is
+    // already at least as narrow as the account-level default-workspace
+    // rule, so no separate untagged-row handling is needed on this surface).
+    if (liveIds.length === 0 || liveIds.every((id) => !scopedPropertyIds.has(id))) continue;
     byId.set(row.id, row);
   }
 
-  if (propertyScopedIds.size > 0) {
-    const propertyIds = [...propertyScopedIds];
+  if (scopedPropertyIds.size > 0) {
+    const propertyIds = [...scopedPropertyIds];
     const [{ data: byProperty, error: propertyError }, { data: byAssigned, error: assignedError }] = await Promise.all([
       db
         .from("manager_application_records")
@@ -724,6 +790,10 @@ async function assertCanDeleteApplicationRecords(
   }
 
   if (role === "manager" || role === "owner" || role === "pro") {
+    // A delete must refuse a row outside the caller's active workspace, the
+    // same as every other write on this route. Resolved once for the batch;
+    // `null` (no workspaces / load failure) never narrows.
+    const workspaceScope = await activeWorkspacePropertyScope(db, user.id);
     for (const record of records) {
       const row = normalizeRow(record.row_data as DemoApplicantRow);
       // Authorize by the application's PROPERTY, through the SAME shared predicate
@@ -738,6 +808,10 @@ async function assertCanDeleteApplicationRecords(
         property_id: (record.property_id ?? row.propertyId ?? row.application?.propertyId ?? "").trim() || null,
         assigned_property_id: (record.assigned_property_id ?? row.assignedPropertyId ?? "").trim() || null,
       };
+      const pid = accessRecord.property_id || accessRecord.assigned_property_id || "";
+      if (workspaceScope !== null && pid && !workspaceScope.includes(pid)) {
+        return "This application is not in your active workspace.";
+      }
       if (await managerCanAccessApplicationRecord(db, user.id, accessRecord, { level: "delete" })) continue;
       return "You do not have permission to delete this application.";
     }

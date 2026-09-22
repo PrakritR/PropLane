@@ -200,7 +200,11 @@ export async function resolveCommunicationScope(
   try {
     const { loadWorkspaces } = await import("@/lib/workspaces/server");
     const workspaces = await loadWorkspaces(db, viewerId);
-    if (workspaces.length <= 1) return scope;
+    // A single workspace is NOT the account when co-manager grants exist — the
+    // account still reaches another owner's houses through the grant, so a
+    // resolved workspace (one or many) always narrows. Only "no workspace at
+    // all" and a failed load (caught below) skip narrowing.
+    if (workspaces.length === 0) return scope;
     const selected =
       options.selectedWorkspaceId !== undefined ? options.selectedWorkspaceId : await readSelectedWorkspaceId();
     const active = workspaces.find((w) => w.id === selected) ?? workspaces[0];

@@ -4,12 +4,9 @@
  * over a cache a failed fetch just emptied.
  *
  * The cache starts `{ invites: [] }`, which reads identically to "fetched, and
- * this account co-manages nothing" — and `pro-properties` acts on that: an empty
- * portfolio it believes is a FACT gets a first-listing draft seeded and the
- * create-listing wizard opened. A co-manager whose links GET fails on this mount
- * (their three houses live on the owner's row) used to get exactly that, because
- * the failure wiped the payload while leaving the known flag set by an earlier
- * success.
+ * this account co-manages nothing." A failed GET used to wipe the payload while
+ * leaving the known flag set by an earlier success — callers that still wait
+ * on a real answer (dashboard banner, seed helper) must not treat that as empty.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

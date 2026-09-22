@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
@@ -41,8 +41,6 @@ import {
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
 import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
-import { accountLinksKnown, fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
-import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -52,19 +50,7 @@ import {
   maxPropertiesForManagerTier,
 } from "@/lib/manager-access";
 import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-client";
-import {
-  ensureManagerFirstListingDraft,
-  managerHasAnyListing,
-  markFirstListingWizardAutoOpened,
-  markFirstListingWizardDismissed,
-  readFirstListingPortfolioSnapshot,
-  readFirstListingWizardAutoOpened,
-  readFirstListingWizardDismissed,
-  shouldAutoOpenFirstListingWizard,
-  shouldSkipFirstListingOnboarding,
-  takePendingFirstListingAutoOpen,
-  writePendingFirstListingAutoOpen,
-} from "@/lib/manager-first-listing-onboarding";
+import { markFirstListingWizardDismissed } from "@/lib/manager-first-listing-onboarding";
 
 /**
  * Adding a property from a co-managed workspace was refused by the records API
@@ -73,8 +59,7 @@ import {
  * PLAN-0916-1119. The gate below switches to an owned workspace before the
  * editor opens; a switch remounts this page (WorkspaceProvider keys its
  * children on the active workspace id), so the intent to open Add is handed to
- * the fresh mount through sessionStorage, the same pattern the first-listing
- * auto-open uses across a stage-change remount.
+ * the fresh mount through sessionStorage.
  */
 const PENDING_ADD_AFTER_SWITCH_KEY = "proplane:add-property-after-workspace-switch";
 function writePendingAddAfterSwitch(userId: string | null) {
@@ -115,7 +100,7 @@ export function ManagerProperties({
   const { showToast } = useAppUi();
   const router = useRouter();
   const workspaces = useWorkspaces();
-  const { userId, email } = useManagerUserId();
+  const { userId } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
   const [skuLoaded, setSkuLoaded] = useState(false);
   const [skuTier, setSkuTier] = useState<string | null>(null);
@@ -133,25 +118,16 @@ export function ManagerProperties({
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("wizard") === "v2") setWizardOpen(true);
   }, []);
-  /** Resume the seeded / first draft in the wizard (PRP-396). */
+  /** Resume an existing draft in the wizard when the manager clicks Add. */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
   /** The draft the open editor last wrote — where closing it lands. */
   const lastSavedDraftIdRef = useRef<string | null>(null);
-  // The page that routed here from an empty /all handed over "open the seeded
-  // draft" — take it exactly once, on the page that actually stays mounted.
-  useEffect(() => {
-    if (!userId) return;
-    const pending = takePendingFirstListingAutoOpen(userId);
-    if (!pending) return;
-    setResumeDraftId(pending);
-    setWizardOpen(true);
-  }, [userId]);
   /**
    * Closing the create-listing wizard is an ANSWER, remembered for good.
    *
-   * It used to reopen on every visit to Properties until a listing existed, so
-   * a manager who closed it found it waiting again the next time they came
-   * back — including on the Drafts tab they were trying to read.
+   * The page used to reopen it on every visit until a listing existed. That
+   * automation is gone — this only records the close so leftover storage
+   * keys stay consistent if a later session still reads them.
    */
   const dismissFirstListingWizard = useCallback(() => {
     setWizardOpen(false);
@@ -159,25 +135,6 @@ export function ManagerProperties({
     markFirstListingWizardDismissed(userId);
   }, [userId]);
   const [portfolioTick, setPortfolioTick] = useState(0);
-  const firstListingSeedAttemptedRef = useRef(false);
-  /**
-   * Set the moment the manager picks a Properties stage tab themselves.
-   *
-   * The first-listing onboarding effect below can decide to redirect to
-   * Drafts well AFTER the click that started it — it awaits a co-manager
-   * account-links fetch first — and without this it would yank the manager
-   * back to Drafts even though they had just navigated to a different tab on
-   * purpose (PRP-494). It is read only by that effect's own redirect branch;
-   * it never blocks the effect's other, less disruptive outcomes (seeding a
-   * draft, opening the wizard in place).
-   */
-  const userPickedStageRef = useRef(false);
-  const onStageTabAreaClick = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('[data-attr^="manager-properties-tab-"]')) {
-      userPickedStageRef.current = true;
-    }
-  }, []);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
   /** Set the moment publish reports back an id — the confirmation dialog replaces the old immediate navigation (PRP-496). */
@@ -205,8 +162,7 @@ export function ManagerProperties({
 
   /**
    * Resolves whether the portfolio is now SERVER-TRUE. A false here means the
-   * local counts below are whatever this browser happened to be holding, which
-   * is why the first-listing seed refuses to act on them (PRP-429).
+   * local counts below are whatever this browser happened to be holding.
    */
   const refreshPortfolio = useCallback(async (): Promise<boolean> => {
     if (!scopeUserId) {
@@ -257,7 +213,7 @@ export function ManagerProperties({
 
   useEffect(() => {
     queueMicrotask(() => {
-      void refreshPortfolio().then(async (portfolioSynced) => {
+      void refreshPortfolio().then(() => {
         // Only push local state up once a real sync has run (userId resolved) — otherwise
         // this re-uploads a stale locally-cached snapshot and can clobber an admin-side
         // status change (e.g. request-change) that happened since this browser last synced.
@@ -265,82 +221,6 @@ export function ManagerProperties({
           void mirrorLocalPropertyPipelineToServer(userId, collectLinkedPropertyIds(userId), {
             onError: (message) => showToast(message),
           });
-        }
-        // PRP-396 / PRP-429: after a CONFIRMED sync, seed one draft when the
-        // portfolio is empty (skip demo + sandbox accounts), then decide where
-        // this manager should land and whether the wizard opens itself.
-        //
-        // The wizard used to reopen on EVERY visit until a listing existed. That
-        // made closing it meaningless — it was waiting again the next time, on
-        // top of the Drafts tab the manager was trying to read. It now opens on
-        // exactly two conditions, both in `shouldAutoOpenFirstListingWizard`:
-        // no listing of ANY kind (owned, unlisted, or co-managed), and never
-        // closed before.
-        if (
-          userId &&
-          scopeUserId &&
-          portfolioSynced &&
-          !propertyKeyProp &&
-          !firstListingSeedAttemptedRef.current &&
-          !shouldSkipFirstListingOnboarding({
-            email,
-            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-          })
-        ) {
-          firstListingSeedAttemptedRef.current = true;
-          // Wait for a real answer about co-manager links before judging the
-          // portfolio empty. The link cache reads `[]` both before it loads and
-          // when there genuinely are none, and seeding on the first of those
-          // handed a co-manager a draft on every visit (their three properties
-          // live on somebody else's row, so nothing they own says otherwise).
-          try {
-            await fetchAccountLinksCached();
-          } catch {
-            /* the known-flag stays false, which is itself the refusal below */
-          }
-          const linksKnown = accountLinksKnown();
-          const seeded = await ensureManagerFirstListingDraft(userId, {
-            email,
-            portfolioSynced,
-            coManagerLinksKnown: linksKnown,
-            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-            onError: (m) => showToast(`Could not start your first listing: ${m} Press Create to try again.`),
-          });
-          if (seeded) {
-            setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
-            setPortfolioTick((t) => t + 1);
-          }
-          // Read AFTER any seed, and outside the `seeded` branch: an account
-          // that already had a draft still needs to land on Drafts, and one
-          // where seeding was declined must not be stranded on an empty Listed.
-          const snap = readFirstListingPortfolioSnapshot(userId);
-          // PRP-494: never override a stage the manager already picked themselves.
-          const mustMoveToDrafts =
-            linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts" && !userPickedStageRef.current;
-          const autoOpen =
-            Boolean(seeded) &&
-            shouldAutoOpenFirstListingWizard({
-              snap,
-              dismissed: readFirstListingWizardDismissed(userId),
-              coManagerLinksKnown: linksKnown,
-              autoOpenedThisSession: readFirstListingWizardAutoOpened(userId),
-            });
-          if (autoOpen && seeded) {
-            // One shot per session — set BEFORE any navigation so the page that
-            // mounts on Drafts cannot decide to open it a second time.
-            markFirstListingWizardAutoOpened(userId);
-          }
-          if (mustMoveToDrafts) {
-            // Moving stage remounts this page (`[stage]` is a dynamic segment),
-            // so opening the wizard here would be undone by the router a frame
-            // later and re-done by the fresh page — the open / close / open
-            // flicker. Hand the intent to the page that will mount instead.
-            if (autoOpen && seeded) writePendingFirstListingAutoOpen(userId, seeded.draftId);
-            setActiveStage("drafts");
-          } else if (autoOpen && seeded) {
-            setResumeDraftId(seeded.draftId);
-            setWizardOpen(true);
-          }
         }
       });
     });
@@ -360,15 +240,7 @@ export function ManagerProperties({
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
     };
-  }, [
-    refreshPortfolio,
-    userId,
-    scopeUserId,
-    showToast,
-    email,
-    propertyKeyProp,
-    firstListingSeedAttemptedRef,
-  ]);
+  }, [refreshPortfolio, userId, scopeUserId, showToast]);
 
   const stageCounts = useMemo(() => {
     void portfolioTick;
@@ -601,79 +473,71 @@ export function ManagerProperties({
           titleInlineFilter={null}
           compactFilterRow
         >
-          {/*
-            Bare click delegation — the stage tabs are routed `<Link>`s (real
-            navigation, not a callback into this component), so this is the
-            one place a genuine tab click can be observed before it fires
-            (see `userPickedStageRef` above).
-          */}
-          <div onClickCapture={onStageTabAreaClick}>
-            <PortalListControlStack
-              className="mb-2"
-              variant="command"
-              stickyDestinations={false}
-              destinations={MANAGER_STAGES.map((stage) => ({
-                id: stage.key,
-                label: stage.label,
-                href: propertyListHref(basePath, stage.key),
-                count: stageCounts[stage.key],
-                dataAttr: `manager-properties-tab-${stage.key}`,
-              }))}
-              activeDestinationId={activeStage}
-              destinationAriaLabel="Property pipeline stage"
-              search={{
-                value: listSearch,
-                onChange: setListSearch,
-                placeholder: "Search properties",
-                dataAttr: "manager-properties-search",
-              }}
-              actions={
-                <>
-                  <PortalIconAction
-                    icon={Share2}
-                    label="Share listing link"
-                    data-attr="manager-properties-share-open"
-                    onClick={() => openShareListing()}
-                  />
-                </>
-              }
-              primary={
-                /*
-                 * Create opens the listing editor (a single-property file drops
-                 * onto its Basics step); a whole rent roll of several
-                 * properties and their current residents goes through the
-                 * portfolio import instead (docs/agents/portfolio-import.md).
-                 */
-                <DropdownMenu
-                  open={createMenuOpen}
-                  onOpenChange={(next) => {
-                    // Neither menu item ("Add property" or "Import your
-                    // portfolio") is reachable past the plan's property limit,
-                    // so the gate fires on the trigger itself — the same
-                    // dialog `tryOpenAdd` already shows — rather than opening
-                    // a menu whose choices are all refused anyway.
-                    if (next && !canOpenAdd()) return;
-                    setCreateMenuOpen(next);
-                  }}
-                >
-                  <DropdownMenuTrigger asChild>
-                    <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
-                      Add property
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      data-attr="manager-properties-add-import"
-                      onSelect={() => router.push("/portal/properties/import")}
-                    >
-                      Import your portfolio
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              }
-            />
-          </div>
+          <PortalListControlStack
+            className="mb-2"
+            variant="command"
+            stickyDestinations={false}
+            destinations={MANAGER_STAGES.map((stage) => ({
+              id: stage.key,
+              label: stage.label,
+              href: propertyListHref(basePath, stage.key),
+              count: stageCounts[stage.key],
+              dataAttr: `manager-properties-tab-${stage.key}`,
+            }))}
+            activeDestinationId={activeStage}
+            destinationAriaLabel="Property pipeline stage"
+            search={{
+              value: listSearch,
+              onChange: setListSearch,
+              placeholder: "Search properties",
+              dataAttr: "manager-properties-search",
+            }}
+            actions={
+              <>
+                <PortalIconAction
+                  icon={Share2}
+                  label="Share listing link"
+                  data-attr="manager-properties-share-open"
+                  onClick={() => openShareListing()}
+                />
+              </>
+            }
+            primary={
+              /*
+               * Create opens the listing editor (a single-property file drops
+               * onto its Basics step); a whole rent roll of several
+               * properties and their current residents goes through the
+               * portfolio import instead (docs/agents/portfolio-import.md).
+               */
+              <DropdownMenu
+                open={createMenuOpen}
+                onOpenChange={(next) => {
+                  // Neither menu item ("Add property" or "Import your
+                  // portfolio") is reachable past the plan's property limit,
+                  // so the gate fires on the trigger itself — the same
+                  // dialog `tryOpenAdd` already shows — rather than opening
+                  // a menu whose choices are all refused anyway.
+                  if (next && !canOpenAdd()) return;
+                  setCreateMenuOpen(next);
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
+                    Add property
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-attr="manager-properties-add-import"
+                    onSelect={() => router.push("/portal/properties/import")}
+                  >
+                    Import your portfolio
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+          />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">
               You&apos;ve reached your plan limit of {limitMax} propert{limitMax === 1 ? "y" : "ies"}.

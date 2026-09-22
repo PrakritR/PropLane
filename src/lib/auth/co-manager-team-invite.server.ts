@@ -1,8 +1,8 @@
 import "server-only";
 
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
+import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import {
-  collectLinkedPropertyIdsForUser,
   collectLinkedPropertyPermissionsForUser,
   managerHasCoManagerPermissionForProperty,
 } from "@/lib/auth/manager-lease-scope";
@@ -102,28 +102,15 @@ export async function resolveTeamInviteDelegate(
   return { ok: true, ownerUserId };
 }
 
-/** Owner ids whose active invite links this actor may list, mint, copy, or revoke. */
+/**
+ * Owner ids whose active invite links this actor may list, mint, copy, or
+ * revoke. Built on `linkedOwnerScopeForModule` (module-aware, one query) so
+ * this stays the single answer to "who may this actor invite for" rather than
+ * repeating a bare assignment walk — assignment alone is not the grant.
+ */
 export async function teamInviteOwnerIdsForActor(db: ServiceClient, actorUserId: string): Promise<Set<string>> {
-  const owners = new Set<string>([actorUserId.trim()]);
-  const linkedIds = await collectLinkedPropertyIdsForUser(db, actorUserId);
-  for (const propertyId of linkedIds) {
-    const allowed = await managerHasCoManagerPermissionForProperty(
-      db,
-      actorUserId,
-      propertyId,
-      "teams",
-      "edit",
-    );
-    if (!allowed) continue;
-    const { data } = await db
-      .from("manager_property_records")
-      .select("manager_user_id")
-      .eq("id", propertyId)
-      .maybeSingle();
-    const ownerId = String(data?.manager_user_id ?? "").trim();
-    if (ownerId) owners.add(ownerId);
-  }
-  return owners;
+  const { ownerIds } = await linkedOwnerScopeForModule(db, actorUserId, "teams", "edit");
+  return new Set<string>([actorUserId.trim(), ...ownerIds]);
 }
 
 export async function actorCanManageInviteLink(

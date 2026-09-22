@@ -172,32 +172,19 @@ export function takePendingFirstListingAutoOpen(userId: string | null | undefine
 }
 
 /**
- * Should Properties open the create-listing wizard by itself?
+ * Properties never opens the create-listing wizard by itself.
  *
- * Three conditions, and all must hold:
- *
- * 1. The account has NO listing of any kind — nothing listed, nothing
- *    unlisted, and nothing co-managed. A leftover draft does not count,
- *    because a draft is what the wizard makes. A portfolio with even one
- *    property listed is never interrupted.
- * 2. The manager has never closed it. Closing it once is an answer, and the
- *    old rule ("keep opening until a listing exists") re-asked the question on
- *    every single visit to Properties.
- * 3. It has not already opened itself this session. Opening is a one-shot per
- *    session: neither the remount that follows the move to Drafts nor a
- *    reload may open it a second time.
+ * Kept as a named gate so leftover callers and tests fail closed. Visiting
+ * Properties must stay on the requested stage (usually All) and leave the
+ * wizard closed until the manager clicks Add.
  */
-export function shouldAutoOpenFirstListingWizard(opts: {
+export function shouldAutoOpenFirstListingWizard(_opts: {
   snap: FirstListingPortfolioSnapshot;
   dismissed: boolean;
   coManagerLinksKnown?: boolean;
   autoOpenedThisSession?: boolean;
 }): boolean {
-  if (opts.dismissed) return false;
-  if (opts.autoOpenedThisSession) return false;
-  if (opts.coManagerLinksKnown === false) return false;
-  if (opts.snap.listed > 0) return false;
-  return !managerHasAnyListing(opts.snap);
+  return false;
 }
 
 /** Empty owned portfolio — safe to mint the first seed draft. */

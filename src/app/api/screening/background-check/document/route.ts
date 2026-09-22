@@ -4,7 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
+import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { checkrApiFetch } from "@/lib/checkr/client";
 import { backgroundCheckConfigured, checkrSkipsManagerCardCharge } from "@/lib/checkr/config";
 import { fetchCheckrReportPdfBytes } from "@/lib/checkr/report-document";
@@ -80,10 +80,17 @@ export async function GET(req: Request) {
 
     const admin = await isAdminUser(user.id);
     if (!admin && managerUserId !== user.id) {
-      const linked = await collectLinkedPropertyIdsForUser(db, user.id);
       const propertyId = String(record?.property_id ?? row.propertyId ?? "").trim();
       const assignedPropertyId = String(record?.assigned_property_id ?? row.assignedPropertyId ?? "").trim();
-      if (!((propertyId && linked.has(propertyId)) || (assignedPropertyId && linked.has(assignedPropertyId)))) {
+      // Assignment alone is not the grant: viewing the PDF criminal-background
+      // report (PII) requires `applications` at READ on the property
+      // (docs/agents/co-manager-access.md).
+      const allowed =
+        (propertyId &&
+          (await managerHasCoManagerPermissionForProperty(db, user.id, propertyId, "applications", "read"))) ||
+        (assignedPropertyId &&
+          (await managerHasCoManagerPermissionForProperty(db, user.id, assignedPropertyId, "applications", "read")));
+      if (!allowed) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
     }

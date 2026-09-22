@@ -16,7 +16,7 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   the `aria-label` and tooltip, never visible text. `badge="dot"` / a number
   marks an applied filter, `badge="warn"` an open setup step (messaging
   number, payouts). Vocabulary: Filter `SlidersHorizontal` · Settings/Defaults
-  `Settings2` · Share link `Share2` · Add availability `CalendarPlus` · Block
+  `Settings` (the gear) · Share link `Share2` · Add availability `CalendarPlus` · Block
   dates `CalendarOff` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
   Set up messaging `Phone`.
 - The primary is `PortalPrimaryIconAction`: `Plus` for "add"; `Link2` (Link
