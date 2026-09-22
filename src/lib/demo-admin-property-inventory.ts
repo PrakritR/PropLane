@@ -21,6 +21,7 @@ import {
   upsertPropertyRecordToServer,
   type ManagerPendingPropertyRow,
   type ManagerPropertyDraftInput,
+  type PropertyRecordLimitInfo,
 } from "@/lib/demo-property-pipeline";
 import { deleteSubmissionMediaObjects } from "@/lib/listing-media-storage";
 import { migrateAmenityOffersPropertyId } from "@/lib/manager-amenity-catalog-storage";
@@ -672,7 +673,7 @@ export type SaveManagerPropertyDraftOptions = {
    * can show WHY rather than blaming the connection. See
    * `upsertPropertyRecordToServer`.
    */
-  onError?: (message: string, code?: string) => void;
+  onError?: (message: string, code?: string, status?: number, limitInfo?: PropertyRecordLimitInfo) => void;
 };
 
 /**
