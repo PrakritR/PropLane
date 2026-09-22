@@ -52,3 +52,20 @@ export function reportRowInScope(
   const id = rowPropertyId?.trim();
   return Boolean(id) && scope.includes(id!);
 }
+
+/**
+ * Narrow one property scope by another. Both sides already follow the same
+ * "`null` = no narrowing, empty array = covers nothing" contract (the active
+ * workspace's houses, and a co-manager's per-property module grant), so
+ * combining them is a plain set intersection — order doesn't matter. Used to
+ * fold a co-manager's `financials` grant (`resolveManagerReportScope`) into
+ * the workspace scope before it reaches `filters.workspacePropertyIds`, so a
+ * report query can never read a house the grant does not cover, no matter how
+ * many scopes are narrowing it at once.
+ */
+export function intersectPropertyScopes(a: string[] | null, b: string[] | null): string[] | null {
+  if (!a) return b;
+  if (!b) return a;
+  const bSet = new Set(b);
+  return a.filter((id) => bSet.has(id));
+}

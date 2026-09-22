@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Download, FileSearch, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
@@ -455,7 +457,39 @@ export function ApplicationScreeningPanel({
     headerActionsPlacement === "parent" ? PORTAL_HEADER_ACTION_BTN : "h-8 rounded-full px-4 text-xs";
 
   const headerActions = useMemo(
-    () => (
+    () =>
+      // A record page's header actions are icons only (docs/agents/record-page.md);
+      // "section" placement (the standalone screening list/tab) keeps its own
+      // labelled buttons unchanged — only the parent record-page slot converts.
+      headerActionsPlacement === "parent" ? (
+        <>
+          {bg?.status === "complete" ? (
+            <PortalIconAction
+              icon={Download}
+              label="Download screening"
+              data-attr="screening-pdf-download"
+              onClick={handleDownload}
+            />
+          ) : null}
+          {canOfferRunBackgroundCheck ? (
+            <PortalIconAction
+              icon={FileSearch}
+              label={testButtonLabel}
+              data-attr="run-background-check"
+              onClick={() => openRunBackgroundCheck()}
+            />
+          ) : null}
+          {canOrder ? (
+            <PortalIconAction
+              icon={RefreshCw}
+              label={screening?.status === "failed" ? "Re-run screening" : "Run screening"}
+              data-attr="run-screening"
+              disabled={busy}
+              onClick={() => runScreening()}
+            />
+          ) : null}
+        </>
+      ) : (
       <>
         {bg?.status === "complete" ? (
           <Button
@@ -465,7 +499,7 @@ export function ApplicationScreeningPanel({
             data-attr="screening-pdf-download"
             onClick={handleDownload}
           >
-            {headerActionsPlacement === "parent" ? "Download screening" : "Download PDF"}
+            Download PDF
           </Button>
         ) : null}
         {canOfferRunBackgroundCheck ? (
@@ -491,7 +525,7 @@ export function ApplicationScreeningPanel({
           </Button>
         ) : null}
       </>
-    ),
+      ),
     [
       bg?.status,
       busy,
@@ -500,10 +534,10 @@ export function ApplicationScreeningPanel({
       openRunBackgroundCheck,
       handleDownload,
       headerActionBtnClass,
-      openRunBackgroundCheck,
-      runScreening,
-      screening?.status,
+      headerActionsPlacement,
       testButtonLabel,
+      screening?.status,
+      runScreening,
     ],
   );
 

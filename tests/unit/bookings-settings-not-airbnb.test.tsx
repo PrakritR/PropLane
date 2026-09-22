@@ -100,9 +100,9 @@ describe("Bookings → Settings", () => {
     await settle();
 
     expect(document.body.textContent ?? "").toContain("Link calendars");
-    expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).toBeNull();
+    expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).toBeNull();
+    expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).toBeNull();
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).not.toBeNull();
   });
 
   it("keeps Filter on the command bar with one property", async () => {

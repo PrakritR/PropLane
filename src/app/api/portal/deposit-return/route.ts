@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
 import {
   decideDepositReturn,
   depositReturnIdempotencyKey,
@@ -57,13 +58,24 @@ export async function POST(req: Request) {
 
     const { data: row } = await db
       .from("portal_household_charge_records")
-      .select("id, manager_user_id, status, row_data")
+      .select("id, manager_user_id, property_id, status, row_data")
       .eq("id", chargeId)
       .maybeSingle();
 
     // A missing charge and someone else's charge answer identically, so this is not an oracle for
     // which charge ids exist.
     if (!row || String(row.manager_user_id ?? "") !== user.id) {
+      return NextResponse.json({ error: "Deposit not found." }, { status: 404 });
+    }
+
+    // The charge reaches its house directly through its own `property_id`
+    // column (the same column `portal-household-charges` scopes by), so no
+    // join is needed here — only a single-row read of the column already on
+    // this table. The active workspace still narrows: a manager's own
+    // deposit outside it is refused exactly as if the charge were absent,
+    // same 404 as above so this stays a non-oracle.
+    const workspaceScope = await resolveManagerWorkspaceRowScope(db, user.id);
+    if (!rowInWorkspaceScope(row.property_id ? String(row.property_id) : null, workspaceScope)) {
       return NextResponse.json({ error: "Deposit not found." }, { status: 404 });
     }
 

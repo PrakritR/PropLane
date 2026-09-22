@@ -4,6 +4,7 @@ import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/repo
 import { mapManagerBillRow, MANAGER_BILL_SELECT } from "@/lib/manager-bills";
 import { createManagerBill } from "@/lib/manager-bills.server";
 import { track } from "@/lib/analytics/posthog";
+import { applyWorkspaceRowScope, resolveActiveWorkspaceRowScope } from "@/lib/workspaces/row-scope.server";
 
 export const runtime = "nodejs";
 
@@ -15,12 +16,20 @@ export async function GET(req: Request) {
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
     const status = new URL(req.url).searchParams.get("status")?.trim();
-    let query = auth.db
-      .from("manager_bills")
-      .select(MANAGER_BILL_SELECT)
-      .eq("manager_user_id", auth.userId)
-      .order("created_at", { ascending: false })
-      .limit(200);
+    // The list follows the same active-workspace rule the bill writes already
+    // use (`manager-bills.server.ts`): a bill tied to a house outside the
+    // active workspace is another workspace's payable, and an account-level
+    // bill (no property) belongs to the viewer's own default workspace.
+    const wsScope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    let query = applyWorkspaceRowScope(
+      auth.db
+        .from("manager_bills")
+        .select(MANAGER_BILL_SELECT)
+        .eq("manager_user_id", auth.userId)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      wsScope,
+    );
     if (status) query = query.eq("status", status);
 
     const { data, error } = await query;

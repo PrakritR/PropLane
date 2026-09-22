@@ -4,6 +4,7 @@ import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
+import { collectLinkedPropertyPermissionsForUser } from "@/lib/auth/manager-lease-scope";
 import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -22,9 +23,15 @@ import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.serve
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import {
   buildAllModulesGrant,
+  coManagerModuleAllowed,
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import {
+  WORKSPACE_PROPERTY_LIMIT,
+  WORKSPACE_PROPERTY_LIMIT_ERROR_CODE,
+  isWorkspacePropertyLimitDbMessage,
+} from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
 
@@ -100,13 +107,23 @@ export async function GET() {
       }
     }
 
+    // Assignment alone is not the grant: a house shows up in the co-managed
+    // union only when the actor's per-property grant positively allows
+    // `properties` at read (docs/agents/co-manager-access.md "Empty used to
+    // mean FULL"). This list exposes full address, access info and
+    // fee-waiver codes, so an assigned-but-ungranted delegate must see none
+    // of it.
+    const permsByProperty = await collectLinkedPropertyPermissionsForUser(db, user.id);
     const linkedPropertyIds = new Set<string>();
     for (const row of linkRows ?? []) {
       const inviterId = String((row as { inviter_user_id?: string }).inviter_user_id ?? "").trim();
       const inviterEmail = inviterEmailById.get(inviterId) ?? "";
       if (isCrossSandboxPortalPair(viewerEmail, inviterEmail)) continue;
       for (const id of asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids)) {
-        if (id.trim()) linkedPropertyIds.add(id.trim());
+        const pid = id.trim();
+        if (!pid) continue;
+        if (!coManagerModuleAllowed(permsByProperty.get(pid), pid, "properties", "read")) continue;
+        linkedPropertyIds.add(pid);
       }
     }
 
@@ -472,7 +489,38 @@ export async function POST(req: Request) {
       // explain ("Assigned room no longer exists.", "Move-out date precedes
       // move-in date.") — repeatable, and the manager can act on the words. A
       // 500 turned it into "check your connection" on a healthy network.
-      if (error.code === "23514") return NextResponse.json({ error: error.message }, { status: 422 });
+      if (error.code === "23514") {
+        // The workspace record cap (`enforce_property_workspace`,
+        // 20260911230000_portal_workspaces.sql) is the one 23514 this route
+        // can do more for than repeat the sentence: a stable code plus, on the
+        // create path where the workspace is already known, the real counts,
+        // so the save-failed dialog can offer "upgrade" and "manage drafts"
+        // instead of a dead "Try again" (PLAN-0921-1648). This is a workspace
+        // record ceiling, not a plan quota — never keyed off `skuTier`.
+        const isWorkspaceRecordLimit = isWorkspacePropertyLimitDbMessage(error.message);
+        let counts: { current?: number; draftCount?: number } = {};
+        if (isWorkspaceRecordLimit && newWorkspaceId) {
+          const { data: countRows } = await db
+            .from("manager_property_records")
+            .select("status")
+            .eq("workspace_id", newWorkspaceId);
+          if (countRows) {
+            counts = {
+              current: countRows.length,
+              draftCount: countRows.filter((r) => r.status === "draft").length,
+            };
+          }
+        }
+        return NextResponse.json(
+          {
+            error: error.message,
+            ...(isWorkspaceRecordLimit
+              ? { code: WORKSPACE_PROPERTY_LIMIT_ERROR_CODE, limit: WORKSPACE_PROPERTY_LIMIT, ...counts }
+              : {}),
+          },
+          { status: 422 },
+        );
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

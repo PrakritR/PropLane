@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { shouldHideAssistantFab } from "@/lib/axis-assistant/fab-visibility";
+
+const GLOBALS_CSS = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+const CHROME_HOOK = readFileSync(
+  join(process.cwd(), "src/hooks/use-communication-surface-chrome.ts"),
+  "utf8",
+);
 
 function setHtmlAttrs(attrs: Record<string, boolean>) {
   const html = document.documentElement;
@@ -59,5 +67,29 @@ describe("shouldHideAssistantFab", () => {
       "data-communication-thread-selected": true,
     });
     expect(shouldHideAssistantFab()).toBe(true);
+  });
+});
+
+describe("Communication chrome does not hide the Ask PropLane dock", () => {
+  it("keeps FAB hide rules on an open Communication thread", () => {
+    expect(GLOBALS_CSS).toContain(
+      "html[data-communication-surface][data-communication-thread-selected] .axis-assistant-fab",
+    );
+    expect(GLOBALS_CSS).toContain(
+      "html[data-communication-surface][data-communication-thread-reading] .axis-assistant-fab",
+    );
+  });
+
+  it("never display:none the dock rail on Communication attrs", () => {
+    for (const block of GLOBALS_CSS.split("}")) {
+      if (!block.includes(".portal-assistant-dock-rail") || !/display:\s*none/.test(block)) continue;
+      expect(block).not.toContain("data-communication-thread-selected");
+      expect(block).not.toContain("data-communication-thread-reading");
+      expect(block).not.toContain("data-communication-hide-assistant-fab");
+    }
+  });
+
+  it("does not stamp the global hide-FAB flag that also blanks the rail", () => {
+    expect(CHROME_HOOK).not.toMatch(/dataset\.hideAssistantFab\s*=\s*"true"/);
   });
 });

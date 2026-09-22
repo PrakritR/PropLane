@@ -29,6 +29,7 @@ describe("record-sections registry", () => {
         "manager/document",
         "resident/payment",
         "resident/lease",
+        "resident/application",
         "resident/service",
         "resident/inspection",
         "resident/document",
@@ -71,14 +72,27 @@ describe("record-sections registry", () => {
     }
   });
 
-  it.each(ALL_RECORD_KINDS)("$role/$kind: a phonePrimary id names a real header action", ({ role, kind }) => {
-    const sections = recordSections(role, kind, { basePath: `/${role === "manager" ? "portal" : role}` });
-    if (!sections.phonePrimary) return;
-    expect(sections.headerActions.some((action) => action.id === sections.phonePrimary)).toBe(true);
-  });
-
   it("throws on an unregistered kind rather than silently returning nothing", () => {
     expect(() => recordSections("manager", "not-a-real-kind")).toThrow();
+  });
+
+  // PLAN-0921-1029, area 1: header actions became per (role, kind, active
+  // section) rather than one fixed set for the whole kind.
+  it("omitting activeSectionId keeps returning the kind's default header actions", () => {
+    const sections = recordSections("manager", "document", { basePath: "/portal" });
+    expect(sections.headerActions.map((a) => a.id)).toEqual(["download", "share", "delete"]);
+  });
+
+  it("an active section with its own entry gets that section's header actions instead", () => {
+    const preview = recordSections("manager", "document", { basePath: "/portal" }, "preview");
+    expect(preview.headerActions.map((a) => a.id)).toEqual(["download", "share", "delete"]);
+    const details = recordSections("manager", "document", { basePath: "/portal" }, "details");
+    expect(details.headerActions.map((a) => a.id)).toEqual(["share", "delete"]);
+  });
+
+  it("an active section with no entry of its own falls back to the kind's default set", () => {
+    const sections = recordSections("manager", "document", { basePath: "/portal" }, "communication");
+    expect(sections.headerActions.map((a) => a.id)).toEqual(["download", "share", "delete"]);
   });
 
   it("groups have no duplicate labels other than the unlabeled trio group", () => {
@@ -113,9 +127,9 @@ describe("record-sections registry", () => {
   it("vendor job href lives under /work-orders", () => {
     const sections = recordSections("vendor", "job", { basePath: "/vendor" });
     const overview = sections.groups[0]!.items.find((item) => item.id === "overview")!;
-    const bidInvoice = sections.groups[0]!.items.find((item) => item.id === "bid-invoice")!;
+    const invoice = sections.groups[0]!.items.find((item) => item.id === "invoice")!;
     expect(overview.href("wo-1")).toBe("/vendor/work-orders/wo-1");
-    expect(bidInvoice.href("wo-1")).toBe("/vendor/work-orders/wo-1/bid-invoice");
+    expect(invoice.href("wo-1")).toBe("/vendor/work-orders/wo-1/invoice");
   });
 
   it("vendor invoice href lives under /financials/invoices", () => {

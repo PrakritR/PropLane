@@ -1,7 +1,11 @@
 /**
- * Default bathroom — saved on the listing, inferred for older ones, and judged
- * per field the way the rooms are. Shared spaces have no Default card any
- * more; their reader below only keeps an older listing's stored block legible.
+ * Default bathroom and Default shared space — both legacy readers now
+ * (PLAN-0921-1648). Neither step draws or writes its Default card any more:
+ * a bathroom starts from another bathroom via "Same as Bathroom X"
+ * (`copyBathroomDescriptionFrom`, tested in `listing-same-as-copy.test.ts`),
+ * and a shared space is always its own record. These functions stay so a
+ * listing saved while either card existed keeps reading its stored block
+ * exactly as before (the address-prefill path fills a blank record from it).
  */
 import { describe, expect, it } from "vitest";
 import {

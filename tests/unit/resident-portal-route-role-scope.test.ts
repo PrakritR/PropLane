@@ -56,6 +56,10 @@ vi.mock("@/lib/auth/portal-access", () => ({
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   fetchRowsForManagerWithLinked: (...a: unknown[]) => fetchRowsForManagerWithLinked(...(a as [])),
   linkedPropertyIdsForModule: async () => new Set<string>(),
+  // Not under test here: an unresolved (never-narrowing) active workspace,
+  // same as accounts with no workspace at all.
+  resolveManagerWorkspaceRowScope: async () => ({ propertyIds: null, untaggedOwnedVisible: true }),
+  rowInWorkspaceScope: () => true,
 }));
 vi.mock("@/lib/repair-service-request-scopes.server", () => ({
   repairServiceRequestScopesForManager: async () => undefined,

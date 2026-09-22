@@ -34,8 +34,10 @@ import {
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import type { PropertyRecordLimitInfo } from "@/lib/demo-property-pipeline";
 import { listingSaveFailureMessage } from "@/lib/prepare-listing-submission-for-persist";
 import { track } from "@/lib/analytics/track-client";
+import { WORKSPACE_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/workspaces/types";
 
 /** Every reason `publish()` can refuse, for the `listing_publish_refused` event below. */
 type PublishRefusedReason = "signed_out" | "plan_limit" | "server";
@@ -56,7 +58,14 @@ export type ListingPersistenceResult =
   // `message` is toast copy (a full sentence); `reason` is the server's own
   // words, shown verbatim in the save-failed dialog. `reason` is "" when the
   // failure had no server explanation (a dropped connection, no session).
-  | { ok: false; message: string; reason: string };
+  //
+  // `kind` distinguishes a refusal the save-failed dialog can offer a real way
+  // past (the workspace's own record cap, `property_record_limit`) from an
+  // ordinary transient one where "Try again" is the only honest option.
+  // `limitInfo` carries whatever numbers the server gave for that cap; any
+  // field may be missing (the dialog renders "unknown" facts as omitted, not
+  // as a literal blank).
+  | { ok: false; message: string; reason: string; kind?: "plan_limit"; limitInfo?: PropertyRecordLimitInfo };
 
 export function useListingPersistence({
   userId,
@@ -94,22 +103,33 @@ export function useListingPersistence({
       setBusy(true);
       try {
         let serverReason = "";
+        let serverCode: string | undefined;
+        let serverLimitInfo: PropertyRecordLimitInfo | undefined;
         const savedId = await saveManagerPropertyDraftToServer(submission, userId, {
           existingDraftId: draftIdRef.current,
           stepIndex,
           maxStepReached: stepIndex,
           allowIdUpgrade: draftIdRef.current === null,
-          onError: (message) => {
+          onError: (message, code, _status, limitInfo) => {
             serverReason = message;
+            serverCode = code;
+            serverLimitInfo = limitInfo;
           },
         });
         if (!savedId) {
+          // The workspace's own record cap (drafts included) is not a
+          // transient failure "Try again" can ever clear — it is the SAME
+          // refusal every time until a slot opens, so it gets its own kind
+          // rather than the generic connection wording below.
+          const isWorkspaceFull = serverCode === WORKSPACE_PROPERTY_LIMIT_ERROR_CODE;
           return {
             ok: false,
             message: serverReason
               ? `Could not save your progress — ${serverReason.replace(/\.$/, "")}. Your work is still here.`
               : "Could not save your progress. Check your connection. Your work is still here.",
             reason: serverReason || "Check your connection and try again.",
+            kind: isWorkspaceFull ? "plan_limit" : undefined,
+            limitInfo: isWorkspaceFull ? serverLimitInfo : undefined,
           };
         }
         draftIdRef.current = savedId;
@@ -169,9 +189,13 @@ export function useListingPersistence({
       setBusy(true);
       try {
         let serverError = "";
+        let serverCode: string | undefined;
+        let serverLimitInfo: PropertyRecordLimitInfo | undefined;
         const opts = {
-          onError: (message: string) => {
+          onError: (message: string, code?: string, _status?: number, limitInfo?: PropertyRecordLimitInfo) => {
             serverError = message;
+            serverCode = code;
+            serverLimitInfo = limitInfo;
           },
         };
         const draftId = draftIdRef.current;
@@ -179,12 +203,19 @@ export function useListingPersistence({
           ? await publishManagerPropertyDraftToServer(draftId, submission, userId, opts)
           : await submitManagerPendingPropertyToServer(submission, userId, opts);
         if (!id) {
+          // Publish hits the SAME per-workspace record cap the draft save does
+          // (a brand-new listing published without ever being saved inserts the
+          // first row here). It is never a "Try again" failure, so it carries
+          // the same kind the save path uses and reaches the upgrade prompt.
+          const isWorkspaceFull = serverCode === WORKSPACE_PROPERTY_LIMIT_ERROR_CODE;
           const message = serverError || "Could not publish this listing.";
-          trackPublishRefused("server", message, Boolean(draftIdRef.current));
+          trackPublishRefused(isWorkspaceFull ? "plan_limit" : "server", message, Boolean(draftIdRef.current));
           return {
             ok: false,
             message,
             reason: serverError || "Check your connection and try again.",
+            kind: isWorkspaceFull ? "plan_limit" : undefined,
+            limitInfo: isWorkspaceFull ? serverLimitInfo : undefined,
           };
         }
         draftIdRef.current = null;

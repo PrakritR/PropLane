@@ -264,14 +264,14 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
   it("bounds persistent native storage failure, releases the held email attempt, and recovers on explicit reopen", async () => {
     const openedKey = "axis_manager_sms_opened_v2:manager-1";
     window.localStorage.setItem(openedKey, JSON.stringify(["unrelated-opened-id"]));
-    const storedSetItem = Storage.prototype.setItem;
+    // Node's built-in `localStorage` (jsdom's `window.localStorage` in this
+    // suite) defines its storage methods as own properties on the instance,
+    // not on `Storage.prototype`, so the spy must target the instance itself
+    // or the throwing implementation is never reached.
     const localStorageSetItem = vi.fn(() => {
       throw new Error("storage denied");
     });
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {
-      if (this === window.localStorage) return localStorageSetItem();
-      return storedSetItem.call(this, key, value);
-    });
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(localStorageSetItem);
     let settleHeld!: (value: null) => void;
     const held = new Promise<null>((resolve) => { settleHeld = resolve; });
     state.post.mockReturnValueOnce(held);
@@ -339,14 +339,11 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
     await waitForSmsConversations();
-    const storedGetItem = Storage.prototype.getItem;
+    // See the matching note above: spy on the instance, not `Storage.prototype`.
     const localStorageGetItem = vi.fn(() => {
       throw new Error("storage read denied");
     });
-    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (key) {
-      if (this === window.localStorage) return localStorageGetItem();
-      return storedGetItem.call(this, key);
-    });
+    const getItem = vi.spyOn(window.localStorage, "getItem").mockImplementation(localStorageGetItem);
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
     expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
@@ -422,13 +419,10 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
 
   it("keeps the hidden mobile thread pane from acknowledging until the user opens it", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
-    const storedSetItem = Storage.prototype.setItem;
-    const localStorageSetItem = vi.fn((key: string, value: string) =>
-      storedSetItem.call(window.localStorage, key, value));
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {
-      if (this === window.localStorage) return localStorageSetItem(key, value);
-      return storedSetItem.call(this, key, value);
-    });
+    // See the matching note above: spy on the instance, not `Storage.prototype`.
+    const storedSetItem = window.localStorage.setItem.bind(window.localStorage);
+    const localStorageSetItem = vi.fn((key: string, value: string) => storedSetItem(key, value));
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(localStorageSetItem);
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const list = await screen.findByTestId("manager-list");
     await waitForSmsConversations();

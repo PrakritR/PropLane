@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Bath, BedDouble, DoorOpen, UserRound, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { usePortalListGroupFlushRow } from "@/components/portal/portal-list-group";
 
 /**
  * A row's trailing status, in plain coloured text — never a pill or `Badge`
@@ -108,6 +109,7 @@ export function PortalPersonRecordRow({
  */
 export function PortalPropertyRecordRow({
   title,
+  attention = false,
   address,
   summary,
   meta,
@@ -116,6 +118,8 @@ export function PortalPropertyRecordRow({
   statusWord,
   trailing,
   amount,
+  amountTone,
+  amountSubLabel,
   leading,
   leadingShape,
   selected = false,
@@ -127,7 +131,10 @@ export function PortalPropertyRecordRow({
   dataAttr,
 }: {
   title: string;
-  address: string;
+  /** A row needing the viewer's attention carries a blue dot before its title — never a pill (`portal-entry-row.tsx`). */
+  attention?: boolean;
+  /** The place line ("who · where · when"). Omit for a row with none. */
+  address?: string;
   /**
    * What the ⋯ and the hidden selection box call this row when the title alone
    * is ambiguous — a guest with two tours is "Maya Chen · Thu, Sep 17, 4:00 PM".
@@ -147,6 +154,10 @@ export function PortalPropertyRecordRow({
   trailing?: ReactNode;
   /** The money, right-aligned and bold. */
   amount?: string;
+  /** Colours `amount` red ("bad", e.g. overdue) or green ("ok"); unset keeps today's plain foreground. */
+  amountTone?: "ok" | "bad";
+  /** A one-word label under `amount` ("Pending", "per month") — the entry row's figure sub-label. */
+  amountSubLabel?: string;
   /** A thumbnail or glyph before the text — what makes one row recognisable among twenty. */
   leading?: ReactNode;
   /** Clips `leading` to a shape: square for a place, round for a person. Unset keeps the caller's own shape (no clip) — every existing row before this prop shipped. */
@@ -166,17 +177,29 @@ export function PortalPropertyRecordRow({
 }) {
   const selectable = Boolean(onSelectedChange);
   const openable = Boolean(onOpen);
+  // Inside a `PortalListGroup`'s rows slot, drop this row's own card chrome —
+  // the group's outer container already supplies the border/rounded
+  // corners/shadow, and a hairline (the container's `divide-y`) separates
+  // this row from its neighbors instead.
+  const flush = usePortalListGroupFlushRow();
   // `statusWord`/`amount` are the current props; `badge`/`trailing` are the
   // deprecated ReactNode-shaped ones a handful of panels still pass. A caller
   // migrating one row at a time gets identical output either way.
   const badgeContent = statusWord ? <PortalRecordRowStatus {...statusWord} /> : badge;
   const trailingContent = trailing ?? (amount != null ? amount : undefined);
+  const amountToneClass = amountTone ? STATUS_WORD_TONE_CLASS[amountTone] : "text-foreground";
   const body = (
     <>
       <p className="flex min-w-0 items-center gap-1 text-[15px] font-semibold leading-tight text-foreground">
+        {attention ? (
+          <>
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
+            <span className="sr-only">Needs attention</span>
+          </>
+        ) : null}
         <span className="truncate">{title}</span>
       </p>
-      <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p>
+      {address ? <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p> : null}
       {facts ? (
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
           {facts}
@@ -201,25 +224,40 @@ export function PortalPropertyRecordRow({
           {badgeContent}
           {/* On a phone the money sits under the title, so the title keeps its
               width; on desktop it moves to the right edge. */}
-          {trailingContent ? <span className="text-[13px] font-bold text-foreground md:hidden">{trailingContent}</span> : null}
+          {trailingContent ? (
+            <span className="inline-flex items-baseline gap-1 md:hidden">
+              <span className={cn("text-[13px] font-bold", amountToneClass)}>{trailingContent}</span>
+              {amountSubLabel ? <span className="text-[11px] font-medium text-muted">{amountSubLabel}</span> : null}
+            </span>
+          ) : null}
         </div>
       ) : null}
     </>
   );
   const aside =
     trailingContent ? (
-      <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-1 self-center text-right md:flex">
-        <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailingContent}</span>
+      <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-0.5 self-center text-right md:flex">
+        <span className={cn("whitespace-nowrap text-[14px] font-bold", amountToneClass)}>{trailingContent}</span>
+        {amountSubLabel ? <span className="whitespace-nowrap text-[11px] font-medium text-muted">{amountSubLabel}</span> : null}
       </div>
     ) : null;
   return (
     <div
       className={cn(
-        // One white card per property — no group heading, no repeated status
-        // badge — with the row title opening the record and a separate 44px
-        // selection target.
-        "portal-property-row mb-2 flex w-full items-center gap-1 rounded-xl border bg-card px-3 py-3 shadow-sm transition-colors max-md:px-2.5 max-md:py-2.5",
-        selected || checked ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-primary/30",
+        // One white card per property when the row stands alone — no group
+        // heading, no repeated status badge — with the row title opening the
+        // record and a separate 44px selection target. Inside a
+        // `PortalListGroup`, `flush` drops the card chrome so the row reads
+        // as one line inside the group's single container instead.
+        "portal-property-row flex w-full items-center gap-1 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5",
+        flush
+          ? selected || checked
+            ? "bg-primary/[0.04]"
+            : "hover:bg-foreground/[0.03]"
+          : cn(
+              "mb-2 rounded-xl border bg-card shadow-sm",
+              selected || checked ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-primary/30",
+            ),
       )}
     >
       {selectable ? (

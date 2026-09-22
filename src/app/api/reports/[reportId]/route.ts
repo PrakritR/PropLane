@@ -5,12 +5,13 @@ import {
   getReportsAuthContext,
 } from "@/lib/reports/auth";
 import { parseManagerReportFilters } from "@/lib/reports/parse-filters";
-import { resolveManagerReportOwnerId } from "@/lib/reports/co-manager-report-scope";
+import { resolveManagerReportScope } from "@/lib/reports/co-manager-report-scope";
 import {
   MANAGER_REPORT_IDS,
   RESIDENT_REPORT_IDS,
 } from "@/lib/reports/types";
 import { runManagerReport, queryResidentLedger } from "@/lib/reports/queries";
+import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
@@ -50,16 +51,27 @@ export async function GET(
     const gate = await assertManagerFinancialsAccess(auth);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
-    // Co-managers granted `financials` read the owning manager's books (owner-level scope).
-    const managerUserId =
-      auth.role === "admin"
-        ? searchParams.get("managerUserId")?.trim() || auth.userId
-        : await resolveManagerReportOwnerId(auth.db, auth.userId);
+    // Co-managers granted `financials` read the owning manager's books, bounded
+    // to exactly the properties that grant covers (owner-level substitution,
+    // property-level narrowing — see resolveManagerReportScope).
+    let managerUserId = auth.userId;
+    let grantedPropertyIds: string[] | null = null;
+    if (auth.role === "admin") {
+      managerUserId = searchParams.get("managerUserId")?.trim() || auth.userId;
+    } else {
+      const scope = await resolveManagerReportScope(auth.db, auth.userId);
+      managerUserId = scope.managerUserId;
+      grantedPropertyIds = scope.grantedPropertyIds;
+    }
 
     // The active workspace narrows every manager report, read from the viewer's
-    // own selection cookie so the request cannot widen its own scope.
+    // own selection cookie so the request cannot widen its own scope. A
+    // co-manager's grant narrows it further still — the two combine, never widen.
     const filters = parseManagerReportFilters(searchParams);
-    filters.workspacePropertyIds = await activeWorkspacePropertyScope(auth.db, auth.userId);
+    filters.workspacePropertyIds = intersectPropertyScopes(
+      await activeWorkspacePropertyScope(auth.db, auth.userId),
+      grantedPropertyIds,
+    );
     const report = await runManagerReport(auth.db, managerUserId, reportId, filters);
     if (!report) return NextResponse.json({ error: "Unknown report." }, { status: 404 });
     return NextResponse.json(report);

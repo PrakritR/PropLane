@@ -277,6 +277,27 @@ function mirrorPropertyRecord(input: {
   }).catch(() => {});
 }
 
+/**
+ * The numbers behind a `property_record_limit` refusal (workspace record cap,
+ * `WORKSPACE_PROPERTY_LIMIT_ERROR_CODE`), when the server had them to give.
+ * Any field may be absent — a caller must render "unknown" rather than a
+ * literal `undefined`.
+ */
+export type PropertyRecordLimitInfo = { limit?: number; current?: number; draftCount?: number };
+
+/**
+ * The server's own explanation of a refused property-record write. `code` is
+ * the route's machine tag (`property_record_limit` for the workspace's own
+ * record ceiling), which is what separates a refusal with a real way past it
+ * from an ordinary transient one — never the presence of a message.
+ */
+export type PropertyRecordWriteErrorHandler = (
+  message: string,
+  code?: string,
+  status?: number,
+  limitInfo?: PropertyRecordLimitInfo,
+) => void;
+
 export async function upsertPropertyRecordToServer(input: {
   id: string;
   managerUserId: string | null;
@@ -291,12 +312,15 @@ export async function upsertPropertyRecordToServer(input: {
    * limit and the plan that lifts it, and that sentence has to survive the trip
    * back to the wizard's toast.
    *
-   * `code` is the route's machine tag (`property_limit_reached`). A caller the
-   * manager did not initiate — the background mirror — must key on it rather
-   * than on the presence of a message, because a 500 carries raw Postgres text
-   * that has no business appearing in a toast.
+   * `code` is the route's machine tag (`property_limit_reached` for the
+   * plan's published-listing cap, `property_record_limit` for the
+   * workspace's own 10-record ceiling — two different caps, never conflated).
+   * A caller the manager did not initiate — the background mirror — must key
+   * on it rather than on the presence of a message, because a 500 carries raw
+   * Postgres text that has no business appearing in a toast. `limitInfo` is
+   * only ever populated alongside `property_record_limit`.
    */
-  onError?: (message: string, code?: string, status?: number) => void;
+  onError?: (message: string, code?: string, status?: number, limitInfo?: PropertyRecordLimitInfo) => void;
 }): Promise<boolean> {
   if (typeof window === "undefined") return false;
   // /demo is browser-local — there is no real record to mirror, but the local
@@ -319,13 +343,22 @@ export async function upsertPropertyRecordToServer(input: {
       }),
     });
     if (!res.ok && input.onError) {
-      const body = (await res.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
+      const body = (await res.json().catch(() => null)) as
+        | { error?: unknown; code?: unknown; limit?: unknown; current?: unknown; draftCount?: unknown }
+        | null;
       const message = typeof body?.error === "string" ? body.error.trim() : "";
       const code = typeof body?.code === "string" ? body.code : undefined;
+      const limitInfo: PropertyRecordLimitInfo | undefined = code
+        ? {
+            limit: typeof body?.limit === "number" ? body.limit : undefined,
+            current: typeof body?.current === "number" ? body.current : undefined,
+            draftCount: typeof body?.draftCount === "number" ? body.draftCount : undefined,
+          }
+        : undefined;
       // `status` matters as much as the message: a 4xx is a refusal the server
       // chose to explain and is safe to show, while a 5xx carries raw database
       // text that must never reach a manager-facing message.
-      if (message) input.onError(message, code, res.status);
+      if (message) input.onError(message, code, res.status, limitInfo);
     }
     return res.ok;
   } catch {
@@ -1011,7 +1044,7 @@ export async function publishManagerListingSubmissionToServer(
   listingId: string,
   input: ManagerPropertyDraftInput,
   managerUserId: string,
-  opts?: { onError?: (message: string) => void },
+  opts?: { onError?: PropertyRecordWriteErrorHandler },
 ): Promise<boolean> {
   if (!managerUserId.trim() || !listingId.trim()) return false;
   const legacy = deriveLegacyFields(input);
@@ -1051,7 +1084,7 @@ export async function publishManagerListingSubmissionToServer(
 export async function submitManagerPendingPropertyToServer(
   input: ManagerPropertyDraftInput,
   managerUserId: string,
-  opts?: { onError?: (message: string) => void },
+  opts?: { onError?: PropertyRecordWriteErrorHandler },
 ): Promise<string | null> {
   if (!managerUserId.trim()) return null;
   const legacy = deriveLegacyFields(input);

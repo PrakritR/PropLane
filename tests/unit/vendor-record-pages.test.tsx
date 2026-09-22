@@ -121,7 +121,7 @@ describe("vendor job record page", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/work-orders/wo-1");
   });
 
-  it("the rail has Overview, Scope & photos, Schedule, Bid / Invoice, Communication, Documents, Activity and the header icons match the registry", async () => {
+  it("the rail has the registry's trimmed sections (PLAN-0921-1029): Overview, Schedule, Invoice, Communication", async () => {
     render(
       <AppUiProvider>
         <VendorWorkOrdersPanel tabId="upcoming" workOrderId="wo-1" />
@@ -133,12 +133,9 @@ describe("vendor job record page", () => {
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual([
       "Overview",
-      "Scope & photos",
       "Schedule",
-      "Bid / Invoice",
+      "Invoice",
       "Communication",
-      "Documents",
-      "Activity",
     ]);
 
     // Header icon labels — queried by data-attr since "Accept" is also the

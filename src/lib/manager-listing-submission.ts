@@ -1532,6 +1532,31 @@ function copyRecordName(name: string, fallback: string, keepName: boolean): stri
   return trimmed ? `${trimmed} (copy)` : `${fallback} (copy)`;
 }
 
+/** True while `name` is still the autofilled "<prefix> N" slot name, or blank — i.e. untouched. */
+function isDefaultSlotName(name: string, prefix: string): boolean {
+  const trimmed = name.trim();
+  return trimmed.length === 0 || new RegExp(`^${prefix} \\d+$`).test(trimmed);
+}
+
+/**
+ * Name for a duplicated room/bathroom card.
+ *
+ * An untouched source (still its default "<prefix> N" slot name, or blank)
+ * hands the copy NO name at all, so the step labels it positionally exactly
+ * like every other untouched card. Minting an explicit "<prefix> N" instead
+ * froze a number while its blank siblings kept re-labelling around it, and any
+ * later add or remove put two identically labelled cards side by side — in the
+ * card list and in the "Same as" options. A nameless copy cannot collide, and
+ * the ✕ guard (`isRoomSlotRemovable` / `isBathroomSlotRemovable`) already
+ * reads a blank name as untouched. A custom-named source keeps
+ * "<name> (copy)".
+ */
+function duplicateSlotName(name: string, prefix: string, keepName: boolean): string {
+  if (keepName) return name;
+  if (isDefaultSlotName(name, prefix)) return "";
+  return `${name.trim()} (copy)`;
+}
+
 function remapAccessKinds(
   kinds: Partial<Record<string, ManagerBathroomRoomAccessKind>> | undefined,
   map: ReadonlyMap<string, string> | undefined,
@@ -2826,7 +2851,7 @@ export function duplicateRoomEntry(
   return {
     ...source,
     id: rid("room"),
-    name: copyRecordName(source.name, "Room", opts?.keepName === true),
+    name: duplicateSlotName(source.name, "Room", opts?.keepName === true),
     photoDataUrls: [...source.photoDataUrls],
     videoDataUrl: source.videoDataUrl,
     moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])],
@@ -2863,7 +2888,7 @@ export function duplicateBathroomEntry(
   return {
     ...source,
     id: rid("bath"),
-    name: copyRecordName(source.name, "Bathroom", opts?.keepName === true),
+    name: duplicateSlotName(source.name, "Bathroom", opts?.keepName === true),
     photoDataUrls: [...(source.photoDataUrls ?? [])],
     videoDataUrl: source.videoDataUrl ?? null,
     assignedRoomIds: assigned,

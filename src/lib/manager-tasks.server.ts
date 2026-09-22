@@ -16,6 +16,7 @@ import {
 } from "@/lib/manager-tasks";
 import { normalizeAssignee } from "@/lib/work-assignment";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
 
 function durationBetween(start: string, end: string): number {
   const ms = Date.parse(end) - Date.parse(start);
@@ -107,6 +108,54 @@ export async function loadManagerTasks(db: SupabaseClient, managerUserId: string
     .flatMap((r) => r.tasks.filter((task) => taskAssignedTo(task, managerUserId)))
     .filter((task) => (seen.has(task.id) ? false : (seen.add(task.id), true)));
   return [...own, ...assigned];
+}
+
+/**
+ * `loadManagerTasks`, narrowed to the VIEWER's active workspace — the one
+ * function in this file callers displaying a manager's task LIST should use.
+ *
+ * Tasks are stored one JSON array per manager row (`portal_schedule_records`),
+ * always with `property_id: null` on the row itself — see `writeTasksRecord`.
+ * Each task's own house lives inside that JSON array (`ManagerTask.propertyId`),
+ * so there is no SQL column to add an `.in(...)` predicate to; this is the one
+ * allowed exception to "filter in SQL" — the same shape the tasks blueprint
+ * called out — and instead filters the already-decoded array in process,
+ * after `loadManagerTasks` returns it.
+ *
+ * Deliberately NOT folded into `loadManagerTasks` itself: that function also
+ * backs `processDueTaskReminders` (a reminder must fire regardless of which
+ * workspace happens to be selected in the manager's browser right now),
+ * `vendor-tasks.server.ts` (a vendor's own assigned-task view, which has no
+ * workspace concept of its own to narrow by), and the portfolio-import dedupe
+ * check (which needs the whole account to avoid a duplicate). Narrowing those
+ * by "whatever workspace tab happens to be open" would be a correctness
+ * regression, not a security fix, so only the viewer-facing task LIST gets
+ * this extra step. `src/app/api/portal/manager-tasks/route.ts`'s GET handler
+ * should call this instead of `loadManagerTasks` to make that view workspace-
+ * aware end to end.
+ */
+export async function loadManagerTasksInActiveWorkspace(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<ManagerTask[]> {
+  const tasks = await loadManagerTasks(db, managerUserId);
+  let active;
+  try {
+    active = await resolveActiveWorkspaceFromRequest(db, managerUserId);
+  } catch {
+    // A workspace we cannot resolve must not narrow the viewer's own list.
+    return tasks;
+  }
+  const allowed = new Set(active.propertyIds.map((id) => id.trim()).filter(Boolean));
+  return tasks.filter((task) => {
+    const propertyId = task.propertyId?.trim();
+    // A task with no house is account-level, following the same rule every
+    // other account-level row here follows: visible only in the viewer's own
+    // default workspace (`src/lib/communication/conversation-visibility.server.ts`'s
+    // `untaggedOwnedVisible` precedent).
+    if (!propertyId) return active.owned && active.isDefault;
+    return allowed.has(propertyId);
+  });
 }
 
 /** The refusal an assignee sees for the two fields only the owner may change. */

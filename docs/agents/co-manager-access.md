@@ -359,6 +359,32 @@ lease under a property is the per-property equivalent
 (`managerMayFileLeaseUnderProperty`, `leases` at EDIT); see
 [`lease-generation.md`](lease-generation.md).
 
+**Active-workspace narrowing runs BESIDE module scoping, never instead of it.**
+A manager's rows — owned and linked alike — are additionally filtered to the
+houses the ACTIVE workspace holds, resolved server-side from the selection
+cookie: the rule Communication already states as its rule (3)
+([`communication-inbox.md`](communication-inbox.md)), now also on bills,
+budgets, owner distributions, expenses, documents, work orders, service
+requests, household charges, deposit returns, applications/residents, leases
+and reports. Three resolvers, one contract: `resolveActiveWorkspaceRowScope`
+with `applyWorkspaceRowScope` / `rowAllowedInWorkspaceScope`
+(`src/lib/workspaces/row-scope.server.ts`) for a manager's own money and
+library tables, `resolveManagerWorkspaceRowScope` with
+`workspaceRowFilterClause` (`co-manager-module-scope.ts`) for the owned+linked
+merge, and `activeWorkspacePropertyScope`
+(`src/lib/workspaces/scope.server.ts`) for property-id lists. `null` means do
+not narrow (no workspace, or the load failed — a scope that cannot be read
+narrows nothing and widens nothing); an EMPTY ARRAY is a real answer, not "no
+filter"; a row tied to NO house is visible only when the active workspace is
+the viewer's own default. **One workspace narrows exactly like several** — the
+account still reaches another owner's houses through a grant, so "a single
+workspace IS the account" was a leak, not a shortcut. Where a grant and the
+workspace both narrow, they compose by intersection
+(`intersectPropertyScopes`, `src/lib/reports/workspace-scope.ts`), never by
+one replacing the other. Coverage: `tests/unit/workspace-row-scope.test.ts`,
+`tests/unit/manager-workspace-row-scope.test.ts`, plus the per-surface
+`manager-*-workspace-scope` tests.
+
 **Client mirrors** — `collectLinkedPropertyIdsForModule` /
 `collectLinkedOwnerIdsForModule` / `moduleRowVisibleToPortalUser` in
 `src/lib/manager-portfolio-access.ts`. Storage libs (household-charges,

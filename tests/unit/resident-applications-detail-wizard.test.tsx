@@ -128,7 +128,7 @@ describe("ResidentApplicationsPanel application detail", () => {
       } as DemoApplicantRow,
     ];
 
-    render(<ResidentApplicationsPanel applicationId="PROPLANE-BBBB0002" bucket="pending" />);
+    render(<ResidentApplicationsPanel applicationId="PROPLANE-BBBB0002" bucket="pending" applicationDetailTab="application-form" />);
 
     const pdf = await screen.findByTestId("resident-application-pdf");
     expect(pdf.getAttribute("src")).toContain("/api/manager-applications/");

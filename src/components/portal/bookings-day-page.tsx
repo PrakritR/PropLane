@@ -1,16 +1,14 @@
 "use client";
 
 /**
- * The Bookings day page (PLAN-0920-1058, area 1e) — replaces the old day
- * pop-up. `/portal/bookings/<yyyy-mm-dd>`, reached from a calendar cell click
- * or "Add booking". Rows are grouped by property and open the booking's own
- * record page; there is no assistant chip in this header (it lives in the
- * top bar everywhere now).
+ * The Bookings day popup (PLAN-0922-1013) — a wizard PortalDialog over the
+ * month calendar. `/portal/bookings/<yyyy-mm-dd>` still opens this dialog;
+ * closing it returns to `/portal/bookings/calendar`. Rows are grouped by
+ * property and open the booking's own record page.
  */
 
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
@@ -20,7 +18,6 @@ import {
   BookingsBlockDatesModal,
   type BlockDatesDraft,
   type BlockDatesSaveResult,
-  type BookingsSheetPane,
 } from "@/components/portal/bookings-block-dates-modal";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -65,6 +62,7 @@ export function BookingsDayPage({
   onSaveBlock,
   onRemoveBlock,
   showToast,
+  onClose,
 }: {
   dayKey: string;
   basePath: string;
@@ -75,11 +73,12 @@ export function BookingsDayPage({
   onSaveBlock: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   onRemoveBlock: (blockId: string) => Promise<void>;
   showToast: (message: string) => void;
+  /** Close the day dialog — parent navigates back to the calendar tab. */
+  onClose?: () => void;
 }) {
   const navigate = usePortalNavigate();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<PropertyBookingEntry | null>(null);
-  const [pane, setPane] = useState<BookingsSheetPane>("block");
   const [deletingEntry, setDeletingEntry] = useState<PropertyBookingEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
@@ -113,13 +112,11 @@ export function BookingsDayPage({
 
   const openEdit = (entry: PropertyBookingEntry) => {
     setEditingBlock(entry);
-    setPane("block");
     setSheetOpen(true);
   };
 
   const openAdd = () => {
     setEditingBlock(null);
-    setPane("block");
     setSheetOpen(true);
   };
 
@@ -163,13 +160,19 @@ export function BookingsDayPage({
     overall.checkIns === 1 ? "" : "s"
   } · ${overall.occupied} of ${overall.rooms} rooms occupied`;
 
+  const closeDay = onClose ?? (() => navigate(`${basePath}/bookings/calendar`));
+
   return (
-    <ManagerPortalPageShell title={dayTitle(dayKey)} hideTitleOnMobileNav compactFilterRow>
-      <div className="mb-2 flex shrink-0 items-center justify-between gap-3" data-attr="bookings-day-page-header">
-        <p className="min-w-0 truncate text-[13px] text-muted" data-attr="bookings-day-summary">
-          {summaryLine}
-        </p>
-        <div className="flex shrink-0 items-center gap-1.5">
+    <PortalDialog
+      open
+      onClose={closeDay}
+      title={dayTitle(dayKey)}
+      size="wizard"
+      primaryAction={null}
+      dismissBlocked={deleting || sheetOpen}
+      dataAttr="bookings-day-detail-modal"
+      headerAction={
+        <div className="flex shrink-0 items-center gap-1" data-attr="bookings-day-page-header">
           <button
             type="button"
             aria-label="Previous day"
@@ -196,7 +199,11 @@ export function BookingsDayPage({
             onClick={openAdd}
           />
         </div>
-      </div>
+      }
+    >
+      <p className="mb-3 min-w-0 truncate text-[13px] text-muted" data-attr="bookings-day-summary">
+        {summaryLine}
+      </p>
 
       <PortalRecordListSurface
         isEmpty={!loading && dayBookings.length === 0}
@@ -268,16 +275,11 @@ export function BookingsDayPage({
         propertyOptions={propertyOptions}
         initialPropertyId={propertyOptions.length === 1 ? propertyOptions[0]!.id : undefined}
         initialDayKey={dayKey}
-        initialPane={pane}
-        pane={pane}
-        onPaneChange={setPane}
         editingBlock={editingBlock}
         entries={entries}
         residentOptions={residentOptions}
         onSave={onSaveBlock}
         onDeleteBlock={onRemoveBlock}
-        propertyIds={propertyIds}
-        showToast={showToast}
       />
 
       <PortalDialog
@@ -302,6 +304,6 @@ export function BookingsDayPage({
             : ""}
         </p>
       </PortalDialog>
-    </ManagerPortalPageShell>
+    </PortalDialog>
   );
 }

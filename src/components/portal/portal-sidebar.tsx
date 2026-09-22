@@ -28,7 +28,6 @@ import {
 import { adjacentPrimarySection, resolveSwipePageDirection } from "@/lib/native/portal-swipe-page";
 import { playSwipeEnter, playSwipeExit, resetSwipeTransform } from "@/lib/native/portal-swipe-page-transition";
 import { observeNativeBottomNavInset } from "@/lib/native/sync-portal-bottom-nav-inset";
-import { useBottomNavHidden } from "@/lib/portal-record-page-chrome";
 import {
   isCrossPortalNavigation,
   portalNavClick,
@@ -405,11 +404,9 @@ export function PortalSidebar({
     return primary.filter((item) => !isSectionLocked(item.section));
   }, [definition.kind, nativeBottomNavSplit, isSectionLocked]);
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
-  // A record page's phone sticky action bar takes this bar's place (no-bottom-bar,
-  // PLAN-0920-1058) — two fixed bottom bars never both fit on a 390px screen.
-  const bottomNavHiddenByRecordPage = useBottomNavHidden();
-  const showBottomNavBar =
-    showMobileNav && isClient && !bottomNavHiddenByRecordPage && (nativeBottomNavItems.length > 0 || showMoreTab);
+  // A record page no longer has a bottom bar of its own (PLAN-0921-1029) —
+  // this bar is never hidden on its account any more.
+  const showBottomNavBar = showMobileNav && isClient && (nativeBottomNavItems.length > 0 || showMoreTab);
   const moreTabActive = !nativeBottomNavItems.some((item) => isNavItemActive(item));
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [bottomNavEl, setBottomNavEl] = useState<HTMLElement | null>(null);

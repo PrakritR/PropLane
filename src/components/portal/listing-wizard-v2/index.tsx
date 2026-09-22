@@ -36,7 +36,7 @@ import {
   type ListingEditorLeadingStep,
   type ListingV2StepId,
 } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
+import { useListingPersistence, type ListingPersistenceResult } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { fillRoomsFollowingDefaults, houseDefaultsForSubmission } from "@/lib/listing-house-defaults";
 import {
   applyListingBathroomSlots,
@@ -196,8 +196,13 @@ export function ListingWizardV2({
   const lifecycleRef = useRef(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const busy = persistenceBusy || lifecycleBusy;
-  const lastPersistErrorRef = useRef("Could not save this listing.");
-  const [saveFail, setSaveFail] = useState<{ message: string; stepIndex: number } | null>(null);
+  // `kind`/`limitInfo` ride along so the save-failed dialog can tell the
+  // workspace's own record cap (a real "upgrade or manage drafts" way out)
+  // apart from an ordinary transient refusal (`Try again` is the honest
+  // option there). See `ListingPersistenceResult`.
+  type SaveFailureDetails = Pick<Extract<ListingPersistenceResult, { ok: false }>, "message" | "kind" | "limitInfo">;
+  const lastPersistErrorRef = useRef<SaveFailureDetails>({ message: "Could not save this listing." });
+  const [saveFail, setSaveFail] = useState<(SaveFailureDetails & { stepIndex: number }) | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -265,7 +270,7 @@ export function ListingWizardV2({
       if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return true;
       const prepared = await persistSubmission(raw, { validateWaiverCode: editing });
       if (!prepared.ok) {
-        lastPersistErrorRef.current = prepared.message;
+        lastPersistErrorRef.current = { message: prepared.message };
         setActionError(prepared.message);
         if (notify) showToast?.(prepared.message);
         return false;
@@ -278,7 +283,7 @@ export function ListingWizardV2({
         ? await publish(prepared.submission)
         : await saveDraft(prepared.submission, stepIndex);
       if (!result.ok) {
-        lastPersistErrorRef.current = result.message;
+        lastPersistErrorRef.current = { message: result.message, kind: result.kind, limitInfo: result.limitInfo };
         setActionError(result.message);
         if (notify) showToast?.(result.message);
         return false;
@@ -341,7 +346,16 @@ export function ListingWizardV2({
 
   const handleClose = useCallback(
     async (stepIndex: number) => {
-      if (lifecycleRef.current) return;
+      // PRP-486: a close reached while a save/publish is already in flight
+      // (the ✕ still receives the click while `busy` is true, or a fast
+      // double-close beats a click's own disabled state) used to return here
+      // in total silence — no toast, no closed editor, nothing. The manager
+      // had no way to tell their close did not register. Say the same thing
+      // the header's own autosave status already says while busy.
+      if (lifecycleRef.current) {
+        showToast?.("Saving…");
+        return;
+      }
       stepRef.current = stepIndex;
       const ok = await runLifecycle(() => persist(submissionRef.current, stepIndex, { notify: false }));
       if (ok) {
@@ -350,9 +364,9 @@ export function ListingWizardV2({
         onClose();
         return;
       }
-      setSaveFail({ message: lastPersistErrorRef.current, stepIndex });
+      setSaveFail({ ...lastPersistErrorRef.current, stepIndex });
     },
-    [editing, onClose, persist, runLifecycle],
+    [editing, onClose, persist, runLifecycle, showToast],
   );
 
   // Explicit save is available from every V2 step. It keeps the editor open so
@@ -401,6 +415,18 @@ export function ListingWizardV2({
             const result = await publish(prepared.submission);
             if (!result.ok) {
               setActionError(result.message);
+              // The workspace's own record cap refuses Publish exactly as it
+              // refuses a draft save, and a toast is a dead end there. Route it
+              // to the same upgrade prompt instead of only announcing it.
+              if (result.kind === "plan_limit") {
+                setSaveFail({
+                  message: result.message,
+                  kind: result.kind,
+                  limitInfo: result.limitInfo,
+                  stepIndex: stepRef.current,
+                });
+                return false;
+              }
               showToast?.(result.message);
               return false;
             }
@@ -418,6 +444,8 @@ export function ListingWizardV2({
       <ListingSaveFailedDialog
         open={saveFail !== null}
         reason={saveFail?.message ?? ""}
+        kind={saveFail?.kind}
+        limitInfo={saveFail?.limitInfo}
         onKeepEditing={() => setSaveFail(null)}
         onTryAgain={() => (saveFail ? handleClose(saveFail.stepIndex) : undefined)}
         onLeaveWithoutSaving={() => {

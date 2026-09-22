@@ -1134,18 +1134,19 @@ export function ManagerLeasesPipelinePanel({
       showToast("Coming soon");
     };
     const ownContent =
-      activeTab === "terms" ? (
-        renderLeaseTermsFacts(detailRow)
-      ) : activeTab === "signatures" ? (
-        renderLeaseSignaturesFacts(detailRow)
-      ) : activeTab === "amendments" ? (
-        renderLeaseAmendmentsBody(detailRow)
+      activeTab === "lease-document" ? (
+        <>
+          {renderLeaseRowDetail(detailRow)}
+          {renderLeaseTermsFacts(detailRow)}
+          {renderLeaseSignaturesFacts(detailRow)}
+          {renderLeaseAmendmentsBody(detailRow)}
+        </>
       ) : activeTab === "payments" ? (
         <div className="px-3 pb-4 sm:px-4">
           <PortalListEmptyCard title="No payments linked yet" workspaceAware={false} dataAttr="lease-payments-empty" />
         </div>
-      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
-        renderRecordSection(activeTab, {
+      ) : activeTab === "communication" ? (
+        renderRecordSection("communication", {
           role: "manager",
           kind: "lease",
           kindLabel: "lease",
@@ -1155,7 +1156,50 @@ export function ManagerLeasesPipelinePanel({
           contactIds: detailRow.residentEmail ? [detailRow.residentEmail] : undefined,
         })
       ) : (
-        renderLeaseRowDetail(detailRow)
+        renderRecordSection("overview", {
+          role: "manager",
+          kind: "lease",
+          kindLabel: "lease",
+          recordId: detailRow.id,
+          recordLabel: detailRow.residentName,
+          overviewTiles: [
+            { id: "rent", label: "Rent", value: detailRow.signedRentLabel ?? "—", detail: "per month" },
+            { id: "term", label: "Term", value: detailRow.application?.leaseTerm ?? "—", detail: detailRow.application?.leaseEnd ? `Ends ${detailRow.application.leaseEnd}` : undefined },
+            { id: "signatures", label: "Signatures", value: `${[detailRow.managerSignature, detailRow.residentSignature].filter(Boolean).length} of 2`, detail: detailRow.residentSignature ? undefined : "Resident pending" },
+            { id: "status", label: "Status", value: detailRow.status ?? detailRow.stageLabel, tone: detailRow.status === "Fully Signed" ? "default" : "danger" },
+          ],
+          overviewNeeds: [
+            ...(!detailRow.residentSignature ? [{ id: "resident-signature", title: "Resident signature pending", detail: "Sent — remind", onClick: () => openLeaseSigningReminderPreview(detailRow) }] : []),
+          ],
+          overviewCards: [
+            {
+              id: "lease-document",
+              title: "Lease document",
+              action: { label: "Read the lease", href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document") },
+              rows: [
+                { label: "Rent", value: detailRow.signedRentLabel ?? "—" },
+                { label: "Term", value: [detailRow.application?.leaseStart, detailRow.application?.leaseEnd].filter(Boolean).join(" – ") || "—" },
+                { label: "Unit", value: detailRow.unit || "—" },
+              ],
+            },
+            {
+              id: "signatures",
+              title: "Signatures",
+              action: { label: "Lease document", href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document") },
+              rows: [
+                { label: "Manager", value: detailRow.managerSignature ? `Signed ${detailRow.managerSignature.signedAtIso}` : "Not signed", tone: detailRow.managerSignature ? "ok" : "bad" },
+                { label: "Resident", value: detailRow.residentSignature ? `Signed ${detailRow.residentSignature.signedAtIso}` : "Pending", tone: detailRow.residentSignature ? "ok" : "bad" },
+              ],
+            },
+            {
+              id: "payments",
+              title: "Payments",
+              kind: "rows",
+              rows: [],
+              emptyLabel: "No payments linked yet",
+            },
+          ],
+        })
       );
     return (
       <>
@@ -1172,12 +1216,6 @@ export function ManagerLeasesPipelinePanel({
           dataAttrBack="lease-detail-back"
           pinScrollBody
           scrollBody={false}
-          footerOmitSpacer
-          footer={
-            detailFooterActions ? (
-              <ResidentDocumentsDetailFooter>{detailFooterActions}</ResidentDocumentsDetailFooter>
-            ) : undefined
-          }
         >
           <PortalRecordActions>
             <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
@@ -1199,6 +1237,11 @@ export function ManagerLeasesPipelinePanel({
               </PortalRecordSectionChrome>
             </PortalPageScrollBody>
           </div>
+          {detailFooterActions ? (
+            <PortalRecordActions>
+              <ResidentDocumentsDetailFooter>{detailFooterActions}</ResidentDocumentsDetailFooter>
+            </PortalRecordActions>
+          ) : null}
         </PortalRecordDetailPage>
       </>
     );

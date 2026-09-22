@@ -13,6 +13,7 @@ import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import { track } from "@/lib/analytics/posthog";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { assertFinancialsTier } from "@/lib/reports/auth";
+import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 const inputSchema = z.object({
   billId: z.string().uuid(), serviceStart: migrationDate, serviceEnd: migrationDate,
@@ -32,6 +33,11 @@ async function resolveAllocation(ctx: AgentContext, input: Input) {
   if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Open the owning manager's portal for utility allocations");
   const { data: bill, error: billError } = await ctx.db.from("manager_bills").select("id,property_id,amount_cents,status,description,category_code,vendor_invoice_id").eq("id", input.billId).eq("manager_user_id", ctx.landlordId).single();
   if (billError || !bill || !["approved", "scheduled", "paid"].includes(bill.status) || bill.category_code !== "utilities") throw new Error("Select an approved utility bill in your portfolio");
+  // A utility bill always names a property (it is split across that
+  // property's residents below), so it always carries a propertyId to check —
+  // never treated as the account-level "no property" case. Refuse rather than
+  // read or allocate a bill from another workspace.
+  if (!propertyInAgentWorkspace(ctx.workspace, bill.property_id)) throw new Error("Select an approved utility bill in your portfolio");
   if (input.allocationCents > bill.amount_cents) throw new Error("Resident allocation exceeds the source bill");
   const { data: property, error: propertyError } = await ctx.db.from("manager_property_records").select("property_data,row_data").eq("id", bill.property_id).eq("manager_user_id", ctx.landlordId).single();
   if (propertyError || !property) throw new Error("Bill property is not in your portfolio");

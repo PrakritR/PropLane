@@ -89,10 +89,14 @@ import type { ReportRow } from "@/lib/reports/types";
 import {
   residentChargeDetailHref,
   residentChargesListHref,
+  parseResidentPaymentDetailTab,
 } from "@/lib/portal-detail-routes";
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import {
@@ -209,12 +213,14 @@ export function ResidentPaymentsPanel({
   initialStatus,
   bucket: bucketProp,
   chargeId: chargeIdProp,
+  chargeDetailTab,
   basePath = "/resident",
 }: {
   /** @deprecated Use routed `/payments/{pending|overdue|paid}` instead. */
   initialStatus?: string;
   bucket?: PaymentStatusBucket;
   chargeId?: string;
+  chargeDetailTab?: string;
   basePath?: string;
 }) {
   const resolvedBucketProp: PaymentStatusBucket =
@@ -1803,6 +1809,9 @@ export function ResidentPaymentsPanel({
   }
 
   if (chargeIdProp && detailCharge) {
+    const activeChargeTab = parseResidentPaymentDetailTab(chargeDetailTab);
+    const chargeSections = recordSections("resident", "payment", { basePath, bucket });
+    const chargePayable = isPayableHouseholdCharge(detailCharge);
     return (
       <>
         <PortalRecordDetailPage
@@ -1816,7 +1825,62 @@ export function ResidentPaymentsPanel({
           inlineActions
           actions={renderExpandedActions(detailCharge)}
         >
-          {renderRowDetail(detailCharge)}
+          <PortalRecordSectionChrome
+            sections={chargeSections}
+            recordId={detailCharge.id}
+            activeId={activeChargeTab}
+            title={detailCharge.title || "Charge"}
+            backHref={residentChargesListHref(basePath, bucket)}
+            backLabel="All payments"
+            ariaLabel="Payment sections"
+          >
+            {activeChargeTab === "communication" ? (
+              renderRecordSection("communication", {
+                role: "resident",
+                kind: "payment",
+                kindLabel: "charge",
+                recordId: detailCharge.id,
+                recordLabel: detailCharge.title,
+              })
+            ) : (
+              <>
+                {renderRecordSection("overview", {
+                  role: "resident",
+                  kind: "payment",
+                  kindLabel: "charge",
+                  recordId: detailCharge.id,
+                  recordLabel: detailCharge.title,
+                  overviewTiles: [
+                    { id: "amount", label: "Amount", value: detailCharge.balanceLabel },
+                    { id: "due", label: "Due", value: chargeDueLabel(detailCharge), tone: bucket === "overdue" ? "danger" : "default" },
+                    { id: "status", label: "Status", value: detailCharge.status },
+                    { id: "balance", label: "Balance", value: detailCharge.balanceLabel },
+                  ],
+                  overviewNeeds: chargePayable
+                    ? [{ id: "pay", title: "Pay this charge", detail: "Card or bank — fee shown before you confirm", onClick: () => openPayConfirm([detailCharge.id], paymentMethod) }]
+                    : [],
+                  overviewCards: [
+                    {
+                      id: "charge",
+                      title: "Charge",
+                      rows: [
+                        { label: "Type", value: detailCharge.title || "—" },
+                        { label: "Property", value: detailCharge.propertyLabel || "—" },
+                      ],
+                    },
+                    {
+                      id: "manager",
+                      title: "Manager",
+                      rows: [
+                        { label: "Name", value: residentPayeeLabel },
+                      ],
+                    },
+                  ],
+                })}
+                {renderRowDetail(detailCharge)}
+              </>
+            )}
+          </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
         {paymentModals}
       </>

@@ -9,7 +9,7 @@
 //   - a room that has its own numbers offers a way back to the house numbers
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   publishManagerPropertyDraftToServer: vi.fn(),
@@ -95,13 +95,13 @@ describe("Pricing puts payment setup first", () => {
     expect(roomPickers.every((el) => el.textContent?.includes("Every room"))).toBe(true);
   });
 
-  it("does not put a Move-in fee row on the Default room card", () => {
+  it("draws no Default room card, and no Move-in fee row on a room card", () => {
     openPricing();
-    const defaults = document.querySelector('[data-attr="listing-v2-price-defaults-card"]');
-    expect(defaults).toBeTruthy();
-    expect(within(defaults as HTMLElement).queryByLabelText("Move-in fee")).toBeNull();
-    expect(within(defaults as HTMLElement).queryByText("Move-in fee")).toBeNull();
-    expect(defaults!.querySelector('[data-attr="listing-v2-price-move-in-fee"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-price-defaults-card"]')).toBeNull();
+    expect(screen.queryByText("Default room")).toBeNull();
+    openPriceCard("Room A");
+    expect(screen.queryByLabelText("Move-in fee")).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-price-move-in-fee"]')).toBeNull();
   });
 
   it("asks for the application fee and waiver code exactly once, with no Manage codes link", () => {
@@ -234,8 +234,8 @@ describe("collected at signing", () => {
   });
 });
 
-describe("a room with its own numbers can go back to the house numbers", () => {
-  it("offers ↺ on the one cell that differs, and clears only that field when pressed", () => {
+describe("a room's numbers stay on that room", () => {
+  it("typing Room A does not rewrite Room B, and long-term has no Reset back to a Default room", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor onChange={(s) => (latest = s)} />);
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
@@ -245,22 +245,15 @@ describe("a room with its own numbers can go back to the house numbers", () => {
 
     openPriceCard("Room A");
     expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();
-
     fireEvent.change(screen.getByLabelText(/Room A utilities on/i), { target: { value: "0" } });
-    // A cell only "differs" once the house has a number to differ from.
-    fireEvent.change(screen.getByLabelText("Deposit for every room"), { target: { value: "1000" } });
     fireEvent.change(screen.getByLabelText(/Room A deposit on/i), { target: { value: "900" } });
-    const reset = screen.getByRole("button", { name: /Reset utilities for Room A/i });
 
-    fireEvent.click(reset);
     const roomA = (latest?.rooms ?? []).find((r) => r.id === "r1");
-    // The room takes its own copy of the house number (both rooms said 150),
-    // not a blank: Review and the lease read the record, not the card.
-    expect(roomA?.utilitiesEstimate).toBe("150");
-    // The deposit the manager typed in the cell next door is untouched.
+    const roomB = (latest?.rooms ?? []).find((r) => r.id === "r2");
+    expect(roomA?.utilitiesEstimate).toBe("0");
     expect(roomA?.securityDeposit).toBe("900");
+    expect(roomB?.utilitiesEstimate).toBe("150");
     expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /Reset deposit for Room A/i })).toBeTruthy();
   });
 });
 
@@ -271,45 +264,38 @@ describe("other fees live on the pricing cards", () => {
     fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
   }
 
-  it("a fee added on the Default room is every room's, on the lease types only, and edited in one place", () => {
+  it("a fee added on a room is that room's, on the lease types only", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     pricing((s) => (latest = s));
-    // Listed everything: no More ▾ on the pricing cards.
     expect(document.querySelector('[data-attr="listing-v2-price-defaults-more"]')).toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-price-more"]')).toBeNull();
 
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
+    openPriceCard("Room A");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
     const fee = (latest?.customFees ?? []).find((f) => (f as { presetId?: string }).presetId === "custom");
     expect(fee).toBeTruthy();
-    // Every room, stored as no narrowing; every lease type offered here is a lease type, so no narrowing there either.
-    expect(fee?.roomIds).toBeUndefined();
+    expect(fee?.roomIds).toEqual(["r1"]);
     expect(fee?.leaseTypes).toBeUndefined();
 
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Cleaning" } });
-    fireEvent.change(screen.getByLabelText("Cleaning amount"), { target: { value: "120" } });
-    // The room card lists it as an inherited row: the Default amount as the placeholder, nothing of its own.
-    openPriceCard("Room A");
-    const inherited = screen.getByLabelText("Cleaning amount for Room A") as HTMLInputElement;
-    expect(inherited.value).toBe("");
-    expect(inherited.placeholder).toBe("120");
-    expect(inherited.className).toContain("border-dashed");
-    expect(screen.getByRole("button", { name: "Remove Cleaning for Room A" })).toBeTruthy();
-    // And the room adds its own fee, scoped to itself.
+    fireEvent.change(screen.getByLabelText("Cleaning amount for Room A"), { target: { value: "120" } });
+    expect((screen.getByLabelText("Cleaning amount for Room A") as HTMLInputElement).value).toBe("120");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
     const own = (latest?.customFees ?? []).filter((f) => (f as { presetId?: string }).presetId === "custom");
     expect(own).toHaveLength(2);
-    expect(own[1]?.roomIds).toEqual(["r1"]);
+    expect(own.every((row) => row.roomIds?.[0] === "r1")).toBe(true);
   });
 
   it("typing a standard fee's name adopts the preset instead of a duplicate custom row", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     pricing((s) => (latest = s));
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
+    openPriceCard("Room A");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Parking" } });
     const fees = latest?.customFees ?? [];
     expect(fees.some((f) => (f as { presetId?: string }).presetId === "custom")).toBe(false);
     expect(fees.some((f) => (f as { presetId?: string }).presetId === "parking_monthly")).toBe(true);
-    fireEvent.change(screen.getByLabelText("Parking amount"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("Parking amount for Room A"), { target: { value: "50" } });
     expect(latest?.parkingMonthly).toBe("50");
   });
 
@@ -334,30 +320,32 @@ describe("fees follow the tab they are added on", () => {
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
     fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
 
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
+    openPriceCard("Room A");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Gym" } });
-    fireEvent.change(screen.getByLabelText("Gym amount"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("Gym amount for Room A"), { target: { value: "40" } });
     const gym = (latest?.customFees ?? []).find((f) => f.label === "Gym");
     expect(gym?.leaseTypes).toEqual(["Long-term", "Month-to-Month", "Custom"]);
-    expect(gym?.roomIds).toBeUndefined();
+    expect(gym?.roomIds).toEqual(["r1"]);
 
     fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Short-Term Stay"]')!);
-    // The stay Default room shows no lease fee and adds its own, scoped to the stay type.
-    expect(screen.queryByLabelText("Gym amount")).toBeNull();
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
+    expect(screen.queryByLabelText("Gym amount for Room A")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Room A stay prices" }));
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Cleaning" } });
-    fireEvent.change(screen.getByLabelText("Cleaning amount"), { target: { value: "120" } });
+    fireEvent.change(screen.getByLabelText("Cleaning amount for Room A"), { target: { value: "120" } });
     const cleaning = (latest?.customFees ?? []).find((f) => f.label === "Cleaning");
     expect(cleaning?.leaseTypes).toEqual(["Short-Term Stay"]);
     expect(cleaning?.frequency).toBe("one-time");
 
     fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Long-term"]')!);
-    expect(screen.queryByLabelText("Cleaning amount")).toBeNull();
-    expect(screen.getByLabelText("Gym amount")).toBeTruthy();
+    openPriceCard("Room A");
+    expect(screen.queryByLabelText("Cleaning amount for Room A")).toBeNull();
+    expect(screen.getByLabelText("Gym amount for Room A")).toBeTruthy();
   });
 });
 
-describe("a lease type can have its own Default room", () => {
+describe("a lease type can have its own room prices", () => {
   const MTM = "Month-to-Month";
   const goToMonthToMonth = () => {
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
@@ -366,71 +354,44 @@ describe("a lease type can have its own Default room", () => {
   };
   const sameAsLongTerm = () => document.querySelector(`[data-attr="listing-v2-same-as-long-term-${MTM}"]`) as HTMLInputElement;
 
-  it("Month-to-Month Default room is filled from long-term and editable, not a dimmed empty copy", () => {
-    render(<Editor />);
-    goToMonthToMonth();
-    expect(sameAsLongTerm().checked).toBe(true);
-    const card = document.querySelector('[data-attr="listing-v2-price-defaults-card"]')!;
-    expect(card.className).not.toContain("pointer-events-none");
-    expect(card.className).not.toContain("opacity-50");
-    const rent = screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement;
-    expect(rent.value).toBe("1100");
-    expect(rent.readOnly).toBe(false);
-    fireEvent.change(rent, { target: { value: "1050" } });
-    expect(sameAsLongTerm().checked).toBe(false);
-  });
-
-  it("Custom Default room is filled from long-term and editable", () => {
-    render(<Editor />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Custom"]')!);
-    const rent = screen.getByLabelText("Rent for every room on Custom") as HTMLInputElement;
-    expect(rent.value).toBe("1100");
-    expect(rent.readOnly).toBe(false);
-    const card = document.querySelector('[data-attr="listing-v2-price-defaults-card"]')!;
-    expect(card.className).not.toContain("pointer-events-none");
-  });
-
-  it("typing a Month-to-Month default rent puts it on every room and on the listing", () => {
+  it("Month-to-Month follows long-term until a room writes its own number", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor onChange={(s) => (latest = s)} />);
     goToMonthToMonth();
     expect(sameAsLongTerm().checked).toBe(true);
-    fireEvent.click(sameAsLongTerm());
-
-    const rent = screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement;
-    expect(rent.value).toBe("1100");
+    expect(document.querySelector('[data-attr="listing-v2-price-defaults-card"]')).toBeNull();
+    openPriceCard("Room A");
+    const rent = screen.getByLabelText(`Room A rent on ${MTM}`) as HTMLInputElement;
+    expect(rent.value).toBe("");
     expect(rent.placeholder).toBe("1100");
     fireEvent.change(rent, { target: { value: "1050" } });
-
-    expect(latest!.houseTermPricing?.[MTM]?.monthlyRent).toBe(1050);
-    expect(latest!.rooms.map((r) => r.termPricing?.[MTM]?.monthlyRent)).toEqual([1050, 1050]);
-    // Long-term rent is not what was edited.
+    expect(sameAsLongTerm().checked).toBe(false);
+    expect(latest!.rooms.find((r) => r.id === "r1")!.termPricing?.[MTM]?.monthlyRent).toBe(1050);
+    expect(latest!.rooms.find((r) => r.id === "r2")!.termPricing?.[MTM]).toBeUndefined();
     expect(latest!.rooms.map((r) => r.monthlyRent)).toEqual([1100, 1100]);
   });
 
-  it("a room with its own Month-to-Month number keeps it when the default moves", () => {
+  it("a room with its own Month-to-Month number keeps it when another room changes", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor onChange={(s) => (latest = s)} />);
     goToMonthToMonth();
-    fireEvent.click(sameAsLongTerm());
-    fireEvent.change(screen.getByLabelText(`Rent for every room on ${MTM}`), { target: { value: "1050" } });
+    openPriceCard("Room A");
+    fireEvent.change(screen.getByLabelText(`Room A rent on ${MTM}`), { target: { value: "1050" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close Room A prices" }));
     openPriceCard("Room B");
     fireEvent.change(screen.getByLabelText(`Room B rent on ${MTM}`), { target: { value: "1250" } });
-    fireEvent.change(screen.getByLabelText(`Rent for every room on ${MTM}`), { target: { value: "1000" } });
 
     const byId = (id: string) => latest!.rooms.find((r) => r.id === id)!;
-    expect(byId("r1").termPricing?.[MTM]?.monthlyRent).toBe(1000);
+    expect(byId("r1").termPricing?.[MTM]?.monthlyRent).toBe(1050);
     expect(byId("r2").termPricing?.[MTM]?.monthlyRent).toBe(1250);
   });
 
-  it("ticking Same as long-term again wipes the term's Default room and every room's own price on it", () => {
+  it("ticking Same as long-term again wipes every room's own price on that term", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor onChange={(s) => (latest = s)} />);
     goToMonthToMonth();
-    fireEvent.click(sameAsLongTerm());
-    fireEvent.change(screen.getByLabelText(`Rent for every room on ${MTM}`), { target: { value: "1050" } });
+    openPriceCard("Room A");
+    fireEvent.change(screen.getByLabelText(`Room A rent on ${MTM}`), { target: { value: "1050" } });
     expect(sameAsLongTerm().checked).toBe(false);
     fireEvent.click(sameAsLongTerm());
 
@@ -439,11 +400,10 @@ describe("a lease type can have its own Default room", () => {
     expect(sameAsLongTerm().checked).toBe(true);
   });
 
-  it("shows the stored default again on reopen", () => {
+  it("shows a stored room override again on reopen", () => {
     function Stored() {
       const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
         ...seeded(),
-        houseTermPricing: { [MTM]: { monthlyRent: 1050, securityDeposit: "750" } },
         rooms: seeded().rooms.map((r) => ({ ...r, termPricing: { [MTM]: { monthlyRent: 1050, securityDeposit: "750" } } })),
       }));
       return <ListingEditorV2 title="Edit listing" submission={sub} onChange={setSub} onClose={() => {}} onSaveExit={() => {}} onPublish={() => {}} />;
@@ -451,9 +411,9 @@ describe("a lease type can have its own Default room", () => {
     render(<Stored />);
     goToMonthToMonth();
     expect(sameAsLongTerm().checked).toBe(false);
-    expect((screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement).value).toBe("1050");
-    expect((screen.getByLabelText(`Deposit for every room on ${MTM}`) as HTMLInputElement).value).toBe("750");
-    expect((screen.getByLabelText(`Utilities for every room on ${MTM}`) as HTMLInputElement).value).toBe("150");
+    openPriceCard("Room A");
+    expect((screen.getByLabelText(`Room A rent on ${MTM}`) as HTMLInputElement).value).toBe("1050");
+    expect((screen.getByLabelText(`Room A deposit on ${MTM}`) as HTMLInputElement).value).toBe("750");
   });
 });
 
@@ -473,81 +433,74 @@ describe("partial months", () => {
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
     fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
   };
-  const defaultTick = () => document.querySelector('[data-attr="listing-v2-price-prorate-default-automatic"]') as HTMLInputElement | null;
   const roomTick = () => document.querySelector('[data-attr="listing-v2-price-prorate-room-automatic"]') as HTMLInputElement | null;
-  const addParking = () => {
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
+  const addParkingOnRoom = () => {
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-fee-add"]')!);
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Parking" } });
-    fireEvent.change(screen.getByLabelText("Parking amount"), { target: { value: "60" } });
+    fireEvent.change(screen.getByLabelText("Parking amount for Room A"), { target: { value: "60" } });
+  };
+  const pickSameAs = (who: string, sourceId: string) => {
+    const trigger = screen.getByRole("button", { name: `Same as for ${who}` });
+    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+    const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector(`[data-field-select-option-value="${sourceId}"]`)!;
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
   };
 
   it("asks on the lease types that can start mid-month, never on Month-to-Month", () => {
     render(<DryEditor />);
     goPricing();
-    expect(defaultTick()).not.toBeNull();
-    expect(defaultTick()!.checked).toBe(true);
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Month-to-Month"]')!);
-    expect(defaultTick()).toBeNull();
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Custom"]')!);
-    expect(defaultTick()).not.toBeNull();
-  });
-
-  it("unticking Automatic on the Default card asks rent and each monthly fee per day; utilities only once there are any", () => {
-    let latest: ManagerListingSubmissionV1 | null = null;
-    render(<DryEditor onChange={(s) => (latest = s)} />);
-    goPricing();
-    addParking();
-    expect(screen.queryByLabelText("Rent per day for every room")).toBeNull();
-
-    fireEvent.click(defaultTick()!);
-    expect(latest!.houseDefaults?.prorateMethod).toBe("daily_rate");
-    expect(latest!.rooms.map((r) => r.prorateMethod)).toEqual(["daily_rate", "daily_rate"]);
-    const rentDay = screen.getByLabelText("Rent per day for every room") as HTMLInputElement;
-    // The calendar split, rounded up, is the suggestion — never the answer.
-    expect(rentDay.placeholder).toBe("37");
-    expect(screen.getByLabelText("Parking per day for every room")).toBeTruthy();
-    expect((screen.getByLabelText("Parking per day for every room") as HTMLInputElement).placeholder).toBe("2");
-    // No utilities, nothing to split per day.
-    expect(screen.queryByLabelText("Utilities per day for every room")).toBeNull();
-
-    fireEvent.change(rentDay, { target: { value: "40" } });
-    expect(latest!.houseDefaults?.dailyRentRate).toBe(40);
-    expect(latest!.rooms.map((r) => r.dailyRentRate)).toEqual([40, 40]);
-
-    fireEvent.change(screen.getByLabelText("Utilities for every room"), { target: { value: "150" } });
-    expect((screen.getByLabelText("Utilities per day for every room") as HTMLInputElement).placeholder).toBe("5");
-
-    // Ticking Automatic back keeps the numbers; only the rows fold away.
-    fireEvent.click(defaultTick()!);
-    expect(latest!.houseDefaults?.prorateMethod).toBe("auto");
-    expect(latest!.houseDefaults?.dailyRentRate).toBe(40);
-    expect(screen.queryByLabelText("Rent per day for every room")).toBeNull();
-  });
-
-  it("a room follows the Default card until it answers for itself, and Same as default room puts it back", () => {
-    let latest: ManagerListingSubmissionV1 | null = null;
-    render(<DryEditor onChange={(s) => (latest = s)} />);
-    goPricing();
-    fireEvent.click(defaultTick()!);
     openPriceCard("Room A");
-    expect(roomTick()!.checked).toBe(false);
-    expect(screen.queryByRole("button", { name: /Reset partial months for Room A/ })).toBeNull();
-    const card = document.querySelector('[data-attr="listing-v2-price-card"]')!;
-    expect(card.textContent).toContain("partial months per day");
+    expect(roomTick()).not.toBeNull();
+    expect(roomTick()!.checked).toBe(true);
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Month-to-Month"]')!);
+    expect(roomTick()).toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Custom"]')!);
+    expect(roomTick()).not.toBeNull();
+  });
+
+  it("unticking Automatic on a room asks rent and each monthly fee per day; utilities only once there are any", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<DryEditor onChange={(s) => (latest = s)} />);
+    goPricing();
+    openPriceCard("Room A");
+    addParkingOnRoom();
+    expect(screen.queryByLabelText("Rent per day for Room A")).toBeNull();
 
     fireEvent.click(roomTick()!);
-    const roomA = () => latest!.rooms.find((r) => r.id === "r1")!;
-    expect(roomA().prorateMethod).toBe("auto");
-    expect(latest!.rooms.find((r) => r.id === "r2")!.prorateMethod).toBe("daily_rate");
-    expect(screen.getByRole("button", { name: /Reset partial months for Room A/ })).toBeTruthy();
-    expect(document.querySelector('[data-attr="listing-v2-price-card"]')!.textContent).toContain("partial months automatic");
-    const same = () => document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-price-same-as-all"]')[0]!;
-    expect(same().checked).toBe(false);
+    expect(latest!.rooms.find((r) => r.id === "r1")!.prorateMethod).toBe("daily_rate");
+    expect(latest!.rooms.find((r) => r.id === "r2")!.prorateMethod).toBeFalsy();
+    const rentDay = screen.getByLabelText("Rent per day for Room A") as HTMLInputElement;
+    expect(rentDay.placeholder).toBe("37");
+    expect(screen.getByLabelText("Parking per day for Room A")).toBeTruthy();
+    expect((screen.getByLabelText("Parking per day for Room A") as HTMLInputElement).placeholder).toBe("2");
+    expect(screen.queryByLabelText("Utilities per day for Room A")).toBeNull();
 
-    fireEvent.click(same());
-    expect(roomA().prorateMethod).toBe("daily_rate");
-    expect(same().checked).toBe(true);
-    expect(screen.queryByRole("button", { name: /Reset partial months for Room A/ })).toBeNull();
+    fireEvent.change(rentDay, { target: { value: "40" } });
+    expect(latest!.rooms.find((r) => r.id === "r1")!.dailyRentRate).toBe(40);
+    expect(latest!.rooms.find((r) => r.id === "r2")!.dailyRentRate).toBeFalsy();
+
+    fireEvent.change(screen.getByLabelText(/Room A utilities on/i), { target: { value: "150" } });
+    expect((screen.getByLabelText("Utilities per day for Room A") as HTMLInputElement).placeholder).toBe("5");
+
+    fireEvent.click(roomTick()!);
+    expect(latest!.rooms.find((r) => r.id === "r1")!.prorateMethod).toBe("auto");
+    expect(latest!.rooms.find((r) => r.id === "r1")!.dailyRentRate).toBe(40);
+    expect(screen.queryByLabelText("Rent per day for Room A")).toBeNull();
+  });
+
+  it("Same as Room X copies partial-month settings onto the other room", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<DryEditor onChange={(s) => (latest = s)} />);
+    goPricing();
+    openPriceCard("Room A");
+    fireEvent.click(roomTick()!);
+    fireEvent.change(screen.getByLabelText("Rent per day for Room A"), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close Room A prices" }));
+    openPriceCard("Room B");
+    pickSameAs("Room B", "r1");
+    expect(latest!.rooms.find((r) => r.id === "r2")!.prorateMethod).toBe("daily_rate");
+    expect(latest!.rooms.find((r) => r.id === "r2")!.dailyRentRate).toBe(40);
   });
 
   it("the whole place asks the same way, and only while utilities are above $0", () => {

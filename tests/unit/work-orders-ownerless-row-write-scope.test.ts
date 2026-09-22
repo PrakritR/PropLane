@@ -33,6 +33,10 @@ vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   fetchRowsForManagerWithLinked: async () => [],
   linkedPropertyIdsForModule: (...a: unknown[]) => linkedPropertyIdsForModule(...(a as [])),
+  // Not under test here: an unresolved (never-narrowing) active workspace,
+  // same as accounts with no workspace at all.
+  resolveManagerWorkspaceRowScope: async () => ({ propertyIds: null, untaggedOwnedVisible: true }),
+  rowInWorkspaceScope: () => true,
 }));
 vi.mock("@/lib/auth/resident-role-access", () => ({
   resolveResidentScopedActorRole: (...a: unknown[]) => resolveResidentScopedActorRole(...(a as [])),

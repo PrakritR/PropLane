@@ -6,6 +6,30 @@ import type { HouseScope, WorkspaceRole } from "@/lib/workspaces/membership";
 export const WORKSPACE_LIMIT = 10;
 /** Property records per workspace, drafts included (database trigger). */
 export const WORKSPACE_PROPERTY_LIMIT = 10;
+/**
+ * The machine tag `POST /api/property-records` puts on the workspace
+ * record-cap 422 (the database trigger's `23514`, matched by message text
+ * since Postgres gives this route no narrower signal). A client keys on this
+ * rather than the message so the save-failed dialog can tell "workspace is
+ * full" apart from every other refusal that route can return — never a
+ * plan-tier limit, which is `MANAGER_PROPERTY_LIMIT_ERROR_CODE`
+ * (`src/lib/manager-access.ts`) and a completely different cap.
+ */
+export const WORKSPACE_PROPERTY_LIMIT_ERROR_CODE = "property_record_limit";
+/**
+ * The one copy of the words `POST /api/property-records` matches inside the
+ * `enforce_property_workspace` trigger's raise text to tell the record cap
+ * apart from every other `23514` the database can raise (Postgres gives that
+ * route no narrower signal than the message). Reword the migration's raise and
+ * `tests/unit/workspace-property-limit-db-message.test.ts` fails, rather than
+ * the dialog silently degrading to a dead "Try again".
+ */
+export const WORKSPACE_PROPERTY_LIMIT_DB_MESSAGE = "property records";
+
+/** Is this `23514` the workspace record cap? See {@link WORKSPACE_PROPERTY_LIMIT_DB_MESSAGE}. */
+export function isWorkspacePropertyLimitDbMessage(message: string | null | undefined): boolean {
+  return (message ?? "").includes(WORKSPACE_PROPERTY_LIMIT_DB_MESSAGE);
+}
 export const WORKSPACE_COOKIE = "proplane-workspace";
 
 export type WorkspacePlanTier = "free" | "pro" | "business";

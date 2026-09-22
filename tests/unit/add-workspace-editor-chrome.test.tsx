@@ -47,6 +47,7 @@ describe("AddWorkspace editor shells (source)", () => {
       "src/components/portal/pro-add-payment-modal.tsx",
       "src/components/portal/pro-add-outgoing-payment-modal.tsx",
       "src/components/portal/pro-add-service-modal.tsx",
+      "src/components/portal/bookings-block-dates-modal.tsx",
     ];
     for (const file of files) {
       const body = src(file);

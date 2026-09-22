@@ -1,21 +1,20 @@
 "use client";
 
 /**
- * Bookings calendar sheet — Add booking and Link calendars in one dialog.
- * A segmented control switches the pane; there are not two stacked modals.
+ * Add booking — the same AddWorkspace as Add task (PLAN-0922-1225).
+ * Link calendars is its own PortalDialog in channel-calendar-link-modal.tsx.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { PortalDialog } from "@/components/portal/portal-dialog";
-import { RadixSegmentedTabs } from "@/components/ui/radix-segmented-tabs";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
-  ChannelCalendarLinkFields,
-  type ChannelCalendarLinkActions,
-  type ChannelCalendarLinkFooterState,
-} from "@/components/portal/channel-calendar-link-modal";
+  MODAL_FIELD_LABEL_CLASS,
+  PORTAL_MODAL_FORM_FIELD_CLASS,
+  PORTAL_MODAL_FORM_FULL_ROW_CLASS,
+} from "@/components/ui/modal";
 import {
   bookingConflictsFor,
   lastNightBeforeCheckout,
@@ -25,14 +24,12 @@ import { addDaysToDateKey, formatBookingStayRange } from "@/lib/channel-calendar
 import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
+import { cn } from "@/lib/utils";
 
-const FIELD_LABEL = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
 const FIELD_LINK = "text-xs font-semibold normal-case tracking-normal text-primary hover:underline disabled:opacity-50";
 
 /** The select's value for "new resident" — never a real identity key, which are `email:` / `name:` / `id:` prefixed. */
 export const NEW_RESIDENT_CHOICE = "__new__";
-
-export type BookingsSheetPane = "block" | "airbnb";
 
 export type BlockDatesDraft = {
   id?: string;
@@ -101,17 +98,11 @@ export function BookingsBlockDatesModal({
   initialPropertyId,
   initialRoomId = "",
   initialDayKey,
-  initialPane = "block",
-  pane: paneProp,
-  onPaneChange,
   editingBlock = null,
   entries,
   residentOptions = [],
   onSave,
   onDeleteBlock,
-  propertyIds,
-  showToast,
-  onAirbnbChanged,
 }: {
   open: boolean;
   onClose: () => void;
@@ -120,9 +111,6 @@ export function BookingsBlockDatesModal({
   initialRoomId?: string;
   /** Day the manager clicked in the calendar — becomes check-in, with check-out the next day. */
   initialDayKey?: string | null;
-  initialPane?: BookingsSheetPane;
-  pane?: BookingsSheetPane;
-  onPaneChange?: (pane: BookingsSheetPane) => void;
   editingBlock?: PropertyBookingEntry | null;
   /** Everything already on the calendar, for the collision check and the hold list. */
   entries: readonly PropertyBookingEntry[];
@@ -130,17 +118,8 @@ export function BookingsBlockDatesModal({
   residentOptions?: readonly BlockDatesResidentOption[];
   onSave: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   onDeleteBlock?: (blockId: string) => Promise<void>;
-  propertyIds?: string[];
-  showToast?: (message: string) => void;
-  onAirbnbChanged?: () => void;
 }) {
-  const [internalPane, setInternalPane] = useState<BookingsSheetPane>(initialPane);
-  const pane = paneProp ?? internalPane;
-  const setPane = (next: BookingsSheetPane) => {
-    onPaneChange?.(next);
-    if (paneProp == null) setInternalPane(next);
-  };
-
+  const [stepIdx, setStepIdx] = useState(0);
   const [propertyId, setPropertyId] = useState("");
   const [roomChoice, setRoomChoice] = useState("");
   const [checkIn, setCheckIn] = useState("");
@@ -153,20 +132,12 @@ export function BookingsBlockDatesModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
-  /** Set after a NEW resident is saved — keeps the sheet open on a confirmation line instead of closing blind. */
+  /** Set after a NEW resident is saved — keeps the workspace open on a confirmation line instead of closing blind. */
   const [inviteResult, setInviteResult] = useState<string | null>(null);
-
-  const [airbnbFooter, setAirbnbFooter] = useState<ChannelCalendarLinkFooterState>({
-    canSave: false,
-    busy: false,
-    syncing: false,
-    syncableCount: 0,
-  });
-  const airbnbActionsRef = useRef<ChannelCalendarLinkActions | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setInternalPane(paneProp ?? initialPane);
+    setStepIdx(0);
     const property = initialPropertyId || (propertyOptions.length === 1 ? propertyOptions[0]!.id : "");
     setPropertyId(property);
     setRoomChoice(initialRoomId && property ? `${property}::${initialRoomId}` : "");
@@ -193,9 +164,7 @@ export function BookingsBlockDatesModal({
       setEditingBlockId,
       residentOptions,
     );
-    // Reset the form when the sheet opens, not when the manager switches panes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialPropertyId, initialRoomId, initialDayKey, initialPane, editingBlock, propertyOptions, residentOptions]);
+  }, [open, initialPropertyId, initialRoomId, initialDayKey, editingBlock, propertyOptions, residentOptions]);
 
   const roomOptions = useMemo(
     () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true }) : []),
@@ -238,7 +207,23 @@ export function BookingsBlockDatesModal({
     [entries],
   );
 
+  const selectedProperty = propertyOptions.find((property) => property.id === propertyId) ?? null;
+  const selectedRoom = roomOptions.find((room) => room.value === roomChoice) ?? null;
+  const residentSummary = isNewResident
+    ? newResidentName.trim() || "New resident"
+    : pickedResident
+      ? pickedResident.name
+      : "No one";
+  const whenSummary =
+    checkIn && checkOut
+      ? formatBookingStayRange(checkIn, lastNightBeforeCheckout(checkOut))
+      : checkIn || "Move in";
+
   const save = async () => {
+    if (inviteResult) {
+      onClose();
+      return;
+    }
     if (!canSave) return;
     setBusy(true);
     setError(null);
@@ -266,73 +251,103 @@ export function BookingsBlockDatesModal({
         isNewResident: isNewResident && !editingBlockId,
       });
       // A brand-new resident gets a confirmation line (did the invite go by
-      // text or email?) instead of the sheet vanishing on them — everyone
+      // text or email?) instead of the workspace vanishing on them — everyone
       // else (no one / an existing pick / an edit) closes as before.
       if (isNewResident && result?.message) {
         setInviteResult(result.message);
+        setStepIdx(3);
       } else {
         onClose();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn’t save booking. House and move-in are required.");
+      setStepIdx(3);
     } finally {
       setBusy(false);
     }
   };
 
-  const airbnbBusy = airbnbFooter.busy || airbnbFooter.syncing;
-  const airbnbIds = propertyIds ?? propertyOptions.map((property) => property.id);
+  if (!open) return null;
+
+  const steps: AddWorkspaceStep[] = [
+    {
+      id: "booking",
+      label: "Booking",
+      summary: reason.trim() || "Reason",
+    },
+    {
+      id: "property",
+      label: "Property",
+      incomplete: !propertyId,
+      summary: selectedProperty?.label || "Pick a house",
+    },
+    {
+      id: "when",
+      label: "When",
+      incomplete: !rangeValid || conflicts.length > 0,
+      summary: whenSummary,
+    },
+    {
+      id: "review",
+      label: "Review",
+      summary: editingBlockId ? "Save booking" : "Add booking",
+    },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
 
   return (
-    <PortalDialog
-      open={open}
-      onClose={onClose}
-      title={pane === "airbnb" ? "Link calendars" : "Add booking"}
-      dataAttr="bookings-block-dates-modal"
-      primaryAction={
-        pane === "airbnb"
-          ? {
-              label: airbnbFooter.busy ? "Saving…" : "Save & sync",
-              onClick: () => airbnbActionsRef.current?.save(),
-              disabled: !airbnbFooter.canSave || airbnbBusy,
-              loading: airbnbFooter.busy,
-              dataAttr: "channel-calendar-save-link",
-            }
-          : inviteResult
-            ? { label: "Done", onClick: () => onClose(), dataAttr: "bookings-block-dates-done" }
-            : {
-                label: busy ? "Saving…" : "Add booking",
-                onClick: () => save(),
-                disabled: !canSave,
-                loading: busy,
-                dataAttr: "bookings-block-dates-save",
-              }
-      }
-      secondaryAction={
-        pane === "airbnb"
-          ? {
-              label: airbnbFooter.syncing ? "Syncing…" : "Sync all",
-              onClick: () => airbnbActionsRef.current?.syncAll(),
-              disabled: airbnbBusy || airbnbFooter.syncableCount === 0,
-              dataAttr: "channel-calendar-sync-all",
-            }
-          : undefined
-      }
-    >
-      <div className="space-y-4">
-        <RadixSegmentedTabs
-          ariaLabel="Bookings calendar actions"
-          activeId={pane}
-          onChange={(id) => setPane(id as BookingsSheetPane)}
-          items={[
-            { id: "block", label: "Add booking", dataAttr: "bookings-sheet-pane-block" },
-            { id: "airbnb", label: "Link calendars", dataAttr: "bookings-sheet-pane-airbnb" },
-          ]}
-        />
+    <div data-attr="bookings-block-dates-modal">
+      <AddWorkspace
+        title={editingBlockId ? "Edit booking" : "Add booking"}
+        steps={steps}
+        current={current}
+        onJump={setStepIdx}
+        onClose={onClose}
+        dirty={Boolean(propertyId || checkIn || reason.trim() || residentChoice)}
+        discardTitle={editingBlockId ? "Discard these edits?" : "Discard this booking?"}
+        assistantContext={editingBlockId ? "Edit booking" : "Add booking"}
+        assistantScopeKey={editingBlockId ? "edit-booking" : "add-booking"}
+        lastLabel={inviteResult ? "Done" : editingBlockId ? "Save booking" : "Add booking"}
+        lastDisabled={!inviteResult && !canSave}
+        nextDisabled={
+          (stepId === "property" && !propertyId) ||
+          (stepId === "when" && (!rangeValid || conflicts.length > 0))
+        }
+        onBeforeNext={() => {
+          if (stepId === "property" && !propertyId) return false;
+          if (stepId === "when" && (!rangeValid || conflicts.length > 0)) return false;
+          return true;
+        }}
+        busy={busy}
+        onFinish={() => void save()}
+        saveState={undefined}
+        dataAttrPrefix="bookings-block-dates"
+        finishDataAttr={inviteResult ? "bookings-block-dates-done" : "bookings-block-dates-save"}
+      >
+        <div hidden={stepId !== "booking"}>
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-reason">
+              Reason
+            </label>
+            <Textarea
+              id="bookings-block-reason"
+              rows={3}
+              value={reason}
+              maxLength={200}
+              placeholder="Repairs, owner stay, deep clean…"
+              onChange={(e) => setReason(e.target.value)}
+              disabled={busy}
+              data-attr="bookings-block-reason"
+            />
+          </div>
+        </div>
 
-        <div hidden={pane !== "block"} className="space-y-4">
-          <label className="block">
-            <span className={FIELD_LABEL}>House</span>
+        <div hidden={stepId !== "property"}>
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS}>
+              Property
+            </label>
             <Select
               value={propertyId}
               onChange={(e) => {
@@ -340,80 +355,20 @@ export function BookingsBlockDatesModal({
                 setRoomChoice("");
               }}
               disabled={busy || propertyOptions.length === 0}
+              aria-label="Property"
               data-attr="bookings-block-property"
             >
-              <option value="">Select a house…</option>
+              <option value="">{propertyOptions.length === 0 ? "No houses yet" : "Select property"}</option>
               {propertyOptions.map((property) => (
                 <option key={property.id} value={property.id}>
                   {property.label}
                 </option>
               ))}
             </Select>
-          </label>
+          </div>
 
-          {existingBlocks.length > 0 ? (
-            <ul className="overflow-hidden rounded-xl border border-border" data-attr="bookings-sheet-existing-blocks">
-              {existingBlocks.map((entry) => {
-                const name = formatBookingStayRange(entry.start, entry.end, entry.openEnded);
-                const subtitle = [entry.summary, entry.roomLabel, entry.propertyLabel].filter(Boolean).join(" · ");
-                return (
-                  <li
-                    key={entry.blockId}
-                    className="flex items-center gap-2 border-b border-border px-3 py-2 last:border-b-0"
-                    data-attr={`bookings-sheet-block-${entry.blockId}`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">{name}</p>
-                      <p className="truncate text-xs text-muted">{subtitle}</p>
-                    </div>
-                    <BookingsRowOverflow
-                      label={name}
-                      onEditDates={() =>
-                        applyEditingBlock(
-                          entry,
-                          setPropertyId,
-                          setRoomChoice,
-                          setCheckIn,
-                          setCheckOut,
-                          setReason,
-                          setResidentChoice,
-                          setNewResidentName,
-                          setNewResidentPhone,
-                          setEditingBlockId,
-                          residentOptions,
-                        )
-                      }
-                      onCancel={
-                        onDeleteBlock && entry.blockId
-                          ? () => void onDeleteBlock(entry.blockId!)
-                          : undefined
-                      }
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-
-          <label className="block">
-            <span className={FIELD_LABEL}>Room</span>
-            <Select
-              value={roomChoice}
-              onChange={(e) => setRoomChoice(e.target.value)}
-              disabled={busy || !propertyId || roomOptions.length === 0}
-              data-attr="bookings-block-room"
-            >
-              <option value="">{roomOptions.length === 0 ? "Whole home" : "Whole home (every room)"}</option>
-              {roomOptions.map((room) => (
-                <option key={room.value} value={room.value}>
-                  {room.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-
-          <div>
-            <div className={`${FIELD_LABEL} flex items-center`}>
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <div className={`${MODAL_FIELD_LABEL_CLASS} flex items-center`}>
               <span>Resident</span>
               {isNewResident ? (
                 <button
@@ -492,20 +447,50 @@ export function BookingsBlockDatesModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className={FIELD_LABEL}>Move in</span>
+          {propertyId ? (
+            <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+              <label className={MODAL_FIELD_LABEL_CLASS}>
+                Room
+              </label>
+              <Select
+                value={roomChoice}
+                onChange={(e) => setRoomChoice(e.target.value)}
+                disabled={busy || roomOptions.length === 0}
+                aria-label="Room"
+                data-attr="bookings-block-room"
+              >
+                <option value="">{roomOptions.length === 0 ? "Whole home" : "Whole home (every room)"}</option>
+                {roomOptions.map((room) => (
+                  <option key={room.value} value={room.value}>
+                    {room.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
+        </div>
+
+        <div hidden={stepId !== "when"}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-in">
+                Move in
+              </label>
               <Input
+                id="bookings-block-check-in"
                 type="date"
                 value={checkIn}
                 onChange={(e) => setCheckIn(e.target.value)}
                 disabled={busy}
                 data-attr="bookings-block-check-in"
               />
-            </label>
-            <label className="block">
-              <span className={FIELD_LABEL}>Move out</span>
+            </div>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-out">
+                Move out
+              </label>
               <Input
+                id="bookings-block-check-out"
                 type="date"
                 value={checkOut}
                 min={checkIn || undefined}
@@ -514,31 +499,17 @@ export function BookingsBlockDatesModal({
                 aria-invalid={checkIn && checkOut && !rangeValid ? true : undefined}
                 data-attr="bookings-block-check-out"
               />
-            </label>
+            </div>
           </div>
           {checkIn && checkOut && !rangeValid ? (
-            <p className="text-xs text-[var(--status-overdue-fg)]" role="alert">
+            <p className="mt-3 text-xs text-[var(--status-overdue-fg)]" role="alert">
               Move out must be after move in.
             </p>
           ) : null}
-
-          <label className="block">
-            <span className={FIELD_LABEL}>Reason</span>
-            <Textarea
-              rows={2}
-              value={reason}
-              maxLength={200}
-              placeholder="Repairs, owner stay, deep clean…"
-              onChange={(e) => setReason(e.target.value)}
-              disabled={busy}
-              data-attr="bookings-block-reason"
-            />
-          </label>
-
           {conflicts.length > 0 ? (
             <div
               role="alert"
-              className="rounded-lg border px-3 py-2 text-sm portal-banner-danger"
+              className="mt-4 rounded-lg border px-3 py-2 text-sm portal-banner-danger"
               data-attr="bookings-block-conflicts"
             >
               <p className="font-semibold">These dates are already taken.</p>
@@ -552,31 +523,93 @@ export function BookingsBlockDatesModal({
               </ul>
             </div>
           ) : null}
+        </div>
+
+        <div hidden={stepId !== "review"}>
+          <dl className="divide-y divide-border">
+            <div className="flex items-start justify-between gap-4 py-3">
+              <dt className="text-sm text-muted">Property</dt>
+              <dd className="text-right text-sm font-semibold text-foreground">{selectedProperty?.label || "—"}</dd>
+            </div>
+            <div className="flex items-start justify-between gap-4 py-3">
+              <dt className="text-sm text-muted">Room</dt>
+              <dd className="text-right text-sm font-semibold text-foreground">
+                {selectedRoom?.label || (propertyId ? "Whole home" : "—")}
+              </dd>
+            </div>
+            <div className="flex items-start justify-between gap-4 py-3">
+              <dt className="text-sm text-muted">Resident</dt>
+              <dd className="text-right text-sm font-semibold text-foreground">{residentSummary}</dd>
+            </div>
+            <div className="flex items-start justify-between gap-4 py-3">
+              <dt className="text-sm text-muted">When</dt>
+              <dd className="text-right text-sm font-semibold text-foreground">{checkIn && checkOut ? whenSummary : "—"}</dd>
+            </div>
+            {reason.trim() ? (
+              <div className="flex items-start justify-between gap-4 py-3">
+                <dt className="text-sm text-muted">Reason</dt>
+                <dd className="text-right text-sm font-semibold text-foreground">{reason.trim()}</dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {existingBlocks.length > 0 ? (
+            <ul className="mt-4 overflow-hidden rounded-xl border border-border" data-attr="bookings-sheet-existing-blocks">
+              {existingBlocks.map((entry) => {
+                const name = formatBookingStayRange(entry.start, entry.end, entry.openEnded);
+                const subtitle = [entry.summary, entry.roomLabel, entry.propertyLabel].filter(Boolean).join(" · ");
+                return (
+                  <li
+                    key={entry.blockId}
+                    className="flex items-center gap-2 border-b border-border px-3 py-2 last:border-b-0"
+                    data-attr={`bookings-sheet-block-${entry.blockId}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+                      <p className="truncate text-xs text-muted">{subtitle}</p>
+                    </div>
+                    <BookingsRowOverflow
+                      label={name}
+                      onEditDates={() => {
+                        applyEditingBlock(
+                          entry,
+                          setPropertyId,
+                          setRoomChoice,
+                          setCheckIn,
+                          setCheckOut,
+                          setReason,
+                          setResidentChoice,
+                          setNewResidentName,
+                          setNewResidentPhone,
+                          setEditingBlockId,
+                          residentOptions,
+                        );
+                        setStepIdx(2);
+                      }}
+                      onCancel={
+                        onDeleteBlock && entry.blockId
+                          ? () => void onDeleteBlock(entry.blockId!)
+                          : undefined
+                      }
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+
           {error ? (
-            <p role="alert" className="rounded-lg border px-3 py-2 text-sm portal-banner-danger">
+            <p role="alert" className="mt-4 rounded-lg border px-3 py-2 text-sm portal-banner-danger">
               {error}
             </p>
           ) : null}
           {inviteResult ? (
-            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground" data-attr="bookings-invite-result">
+            <p className="mt-4 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground" data-attr="bookings-invite-result">
               {inviteResult}
             </p>
           ) : null}
         </div>
-
-        <div hidden={pane !== "airbnb"}>
-          <ChannelCalendarLinkFields
-            active={open && pane === "airbnb"}
-            propertyIds={airbnbIds}
-            propertyOptions={propertyOptions}
-            initialPropertyId={initialPropertyId}
-            showToast={showToast ?? (() => {})}
-            onChanged={onAirbnbChanged}
-            onFooterState={setAirbnbFooter}
-            actionsRef={airbnbActionsRef}
-          />
-        </div>
-      </div>
-    </PortalDialog>
+      </AddWorkspace>
+    </div>
   );
 }

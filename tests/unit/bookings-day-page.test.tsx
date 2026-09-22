@@ -54,7 +54,7 @@ const propertyOptions = [
 ];
 
 describe("BookingsDayPage", () => {
-  it("is a page — no day pop-up modal and no assistant chip", () => {
+  it("is a wizard PortalDialog over the calendar — no assistant chip", () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-01"
@@ -68,7 +68,7 @@ describe("BookingsDayPage", () => {
         showToast={() => {}}
       />,
     );
-    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeNull();
+    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeTruthy();
     expect(screen.queryByText("Ask PropLane")).toBeNull();
     expect(document.body.textContent).not.toContain("Ask PropLane");
   });
@@ -118,7 +118,7 @@ describe("BookingsDayPage", () => {
     expect(document.body.textContent).not.toContain("Aug 1");
   });
 
-  it("a row opens the booking's own record page, never a modal", () => {
+  it("a row opens the booking's own record page, never a second peek popup", () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-01"
@@ -132,8 +132,8 @@ describe("BookingsDayPage", () => {
         showToast={() => {}}
       />,
     );
+    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeTruthy();
     fireEvent.click(screen.getByText("Ada Lovelace · Room 1"));
     expect(navigate).toHaveBeenCalledWith(bookingRecordHref("/portal", bookingEntryKey(brooklyn)));
-    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeNull();
   });
 });

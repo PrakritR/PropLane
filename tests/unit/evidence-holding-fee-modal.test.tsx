@@ -109,7 +109,7 @@ describe("evidence · holding fee toggle on the application detail", () => {
       },
     ];
 
-    render(<ManagerApplications bucket="pending" applicationId="AXIS-1002" />);
+    render(<ManagerApplications bucket="pending" applicationId="AXIS-1002" applicationDetailTab="application-form" />);
     expect(document.querySelector('[data-attr="application-holding-fee-toggle"]')).not.toBeNull();
     writeShot(
       "holding-fee-toggle",

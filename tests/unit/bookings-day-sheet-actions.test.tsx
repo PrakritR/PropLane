@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Day pop-up ⋯ (now the day page, `docs/agents/record-page.md`): every
+ * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every
  * booking card gets Edit booking + Delete booking. Delete confirms in the
  * PortalDialog shape (destructive red primary, "Keep" secondary) and refuses
  * outright for an in-house active tenancy.
@@ -13,6 +13,7 @@ const navigate = vi.fn();
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
 
 import { BookingsDayPage } from "@/components/portal/bookings-day-page";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const propertyOptions = [{ id: "p1", label: "5257 Brooklyn Ave" }];
 
@@ -61,17 +62,19 @@ describe("BookingsDayPage — card actions", () => {
 
   it("a manager-made hold gets Edit booking and Delete booking", () => {
     render(
-      <BookingsDayPage
-        dayKey="2026-09-20"
-        basePath="/portal"
-        entries={[hold]}
-        loading={false}
-        propertyOptions={propertyOptions}
-        residentOptions={[]}
-        onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
-        showToast={() => {}}
-      />,
+      <AppUiProvider>
+        <BookingsDayPage
+          dayKey="2026-09-20"
+          basePath="/portal"
+          entries={[hold]}
+          loading={false}
+          propertyOptions={propertyOptions}
+          residentOptions={[]}
+          onSaveBlock={async () => {}}
+          onRemoveBlock={async () => {}}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
     );
     const menu = openMenu("Actions for Prakrit · Room 1");
     expect(menu.textContent).toContain("Edit booking");
@@ -82,17 +85,19 @@ describe("BookingsDayPage — card actions", () => {
 
   it("Edit booking opens the edit sheet prefilled for that entry", () => {
     render(
-      <BookingsDayPage
-        dayKey="2026-09-20"
-        basePath="/portal"
-        entries={[hold]}
-        loading={false}
-        propertyOptions={propertyOptions}
-        residentOptions={[]}
-        onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
-        showToast={() => {}}
-      />,
+      <AppUiProvider>
+        <BookingsDayPage
+          dayKey="2026-09-20"
+          basePath="/portal"
+          entries={[hold]}
+          loading={false}
+          propertyOptions={propertyOptions}
+          residentOptions={[]}
+          onSaveBlock={async () => {}}
+          onRemoveBlock={async () => {}}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
     );
     const menu = openMenu("Actions for Prakrit · Room 1");
     const editButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit booking")!;
@@ -211,7 +216,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(String(navigate.mock.calls[0]![0])).toContain("lease-1");
   });
 
-  it('"Add booking" still sits at the bottom of the day page', () => {
+  it('"Add booking" still sits in the day dialog header', () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-20"

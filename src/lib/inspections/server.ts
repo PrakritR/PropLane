@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
 import { track } from "@/lib/analytics/posthog";
 import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
@@ -24,7 +25,19 @@ export type InspectionActor = { role: "manager"; context: AgentContext } | { rol
 const TABLE = "resident_inspections";
 export const INSPECTION_BUCKET = "inspection-evidence";
 const summaryColumns = "id,application_id,manager_user_id,property_id,resident_name,property_label,room_label,kind,status,inspection_date,baseline_id,revision,created_at,updated_at,sms_test_session_id";
-type Scope = { owners: Set<string>; properties: Set<string> };
+type Scope = {
+  owners: Set<string>;
+  properties: Set<string>;
+  /**
+   * The viewer's active workspace's property ids, server-resolved from their
+   * own selection cookie. `null` = not narrowing (no workspace, or a
+   * resolution failure — NEVER widens what `owners`/`properties` already
+   * allow). Every inspection is tied to a resident's placement on a specific
+   * property (there is no legitimate account-level inspection), so unlike
+   * some other surfaces there is no "no property" row to exempt here.
+   */
+  workspace: Set<string> | null;
+};
 
 // One request resolves read and edit scope at most once each: every entry point below asks
 // for scope, and each resolution costs two portfolio queries. The cache is keyed on the
@@ -48,15 +61,23 @@ function scopeFor(actor: InspectionActor, level: "read" | "edit" = "read"): Prom
 async function resolveScope(actor: InspectionActor, level: "read" | "edit"): Promise<Scope> {
   if (actor.role === "resident") {
     if (actor.context.phase !== "approved") throw new InspectionError("Inspections become available after your lease is ready.", 403);
-    return { owners: new Set(), properties: new Set() };
+    return { owners: new Set(), properties: new Set(), workspace: null };
   }
   // This service is a portal capability. Do not widen a delegated SMS turn.
   if (actor.context.managerSmsAccess?.mode === "delegated") throw new InspectionError("Open the portal to manage inspections.", 403);
   const { db, userId } = actor.context;
-  const [owned, linked] = await Promise.all([
-    managerOwnedPropertyIdSet(db, userId), linkedOwnerScopeForModule(db, userId, "residents", level),
+  const [owned, linked, workspaceIds] = await Promise.all([
+    managerOwnedPropertyIdSet(db, userId),
+    linkedOwnerScopeForModule(db, userId, "residents", level),
+    // A failure here must not widen what `owners`/`properties` already scope —
+    // never let a broken workspace read grant more, only ever less.
+    activeWorkspacePropertyScope(db, userId).catch(() => null),
   ]);
-  return { owners: new Set([userId]), properties: new Set([...owned, ...linked.propertyIds]) };
+  return {
+    owners: new Set([userId]),
+    properties: new Set([...owned, ...linked.propertyIds]),
+    workspace: workspaceIds === null ? null : new Set(workspaceIds),
+  };
 }
 
 function residentMatches(actor: InspectionActor, row: { resident_email: string; resident_user_id?: string | null; manager_user_id: string }) {
@@ -68,8 +89,14 @@ function residentMatches(actor: InspectionActor, row: { resident_email: string; 
 }
 
 function authorized(actor: InspectionActor, scope: Scope, row: { resident_email: string; resident_user_id?: string | null; manager_user_id: string; property_id: string }) {
-  return actor.role === "resident" ? residentMatches(actor, row) :
-    scope.owners.has(row.manager_user_id) || scope.properties.has(row.property_id);
+  if (actor.role === "resident") return residentMatches(actor, row);
+  // Ownership and the co-manager grant stay exactly as they were — narrowing
+  // never removes either. The active workspace narrows FURTHER, on top: even a
+  // row this manager owns outright is refused once it names a house outside
+  // the active workspace, so workspace selection cannot be bypassed just
+  // because the ownership check alone would have allowed the row.
+  if (!(scope.owners.has(row.manager_user_id) || scope.properties.has(row.property_id))) return false;
+  return scope.workspace === null || scope.workspace.has(row.property_id);
 }
 
 export async function getInspection(actor: InspectionActor, id: string, level: "read" | "edit" = "read"): Promise<InspectionRecord> {

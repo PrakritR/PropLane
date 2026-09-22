@@ -2765,16 +2765,10 @@ html[data-communication-surface][data-communication-hide-assistant-fab] .axis-as
   display: none !important;
 }
 
+/* Wizards / move-in may hide the rail. Communication only hides the FAB so
+   header Ask PropLane can still open the dock on an open thread. */
 html[data-hide-assistant-fab] .portal-assistant-dock-rail,
-html[data-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"],
-html[data-communication-hide-assistant-fab] .portal-assistant-dock-rail,
-html[data-communication-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"],
-html[data-communication-surface][data-communication-thread-reading] .portal-assistant-dock-rail,
-html[data-communication-surface][data-communication-thread-reading] [data-attr="portal-assistant-dock-expand"],
-html[data-communication-surface][data-communication-thread-selected] .portal-assistant-dock-rail,
-html[data-communication-surface][data-communication-thread-selected] [data-attr="portal-assistant-dock-expand"],
-html[data-communication-surface][data-communication-hide-assistant-fab] .portal-assistant-dock-rail,
-html[data-communication-surface][data-communication-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"] {
+html[data-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"] {
   display: none !important;
 }
 

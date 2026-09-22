@@ -21,6 +21,7 @@ import {
   upsertPropertyRecordToServer,
   type ManagerPendingPropertyRow,
   type ManagerPropertyDraftInput,
+  type PropertyRecordWriteErrorHandler,
 } from "@/lib/demo-property-pipeline";
 import { deleteSubmissionMediaObjects } from "@/lib/listing-media-storage";
 import { migrateAmenityOffersPropertyId } from "@/lib/manager-amenity-catalog-storage";
@@ -672,7 +673,7 @@ export type SaveManagerPropertyDraftOptions = {
    * can show WHY rather than blaming the connection. See
    * `upsertPropertyRecordToServer`.
    */
-  onError?: (message: string, code?: string) => void;
+  onError?: PropertyRecordWriteErrorHandler;
 };
 
 /**
@@ -766,7 +767,7 @@ export async function publishManagerPropertyDraftToServer(
   draftId: string,
   input: ManagerPropertyDraftInput,
   managerUserId: string,
-  opts?: { onError?: (message: string) => void },
+  opts?: { onError?: PropertyRecordWriteErrorHandler },
 ): Promise<string | null> {
   if (!managerUserId.trim() || !draftId.trim()) return null;
   const listingId = draftId.trim();

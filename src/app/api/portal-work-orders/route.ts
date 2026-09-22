@@ -1,7 +1,13 @@
 import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { fetchRowsForManagerWithLinked, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import {
+  fetchRowsForManagerWithLinked,
+  linkedPropertyIdsForModule,
+  resolveManagerWorkspaceRowScope,
+  rowInWorkspaceScope,
+  type ManagerWorkspaceRowScope,
+} from "@/lib/auth/co-manager-module-scope";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -127,12 +133,18 @@ export async function GET() {
       // via an accepted co-manager link with services access (covers mis-stamped
       // manager_user_id when property_id is correct).
       const linkedPropertyIds = await managerScopedPropertyIds(db, user.id);
+      // Narrows the owned + co-manager fan-out to the active workspace. The
+      // legacy "unassigned but property-named" bucket below is deliberately
+      // matched against the FULL `linkedPropertyIds` (never workspace-scoped)
+      // — it belongs to no manager yet, let alone any workspace, until it is
+      // claimed.
+      const workspaceScope = await resolveManagerWorkspaceRowScope(db, user.id);
       const records = await fetchRowsForManagerWithLinked<WorkOrderScopeRecord>(
         db,
         "portal_work_order_records",
         user.id,
         linkedPropertyIds,
-        { propertyColumns: ["property_id", "assigned_property_id"] },
+        { propertyColumns: ["property_id", "assigned_property_id"], workspaceScope },
       );
       const byId = new Map<string, WorkOrderScopeRecord>();
       for (const record of records) {
@@ -397,6 +409,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
+    const isManagerActor = !admin && actor.role !== "resident";
+    // The active workspace refuses a write outside it: a create must land in
+    // it, an update/delete of an OWNED row must refuse a row outside it. The
+    // legacy "claimable, unassigned" bucket in `actorMayWriteRecord` below is
+    // deliberately left unscoped — it belongs to no workspace until claimed,
+    // matching the GET-side rule above.
+    const workspaceScope: ManagerWorkspaceRowScope = isManagerActor
+      ? await resolveManagerWorkspaceRowScope(db, user.id)
+      : { propertyIds: null, untaggedOwnedVisible: true };
+
     const body = (await req.json()) as {
       action?: "upsert" | "delete" | "replace";
       id?: string;
@@ -426,12 +448,31 @@ export async function POST(req: Request) {
      * per request. */
     let scopedPropertyIdsPromise: Promise<Set<string>> | null = null;
     const actorMayWriteRecord = async (rec: ExistingRecord | null): Promise<boolean> => {
-      if (actorOwnsRecord(actor, rec)) return true;
+      if (actorOwnsRecord(actor, rec)) {
+        // An owned row is still narrowed by the active workspace — refuse an
+        // update/delete of a row outside it, the same as it is simply absent
+        // from GET. Admin and resident ownership are never workspace-scoped.
+        if (isManagerActor && rec) {
+          const propertyId = String(rec.row_data?.assignedPropertyId ?? rec.row_data?.propertyId ?? "").trim();
+          if (!rowInWorkspaceScope(propertyId || null, workspaceScope)) return false;
+        }
+        return true;
+      }
       if (!rec || rec.manager_user_id || actor.role === "resident") return false;
       const propertyId = String(rec.row_data?.assignedPropertyId ?? rec.row_data?.propertyId ?? "").trim();
       if (!propertyId) return false;
       scopedPropertyIdsPromise ??= managerScopedPropertyIds(db, actor.userId);
       return (await scopedPropertyIdsPromise).has(propertyId);
+    };
+
+    /** A brand-new row (no existing record) bypasses `actorMayWriteRecord`
+     * entirely — this is the CREATE half of the workspace gate: a manager
+     * actor's new row must land in the active workspace. Residents/admin are
+     * unaffected. */
+    const mayCreateInWorkspace = (row: DemoManagerWorkOrderRow): boolean => {
+      if (!isManagerActor) return true;
+      const propertyId = (row.assignedPropertyId?.trim() || row.propertyId?.trim() || "") || null;
+      return rowInWorkspaceScope(propertyId, workspaceScope);
     };
 
     const maybeSyncWorkOrderGoogleCalendar = async (
@@ -556,8 +597,9 @@ export async function POST(req: Request) {
       for (const row of rows) {
         if (!row?.id) continue;
         const existing = await findExisting(row.id);
-        // A brand-new id (no existing row) may be created.
-        if (existing && !(await actorMayWriteRecord(existing))) continue;
+        // A brand-new id (no existing row) may be created, subject to the
+        // workspace gate a manager actor's create must land inside.
+        if (existing ? !(await actorMayWriteRecord(existing)) : !mayCreateInWorkspace(row)) continue;
         const stamped = await stampResidentWorkOrder(row);
         if (!stamped) continue;
         const { row: timedRow, outcome: autoTimeOutcome } = await maybeAutoTimeNewResidentRow(existing, stamped);
@@ -609,8 +651,13 @@ export async function POST(req: Request) {
 
     if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
     const existing = await findExisting(body.row.id);
-    // A brand-new id (no existing row) may be created.
-    if (existing && !(await actorMayWriteRecord(existing))) {
+    // A brand-new id (no existing row) may be created, subject to the
+    // workspace gate a manager actor's create must land inside.
+    if (existing) {
+      if (!(await actorMayWriteRecord(existing))) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+    } else if (!mayCreateInWorkspace(body.row)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
     const stamped = await stampResidentWorkOrder(body.row);
