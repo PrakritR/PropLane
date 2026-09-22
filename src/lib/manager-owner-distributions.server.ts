@@ -10,6 +10,11 @@ import {
   type OwnerDistribution,
   type PropertyOwner,
 } from "@/lib/manager-owner-distributions";
+import {
+  applyWorkspaceRowScope,
+  resolveActiveWorkspaceRowScope,
+  rowAllowedInWorkspaceScope,
+} from "@/lib/workspaces/row-scope.server";
 
 export type CreateOwnerDistributionInput = DistributionComponents & {
   managerUserId: string;
@@ -30,6 +35,14 @@ export async function createOwnerDistribution(
   const periodEnd = input.periodEnd.slice(0, 10);
   if (!periodStart || !periodEnd || periodEnd < periodStart) {
     throw new Error("A valid statement period is required.");
+  }
+
+  // Every distribution carries a required house — it must land in the
+  // manager's active workspace, never one they have merely switched away
+  // from.
+  const scope = await resolveActiveWorkspaceRowScope(db, input.managerUserId);
+  if (scope.propertyIds !== null && !scope.propertyIds.includes(propertyId)) {
+    throw new Error("This property is outside your active workspace.");
   }
 
   const distributionCents = computeDistributionCents(input);
@@ -76,6 +89,22 @@ async function loadDistribution(
   return data ? mapOwnerDistributionRow(data as Record<string, unknown>) : null;
 }
 
+/**
+ * A distribution outside the manager's active workspace is refused exactly
+ * like a missing one — same error, so the workspace boundary never leaks
+ * which distributions exist elsewhere.
+ */
+async function assertDistributionInActiveWorkspace(
+  db: SupabaseClient,
+  managerUserId: string,
+  distribution: OwnerDistribution,
+): Promise<void> {
+  const scope = await resolveActiveWorkspaceRowScope(db, managerUserId);
+  if (!rowAllowedInWorkspaceScope(scope, distribution.propertyId)) {
+    throw new Error("Owner distribution not found.");
+  }
+}
+
 export async function approveOwnerDistribution(
   db: SupabaseClient,
   managerUserId: string,
@@ -83,6 +112,7 @@ export async function approveOwnerDistribution(
 ): Promise<OwnerDistribution> {
   const existing = await loadDistribution(db, managerUserId, id);
   if (!existing) throw new Error("Owner distribution not found.");
+  await assertDistributionInActiveWorkspace(db, managerUserId, existing);
   if (existing.status !== "draft") throw new Error("Only a draft distribution can be approved.");
 
   const now = new Date().toISOString();
@@ -109,6 +139,7 @@ export async function payOwnerDistribution(
 ): Promise<OwnerDistribution> {
   const existing = await loadDistribution(db, managerUserId, id);
   if (!existing) throw new Error("Owner distribution not found.");
+  await assertDistributionInActiveWorkspace(db, managerUserId, existing);
   if (existing.status !== "approved") throw new Error("Only an approved distribution can be paid.");
 
   const now = new Date().toISOString();
@@ -141,6 +172,10 @@ export async function listOwnerDistributions(
   managerUserId: string,
   filters?: { propertyId?: string; status?: string },
 ): Promise<OwnerDistribution[]> {
+  // `property_id` is `not null` on this table (every distribution has a
+  // house), so the account-level branch of the scope never fires here — it
+  // is still resolved through the shared helper for one consistent rule.
+  const scope = await resolveActiveWorkspaceRowScope(db, managerUserId);
   let query = db
     .from("manager_owner_distributions")
     .select(OWNER_DISTRIBUTION_SELECT)
@@ -149,6 +184,7 @@ export async function listOwnerDistributions(
     .limit(200);
   if (filters?.propertyId) query = query.eq("property_id", filters.propertyId);
   if (filters?.status) query = query.eq("status", filters.status);
+  query = applyWorkspaceRowScope(query, scope);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -160,6 +196,8 @@ export async function listPropertyOwners(
   managerUserId: string,
   propertyId?: string,
 ): Promise<PropertyOwner[]> {
+  // `property_id` is `not null` here too (see `upsertPropertyOwner` below).
+  const scope = await resolveActiveWorkspaceRowScope(db, managerUserId);
   let query = db
     .from("manager_property_owners")
     .select(PROPERTY_OWNER_SELECT)
@@ -167,6 +205,7 @@ export async function listPropertyOwners(
     .order("owner_name", { ascending: true })
     .limit(500);
   if (propertyId) query = query.eq("property_id", propertyId);
+  query = applyWorkspaceRowScope(query, scope);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -190,6 +229,11 @@ export async function upsertPropertyOwner(
   if (!propertyId) throw new Error("A property is required.");
   if (!ownerName) throw new Error("An owner name is required.");
   const pct = Math.min(100, Math.max(0.01, Number(input.ownershipPct ?? 100)));
+
+  const scope = await resolveActiveWorkspaceRowScope(db, input.managerUserId);
+  if (scope.propertyIds !== null && !scope.propertyIds.includes(propertyId)) {
+    throw new Error("This property is outside your active workspace.");
+  }
 
   const now = new Date().toISOString();
   const { data, error } = await db
