@@ -107,22 +107,23 @@ export type GoogleCalendarOAuthState = {
   userId: string;
   returnOrigin: string;
   returnPath: string;
+  purpose?: "calendar" | "sheets";
 };
 
 export function buildGoogleCalendarOAuthUrl(
   browserOrigin: string,
   managerUserId: string,
   returnPath?: string,
-  opts?: { loginHint?: string | null },
+  opts?: { loginHint?: string | null; purpose?: "calendar" | "sheets"; scopes?: string },
 ): string {
   const returnOrigin = browserOrigin.replace(/\/$/, "");
   const redirectUri = googleCalendarOAuthRedirectUri(browserOrigin);
-  const state = signOAuthState(managerUserId, returnOrigin, returnPath);
+  const state = signOAuthState(managerUserId, returnOrigin, returnPath, opts?.purpose);
   const params = new URLSearchParams({
     client_id: clientId(),
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: GOOGLE_CALENDAR_OAUTH_SCOPES,
+    scope: opts?.scopes?.trim() || GOOGLE_CALENDAR_OAUTH_SCOPES,
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -146,12 +147,18 @@ export function googleCalendarOAuthReturnTo(
   return `${fallbackOrigin.replace(/\/$/, "")}${fallbackPath}`;
 }
 
-function signOAuthState(managerUserId: string, returnOrigin: string, returnPath?: string): string {
+function signOAuthState(
+  managerUserId: string,
+  returnOrigin: string,
+  returnPath?: string,
+  purpose?: "calendar" | "sheets",
+): string {
   const payload = JSON.stringify({
     uid: managerUserId,
     t: Date.now(),
     returnOrigin,
     ...(returnPath ? { returnPath } : {}),
+    ...(purpose ? { purpose } : {}),
   });
   const sig = createHmac("sha256", stateSecret()).update(payload).digest("base64url");
   return Buffer.from(`${payload}|${sig}`).toString("base64url");
@@ -185,6 +192,7 @@ export function verifyOAuthState(state: string): GoogleCalendarOAuthState | null
       t?: number;
       returnOrigin?: string;
       returnPath?: string;
+      purpose?: "calendar" | "sheets";
     };
     if (!parsed.uid || typeof parsed.t !== "number") {
       debugGoogleCalendarLog("api.server.ts:verifyOAuthState", "state verify failed", {
@@ -214,7 +222,11 @@ export function verifyOAuthState(state: string): GoogleCalendarOAuthState | null
     return {
       userId: parsed.uid,
       returnOrigin,
-      returnPath: sanitizeOAuthReturnPath(parsed.returnPath, "/portal/calendar"),
+      returnPath: sanitizeOAuthReturnPath(
+        parsed.returnPath,
+        parsed.purpose === "sheets" ? "/portal/profile?tab=spreadsheets" : "/portal/calendar",
+      ),
+      ...(parsed.purpose === "sheets" ? { purpose: "sheets" as const } : {}),
     };
   } catch (error) {
     debugGoogleCalendarLog("api.server.ts:verifyOAuthState", "state verify failed", {

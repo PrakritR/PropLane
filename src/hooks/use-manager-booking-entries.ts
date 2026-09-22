@@ -5,8 +5,8 @@ import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
-  importedAirbnbStayEntries,
-  isImportedAirbnbBlock,
+  importedChannelStayEntries,
+  isImportedChannelBlock,
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
@@ -165,7 +165,7 @@ export function useManagerBookingEntries({
     const scoped = new Set(propertyIds);
     const labels = new Map(propertyOptions.map((property) => [property.id, property.label]));
     return roomBlockEntries(
-      blocks.filter((block) => scoped.has(block.propertyId) && !isImportedAirbnbBlock(block)),
+      blocks.filter((block) => scoped.has(block.propertyId) && !isImportedChannelBlock(block)),
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
         roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
@@ -234,7 +234,7 @@ export function useManagerBookingEntries({
   const importedAirbnbEntries = useMemo<PropertyBookingEntry[]>(() => {
     const scoped = new Set(propertyIds);
     const labels = new Map(propertyOptions.map((property) => [property.id, property.label]));
-    return importedAirbnbStayEntries(
+    return importedChannelStayEntries(
       blocks.filter((block) => scoped.has(block.propertyId)),
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,

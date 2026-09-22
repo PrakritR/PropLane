@@ -14,7 +14,7 @@ import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
-import { CalendarOff, CalendarSync, Settings } from "lucide-react";
+import { CalendarOff, CalendarSync, RefreshCw, Settings } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -114,6 +114,7 @@ function useBookingsWorkspace({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [sheetSyncing, setSheetSyncing] = useState(false);
   const [sheet, setSheet] = useState<{
     open: boolean;
     pane: BookingsSheetPane;
@@ -372,6 +373,30 @@ function useBookingsWorkspace({
 
   const linkDisabled = propertyOptions.length === 0;
 
+  const updateFromSheet = useCallback(async () => {
+    setSheetSyncing(true);
+    try {
+      const propertyId = scopedPropertyIds.length === 1 ? scopedPropertyIds[0] : undefined;
+      const res = await fetch("/api/portal/sheet-sync", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(propertyId ? { propertyId } : {}),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        showToast(body?.error || "Could not update from the sheet.");
+        if (res.status === 400) setSettingsModalOpen(true);
+        return;
+      }
+      showToast("Updated from the sheet.");
+      window.dispatchEvent(new Event("axis:room-date-blocks-changed"));
+      onRefreshSignal?.();
+    } finally {
+      setSheetSyncing(false);
+    }
+  }, [onRefreshSignal, scopedPropertyIds, showToast]);
+
   const destinationRow = !basePath ? (
     <LocalDestinationNav
       items={tabs.map((tab) => ({
@@ -415,6 +440,13 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
+          <PortalIconAction
+            icon={RefreshCw}
+            label="Update from sheet"
+            data-attr="bookings-update-from-sheet"
+            disabled={linkDisabled || sheetSyncing}
+            onClick={() => void updateFromSheet()}
+          />
           <PortalIconAction
             icon={CalendarOff}
             label="Add booking"

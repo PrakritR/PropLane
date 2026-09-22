@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { exchangeGoogleCalendarCode, googleCalendarOAuthReturnTo, verifyOAuthState } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
+import { exchangeGoogleSheetsCode } from "@/lib/sheet-sync/google-sheets-auth";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -23,7 +24,8 @@ export async function GET(req: Request) {
     const oauthState = state ? verifyOAuthState(state) : null;
     const returnTo = googleCalendarOAuthReturnTo(oauthState, callbackOrigin);
     const reason = encodeURIComponent(oauthErrorDescription ?? oauthError);
-    return NextResponse.redirect(`${returnTo}?gcal=error&reason=${reason}`);
+    const flag = oauthState?.purpose === "sheets" ? "gsheet" : "gcal";
+    return NextResponse.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}${flag}=error&reason=${reason}`);
   }
 
   if (!code || !state) {
@@ -44,6 +46,16 @@ export async function GET(req: Request) {
 
   try {
     const db = createSupabaseServiceRoleClient();
+    if (oauthState.purpose === "sheets") {
+      await exchangeGoogleSheetsCode(db, oauthState.userId, code, oauthState.returnOrigin);
+      debugGoogleCalendarLog("callback/route.ts:GET", "sheets connected", {
+        hypothesisId: "H2",
+        managerSuffix: oauthState.userId.slice(-6),
+        returnOrigin: oauthState.returnOrigin,
+        callbackOrigin,
+      });
+      return NextResponse.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}gsheet=connected`);
+    }
     await exchangeGoogleCalendarCode(db, oauthState.userId, code, oauthState.returnOrigin);
     debugGoogleCalendarLog("callback/route.ts:GET", "calendar connected", {
       hypothesisId: "H2",
@@ -60,6 +72,7 @@ export async function GET(req: Request) {
       message,
     });
     const reason = encodeURIComponent(message);
-    return NextResponse.redirect(`${returnTo}?gcal=error&reason=${reason}`);
+    const flag = oauthState.purpose === "sheets" ? "gsheet" : "gcal";
+    return NextResponse.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}${flag}=error&reason=${reason}`);
   }
 }

@@ -21,6 +21,7 @@ import {
   ScrollText,
   Settings,
   SlidersHorizontal,
+  Table2,
   UserRound,
   Wallet,
   Wrench,
@@ -34,6 +35,7 @@ import { PortalChangePasswordPanel } from "@/components/portal/portal-change-pas
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
+import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -138,12 +140,13 @@ export const DEVICE_TAG_PANES = new Set<SettingsGroupId>(["preferences"]);
 
 /**
  * Exempt from every classification above: Workspaces is its own switcher
- * (`WorkspaceSettings`), not a scoped setting and not account- or
- * device-wide in the sense the tags mean. Exported alongside the four
- * classification sets so `tests/unit/settings-account-tags.test.tsx` can
- * assert every nav entry is accounted for exactly once.
+ * (`WorkspaceSettings`). Spreadsheets is account-wide Google + per-card
+ * workspace/property pickers, so the page-level house chip must not hide
+ * another house's card. Exported alongside the four classification sets so
+ * `tests/unit/settings-account-tags.test.tsx` can assert every nav entry is
+ * accounted for exactly once.
  */
-export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces"]);
+export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "spreadsheets"]);
 
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
@@ -169,6 +172,7 @@ export type SettingsGroupId =
   | "tasks"
   | "reminders"
   | "bookings"
+  | "spreadsheets"
   | "inspections"
   | "services";
 
@@ -481,6 +485,7 @@ export function PortalProfileClient({
         { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
         { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
         { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },
+        { id: "spreadsheets", label: "Spreadsheets", description: "Google workbooks.", icon: Table2, group: "Operations" },
         { id: "inspections", label: "Inspections", description: "Inspection rules.", icon: ClipboardCheck, group: "Operations" },
         { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
       );
@@ -714,6 +719,8 @@ export function PortalProfileClient({
             embedded
           />
         );
+      case "spreadsheets":
+        return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
     }

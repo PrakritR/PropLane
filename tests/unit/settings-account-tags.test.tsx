@@ -1,7 +1,8 @@
 /**
  * Every settings nav entry (PLAN-0920-0845 phase D) carries exactly one of:
  * a scope bar (full or workspace-only), an Account tag, or a Device tag —
- * except Workspaces, which is its own switcher and exempt from all three.
+ * except Workspaces and Spreadsheets, which are their own switchers and
+ * exempt from all three.
  *
  * This asserts the classification tables in `portal-profile-client.tsx`
  * directly rather than mounting the whole settings hub (which pulls in a
@@ -41,6 +42,7 @@ const ALL_NAV_IDS: SettingsGroupId[] = [
   "services",
   "tasks",
   "bookings",
+  "spreadsheets",
   "inspections",
   "reminders",
 ];
@@ -68,12 +70,14 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
     expect(doubled).toEqual([]);
   });
 
-  it("Workspaces is exempt from the bar and both tags", () => {
-    expect(classificationsFor("workspaces")).toEqual(["exempt"]);
-    expect(SCOPED_OPERATIONS_PANES.has("workspaces")).toBe(false);
-    expect(WORKSPACE_ONLY_PANES.has("workspaces")).toBe(false);
-    expect(ACCOUNT_TAG_PANES.has("workspaces")).toBe(false);
-    expect(DEVICE_TAG_PANES.has("workspaces")).toBe(false);
+  it("Workspaces and Spreadsheets are exempt from the bar and both tags", () => {
+    for (const id of ["workspaces", "spreadsheets"] as const) {
+      expect(classificationsFor(id)).toEqual(["exempt"]);
+      expect(SCOPED_OPERATIONS_PANES.has(id)).toBe(false);
+      expect(WORKSPACE_ONLY_PANES.has(id)).toBe(false);
+      expect(ACCOUNT_TAG_PANES.has(id)).toBe(false);
+      expect(DEVICE_TAG_PANES.has(id)).toBe(false);
+    }
   });
 
   it("the Portfolio + Operations modules get the full scope bar", () => {
