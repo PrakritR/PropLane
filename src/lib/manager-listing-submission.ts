@@ -1532,6 +1532,38 @@ function copyRecordName(name: string, fallback: string, keepName: boolean): stri
   return trimmed ? `${trimmed} (copy)` : `${fallback} (copy)`;
 }
 
+/** True while `name` is still the autofilled "<prefix> N" slot name, or blank — i.e. untouched. */
+function isDefaultSlotName(name: string, prefix: string): boolean {
+  const trimmed = name.trim();
+  return trimmed.length === 0 || new RegExp(`^${prefix} \\d+$`).test(trimmed);
+}
+
+/** Smallest "<prefix> N" not already taken by a sibling, starting after the current count. */
+function nextDefaultSlotName(prefix: string, siblingNames: readonly string[]): string {
+  const taken = new Set(siblingNames.map((n) => n.trim()).filter((n) => n.length > 0));
+  let n = siblingNames.length + 1;
+  while (taken.has(`${prefix} ${n}`)) n += 1;
+  return `${prefix} ${n}`;
+}
+
+/**
+ * Name for a duplicated room/bathroom card. An untouched source (still its
+ * default "<prefix> N" slot name, or blank) hands the copy the NEXT free
+ * default slot name, so the copy stays untouched and the ✕ guard
+ * (`isRoomSlotRemovable` / `isBathroomSlotRemovable`) still accepts it. A
+ * custom-named source keeps today's "<name> (copy)".
+ */
+function duplicateSlotName(
+  name: string,
+  prefix: string,
+  keepName: boolean,
+  siblingNames: readonly string[],
+): string {
+  if (keepName) return name;
+  if (isDefaultSlotName(name, prefix)) return nextDefaultSlotName(prefix, siblingNames);
+  return `${name.trim()} (copy)`;
+}
+
 function remapAccessKinds(
   kinds: Partial<Record<string, ManagerBathroomRoomAccessKind>> | undefined,
   map: ReadonlyMap<string, string> | undefined,
@@ -2821,12 +2853,12 @@ export function emptyCustomApplicationField(section?: string): ManagerCustomAppl
 /** Copy a room for the add-listing form (new id so file inputs / keys stay unique). */
 export function duplicateRoomEntry(
   source: ManagerRoomSubmission,
-  opts?: { keepName?: boolean },
+  opts?: { keepName?: boolean; siblingNames?: readonly string[] },
 ): ManagerRoomSubmission {
   return {
     ...source,
     id: rid("room"),
-    name: copyRecordName(source.name, "Room", opts?.keepName === true),
+    name: duplicateSlotName(source.name, "Room", opts?.keepName === true, opts?.siblingNames ?? []),
     photoDataUrls: [...source.photoDataUrls],
     videoDataUrl: source.videoDataUrl,
     moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])],
@@ -2855,7 +2887,7 @@ export function duplicateRoomEntry(
 /** Copy a bathroom card. Pass `roomIdMap` when the rooms themselves were reminted. */
 export function duplicateBathroomEntry(
   source: ManagerBathroomSubmission,
-  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string> },
+  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string>; siblingNames?: readonly string[] },
 ): ManagerBathroomSubmission {
   const assigned = opts?.roomIdMap
     ? remapIds(source.assignedRoomIds, opts.roomIdMap)
@@ -2863,7 +2895,7 @@ export function duplicateBathroomEntry(
   return {
     ...source,
     id: rid("bath"),
-    name: copyRecordName(source.name, "Bathroom", opts?.keepName === true),
+    name: duplicateSlotName(source.name, "Bathroom", opts?.keepName === true, opts?.siblingNames ?? []),
     photoDataUrls: [...(source.photoDataUrls ?? [])],
     videoDataUrl: source.videoDataUrl ?? null,
     assignedRoomIds: assigned,

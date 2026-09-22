@@ -12,7 +12,7 @@
  * Set `PROPERTY_LIMIT_EVIDENCE_DIR` to also write the rendered markup to that
  * directory, which is what a reviewer screenshots.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -145,5 +145,23 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
       writeFileSync(path.join(outDir, "properties-at-limit.body.html"), bannerHtml);
       writeFileSync(path.join(outDir, "properties-add-refused.body.html"), toastHtml);
     }
+  });
+
+  it("publish opens the confirmation dialog rather than navigating immediately (PRP-496)", () => {
+    // A full click-through publish means walking the whole wizard to Review
+    // (see `listing-wizard-v2-publish-navigates.test.tsx`); this pins the one
+    // regression that matters here — the handler that used to `router.push`
+    // straight to the listing detail route the instant publish resolved now
+    // opens `ListingPublishedDialog` instead, so the manager picks where to go.
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/portal/pro-properties.tsx"),
+      "utf8",
+    );
+    const region = source.slice(
+      source.indexOf("onPublished={(listingId) => {"),
+      source.indexOf("initialSubmission={resumeDraftRow?.submission"),
+    );
+    expect(region).toContain("setPublishedDialog(");
+    expect(region).not.toMatch(/router\.push\(\s*propertyDetailHref/);
   });
 });

@@ -90,6 +90,7 @@ export function ListingWorkspace({
   badge,
   saveState,
   onClose,
+  closeDisabled = false,
   rail,
   railHeader,
   railFooter,
@@ -106,6 +107,13 @@ export function ListingWorkspace({
   /** Autosave status, stated once, in the header. */
   saveState?: ReactNode;
   onClose?: () => void;
+  /**
+   * Disables the ✕ while a save/publish is already in flight, the same
+   * `busy` guard the footer's Save / Publish / Back / Continue buttons use
+   * (PRP-486) — a click that lands while it is already saving used to be
+   * silently dropped.
+   */
+  closeDisabled?: boolean;
   rail: ReactNode;
   /**
    * What sits ABOVE the sections in the rail — the cover photo and, while
@@ -126,6 +134,14 @@ export function ListingWorkspace({
    */
   headerCenter?: ReactNode;
 }) {
+  /**
+   * Deliberately no document-level Escape handler. The workspace hosts field
+   * dropdowns and a save-failed alert dialog that each own Escape for
+   * themselves and do not stop it propagating, so a listener here closed the
+   * whole editor — and re-ran its save — every time a manager dismissed a
+   * Floor or Type menu. Closing is the ✕ (and the footer), which respects
+   * `closeDisabled`; PRP-486's in-flight guard still lives in `onClose`.
+   */
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-2xl sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
       {/*
@@ -159,8 +175,9 @@ export function ListingWorkspace({
             <button
               type="button"
               onClick={onClose}
+              disabled={closeDisabled}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
             >
               ✕
             </button>
@@ -471,32 +488,6 @@ export function StepHeading({
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>
-  );
-}
-
-/** Compact ghost control for "make every row follow the top defaults again". */
-export function ResetAllInheritanceButton({
-  label = "Reset all",
-  onClick,
-  disabled,
-  dataAttr,
-}: {
-  label?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  dataAttr: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-attr={dataAttr}
-      className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted transition-colors hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-      {label}
-    </button>
   );
 }
 

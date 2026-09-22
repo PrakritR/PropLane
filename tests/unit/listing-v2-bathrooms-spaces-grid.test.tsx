@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 //
-// Bathrooms and shared spaces are the rooms grid in different clothes: an
-// "Every …" top row the records follow, chevrons that open a row in place,
-// and per-field follow/own marking. No Details buttons, no checkboxes.
+// Bathrooms and shared spaces are cards, the same shape as Rooms
+// (PLAN-0921-1648): chevrons that open a card in place, no Details buttons,
+// no checkboxes. Neither step has an "Every …" top row any more — each
+// record is its own, and "Same as Bathroom X" / picking on Shared spaces'
+// own card is the one way a record starts from another's description.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -92,10 +94,9 @@ function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmi
 }
 
 describe("bathrooms as cards", () => {
-  it("one card per bathroom with a Same-as-all box under its name; a chevron opens it in place, ✕ in the header removes", () => {
+  it("one card per bathroom; a chevron opens it in place, ✕ in the header removes", () => {
     open("bathrooms");
     expect(document.querySelectorAll('[data-attr="listing-v2-bath-card"]').length).toBe(2);
-    expect(document.querySelector('[data-attr="listing-v2-bath-card"] [data-attr="listing-v2-bath-same-as-all"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).toBeNull();
     openCard("Upstairs");
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).not.toBeNull();
@@ -104,22 +105,21 @@ describe("bathrooms as cards", () => {
     expect(document.querySelector('[data-attr="listing-v2-bath-remove"]')).toBeNull();
   });
 
-  it("the Every bathroom card moves followers and leaves a bathroom's own value alone", () => {
+  it("has no Every bathroom card, Same-as-all tick or Make-all button (PLAN-0921-1648)", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
-    const options = floorOptions("Floor for every bathroom");
-    expect(options.length).toBeGreaterThan(1);
-    // Upstairs takes its own floor first.
+    expect(screen.queryByRole("button", { name: "Floor for every bathroom" })).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-defaults-card"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bathrooms-reset-all"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-card"] [data-attr="listing-v2-bath-same-as-all"]')).toBeNull();
+    expect(screen.queryByText("Make all the same")).toBeNull();
+    // Each bathroom's own floor moves only that bathroom.
     openCard("Upstairs");
+    const options = floorOptions("Floor for Upstairs");
+    expect(options.length).toBeGreaterThan(1);
     pickFloor("Floor for Upstairs", options[1]!);
-    // Then the house says every bathroom is on options[0].
-    pickFloor("Floor for every bathroom", options[0]!);
-    const baths = seen.at(-1)!.bathrooms!;
-    expect(baths.find((b) => b.id === "b1")?.location).toBe(options[0]);
-    expect(baths.find((b) => b.id === "b2")?.location).toBe(options[1]);
-    // Reset puts Upstairs back on the house.
-    fireEvent.click(screen.getByRole("button", { name: /Reset floor for Upstairs/ }));
-    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.location).toBe(options[0]);
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.location).toBe(options[1]);
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b1")?.location ?? "").toBe("");
   });
 
   it("who uses it is a room dropdown on the bathroom card, and a room's own Bathroom row is only the access kind", async () => {

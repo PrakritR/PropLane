@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 //
-// The Rooms step's top card is "All rooms" — every room follows it, per
-// field, until a hand edit detaches that one field (Reset puts it back). A
-// plain value comparison alone cannot answer "is this the room's own": a
-// field a manager set to whatever All rooms happens to show right now would
-// misread as "still following" the moment the page reloads and the session
-// state that remembered the act is gone. `room.ownRoomFields` is the
-// persisted half of that answer — saved on the room, resolved nowhere else.
+// PLAN-0921-1648: the Rooms step's "All rooms" card and its per-field
+// follow/reset mechanism are gone. Every room is its own card. "Same as
+// Room X" — the first row an open card unfolds — copies another room's
+// description onto this one once, right now (`copyRoomDescriptionFrom`); its
+// value is derived every render from whichever other room this room's
+// description still matches (`roomDescriptionMatches`), never stored. A hand
+// edit or a "Same as" copy still records the touched fields on
+// `room.ownRoomFields`, kept only because it is a persisted field other code
+// may still read.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -66,100 +68,107 @@ const pick = (label: string, value: string) => {
   fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
   fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
 };
-const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-room-same-as-all"]')];
 
-describe("the All rooms panel", () => {
-  it("is titled All rooms, not Default room", () => {
+describe("the Rooms step has no All rooms panel", () => {
+  it("draws no All rooms / Default room card", () => {
     open();
-    const every = document.querySelector('[data-attr="listing-v2-defaults-card"]')!;
-    expect(every.textContent).toContain("All rooms");
-    expect(every.textContent).not.toContain("Default room");
+    expect(document.querySelector('[data-attr="listing-v2-defaults-card"]')).toBeNull();
+    expect(screen.queryByText("All rooms")).toBeNull();
+    expect(screen.queryByText("Default room")).toBeNull();
   });
 
-  it("a column tip is a tap-away ⓘ, never a sentence printed under the label", () => {
+  it("a column tip on an open card is a tap-away ⓘ, never a sentence printed under the label", () => {
     open();
-    const every = document.querySelector('[data-attr="listing-v2-defaults-card"]')!;
-    const floorHelp = "Which level this room is on.";
-    expect(every.textContent).not.toContain(floorHelp);
-    fireEvent.click(screen.getByRole("button", { name: "What Floor means" }));
-    expect(every.textContent).toContain(floorHelp);
-  });
-
-  it("secondary fields stay folded under More, not spread across the panel", () => {
-    open();
-    const every = document.querySelector('[data-attr="listing-v2-defaults-card"]')!;
-    expect(screen.queryByRole("button", { name: "Furnishing for every room" })).toBeNull();
-    fireEvent.click(every.querySelector('[data-attr="listing-v2-defaults-more"]')!);
-    expect(screen.getByRole("button", { name: "Furnishing for every room" })).toBeTruthy();
-  });
-});
-
-describe("a room detaches from All rooms one field at a time", () => {
-  it("records the touched field on the room, and Reset clears just that record", () => {
-    const seen: ManagerListingSubmissionV1[] = [];
-    open(seeded(), (s) => seen.push(s));
-    openCard("Room B");
-    pick("Floor for Room B", "2nd floor");
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.ownRoomFields).toEqual(["floor"]);
-    expect(boxes().map((b) => b.checked)).toEqual([true, false]);
-    fireEvent.click(screen.getByRole("button", { name: "Reset floor for Room B to All rooms" }));
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.ownRoomFields ?? []).toEqual([]);
-    expect(boxes().map((b) => b.checked)).toEqual([true, true]);
-  });
-
-  it("ticking Same as all rooms clears every field the room had detached", () => {
-    const seen: ManagerListingSubmissionV1[] = [];
-    open(seeded(), (s) => seen.push(s));
-    openCard("Room B");
-    pick("Floor for Room B", "2nd floor");
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.ownRoomFields).toEqual(["floor"]);
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-make-same"]')!);
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.ownRoomFields ?? []).toEqual([]);
-    expect(boxes().map((b) => b.checked)).toEqual([true, true]);
-  });
-
-  it("duplicating a detached room carries its own fields, reflected immediately with no reload", () => {
-    const seen: ManagerListingSubmissionV1[] = [];
-    open(seeded(), (s) => seen.push(s));
-    openCard("Room B");
-    pick("Floor for Room B", "2nd floor");
-    fireEvent.click(screen.getByRole("button", { name: "Duplicate Room B" }));
-    const copy = seen.at(-1)!.rooms.find((r) => r.id !== "r1" && r.id !== "r2")!;
-    expect(copy.name).toBe("Room B (copy)");
-    expect(copy.ownRoomFields).toEqual(["floor"]);
-    // The copy's card opened automatically; its own field shows a Reset without a remount.
-    expect(screen.getByRole("button", { name: `Reset floor for ${copy.name} to All rooms` })).toBeTruthy();
-    expect(boxes().map((b) => b.checked)).toEqual([true, false, false]);
-  });
-});
-
-describe("a detached field survives a reload", () => {
-  it("keeps a room's field marked as its own even when the value coincidentally matches All rooms", () => {
-    const base = seeded();
-    const reopened: ManagerListingSubmissionV1 = {
-      ...base,
-      houseDefaults: { floor: "1st floor" },
-      rooms: [
-        { ...base.rooms[0]!, floor: "1st floor", ownRoomFields: ["floor"] },
-        { ...base.rooms[1]! },
-      ],
-    };
-    open(reopened);
-    // Plain value comparison alone would read Room A's floor as following (it
-    // equals All rooms' "1st floor"); the persisted flag says otherwise.
-    expect(boxes().map((b) => b.checked)).toEqual([false, true]);
     openCard("Room A");
-    expect(screen.getByRole("button", { name: "Reset floor for Room A to All rooms" })).toBeTruthy();
+    const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
+    const floorHelp = "Which level this room is on.";
+    expect(editor.textContent).not.toContain(floorHelp);
+    fireEvent.click(screen.getByRole("button", { name: "What Floor means" }));
+    expect(editor.textContent).toContain(floorHelp);
+  });
+});
+
+describe('"Same as" copies one room onto another, once', () => {
+  it("offers every other room, reads — once nothing matches", () => {
+    const base = seeded();
+    open({ ...base, rooms: [{ ...base.rooms[0]!, id: "r1", name: "Room A", floor: "2nd floor" }, { ...base.rooms[1]!, id: "r2", name: "Room B" }] });
+    openCard("Room A");
+    const sameAs = screen.getByRole("button", { name: "Same as for Room A" });
+    expect(sameAs.textContent).toContain("—");
+    fireEvent.click(sameAs);
+    const list = document.getElementById(sameAs.getAttribute("aria-controls")!)!;
+    expect(list.querySelector('[data-field-select-option-value="r2"]')).not.toBeNull();
+    // Room A never offers itself.
+    expect(list.querySelector('[data-field-select-option-value="r1"]')).toBeNull();
   });
 
-  it("a field with no persisted flag still reads as following when its value matches", () => {
+  it("two rooms that start identical already read as matching each other", () => {
+    open();
+    openCard("Room A");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("Room B");
+  });
+
+  it("picking a room copies its floor and furnishing onto this room, and records the touched fields", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open(seeded(), (s) => seen.push(s));
+    openCard("Room B");
+    pick("Floor for Room B", "2nd floor");
+    openCard("Room A");
+    pick("Same as for Room A", "r2");
+    const roomA = seen.at(-1)!.rooms.find((r) => r.id === "r1")!;
+    expect(roomA.floor).toBe("2nd floor");
+    // Name and id are never touched by the copy.
+    expect(roomA.name).toBe("Room A");
+    expect(roomA.id).toBe("r1");
+    expect(roomA.ownRoomFields).toContain("floor");
+  });
+
+  it("never copies availability, price or per-resident pricing", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
     const base = seeded();
-    const reopened: ManagerListingSubmissionV1 = {
-      ...base,
-      houseDefaults: { floor: "1st floor" },
-      rooms: [{ ...base.rooms[0]!, floor: "1st floor" }, { ...base.rooms[1]! }],
-    };
-    open(reopened);
-    expect(boxes().map((b) => b.checked)).toEqual([true, true]);
+    open(
+      {
+        ...base,
+        rooms: [
+          { ...base.rooms[0]!, id: "r1", name: "Room A" },
+          {
+            ...base.rooms[1]!,
+            id: "r2",
+            name: "Room B",
+            floor: "2nd floor",
+            monthlyRent: 1500,
+            availability: "occupied",
+            moveInAvailableDate: "2027-01-01",
+            manualUnavailableRanges: [{ id: "block1", start: "2027-01-01", end: null }],
+            residentPricing: "per_resident",
+            residentPrices: [{ monthlyRent: 900 }, { monthlyRent: 950 }],
+          },
+        ],
+      } as ManagerListingSubmissionV1,
+      (s) => seen.push(s),
+    );
+    openCard("Room A");
+    pick("Same as for Room A", "r2");
+    const roomA = seen.at(-1)!.rooms.find((r) => r.id === "r1")!;
+    expect(roomA.floor).toBe("2nd floor");
+    expect(roomA.monthlyRent).toBe(0);
+    expect(roomA.availability).not.toBe("occupied");
+    expect(roomA.moveInAvailableDate ?? "").not.toBe("2027-01-01");
+    expect(roomA.manualUnavailableRanges ?? []).toEqual([]);
+    expect(roomA.residentPricing).toBeUndefined();
+    expect(roomA.residentPrices).toBeUndefined();
+  });
+
+  it("reads back the room this room's description now matches, and — again once it is edited", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open(seeded(), (s) => seen.push(s));
+    openCard("Room A");
+    pick("Same as for Room A", "r2");
+    // Room A now matches Room B by value; reopening should read it back.
+    fireEvent.click(screen.getByRole("button", { name: "Close Room A" }));
+    openCard("Room A");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("Room B");
+    pick("Floor for Room A", "1st floor");
+    expect(screen.getByRole("button", { name: "Same as for Room A" }).textContent).toContain("—");
   });
 });

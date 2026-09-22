@@ -62,11 +62,10 @@ function openStep(step: "rooms" | "bathrooms" | "spaces") {
 }
 
 describe("listing v2 record-card Duplicate", () => {
-  it("duplicates a room and leaves Default without Duplicate", () => {
+  it("duplicates a room", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("rooms");
-    expect(screen.queryByRole("button", { name: "Duplicate Default room" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Duplicate Studio" }));
     const next = seen.at(-1)!;
     expect(next.rooms).toHaveLength(2);
@@ -74,11 +73,10 @@ describe("listing v2 record-card Duplicate", () => {
     expect(next.rooms[1]!.id).not.toBe("r1");
   });
 
-  it("duplicates a bathroom and hides Duplicate on Default bathroom", () => {
+  it("duplicates a bathroom", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     render(<Editor onChange={(sub) => seen.push(sub)} />);
     openStep("bathrooms");
-    expect(screen.queryByRole("button", { name: "Duplicate Default bathroom" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Duplicate Full bathroom" }));
     const next = seen.at(-1)!;
     expect(next.bathrooms).toHaveLength(2);
