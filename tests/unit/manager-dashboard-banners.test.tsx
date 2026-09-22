@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
-// PRP-396 added useRouter for the first-listing soft-redirect; this suite
+// Dashboard still uses useRouter for explicit clicks; this suite
 // renders ManagerDashboard without an App Router tree.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
