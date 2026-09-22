@@ -3,6 +3,7 @@ import { getReportsAuthContext, assertManagerFinancialsAccess } from "@/lib/repo
 import { UUID_PATTERN } from "@/lib/documents/manager-documents";
 import { createManagerDocumentSignedUrl, resolveDownloadName } from "@/lib/documents/document-signed-url.server";
 import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!allowed && row.property_id) {
     const linkedPropertyIds = await linkedPropertyIdsForModule(auth.db, auth.userId, "documents");
     allowed = linkedPropertyIds.has(row.property_id);
+  }
+  if (allowed) {
+    // Bytes are only ever reached through this signed URL, so this is the
+    // "act" half of workspace scoping: a document outside the manager's
+    // active workspace must not be mintable even though the ownership /
+    // co-manager check above already passed. Same 404 as a missing row —
+    // the workspace boundary never leaks which documents exist elsewhere.
+    const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    if (!rowAllowedInWorkspaceScope(scope, row.property_id)) allowed = false;
   }
   if (!allowed) return NextResponse.json({ error: "Document not found." }, { status: 404 });
 
