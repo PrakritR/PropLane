@@ -101,8 +101,12 @@ export function GoogleSpreadsheetPicker({
 }) {
   const onPickRef = useRef(onPick);
   const onCloseRef = useRef(onClose);
-  onPickRef.current = onPick;
-  onCloseRef.current = onClose;
+  // The picker callback fires long after render, so it reads the latest
+  // handlers through refs — kept current in an effect, never during render.
+  useEffect(() => {
+    onPickRef.current = onPick;
+    onCloseRef.current = onClose;
+  }, [onPick, onClose]);
 
   const [files, setFiles] = useState<PickedSheet[]>([]);
   const [selected, setSelected] = useState<string>("");
