@@ -12,36 +12,31 @@ type PickerToken = {
   clientId: string | null;
 };
 
-type GooglePickerApi = {
-  PickerBuilder: new () => {
-    addView: (view: unknown) => GooglePickerBuilder;
-    setOAuthToken: (token: string) => GooglePickerBuilder;
-    setDeveloperKey: (key: string) => GooglePickerBuilder;
-    setCallback: (cb: (data: PickerCallbackData) => void) => GooglePickerBuilder;
-    build: () => { setVisible: (visible: boolean) => void };
-  };
-  ViewId: { SPREADSHEETS: unknown };
-  Action: { PICKED: string; CANCEL: string };
-};
+/** Google's picker callback payload — only the fields this component reads. */
+type GooglePickerData = { action: string; docs?: Array<{ id?: string; name?: string }> };
 
+/**
+ * The builder is fluent: every setter returns the builder itself. Typing the
+ * setters as `unknown` broke the chain and the callback's parameter, so each
+ * one names the builder type instead.
+ */
 type GooglePickerBuilder = {
   addView: (view: unknown) => GooglePickerBuilder;
   setOAuthToken: (token: string) => GooglePickerBuilder;
   setDeveloperKey: (key: string) => GooglePickerBuilder;
-  setCallback: (cb: (data: PickerCallbackData) => void) => GooglePickerBuilder;
+  setCallback: (cb: (data: GooglePickerData) => void) => GooglePickerBuilder;
   build: () => { setVisible: (visible: boolean) => void };
-};
-
-type PickerCallbackData = {
-  action: string;
-  docs?: Array<{ id?: string; name?: string }>;
 };
 
 declare global {
   interface Window {
     gapi?: { load: (name: string, cb: () => void) => void };
     google?: {
-      picker: GooglePickerApi;
+      picker: {
+        PickerBuilder: new () => GooglePickerBuilder;
+        ViewId: { SPREADSHEETS: unknown };
+        Action: { PICKED: string; CANCEL: string };
+      };
     };
   }
 }
@@ -79,7 +74,7 @@ async function openOfficialPicker(token: PickerToken): Promise<PickedSheet | nul
       .addView(pickerApi.ViewId.SPREADSHEETS)
       .setOAuthToken(token.accessToken)
       .setDeveloperKey(token.apiKey!)
-      .setCallback((data: PickerCallbackData) => {
+      .setCallback((data) => {
         if (data.action === pickerApi.Action.CANCEL) {
           resolve(null);
           return;
@@ -90,7 +85,7 @@ async function openOfficialPicker(token: PickerToken): Promise<PickedSheet | nul
           resolve(id ? { id, name: doc?.name?.trim() || "Spreadsheet" } : null);
         }
       });
-    const picker = builder.build();
+    const picker = (builder as { build: () => { setVisible: (visible: boolean) => void } }).build();
     picker.setVisible(true);
   });
 }
@@ -106,8 +101,12 @@ export function GoogleSpreadsheetPicker({
 }) {
   const onPickRef = useRef(onPick);
   const onCloseRef = useRef(onClose);
-  onPickRef.current = onPick;
-  onCloseRef.current = onClose;
+  // The picker callback fires long after render, so it reads the latest
+  // handlers through refs — kept current in an effect, never during render.
+  useEffect(() => {
+    onPickRef.current = onPick;
+    onCloseRef.current = onClose;
+  }, [onPick, onClose]);
 
   const [files, setFiles] = useState<PickedSheet[]>([]);
   const [selected, setSelected] = useState<string>("");

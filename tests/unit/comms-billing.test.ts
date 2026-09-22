@@ -39,7 +39,7 @@ describe("prepaid communication boundary",()=>{
   const totals=await loadCommsWalletTotals(db as never,[{managerUserId:"biz",tier:"business"},{managerUserId:"broken",tier:"free"}]);
   expect(db.rpc).toHaveBeenCalledTimes(1);
   expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshots",{p_requests:[
-   {owner:"biz",allowance:10000,legacy_allowance:10000},
+   {owner:"biz",allowance:15000,legacy_allowance:15000},
    {owner:"broken",allowance:0,legacy_allowance:0},
   ]});
   expect(totals.get("biz")).toEqual({allowanceCents:15000,includedRemainingCents:13000,purchasedRemainingCents:2500,paused:false});

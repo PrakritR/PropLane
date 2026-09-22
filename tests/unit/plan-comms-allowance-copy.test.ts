@@ -26,14 +26,15 @@ describe("plan communication allowance copy (PRP-282)", () => {
 
   it("states the dollar value that the allowance table enforces", () => {
     expect(commsAllowanceFeatureText("free")).toMatch(/no communication credit/i);
-    expect(commsAllowanceFeatureText("pro")).toContain("$10");
-    expect(commsAllowanceFeatureText("business")).toContain("$100");
-    expect(COMMS_INCLUDED_ALLOWANCE_CENTS).toEqual({ free: 0, pro: 1000, business: 10000 });
+    expect(commsAllowanceFeatureText("pro")).toContain("$25");
+    expect(commsAllowanceFeatureText("business")).toContain("$150");
+    // Rate-card values (2026-09-door-v1): $0 / $25 / $150 monthly credit.
+    expect(COMMS_INCLUDED_ALLOWANCE_CENTS).toEqual({ free: 0, pro: 2500, business: 15000 });
   });
 
   it("the paywall copy names the amount and the way out (buy prepaid credit)", () => {
     const msg = commsAllowanceBlockedMessage("pro");
-    expect(msg).toContain("$10.00");
+    expect(msg).toContain("$25.00");
     expect(msg).toMatch(/buy more usage/i);
     expect(msg).toMatch(/does not enable automatic charges/i);
   });
