@@ -12,18 +12,28 @@ type PickerToken = {
   clientId: string | null;
 };
 
+/** Google's picker callback payload — only the fields this component reads. */
+type GooglePickerData = { action: string; docs?: Array<{ id?: string; name?: string }> };
+
+/**
+ * The builder is fluent: every setter returns the builder itself. Typing the
+ * setters as `unknown` broke the chain and the callback's parameter, so each
+ * one names the builder type instead.
+ */
+type GooglePickerBuilder = {
+  addView: (view: unknown) => GooglePickerBuilder;
+  setOAuthToken: (token: string) => GooglePickerBuilder;
+  setDeveloperKey: (key: string) => GooglePickerBuilder;
+  setCallback: (cb: (data: GooglePickerData) => void) => GooglePickerBuilder;
+  build: () => { setVisible: (visible: boolean) => void };
+};
+
 declare global {
   interface Window {
     gapi?: { load: (name: string, cb: () => void) => void };
     google?: {
       picker: {
-        PickerBuilder: new () => {
-          addView: (view: unknown) => unknown;
-          setOAuthToken: (token: string) => unknown;
-          setDeveloperKey: (key: string) => unknown;
-          setCallback: (cb: (data: { action: string; docs?: Array<{ id?: string; name?: string }> }) => void) => unknown;
-          build: () => { setVisible: (visible: boolean) => void };
-        };
+        PickerBuilder: new () => GooglePickerBuilder;
         ViewId: { SPREADSHEETS: unknown };
         Action: { PICKED: string; CANCEL: string };
       };
@@ -160,7 +170,7 @@ export function GoogleSpreadsheetPicker({
       open={open}
       onClose={onClose}
       title="Select a spreadsheet"
-      primary={{
+      primaryAction={{
         label: "Select",
         disabled: !selected || loading,
         onClick: () => {
