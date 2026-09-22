@@ -14,8 +14,7 @@ import {
   SlidersHorizontal,
   Wrench,
   X,
-  type LucideIcon,
-} from "lucide-react";
+  type LucideIcon, RefreshCw, } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
 import { HorizontalScrollCapture, HORIZONTAL_SCROLL_ATTR } from "@/components/portal/portal-horizontal-scroll";
@@ -42,6 +41,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Wrench, // Payment setup
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
+  RefreshCw, // Update from sheet (Bookings band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
