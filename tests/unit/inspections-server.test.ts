@@ -9,6 +9,13 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/tools/audit", () => ({ writeAuditLog: vi.fn(async () => ({ recorded: true })), updateAuditResult: vi.fn() }));
 vi.mock("@/lib/auth/manager-application-access", () => ({ managerOwnedPropertyIdSet: async (_db: unknown, userId: string) => new Set(userId === "owner" ? ["home"] : []) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedOwnerScopeForModule: async (_db: unknown, userId: string, _module: string, level: string) => ({ owners: new Set(), propertyIds: new Set(userId === "co-manager" && level === "read" ? ["home"] : []) }) }));
+// Active-workspace scope: `null` (default, every existing test above) means
+// "not narrowing" — the exact behavior before this file consulted it at all.
+// Individual workspace-scope tests below override this per case.
+const workspaceScope = vi.hoisted(() => ({ value: null as string[] | null }));
+vi.mock("@/lib/workspaces/scope.server", () => ({
+  activeWorkspacePropertyScope: vi.fn(async () => workspaceScope.value),
+}));
 import { addInspectionPhoto, getInspection, listInspectionResidencies, listInspections, prepareInspection, removeInspectionPhoto, saveInspection, type InspectionActor } from "@/lib/inspections/server";
 
 // Executable filtering + revision compare-and-swap, rather than canned query results.
@@ -42,7 +49,7 @@ const db = { storage: { from: () => storage }, from(table: string) {
 } };
 const manager = (userId = "owner"): InspectionActor => ({ role: "manager", context: { userId, landlordId: userId, db } as unknown as AgentContext });
 const resident = (userId = "resident", email = "resident@example.test"): InspectionActor => ({ role: "resident", context: { userId, landlordId: userId, email, phase: "approved", db } as unknown as ResidentAgentContext });
-beforeEach(() => { vi.clearAllMocks(); writes = 0; readErrors = {}; properties = [{ id: "home", manager_user_id: "owner" }]; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
+beforeEach(() => { vi.clearAllMocks(); writes = 0; readErrors = {}; workspaceScope.value = null; properties = [{ id: "home", manager_user_id: "owner" }]; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
 
 describe("inspection ownership and write isolation", () => {
   it("hides another landlord's report and another resident's evidence", async () => {
@@ -181,5 +188,51 @@ describe("unreadable tables", () => {
     readErrors.resident_inspections = { code: "57014", message: "canceling statement due to statement timeout" };
 
     await expect(listInspections(manager())).rejects.toMatchObject({ status: 500, message: expect.stringContaining("try again") });
+  });
+});
+
+describe("active-workspace scoping — narrows on top of ownership, never widens it", () => {
+  it("denies an inspection on a house outside the active workspace, even though the manager owns it", async () => {
+    workspaceScope.value = ["other-house"];
+    await expect(getInspection(manager(), reports[0]!.id)).rejects.toMatchObject({ status: 404 });
+    expect(await listInspections(manager())).toEqual([]);
+  });
+
+  it("shows the inspection once the active workspace holds that house", async () => {
+    workspaceScope.value = ["home"];
+    expect((await getInspection(manager(), reports[0]!.id)).id).toBe(reports[0]!.id);
+    expect((await listInspections(manager())).map((r) => r.id)).toEqual([reports[0]!.id]);
+  });
+
+  it("switching the active workspace changes what is visible", async () => {
+    workspaceScope.value = ["home"];
+    expect((await listInspections(manager())).map((r) => r.id)).toEqual([reports[0]!.id]);
+    workspaceScope.value = ["other-house"];
+    expect(await listInspections(manager())).toEqual([]);
+  });
+
+  it("denies everything for a workspace holding zero houses", async () => {
+    workspaceScope.value = [];
+    expect(await listInspections(manager())).toEqual([]);
+    await expect(getInspection(manager(), reports[0]!.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("is unaffected for a single-workspace manager (resolution returns null)", async () => {
+    workspaceScope.value = null;
+    expect((await getInspection(manager(), reports[0]!.id)).id).toBe(reports[0]!.id);
+  });
+
+  it("refuses to start a new inspection on a residency outside the active workspace", async () => {
+    workspaceScope.value = ["other-house"];
+    const input = { applicationId: "AXIS-TEST", kind: "move-in", inspectionDate: "2026-09-05" };
+    await expect(prepareInspection(manager(), input)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("never widens a co-manager's own grant-based reach", async () => {
+    // The co-manager's grant already covers "home" (the co-manager-module-scope
+    // mock above). An active workspace that does NOT hold "home" still denies —
+    // workspace narrows on top of the grant, it never substitutes for it.
+    workspaceScope.value = ["other-house"];
+    await expect(getInspection(manager("co-manager"), reports[0]!.id)).rejects.toMatchObject({ status: 404 });
   });
 });
