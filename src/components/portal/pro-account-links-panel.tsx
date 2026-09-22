@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Users, UserPlus } from "lucide-react";
+import { Users, UserPlus, UserMinus, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
@@ -34,7 +34,7 @@ import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@
 import type { PortalWorkspace, WorkspaceMember } from "@/lib/workspaces/types";
 import { memberReachLabel, type HouseScope } from "@/lib/workspaces/membership";
 import { cn } from "@/lib/utils";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -1399,7 +1399,6 @@ export function ProAccountLinksPanel({
     openTeamRemovePreview(selected);
   };
 
-  const teamDangerBtnClass = `${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
   const renderDetailHeaderActions = (entry: TeamListEntry) => {
     if (entry.kind === "remote") {
@@ -1448,18 +1447,15 @@ export function ProAccountLinksPanel({
     return null;
   };
 
-  const renderDetailFooter = (entry: TeamListEntry) => {
+  const renderDetailActions = (entry: TeamListEntry) => {
     const transferMatch = findWorkspaceMemberForEntry(entry);
-    const transferButton = transferMatch ? (
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full sm:w-auto"
+    const transferAction = transferMatch ? (
+      <PortalIconAction
+        icon={ArrowLeftRight}
+        label="Transfer ownership"
         onClick={() => setTransferTarget(transferMatch)}
         data-attr="team-member-transfer"
-      >
-        Transfer ownership
-      </Button>
+      />
     ) : null;
     if (entry.kind === "remote") {
       const inv = entry.invite;
@@ -1470,34 +1466,34 @@ export function ProAccountLinksPanel({
       if (inv.status === "pending") return null;
       const readOnly = inv.status === "accepted" && inv.direction === "incoming";
       return (
-        <>
-          {transferButton}
-          <Button
-            type="button"
-            variant="outline"
-            className={`${teamDangerBtnClass} w-full sm:w-auto`}
+        <PortalRecordActions>
+          {transferAction}
+          <PortalIconAction
+            icon={UserMinus}
+            tone="danger"
+            label={
+              readOnly
+                ? "Leave team"
+                : inv.workspaceId
+                  ? `Remove from ${(workspaces?.workspaces ?? []).find((w) => w.id === inv.workspaceId)?.name ?? "workspace"}`
+                  : "Disconnect"
+            }
             onClick={() => openTeamRemovePreview([entry])}
             data-attr="co-manager-remove-link"
-          >
-            {readOnly
-              ? "Leave team"
-              : inv.workspaceId
-                ? `Remove from ${(workspaces?.workspaces ?? []).find((w) => w.id === inv.workspaceId)?.name ?? "workspace"}`
-                : "Disconnect"}
-          </Button>
-        </>
+          />
+        </PortalRecordActions>
       );
     }
     return (
-      <Button
-        type="button"
-        variant="outline"
-        className={`${teamDangerBtnClass} w-full sm:w-auto`}
-        onClick={() => openTeamRemovePreview([entry])}
-        data-attr="co-manager-remove-link"
-      >
-        Disconnect
-      </Button>
+      <PortalRecordActions>
+        <PortalIconAction
+          icon={UserMinus}
+          tone="danger"
+          label="Disconnect"
+          onClick={() => openTeamRemovePreview([entry])}
+          data-attr="co-manager-remove-link"
+        />
+      </PortalRecordActions>
     );
   };
 
@@ -2083,11 +2079,11 @@ export function ProAccountLinksPanel({
           bareHeader
           dataAttrBack="team-detail-back"
           inlineActions
+          iconTitleActions
           pinScrollBody
-          footerOmitSpacer
           actions={renderDetailHeaderActions(routeEntry)}
-          footer={renderDetailFooter(routeEntry)}
         >
+          {renderDetailActions(routeEntry)}
           <PortalRecordListSurface className="mt-0">{renderDetailBody(routeEntry)}</PortalRecordListSurface>
         </PortalRecordDetailPage>
 

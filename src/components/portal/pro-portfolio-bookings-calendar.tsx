@@ -166,11 +166,12 @@ function dominantSourceForDay(
 
 const DAY_CELL_BASE =
   "flex min-h-0 flex-1 flex-col items-stretch gap-1 rounded-lg border border-border/80 bg-card/90 p-1.5 text-left text-xs transition hover:border-primary/25 hover:bg-accent/25 hover:shadow-[var(--shadow-sm)]";
+const DAY_CELL_SELECTED = "border-primary bg-primary/[0.08] hover:border-primary hover:bg-primary/[0.10]";
 
 /**
  * A cell answers "how full is this day" (PLAN-0920-1058, area 1e) — an
  * occupancy bar, `occupied / rooms`, and check-ins/check-outs, never a name
- * and a "+N": names belong on the day page, and a 9-room house is not a
+ * and a "+N": names belong on the day popup, and a 9-room house is not a
  * binary booked/not-booked flag. The small dot is the dominant source, kept
  * for a quick read of what filled the day.
  */
@@ -180,12 +181,14 @@ function DayBookingCell({
   today,
   onOpenDay,
   propertyIds,
+  selected,
 }: {
   cell: Date;
   entries: PropertyBookingEntry[];
   today: Date;
   onOpenDay: (key: string) => void;
   propertyIds: readonly string[];
+  selected?: boolean;
 }) {
   const key = dateKey(cell);
   const dayBookings = bookingEntriesForDayKey(entries, key);
@@ -202,7 +205,8 @@ function DayBookingCell({
     <button
       type="button"
       data-attr={`portfolio-booking-day-${key}`}
-      className={DAY_CELL_BASE}
+      aria-pressed={selected || undefined}
+      className={`${DAY_CELL_BASE} ${selected ? DAY_CELL_SELECTED : ""}`}
       onClick={() => onOpenDay(key)}
     >
       <div className="flex items-start justify-between gap-0.5">
@@ -299,6 +303,7 @@ export function ManagerPortfolioBookingsCalendar({
   variant = "embedded",
   calendarOnly = false,
   onDayClick,
+  selectedDayKey,
   searchQuery = "",
 }: {
   propertyIds: string[];
@@ -309,8 +314,9 @@ export function ManagerPortfolioBookingsCalendar({
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
   calendarOnly?: boolean;
-  /** Navigate to the day page. Defaults to `/portal/bookings/<date>` when absent (an embedded, unrouted caller). */
+  /** Open the day popup. Defaults to `/portal/bookings/<date>` when absent (an embedded, unrouted caller). */
   onDayClick?: (dayKey: string) => void;
+  selectedDayKey?: string;
   searchQuery?: string;
 }) {
   return (
@@ -324,6 +330,7 @@ export function ManagerPortfolioBookingsCalendar({
       variant={variant}
       calendarOnly={calendarOnly}
       onDayClick={onDayClick}
+      selectedDayKey={selectedDayKey}
       searchQuery={searchQuery}
     />
   );
@@ -339,6 +346,7 @@ export function ManagerBookingsHub({
   variant = "embedded",
   calendarOnly = false,
   onDayClick,
+  selectedDayKey,
   searchQuery = "",
 }: {
   propertyIds: string[];
@@ -350,8 +358,9 @@ export function ManagerBookingsHub({
   variant?: "embedded" | "standalone";
   /** When true, skip the List|Calendar hub toggle — calendar grid only (portfolio Calendar tab). */
   calendarOnly?: boolean;
-  /** Navigate to the day page. Defaults to `/portal/bookings/<date>` when absent. */
+  /** Open the day popup. Defaults to `/portal/bookings/<date>` when absent. */
   onDayClick?: (dayKey: string) => void;
+  selectedDayKey?: string;
   searchQuery?: string;
 }) {
   const navigate = usePortalNavigate();
@@ -446,10 +455,9 @@ export function ManagerBookingsHub({
     return `${count} booked day${count === 1 ? "" : "s"} this year`;
   }, [anchorDate, entries, monthStart, view, weekStart]);
 
-  // The day page replaces the old day pop-up. `onDayClick` is the routed
-  // caller's navigate-to-day-page; an unrouted embed (a house's own Bookings
-  // tab) still lands on the one real day route — there is no property-scoped
-  // day page.
+  // The day list is a popup again (PLAN-0922-1013). `onDayClick` is the
+  // routed caller's navigate-to-day-href; an unrouted embed still lands on
+  // the one real day route — there is no property-scoped day dialog.
   const openDay = (key: string) => (onDayClick ?? ((dayKey: string) => navigate(managerBookingDayHref("/portal", dayKey))))(key);
 
   const goToMonth = (year: number, month: number) => {
@@ -613,6 +621,7 @@ export function ManagerBookingsHub({
                         today={today}
                         onOpenDay={openDay}
                         propertyIds={propertyIds}
+                        selected={selectedDayKey === dateKey(cell)}
                       />
                     ))}
                   </div>
@@ -644,6 +653,7 @@ export function ManagerBookingsHub({
                           today={today}
                           onOpenDay={openDay}
                           propertyIds={propertyIds}
+                          selected={selectedDayKey === dateKey(cell)}
                         />
                       );
                     })}

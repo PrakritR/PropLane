@@ -49,7 +49,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   buildManagerPropertyFilterOptions,
@@ -613,13 +613,12 @@ export function ManagerAllServicesPanel({
     const sections = {
       ...recordSections("manager", "service", { basePath, serviceKind: "request", serviceBucket: reqBucket }),
       headerActions: [],
-      phonePrimary: undefined,
     };
     const activeTab = serviceDetailTab ?? "overview";
     const backHref = serviceRequestListHref(basePath, reqBucket);
     const ownContent =
-      activeTab === "vendor-bids" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="service-request-vendor-bids">
+      activeTab === "vendor-schedule" ? (
+        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="service-request-vendor-schedule">
           {detailRequest.assignee ? (
             <p className="text-sm text-foreground">
               Assigned to <span className="font-medium">{detailRequest.assignee.name}</span>
@@ -627,9 +626,6 @@ export function ManagerAllServicesPanel({
           ) : (
             <PortalListEmptyCard title="No vendor for this service" workspaceAware={false} dataAttr="service-request-vendor-empty" />
           )}
-        </div>
-      ) : activeTab === "schedule" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="service-request-schedule">
           {detailRequest.proposedVisit ? (
             <p className="text-sm text-foreground">
               Proposed {new Date(detailRequest.proposedVisit.iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -638,14 +634,16 @@ export function ManagerAllServicesPanel({
             <PortalListEmptyCard title="Not scheduled yet" workspaceAware={false} dataAttr="service-request-schedule-empty" />
           )}
         </div>
-      ) : activeTab === "invoice" ? (
+      ) : activeTab === "photos" ? (
+        renderRequestDetail(detailRequest)
+      ) : activeTab === "payments" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="service-request-invoice">
           <p className="text-sm text-foreground">
             Charges: <span className="font-medium">{managerServiceRequestPricingSummary(detailRequest)}</span>
           </p>
         </div>
-      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
-        renderRecordSection(activeTab, {
+      ) : activeTab === "communication" ? (
+        renderRecordSection("communication", {
           role: "manager",
           kind: "service",
           kindLabel: "service",
@@ -655,7 +653,41 @@ export function ManagerAllServicesPanel({
           contactIds: detailRequest.residentEmail ? [detailRequest.residentEmail] : undefined,
         })
       ) : (
-        renderRequestDetail(detailRequest)
+        renderRecordSection("overview", {
+          role: "manager",
+          kind: "service",
+          kindLabel: "service",
+          recordId: detailRequest.id,
+          recordLabel: detailRequest.offerName,
+          overviewTiles: [
+            { id: "status", label: "Status", value: detailRequest.status },
+            { id: "vendor", label: "Vendor", value: detailRequest.assignee?.name ?? "None", detail: detailRequest.assignee ? undefined : "Not assigned", tone: detailRequest.assignee ? "default" : "danger" },
+            { id: "cost", label: "Cost", value: managerServiceRequestPricingSummary(detailRequest) },
+            { id: "requested", label: "Requested", value: new Date(detailRequest.requestedAt).toLocaleDateString() },
+          ],
+          overviewNeeds: !detailRequest.assignee
+            ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet" }]
+            : [],
+          overviewCards: [
+            {
+              id: "request",
+              title: "Request",
+              action: { label: "Photos", href: serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "photos") },
+              rows: [
+                { label: "Details", value: detailRequest.offerDescription || detailRequest.notes || "—" },
+                { label: "Reported", value: new Date(detailRequest.requestedAt).toLocaleDateString() },
+              ],
+            },
+            {
+              id: "home",
+              title: "Home",
+              rows: [
+                { label: "Property", value: resolveRequestPropertyLabel(detailRequest) },
+                { label: "Resident", value: detailRequest.residentName },
+              ],
+            },
+          ],
+        })
       );
     return (
       <>
@@ -670,14 +702,14 @@ export function ManagerAllServicesPanel({
           iconTitleActions
           dataAttrBack="service-request-detail-back"
           pinScrollBody
-          footer={detailFooterActions ?? undefined}
         >
           {/*
-            No header icons here — the footer above already publishes
+            No separate header icons here — the actions below already publish
             Approve / Deny / Edit / Delete into this same title-row icon slot
             (`iconTitleActions`); a second publisher would silently overwrite
             it rather than combine with it (docs/agents/record-page.md).
           */}
+          {detailFooterActions ? <PortalRecordActions>{detailFooterActions}</PortalRecordActions> : null}
           <PortalRecordSectionChrome
             sections={sections}
             recordId={detailRequest.id}

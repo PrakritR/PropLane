@@ -1,10 +1,20 @@
 "use client";
 
-import { createElement, type ComponentType } from "react";
+import { createElement, type ComponentType, type ReactNode } from "react";
 import { FileText, Clock3 } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
 import { isRecordKind } from "@/lib/portals/record-kinds";
+import {
+  RecordFactCard,
+  RecordFactRow,
+  RecordNeedsYou,
+  RecordRowsCard,
+  RecordStatTiles,
+  StatTile,
+  type RecordNeedsYouItem,
+  type RecordRowItem,
+} from "@/components/portal/portal-record-overview-kit";
 
 /**
  * The shared trio's content (PLAN-0920-1058, area 1a) — one place a section id
@@ -27,6 +37,35 @@ export type RecordSectionActivityEvent = {
   timestamp: string;
 };
 
+/** One of the four `StatTile`s at the top of a record's Overview. */
+export type OverviewStatTile = {
+  id: string;
+  label: string;
+  value: string;
+  detail?: string;
+  href?: string;
+  tone?: "danger" | "default";
+};
+
+/** One `RecordFactCard` on Overview — a label/value fact card or a row-list card, same shell either way. */
+export type OverviewCard =
+  | {
+      kind?: "facts";
+      id: string;
+      title: string;
+      action?: { label: string; href: string };
+      rows: Array<{ label: string; value: ReactNode; tone?: "ok" | "bad" }>;
+    }
+  | {
+      kind: "rows";
+      id: string;
+      title: string;
+      action?: { label: string; href: string };
+      rows: RecordRowItem[];
+      emptyLabel?: string;
+      footer?: { label: string; href?: string; onClick?: () => void };
+    };
+
 export type RecordSectionRendererProps = {
   role: "manager" | "resident" | "vendor";
   kind: string;
@@ -44,6 +83,14 @@ export type RecordSectionRendererProps = {
   contactIds?: string[];
   /** Open the record's compose immediately — the "Message" header/phone action lands here with compose already up. */
   autoOpenCompose?: boolean;
+  /** The Overview renderer's four `StatTile`s — always exactly the kind's own KPIs, never fewer or more. */
+  overviewTiles?: OverviewStatTile[];
+  /** The Overview renderer's "Needs you" rows — omit the card entirely by passing an empty array. */
+  overviewNeeds?: RecordNeedsYouItem[];
+  /** The Overview renderer's `RecordFactCard`/`RecordRowsCard` list, in display order. */
+  overviewCards?: OverviewCard[];
+  /** The trailing "Recent activity" card — the three most recent events plus an "All activity →" link. Omitted entirely when absent. */
+  overviewActivity?: { rows: RecordRowItem[]; href?: string };
 };
 
 const renderers = new Map<string, ComponentType<RecordSectionRendererProps>>();
@@ -143,6 +190,60 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
   );
 }
 
+/**
+ * The shared Overview shell (PLAN-0921-1029, area 2, point 2 of the brief):
+ * four `StatTile`s, `RecordNeedsYou` (renders nothing when empty), the kind's
+ * own `overviewCards` in order, then a trailing "Recent activity" card. Every
+ * kind computes its own tiles/needs/cards/activity from its OWN real record
+ * data and passes them through `renderRecordSection("overview", {...})` —
+ * this component only lays the pieces out, it never invents a number.
+ */
+function OverviewSection({ overviewTiles, overviewNeeds, overviewCards, overviewActivity }: RecordSectionRendererProps) {
+  const cards = overviewCards ?? [];
+  return (
+    <div className="space-y-3">
+      {overviewTiles && overviewTiles.length > 0 ? (
+        <RecordStatTiles>
+          {overviewTiles.map((tile) => (
+            <StatTile key={tile.id} label={tile.label} value={tile.value} detail={tile.detail} href={tile.href} tone={tile.tone} dataAttr={`record-overview-tile-${tile.id}`} />
+          ))}
+        </RecordStatTiles>
+      ) : null}
+      {overviewNeeds && overviewNeeds.length > 0 ? <RecordNeedsYou items={overviewNeeds} /> : null}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {cards.map((card) =>
+          card.kind === "rows" ? (
+            <RecordRowsCard
+              key={card.id}
+              title={card.title}
+              action={card.action}
+              rows={card.rows}
+              emptyLabel={card.emptyLabel}
+              footer={card.footer}
+              dataAttr={`record-overview-card-${card.id}`}
+            />
+          ) : (
+            <RecordFactCard key={card.id} title={card.title} action={card.action} dataAttr={`record-overview-card-${card.id}`}>
+              {card.rows.map((row, index) => (
+                <RecordFactRow key={index} label={row.label} value={row.value} tone={row.tone} />
+              ))}
+            </RecordFactCard>
+          ),
+        )}
+        {overviewActivity ? (
+          <RecordRowsCard
+            title="Recent activity"
+            action={overviewActivity.href ? { label: "All activity", href: overviewActivity.href } : undefined}
+            rows={overviewActivity.rows}
+            dataAttr="record-overview-card-activity"
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+registerRecordSectionRenderer("overview", OverviewSection);
 registerRecordSectionRenderer("documents", DocumentsSection);
 registerRecordSectionRenderer("activity", ActivitySection);
 registerRecordSectionRenderer("communication", CommunicationSection);

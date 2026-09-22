@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { Check, CheckCircle2, Pencil, Trash2, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
-  PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import {
@@ -240,56 +240,45 @@ export function ManagerServiceRequestDetail({
     req.residentEmail ||
     "Resident";
 
+  // A record page's header actions are icons only (docs/agents/record-page.md
+  // § Known gap) — this used to be a labelled-button toolbar footer.
   const detailActions = (
     <>
         {req.status === "pending" ? (
           <>
-            <Button
-              type="button"
-              variant="primary"
-              className={PORTAL_DETAIL_BTN}
+            <PortalIconAction
+              icon={CheckCircle2}
+              label="Approve"
+              tone="primary"
               data-attr="service-request-approve"
               onClick={openApprovePreview}
-            >
-              Approve
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
+            />
+            <PortalIconAction
+              icon={XCircle}
+              label="Deny"
+              tone="danger"
               data-attr="service-request-deny"
               onClick={openDenyPreview}
-            >
-              Deny
-            </Button>
+            />
             {editingCharges ? (
-              <>
-                <Button type="button" variant="primary" className={PORTAL_DETAIL_BTN} onClick={saveCharges}>
-                  Save
-                </Button>
-                </>
+              <PortalIconAction icon={Check} label="Save" tone="primary" onClick={saveCharges} />
             ) : (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
+              <PortalIconAction
+                icon={Pencil}
+                label="Edit"
                 data-attr="service-request-edit-charges"
                 onClick={() => setEditingCharges(true)}
-              >
-                Edit
-              </Button>
+              />
             )}
           </>
         ) : null}
         {allowDelete ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          <PortalIconAction
+            icon={Trash2}
+            label="Delete"
+            tone="danger"
             onClick={() => setDeleteOpen(true)}
-          >
-            Delete
-          </Button>
+          />
         ) : null}
     </>
   );

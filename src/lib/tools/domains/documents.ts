@@ -5,11 +5,18 @@
  * through a server-minted signed URL after an ownership check, so this tool
  * returns METADATA ONLY and never a URL or file content. The assistant tells the
  * landlord what exists and where it lives; opening it stays a portal action.
- * Every query is scoped by `manager_user_id = ctx.landlordId`.
+ * Every query is scoped by `manager_user_id = ctx.landlordId`, AND — for an
+ * account with more than one workspace — by the active workspace: a document
+ * filed against a property outside it is invisible, and a document filed
+ * against no property at all (a lease template, a portfolio-wide policy) is
+ * visible only while the viewer's own DEFAULT workspace is active, matching
+ * the same account-level-row rule the inbox already follows
+ * (`untaggedOwnedVisible`, `src/lib/communication/conversation-visibility.server.ts`).
  */
 import { z } from "zod";
 import { defineTool } from "../registry";
 import { DOCUMENT_CATEGORIES } from "@/lib/documents/manager-documents";
+import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 const MAX_ROWS = 500;
 
@@ -33,6 +40,11 @@ export const listDocumentsTool = defineTool({
     })
     .strict(),
   handler: async (ctx, input) => {
+    // Never widen: an explicit propertyId outside the active workspace is
+    // refused up front rather than silently answered against another house.
+    if (input.propertyId && !propertyInAgentWorkspace(ctx.workspace, input.propertyId)) {
+      return { count: 0, documents: [] };
+    }
     let query = ctx.db
       .from("manager_documents")
       .select(
@@ -42,7 +54,20 @@ export const listDocumentsTool = defineTool({
       .order("created_at", { ascending: false })
       .limit(MAX_ROWS);
     if (input.category) query = query.eq("category", input.category);
-    if (input.propertyId) query = query.eq("property_id", input.propertyId);
+    if (input.propertyId) {
+      query = query.eq("property_id", input.propertyId);
+    } else if (ctx.workspace?.narrowing) {
+      const ids = ctx.workspace.propertyIds;
+      if (ids.length === 0 && !ctx.workspace.isDefault) {
+        return { count: 0, documents: [] };
+      }
+      query =
+        ids.length === 0
+          ? query.is("property_id", null)
+          : ctx.workspace.isDefault
+            ? query.or(`property_id.in.(${ids.join(",")}),property_id.is.null`)
+            : query.in("property_id", [...ids]);
+    }
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 

@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   ArrowLeftRight,
+  Bell,
   Calendar,
   Camera,
   CheckCircle2,
@@ -11,10 +12,13 @@ import {
   Lock,
   Mail,
   Pencil,
+  Plus,
+  Printer,
   RefreshCw,
   Send,
   Share2,
   Trash2,
+  Upload,
   UserMinus,
   UserPlus,
   Eye,
@@ -22,6 +26,7 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  applicationDetailHref,
   documentRecordHref,
   inspectionDetailHref,
   leaseDetailHref,
@@ -30,7 +35,10 @@ import {
   paymentRecordDetailHref,
   propertyDetailHref,
   PROPERTY_DETAIL_TOP_TAB_LABELS,
+  residentApplicationDetailHref,
+  residentChargeDetailHref,
   residentDetailHref,
+  residentLeaseDetailHref,
   residentServiceDetailHref,
   serviceRequestDetailHref,
   vendorCatalogDetailHref,
@@ -39,11 +47,19 @@ import {
   vendorJobDetailHref,
   vendorPayoutDetailHref,
   workOrderDetailHref,
+  type ApplicationBucketId,
+  type ApplicationDetailTabId,
   type DocumentDetailTabId,
   type LeaseDetailTabId,
   type LeasePipelineTabId,
   type ManagerTourBucketId,
+  type PaymentBucketId,
   type PaymentDirectionId,
+  type ResidentApplicationBucketId,
+  type ResidentApplicationDetailTabId,
+  type ResidentLeaseBucketId,
+  type ResidentLeaseDetailTabId,
+  type ResidentPaymentDetailTabId,
   type ResidentServiceDetailTabId,
   type ServiceDetailTabId,
   type ServiceRequestBucketId,
@@ -89,7 +105,7 @@ export type ManagerRecordKind =
   | "booking"
   | "document";
 
-export type ResidentRecordKind = "payment" | "lease" | "service" | "inspection" | "document";
+export type ResidentRecordKind = "payment" | "lease" | "service" | "inspection" | "document" | "application";
 
 export type VendorRecordKind = "job" | "invoice" | "payout";
 
@@ -115,11 +131,8 @@ export type RecordHeaderAction = {
 
 export type RecordSections = {
   groups: RecordSectionGroup[];
+  /** The active section's header icons — see `recordSections`'s `activeSectionId` param. */
   headerActions: RecordHeaderAction[];
-  /** Id into `headerActions` rendered as the phone sticky primary button. */
-  phonePrimary?: string;
-  /** Sticky-button copy when it differs from the header action's tooltip ("Edit listing" vs "Edit"). */
-  phonePrimaryLabel?: string;
 };
 
 /** Extra ids a kind's href builder needs beyond the record id itself — every field optional, sensibly defaulted. */
@@ -129,7 +142,7 @@ export type RecordSectionContext = {
   stage?: string;
   /** resident */
   residentsTab?: string;
-  /** payment / outgoing-payment */
+  /** payment / outgoing-payment / application (manager+resident: the list bucket the record lives in) */
   direction?: PaymentDirectionId;
   bucket?: string;
   /** inspection */
@@ -150,9 +163,15 @@ type OwnGroup = { label: string; ids: Array<{ id: string; label: string }> };
 type KindDef = {
   basePathDefault: string;
   ownGroups: OwnGroup[];
+  /** The default header icon set — used for a section with no entry of its own below. */
   headerActions: RecordHeaderAction[];
-  phonePrimary?: string;
-  phonePrimaryLabel?: string;
+  /**
+   * A section's own header icon set, keyed by section id, when it differs
+   * from the kind's default (a document viewer or a Payments tab carries its
+   * own actions instead of the record's general set). A section not listed
+   * here falls back to `headerActions`.
+   */
+  sectionActions?: Record<string, RecordHeaderAction[]>;
   hasDocuments: boolean;
   hasActivity: boolean;
   href: (ctx: RecordSectionContext) => (recordId: string, tab: string) => string;
@@ -180,8 +199,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "copy", label: "Copy", icon: Copy },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    phonePrimary: "edit",
-    phonePrimaryLabel: "Edit listing",
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => {
@@ -212,7 +229,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "share", label: "Share", icon: Share2 },
       { id: "archive", label: "Archive", icon: Archive },
     ],
-    phonePrimary: "message",
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => {
@@ -236,8 +252,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "send-reminder", label: "Send reminder", icon: Send },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    phonePrimary: "record-payment",
-    phonePrimaryLabel: "Record payment",
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => {
@@ -262,7 +276,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "edit", label: "Edit", icon: Pencil },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    phonePrimary: "pay-now",
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => {
@@ -274,23 +287,41 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   lease: {
     basePathDefault: "/portal",
-    ownGroups: [{ label: "Lease", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "terms", label: "Terms" },
-      { id: "signatures", label: "Signatures" },
-      { id: "amendments", label: "Amendments" },
-      { id: "payments", label: "Payments" },
-    ] }],
-    headerActions: [
-      { id: "send", label: "Send", icon: Send },
-      { id: "amend", label: "Amend", icon: Pencil },
-      { id: "download", label: "Download", icon: Download },
-      { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
+    // PLAN-0921-1029, area 2: Overview · Lease document · Payments ·
+    // Communication. "Terms", "Signatures" and "Amendments" fold into the
+    // Lease document view instead of staying separate tabs.
+    ownGroups: [
+      { label: "Lease", ids: [
+        { id: "overview", label: "Overview" },
+        { id: "lease-document", label: "Lease document" },
+      ] },
+      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
     ],
-    phonePrimary: "send",
-    phonePrimaryLabel: "Send for signature",
-    hasDocuments: true,
-    hasActivity: true,
+    headerActions: [
+      { id: "send", label: "Send for signature", icon: Send },
+      { id: "edit", label: "Edit", icon: Pencil },
+      { id: "share", label: "Share", icon: Share2 },
+      { id: "archive", label: "Archive", icon: Archive },
+    ],
+    sectionActions: {
+      "lease-document": [
+        { id: "send", label: "Send for signature", icon: Send },
+        { id: "new-version", label: "Generate new version", icon: Plus },
+        { id: "upload", label: "Upload a PDF", icon: Upload },
+        { id: "download", label: "Download", icon: Download },
+      ],
+      payments: [
+        { id: "add-charge", label: "Add charge", icon: Plus },
+        { id: "send-reminder", label: "Send reminder", icon: Bell },
+        { id: "export", label: "Export", icon: Download },
+      ],
+      communication: [
+        { id: "compose", label: "New message", icon: Mail },
+        { id: "archive-thread", label: "Archive thread", icon: Archive },
+      ],
+    },
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const listTab = ctx.leaseListTab ?? "manager";
@@ -299,11 +330,13 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   application: {
     basePathDefault: "/portal",
+    // PLAN-0921-1029, area 2: Overview · Application form · Screening ·
+    // Communication. "Applicants" folds into the Application form view;
+    // "Decision" folds into Overview's own fact cards.
     ownGroups: [{ label: "Application", ids: [
       { id: "overview", label: "Overview" },
-      { id: "applicants", label: "Applicants" },
+      { id: "application-form", label: "Application form" },
       { id: "screening", label: "Screening" },
-      { id: "decision", label: "Decision" },
     ] }],
     headerActions: [
       { id: "approve", label: "Approve", icon: CheckCircle2 },
@@ -311,29 +344,64 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "share", label: "Share", icon: Share2 },
       { id: "archive", label: "Archive", icon: Archive },
     ],
-    phonePrimary: "approve",
-    hasDocuments: true,
-    hasActivity: true,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "applications"),
+    sectionActions: {
+      "application-form": [
+        { id: "approve", label: "Approve", icon: CheckCircle2 },
+        { id: "request-info", label: "Request more info", icon: Mail },
+        { id: "download", label: "Download", icon: Download },
+        { id: "print", label: "Print", icon: Printer },
+      ],
+      screening: [
+        { id: "approve", label: "Approve", icon: CheckCircle2 },
+        { id: "rerun", label: "Re-run screening", icon: RefreshCw },
+        { id: "download-report", label: "Download report", icon: Download },
+      ],
+      communication: [
+        { id: "compose", label: "New message", icon: Mail },
+        { id: "archive-thread", label: "Archive thread", icon: Archive },
+      ],
+    },
+    hasDocuments: false,
+    hasActivity: false,
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      const bucket = (ctx.bucket ?? "pending") as ApplicationBucketId;
+      return (recordId, tab) => applicationDetailHref(basePath, bucket, recordId, tab as ApplicationDetailTabId);
+    },
   },
   inspection: {
     basePathDefault: "/portal",
+    // PLAN-0921-1029, area 2: Overview · Rooms · Payments · Communication.
+    // "Resident" and "Vendor" fold into Overview's Home fact card.
     ownGroups: [
-      { label: "Inspection", ids: [{ id: "overview", label: "Overview" }] },
-      { label: "People", ids: [
-        { id: "resident", label: "Resident" },
-        { id: "vendor", label: "Vendor" },
+      { label: "Inspection", ids: [
+        { id: "overview", label: "Overview" },
+        { id: "rooms", label: "Rooms" },
       ] },
-      { label: "Money", ids: [{ id: "payments", label: "Payments" }] },
+      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
     ],
     headerActions: [
       { id: "request-photos", label: "Request photos", icon: Camera },
       { id: "download-report", label: "Download report", icon: Download },
       { id: "lock", label: "Lock", icon: Lock },
     ],
-    phonePrimary: "request-photos",
-    hasDocuments: true,
-    hasActivity: true,
+    sectionActions: {
+      rooms: [
+        { id: "add-photos", label: "Add photos", icon: Camera },
+        { id: "download-report", label: "Download PDF", icon: Download },
+        { id: "lock", label: "Lock", icon: Lock },
+      ],
+      payments: [
+        { id: "add-charge", label: "Add charge", icon: Plus },
+        { id: "export", label: "Export", icon: Download },
+      ],
+      communication: [
+        { id: "compose", label: "New message", icon: Mail },
+        { id: "archive-thread", label: "Archive thread", icon: Archive },
+      ],
+    },
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const kind = ctx.inspectionKind ?? "move-in";
@@ -342,21 +410,44 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   service: {
     basePathDefault: "/portal",
-    ownGroups: [{ label: "Service", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "vendor-bids", label: "Vendor & bids" },
-      { id: "schedule", label: "Schedule" },
-      { id: "invoice", label: "Invoice" },
-    ] }],
+    // PLAN-0921-1029, area 2: Overview · Vendor & schedule · Photos ·
+    // Payments · Communication. "Vendor & bids" and "Schedule" merge into one
+    // section; "Invoice" folds into Payments (a service's invoice IS its charge).
+    ownGroups: [
+      { label: "Service", ids: [
+        { id: "overview", label: "Overview" },
+        { id: "vendor-schedule", label: "Vendor & schedule" },
+        { id: "photos", label: "Photos" },
+      ] },
+      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
+    ],
     headerActions: [
       { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
       { id: "schedule", label: "Schedule", icon: Calendar },
       { id: "close", label: "Close", icon: CheckCircle2 },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    phonePrimary: "assign-vendor",
-    hasDocuments: true,
-    hasActivity: true,
+    sectionActions: {
+      "vendor-schedule": [
+        { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
+        { id: "propose-time", label: "Propose a time", icon: Calendar },
+        { id: "invite-vendor", label: "Invite another vendor", icon: Mail },
+      ],
+      photos: [
+        { id: "add-photos", label: "Add photos", icon: Camera },
+        { id: "download-all", label: "Download all", icon: Download },
+      ],
+      payments: [
+        { id: "add-charge", label: "Add charge", icon: Plus },
+        { id: "export", label: "Export", icon: Download },
+      ],
+      communication: [
+        { id: "compose", label: "New message", icon: Mail },
+        { id: "archive-thread", label: "Archive thread", icon: Archive },
+      ],
+    },
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const serviceKind = ctx.serviceKind ?? "work-order";
@@ -370,23 +461,21 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   task: {
     basePathDefault: "/portal",
+    // PLAN-0921-1029, area 2: Overview · Communication. "Payments", "Vendor"
+    // and "Resident" fold into Overview's own fact cards.
     ownGroups: [
       { label: "Task", ids: [{ id: "overview", label: "Overview" }] },
-      { label: "Money", ids: [{ id: "payments", label: "Payments" }] },
-      { label: "People", ids: [
-        { id: "vendor", label: "Vendor" },
-        { id: "resident", label: "Resident" },
-      ] },
     ],
     headerActions: [
       { id: "mark-done", label: "Mark done", icon: CheckCircle2 },
       { id: "reassign", label: "Reassign", icon: RefreshCw },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    phonePrimary: "mark-done",
-    phonePrimaryLabel: "Mark done",
+    sectionActions: {
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
     hasDocuments: false,
-    hasActivity: true,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const listTab = ctx.taskListTab ?? "in-progress";
@@ -395,14 +484,14 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   vendor: {
     basePathDefault: "/portal",
+    // PLAN-0921-1029, area 2: Overview · Services · Invoices · Communication ·
+    // Documents. "Profile", "Jobs" and "Check-ins" fold into Overview's own
+    // fact cards (Contact, Services).
     ownGroups: [
       { label: "Vendor", ids: [
         { id: "overview", label: "Overview" },
-        { id: "profile", label: "Profile" },
-      ] },
-      { label: "Work", ids: [
-        { id: "jobs", label: "Jobs" },
-        { id: "check-ins", label: "Check-ins" },
+        { id: "services", label: "Services" },
+        { id: "invoices", label: "Invoices" },
       ] },
     ],
     headerActions: [
@@ -410,9 +499,23 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "invite", label: "Invite", icon: UserPlus },
       { id: "remove", label: "Remove", icon: UserMinus, tone: "danger" },
     ],
-    phonePrimary: "message",
+    sectionActions: {
+      services: [
+        { id: "new-service", label: "New service", icon: Plus },
+        { id: "message", label: "Message", icon: Mail },
+      ],
+      invoices: [
+        { id: "approve-invoice", label: "Approve invoice", icon: CheckCircle2 },
+        { id: "export", label: "Export", icon: Download },
+      ],
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+      documents: [
+        { id: "upload", label: "Upload", icon: Upload },
+        { id: "download-all", label: "Download all", icon: Download },
+      ],
+    },
     hasDocuments: true,
-    hasActivity: true,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       return (recordId, tab) => vendorDetailHref(basePath, recordId, tab as never);
@@ -437,7 +540,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "email", label: "Email", icon: Mail },
       { id: "share", label: "Share", icon: Share2 },
     ],
-    phonePrimary: "add",
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => {
@@ -447,20 +549,19 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   tour: {
     basePathDefault: "/portal",
-    ownGroups: [{ label: "Tour", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "prospect", label: "Prospect" },
-      { id: "slot", label: "Slot" },
-      { id: "follow-up", label: "Follow-up" },
-    ] }],
+    // PLAN-0921-1029, area 2: Overview · Communication. "Prospect", "Slot"
+    // and "Follow-up" fold into Overview's own fact cards.
+    ownGroups: [{ label: "Tour", ids: [{ id: "overview", label: "Overview" }] }],
     headerActions: [
       { id: "confirm", label: "Confirm", icon: CheckCircle2 },
       { id: "reschedule", label: "Reschedule", icon: RefreshCw },
       { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },
     ],
-    phonePrimary: "confirm",
+    sectionActions: {
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
     hasDocuments: false,
-    hasActivity: true,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const bucket = ctx.tourBucket ?? "pending";
@@ -483,8 +584,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "record-payment", label: "Record payment", icon: CreditCard },
       { id: "cancel", label: "Cancel", icon: XCircle, tone: "danger" },
     ],
-    phonePrimary: "edit-dates",
-    phonePrimaryLabel: "Edit",
     hasDocuments: true,
     hasActivity: true,
     href: (ctx) => genericHref(ctx.basePath ?? "/portal", "bookings"),
@@ -500,7 +599,14 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "share", label: "Share", icon: Share2 },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    phonePrimary: "download",
+    // The Details tab is metadata, not the file itself — nothing to download
+    // from it, so it drops that one action rather than offering a dead click.
+    sectionActions: {
+      details: [
+        { id: "share", label: "Share", icon: Share2 },
+        { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
+      ],
+    },
     hasDocuments: false,
     hasActivity: true,
     href: (ctx) => {
@@ -513,35 +619,86 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
 const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
   payment: {
     basePathDefault: "/resident",
-    ownGroups: [{ label: "Payment", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "receipt", label: "Receipt" },
-    ] }],
+    // PLAN-0921-1029, area 2: Overview · Communication. "Receipt" folds into
+    // the existing "Download receipt" header action.
+    ownGroups: [{ label: "Payment", ids: [{ id: "overview", label: "Overview" }] }],
     headerActions: [
       { id: "pay", label: "Pay", icon: CreditCard },
       { id: "download-receipt", label: "Download receipt", icon: Download },
     ],
-    phonePrimary: "pay",
-    hasDocuments: true,
+    sectionActions: {
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
+    hasDocuments: false,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/resident", "payments"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/resident";
+      const bucket = (ctx.bucket ?? "pending") as PaymentBucketId;
+      return (recordId, tab) => residentChargeDetailHref(basePath, bucket, recordId, tab as ResidentPaymentDetailTabId);
+    },
   },
   lease: {
     basePathDefault: "/resident",
-    ownGroups: [{ label: "Lease", ids: [
-      { id: "overview", label: "Overview" },
-      { id: "terms", label: "Terms" },
-      { id: "signatures", label: "Signatures" },
-      { id: "payments", label: "Payments" },
-    ] }],
+    // PLAN-0921-1029, area 2: Overview · Lease document · Payments ·
+    // Communication. "Terms" and "Signatures" fold into the Lease document view.
+    ownGroups: [
+      { label: "Lease", ids: [
+        { id: "overview", label: "Overview" },
+        { id: "lease-document", label: "Lease document" },
+      ] },
+      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
+    ],
     headerActions: [
       { id: "sign", label: "Sign", icon: FileSignature },
       { id: "download", label: "Download", icon: Download },
     ],
-    phonePrimary: "sign",
-    hasDocuments: true,
+    sectionActions: {
+      "lease-document": [
+        { id: "sign", label: "Sign this lease", icon: FileSignature },
+        { id: "download", label: "Download", icon: Download },
+        { id: "ask", label: "Ask a question", icon: Mail },
+      ],
+      payments: [
+        { id: "pay", label: "Pay", icon: CreditCard },
+        { id: "receipts", label: "Receipts", icon: Download },
+      ],
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
+    hasDocuments: false,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/resident", "lease"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/resident";
+      const bucket = (ctx.bucket ?? "pending") as ResidentLeaseBucketId;
+      return (recordId, tab) => residentLeaseDetailHref(basePath, bucket, recordId, tab as ResidentLeaseDetailTabId);
+    },
+  },
+  application: {
+    basePathDefault: "/resident",
+    // PLAN-0921-1029, area 2 (new kind): Overview · Application form ·
+    // Communication.
+    ownGroups: [{ label: "Application", ids: [
+      { id: "overview", label: "Overview" },
+      { id: "application-form", label: "Application form" },
+    ] }],
+    headerActions: [
+      { id: "sign-lease", label: "Sign your lease", icon: Send },
+      { id: "download", label: "Download", icon: Download },
+      { id: "message", label: "Message manager", icon: Mail },
+    ],
+    sectionActions: {
+      "application-form": [
+        { id: "edit", label: "Edit my answers", icon: Pencil },
+        { id: "download", label: "Download", icon: Download },
+      ],
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
+    hasDocuments: false,
+    hasActivity: false,
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/resident";
+      const bucket = (ctx.bucket ?? "approved") as ResidentApplicationBucketId;
+      return (recordId, tab) => residentApplicationDetailHref(basePath, bucket, recordId, tab as ResidentApplicationDetailTabId);
+    },
   },
   service: {
     basePathDefault: "/resident",
@@ -555,8 +712,6 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
       { id: "cancel", label: "Cancel", icon: XCircle, tone: "danger" },
       { id: "message", label: "Message manager", icon: Mail },
     ],
-    phonePrimary: "message",
-    phonePrimaryLabel: "Message manager",
     hasDocuments: false,
     hasActivity: false,
     href: (ctx) => {
@@ -575,7 +730,6 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
       { id: "add-photos", label: "Add photos", icon: Camera },
       { id: "download", label: "Download", icon: Download },
     ],
-    phonePrimary: "add-photos",
     hasDocuments: false,
     hasActivity: false,
     href: (ctx) => genericHref(ctx.basePath ?? "/resident", "inspections"),
@@ -587,7 +741,6 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
       { id: "details", label: "Details" },
     ] }],
     headerActions: [{ id: "download", label: "Download", icon: Download }],
-    phonePrimary: "download",
     hasDocuments: false,
     hasActivity: false,
     href: (ctx) => genericHref(ctx.basePath ?? "/resident", "documents"),
@@ -597,20 +750,32 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
 const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
   job: {
     basePathDefault: "/vendor",
-    ownGroups: [{ label: "Job", ids: [
+    // PLAN-0921-1029, area 2 (vendor-portal Service): Overview · Schedule ·
+    // Invoice · Communication. "Scope & photos" folds into Overview's Job
+    // fact card.
+    ownGroups: [{ label: "Service", ids: [
       { id: "overview", label: "Overview" },
-      { id: "scope-photos", label: "Scope & photos" },
       { id: "schedule", label: "Schedule" },
-      { id: "bid-invoice", label: "Bid / Invoice" },
+      { id: "invoice", label: "Invoice" },
     ] }],
     headerActions: [
       { id: "accept", label: "Accept", icon: CheckCircle2 },
       { id: "schedule", label: "Schedule", icon: Calendar },
       { id: "submit-invoice", label: "Submit invoice", icon: Send },
     ],
-    phonePrimary: "accept",
-    hasDocuments: true,
-    hasActivity: true,
+    sectionActions: {
+      schedule: [
+        { id: "propose-time", label: "Propose a time", icon: Calendar },
+        { id: "message", label: "Message manager", icon: Mail },
+      ],
+      invoice: [
+        { id: "submit-invoice", label: "Submit invoice", icon: Send },
+        { id: "download", label: "Download", icon: Download },
+      ],
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/vendor";
       return (recordId, tab) => vendorJobDetailHref(basePath, recordId, tab as VendorJobDetailTabId);
@@ -629,7 +794,6 @@ const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
       { id: "download", label: "Download", icon: Download },
       { id: "submit", label: "Submit", icon: Send },
     ],
-    phonePrimary: "submit",
     hasDocuments: true,
     hasActivity: false,
     href: (ctx) => {
@@ -673,6 +837,8 @@ export function recordSections(
   role: PortalRole,
   kind: string,
   ctx: RecordSectionContext = {},
+  /** The section currently open — resolves that section's own header icons, falling back to the kind's default set. */
+  activeSectionId?: string,
 ): RecordSections {
   const def = DEFS[role]?.[kind];
   if (!def) {
@@ -703,11 +869,12 @@ export function recordSections(
   // chrome, not a labeled category the way "Money" or "People" are.
   groups.push({ label: "", items: trioItems });
 
+  const headerActions =
+    (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions;
+
   return {
     groups,
-    headerActions: def.headerActions,
-    phonePrimary: def.phonePrimary,
-    phonePrimaryLabel: def.phonePrimaryLabel,
+    headerActions,
   };
 }
 

@@ -43,7 +43,6 @@ describe("vendorCatalog record-sections registry entry", () => {
     expect(ownGroupLabels).toEqual(["Vendor", "Work"]);
     expect(sections.headerActions.map((a) => a.id)).toEqual(["add", "email", "share"]);
     expect(sections.headerActions.map((a) => a.label)).toEqual(["Add to your vendors", "Email", "Share"]);
-    expect(sections.phonePrimary).toBe("add");
   });
 
   it("resolves a catalog id's tab hrefs under /vendors (query-string routed)", () => {

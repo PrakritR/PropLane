@@ -31,12 +31,9 @@ import {
   ApplicationPdfDownloadButton,
   runApplicationPdfDownload,
 } from "@/components/portal/pro-applications";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import {
-  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
-  ResidentDocumentsDetailFooter,
-} from "@/components/portal/portal-data-table";
-import { Button } from "@/components/ui/button";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { Download, Pencil } from "lucide-react";
 import { ResidentLeaseDocumentsListSection } from "@/components/portal/resident-lease-list";
 import {
   RESIDENT_LEASE_LIST_LABEL,
@@ -311,17 +308,12 @@ function ResidentApplicationDocumentDetail({
       hideBackText
       bareHeader
       dataAttrBack="resident-documents-application-detail-back"
+      iconTitleActions
       pinScrollBody
-      footer={
-        <ResidentDocumentsDetailFooter>
-          <ApplicationPdfDownloadButton
-            row={row}
-            label="Download application"
-            className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-          />
-        </ResidentDocumentsDetailFooter>
-      }
     >
+      <PortalRecordActions>
+        <ApplicationPdfDownloadButton row={row} label="Download application" icon />
+      </PortalRecordActions>
       <div className="px-3 pb-6 pt-2 sm:px-4">
         <ApplicationDocumentPreview
           row={row}
@@ -485,30 +477,23 @@ function ResidentLeaseDocumentDetail({ leaseId, basePath }: { leaseId: string; b
       hideBackText
       bareHeader
       dataAttrBack="resident-documents-lease-detail-back"
+      iconTitleActions
       pinScrollBody
-      footer={
-        <ResidentDocumentsDetailFooter>
-          <Button
-            type="button"
-            variant="outline"
-            className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-            data-attr="resident-documents-lease-request-edits"
-            onClick={openRequestEdits}
-          >
-            Request edits
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-            data-attr="resident-documents-lease-download-pdf"
-            onClick={() => runLeaseDownload(downloadTarget, showToast)}
-          >
-            {view.pdfSrc ? "Download lease" : "Download / print lease"}
-          </Button>
-        </ResidentDocumentsDetailFooter>
-      }
     >
+      <PortalRecordActions>
+        <PortalIconAction
+          icon={Pencil}
+          label="Request edits"
+          data-attr="resident-documents-lease-request-edits"
+          onClick={openRequestEdits}
+        />
+        <PortalIconAction
+          icon={Download}
+          label={view.pdfSrc ? "Download lease" : "Download / print lease"}
+          data-attr="resident-documents-lease-download-pdf"
+          onClick={() => runLeaseDownload(downloadTarget, showToast)}
+        />
+      </PortalRecordActions>
       <div className="px-3 pb-6 pt-2 sm:px-4">
         <ResidentLeaseBareDocumentPreview
           pdfSrc={view.pdfSrc}
@@ -640,21 +625,17 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
       hideBackText
       bareHeader
       dataAttrBack="resident-documents-receipt-detail-back"
+      iconTitleActions
       pinScrollBody
-      footer={
-        <ResidentDocumentsDetailFooter>
-          <Button
-            type="button"
-            variant="outline"
-            className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-            data-attr="resident-documents-receipt-download"
-            onClick={() => downloadReceipt(receipt)}
-          >
-            Download receipt
-          </Button>
-        </ResidentDocumentsDetailFooter>
-      }
     >
+      <PortalRecordActions>
+        <PortalIconAction
+          icon={Download}
+          label="Download receipt"
+          data-attr="resident-documents-receipt-download"
+          onClick={() => downloadReceipt(receipt)}
+        />
+      </PortalRecordActions>
       <div className="px-3 pb-6 pt-2 sm:px-4">
         <DocumentInlineViewer
           embedded

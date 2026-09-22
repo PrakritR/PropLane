@@ -101,7 +101,7 @@ export function PortalRecordRail({
           </span>
         </div>
       ) : null}
-      <nav className={cn("flex flex-col gap-px px-2", !showBackLink && !showTitleBlock && "pt-2")}>
+      <nav aria-label={ariaLabel} className={cn("flex flex-col gap-px px-2", !showBackLink && !showTitleBlock && "pt-2")}>
         {grouped.map((group, index) => (
           <div key={group.label ? group.label : `group-${index}`} className="flex flex-col gap-px">
             {group.label ? (

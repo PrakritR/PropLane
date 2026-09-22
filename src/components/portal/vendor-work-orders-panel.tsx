@@ -891,37 +891,16 @@ export function VendorWorkOrdersPanel({
       // same Bid / Invoice form — the header icon takes you to it rather than
       // re-implementing the form's validation a second time.
       if (actionId === "accept" || actionId === "submit-invoice") {
-        navigate(vendorJobDetailHref("/vendor", row.id, "bid-invoice"));
+        navigate(vendorJobDetailHref("/vendor", row.id, "invoice"));
         return;
       }
       if (actionId === "schedule") {
         navigate(vendorJobDetailHref("/vendor", row.id, "schedule"));
       }
     };
+    const bid = bidsByWorkOrderId[row.id];
     const ownContent =
-      activeTab === "scope-photos" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-scope-photos">
-          <p className="text-sm leading-relaxed text-muted">{row.description}</p>
-          {row.photoDataUrls?.length ? (
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {row.photoDataUrls.map((src, i) => {
-                const trimmed = src.trim();
-                if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
-                return (
-                  <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={trimmed} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
-                  </a>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mt-3">
-              <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="vendor-job-photos-empty" />
-            </div>
-          )}
-        </div>
-      ) : activeTab === "schedule" ? (
+      activeTab === "schedule" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
           {row.scheduled && row.scheduled !== "—" ? (
             <p className="text-sm text-foreground">
@@ -937,12 +916,12 @@ export function VendorWorkOrdersPanel({
             </p>
           ) : null}
         </div>
-      ) : activeTab === "bid-invoice" ? (
+      ) : activeTab === "invoice" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-bid-invoice">
           {renderRowDetail(row)}
         </div>
-      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
-        renderRecordSection(activeTab, {
+      ) : activeTab === "communication" ? (
+        renderRecordSection("communication", {
           role: "vendor",
           kind: "job",
           kindLabel: "job",
@@ -950,11 +929,65 @@ export function VendorWorkOrdersPanel({
           recordLabel: row.title,
         })
       ) : (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-overview">
-          <p className="text-sm leading-relaxed text-muted">{row.description}</p>
-          <p className="mt-2 text-xs text-muted">{[row.reference, propertyLabel(row)].filter(Boolean).join(" · ")}</p>
-          <p className="mt-1 text-xs text-muted">{vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id])}</p>
-        </div>
+        <>
+        {renderRecordSection("overview", {
+          role: "vendor",
+          kind: "job",
+          kindLabel: "job",
+          recordId: row.id,
+          recordLabel: row.title,
+          overviewTiles: [
+            { id: "bid", label: "Your bid", value: bid?.amountCents ? `$${(bid.amountCents / 100).toFixed(0)}` : "—" },
+            { id: "status", label: "Status", value: vendorWorkOrderPhaseLabel(row, bid) ?? "—" },
+            { id: "visit", label: "Visit", value: row.scheduled && row.scheduled !== "—" ? String(row.scheduled) : "Not scheduled" },
+            { id: "paid", label: "Paid", value: row.automationStatus === "paid" ? "Paid" : "$0" },
+          ],
+          overviewCards: [
+            {
+              id: "job",
+              title: "Job",
+              action: { label: "Schedule", href: vendorJobDetailHref("/vendor", row.id, "schedule") },
+              rows: [
+                { label: "Details", value: row.description || "—" },
+                { label: "Access", value: row.entryPermission ? `${row.entryPermission}${row.entryNotes ? ` (${row.entryNotes})` : ""}` : "—" },
+              ],
+            },
+            {
+              id: "site",
+              title: "Site",
+              rows: [
+                { label: "Property", value: propertyLabel(row) || "—" },
+                { label: "Reference", value: row.reference || "—" },
+              ],
+            },
+            {
+              id: "payments",
+              title: "Payments",
+              kind: "rows",
+              rows: [],
+              emptyLabel: "No invoice yet",
+              action: { label: "Invoice", href: vendorJobDetailHref("/vendor", row.id, "invoice") },
+            },
+          ],
+        })}
+        {row.photoDataUrls?.length ? (
+          <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {row.photoDataUrls.map((src, i) => {
+                const trimmed = src.trim();
+                if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
+                return (
+                  <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={trimmed} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+        </>
       );
     return (
       <PortalRecordDetailPage

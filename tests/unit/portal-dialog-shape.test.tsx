@@ -103,6 +103,21 @@ describe("PortalDialog footer shape", () => {
     );
     expect(buttons.map((b) => b.textContent)).toEqual(["Continue"]);
   });
+
+  it("omits the footer when primaryAction is null — browse dialogs dismiss via ×", () => {
+    mockDesktopMatchMedia();
+    render(
+      <PortalDialog open onClose={() => {}} title="Wednesday, September 30" primaryAction={null}>
+        <p>Body</p>
+      </PortalDialog>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const buttons = Array.from(dialog.querySelectorAll("button")).filter(
+      (b) => b.getAttribute("aria-label") !== "Close",
+    );
+    expect(buttons).toHaveLength(0);
+    expect(screen.queryByText("Cancel")).toBeNull();
+  });
 });
 
 describe("PortalDialog header", () => {
@@ -201,6 +216,8 @@ describe("PortalDialog adoption — source guard", () => {
     { file: "src/components/portal/pro-payments-ledger-panel.tsx" },
     { file: "src/components/portal/pro-applications.tsx" },
     { file: "src/components/portal/uploaded-lease-review-modal.tsx" },
+    { file: "src/components/portal/portal-calendar-panels.tsx" },
+    { file: "src/components/portal/bookings-day-page.tsx" },
   ];
 
   it("every adopted dialog renders through PortalDialog, not a hand-rolled Modal footer", () => {

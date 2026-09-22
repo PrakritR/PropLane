@@ -32,7 +32,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
-import { inspectionRoomLabel, type InspectionDetail, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
+import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
 
 const inspectionsSettingsEntry = getSettingsEntryPoint("inspections");
 
@@ -46,6 +46,26 @@ const photoLine = (photos: InspectionPhotoCounts) => {
   if (!photos.total) return "No photos yet";
   const parts = [photos.resident ? `resident ${photos.resident}` : "", photos.manager ? `manager ${photos.manager}` : ""].filter(Boolean);
   return `${photos.total} photo${photos.total === 1 ? "" : "s"}${parts.length > 1 ? ` · ${parts.join(", ")}` : ""}`;
+};
+
+/** Room-by-room progress straight from the stored document — the same rows Rooms itself renders. */
+function inspectionRoomStats(document: InspectionDocument): { done: number; total: number; issues: number } {
+  let done = 0;
+  let issues = 0;
+  for (const area of document.areas) {
+    const allChecked = area.items.every((item) => item.manager.condition !== "unchecked");
+    if (allChecked) done += 1;
+    if (area.items.some((item) => item.manager.condition === "damaged" || item.resident.condition === "damaged")) {
+      issues += 1;
+    }
+  }
+  return { done, total: document.areas.length, issues };
+}
+
+const INSPECTION_STATUS_LABEL: Record<InspectionDetail["report"]["status"], string> = {
+  draft: "In progress",
+  submitted: "Submitted",
+  completed: "Completed",
 };
 
 /** Hide the dev-only missing-table banner for managers; still show real partial-load notices. */
@@ -370,25 +390,57 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
           ariaLabel="Inspection sections"
           onHeaderAction={onInspectionHeaderAction}
         >
-          {recordTabId === "overview" ? editor : recordTabId === "payments" ? (
+          {recordTabId === "rooms" ? editor : recordTabId === "payments" ? (
             <PortalRecordRelatedPanel title="Payments" empty="No payment on this inspection." />
-          ) : recordTabId === "vendor" ? (
-            <PortalRecordRelatedPanel title="Vendor" empty="No vendor on this inspection." />
-          ) : recordTabId === "resident" ? (
-            <PortalRecordRelatedPanel
-              title="Resident"
-              value={detail.report.resident_name}
-              empty="No resident on this inspection."
-            />
-          ) : (
-            renderRecordSection(recordTabId, {
+          ) : recordTabId === "communication" ? (
+            renderRecordSection("communication", {
               role: "manager",
               kind: "inspection",
               kindLabel: "report",
               recordId: detail.report.id,
               recordLabel: kindLabel(detail.report.kind),
             })
-          )}
+          ) : (() => {
+            const { done, total, issues } = inspectionRoomStats(detail.report.document);
+            const photos = inspectionPhotoCounts(detail.report.document);
+            const notStarted = total - done;
+            return renderRecordSection("overview", {
+              role: "manager",
+              kind: "inspection",
+              kindLabel: "report",
+              recordId: detail.report.id,
+              recordLabel: kindLabel(detail.report.kind),
+              overviewTiles: [
+                { id: "rooms", label: "Rooms", value: `${done} of ${total}`, detail: "done" },
+                { id: "issues", label: "Issues", value: String(issues), tone: issues > 0 ? "danger" : "default" },
+                { id: "photos", label: "Photos", value: String(photos.total) },
+                { id: "status", label: "Status", value: INSPECTION_STATUS_LABEL[detail.report.status] },
+              ],
+              overviewNeeds: [
+                ...(notStarted > 0 ? [{ id: "rooms-remaining", title: `${notStarted} room${notStarted === 1 ? "" : "s"} not started`, detail: "Finish the checklist" }] : []),
+                ...(issues > 0 ? [{ id: "issues", title: `${issues} issue${issues === 1 ? "" : "s"} to resolve`, detail: "Charge or note in Rooms" }] : []),
+              ],
+              overviewCards: [
+                {
+                  id: "home",
+                  title: "Home",
+                  rows: [
+                    { label: "Property", value: detail.report.property_label },
+                    { label: "Unit", value: inspectionRoomLabel(detail.report.room_label) || "—" },
+                    { label: "Resident", value: detail.report.resident_name },
+                    { label: "Type", value: kindLabel(detail.report.kind) },
+                  ],
+                },
+                {
+                  id: "payments",
+                  title: "Payments",
+                  kind: "rows",
+                  rows: [],
+                  emptyLabel: "No charges yet",
+                },
+              ],
+            });
+          })()}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
     );

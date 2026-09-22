@@ -54,7 +54,12 @@ import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@
 import { cn } from "@/lib/utils";
 import { ArrowRight, BriefcaseBusiness, CircleDollarSign, Contact, Star } from "lucide-react";
 
-export type VendorDetailTab = "overview" | "profile" | "jobs" | "pricing" | "reviews" | "check-ins" | "communication" | "documents" | "activity";
+// PLAN-0921-1029, area 2: the manager's OWN vendor kind trims its picker to
+// Overview · Services · Invoices · Communication · Documents. "profile",
+// "jobs", "pricing", "reviews" and "check-ins" stay valid ids — their content
+// now lives inside Overview's own fact cards and the Services tab — so the
+// content itself is never deleted, only no longer linked from the picker.
+export type VendorDetailTab = "overview" | "profile" | "jobs" | "pricing" | "reviews" | "check-ins" | "services" | "invoices" | "communication" | "documents" | "activity";
 
 /** The editable subset of a vendor row. Everything else on the row is left untouched by a save. */
 type VendorDraft = {
@@ -446,7 +451,7 @@ export function ManagerVendorDetail({
           <div className="grid gap-3 lg:grid-cols-2" data-attr="vendor-overview-desktop" data-mobile-layout="390-compact">
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Contact className="size-4" aria-hidden />Profile</h2>{overviewLink("Profile", "profile")}</div>{fact("Trade", draft.trades.join(", "))}{fact("Work contact", draft.email || draft.phone)}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><CircleDollarSign className="size-4" aria-hidden />Pricing</h2>{overviewLink("Pricing", "pricing")}</div>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Jobs</h2>{overviewLink("Jobs", "jobs")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Services</h2>{overviewLink("Services", "services")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}</section>
           </div>
           {summaryState === "error" ? <p role="alert" className="text-sm text-destructive">Could not load vendor history.</p> : null}
@@ -519,8 +524,8 @@ export function ManagerVendorDetail({
         />
       ) : null}
 
-      {tab === "jobs" ? (
-        <div className="px-3 pb-4 sm:px-4">
+      {tab === "jobs" || tab === "services" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-services-list">
           {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading services…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load services.</p> : jobs.length === 0 ? (
             <p className="py-8 text-center text-sm">No services assigned to {callName} yet.</p>
           ) : (
@@ -541,6 +546,31 @@ export function ManagerVendorDetail({
                   </li>
                 );
               })}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {tab === "invoices" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-invoices-list">
+          {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading invoices…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load invoices.</p> : jobs.filter((job) => job.finalInvoiceCents != null).length === 0 ? (
+            <p className="py-8 text-center text-sm">No invoices from {callName} yet.</p>
+          ) : (
+            <ul className="divide-y divide-border rounded-xl border border-border">
+              {jobs.filter((job) => job.finalInvoiceCents != null).map((job) => (
+                <li key={job.id}>
+                  <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" onClick={() => onNavigate(managerVendorSummaryJobHref(basePath, job))} data-attr="vendor-invoice-open">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-foreground">{job.title}</p>
+                      <p className="truncate text-[13px]">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    <div className="shrink-0 text-right text-[13px]">
+                      <strong className="block">{jobMoney(job.finalInvoiceCents)}</strong>
+                      <span>{job.paidCents != null && job.paidCents >= (job.finalInvoiceCents ?? 0) ? "Paid" : "Pending"}</span>
+                    </div>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </div>

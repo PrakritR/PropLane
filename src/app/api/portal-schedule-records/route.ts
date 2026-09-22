@@ -21,6 +21,7 @@ import {
   handleTestWorkspaceScheduleGet,
   handleTestWorkspaceSchedulePost,
 } from "@/lib/test-workspaces/schedule-route.server";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
@@ -180,12 +181,26 @@ const route = createJsonRecordRoute({
       .limit(500);
     ordinaryQuery = scheduleRecordScope(ordinaryQuery, user) as typeof ordinaryQuery;
     const reads = [singletonQuery, ordinaryQuery];
-    if (!scheduleUserHasRole(user, "admin") && scheduleUserHasRole(user, "manager")) {
+    // The viewer's active workspace, server-resolved from their own selection
+    // cookie. `null` = not narrowing (no workspace / a resolution failure —
+    // never widens); a non-null array (possibly empty) is the exact set of
+    // houses to show. Admin/vendor turns are unaffected — workspace selection
+    // is a per-manager-viewer concept, not something an admin's cross-tenant
+    // read or a vendor's own scope was ever narrowed by.
+    const isManagerViewer = !scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor");
+    const workspaceScope = isManagerViewer ? await activeWorkspacePropertyScope(db, user.id) : null;
+    if (isManagerViewer && scheduleUserHasRole(user, "manager")) {
       const [calendar, applications] = await Promise.all([
         linkedOwnerScopeForModule(db, user.id, "calendar", "read"),
         linkedOwnerScopeForModule(db, user.id, "applications", "edit"),
       ]);
-      const linkedPropertyIds = [...new Set([...calendar.propertyIds, ...applications.propertyIds])];
+      let linkedPropertyIds = [...new Set([...calendar.propertyIds, ...applications.propertyIds])];
+      // Real SQL narrowing (not post-fetch): intersect the co-manager grant
+      // with the active workspace scope before it ever becomes an `.in(...)`.
+      if (workspaceScope !== null) {
+        const allowed = new Set(workspaceScope);
+        linkedPropertyIds = linkedPropertyIds.filter((id) => allowed.has(id));
+      }
       if (linkedPropertyIds.length > 0) {
         const linkedColumnQuery =
           db
@@ -221,8 +236,31 @@ const route = createJsonRecordRoute({
         if (id && !records.has(id)) records.set(id, record);
       }
     }
+    let values = [...records.values()];
+    // Workspace narrowing on the "own rows" branch happens HERE, post-fetch,
+    // rather than as one more SQL predicate folded into `scheduleRecordScope`'s
+    // `.or(...)`: that OR already spans several account-level utility/cache
+    // rows sharing this one table — the manager-tasks singleton
+    // (`axis_manager_tasks_v1_*`, scoped separately in-process by
+    // manager-tasks.server.ts, since its own house lives inside a JSON array,
+    // not this row's `property_id`), the per-property availability-cache
+    // blobs (`axis_mgr_avail_slots_v2_*`, `axis_calendar_share_avail_*`), and
+    // (already carved out above) the admin-shared PLANNED_EVENTS/
+    // PARTNER_INQUIRIES singletons. Every one of those rows carries
+    // `property_id: null`, so filtering ONLY rows that actually name a
+    // property (the real tours/bookings/calendar/availability rows) narrows
+    // exactly the surface this scoping is about while leaving every
+    // account-level row exempt, matching this file's account-level-row rule.
+    if (workspaceScope !== null) {
+      const allowed = new Set(workspaceScope);
+      values = values.filter((record) => {
+        const propertyId = String(record.property_id ?? "").trim();
+        if (!propertyId) return true;
+        return allowed.has(propertyId);
+      });
+    }
     return {
-      data: [...records.values()],
+      data: values,
       error: results.find((result) => result.error)?.error ?? null,
     };
   },
@@ -329,7 +367,7 @@ const route = createJsonRecordRoute({
     if (!result.ok) return { handled: true, error: result.reason, status: 409 };
     return { handled: true };
   },
-  authorizeUpsert: async ({ records }) => {
+  authorizeUpsert: async ({ db, user, records }) => {
     if (records.some((record) => String(record.id ?? "").trim() === PARTNER_INQUIRIES_RECORD_ID)) {
       return {
         ok: false,
@@ -337,9 +375,38 @@ const route = createJsonRecordRoute({
         status: 403,
       };
     }
+    // A create/update must land IN the active workspace: a manager-scoped,
+    // property-tagged record (a tour, a calendar event, an availability block)
+    // naming a house outside it is refused before it is ever written, never
+    // silently saved against another workspace's house. Account-level rows
+    // (no property_id — availability caches, the manager-tasks singleton) are
+    // exempt for the same reason the read side leaves them exempt above.
+    if (!scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor")) {
+      const workspaceScope = await activeWorkspacePropertyScope(db, user.id);
+      if (workspaceScope !== null) {
+        const allowed = new Set(workspaceScope);
+        for (const record of records) {
+          const id = String(record.id ?? "").trim();
+          // Account-level rows (no property_id — availability caches, the
+          // manager-tasks singleton) are exempt for the same reason the read
+          // side leaves them exempt above; PLANNED_EVENTS is the one shared
+          // singleton actually reachable through this ordinary upsert path.
+          if (id === PLANNED_EVENTS_RECORD_ID) continue;
+          const propertyId = String(record.property_id ?? "").trim();
+          if (!propertyId) continue;
+          if (!allowed.has(propertyId)) {
+            return {
+              ok: false,
+              error: `Property ${propertyId} is not in the active workspace.`,
+              status: 403,
+            };
+          }
+        }
+      }
+    }
     return { ok: true };
   },
-  authorizeDelete: async ({ records }) => {
+  authorizeDelete: async ({ db, user, records }) => {
     if (records.some((record) => {
       const id = String(record.id ?? "").trim();
       return id === PLANNED_EVENTS_RECORD_ID || id === PARTNER_INQUIRIES_RECORD_ID;
@@ -348,6 +415,21 @@ const route = createJsonRecordRoute({
         ok: false,
         error: "Shared calendar and inquiry records must be changed through their dedicated lifecycle routes.",
       };
+    }
+    // An update or delete must refuse a row outside the active workspace, same
+    // as a create — see the matching check in `authorizeUpsert`.
+    if (!scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor")) {
+      const workspaceScope = await activeWorkspacePropertyScope(db, user.id);
+      if (workspaceScope !== null) {
+        const allowed = new Set(workspaceScope);
+        for (const record of records) {
+          const propertyId = String(record.property_id ?? "").trim();
+          if (!propertyId) continue;
+          if (!allowed.has(propertyId)) {
+            return { ok: false, error: "Record not found.", status: 404 };
+          }
+        }
+      }
     }
     return { ok: true };
   },

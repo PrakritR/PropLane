@@ -12,7 +12,7 @@ import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-lease-report-issue-modal";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   ResidentLeaseBareDocumentPreview,
@@ -28,16 +28,17 @@ import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-a
 import {
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
 } from "@/components/portal/resident-portal-grouped-data-list";
-import {
-  PortalDataTableEmpty,
-  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
-  ResidentDocumentsDetailFooter,
-} from "@/components/portal/portal-data-table";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
   residentLeaseDetailHref,
   residentLeaseListHref,
+  parseResidentLeaseDetailTab,
   type ResidentLeaseBucketId,
 } from "@/lib/portal-detail-routes";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, filterResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import {
@@ -74,10 +75,12 @@ export function ResidentLeasePanel({
   leaseDetailId,
   bucket = "pending",
   basePath = RESIDENT_PORTAL_BASE_PATH,
+  leaseDetailTab,
 }: {
   leaseDetailId?: string;
   bucket?: ResidentLeaseBucketId;
   basePath?: string;
+  leaseDetailTab?: string;
 }) {
   const { showToast } = useAppUi();
   const portalNavigate = usePortalNavigate();
@@ -287,9 +290,9 @@ export function ResidentLeasePanel({
         } as typeof pipelineRow)
       : null);
 
-  const leaseDetailFooter =
+  const leaseDetailActions =
     leaseDetailId && documentView ? (
-      <ResidentDocumentsDetailFooter>
+      <PortalRecordActions>
         {isPendingDetail && pipelineRow ? (
           <>
             <PortalIconAction
@@ -343,7 +346,7 @@ export function ResidentLeasePanel({
             onClick={() => runLeaseDownload(downloadTarget, showToast)}
           />
         ) : null}
-      </ResidentDocumentsDetailFooter>
+      </PortalRecordActions>
     ) : undefined;
 
   const leaseDetailBody = documentView ? (
@@ -591,6 +594,57 @@ export function ResidentLeasePanel({
     );
   }
 
+  const activeTab = parseResidentLeaseDetailTab(leaseDetailTab);
+  const sections = recordSections("resident", "lease", { basePath, bucket: activeBucket });
+  const residentSigned = pipelineRow?.residentSignature != null;
+  const managerSigned = pipelineRow?.managerSignature != null;
+  const overviewContent = renderRecordSection("overview", {
+    role: "resident",
+    kind: "lease",
+    kindLabel: "lease",
+    recordId: leaseDetailId ?? "lease",
+    overviewTiles: [
+      { id: "rent", label: "Rent", value: pipelineRow?.signedRentLabel ?? "—", detail: "per month" },
+      { id: "term", label: "Term", value: pipelineRow?.application?.leaseTerm ?? "—", detail: pipelineRow?.application?.leaseEnd ? `Ends ${pipelineRow.application.leaseEnd}` : undefined },
+      { id: "your-signature", label: "Your signature", value: residentSigned ? "Signed" : "Pending", tone: residentSigned ? "default" : "danger", detail: managerSigned ? "Manager signed" : undefined },
+      { id: "move-in", label: "Move-in", value: pipelineRow?.application?.leaseStart ?? "—" },
+    ],
+    overviewNeeds: [
+      ...(!residentSigned ? [{ id: "sign", title: "Sign your lease", detail: managerSigned ? "Manager signed" : "Awaiting your signature", onClick: () => onSignLease() }] : []),
+    ],
+    overviewCards: [
+      {
+        id: "terms",
+        title: "Terms",
+        action: { label: "Lease document", href: residentLeaseDetailHref(basePath, activeBucket, leaseDetailId ?? "", "lease-document") },
+        rows: [
+          { label: "Property", value: documentView.subtitle ?? "—" },
+          { label: "Rent", value: pipelineRow?.signedRentLabel ?? "—" },
+        ],
+      },
+      {
+        id: "signatures",
+        title: "Signatures",
+        action: { label: "Lease document", href: residentLeaseDetailHref(basePath, activeBucket, leaseDetailId ?? "", "lease-document") },
+        rows: [
+          { label: "Manager", value: managerSigned ? "Signed" : "Not signed", tone: managerSigned ? "ok" : "bad" },
+          { label: "You", value: residentSigned ? "Signed" : "Pending", tone: residentSigned ? "ok" : "bad" },
+        ],
+      },
+      {
+        id: "payments",
+        title: "Payments",
+        kind: "rows",
+        rows: [],
+        emptyLabel: "No payments linked yet",
+      },
+    ],
+  });
+  const onLeaseHeaderAction = (actionId: string) => {
+    if (actionId === "sign") { onSignLease(); return; }
+    if (actionId === "download") { onDownloadLeasePackage(); return; }
+    showToast("Coming soon");
+  };
   return (
     <>
       {modals}
@@ -608,9 +662,42 @@ export function ResidentLeasePanel({
         iconTitleActions
         dataAttrBack="resident-lease-detail-back"
         pinScrollBody
-        footer={leaseDetailFooter}
       >
-        {leaseDetailBody}
+        {activeTab === "lease-document" ? (
+          <>
+            {leaseDetailActions}
+          </>
+        ) : (
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onLeaseHeaderAction} />
+          </PortalRecordActions>
+        )}
+        <PortalRecordSectionChrome
+          sections={sections}
+          recordId={leaseDetailId ?? ""}
+          activeId={activeTab}
+          title={RESIDENT_LEASE_LIST_LABEL}
+          backHref={listHref}
+          backLabel="All leases"
+          ariaLabel="Lease sections"
+        >
+          {activeTab === "lease-document" ? (
+            leaseDetailBody
+          ) : activeTab === "payments" ? (
+            <div className="px-3 pb-4 sm:px-4">
+              <PortalListEmptyCard title="No payments linked yet" workspaceAware={false} dataAttr="resident-lease-payments-empty" />
+            </div>
+          ) : activeTab === "communication" ? (
+            renderRecordSection("communication", {
+              role: "resident",
+              kind: "lease",
+              kindLabel: "lease",
+              recordId: leaseDetailId ?? "lease",
+            })
+          ) : (
+            overviewContent
+          )}
+        </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
     </>
   );

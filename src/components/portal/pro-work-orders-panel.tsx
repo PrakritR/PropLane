@@ -55,7 +55,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
-import { workOrderDetailHref, workOrderListHref, type ServiceDetailTabId } from "@/lib/portal-detail-routes";
+import { propertyDetailHref, workOrderDetailHref, workOrderListHref, type ServiceDetailTabId } from "@/lib/portal-detail-routes";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
@@ -996,37 +996,39 @@ export function ManagerWorkOrdersPanel({
       ) : row.automationStatus === "paid" ? (
         <p className="mt-1.5 text-xs font-medium text-muted">Approved and paid.</p>
       ) : null}
-      {row.photoDataUrls?.length ? (
-        <div className="mt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {row.photoDataUrls.map((src, index) => {
-              const trimmed = src.trim();
-              if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
-              return (
-                <a
-                  key={`${row.id}-photo-${index}`}
-                  href={trimmed}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block overflow-hidden rounded-xl border border-border bg-accent/30"
-                >
-                  <Image
-                    src={trimmed}
-                    alt={`Service photo ${index + 1}`}
-                    width={240}
-                    height={180}
-                    className="h-28 w-full object-cover"
-                    unoptimized
-                  />
-                </a>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
+
+  /** Photos section (PLAN-0921-1029, area 2) — the same gallery `renderOverviewFacts` used to inline. */
+  const renderPhotosBody = (row: DemoManagerWorkOrderRow) =>
+    row.photoDataUrls?.length ? (
+      <div className="grid grid-cols-2 gap-2 px-3 pb-4 sm:grid-cols-3 sm:px-4" data-attr="work-order-photos">
+        {row.photoDataUrls.map((src, index) => {
+          const trimmed = src.trim();
+          if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
+          return (
+            <a
+              key={`${row.id}-photo-${index}`}
+              href={trimmed}
+              target="_blank"
+              rel="noreferrer"
+              className="block overflow-hidden rounded-xl border border-border bg-accent/30"
+            >
+              <Image
+                src={trimmed}
+                alt={`Service photo ${index + 1}`}
+                width={240}
+                height={180}
+                className="h-28 w-full object-cover"
+                unoptimized
+              />
+            </a>
+          );
+        })}
+      </div>
+    ) : (
+      <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="work-order-photos-empty" />
+    );
 
   /** Vendor & bids — assignment, contact, PropLane's dispatch suggestion, and bids. */
   const renderVendorBidsBody = (row: DemoManagerWorkOrderRow) => {
@@ -1311,14 +1313,17 @@ export function ManagerWorkOrdersPanel({
       }
     };
     const ownContent =
-      activeTab === "vendor-bids" ? (
-        renderVendorBidsBody(routeWorkOrder)
-      ) : activeTab === "schedule" ? (
-        renderScheduleBody(routeWorkOrder)
-      ) : activeTab === "invoice" ? (
+      activeTab === "vendor-schedule" ? (
+        <>
+          {renderVendorBidsBody(routeWorkOrder)}
+          {renderScheduleBody(routeWorkOrder)}
+        </>
+      ) : activeTab === "photos" ? (
+        renderPhotosBody(routeWorkOrder)
+      ) : activeTab === "payments" ? (
         renderInvoiceBody(routeWorkOrder)
-      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
-        renderRecordSection(activeTab, {
+      ) : activeTab === "communication" ? (
+        renderRecordSection("communication", {
           role: "manager",
           kind: "service",
           kindLabel: "service",
@@ -1329,7 +1334,43 @@ export function ManagerWorkOrdersPanel({
         })
       ) : (
         <>
-          {renderOverviewFacts(routeWorkOrder)}
+          {renderRecordSection("overview", {
+            role: "manager",
+            kind: "service",
+            kindLabel: "service",
+            recordId: routeWorkOrder.id,
+            recordLabel: routeWorkOrder.title,
+            overviewTiles: [
+              { id: "status", label: "Status", value: routeWorkOrder.status || routeWorkOrder.bucket },
+              { id: "priority", label: "Priority", value: routeWorkOrder.priority ?? "—" },
+              { id: "vendor", label: "Vendor", value: routeWorkOrder.vendorName?.trim() || "None", tone: routeWorkOrder.vendorName?.trim() ? "default" : "danger", detail: routeWorkOrder.vendorName?.trim() ? undefined : "Not assigned" },
+              { id: "cost", label: "Cost", value: displayWorkOrderCost(routeWorkOrder.cost) },
+            ],
+            overviewNeeds: !routeWorkOrder.vendorName?.trim()
+              ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet" }]
+              : [],
+            overviewCards: [
+              {
+                id: "request",
+                title: "Request",
+                action: { label: "Photos", href: workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "photos") },
+                rows: [
+                  { label: "Details", value: routeWorkOrder.description || "—" },
+                  { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
+                  { label: "Entry", value: entryPermissionLabel(routeWorkOrder.entryPermission) },
+                ],
+              },
+              {
+                id: "home",
+                title: "Home",
+                action: { label: "Resident record", href: routeWorkOrder.propertyId ? propertyDetailHref(listBasePath ?? "/portal", "all", routeWorkOrder.propertyId, "preview") : `${listBasePath ?? "/portal"}/properties/all` },
+                rows: [
+                  { label: "Property", value: routeWorkOrder.propertyName ?? "—" },
+                  { label: "Resident", value: routeWorkOrder.residentName?.trim() || "—" },
+                ],
+              },
+            ],
+          })}
           {/*
             The full action set (Schedule visit / Confirm time / Edit / Auto-schedule /
             Approve & pay / Mark complete / Delete, gated by bucket and automation state)
