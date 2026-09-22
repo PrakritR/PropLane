@@ -1352,7 +1352,7 @@ function StepRooms({
                 return;
               }
               const idx = rooms.findIndex((r) => r.id === room.id);
-              const copy = duplicateRoomEntry(room, { siblingNames: rooms.map((r) => r.name), insertIndex: idx + 1 });
+              const copy = duplicateRoomEntry(room);
               writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
               setOpen(copy.id);
             }}
@@ -1597,7 +1597,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 return;
               }
               const idx = baths.findIndex((b) => b.id === bath.id);
-              const copy = duplicateBathroomEntry(bath, { siblingNames: baths.map((b) => b.name), insertIndex: idx + 1 });
+              const copy = duplicateBathroomEntry(bath);
               patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
               setOpen(copy.id);
             }}

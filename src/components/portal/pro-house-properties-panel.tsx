@@ -41,6 +41,12 @@ import { getListingRichContent } from "@/data/listing-rich-content";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { ListingPublishedDialog } from "@/components/portal/listing-wizard-v2/listing-published-dialog";
+import {
+  hasJustPublishedListing,
+  takeJustPublishedListing,
+  writeJustPublishedListing,
+  type JustPublishedListing,
+} from "@/lib/manager-listing-just-published";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
@@ -342,10 +348,10 @@ function ManagerPropertyInlineDetails({
   /**
    * Draft → live publish reports back an id. It is handed UP, with the display
    * name captured before the publish, because publishing moves the row out of
-   * this stage's bucket and unmounts this component — the confirmation dialog
-   * has to be owned by something that survives that (PRP-496).
+   * this stage's bucket and both unmounts this component and changes the route
+   * — the confirmation has to be handed across that boundary (PRP-496).
    */
-  onPublishedListing: (listing: { id: string; name: string }) => void;
+  onPublishedListing: (listing: JustPublishedListing) => void;
   onAfterUnlist?: (propertyKey: string) => void;
   showToast: (m: string) => void;
   managerUserId: string | null;
@@ -1457,30 +1463,42 @@ type ManagerHousePropertiesPanelProps = {
 
 /**
  * Publishing a draft is the one action that removes the row it was started
- * from: the record leaves the drafts bucket, the routed detail entry goes
- * null, and the body below either unmounts or remounts under a new row key.
- * The confirmation dialog therefore lives HERE, above that boundary, and the
- * body only reports the id and the name it captured (PRP-496). The body owning
- * it is why the dialog never appeared on the draft → live path at all.
+ * from: the record leaves the Drafts bucket, so the detail page the wizard was
+ * finished on stops being that record's URL and the panel sends the manager to
+ * the Listed detail route. `[stage]` is a dynamic segment, so that navigation
+ * remounts this component — no dialog state can survive it. The confirmation
+ * therefore travels as a one-shot marker
+ * (`src/lib/manager-listing-just-published.ts`) and is taken by whichever mount
+ * lands on the published listing (PRP-496).
  */
 export function ManagerHousePropertiesPanel(props: ManagerHousePropertiesPanelProps) {
   const router = useRouter();
-  const [publishedListing, setPublishedListing] = useState<{ id: string; name: string } | null>(null);
-  const { propertiesBase, showToast, onSendToProspect } = props;
+  const [publishedListing, setPublishedListing] = useState<JustPublishedListing | null>(null);
+  const { propertiesBase, showToast, onSendToProspect, propertyKey, activeStage } = props;
+
+  useEffect(() => {
+    if (!propertyKey) return;
+    const taken = takeJustPublishedListing(decodeURIComponent(propertyKey));
+    if (taken) setPublishedListing(taken);
+  }, [activeStage, propertyKey]);
+
+  const announcePublished = useCallback(
+    (listing: JustPublishedListing) => {
+      writeJustPublishedListing(listing);
+      router.replace(propertyDetailHref(propertiesBase, "listed", listing.id, "preview"), { scroll: false });
+    },
+    [propertiesBase, router],
+  );
+
   return (
     <>
-      <ManagerHousePropertiesPanelBody {...props} onPublishedListing={setPublishedListing} />
+      <ManagerHousePropertiesPanelBody {...props} onPublishedListing={announcePublished} />
       <ListingPublishedDialog
         open={publishedListing !== null}
         name={publishedListing?.name ?? "Listing"}
         listingId={publishedListing?.id ?? ""}
-        onViewListing={() => {
-          const id = publishedListing?.id;
-          setPublishedListing(null);
-          if (id) {
-            router.replace(propertyDetailHref(propertiesBase, "listed", id, "preview"), { scroll: false });
-          }
-        }}
+        // The navigation already happened — this page IS the listing.
+        onViewListing={() => setPublishedListing(null)}
         onBackToProperties={() => {
           setPublishedListing(null);
           router.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
@@ -1521,7 +1539,7 @@ function ManagerHousePropertiesPanelBody({
   onClearSearch,
   onPublishedListing,
 }: ManagerHousePropertiesPanelProps & {
-  onPublishedListing: (listing: { id: string; name: string }) => void;
+  onPublishedListing: (listing: JustPublishedListing) => void;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1985,6 +2003,10 @@ function ManagerHousePropertiesPanelBody({
 
   useEffect(() => {
     if (!routePropertyStageElsewhere || !propertyKeyProp) return;
+    // A publish already sent this manager to the Listed detail route. Racing it
+    // with a stage correction of its own would land them on whichever stage
+    // MANAGER_STAGES happens to name first and lose the confirmation with it.
+    if (hasJustPublishedListing(decodeURIComponent(propertyKeyProp))) return;
     router.replace(
       propertyDetailHref(
         propertiesBase,
