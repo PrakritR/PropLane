@@ -3,6 +3,10 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
   linkedPropertyIdsForModule,
+  resolveManagerWorkspaceRowScope,
+  rowInWorkspaceScope,
+  workspaceRowFilterClause,
+  type ManagerWorkspaceRowScope,
 } from "@/lib/auth/co-manager-module-scope";
 import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -81,12 +85,34 @@ export async function GET() {
       .order("updated_at", { ascending: false })
       .limit(500);
 
+    // Resolved once per request: the active workspace narrows a manager's own
+    // rows below (both the direct query here and the co-manager fetch), and
+    // is reused by POST to refuse a write outside it. Admins and residents
+    // are never narrowed by a manager's workspace.
+    const workspaceScope: ManagerWorkspaceRowScope =
+      user.role === "manager"
+        ? await resolveManagerWorkspaceRowScope(db, user.id)
+        : { propertyIds: null, untaggedOwnedVisible: true };
+
     if (user.role === "admin") {
       // admin sees all
     } else if (user.role === "manager") {
-      // Managers see charges they own; also include any where they appear as a resident (edge case)
-      chargeQuery = chargeQuery.or(`manager_user_id.eq.${user.id},resident_user_id.eq.${user.id},resident_email.eq.${user.email}`);
-      profileQuery = profileQuery.or(`manager_user_id.eq.${user.id},resident_user_id.eq.${user.id},resident_email.eq.${user.email}`);
+      // Managers see charges they own (narrowed to the active workspace);
+      // also include any where they appear as a resident (edge case), which
+      // is never workspace-scoped since that is the manager's OWN resident
+      // data, not a house they manage.
+      const managerClause =
+        workspaceScope.propertyIds === null
+          ? `manager_user_id.eq.${user.id}`
+          : (() => {
+              const inner = workspaceRowFilterClause(["property_id"], workspaceScope.propertyIds, workspaceScope.untaggedOwnedVisible);
+              return inner ? `and(manager_user_id.eq.${user.id},${inner})` : null;
+            })();
+      const branches = [managerClause, `resident_user_id.eq.${user.id}`, `resident_email.eq.${user.email}`].filter(
+        (clause): clause is string => Boolean(clause),
+      );
+      chargeQuery = chargeQuery.or(branches.join(","));
+      profileQuery = profileQuery.or(branches.join(","));
     } else {
       // Resident — match by user_id or email
       chargeQuery = chargeQuery.or(`resident_user_id.eq.${user.id},resident_email.eq.${user.email}`);
@@ -100,7 +126,9 @@ export async function GET() {
     type ChargeRecordRow = { id: string; row_data: unknown; updated_at: string | null };
     let chargeRows = (chargeResult.data ?? []) as ChargeRecordRow[];
     if (user.role === "manager") {
-      // Co-managers with "payments" access on linked properties also see those charges.
+      // Co-managers with "payments" access on linked properties also see those charges —
+      // narrowed to the active workspace's houses the same way as the owned branch above,
+      // so a granted house is reachable only in the workspace that holds it.
       const linkedPropertyIds = await linkedPropertyIdsForModule(db, user.id, "payments");
       if (linkedPropertyIds.size > 0) {
         const linkedRows = await fetchRowsForManagerWithLinked<ChargeRecordRow>(
@@ -108,7 +136,7 @@ export async function GET() {
           "portal_household_charge_records",
           user.id,
           linkedPropertyIds,
-          { propertyColumns: ["property_id"] },
+          { propertyColumns: ["property_id"], workspaceScope },
         );
         const seen = new Set(chargeRows.map((row) => row.id));
         chargeRows = [...chargeRows, ...linkedRows.filter((row) => row.id && !seen.has(row.id))];
@@ -138,6 +166,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
+    // Resolved once per request: the active workspace refuses a write
+    // (create, edit, delete) on a row outside it. Admins are never narrowed.
+    const workspaceScope: ManagerWorkspaceRowScope =
+      user.role === "manager"
+        ? await resolveManagerWorkspaceRowScope(db, user.id)
+        : { propertyIds: null, untaggedOwnedVisible: true };
+
     const body = (await req.json()) as {
       action?: string;
       id?: string;
@@ -163,6 +198,12 @@ export async function POST(req: Request) {
             ? await managerHasCoManagerPermissionForProperty(db, user.id, pid, "payments", "delete")
             : false;
           if (!canDelete) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+        }
+        // The active workspace narrows even a row the caller otherwise owns
+        // or has a co-manager grant for — a row outside it is refused, same
+        // as it is simply absent from GET.
+        if (existing && !rowInWorkspaceScope(existing.property_id ? String(existing.property_id) : null, workspaceScope)) {
+          return NextResponse.json({ error: "Forbidden." }, { status: 403 });
         }
       }
       await db.from("portal_household_charge_records").delete().eq("id", id);
@@ -200,6 +241,12 @@ export async function POST(req: Request) {
           ? await managerHasCoManagerPermissionForProperty(db, user.id, pid, "payments", "edit")
           : false;
         if (!canEdit) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      if (
+        user.role !== "admin" &&
+        !rowInWorkspaceScope(existing.property_id ? String(existing.property_id) : null, workspaceScope)
+      ) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const rowData = (existing.row_data ?? {}) as Record<string, unknown>;
       const restoredBalance =
@@ -369,6 +416,11 @@ export async function POST(req: Request) {
         } else {
           managerUserId = user.id;
         }
+        // The active workspace narrows both a CREATE (must land in it) and an
+        // UPDATE (must refuse a row outside it) — checked against the row's
+        // final resolved property, so a co-manager's foreign row is judged by
+        // the same workspace that already scoped their read of it above.
+        if (!rowInWorkspaceScope(propertyId, workspaceScope)) continue;
         // `residentVisibleAt` is server-owned (stamped by the reminder route): a
         // client copy that predates the stamp must not strip it on its mirror.
         const storedVisibleAt = existingResidentVisibleAtById.get(id);
@@ -519,6 +571,7 @@ export async function POST(req: Request) {
         } else {
           managerUserId = user.id;
         }
+        if (!rowInWorkspaceScope(propertyId, workspaceScope)) continue;
         rows.push({
           id,
           manager_user_id: managerUserId,
