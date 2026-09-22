@@ -105,6 +105,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Per-door billing snapshot (docs/agents/plan-entitlements.md); billing
+    // history for a purged account, same as any other usage snapshot.
+    table: "manager_door_count_snapshots",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "gl_journal_lines",
     phase: 1,
     // The manager's general ledger lines go with their journal entries (cascade); a resident
