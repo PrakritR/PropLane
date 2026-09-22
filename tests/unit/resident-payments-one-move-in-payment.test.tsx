@@ -14,6 +14,18 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 const EMAIL = "maya@example.com";
 const USER_ID = "res-maya";
 
+// The resident 7-day visibility window (`household-charge-visibility.ts`)
+// compares a charge's due date against the real wall clock at render time, so
+// these labels are computed relative to "now" rather than pinned to a literal
+// calendar date — `daysFromNowLabel(10)` always sits OUTSIDE the window (to
+// prove a move-in group stays whole even when one of its lines individually
+// would be hidden) and `daysFromNowLabel(3)` always sits INSIDE it.
+function daysFromNowLabel(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 function charge(over: Partial<HouseholdCharge> & { id: string; kind: HouseholdCharge["kind"]; title: string; amountLabel: string }): HouseholdCharge {
   return {
     createdAt: "2026-09-01T00:00:00.000Z",
@@ -33,12 +45,16 @@ function charge(over: Partial<HouseholdCharge> & { id: string; kind: HouseholdCh
 }
 
 const CHARGES: HouseholdCharge[] = [
-  charge({ id: "rent1", kind: "first_month_rent", title: "First month's rent", amountLabel: "$1,100.00", dueDateLabel: "Oct 1, 2026" }),
+  // Outside the 7-day window on its own — the group below still shows it
+  // together with the rest of the move-in because its siblings (no due date)
+  // are individually visible.
+  charge({ id: "rent1", kind: "first_month_rent", title: "First month's rent", amountLabel: "$1,100.00", dueDateLabel: daysFromNowLabel(10) }),
   charge({ id: "dep", kind: "security_deposit", title: "Security deposit ($300.00 holding deposit credited)", amountLabel: "$800.00", blocksLeaseUntilPaid: true }),
   charge({ id: "fee", kind: "move_in_fee", title: "Move-in cost", amountLabel: "$250.00" }),
   charge({ id: "clean", kind: "other_cost", title: "Cleaning", amountLabel: "$150.00", customFeeId: "cf-clean" }),
-  // A recurring month is NOT part of the move-in.
-  charge({ id: "nov", kind: "rent", title: "November rent", amountLabel: "$1,100.00", recurringRentProfileId: "rp", rentMonth: "2026-11", dueDateLabel: "Nov 1, 2026" }),
+  // A recurring month is NOT part of the move-in, and is within the window on
+  // its own so it stays visible beside the group.
+  charge({ id: "nov", kind: "rent", title: "November rent", amountLabel: "$1,100.00", recurringRentProfileId: "rp", dueDateLabel: daysFromNowLabel(3) }),
 ];
 
 const navigated: string[] = [];

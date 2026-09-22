@@ -44,6 +44,7 @@ import {
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
+  cacheShowUpcomingChargesSetting,
   normalizeManagerAutomationSettings,
   normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
@@ -1515,6 +1516,16 @@ export function PaymentsSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection title="Payment setup">
         <ManagerPaymentSetupPanel active section="setup" propertyOptions={houses} />
+        <ManagerAutomationSelectRow
+          label="Upcoming charges in Payments"
+          field="showUpcomingCharges"
+          options={[
+            { value: "true", label: "Show" },
+            { value: "false", label: "Hide" },
+          ]}
+          parse={(value) => value === "true"}
+          dataAttr="payments-settings-show-upcoming-charges"
+        />
       </PortalSettingsSection>
 
       <PortalSettingsSection
@@ -2019,7 +2030,9 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
         const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
         const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
         if (!res.ok) throw new Error("Could not load settings.");
-        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+        const loaded = normalizeManagerAutomationSettings(body.settings);
+        cacheShowUpcomingChargesSetting(loaded.showUpcomingCharges);
+        if (!cancelled) setValue(loaded[field]);
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load settings.");
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
@@ -2046,7 +2059,10 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
       });
       const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not save settings.");
-      setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+      const saved = normalizeManagerAutomationSettings(body.settings);
+      cacheShowUpcomingChargesSetting(saved.showUpcomingCharges);
+      setValue(saved[field]);
+      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save settings.";

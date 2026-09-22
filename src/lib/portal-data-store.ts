@@ -136,7 +136,16 @@ export function prefetchPortalData(kind: PortalKind, userId?: string | null): Pr
       return residentPrefetchPromise;
     }
     residentPrefetchAt = now;
-    residentPrefetchPromise = syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY).then(() => undefined);
+    // Warm the household-charges and lease-pipeline mirrors too — the resident
+    // Payments and Lease sidebar badges read them, and without this they stay
+    // empty until the resident opens those pages themselves. Both go through
+    // the same coalesced refreshers the dashboard already uses, so this is a
+    // no-op TTL hit rather than extra egress once the dashboard has fetched.
+    residentPrefetchPromise = Promise.allSettled([
+      syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY),
+      syncHouseholdChargesFromServer(false, { skipReconcile: true }),
+      syncLeasePipelineFromServer(),
+    ]).then(() => undefined);
     return residentPrefetchPromise;
   }
 

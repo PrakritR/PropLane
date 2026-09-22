@@ -34,6 +34,14 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
+**Deleting a charge deletes its ledger line — and only that line.**
+`deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
+`ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`
+lines (money that actually moved stays on the books). The `deleteCharge` action in
+`/api/portal-household-charges` calls it right after the charge row delete, scoped to
+the charge's owner (or the calling non-admin manager when the row is already gone), or
+income/delinquency reports keep reading a ledger row for a charge no one can see any
+more. Coverage: `tests/unit/household-charge-delete-ledger.test.ts`.
 The batched sweep logic (`backfillLedgerFromCharges` in `ledger-sync.ts`) still exists,
 but only as an explicit, admin-gated, one-time historical repair — it is invoked solely
 via `POST /api/admin/backfill-ledger` (optionally scoped to one `managerUserId` in the
@@ -213,6 +221,12 @@ correct for both. Writing here too would double-count every return. Coverage:
 **Charge status** — `HouseholdCharge.status` extended: `pending|partially_paid|paid|cancelled|refunded|failed` + optional `paidAmountCents`; `applyPartialPaymentCents` in `nsf-fees.ts`.
 
 **NSF** — `payment_intent.payment_failed` webhook marks charge `failed` and `createNsfFeeForFailedPayment` when `manager_billing_settings.nsfFeeEnabled` (default $35).
+**The NSF fee id is per failed payment attempt** (`nsfFeeIdForCharge`,
+`hc_nsf_<chargeId>_<paymentIntentId>`, falling back to `hc_nsf_<chargeId>` with no
+intent id — no `Date.now()`), and `handlePaymentIntentFailed` reads that id before
+writing, so a redelivered failure webhook for the same attempt never mints a second
+fee while a retry that fails on a new intent is fee'd again. Coverage:
+`tests/unit/nsf-fee-idempotent.test.ts`.
 
 **Settings** — `src/lib/manager-billing-settings.ts` (`paymentApplicationOrder`, NSF toggle/amount).
 
@@ -236,9 +250,9 @@ modules' header comments carry the full rationale.
   once past due. Bucketing on `status === "pending"` alone is what dropped
   clearing-ACH rows from the dashboard while Payments counted them.
 - **`src/lib/manager-payments-scope.ts` is the ONE Payments-ledger scoping.**
-  `readChargesForManager` is narrowed by two extra rules, and **each is
-  deliberately as narrow as it can be — money a manager cannot see is money they
-  never chase**:
+  `readChargesForManager` is narrowed by two extra rules (plus the manager's own
+  Upcoming choice, below), and **each is deliberately as narrow as it can be —
+  money a manager cannot see is money they never chase**:
   - **Internal payer accounts are matched EXACTLY, email first**
     (`shouldExcludePaymentAccount`) — never as a substring on name-or-email,
     which swallowed every real resident whose name or address merely contained
@@ -252,14 +266,40 @@ modules' header comments carry the full rationale.
 
   The rules live in that module rather than being copied into each caller, and
   **Payments is the authority**: align a new counter to it, not the reverse.
+- **A not-yet-due charge is "Upcoming", and the manager can hide it.**
+  `isUpcomingHouseholdCharge` (`src/lib/household-charge-visibility.ts`) is the ONE
+  decision: an outstanding charge whose `rentMonth` — else the month of its due
+  date — is a later calendar month than now. The Pending bucket renders those in a
+  trailing **Upcoming** group (`pro-payments-ledger-panel.tsx`), and the manager
+  `list_charges` tool reports the same flag as `upcoming`. The manager automation
+  setting `showUpcomingCharges` (default Show) is ONE saved value with two entry
+  points — Payment settings → Payment setup and the list's Filter sheet, both
+  `PATCH /api/portal/automation-settings` — and Hide drops those charges from the
+  list AND from the Pending count. `readManagerPaymentsLedgerCharges` is
+  synchronous, so it reads the setting from a `sessionStorage` mirror
+  (`cacheShowUpcomingChargesSetting` / `readCachedShowUpcomingChargesSetting` in
+  `payment-automation-settings.ts`) that every loader and saver of the real
+  settings refreshes; nothing cached means Show, so a surface that never loaded
+  settings filters nothing.
 
-Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`.
+Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`,
+`tests/unit/manager-payments-upcoming.test.tsx`,
+`tests/unit/tools/charges-upcoming-visibility.test.ts` (the `upcoming` tool flag), and the
+browser regression `npm run test:payments-upcoming`
+(`tests/browser/payments-upcoming/README.md` — list, Filter sheet, settings dialog,
+record header actions, resident window; real components, no dev server).
 
 ## Sales migration, utility allocations and statement intake
 
 See [Sales migration](sales-migration.md) for version-2 canonical imports,
 source provenance, billing holds, actual-bill utility allocation, inspection-backed
-deposit review, and bank CSV intake. Ordinary and imported deposit dispositions
+deposit review, and bank CSV intake. **Financial-fact ids are workbook-independent**
+(`resolveFinancialFactId` in `sales-migration/server.ts`) — a re-imported workbook
+with a corrected `workbookId` lands on the same income/expense/charge id it did the
+first time instead of duplicating it, falling back to the legacy workbook-scoped id
+only when one already exists there (an in-progress import stays on the id it
+started with). Coverage: `tests/unit/sales-migration-reimport-idempotent.test.ts`.
+Ordinary and imported deposit dispositions
 share the atomic `commit_security_deposit_disposition` RPC; do not post a journal
 and update its held balance in separate transactions. Itemization is cumulative,
 with current refund journals distinguished from prior refunds in the PDF.

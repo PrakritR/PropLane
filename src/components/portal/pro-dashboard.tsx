@@ -68,6 +68,7 @@ import {
   readManagerPaymentsLedgerCharges,
   unpaidManagerPaymentCharges,
 } from "@/lib/manager-payments-scope";
+import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import {
   applicationVisibleToPortalUser,
@@ -129,9 +130,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DocumentExpirationSummary } from "@/lib/documents/document-expiration";
 import { useRouter } from "next/navigation";
 import {
-  firstListingDashboardRedirectStorageKey,
   managerNeedsFirstListingOnboarding,
-  managerPortfolioNeedsFirstListingSeed,
   readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
@@ -646,9 +645,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     !messaging.status.number?.phoneNumber &&
     messaging.status.planTier !== "free";
 
-  // PRP-396: once per session, soft-redirect empty/first-draft managers to
-  // Properties → Drafts (seed + wizard live on that page). Banner stays as a
-  // fallback when they navigate back.
+  // Soft CTA only — never bounce the manager onto Drafts or open the wizard.
   useEffect(() => {
     if (!authReady || !userId || shouldSkipFirstListingOnboarding({ email })) {
       setShowFirstListingBanner(false);
@@ -678,32 +675,21 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         /* offline */
       }
       if (cancelled) return;
-      // An unloaded portfolio reads as an empty one, and acting on that sent a
-      // manager with live listings to the empty Drafts tab and told them to
-      // create their first listing. Only a portfolio we actually read can be
-      // called empty (PRP-429).
+      // An unloaded portfolio reads as an empty one. Only a portfolio we
+      // actually read can be called empty (PRP-429).
       if (!portfolioSynced) {
         setShowFirstListingBanner(false);
         return;
       }
       const snap = readFirstListingPortfolioSnapshot(userId);
-      const needs =
-        managerPortfolioNeedsFirstListingSeed(snap) || managerNeedsFirstListingOnboarding(snap);
-      setShowFirstListingBanner(needs);
-      if (!needs || typeof window === "undefined") return;
-      const key = firstListingDashboardRedirectStorageKey(userId);
-      try {
-        if (sessionStorage.getItem(key) === "1") return;
-        sessionStorage.setItem(key, "1");
-      } catch {
-        /* private mode */
-      }
-      router.replace(propertyListHref(BASE, "drafts"));
+      // Show the banner only when a draft already exists. Visiting never
+      // seeds one, so an empty account is not told we started a listing.
+      setShowFirstListingBanner(managerNeedsFirstListingOnboarding(snap));
     })();
     return () => {
       cancelled = true;
     };
-  }, [authReady, userId, email, router]);
+  }, [authReady, userId, email]);
 
   // The assistant dock + AI-draft chips are live, auth-gated manager surfaces:
   // off in the /demo sandbox (which uses its own scripted assistant and must
@@ -798,8 +784,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     window.addEventListener(SERVICE_REQUESTS_EVENT, bump);
     window.addEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, bump);
     window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
+    window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
+      window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
       window.removeEventListener(LEASE_PIPELINE_EVENT, bump);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);
@@ -1197,9 +1185,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             data-attr="dashboard-first-listing-banner"
           >
             <p className="font-semibold tracking-[-0.01em] text-foreground">Finish your first listing</p>
-            <p className="mt-0.5 text-xs text-muted">
-              We started a draft for you — continue the add-property wizard to publish your first home →
-            </p>
           </Link>
         ) : null}
         {showDocExpiryBanner ? (

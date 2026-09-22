@@ -9,7 +9,7 @@ import {
   Copy,
   Phone,
   Search,
-  Settings2,
+  Settings, Settings2,
   Share2,
   SlidersHorizontal,
   Wrench,
@@ -32,7 +32,8 @@ import { cn } from "@/lib/utils";
  */
 const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   SlidersHorizontal, // Filter
-  Settings2, // Settings / Defaults
+  Settings, // Settings / Defaults — the product's one settings glyph (16 list bands use it)
+  Settings2, // legacy alias; kept so an older caller does not trip the guard
   Share2, // Share link
   Copy, // Copy link
   CalendarPlus, // Add availability

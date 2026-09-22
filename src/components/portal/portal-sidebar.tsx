@@ -59,11 +59,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 
-/** Unread mail and pending applications are calls to action; inventory stays muted. */
-export function portalNavCountTone(section: string): "muted" | "alert" {
-  return section === "communication" || section === "applications" ? "alert" : "muted";
-}
-
 function hrefForSection(def: PortalDefinition, section: string) {
   const meta = def.sections.find((s) => s.section === section);
   if (!meta) return def.basePath;
@@ -239,6 +234,7 @@ export function PortalSidebar({
   subtitle,
   initialCollapsed = false,
   residentNavStage,
+  smsUiEnabled = false,
 }: {
   definition: PortalDefinition;
   subscriptionTier?: "free" | "paid" | null;
@@ -247,6 +243,8 @@ export function PortalSidebar({
   initialCollapsed?: boolean;
   /** Resident lifecycle stage — drives bottom bar tabs and section locks. */
   residentNavStage?: ResidentPortalNavStage;
+  /** Server-resolved SMS Communication UI flag — gates the Communication badge's SMS-notice handling. */
+  smsUiEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -263,7 +261,7 @@ export function PortalSidebar({
     definition,
     session.userId,
   );
-  const navCounts = usePortalNavCounts(definition.kind);
+  const navCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [expandableNavOpen, setExpandableNavOpen] = useState<Record<string, boolean>>({});
 
@@ -322,11 +320,11 @@ export function PortalSidebar({
   }, [activeSectionSubTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
-  // "settings" (Settings/profile) is the trailing group added in `nav-groups.ts`
-  // for pro/manager, resident, and vendor — it gets the same bottom-pinned
-  // treatment as "account"/"more" so it lands just above "Need help?".
+  // A trailing "account" or "more" group (unassigned sections) gets pinned to
+  // the bottom of the sidebar, just above "Need help?". Settings (profile) has
+  // no sidebar row at all — see `SIDEBAR_EXCLUDED_SECTIONS` in `nav-groups.ts`.
   const firstTrailingGroupIdx = useMemo(
-    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more" || g.id === "settings"),
+    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
     [navGroups],
   );
 
@@ -508,6 +506,17 @@ export function PortalSidebar({
   // the ones outside the fixed bar. Primary-bar sections (e.g. Documents) are
   // deliberately listed here too so there's always one comprehensive place to
   // find anything, alongside their one-tap bar shortcut.
+  // The More tab carries the to-do counts of the sections that live only
+  // inside the sheet (Leases, Tasks, Services…) so a phone still sees them;
+  // sections with their own bar tab badge themselves.
+  const moreTabCount = useMemo(() => {
+    const onBar = new Set(nativeBottomNavItems.map((item) => item.section));
+    return navItems
+      .filter((item) => !onBar.has(item.section) && !isHiddenFromMobileNav(definition.kind, item.section))
+      .filter((item) => !isSectionLocked(item.section))
+      .reduce((sum, item) => sum + (navCounts[item.section]?.count ?? 0), 0);
+  }, [definition.kind, isSectionLocked, navCounts, navItems, nativeBottomNavItems]);
+
   const moreSheetItems: PortalMoreNavItem[] = useMemo(() => {
     const ordered = orderNativeBottomNavItems(navItems, definition.kind);
     return ordered
@@ -524,8 +533,8 @@ export function PortalSidebar({
               href: item.href,
               locked: isSectionLocked(item.section),
               lockedNavigable: isSectionLockNavigable(item.section),
-              count: navCounts[item.section] ?? 0,
-              countTone: portalNavCountTone(item.section),
+              count: navCounts[item.section]?.count ?? 0,
+              countTone: navCounts[item.section]?.tone ?? "muted",
               subItems: item.subItems.map((sub) => ({
                 section: item.section,
                 sectionTabId: sub.sectionTabId,
@@ -533,8 +542,8 @@ export function PortalSidebar({
                 href: sub.href,
                 locked: isSectionLocked(item.section),
                 lockedNavigable: isSectionLockNavigable(item.section),
-                count: navCounts[item.section] ?? 0,
-                countTone: portalNavCountTone(item.section),
+                // The section's to-do count belongs to the section heading;
+                // repeating it on every sub-tab read as two separate numbers.
               })),
             }
           : {
@@ -543,8 +552,8 @@ export function PortalSidebar({
               href: item.href,
               locked: isSectionLocked(item.section),
               lockedNavigable: isSectionLockNavigable(item.section),
-              count: navCounts[item.section] ?? 0,
-              countTone: portalNavCountTone(item.section),
+              count: navCounts[item.section]?.count ?? 0,
+              countTone: navCounts[item.section]?.tone ?? "muted",
             },
       );
   }, [navItems, definition.kind, navCounts, isSectionLocked, isSectionLockNavigable]);
@@ -581,7 +590,8 @@ export function PortalSidebar({
     // Inert locks must not navigate anywhere: the server bounces the request
     // straight back home, which reads as a tab that silently fails.
     const inert = locked && !isSectionLockNavigable(s.section);
-    const count = navCounts[s.section] ?? 0;
+    const count = navCounts[s.section]?.count ?? 0;
+    const tone = navCounts[s.section]?.tone ?? "muted";
 
     if (variant === "bottom") {
       // The bar says what the sidebar says — Dashboard stays Dashboard.
@@ -622,8 +632,8 @@ export function PortalSidebar({
                 className={PORTAL_NATIVE_BOTTOM_NAV_ICON_CLASS}
                 active={active}
               />
-              {/* Only unread mail badges a bottom tab; inventory counts belong to the sidebar. */}
-              {!locked && count > 0 && portalNavCountTone(s.section) === "alert" ? (
+              {/* Only an alert-tone badge (unread mail, overdue) badges a bottom tab; quiet pending counts belong to the sidebar. */}
+              {!locked && count > 0 && tone === "alert" ? (
                 <span className="absolute -top-1 -right-1.5">
                   <PortalNavCountBadge count={count} tone="alert" />
                 </span>
@@ -671,7 +681,7 @@ export function PortalSidebar({
           </span>
         ) : null}
         {s.label}
-        {!locked ? <PortalNavCountBadge count={count} tone={portalNavCountTone(s.section)} /> : null}
+        {!locked ? <PortalNavCountBadge count={count} tone={tone} /> : null}
         {locked ? <NavLockIcon className="h-3 w-3 text-muted" /> : null}
       </Link>
     );
@@ -679,7 +689,8 @@ export function PortalSidebar({
 
   const renderExpandableNavGroup = (item: PortalSidebarNavItem) => {
     const locked = isSectionLocked(item.section);
-    const count = navCounts[item.section] ?? 0;
+    const count = navCounts[item.section]?.count ?? 0;
+    const tone = navCounts[item.section]?.tone ?? "muted";
     const groupActive = isNavItemActive(item);
     const expanded = expandableNavOpen[item.section] ?? false;
     const subnavId = `portal-${item.section}-subnav`;
@@ -707,7 +718,7 @@ export function PortalSidebar({
             <span className="min-w-0 truncate">{item.label}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
-            {!locked ? <PortalNavCountBadge count={count} tone={portalNavCountTone(item.section)} /> : null}
+            {!locked ? <PortalNavCountBadge count={count} tone={tone} /> : null}
             {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
             {expanded ? (
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
@@ -781,7 +792,8 @@ export function PortalSidebar({
     if (s.subItems?.length) return renderExpandableNavGroup(s);
     const active = isNavItemActive(s);
     const locked = isSectionLocked(s.section);
-    const count = navCounts[s.section] ?? 0;
+    const count = navCounts[s.section]?.count ?? 0;
+    const tone = navCounts[s.section]?.tone ?? "muted";
     const body = (
       <>
         <span className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -793,7 +805,7 @@ export function PortalSidebar({
           <span className="min-w-0 truncate">{s.label}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          {!locked ? <PortalNavCountBadge count={count} tone={portalNavCountTone(s.section)} /> : null}
+          {!locked ? <PortalNavCountBadge count={count} tone={tone} /> : null}
           {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
         </span>
       </>
@@ -844,7 +856,8 @@ export function PortalSidebar({
     const href = resolveNavItemHref(s);
     const active = isNavItemActive(s);
     const locked = isSectionLocked(s.section);
-    const count = navCounts[s.section] ?? 0;
+    const count = navCounts[s.section]?.count ?? 0;
+    const tone = navCounts[s.section]?.tone ?? "muted";
     const railClass = cn(
       "relative grid h-9 w-9 place-items-center rounded-[8px] transition-colors duration-150",
       active
@@ -857,7 +870,13 @@ export function PortalSidebar({
       <>
         <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} className="h-[17px] w-[17px] shrink-0" active={active} />
         {!locked && count > 0 ? (
-          <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+          <span
+            className={cn(
+              "absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full",
+              tone === "alert" ? "bg-primary" : "bg-muted",
+            )}
+            aria-hidden
+          />
         ) : null}
         {locked ? <NavLockIcon className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-muted" /> : null}
       </>
@@ -1124,7 +1143,11 @@ export function PortalSidebar({
               >
                 {nativeBottomNavItems.map((s) => renderMobileNavLink(s, "bottom"))}
                 {showMoreTab ? (
-                  <PortalNativeMoreNavButton active={moreTabActive} onClick={() => setSectionsSheetOpen(true)} />
+                  <PortalNativeMoreNavButton
+                    active={moreTabActive}
+                    count={moreTabCount}
+                    onClick={() => setSectionsSheetOpen(true)}
+                  />
                 ) : null}
               </div>
             </nav>,

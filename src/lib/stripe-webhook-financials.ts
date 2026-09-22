@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountTransfersActive } from "@/lib/stripe-connect";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
 import { identityStatusFromAccount } from "@/lib/stripe-connect-identity.server";
-import { createNsfFeeForFailedPayment } from "@/lib/nsf-fees";
+import { createNsfFeeForFailedPayment, nsfFeeIdForCharge } from "@/lib/nsf-fees";
 import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
 import type { HouseholdCharge } from "@/lib/household-charges";
@@ -506,7 +506,20 @@ export async function handlePaymentIntentFailed(
     );
 
     if (managerUserId) {
-      await createNsfFeeForFailedPayment(db, charge, managerUserId).catch(() => undefined);
+      // Read before write: a redelivered `payment_intent.payment_failed` for the same
+      // attempt must never mint a second NSF fee. The id is deterministic per failed
+      // attempt — charge + PaymentIntent (`nsfFeeIdForCharge`) — so an existing row
+      // here is that same fee already charged, not a coincidence, while a fresh
+      // retry that fails on a new intent is fee'd on its own.
+      const nsfFeeId = nsfFeeIdForCharge(chargeId, paymentIntent.id);
+      const { data: existingNsfFee } = await db
+        .from("portal_household_charge_records")
+        .select("id")
+        .eq("id", nsfFeeId)
+        .maybeSingle();
+      if (!existingNsfFee) {
+        await createNsfFeeForFailedPayment(db, charge, managerUserId, paymentIntent.id).catch(() => undefined);
+      }
       await emitHouseholdChargeTransition(db, {
         managerUserId,
         previousStatus: charge.status,

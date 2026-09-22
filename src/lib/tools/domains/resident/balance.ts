@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { residentVisibleCharges } from "@/lib/household-charge-visibility";
 import { queryResidentBalance } from "@/lib/resident-balance-summary.server";
 import { queryResidentLedger } from "@/lib/reports/queries";
 import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
@@ -61,7 +62,11 @@ export const listMyChargesTool = defineTool({
     })
     .strict(),
   handler: async (ctx: ResidentAgentContext, input) => {
-    const charges = (await loadOwnCharges(ctx))
+    // Same visibility set the resident's own Payments screen applies
+    // (`residentVisibleCharges`, `resident-payments-panel.tsx`) — the assistant
+    // should never talk about a charge before the resident can see it there,
+    // and never omit a move-in line the screen shows.
+    const charges = residentVisibleCharges(await loadOwnCharges(ctx))
       .filter((c) => !input.status || c.status === input.status)
       .map(summarizeOwnCharge);
     return { count: charges.length, charges };

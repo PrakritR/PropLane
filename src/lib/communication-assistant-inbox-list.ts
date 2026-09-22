@@ -24,7 +24,7 @@ import { unifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-
 
 export { managerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
 
-type InboxListSegment = "active" | "unread" | "archived";
+export type InboxListSegment = "active" | "unread" | "archived";
 
 export const MANAGER_AGENT_NOTICE_FROM_NAME = "PropLane Assistant";
 
