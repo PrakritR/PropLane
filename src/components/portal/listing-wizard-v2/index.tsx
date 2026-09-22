@@ -341,7 +341,16 @@ export function ListingWizardV2({
 
   const handleClose = useCallback(
     async (stepIndex: number) => {
-      if (lifecycleRef.current) return;
+      // PRP-486: a close reached while a save/publish is already in flight
+      // (the ✕ still receives the click while `busy` is true, or a fast
+      // double-close beats a click's own disabled state) used to return here
+      // in total silence — no toast, no closed editor, nothing. The manager
+      // had no way to tell their close did not register. Say the same thing
+      // the header's own autosave status already says while busy.
+      if (lifecycleRef.current) {
+        showToast?.("Saving…");
+        return;
+      }
       stepRef.current = stepIndex;
       const ok = await runLifecycle(() => persist(submissionRef.current, stepIndex, { notify: false }));
       if (ok) {
@@ -352,7 +361,7 @@ export function ListingWizardV2({
       }
       setSaveFail({ message: lastPersistErrorRef.current, stepIndex });
     },
-    [editing, onClose, persist, runLifecycle],
+    [editing, onClose, persist, runLifecycle, showToast],
   );
 
   // Explicit save is available from every V2 step. It keeps the editor open so

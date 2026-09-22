@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
@@ -53,7 +53,6 @@ import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-c
 import {
   ensureManagerFirstListingDraft,
   managerHasAnyListing,
-  managerNeedsFirstListingOnboarding,
   markFirstListingWizardAutoOpened,
   markFirstListingWizardDismissed,
   readFirstListingPortfolioSnapshot,
@@ -159,6 +158,24 @@ export function ManagerProperties({
   }, [userId]);
   const [portfolioTick, setPortfolioTick] = useState(0);
   const firstListingSeedAttemptedRef = useRef(false);
+  /**
+   * Set the moment the manager picks a Properties stage tab themselves.
+   *
+   * The first-listing onboarding effect below can decide to redirect to
+   * Drafts well AFTER the click that started it — it awaits a co-manager
+   * account-links fetch first — and without this it would yank the manager
+   * back to Drafts even though they had just navigated to a different tab on
+   * purpose (PRP-494). It is read only by that effect's own redirect branch;
+   * it never blocks the effect's other, less disruptive outcomes (seeding a
+   * draft, opening the wizard in place).
+   */
+  const userPickedStageRef = useRef(false);
+  const onStageTabAreaClick = useCallback((e: MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-attr^="manager-properties-tab-"]')) {
+      userPickedStageRef.current = true;
+    }
+  }, []);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -293,7 +310,9 @@ export function ManagerProperties({
           // that already had a draft still needs to land on Drafts, and one
           // where seeding was declined must not be stranded on an empty Listed.
           const snap = readFirstListingPortfolioSnapshot(userId);
-          const mustMoveToDrafts = linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts";
+          // PRP-494: never override a stage the manager already picked themselves.
+          const mustMoveToDrafts =
+            linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts" && !userPickedStageRef.current;
           const autoOpen =
             Boolean(seeded) &&
             shouldAutoOpenFirstListingWizard({
@@ -467,25 +486,21 @@ export function ManagerProperties({
     }
   };
 
+  /**
+   * "Add property" always starts a BLANK listing (PRP-495 / PRP-497).
+   *
+   * This used to resume the first-listing draft (whichever one
+   * `readAdminPropertyRows(5, …)[0]` happened to return) when the portfolio
+   * still needed onboarding, so a second `+` click reopened the same
+   * half-filled draft instead of a fresh one, and a manager who wanted a
+   * second property could never start one from here. Drafts are resumed only
+   * from the Drafts tab now, which already opens the exact row the manager
+   * picked (`propertyDetailHref(basePath, "drafts", id, "preview")` → the
+   * panel's own edit action).
+   */
   const tryOpenAdd = () => {
     if (!canOpenAdd()) return;
     if (!ensureOwnedWorkspaceForAdd()) return;
-    // Prefer resuming the first-listing draft when that is the only work left.
-    const snap = readFirstListingPortfolioSnapshot(scopeUserId);
-    if (
-      managerNeedsFirstListingOnboarding(snap) &&
-      !shouldSkipFirstListingOnboarding({
-        email,
-        incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-      })
-    ) {
-      const draftId = readAdminPropertyRows(5, scopeUserId)[0]?.adminRefId?.trim() || null;
-      if (draftId) {
-        setResumeDraftId(draftId);
-        setWizardOpen(true);
-        return;
-      }
-    }
     setResumeDraftId(null);
     setWizardOpen(true);
   };
@@ -582,71 +597,79 @@ export function ManagerProperties({
           titleInlineFilter={null}
           compactFilterRow
         >
-          <PortalListControlStack
-            className="mb-2"
-            variant="command"
-            stickyDestinations={false}
-            destinations={MANAGER_STAGES.map((stage) => ({
-              id: stage.key,
-              label: stage.label,
-              href: propertyListHref(basePath, stage.key),
-              count: stageCounts[stage.key],
-              dataAttr: `manager-properties-tab-${stage.key}`,
-            }))}
-            activeDestinationId={activeStage}
-            destinationAriaLabel="Property pipeline stage"
-            search={{
-              value: listSearch,
-              onChange: setListSearch,
-              placeholder: "Search properties",
-              dataAttr: "manager-properties-search",
-            }}
-            actions={
-              <>
-                <PortalIconAction
-                  icon={Share2}
-                  label="Share listing link"
-                  data-attr="manager-properties-share-open"
-                  onClick={() => openShareListing()}
-                />
-              </>
-            }
-            primary={
-              /*
-               * Create opens the listing editor (a single-property file drops
-               * onto its Basics step); a whole rent roll of several
-               * properties and their current residents goes through the
-               * portfolio import instead (docs/agents/portfolio-import.md).
-               */
-              <DropdownMenu
-                open={createMenuOpen}
-                onOpenChange={(next) => {
-                  // Neither menu item ("Add property" or "Import your
-                  // portfolio") is reachable past the plan's property limit,
-                  // so the gate fires on the trigger itself — the same
-                  // dialog `tryOpenAdd` already shows — rather than opening
-                  // a menu whose choices are all refused anyway.
-                  if (next && !canOpenAdd()) return;
-                  setCreateMenuOpen(next);
-                }}
-              >
-                <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
-                    Add property
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-attr="manager-properties-add-import"
-                    onSelect={() => router.push("/portal/properties/import")}
-                  >
-                    Import your portfolio
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            }
-          />
+          {/*
+            Bare click delegation — the stage tabs are routed `<Link>`s (real
+            navigation, not a callback into this component), so this is the
+            one place a genuine tab click can be observed before it fires
+            (see `userPickedStageRef` above).
+          */}
+          <div onClickCapture={onStageTabAreaClick}>
+            <PortalListControlStack
+              className="mb-2"
+              variant="command"
+              stickyDestinations={false}
+              destinations={MANAGER_STAGES.map((stage) => ({
+                id: stage.key,
+                label: stage.label,
+                href: propertyListHref(basePath, stage.key),
+                count: stageCounts[stage.key],
+                dataAttr: `manager-properties-tab-${stage.key}`,
+              }))}
+              activeDestinationId={activeStage}
+              destinationAriaLabel="Property pipeline stage"
+              search={{
+                value: listSearch,
+                onChange: setListSearch,
+                placeholder: "Search properties",
+                dataAttr: "manager-properties-search",
+              }}
+              actions={
+                <>
+                  <PortalIconAction
+                    icon={Share2}
+                    label="Share listing link"
+                    data-attr="manager-properties-share-open"
+                    onClick={() => openShareListing()}
+                  />
+                </>
+              }
+              primary={
+                /*
+                 * Create opens the listing editor (a single-property file drops
+                 * onto its Basics step); a whole rent roll of several
+                 * properties and their current residents goes through the
+                 * portfolio import instead (docs/agents/portfolio-import.md).
+                 */
+                <DropdownMenu
+                  open={createMenuOpen}
+                  onOpenChange={(next) => {
+                    // Neither menu item ("Add property" or "Import your
+                    // portfolio") is reachable past the plan's property limit,
+                    // so the gate fires on the trigger itself — the same
+                    // dialog `tryOpenAdd` already shows — rather than opening
+                    // a menu whose choices are all refused anyway.
+                    if (next && !canOpenAdd()) return;
+                    setCreateMenuOpen(next);
+                  }}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>
+                      Add property
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      data-attr="manager-properties-add-import"
+                      onSelect={() => router.push("/portal/properties/import")}
+                    >
+                      Import your portfolio
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              }
+            />
+          </div>
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">
               You&apos;ve reached your plan limit of {limitMax} propert{limitMax === 1 ? "y" : "ies"}.

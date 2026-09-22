@@ -90,6 +90,7 @@ export function ListingWorkspace({
   badge,
   saveState,
   onClose,
+  closeDisabled = false,
   rail,
   railHeader,
   railFooter,
@@ -106,6 +107,13 @@ export function ListingWorkspace({
   /** Autosave status, stated once, in the header. */
   saveState?: ReactNode;
   onClose?: () => void;
+  /**
+   * Disables the ✕ while a save/publish is already in flight, the same
+   * `busy` guard the footer's Save / Publish / Back / Continue buttons use
+   * (PRP-486) — a click that lands while it is already saving used to be
+   * silently dropped.
+   */
+  closeDisabled?: boolean;
   rail: ReactNode;
   /**
    * What sits ABOVE the sections in the rail — the cover photo and, while
@@ -159,8 +167,9 @@ export function ListingWorkspace({
             <button
               type="button"
               onClick={onClose}
+              disabled={closeDisabled}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
             >
               ✕
             </button>

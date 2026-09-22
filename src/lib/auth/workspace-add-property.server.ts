@@ -69,7 +69,16 @@ export async function resolveCreateListingOwner(
     return { ok: false, status: 503, error: "Could not verify workspace." };
   }
   if (!workspace.data) {
-    return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+    if (input.explicitWorkspaceId) {
+      return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+    }
+    // Same shape as the no-grant fallback below (e8e31052): the ambient
+    // (cookie) selection named a workspace that no longer exists — deleted,
+    // or simply stale — and nothing asked for it by name, so this is still a
+    // self-owned create. Land in the caller's own workspace rather than
+    // refuse it outright (PRP-485).
+    const ownWorkspaceId = await ensureDefaultWorkspaceId(db, caller);
+    return { ok: true, ownerUserId: caller, workspaceId: ownWorkspaceId };
   }
 
   const ownerUserId = String(workspace.data.owner_user_id ?? "").trim();

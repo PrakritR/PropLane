@@ -791,7 +791,11 @@ function MonthlyCards({
   /** The term's Default room, one field: what it holds, and long-term's figure as the placeholder until it holds anything. */
   const termDef = (field: ListingTermPriceField) => termPriceFieldText(termDefaults?.[term], field);
   const ltText = (field: ListingTermPriceField) =>
-    field === "monthlyRent" ? (defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "") : moneyValue(defaults[field]);
+    field === "monthlyRent"
+      ? defaults.monthlyRent > 0
+        ? moneyValue(String(defaults.monthlyRent))
+        : ""
+      : moneyValue(defaults[field]);
   /** What the Default card shows on this tab: its own figure, or long-term's until it has one. */
   const defRent = num(base ? ltText("monthlyRent") : termDef("monthlyRent") || ltText("monthlyRent"));
   const defUtil = num(base ? ltText("utilitiesEstimate") : termDef("utilitiesEstimate") || ltText("utilitiesEstimate"));
@@ -840,7 +844,11 @@ function MonthlyCards({
           <div>
             <FactRow first label={<>{helpRow("Rent /mo", PRICE_HELP.rent)} {base ? <FieldMark kind={prefillMarkFor(sub, "houseDefaults")} /> : null}</>}>
               {base ? (
-                <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""} placeholder="1,100" onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
+                // PRP-499: Utilities and Deposit both read through moneyValue()
+                // (strips a stray leading "$" and trims); Rent skipped that and
+                // just stringified the number, so the same card showed one field
+                // formatted differently from its two neighbors.
+                <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? moneyValue(String(defaults.monthlyRent)) : ""} placeholder="1,100" onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
               ) : (
                 <MoneyInput
                   label={`Rent for every room on ${term}`}
