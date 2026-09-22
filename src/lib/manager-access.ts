@@ -2,8 +2,17 @@ import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { isSignupTrialManagerPurchase, resolveEffectiveManagerTier } from "@/lib/manager-tier-expiry";
 import { RESIDENT_FREE_TIER_SECTION_IDS } from "@/lib/portals/resident-sections";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 
-/** Property caps by plan (houses / listings in the portal). Legacy unknown tier → no numeric cap (`null`). */
+/**
+ * Property caps by plan (houses / listings in the portal). Legacy unknown tier
+ * → no numeric cap (`null`).
+ *
+ * NOT derived from the rate card's `includedDoors` — a property and a door are
+ * different axes (a property can hold several doors). These stay hand-set
+ * literals until a later step retires them in favor of door-based limits; do
+ * not delete them before that migration lands.
+ */
 export const FREE_MAX_PROPERTIES = 1;
 export const PRO_MAX_PROPERTIES = 2;
 export const BUSINESS_MAX_PROPERTIES = 20;
@@ -14,11 +23,15 @@ function trimmedText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Public pricing (monthly); keep in sync with `manager-plan-tiers` / partner pricing. */
+/**
+ * Public pricing (monthly, USD). Derived from `RATE_CARD` — the single source
+ * of truth — so a rate change can never leave this drifted from what checkout
+ * actually charges.
+ */
 export const MANAGER_TIER_MONTHLY_USD: Record<ManagerSkuTier, number> = {
-  free: 0,
-  pro: 20,
-  business: 200,
+  free: RATE_CARD.free.floorMonthlyCents / 100,
+  pro: RATE_CARD.pro.floorMonthlyCents / 100,
+  business: RATE_CARD.business.floorMonthlyCents / 100,
 };
 
 /**

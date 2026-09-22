@@ -1,18 +1,23 @@
 /** Monthly retail communication credit. Number setup and rental are included separately. */
 
+import { RATE_CARD } from "@/lib/billing/rate-card";
+
 export type CommsPlanTier = "free" | "pro" | "business";
 
 /**
  * `null` would mean no cap. Every tier is capped; the type keeps `null` so a
  * deliberate uncapped plan stays expressible without reworking every reader.
+ *
+ * Values are read from `RATE_CARD` (`src/lib/billing/rate-card.ts`), the
+ * single source of truth for manager pricing, never typed in here. Free
+ * carries no communication credit and no work number — texting, calling and
+ * the assistant on a number are what Pro buys. Purchased packs still spend on
+ * a Free account that holds one.
  */
 export const COMMS_INCLUDED_ALLOWANCE_CENTS: Record<CommsPlanTier, number | null> = {
-  // Round 3 plan model: Free carries no communication credit and no work
-  // number — texting, calling and the assistant on a number are what Pro
-  // buys. Purchased packs still spend on a Free account that holds one.
-  free: 0,
-  pro: 1000,
-  business: 10000,
+  free: RATE_CARD.free.commsIncludedAllowanceCents,
+  pro: RATE_CARD.pro.commsIncludedAllowanceCents,
+  business: RATE_CARD.business.commsIncludedAllowanceCents,
 };
 
 export function normalizeCommsPlanTier(raw: string | null | undefined): CommsPlanTier {
