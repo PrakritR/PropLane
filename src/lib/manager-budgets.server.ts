@@ -5,6 +5,7 @@ import {
   MANAGER_BUDGET_SELECT,
   type ManagerBudget,
 } from "@/lib/manager-budgets";
+import { applyWorkspaceRowScope, resolveActiveWorkspaceRowScope } from "@/lib/workspaces/row-scope.server";
 
 export type UpsertManagerBudgetInput = {
   managerUserId: string;
@@ -36,6 +37,16 @@ export async function upsertManagerBudget(
     annualCents: input.annualCents ?? null,
   });
 
+  // A budget tied to a house must land in the manager's active workspace — a
+  // portfolio-level budget line (no house) has no workspace to land in and
+  // is scoped on read by the default-workspace rule instead.
+  if (input.propertyId) {
+    const scope = await resolveActiveWorkspaceRowScope(db, input.managerUserId);
+    if (scope.propertyIds !== null && !scope.propertyIds.includes(input.propertyId)) {
+      throw new Error("This property is outside your active workspace.");
+    }
+  }
+
   const now = new Date().toISOString();
   const { data, error } = await db
     .from("manager_budgets")
@@ -62,6 +73,10 @@ export async function listManagerBudgets(
   managerUserId: string,
   filters?: { fiscalYear?: number; propertyId?: string },
 ): Promise<ManagerBudget[]> {
+  // Portfolio-level budgets (`property_id` null) are a real, common case here
+  // (see the unique-key comment above) — the workspace scope's account-level
+  // rule decides whether they show, not a blanket pass-through.
+  const scope = await resolveActiveWorkspaceRowScope(db, managerUserId);
   let query = db
     .from("manager_budgets")
     .select(MANAGER_BUDGET_SELECT)
@@ -71,6 +86,7 @@ export async function listManagerBudgets(
     .limit(500);
   if (filters?.fiscalYear) query = query.eq("fiscal_year", Math.round(filters.fiscalYear));
   if (filters?.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyWorkspaceRowScope(query, scope);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
