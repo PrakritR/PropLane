@@ -1407,11 +1407,18 @@ function ManagerPropertyInlineDetails({
           setPublishedListing(null);
           detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
         }}
-        onShare={() => {
-          const id = publishedListing?.id;
-          setPublishedListing(null);
-          if (id) onSendToProspect?.(id);
-        }}
+        // Only when this page really has a share sheet. Handing the dialog an
+        // onShare it cannot honour would swallow its own copy-link-with-toast
+        // fallback and leave Share doing nothing but closing the dialog.
+        onShare={
+          onSendToProspect
+            ? () => {
+                const id = publishedListing?.id;
+                setPublishedListing(null);
+                if (id) onSendToProspect(id);
+              }
+            : undefined
+        }
         showToast={showToast}
       />
 

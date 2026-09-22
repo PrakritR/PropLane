@@ -72,6 +72,8 @@ import {
   duplicateBathroomEntry,
   duplicateRoomEntry,
   duplicateSharedSpaceEntry,
+  emptyBathroom,
+  emptyRoom,
   MAX_LISTING_BATHROOMS,
   MAX_LISTING_ROOMS,
   type ManagerListingSubmissionV1,
@@ -589,12 +591,12 @@ function StepBasics({
   /**
    * The bathroom count makes the bathroom cards, the way the bedroom count
    * makes the rooms: 2.5 opens the Bathrooms step with two full baths and a
-   * half. A card this creates starts blank — the listing's ground floor, a
-   * full bath, no rooms yet — except the half the fractional count may add,
-   * which `applyListingBathroomSlots` already shapes as a half bath and this
-   * leaves alone. Lowering the count removes untouched cards from the end
-   * and, as with bedrooms, keeps the cards and moves only the number when the
-   * last card has been filled in.
+   * half. A card this creates starts blank — a full bath, no rooms yet, and
+   * no floor of its own (the card SHOWS the listing's ground floor) — except
+   * the half the fractional count may add, which `applyListingBathroomSlots`
+   * already shapes as a half bath and this leaves alone. Lowering the count
+   * removes untouched cards from the end and, as with bedrooms, keeps the
+   * cards and moves only the number when the last card has been filled in.
    */
   const setBathrooms = (next: number) => {
     const id = bathIdFromCount(next);
@@ -604,17 +606,18 @@ function StepBasics({
       patch({ listingTotalBathroomsId: id });
       return;
     }
-    const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
     const halfIndex = next % 1 !== 0 ? applied.sub.bathrooms.length - 1 : -1;
     const bathrooms = applied.sub.bathrooms.map((bath, i) => {
       // A pre-existing card, or the half the fractional count may add, is
-      // left exactly as `applyListingBathroomSlots` shaped it — untouched,
-      // with a blank location, so it stays eligible for that helper's own
-      // "goes back to full when the count becomes whole" reversion on a
-      // later call. Stamping a floor on it here would mark it as no longer
-      // default and wedge it as a half bath forever.
+      // left exactly as `applyListingBathroomSlots` shaped it. A card this
+      // count makes is a full bath and nothing else: its floor stays BLANK
+      // (the card shows the listing's ground floor as its default, and
+      // writes one only when the manager picks). A stamped floor would make
+      // `isBathroomSlotRemovable` read the card as filled in, and lowering
+      // the count again would refuse — leaving three cards under a count
+      // that says two.
       if (i < before || i === halfIndex) return bath;
-      return writeBathroomType({ ...bath, location: groundFloor }, "full");
+      return writeBathroomType(bath, "full");
     });
     patch({ ...applied.sub, bathrooms, listingTotalBathroomsId: id });
   };
@@ -1289,7 +1292,16 @@ function StepRooms({
     if (!otherId) return;
     const source = rooms.find((r) => r.id === otherId);
     if (!source) return;
-    writeRoom(room.id, copyRoomDescriptionFrom(source, room));
+    // `copyRoomDescriptionFrom` returns a whole room; `writeRoom` takes a
+    // PATCH and reads the fields it names. Narrow the result to the
+    // description keys so name, availability and every price key are not
+    // re-written onto themselves.
+    const copied = copyRoomDescriptionFrom(source, room);
+    const roomPatch: Partial<ManagerRoomSubmission> = {};
+    for (const key of Object.keys(ROOM_DESCRIPTION_FIELD_BY_KEY) as (keyof ManagerRoomSubmission)[]) {
+      Object.assign(roomPatch, { [key]: copied[key] });
+    }
+    writeRoom(room.id, roomPatch);
   };
 
   const summaryFor = (room: ManagerRoomSubmission) => {
@@ -1370,26 +1382,11 @@ function StepRooms({
         dataAttr="listing-v2-add-room"
         onClick={() => {
           const id = `room-${Date.now()}`;
-          const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
-          const blank: ManagerRoomSubmission = {
-            id,
-            name: "",
-            floor: groundFloor,
-            monthlyRent: 0,
-            availability: "",
-            moveInAvailableDate: "",
-            moveInInstructions: "",
-            moveInPhotoDataUrls: [],
-            moveInVideoDataUrl: null,
-            manualUnavailableRanges: [],
-            detail: "",
-            furnishing: "",
-            roomAmenitiesText: "",
-            photoDataUrls: [],
-            videoDataUrl: null,
-            utilitiesEstimate: "",
-            occupancyCapacity: 1,
-          };
+          // The same blank the Basics bedroom count makes (`emptyRoom`), so
+          // two rooms added seconds apart by two controls cannot disagree on
+          // availability or how utilities are billed. Only the name (the card
+          // shows `Room N` as its placeholder) and one resident differ.
+          const blank: ManagerRoomSubmission = { ...emptyRoom(rooms.length), id, name: "", occupancyCapacity: 1 };
           writeRooms([...rooms, blank]);
           setOpen(id);
         }}
@@ -1447,20 +1444,25 @@ function BathroomCardBody({
 }) {
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
   const assigned = bath.assignedRoomIds ?? [];
+  // A card the bathroom count made carries no floor, so the control shows the
+  // listing's ground floor as its default. Display only: nothing is written
+  // until the manager picks, which is what keeps an untouched card removable
+  // when the count comes back down.
+  const floorShown = (bath.location ?? "").trim() || floors[0]?.value || "";
   return (
     <>
       <FactRow first label="Same as">
         <RowSelectCell ariaLabel={`Same as for ${who}`} value={sameAsValue} options={sameAsOptions} placeholder="—" onChange={onSameAs} />
       </FactRow>
       <FactRow label="Floor">
-        <RowSelectCell ariaLabel={`Floor for ${who}`} value={bath.location ?? ""} options={floors} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
+        <RowSelectCell ariaLabel={`Floor for ${who}`} value={floorShown} options={floors} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
       </FactRow>
       <FactRow label={<span className="inline-flex items-center gap-1.5">Type <ColumnHelp title="Type" text={BATHROOM_HELP.type} /></span>}>
         <RowSelectCell
           ariaLabel={`Type of ${who}`}
           value={bathroomTypeOf(bath)}
           options={BATHROOM_TYPE_OPTIONS}
-          onChange={(v) => onChange({ toilet: true, sink: v !== "quarter", shower: v === "full" || v === "shower", bathtub: v === "full" })}
+          onChange={(v) => onChange(writeBathroomType(bath, v as BathroomType))}
         />
       </FactRow>
       <FactRow label="Finishes">
@@ -1556,7 +1558,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
     const using = bath.allResidents
       ? ["Every room"]
       : rooms.filter((r) => (bath.assignedRoomIds ?? []).includes(r.id)).map((r, i) => r.name.trim() || `Room ${i + 1}`);
-    return [bath.location || "Floor not set", typeLabel(bath), wholePlace ? "" : using.length ? using.join(" & ") : "No rooms yet"].filter(Boolean).join(" · ");
+    return [bath.location || groundFloor || "Floor not set", typeLabel(bath), wholePlace ? "" : using.length ? using.join(" & ") : "No rooms yet"].filter(Boolean).join(" · ");
   };
 
   return (
@@ -1622,7 +1624,11 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             return;
           }
           const id = `bath-${Date.now()}`;
-          const blank = writeBathroomType({ id, name: "", location: groundFloor } as ManagerBathroomSubmission, "full");
+          // Built from `emptyBathroom` — the shape the bathroom count makes —
+          // so every field a helper reads without a guard is really there
+          // (`isBathroomSlotRemovable` reads `amenitiesText` and
+          // `photoDataUrls` directly). Full bath, blank floor, no rooms.
+          const blank = writeBathroomType({ ...emptyBathroom(baths.length), id, name: "" }, "full");
           patch({ bathrooms: [...baths, blank] });
           setOpen(id);
         }}

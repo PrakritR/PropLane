@@ -25,7 +25,11 @@ import {
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
-import { WORKSPACE_PROPERTY_LIMIT, WORKSPACE_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/workspaces/types";
+import {
+  WORKSPACE_PROPERTY_LIMIT,
+  WORKSPACE_PROPERTY_LIMIT_ERROR_CODE,
+  isWorkspacePropertyLimitDbMessage,
+} from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
 
@@ -481,7 +485,7 @@ export async function POST(req: Request) {
         // so the save-failed dialog can offer "upgrade" and "manage drafts"
         // instead of a dead "Try again" (PLAN-0921-1648). This is a workspace
         // record ceiling, not a plan quota — never keyed off `skuTier`.
-        const isWorkspaceRecordLimit = error.message.includes("property records");
+        const isWorkspaceRecordLimit = isWorkspacePropertyLimitDbMessage(error.message);
         let counts: { current?: number; draftCount?: number } = {};
         if (isWorkspaceRecordLimit && newWorkspaceId) {
           const { data: countRows } = await db

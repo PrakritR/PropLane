@@ -160,13 +160,29 @@ export function ListingSaveFailedDialog({
                 >
                   Keep editing
                 </Button>
+                {/*
+                  * Both open in a NEW tab. The editor is still mounted behind
+                  * this dialog holding the listing that could not be saved, so
+                  * navigating this tab away would discard exactly the work the
+                  * "Kept in this window" row promises is safe.
+                  */}
                 <Button asChild variant="secondary" className="rounded-full">
-                  <Link href={propertyListHref(MANAGER_PORTAL_BASE, "drafts")} data-attr="listing-save-limit-manage-drafts">
+                  <Link
+                    href={propertyListHref(MANAGER_PORTAL_BASE, "drafts")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-attr="listing-save-limit-manage-drafts"
+                  >
                     Manage drafts
                   </Link>
                 </Button>
                 <Button asChild variant="primary" className="rounded-full">
-                  <Link href={MANAGER_PLAN_PORTAL_URL} data-attr="listing-save-limit-upgrade">
+                  <Link
+                    href={MANAGER_PLAN_PORTAL_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-attr="listing-save-limit-upgrade"
+                  >
                     Upgrade plan
                   </Link>
                 </Button>

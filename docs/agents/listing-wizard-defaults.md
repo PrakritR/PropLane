@@ -61,13 +61,18 @@ listing and the lease read exactly what the card shows.
   access, Floor on the card; Furnishing (with Beds and Included while
   furnished), Room amenities, Size, Photos, Video, Description, Availability,
   move-in checklists, move-in instructions, entry photos and arrival clip
-  behind More ▾. Adding a room starts it on the listing's ground floor
-  (`floorLevelSelectOptions(listingStoriesId, "")[0]`) with one resident and
-  everything else blank — no seeding from another room.
+  behind More ▾. Adding a room makes the same blank the Basics bedroom count
+  makes (`emptyRoom`) with one resident and no name — no seeding from another
+  room.
 - **Bathrooms**: Floor, Type and Finishes on the card; Who uses it (unless
   whole-place or no rooms yet); Description, Photos and Video behind More ▾.
-  Adding a bathroom starts it on the listing's ground floor as a full bath
-  with no rooms assigned.
+  Adding a bathroom — and every card the Basics bathroom count makes — is a
+  full bath with no rooms assigned and NO floor written: the Floor control
+  shows the listing's ground floor
+  (`floorLevelSelectOptions(listingStoriesId, "")[0]`) as a display default
+  and writes one only when the manager picks. A stamped floor reads as a
+  filled-in card to `isBathroomSlotRemovable`, and lowering the count would
+  then refuse forever.
 - **Shared spaces** (PLAN-0920-0631): Type, Floor and Who may use it on the
   card; What is in it, Size (sq ft, `sizeSqft`, like a room's — labelled "Lot
   size" for an outdoor space), Description, Photos and Video behind More ▾. A

@@ -66,6 +66,10 @@ describe("ListingSaveFailedDialog — plan_limit (workspace record cap)", () => 
 
     const upgrade = document.querySelector('[data-attr="listing-save-limit-upgrade"]');
     expect(upgrade?.getAttribute("href")).toBe(MANAGER_PLAN_PORTAL_URL);
+    // A new tab: the editor behind this dialog still holds the listing that
+    // could not be saved, which the "Kept in this window" row promises is safe.
+    expect(upgrade?.getAttribute("target")).toBe("_blank");
+    expect(upgrade?.getAttribute("rel")).toContain("noopener");
   });
 
   it("Manage drafts links to the Drafts tab of Properties", () => {
@@ -83,6 +87,8 @@ describe("ListingSaveFailedDialog — plan_limit (workspace record cap)", () => 
 
     const manageDrafts = document.querySelector('[data-attr="listing-save-limit-manage-drafts"]');
     expect(manageDrafts?.getAttribute("href")).toBe("/portal/properties/drafts");
+    expect(manageDrafts?.getAttribute("target")).toBe("_blank");
+    expect(manageDrafts?.getAttribute("rel")).toContain("noopener");
   });
 
   it("omits the drafts row when the draft count is unknown", () => {

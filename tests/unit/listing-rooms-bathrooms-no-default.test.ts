@@ -21,7 +21,7 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { createDefaultListingSubmission, emptyBathroom, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
 const EDITOR = join(process.cwd(), "src/components/portal/listing-wizard-v2/listing-editor.tsx");
 const raw = readFileSync(EDITOR, "utf8");
@@ -78,8 +78,9 @@ describe("the Rooms step has no Default card", () => {
     expect(step.includes("sameAsOptions")).toBe(true);
     expect(step.includes("roomDescriptionMatches")).toBe(true);
     expect(step.includes("copyRoomDescriptionFrom")).toBe(true);
-    expect(step.includes('floorLevelSelectOptions(sub.listingStoriesId, "")[0]')).toBe(true);
-    expect(step.includes("occupancyCapacity: 1")).toBe(true);
+    // Add room builds the SAME blank the Basics bedroom count makes, so the two
+    // paths cannot disagree on availability or utilities billing.
+    expect(step.includes("...emptyRoom(rooms.length), id, name: \"\", occupancyCapacity: 1")).toBe(true);
   });
 });
 
@@ -110,8 +111,12 @@ describe("the Bathrooms step has no Default card", () => {
     expect(step.includes("sameAsOptions")).toBe(true);
     expect(step.includes("bathroomDescriptionMatches")).toBe(true);
     expect(step.includes("copyBathroomDescriptionFrom")).toBe(true);
-    // A card "Add bathroom" makes starts as a full bath, ground floor, no rooms.
-    expect(step.includes('writeBathroomType({ id, name: "", location: groundFloor } as ManagerBathroomSubmission, "full")')).toBe(true);
+    // A card "Add bathroom" makes is a full bath with no rooms, built from the
+    // same `emptyBathroom` the count uses. Its floor is left BLANK — the card
+    // shows the ground floor as a display default — so an untouched card stays
+    // removable when the count comes back down.
+    expect(step.includes('writeBathroomType({ ...emptyBathroom(baths.length), id, name: "" }, "full")')).toBe(true);
+    expect(step.includes("location: groundFloor")).toBe(false);
   });
 });
 
@@ -204,5 +209,47 @@ describe("Same as Bathroom X — live", () => {
     // Who uses it — assignedRoomIds — is untouched by the copy.
     expect(bathroom2.assignedRoomIds ?? []).toEqual([]);
     expect(bathroom2.name).toBe("Bathroom 2");
+  });
+});
+
+describe("the bathroom count on Basics (PLAN-0921-1648)", () => {
+  /**
+   * A draft whose Basics count ran ahead of its cards — three bathrooms on the
+   * count, one card on disk — which is the state that makes the count grow more
+   * than one card at a time.
+   */
+  function staleBathCount(): ManagerListingSubmissionV1 {
+    const base = createDefaultListingSubmission();
+    return {
+      ...base,
+      listingStoriesId: "2",
+      listingTotalBathroomsId: "3",
+      bathrooms: [{ ...emptyBathroom(0), id: "b1", name: "Bathroom 1" }],
+    };
+  }
+
+  it("makes cards with NO floor written, so lowering the count removes them again", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    render(React.createElement(Editor, { initial: staleBathCount(), onChange: (s: ManagerListingSubmissionV1) => seen.push(s) }));
+
+    // 3 → 3.5 grows the cards the count is short of: two whole baths and a half.
+    fireEvent.click(screen.getByRole("button", { name: "More bathrooms" }));
+    const grown = seen.at(-1)!.bathrooms!;
+    expect(grown.length).toBe(4);
+    // Each card the count made is a full bath, and its floor is BLANK — the
+    // card shows the ground floor as a display default and writes nothing. A
+    // stamped floor made `isBathroomSlotRemovable` read the card as filled in
+    // and wedged the count so it could never come back down.
+    expect(grown[1]!.bathtub).toBe(true);
+    expect(grown[1]!.shower).toBe(true);
+    expect(grown.slice(1).map((b) => (b.location ?? "").trim())).toEqual(["", "", ""]);
+
+    // 3.5 → 3 → 2.5 → 2: the untouched cards come off the end again.
+    const fewer = () => fireEvent.click(screen.getByRole("button", { name: "Fewer bathrooms" }));
+    fewer();
+    fewer();
+    fewer();
+    expect(seen.at(-1)!.listingTotalBathroomsId).toBe("2");
+    expect(seen.at(-1)!.bathrooms!.length).toBe(2);
   });
 });
