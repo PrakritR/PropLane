@@ -36,7 +36,7 @@ import {
   type ListingEditorLeadingStep,
   type ListingV2StepId,
 } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
+import { useListingPersistence, type ListingPersistenceResult } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { fillRoomsFollowingDefaults, houseDefaultsForSubmission } from "@/lib/listing-house-defaults";
 import {
   applyListingBathroomSlots,
@@ -196,8 +196,13 @@ export function ListingWizardV2({
   const lifecycleRef = useRef(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const busy = persistenceBusy || lifecycleBusy;
-  const lastPersistErrorRef = useRef("Could not save this listing.");
-  const [saveFail, setSaveFail] = useState<{ message: string; stepIndex: number } | null>(null);
+  // `kind`/`limitInfo` ride along so the save-failed dialog can tell the
+  // workspace's own record cap (a real "upgrade or manage drafts" way out)
+  // apart from an ordinary transient refusal (`Try again` is the honest
+  // option there). See `ListingPersistenceResult`.
+  type SaveFailureDetails = Pick<Extract<ListingPersistenceResult, { ok: false }>, "message" | "kind" | "limitInfo">;
+  const lastPersistErrorRef = useRef<SaveFailureDetails>({ message: "Could not save this listing." });
+  const [saveFail, setSaveFail] = useState<(SaveFailureDetails & { stepIndex: number }) | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -265,7 +270,7 @@ export function ListingWizardV2({
       if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return true;
       const prepared = await persistSubmission(raw, { validateWaiverCode: editing });
       if (!prepared.ok) {
-        lastPersistErrorRef.current = prepared.message;
+        lastPersistErrorRef.current = { message: prepared.message };
         setActionError(prepared.message);
         if (notify) showToast?.(prepared.message);
         return false;
@@ -278,7 +283,7 @@ export function ListingWizardV2({
         ? await publish(prepared.submission)
         : await saveDraft(prepared.submission, stepIndex);
       if (!result.ok) {
-        lastPersistErrorRef.current = result.message;
+        lastPersistErrorRef.current = { message: result.message, kind: result.kind, limitInfo: result.limitInfo };
         setActionError(result.message);
         if (notify) showToast?.(result.message);
         return false;
@@ -359,7 +364,7 @@ export function ListingWizardV2({
         onClose();
         return;
       }
-      setSaveFail({ message: lastPersistErrorRef.current, stepIndex });
+      setSaveFail({ ...lastPersistErrorRef.current, stepIndex });
     },
     [editing, onClose, persist, runLifecycle, showToast],
   );
@@ -427,6 +432,8 @@ export function ListingWizardV2({
       <ListingSaveFailedDialog
         open={saveFail !== null}
         reason={saveFail?.message ?? ""}
+        kind={saveFail?.kind}
+        limitInfo={saveFail?.limitInfo}
         onKeepEditing={() => setSaveFail(null)}
         onTryAgain={() => (saveFail ? handleClose(saveFail.stepIndex) : undefined)}
         onLeaveWithoutSaving={() => {

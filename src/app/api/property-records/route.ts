@@ -25,6 +25,7 @@ import {
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { WORKSPACE_PROPERTY_LIMIT, WORKSPACE_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
 
@@ -472,7 +473,38 @@ export async function POST(req: Request) {
       // explain ("Assigned room no longer exists.", "Move-out date precedes
       // move-in date.") — repeatable, and the manager can act on the words. A
       // 500 turned it into "check your connection" on a healthy network.
-      if (error.code === "23514") return NextResponse.json({ error: error.message }, { status: 422 });
+      if (error.code === "23514") {
+        // The workspace record cap (`enforce_property_workspace`,
+        // 20260911230000_portal_workspaces.sql) is the one 23514 this route
+        // can do more for than repeat the sentence: a stable code plus, on the
+        // create path where the workspace is already known, the real counts,
+        // so the save-failed dialog can offer "upgrade" and "manage drafts"
+        // instead of a dead "Try again" (PLAN-0921-1648). This is a workspace
+        // record ceiling, not a plan quota — never keyed off `skuTier`.
+        const isWorkspaceRecordLimit = error.message.includes("property records");
+        let counts: { current?: number; draftCount?: number } = {};
+        if (isWorkspaceRecordLimit && newWorkspaceId) {
+          const { data: countRows } = await db
+            .from("manager_property_records")
+            .select("status")
+            .eq("workspace_id", newWorkspaceId);
+          if (countRows) {
+            counts = {
+              current: countRows.length,
+              draftCount: countRows.filter((r) => r.status === "draft").length,
+            };
+          }
+        }
+        return NextResponse.json(
+          {
+            error: error.message,
+            ...(isWorkspaceRecordLimit
+              ? { code: WORKSPACE_PROPERTY_LIMIT_ERROR_CODE, limit: WORKSPACE_PROPERTY_LIMIT, ...counts }
+              : {}),
+          },
+          { status: 422 },
+        );
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

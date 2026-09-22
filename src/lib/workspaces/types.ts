@@ -6,6 +6,16 @@ import type { HouseScope, WorkspaceRole } from "@/lib/workspaces/membership";
 export const WORKSPACE_LIMIT = 10;
 /** Property records per workspace, drafts included (database trigger). */
 export const WORKSPACE_PROPERTY_LIMIT = 10;
+/**
+ * The machine tag `POST /api/property-records` puts on the workspace
+ * record-cap 422 (the database trigger's `23514`, matched by message text
+ * since Postgres gives this route no narrower signal). A client keys on this
+ * rather than the message so the save-failed dialog can tell "workspace is
+ * full" apart from every other refusal that route can return — never a
+ * plan-tier limit, which is `MANAGER_PROPERTY_LIMIT_ERROR_CODE`
+ * (`src/lib/manager-access.ts`) and a completely different cap.
+ */
+export const WORKSPACE_PROPERTY_LIMIT_ERROR_CODE = "property_record_limit";
 export const WORKSPACE_COOKIE = "proplane-workspace";
 
 export type WorkspacePlanTier = "free" | "pro" | "business";
