@@ -24,6 +24,7 @@ import {
 } from "@/lib/reports/queries";
 import { writeAuditLog, updateAuditResult } from "../audit";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
+import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 /**
  * Financial reports the agent may run. The numbers are computed by these query
@@ -78,6 +79,15 @@ export const runFinancialReportTool = defineTool({
       taxYear: input.taxYear,
       vendorId: input.vendorId,
       daysAhead: input.daysAhead,
+      // Same server-resolved active-workspace scope every manager report route
+      // already narrows by (`src/app/api/reports/[reportId]/route.ts`); `ctx.workspace`
+      // is the AI tool layer's equivalent of that same resolution, so this
+      // wires the report queries' EXISTING `workspacePropertyIds` support to
+      // it instead of leaving the assistant read the whole unpartitioned
+      // account. `null` here means "not narrowing" (single-workspace account),
+      // never "everything" for a resolution failure — `ctx.workspace` is
+      // already fail-closed for that case (see manager-workspace-scope.ts).
+      workspacePropertyIds: ctx.workspace?.narrowing ? [...ctx.workspace.propertyIds] : null,
     };
     return run(ctx.db, ctx.landlordId, filters);
   },
@@ -195,6 +205,22 @@ async function resolveManualEntry(
     return {
       ok: false,
       error: `Unknown ${meta.noun} category code "${categoryCode}". Valid codes: ${[...meta.codes].join(", ")}.`,
+    };
+  }
+
+  // A create must land in the active workspace: a named property outside it is
+  // refused before it is even looked up (never leaks whether it exists
+  // elsewhere in the account), and an entry with NO property follows the same
+  // rule as any other account-level row — recordable only from the owned
+  // default workspace, so it cannot be filed from workspace B and then show up
+  // as an untagged entry in workspace A's books.
+  const propertyId = input.propertyId?.trim() || null;
+  if (!propertyInAgentWorkspace(ctx.workspace, propertyId)) {
+    return {
+      ok: false,
+      error: propertyId
+        ? `Property ${propertyId} is not in the active workspace. Switch workspaces or omit propertyId.`
+        : "This landlord has more than one workspace. Switch to the default workspace to record an entry with no property, or attribute it to a property in the current workspace.",
     };
   }
 
