@@ -44,6 +44,12 @@ function checkoutDb() {
     limit: vi.fn(() => query),
     maybeSingle: vi.fn(async () => ({ data: null, error: null })),
     upsert: vi.fn(async () => ({ error: null })),
+    // Per-door billing (step 3) resolves the account's live door count as
+    // part of checkout for a paid tier — the same `.select().eq().in(...)`
+    // chain `loadManagerDoorCount` issues against `manager_property_records`.
+    // Empty by default: this suite is about checkout ownership boundaries,
+    // not billing, so a brand-new/test caller here always has zero doors.
+    in: vi.fn(async () => ({ data: [], error: null })),
   };
   return { from: vi.fn(() => query), query };
 }

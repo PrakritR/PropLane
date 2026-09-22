@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveRateCardVersionMetadataPatch, syncManagerDoorQuantity } from "@/lib/billing/quantity-sync.server";
 import { type ManagerSkuTier } from "@/lib/manager-access";
 import { getManagerPurchaseSku, setManagerPurchaseTier } from "@/lib/manager-access-server";
 import {
@@ -263,7 +264,10 @@ export async function POST(req: Request) {
     }
 
     if (currentPriceId === newPriceId) {
-      const meta = clearScheduleMetadata({ ...(sub.metadata ?? {}) });
+      const meta = {
+        ...clearScheduleMetadata({ ...(sub.metadata ?? {}) }),
+        ...(resolveRateCardVersionMetadataPatch(sub.metadata) ?? {}),
+      };
       await stripe.subscriptions.update(stripeSubscriptionId, { metadata: meta });
       await supabase.from("manager_purchases").update({ tier: targetPaid, billing: targetBilling }).eq("user_id", user.id);
       return NextResponse.json({ ok: true, stripeManaged: true, tier: targetPaid, billing: targetBilling });
@@ -281,8 +285,20 @@ export async function POST(req: Request) {
     const switchingMonthlyToAnnual = currentBilling === "monthly" && targetBilling === "annual";
     const annualSwitchCoupon = process.env.STRIPE_COUPON_SWITCH_TO_ANNUAL?.trim();
 
-    const meta = clearScheduleMetadata({ ...(sub.metadata ?? {}) });
+    const meta = {
+      ...clearScheduleMetadata({ ...(sub.metadata ?? {}) }),
+      ...(resolveRateCardVersionMetadataPatch(sub.metadata) ?? {}),
+    };
 
+    // This update touches ONLY the floor item's price — the tier's own
+    // change. The included door allowance may have just moved (an upgrade
+    // raises it, e.g. Pro's 20 -> Business's 120), so the door-overage
+    // quantity is stale the instant this lands and must be recomputed next.
+    // `syncManagerDoorQuantity` is a second, later Stripe write rather than
+    // one combined call so this function keeps single responsibility for the
+    // tier/price change and never itself decides a door quantity; a failure
+    // there never rolls back or blocks the tier change that already
+    // succeeded, since the account is now correctly on its new tier either way.
     await stripe.subscriptions.update(stripeSubscriptionId, {
       items: [{ id: item.id, price: newPriceId }],
       proration_behavior: useProration ? "create_prorations" : "none",
@@ -302,11 +318,26 @@ export async function POST(req: Request) {
 
     await reconcileManagerPurchaseWithStripe(user.id);
 
+    let doorQuantitySynced = false;
+    try {
+      const doorSync = await syncManagerDoorQuantity({
+        stripe,
+        db: supabase,
+        managerUserId: user.id,
+        stripeSubscriptionId,
+        tier: targetPaid,
+      });
+      doorQuantitySynced = doorSync.ok;
+    } catch {
+      doorQuantitySynced = false;
+    }
+
     return NextResponse.json({
       ok: true,
       stripeManaged: true,
       tier: targetPaid,
       billing: targetBilling,
+      doorQuantitySynced,
       message: useProration
         ? "Plan updated — Stripe will invoice any proration to your saved payment method."
         : "Billing interval updated.",

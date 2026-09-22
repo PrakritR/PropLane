@@ -1,8 +1,11 @@
 import { resolveAppOrigin } from "@/lib/app-url";
+import { ensureDoorOveragePrice, resolveManagerDoorOverage } from "@/lib/billing/quantity-sync.server";
+import { RATE_CARD_VERSION } from "@/lib/billing/rate-card";
 import { generateManagerId } from "@/lib/manager-id";
 import { normalizeProMonthlyPromoInput, PRO_MONTHLY_FIRST_FREE_PROMO_CODE } from "@/lib/stripe-promos";
 import { resolveStripePriceIdForManagerTier } from "@/lib/stripe/resolve-manager-price";
 import type { ManagerSubscriptionTier, StripeBilling } from "@/lib/stripe-price-ids";
+import { META_RATE_CARD_VERSION } from "@/lib/stripe-subscription-metadata";
 import {
   buildManagerSubscriptionCheckoutBase,
   MANAGER_SUBSCRIPTION_TRIAL_DAYS,
@@ -115,11 +118,37 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
 
   const stripe = getStripe();
 
+  // A door-overage line beside the tier floor, sized at whatever this account
+  // already bills for TODAY (almost always 0 doors for a brand-new signup,
+  // but an existing manager can reach checkout from an authenticated upgrade
+  // flow with real listings already on file). Free has no overage price at
+  // all, and a signup with no resolvable account yet has no listings to
+  // count. A door count that fails to resolve fails the checkout closed
+  // rather than guessing a quantity.
+  let extraLineItems: Array<{ price: string; quantity: number }> | undefined;
+  if (tier !== "free" && verifiedUserId) {
+    const overage = await resolveManagerDoorOverage(db, verifiedUserId, tier);
+    if (!overage.ok) {
+      return {
+        ok: false,
+        status: 503,
+        error: "Could not verify your current door count for billing. Please try again.",
+      };
+    }
+    if (overage.quantity > 0) {
+      const doorPriceId = await ensureDoorOveragePrice(stripe, tier);
+      extraLineItems = [{ price: doorPriceId, quantity: overage.quantity }];
+    }
+  }
+
   const managerId = input.managerId?.trim() || generateManagerId();
   const metadata: Record<string, string> = {
     tier,
     billing,
     manager_id: managerId,
+    // Pins the rate card this brand-new subscription is priced under so a
+    // later rate-card change can never silently re-price it.
+    [META_RATE_CARD_VERSION]: RATE_CARD_VERSION,
   };
   if (normalizedEmail) metadata.email = normalizedEmail;
   if (fullName) metadata.full_name = fullName;
@@ -140,6 +169,7 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
     ...(autoFirstMonthFree && promoCodeId ? { discounts: [{ promotion_code: promoCodeId }] } : {}),
     allowPromotionCodes,
     trialPeriodDays: MANAGER_SUBSCRIPTION_TRIAL_DAYS,
+    ...(extraLineItems ? { extraLineItems } : {}),
   });
 
   const returnTarget = userId ? "manager-oauth-finish" : "manager-id";
