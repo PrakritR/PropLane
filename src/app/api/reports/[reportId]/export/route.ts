@@ -8,12 +8,13 @@ import { reportToCsv } from "@/lib/reports/export/csv";
 import { buildQuickBooksJournalCsv } from "@/lib/reports/export/quickbooks-csv";
 import { reportToPdf } from "@/lib/reports/export/pdf";
 import { parseManagerReportFilters } from "@/lib/reports/parse-filters";
-import { resolveManagerReportOwnerId } from "@/lib/reports/co-manager-report-scope";
+import { resolveManagerReportScope } from "@/lib/reports/co-manager-report-scope";
 import {
   MANAGER_REPORT_IDS,
   RESIDENT_REPORT_IDS,
 } from "@/lib/reports/types";
 import { runManagerReport, queryResidentLedger } from "@/lib/reports/queries";
+import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import type { ManagerReportFilters } from "@/lib/reports/types";
 
@@ -51,14 +52,22 @@ export async function GET(
       }
       const gate = await assertManagerFinancialsAccess(auth);
       if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
-      managerUserId =
-        auth.role === "admin"
-          ? searchParams.get("managerUserId")?.trim() || auth.userId
-          : await resolveManagerReportOwnerId(auth.db, auth.userId);
-      // Same workspace narrowing as the on-screen report, so an export can
-      // never carry rows the page itself would not show.
+      let grantedPropertyIds: string[] | null = null;
+      if (auth.role === "admin") {
+        managerUserId = searchParams.get("managerUserId")?.trim() || auth.userId;
+      } else {
+        const scope = await resolveManagerReportScope(auth.db, auth.userId);
+        managerUserId = scope.managerUserId;
+        grantedPropertyIds = scope.grantedPropertyIds;
+      }
+      // Same workspace narrowing as the on-screen report, plus the co-manager's
+      // own grant narrowed on top, so an export can never carry rows the page
+      // itself would not show — and never more than the grant allows.
       managerFilters = parseManagerReportFilters(searchParams);
-      managerFilters.workspacePropertyIds = await activeWorkspacePropertyScope(auth.db, auth.userId);
+      managerFilters.workspacePropertyIds = intersectPropertyScopes(
+        await activeWorkspacePropertyScope(auth.db, auth.userId),
+        grantedPropertyIds,
+      );
       report = await runManagerReport(auth.db, managerUserId, reportId, managerFilters);
     }
 

@@ -105,11 +105,16 @@ export async function GET(req: Request) {
       .filter((row): row is ManagerVendorRow => row !== null);
 
     // Co-manager access: the vendor directory is owner-keyed (no property
-    // column), so include every linked owner's rows when this user has the
-    // "services" module on at least one of that owner's assigned properties.
+    // column on the record), so include every linked owner's rows — but ONLY
+    // the vendors that actually serve a property this user's "services" grant
+    // covers under that owner. `linkedOwnerScopeForModule`'s ownerIds alone
+    // would confer the owner's WHOLE directory the moment a co-manager holds
+    // "services" on a single house; every vendor row's own `propertyIds`
+    // (empty/absent = assigned to every property, same "Every property"
+    // sentinel the vendor form uses) is what narrows it to that house.
     let linkedOwnerRows: ManagerVendorRow[] = [];
     if (!admin) {
-      const { ownerIds } = await linkedOwnerScopeForModule(db, user.id, "services");
+      const { ownerIds, propertyIdsByOwner } = await linkedOwnerScopeForModule(db, user.id, "services");
       ownerIds.delete(user.id);
       if (ownerIds.size > 0) {
         const { data: linkedData, error: linkedError } = await db
@@ -125,6 +130,10 @@ export async function GET(req: Request) {
             if (!row?.id || isVendorCategorySettingsRow(row)) return null;
             const ownerId = record.manager_user_id;
             if (!ownerId) return null;
+            const grantedPropertyIds = propertyIdsByOwner.get(ownerId) ?? new Set<string>();
+            const assigned = Array.isArray(row.propertyIds) ? row.propertyIds : [];
+            const servesGrantedHouse = assigned.length === 0 || assigned.some((id) => grantedPropertyIds.has(id));
+            if (!servesGrantedHouse) return null;
             return normalizeRow(row, ownerId);
           })
           .filter((row): row is ManagerVendorRow => row !== null);

@@ -1,10 +1,8 @@
 /**
- * When Properties may open the create-listing wizard by itself.
+ * Properties never opens the create-listing wizard by itself.
  *
- * The rule the captain stated, and the two ways the old one broke it:
- * it reopened on every visit to Properties until a listing existed, so closing
- * it meant nothing; and it counted only OWNED rows, so a co-manager working
- * somebody else's portfolio was treated as a brand-new manager.
+ * Visiting the tab must stay on the requested stage and leave the wizard
+ * closed. Add is the only door.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -36,27 +34,18 @@ describe("what counts as having a listing", () => {
 });
 
 describe("auto-opening the create-listing wizard", () => {
-  it("opens for a brand-new account with nothing at all", () => {
-    expect(shouldAutoOpenFirstListingWizard({ snap: snap(), dismissed: false })).toBe(true);
+  it("never opens, even for a brand-new empty account", () => {
+    expect(shouldAutoOpenFirstListingWizard({ snap: snap(), dismissed: false })).toBe(false);
   });
 
-  it("never opens again once the manager has closed it", () => {
-    expect(shouldAutoOpenFirstListingWizard({ snap: snap(), dismissed: true })).toBe(false);
+  it("never opens when a leftover draft exists", () => {
+    expect(shouldAutoOpenFirstListingWizard({ snap: snap({ drafts: 1 }), dismissed: false })).toBe(false);
   });
 
-  it("does not open for a co-manager who has properties on somebody else's account", () => {
-    // The reported bug: every listing this account works is co-managed, so the
-    // owned count is zero and the wizard treated them as brand new.
-    expect(shouldAutoOpenFirstListingWizard({ snap: snap({ coManaged: 3 }), dismissed: false })).toBe(false);
-  });
-
-  it("does not open for an account with a listed or unlisted property", () => {
+  it("never opens for a listed, unlisted, or co-managed portfolio", () => {
     expect(shouldAutoOpenFirstListingWizard({ snap: snap({ listingSlots: 1 }), dismissed: false })).toBe(false);
     expect(shouldAutoOpenFirstListingWizard({ snap: snap({ unlisted: 1 }), dismissed: false })).toBe(false);
-  });
-
-  it("still opens when only an unfinished draft exists and it was never dismissed", () => {
-    expect(shouldAutoOpenFirstListingWizard({ snap: snap({ drafts: 1 }), dismissed: false })).toBe(true);
+    expect(shouldAutoOpenFirstListingWizard({ snap: snap({ coManaged: 3 }), dismissed: false })).toBe(false);
   });
 });
 
@@ -71,17 +60,11 @@ describe("seeding the first draft", () => {
   });
 });
 
-describe("auto-open is a one-shot that survives the move to Drafts", () => {
-  it("does not open a second time once it has opened this session", () => {
+describe("auto-open stays off regardless of leftover flags", () => {
+  it("does not open when session or dismiss flags would have allowed it", () => {
     expect(
-      shouldAutoOpenFirstListingWizard({ snap: snap({ drafts: 1 }), dismissed: false, autoOpenedThisSession: true }),
+      shouldAutoOpenFirstListingWizard({ snap: snap({ drafts: 1 }), dismissed: false, autoOpenedThisSession: false }),
     ).toBe(false);
-  });
-
-  it("never opens on a portfolio with a listed property, whatever the flags say", () => {
     expect(shouldAutoOpenFirstListingWizard({ snap: snap({ listed: 1 }), dismissed: false })).toBe(false);
-    expect(
-      shouldAutoOpenFirstListingWizard({ snap: snap({ listed: 1, drafts: 1 }), dismissed: false, autoOpenedThisSession: false }),
-    ).toBe(false);
   });
 });
