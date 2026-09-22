@@ -21,7 +21,9 @@ vi.mock("@/lib/site-content", () => ({ loadManagerPlanTiers: async () => [] }));
 vi.mock("@/components/portal/manager-usage-panel", () => ({
   ManagerUsagePanel: () => <div data-testid="stub-usage" />,
   ManagerExtraUsagePanel: () => <div data-testid="stub-extra-usage" />,
+  ManagerDoorsPanel: () => <div data-testid="stub-doors" />,
   useUsageSummary: () => ({ summary: null, error: null, load: async () => null }),
+  useDoorCount: () => ({ data: null, error: null, load: async () => null }),
 }));
 vi.mock("@/components/portal/manager-plan-addons-panel", () => ({
   ManagerPlanAddonsPanel: () => <div data-testid="stub-addons" />,
