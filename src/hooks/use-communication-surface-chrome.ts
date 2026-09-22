@@ -5,8 +5,8 @@ import { useLayoutEffect } from "react";
 /**
  * Communication surfaces (main tab + resident-detail chat) apply their
  * communication-specific layout. `threadReading` adds the full-bleed mobile
- * thread layout (no extra page chrome). `threadSelected` hides the assistant
- * whenever a conversation is active (desktop split or mobile).
+ * thread layout (no extra page chrome). `threadSelected` hides the floating
+ * assistant FAB so it does not cover the reply row — not the header dock rail.
  */
 export function useCommunicationSurfaceChrome({
   active,
@@ -36,17 +36,14 @@ export function useCommunicationSurfaceChrome({
     }
     if (hideAssistantFab) {
       html.dataset.communicationHideAssistantFab = "true";
-      html.dataset.hideAssistantFab = "true";
     } else {
       delete html.dataset.communicationHideAssistantFab;
-      delete html.dataset.hideAssistantFab;
     }
     return () => {
       delete html.dataset.communicationSurface;
       delete html.dataset.communicationThreadReading;
       delete html.dataset.communicationThreadSelected;
       delete html.dataset.communicationHideAssistantFab;
-      delete html.dataset.hideAssistantFab;
     };
   }, [active, hideAssistantFab, threadReading, threadSelected]);
 }
