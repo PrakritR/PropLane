@@ -32,7 +32,9 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
 
 import { ManagerHousePropertiesPanel } from "@/components/portal/pro-house-properties-panel";
 import {
-  hasJustPublishedListing,
+  clearJustPublishedListing,
+  JUST_PUBLISHED_TTL_MS,
+  peekJustPublishedListing,
   takeJustPublishedListing,
   writeJustPublishedListing,
 } from "@/lib/manager-listing-just-published";
@@ -94,7 +96,7 @@ describe("the publish confirmation is handed across the stage remount", () => {
     writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
     const first = renderPanel();
     await waitFor(() => expect(screen.getByText("Listing published")).toBeTruthy());
-    expect(hasJustPublishedListing(LISTING_ID)).toBe(false);
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
 
     first.unmount();
     renderPanel();
@@ -144,21 +146,74 @@ describe("the publish confirmation is handed across the stage remount", () => {
   });
 });
 
+describe("the stage correction the confirmation suppresses", () => {
+  /**
+   * The body only redirects when the routed property is not in the URL's stage
+   * but IS somewhere else, so the marker's suppression can only be observed
+   * against a panel whose portfolio really disagrees with the URL. These drive
+   * the suppression through the panel's own contract: the marker is read into
+   * state during the first render, and dismissing the dialog clears it.
+   */
+  it("hands the body a listing id while the confirmation is up, and nothing once it is dismissed", async () => {
+    writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("Listing published")).toBeTruthy());
+
+    // The marker left storage the moment it was read, so nothing downstream can
+    // still be consulting it — the suppression now lives in React state.
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View listing" }));
+    await waitFor(() => expect(screen.queryByText("Listing published")).toBeNull());
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
+  });
+
+  it("drops a pending marker on a mount that is not a property detail page", async () => {
+    writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
+
+    renderPanel({ propertyKey: undefined });
+
+    await waitFor(() => expect(peekJustPublishedListing(LISTING_ID)).toBeNull());
+    expect(screen.queryByText("Listing published")).toBeNull();
+  });
+});
+
 describe("the one-shot marker itself", () => {
   it("is taken exactly once, and only by the listing it names", () => {
     writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
-    expect(hasJustPublishedListing(LISTING_ID)).toBe(true);
-    expect(hasJustPublishedListing("mgr-other")).toBe(false);
+    expect(peekJustPublishedListing(LISTING_ID)).toEqual({ id: LISTING_ID, name: "142 Test Ave" });
+    expect(peekJustPublishedListing("mgr-other")).toBeNull();
 
     expect(takeJustPublishedListing(LISTING_ID)).toEqual({ id: LISTING_ID, name: "142 Test Ave" });
     expect(takeJustPublishedListing(LISTING_ID)).toBeNull();
+  });
+
+  it("peeks without consuming, so a double render still finds it", () => {
+    writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
+
+    expect(peekJustPublishedListing(LISTING_ID)).not.toBeNull();
+    expect(peekJustPublishedListing(LISTING_ID)).not.toBeNull();
+    expect(takeJustPublishedListing(LISTING_ID)).not.toBeNull();
   });
 
   it("clears a marker a different property picked up, so it cannot fire later", () => {
     writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
 
     expect(takeJustPublishedListing("mgr-some-other-home")).toBeNull();
-    expect(hasJustPublishedListing(LISTING_ID)).toBe(false);
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
+  });
+
+  it("expires, so a marker whose navigation never landed cannot fire at a later visit", () => {
+    writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
+    const stale = JSON.parse(window.sessionStorage.getItem("proplane:listing-just-published")!);
+    window.sessionStorage.setItem(
+      "proplane:listing-just-published",
+      JSON.stringify({ ...stale, at: Date.now() - JUST_PUBLISHED_TTL_MS - 1 }),
+    );
+
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
+    // And the expired slot is dropped rather than re-read on every render.
+    expect(window.sessionStorage.getItem("proplane:listing-just-published")).toBeNull();
   });
 
   it("ignores a blank id and survives unreadable storage", () => {
@@ -166,7 +221,15 @@ describe("the one-shot marker itself", () => {
     expect(takeJustPublishedListing(LISTING_ID)).toBeNull();
 
     window.sessionStorage.setItem("proplane:listing-just-published", "not json");
-    expect(hasJustPublishedListing(LISTING_ID)).toBe(false);
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
     expect(takeJustPublishedListing(LISTING_ID)).toBeNull();
+  });
+
+  it("clearJustPublishedListing drops whatever is pending", () => {
+    writeJustPublishedListing({ id: LISTING_ID, name: "142 Test Ave" });
+
+    clearJustPublishedListing();
+
+    expect(peekJustPublishedListing(LISTING_ID)).toBeNull();
   });
 });

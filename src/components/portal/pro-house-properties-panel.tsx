@@ -42,7 +42,8 @@ import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { ListingPublishedDialog } from "@/components/portal/listing-wizard-v2/listing-published-dialog";
 import {
-  hasJustPublishedListing,
+  clearJustPublishedListing,
+  peekJustPublishedListing,
   takeJustPublishedListing,
   writeJustPublishedListing,
   type JustPublishedListing,
@@ -1473,14 +1474,28 @@ type ManagerHousePropertiesPanelProps = {
  */
 export function ManagerHousePropertiesPanel(props: ManagerHousePropertiesPanelProps) {
   const router = useRouter();
-  const [publishedListing, setPublishedListing] = useState<JustPublishedListing | null>(null);
   const { propertiesBase, showToast, onSendToProspect, propertyKey, activeStage } = props;
+  const routeKey = propertyKey ? decodeURIComponent(propertyKey) : "";
+  /**
+   * Seeded during the FIRST render, not from an effect: the body's own
+   * stage-correcting redirect runs its effect before this one (children first),
+   * and it has to already know a publish landing is in progress or it fires the
+   * very redirect this handoff exists to avoid. The effect below then clears
+   * the storage slot, so from that point on this state is the only copy — a
+   * dismiss really does end the suppression.
+   */
+  const [publishedListing, setPublishedListing] = useState<JustPublishedListing | null>(() =>
+    peekJustPublishedListing(routeKey),
+  );
 
   useEffect(() => {
-    if (!propertyKey) return;
-    const taken = takeJustPublishedListing(decodeURIComponent(propertyKey));
-    if (taken) setPublishedListing(taken);
-  }, [activeStage, propertyKey]);
+    if (!routeKey) {
+      clearJustPublishedListing();
+      return;
+    }
+    const taken = takeJustPublishedListing(routeKey);
+    if (taken) setPublishedListing((current) => (current?.id === taken.id ? current : taken));
+  }, [activeStage, routeKey]);
 
   const announcePublished = useCallback(
     (listing: JustPublishedListing) => {
@@ -1492,7 +1507,11 @@ export function ManagerHousePropertiesPanel(props: ManagerHousePropertiesPanelPr
 
   return (
     <>
-      <ManagerHousePropertiesPanelBody {...props} onPublishedListing={announcePublished} />
+      <ManagerHousePropertiesPanelBody
+        {...props}
+        onPublishedListing={announcePublished}
+        justPublishedListingId={publishedListing?.id ?? null}
+      />
       <ListingPublishedDialog
         open={publishedListing !== null}
         name={publishedListing?.name ?? "Listing"}
@@ -1538,8 +1557,15 @@ function ManagerHousePropertiesPanelBody({
   searchQuery = "",
   onClearSearch,
   onPublishedListing,
+  justPublishedListingId,
 }: ManagerHousePropertiesPanelProps & {
   onPublishedListing: (listing: JustPublishedListing) => void;
+  /**
+   * The listing whose publish confirmation is on screen right now, or null.
+   * Owned by the panel above so that dismissing the dialog releases the
+   * stage-correcting redirect below instead of leaving it wedged.
+   */
+  justPublishedListingId: string | null;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -2003,10 +2029,13 @@ function ManagerHousePropertiesPanelBody({
 
   useEffect(() => {
     if (!routePropertyStageElsewhere || !propertyKeyProp) return;
-    // A publish already sent this manager to the Listed detail route. Racing it
-    // with a stage correction of its own would land them on whichever stage
-    // MANAGER_STAGES happens to name first and lose the confirmation with it.
-    if (hasJustPublishedListing(decodeURIComponent(propertyKeyProp))) return;
+    // A publish already sent this manager to the Listed detail route, and its
+    // confirmation is on screen. Racing it with a stage correction would land
+    // them on whichever stage MANAGER_STAGES names first and lose the
+    // confirmation with it. `justPublishedListingId` is a dep, so closing the
+    // dialog releases the correction rather than stranding this page on
+    // "Loading this property…".
+    if (justPublishedListingId && justPublishedListingId === decodeURIComponent(propertyKeyProp)) return;
     router.replace(
       propertyDetailHref(
         propertiesBase,
@@ -2016,7 +2045,14 @@ function ManagerHousePropertiesPanelBody({
       ),
       { scroll: false },
     );
-  }, [detailTabProp, propertiesBase, propertyKeyProp, router, routePropertyStageElsewhere]);
+  }, [
+    detailTabProp,
+    justPublishedListingId,
+    propertiesBase,
+    propertyKeyProp,
+    router,
+    routePropertyStageElsewhere,
+  ]);
 
   if (!authReady) {
     return <p className="text-sm text-muted">Loading your properties…</p>;
