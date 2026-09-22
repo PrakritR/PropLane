@@ -28,7 +28,14 @@ import { EmbeddedCheckoutMount } from "@/components/stripe/embedded-checkout";
 import { SubscriptionCheckoutHint } from "@/components/stripe/subscription-checkout-hint";
 import { ManagerPlanNative } from "@/components/portal/pro-plan-native";
 import { PlanAdjustSheet, type AdjustablePaidTier, type BillingInterval } from "@/components/portal/pro-plan-adjust-sheet";
-import { ManagerUsagePanel, ManagerExtraUsagePanel, useUsageSummary } from "@/components/portal/manager-usage-panel";
+import {
+  ManagerUsagePanel,
+  ManagerExtraUsagePanel,
+  ManagerDoorsPanel,
+  useUsageSummary,
+  useDoorCount,
+} from "@/components/portal/manager-usage-panel";
+import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { ManagerPlanAddonsPanel } from "@/components/portal/manager-plan-addons-panel";
 import { ManagerPaymentMethodsPanel } from "@/components/portal/manager-payment-methods-panel";
 import type { ManagerInvoiceRow } from "@/app/api/manager/invoices/route";
@@ -73,6 +80,15 @@ function planPriceLabel(tiers: ManagerPlanTierDefinition[], tierId: ManagerSkuTi
 function periodEndLabel(unix: number | null | undefined): string | null {
   if (unix == null || typeof unix !== "number" || !Number.isFinite(unix) || unix <= 0) return null;
   return formatPacificDate(new Date(unix * 1000), { month: "long", day: "numeric", year: "numeric" });
+}
+
+/** The tier's own floor price at the given billing cadence, read from
+ * `RATE_CARD` — never a hand-typed figure. Free has no price to show. */
+function tierFloorPriceLabel(t: ManagerSkuTier, billing: "monthly" | "annual"): string | null {
+  if (t === "free") return null;
+  const card = RATE_CARD[t];
+  const cents = billing === "annual" ? card.floorAnnualCents : card.floorMonthlyCents;
+  return `${formatRateCardUsd(cents)}${billing === "annual" ? "/yr" : "/mo"}`;
 }
 
 function tierPropertyCap(t: ManagerSkuTier): number {
@@ -235,6 +251,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoError, setPromoError] = useState<string | null>(null);
   const { summary: usageSummary, error: usageError, load: loadUsage } = useUsageSummary();
+  const { data: doorCountData, error: doorCountError, load: loadDoorCount } = useDoorCount();
 
   const load = useCallback(async () => {
     try {
@@ -660,11 +677,16 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
                 <p className="text-sm text-muted">
                   {currentTier === "free"
                     ? "No subscription"
-                    : sub.stripeManaged
-                      ? `${currentBilling === "annual" ? "Annual" : "Monthly"}${renewalLabel ? ` · renews ${renewalLabel}` : ""}`
-                      : isTrialBilling
-                        ? "14-day trial · no card on file"
-                        : "Complimentary"}
+                    : [
+                        tierFloorPriceLabel(currentTier, currentBilling),
+                        sub.stripeManaged
+                          ? `${currentBilling === "annual" ? "Annual" : "Monthly"}${renewalLabel ? ` · renews ${renewalLabel}` : ""}`
+                          : isTrialBilling
+                            ? "14-day trial · no card on file"
+                            : "Complimentary",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                 </p>
               </div>
               {isTrialBilling && currentTier !== "free" ? (
@@ -696,6 +718,13 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
         )}
       </PortalSettingsSection>
 
+      <ManagerDoorsPanel
+        tier={currentTier}
+        billing={currentBilling}
+        data={doorCountData}
+        error={doorCountError}
+        onRefresh={() => void loadDoorCount()}
+      />
       <ManagerUsagePanel summary={usageSummary} error={usageError} onRefresh={() => void loadUsage()} />
       <ManagerExtraUsagePanel summary={usageSummary} load={loadUsage} />
       <ManagerPlanAddonsPanel />
@@ -898,6 +927,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       renewalLabel={renewalLabel}
       busy={adjustBusy}
       onConfirm={(target, billing) => void handleAdjustConfirm(target, billing)}
+      doorCount={doorCountData?.totalDoors ?? null}
     />
   ) : null;
 
