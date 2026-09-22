@@ -15,6 +15,7 @@ import {
   type CommsPlanTier,
 } from "@/lib/comms-billing/allowances";
 import { COMMS_BILLING_RATES_CENTS, COMMS_BILLING_METER_LABELS } from "@/lib/comms-billing/rates";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 
 const TIERS: CommsPlanTier[] = ["free", "pro", "business"];
 
@@ -56,11 +57,12 @@ describe("per-tier messaging and calling limits", () => {
   it("stays well inside each plan's price", () => {
     // Retail allowance costs us roughly a third of its face value at the
     // modelled rates, so this is a generous margin check, not a tight one.
-    const monthlyPriceCents = { free: 0, pro: 2000, business: 20000 } as const;
+    // Reads the plan's own floor from the rate card rather than a separately
+    // typed-in price, so this stays true across a rate change.
     for (const tier of ["pro", "business"] as const) {
       const atCost = includedAllowanceCents(tier)! / 3;
       expect(atCost, `${tier} allowance must not exceed its plan price`).toBeLessThan(
-        monthlyPriceCents[tier],
+        RATE_CARD[tier].floorMonthlyCents,
       );
     }
   });

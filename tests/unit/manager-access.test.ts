@@ -233,7 +233,7 @@ describe("manager-access", () => {
 
   it("formats monthly labels", () => {
     expect(formatManagerMonthlyLabel("free")).toBe("$0/mo");
-    expect(formatManagerMonthlyLabel("pro")).toBe("$20/mo");
+    expect(formatManagerMonthlyLabel("pro")).toBe("$49/mo");
   });
 
   it("detects stripe-managed billing intervals", async () => {
