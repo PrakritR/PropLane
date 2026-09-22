@@ -45,6 +45,11 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   const emails = new Map((profiles.data ?? []).map((p) => [p.id, p.email ?? ""]));
   const permissions: PropertyCoManagerPermissions = {};
   const assigned = new Set<string>();
+  // The inviter (owner) who assigned each granted property, so a property
+  // whose own record has no `workspace_id` yet (an older row) can still be
+  // attributed to that owner's default workspace below — never guessed from
+  // anywhere else.
+  const assignedOwnerByProperty = new Map<string, string>();
   // The viewer's standing in every workspace they were invited into: the role
   // on THAT workspace's membership row, and the rights the role carries.
   const standingByWorkspace = new Map<string, { role: TeamRoleId; houseScope: HouseScope; rights: WorkspaceRights }>();
@@ -56,6 +61,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     for (const id of ids) {
       if (CO_MANAGER_PERMISSION_OPTIONS.some(({ id: module }) => hasCoManagerPermission(map[id], module))) {
         assigned.add(id);
+        if (!assignedOwnerByProperty.has(id)) assignedOwnerByProperty.set(id, String(link.inviter_user_id ?? "").trim());
         // The complete module checks still run in the existing record endpoints.
         permissions[id] = mergeCoManagerPermissions([{ coManagerPermissions: permissions[id] }, { coManagerPermissions: map[id] }]);
       }
@@ -78,15 +84,41 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     ? await db.from("manager_property_records").select("id,workspace_id,row_data,status").in("id", [...assigned])
     : { data: [], error: null };
   if (linkedProperties.error) throw new Error("Could not load shared workspace properties. Please retry.");
+
+  // A granted property whose own record predates workspaces has no
+  // `workspace_id` — without a fallback it belongs to no workspace at all and
+  // the co-manager would lose access outright. Attribute it (for this read
+  // only, never written back) to the granting owner's DEFAULT workspace, so
+  // it is reachable there and nowhere else — never invent a workspace row.
+  const missingWorkspaceOwnerIds = [...new Set(
+    (linkedProperties.data ?? [])
+      .filter((p) => !String(p.workspace_id ?? "").trim())
+      .map((p) => assignedOwnerByProperty.get(p.id))
+      .filter((id): id is string => Boolean(id)),
+  )];
+  const fallbackDefaults = missingWorkspaceOwnerIds.length
+    ? await db.from("portal_workspaces").select("id,owner_user_id").in("owner_user_id", missingWorkspaceOwnerIds).eq("is_default", true)
+    : { data: [], error: null };
+  if (fallbackDefaults.error) throw new Error("Could not resolve the shared default workspace. Please retry.");
+  const defaultWorkspaceIdByOwner = new Map(
+    (fallbackDefaults.data ?? []).map((w) => [w.owner_user_id, w.id]),
+  );
+  const linkedPropertiesResolved = (linkedProperties.data ?? []).map((p) => {
+    if (String(p.workspace_id ?? "").trim()) return p;
+    const ownerId = assignedOwnerByProperty.get(p.id);
+    const fallback = ownerId ? defaultWorkspaceIdByOwner.get(ownerId) : undefined;
+    return fallback ? { ...p, workspace_id: fallback } : p;
+  });
+
   const sharedIds = [...new Set([
-    ...(linkedProperties.data ?? []).map((p) => p.workspace_id).filter(Boolean),
+    ...linkedPropertiesResolved.map((p) => p.workspace_id).filter(Boolean),
     ...standingByWorkspace.keys(),
   ])];
   const shared = sharedIds.length
     ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default").in("id", sharedIds).order("created_at")
     : { data: [], error: null };
   if (shared.error) throw new Error("Could not load shared workspaces. Please retry.");
-  const properties = [...(ownedProperties.data ?? []), ...(linkedProperties.data ?? [])];
+  const properties = [...(ownedProperties.data ?? []), ...linkedPropertiesResolved];
   const labelFor = (row: { id: string; row_data?: unknown }) => {
     const data = row.row_data && typeof row.row_data === "object" ? (row.row_data as Record<string, unknown>) : {};
     const name = typeof data.buildingName === "string" ? data.buildingName.trim() : "";
