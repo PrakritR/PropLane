@@ -58,11 +58,13 @@ describe("the Shared spaces step has no Default card", () => {
     expect(step.includes("onRemove=")).toBe(true);
   });
 
-  it("Rooms and Bathrooms keep their Default cards", () => {
-    expect(code.includes('dataAttr="listing-v2-defaults-card"')).toBe(true);
-    expect(code.includes('dataAttr="listing-v2-bath-defaults-card"')).toBe(true);
-    expect(code.includes('title="Default bathroom"')).toBe(true);
-    expect(code.includes("listing-v2-rooms-reset-all")).toBe(true);
-    expect(code.includes("listing-v2-bathrooms-reset-all")).toBe(true);
+  it("Rooms and Bathrooms have no Default card either any more (PLAN-0921-1648)", () => {
+    expect(code.includes('dataAttr="listing-v2-defaults-card"')).toBe(false);
+    expect(code.includes('dataAttr="listing-v2-bath-defaults-card"')).toBe(false);
+    expect(code.includes('title="Default bathroom"')).toBe(false);
+    expect(code.includes("listing-v2-rooms-reset-all")).toBe(false);
+    expect(code.includes("listing-v2-bathrooms-reset-all")).toBe(false);
+    // Full coverage of what replaced them (the "Same as" row, blank Add) lives
+    // in tests/unit/listing-rooms-bathrooms-no-default.test.ts.
   });
 });

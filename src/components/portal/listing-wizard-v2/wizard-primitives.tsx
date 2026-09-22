@@ -483,32 +483,6 @@ export function StepHeading({
   );
 }
 
-/** Compact ghost control for "make every row follow the top defaults again". */
-export function ResetAllInheritanceButton({
-  label = "Reset all",
-  onClick,
-  disabled,
-  dataAttr,
-}: {
-  label?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  dataAttr: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-attr={dataAttr}
-      className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted transition-colors hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-      {label}
-    </button>
-  );
-}
-
 /**
  * A titled group of fields inside a step.
  *

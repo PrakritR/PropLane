@@ -4,7 +4,12 @@
 // stacked cards at every width — nothing scrolls sideways on a 390px phone,
 // and the website gets the same cards in its wider workspace. A card is a
 // name, one summary line and a chevron; open, it unfolds its rows in place.
-// "Every room" holds the defaults with its rows always visible.
+// Rooms and Bathrooms have no "Every …" card any more (PLAN-0921-1648): each
+// record is its own, and "Same as Room X" / "Same as Bathroom X" — covered in
+// tests/unit/listing-wizard-v2-rooms-all-rooms.test.tsx and
+// tests/unit/listing-rooms-bathrooms-no-default.test.ts — is the one way a
+// record starts from another's description. Pricing keeps its own Default
+// room and "Same as default room" tick, unaffected by this file's rewrite.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -69,20 +74,15 @@ const openCard = (label: string) => fireEvent.click(screen.getByRole("button", {
 const rowLabels = (root: Element) =>
   [...root.querySelectorAll("[aria-label]")]
     .map((el) => el.getAttribute("aria-label") ?? "")
-    .filter((l) => / for (every room|Room A)$/.test(l) && !/^(Fewer|More) /.test(l))
-    .map((l) => l.replace(/ for (every room|Room A)$/, ""));
+    .filter((l) => / for Room A$/.test(l) && !/^(Fewer|More) /.test(l))
+    .map((l) => l.replace(/ for Room A$/, ""));
 
 describe("rooms as cards", () => {
-  it("has no sideways table: the All rooms panel shows only the important rows, each room is a closed card", () => {
+  it("has no sideways table: no Every-room card, each room is its own closed card", () => {
     open("rooms");
     expect(document.querySelector("main .overflow-x-auto")).toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-room-row"]')).toBeNull();
-    const every = document.querySelector('[data-attr="listing-v2-defaults-card"]')!;
-    expect(every.textContent).toContain("All rooms");
-    // Only the important questions are on the card; everything else waits behind one More.
-    expect(rowLabels(every)).toEqual(["Residents per room", "Floor"]);
-    fireEvent.click(every.querySelector('[data-attr="listing-v2-defaults-more"]')!);
-    expect(rowLabels(every)).toEqual(["Residents per room", "Floor", "Furnishing", "Room amenities"]);
+    expect(document.querySelector('[data-attr="listing-v2-defaults-card"]')).toBeNull();
     // Closed room cards: a name, a summary, a chevron — no controls yet.
     const cards = document.querySelectorAll('[data-attr="listing-v2-room-card"]');
     expect(cards.length).toBe(2);
@@ -91,9 +91,10 @@ describe("rooms as cards", () => {
     openCard("Room A");
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
     const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
-    expect(rowLabels(editor)).toEqual(["Residents per room", "Floor"]);
+    // "Same as" is the first row; only the important questions are otherwise on the card, everything else waits behind one More.
+    expect(rowLabels(editor)).toEqual(["Same as", "Residents per room", "Floor"]);
     fireEvent.click(editor.querySelector('[data-attr="listing-v2-room-more"]')!);
-    expect(rowLabels(editor)).toEqual(["Residents per room", "Floor", "Furnishing", "Room amenities"]);
+    expect(rowLabels(editor)).toEqual(["Same as", "Residents per room", "Floor", "Furnishing", "Room amenities"]);
     // One closer: Done. No Duplicate, no Remove inside the card — ✕ sits in the header.
     expect(editor.querySelector('[data-attr="listing-v2-room-done"]')).not.toBeNull();
     expect([...editor.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Duplicate");
@@ -106,26 +107,28 @@ describe("rooms as cards", () => {
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
   });
 
-  it("Furnished unfolds Beds and Included under the Furnishing row; Unfurnished hides them", () => {
+  it("Furnished unfolds Beds and Included under the Furnishing row; Unfurnished hides them, and only this room is touched", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-defaults-more"]')!);
-    expect(screen.queryByRole("button", { name: "Included in every room" })).toBeNull();
-    pick("Furnishing for every room", "furnished");
-    expect(screen.getByRole("button", { name: "Included in every room" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Bed 1 type for every room" })).toBeTruthy();
-    // Every room that still follows the house is furnished too.
-    expect(seen.at(-1)!.rooms.every((r) => r.furnishing.trim().length > 0)).toBe(true);
-    pick("Furnishing for every room", "unfurnished");
-    expect(screen.queryByRole("button", { name: "Included in every room" })).toBeNull();
-    expect(seen.at(-1)!.rooms.every((r) => r.furnishing === "")).toBe(true);
+    openCard("Room A");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
+    expect(screen.queryByRole("button", { name: "Included in Room A" })).toBeNull();
+    pick("Furnishing for Room A", "furnished");
+    expect(screen.getByRole("button", { name: "Included in Room A" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bed 1 type for Room A" })).toBeTruthy();
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.furnishing.trim().length).toBeGreaterThan(0);
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.furnishing).toBe("");
+    pick("Furnishing for Room A", "unfurnished");
+    expect(screen.queryByRole("button", { name: "Included in Room A" })).toBeNull();
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.furnishing).toBe("");
   });
 
   it("a room's Bathroom row is 'Add a bathroom first' with no bathrooms, and an access-kind pick once there is one", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
+    openCard("Room A");
     expect(document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Bathroom access for every room" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bathroom access for Room A" })).toBeNull();
     fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')!);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-add-bath"]')!);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
@@ -158,68 +161,52 @@ describe("rooms as cards", () => {
   });
 });
 
-describe("a room follows All rooms field by field", () => {
-  it("a room on its own floor still takes All rooms' checklist — only the floor is its own", () => {
+describe("a room is its own — editing one never reaches another (PLAN-0921-1648)", () => {
+  it("a room's own floor and checklist stay put when a different room's fields change", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
     openCard("Room B");
     pick("Floor for Room B", "2nd floor");
     expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.floor).toBe("2nd floor");
-    const every = document.querySelector('[data-attr="listing-v2-defaults-card"]')!;
-    fireEvent.click(every.querySelector('[data-attr="listing-v2-defaults-more"]')!);
-    fireEvent.click(within(every as HTMLElement).getByLabelText("Move-in checklist required"));
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.floor).toBe("");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
+    fireEvent.click(within(document.querySelector('[data-attr="listing-v2-room-editor"]') as HTMLElement).getByLabelText("Move-in checklist required"));
     const rooms = seen.at(-1)!.rooms;
-    expect(rooms.find((r) => r.id === "r1")!.moveInInspectionRequired).toBe(true);
     expect(rooms.find((r) => r.id === "r2")!.moveInInspectionRequired).toBe(true);
+    expect(rooms.find((r) => r.id === "r1")!.moveInInspectionRequired).toBeFalsy();
     expect(rooms.find((r) => r.id === "r2")!.floor).toBe("2nd floor");
-    // All rooms is saved with the listing.
-    expect(seen.at(-1)!.houseDefaults?.moveInInspectionRequired).toBe(true);
-    // Only the floor carries a Reset on Room B; Reset puts it back and the box ticks again.
-    const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
-    expect([...editor.querySelectorAll('[data-attr="listing-v2-cell-reset"]')].map((b) => b.getAttribute("aria-label"))).toEqual(["Reset floor for Room B to All rooms"]);
-    const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-room-same-as-all"]')];
-    expect(boxes().map((b) => b.checked)).toEqual([true, false]);
-    fireEvent.click(screen.getByRole("button", { name: "Reset floor for Room B to All rooms" }));
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.floor).toBe("");
-    expect(boxes().map((b) => b.checked)).toEqual([true, true]);
+    // Rooms have no Default card of their own, so nothing is saved to houseDefaults from here.
+    expect(seen.at(-1)!.houseDefaults?.moveInInspectionRequired).toBeUndefined();
+    // No per-field Reset tags left — every value is the room's own, full stop.
+    expect(document.querySelectorAll('[data-attr="listing-v2-cell-reset"]').length).toBe(0);
   });
 
-  it("the size box shows what is typed, commits on blur, and an emptied box goes back to All rooms", () => {
+  it("the size box shows what is typed and commits on blur; an emptied box clears to unset, not to another room's value", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-defaults-more"]')!);
-    const sizeEvery = screen.getByLabelText("Size of every room") as HTMLInputElement;
-    expect(sizeEvery.placeholder).toBe("—");
-    fireEvent.focus(sizeEvery);
-    fireEvent.change(sizeEvery, { target: { value: "220" } });
-    fireEvent.blur(sizeEvery);
-    expect(seen.at(-1)!.rooms.every((r) => r.sizeSqft === 220)).toBe(true);
     openCard("Room A");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
     const sizeA = screen.getByLabelText("Size of Room A") as HTMLInputElement;
-    expect(sizeA.value).toBe("220");
+    expect(sizeA.placeholder).toBe("—");
     fireEvent.focus(sizeA);
     fireEvent.change(sizeA, { target: { value: "185" } });
     expect(sizeA.value).toBe("185");
     fireEvent.blur(sizeA);
     expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.sizeSqft).toBe(185);
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.sizeSqft).toBe(220);
-    expect(screen.getByRole("button", { name: "Reset size for Room A to All rooms" })).toBeTruthy();
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")!.sizeSqft ?? 0).toBe(0);
     fireEvent.focus(sizeA);
     fireEvent.change(sizeA, { target: { value: "" } });
     fireEvent.blur(sizeA);
-    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.sizeSqft).toBe(220);
-    expect(screen.queryByRole("button", { name: "Reset size for Room A to All rooms" })).toBeNull();
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")!.sizeSqft).toBeUndefined();
   });
 
-  it("All rooms photos reach every following room, never a room with its own, and Reset copies them back", () => {
+  it("a room's own photos stay its own — changing them never reaches another room", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     const base = seeded();
     open(
       "rooms",
       {
         ...base,
-        houseDefaults: { photoDataUrls: ["h1", "h2"] },
         rooms: [
           { ...base.rooms[0]!, photoDataUrls: ["h1", "h2"] },
           { ...base.rooms[1]!, photoDataUrls: ["own"] },
@@ -227,48 +214,13 @@ describe("a room follows All rooms field by field", () => {
       },
       (s) => seen.push(s),
     );
-    const every = document.querySelector('[data-attr="listing-v2-defaults-card"]') as HTMLElement;
-    fireEvent.click(every.querySelector('[data-attr="listing-v2-defaults-more"]')!);
-    expect(within(every).getAllByRole("button", { name: /^Remove every room photo/ }).length).toBe(2);
-    openCard("Room B");
+    openCard("Room A");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
-    expect(screen.getByRole("button", { name: "Reset photos for Room B to All rooms" })).toBeTruthy();
-    fireEvent.click(within(every).getByRole("button", { name: "Remove every room photo 1" }));
-    let rooms = seen.at(-1)!.rooms;
+    const editor = within(document.querySelector('[data-attr="listing-v2-room-editor"]') as HTMLElement);
+    fireEvent.click(editor.getByRole("button", { name: "Remove room photo 1" }));
+    const rooms = seen.at(-1)!.rooms;
     expect(rooms.find((r) => r.id === "r1")!.photoDataUrls).toEqual(["h2"]);
     expect(rooms.find((r) => r.id === "r2")!.photoDataUrls).toEqual(["own"]);
-    expect(seen.at(-1)!.houseDefaults?.photoDataUrls).toEqual(["h2"]);
-    fireEvent.click(screen.getByRole("button", { name: "Reset photos for Room B to All rooms" }));
-    rooms = seen.at(-1)!.rooms;
-    expect(rooms.find((r) => r.id === "r2")!.photoDataUrls).toEqual(["h2"]);
-  });
-});
-
-describe("Same as all rooms", () => {
-  it("starts ticked, unticks when a value changes, and Reset copies All rooms back", () => {
-    open("rooms");
-    const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-room-same-as-all"]')];
-    expect(boxes().map((b) => b.checked)).toEqual([true, true]);
-    openCard("Room A");
-    fireEvent.click(screen.getByRole("button", { name: "More Residents per room for Room A" }));
-    expect(boxes()[0]!.checked).toBe(false);
-    expect(boxes()[1]!.checked).toBe(true);
-    expect(document.querySelector('[data-attr="listing-v2-room-card"]')!.textContent).toContain("This room only");
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-make-same"]')!);
-    expect(boxes()[0]!.checked).toBe(true);
-    expect(screen.getByRole("group", { name: "Residents per room for Room A" }).textContent).toContain("1");
-  });
-
-  it("unticking moves nothing, and a later change on All rooms leaves that room alone", () => {
-    const seen: ManagerListingSubmissionV1[] = [];
-    open("rooms", seeded(), (s) => seen.push(s));
-    const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-room-same-as-all"]')];
-    fireEvent.click(boxes()[0]!);
-    expect(boxes()[0]!.checked).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "More Residents per room for every room" }));
-    const rooms = seen.at(-1)!.rooms;
-    expect(rooms.find((r) => r.id === "r2")?.occupancyCapacity).toBe(2);
-    expect(rooms.find((r) => r.id === "r1")?.occupancyCapacity ?? 1).toBe(1);
   });
 });
 
