@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { fetchRowsForManagerWithLinked, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import {
+  fetchRowsForManagerWithLinked,
+  linkedPropertyIdsForModule,
+  resolveManagerWorkspaceRowScope,
+  rowInWorkspaceScope,
+} from "@/lib/auth/co-manager-module-scope";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -89,12 +94,15 @@ export async function GET() {
         const id = String((prop as { id?: unknown }).id ?? "").trim();
         if (id) linkedPropertyIds.add(id);
       }
+      // Owned rows AND the co-manager fan-out both live inside this one call,
+      // so narrowing it to the active workspace is the whole GET scope fix.
+      const workspaceScope = await resolveManagerWorkspaceRowScope(db, user.id);
       const records = await fetchRowsForManagerWithLinked<ServiceRequestScopeRecord>(
         db,
         "portal_service_request_records",
         user.id,
         linkedPropertyIds,
-        { propertyColumns: ["property_id"] },
+        { propertyColumns: ["property_id"], workspaceScope },
       );
       const rows = records
         .sort((a, b) => {
@@ -237,6 +245,13 @@ export async function POST(req: Request) {
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
       admin,
     };
+    const isManagerActor = !admin && role !== "resident";
+    // The active workspace refuses a write outside it: a create must land in
+    // it, an update/delete must refuse a row outside it. Residents and admins
+    // are never narrowed by a manager's workspace.
+    const workspaceScope = isManagerActor
+      ? await resolveManagerWorkspaceRowScope(db, user.id)
+      : { propertyIds: null, untaggedOwnedVisible: true };
 
     const body = (await req.json()) as {
       action?: "upsert" | "delete" | "replace";
@@ -245,14 +260,22 @@ export async function POST(req: Request) {
       rows?: ServiceRequest[];
     };
 
-    const ownsExisting = async (id: string): Promise<boolean> => {
+    const ownsExisting = async (id: string, candidatePropertyId?: string | null): Promise<boolean> => {
       const { data } = await db
         .from("portal_service_request_records")
-        .select("manager_user_id, resident_email")
+        .select("manager_user_id, resident_email, property_id")
         .eq("id", id)
         .maybeSingle();
-      // A brand-new id (no existing row) is allowed to be created.
-      return data == null || actorOwnsRecord(actor, data);
+      // A brand-new id (no existing row) is allowed to be created, subject to
+      // the same workspace gate a manager actor's create must land inside.
+      if (data == null) {
+        return !isManagerActor || rowInWorkspaceScope(candidatePropertyId ?? null, workspaceScope);
+      }
+      if (!actorOwnsRecord(actor, data)) return false;
+      if (isManagerActor && !rowInWorkspaceScope(data.property_id ? String(data.property_id) : null, workspaceScope)) {
+        return false;
+      }
+      return true;
     };
 
     /** Stamp manager + property from residency; reject if resident has no scope. */
@@ -276,7 +299,7 @@ export async function POST(req: Request) {
       const rows = Array.isArray(body.rows) ? body.rows : [];
       for (const row of rows) {
         if (!row?.id) continue;
-        if (!(await ownsExisting(row.id))) continue;
+        if (!(await ownsExisting(row.id, row.propertyId?.trim() || null))) continue;
         const stamped = await stampResidentRow(row);
         if (!stamped) continue;
         await db.from("portal_service_request_records").upsert(recordForActor(actor, role, stamped), { onConflict: "id" });
@@ -289,11 +312,14 @@ export async function POST(req: Request) {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const { data: existing } = await db
         .from("portal_service_request_records")
-        .select("manager_user_id, resident_email")
+        .select("manager_user_id, resident_email, property_id")
         .eq("id", id)
         .maybeSingle();
       if (!existing) return NextResponse.json({ ok: true });
       if (!actorOwnsRecord(actor, existing)) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      if (isManagerActor && !rowInWorkspaceScope(existing.property_id ? String(existing.property_id) : null, workspaceScope)) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const { error } = await db.from("portal_service_request_records").delete().eq("id", id);
@@ -302,7 +328,7 @@ export async function POST(req: Request) {
     }
 
     if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
-    if (!(await ownsExisting(body.row.id))) {
+    if (!(await ownsExisting(body.row.id, body.row.propertyId?.trim() || null))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
     const stamped = await stampResidentRow(body.row);

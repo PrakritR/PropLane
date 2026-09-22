@@ -649,6 +649,108 @@ export function applyHouseTermPricingToRooms(
   return rooms.map((room) => (roomFollowsTermDefault(room, term, field, previous) ? writeRoomTermPrice(room, term, field, value) : room));
 }
 
+/* ─────────────── "Same as Room X": copying one room's description onto another ─────────────── */
+
+/**
+ * The fields "Same as Room X" copies (PLAN-0921-1648): everything that
+ * describes the room, and nothing about who rents it or what it costs. Rooms
+ * no longer have an "All rooms" card to follow — this is a one-time copy, run
+ * again by picking a source room, never a standing link. Shared with the
+ * Rooms step so the picker's match check and the copy itself read the exact
+ * same set of fields.
+ */
+export type RoomDescriptionField = Extract<
+  ListingHouseDefaultField,
+  | "floor"
+  | "bedsLine"
+  | "occupancyCapacity"
+  | "furnishing"
+  | "roomAmenitiesText"
+  | "sizeSqft"
+  | "moveInInspectionRequired"
+  | "moveOutInspectionRequired"
+  | "photoDataUrls"
+  | "videoDataUrl"
+  | "detail"
+  | "moveInInstructions"
+  | "moveInPhotoDataUrls"
+  | "moveInVideoDataUrl"
+>;
+
+export const ROOM_DESCRIPTION_FIELDS: readonly RoomDescriptionField[] = [
+  "floor",
+  "bedsLine",
+  "occupancyCapacity",
+  "furnishing",
+  "roomAmenitiesText",
+  "sizeSqft",
+  "moveInInspectionRequired",
+  "moveOutInspectionRequired",
+  "photoDataUrls",
+  "videoDataUrl",
+  "detail",
+  "moveInInstructions",
+  "moveInPhotoDataUrls",
+  "moveInVideoDataUrl",
+];
+
+function copyRoomDescriptionField(
+  source: ManagerRoomSubmission,
+  target: ManagerRoomSubmission,
+  field: RoomDescriptionField,
+): ManagerRoomSubmission {
+  switch (field) {
+    case "floor":
+      return { ...target, floor: source.floor };
+    case "bedsLine":
+      return { ...target, beds: source.beds, bedCount: source.bedCount };
+    case "occupancyCapacity":
+      return { ...target, occupancyCapacity: source.occupancyCapacity };
+    case "furnishing":
+      return { ...target, furnishing: source.furnishing };
+    case "roomAmenitiesText":
+      return { ...target, roomAmenitiesText: source.roomAmenitiesText };
+    case "sizeSqft":
+      return { ...target, sizeSqft: source.sizeSqft };
+    case "moveInInspectionRequired":
+      return { ...target, moveInInspectionRequired: source.moveInInspectionRequired };
+    case "moveOutInspectionRequired":
+      return { ...target, moveOutInspectionRequired: source.moveOutInspectionRequired };
+    case "photoDataUrls":
+      return { ...target, photoDataUrls: [...(source.photoDataUrls ?? [])] };
+    case "videoDataUrl":
+      return { ...target, videoDataUrl: source.videoDataUrl ?? null };
+    case "detail":
+      return { ...target, detail: source.detail };
+    case "moveInInstructions":
+      return { ...target, moveInInstructions: source.moveInInstructions };
+    case "moveInPhotoDataUrls":
+      return { ...target, moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])] };
+    case "moveInVideoDataUrl":
+      return { ...target, moveInVideoDataUrl: source.moveInVideoDataUrl ?? null };
+  }
+}
+
+/**
+ * "Same as Room X": copy every description field from `source` onto `target`,
+ * once, right now. Never `id`, `name`, `availability`, `moveInAvailableDate`,
+ * `manualUnavailableRanges`, anything about price (`termPricing`, deposit,
+ * move-in fee, `rentBasis`, `dailyRentPrice`, `pricingMode` and the rest of
+ * the rate card), per-resident pricing (`residentPrices` / `residentPricing` /
+ * `moveInResidentDetails`), or `ownRoomFields` itself. Nothing is stored about
+ * the pick — it is a plain value copy, so editing the room afterward simply
+ * makes it stop matching its source, which is exactly what the picker reads
+ * back as "—".
+ */
+export function copyRoomDescriptionFrom(source: ManagerRoomSubmission, target: ManagerRoomSubmission): ManagerRoomSubmission {
+  return ROOM_DESCRIPTION_FIELDS.reduce((acc, field) => copyRoomDescriptionField(source, acc, field), target);
+}
+
+/** Do two rooms describe the same room — every {@link ROOM_DESCRIPTION_FIELDS} field equal by value? */
+export function roomDescriptionMatches(a: ManagerRoomSubmission, b: ManagerRoomSubmission): boolean {
+  return ROOM_DESCRIPTION_FIELDS.every((field) => sameValue(roomDefaultFieldValue(a, field), roomDefaultFieldValue(b, field)));
+}
+
 /**
  * The per-term Default rooms a submission carries, or, for a term the block
  * does not cover, the most common value the rooms hold on it — so a listing

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { MockProperty } from "@/data/types";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /**
@@ -47,11 +48,23 @@ export async function getShareablePropertyForUser(
   if (await isAdminUser(uid)) return property;
 
   // Co-manager who was assigned this property via an accepted account link.
+  // Assignment alone is NOT the grant: sharing a listing to a prospect covers
+  // AI listing copy generation, lead invites, and tour booking — all done AS
+  // THE OWNER — so the property must positively grant `promotion` at edit
+  // (docs/agents/co-manager-access.md "Empty used to mean FULL").
+  if (await managerHasCoManagerPermissionForProperty(db, uid, id, "promotion", "edit")) {
+    return property;
+  }
+
+  // Fallback for a property row whose `manager_user_id` has drifted from the
+  // link's own inviter: the actual inviter of an accepted link naming this
+  // property is treated as its owner regardless of module grants (mirrors
+  // the direct-owner branch above, not a co-manager grant).
   const { data: linkRows } = await db
     .from("account_link_invites")
     .select("assigned_property_ids")
     .eq("status", "accepted")
-    .or(`inviter_user_id.eq.${uid},invitee_user_id.eq.${uid}`);
+    .eq("inviter_user_id", uid);
   for (const row of (linkRows ?? []) as { assigned_property_ids?: unknown }[]) {
     if (!Array.isArray(row.assigned_property_ids)) continue;
     for (const pid of row.assigned_property_ids) {

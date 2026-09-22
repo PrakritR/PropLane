@@ -5,7 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
+import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { runBackgroundCheck, runCosignerBackgroundCheck } from "@/lib/checkr/background-check";
 import { isCheckrAddOn, isCheckrPackage, type CheckrAddOnSlug } from "@/lib/checkr/packages";
 import type { CheckrPackage } from "@/lib/checkr/config";
@@ -51,10 +51,17 @@ export async function POST(req: Request) {
         .select("property_id, assigned_property_id")
         .eq("id", applicationId)
         .maybeSingle();
-      const linked = await collectLinkedPropertyIdsForUser(db, user.id);
       const propertyId = String(record?.property_id ?? "").trim();
       const assignedPropertyId = String(record?.assigned_property_id ?? "").trim();
-      if (!((propertyId && linked.has(propertyId)) || (assignedPropertyId && linked.has(assignedPropertyId)))) {
+      // Assignment alone is not the grant: confirming payment and finalizing
+      // the Checkr order requires `applications` at EDIT on the property
+      // (docs/agents/co-manager-access.md "Empty used to mean FULL").
+      const allowed =
+        (propertyId &&
+          (await managerHasCoManagerPermissionForProperty(db, user.id, propertyId, "applications", "edit"))) ||
+        (assignedPropertyId &&
+          (await managerHasCoManagerPermissionForProperty(db, user.id, assignedPropertyId, "applications", "edit")));
+      if (!allowed) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
     }

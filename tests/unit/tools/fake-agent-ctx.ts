@@ -25,6 +25,7 @@ export type FakeRecord = {
  */
 class FakeQuery {
   private filters: [string, unknown][] = [];
+  private orGroups: ((r: FakeRecord) => boolean)[] = [];
   constructor(private rows: FakeRecord[]) {}
 
   select() {
@@ -59,10 +60,36 @@ class FakeQuery {
     this.filters.push([`<=${col}`, val]);
     return this;
   }
+  /** Just enough of PostgREST's `.or("a.in.(x,y),a.is.null")` grammar for the shapes these tools issue. */
+  or(expr: string) {
+    const matchers = expr.split(",").map((clause) => {
+      const c = clause.trim();
+      const inMatch = c.match(/^(\w+)\.in\.\(([^)]*)\)$/);
+      if (inMatch) {
+        const [, col, list] = inMatch;
+        const vals = list!.split(",").map((v) => v.trim()).filter(Boolean);
+        return (r: FakeRecord) => vals.includes(String((r as Record<string, unknown>)[col!]));
+      }
+      const isNullMatch = c.match(/^(\w+)\.is\.null$/);
+      if (isNullMatch) {
+        const [, col] = isNullMatch;
+        return (r: FakeRecord) => (r as Record<string, unknown>)[col!] == null;
+      }
+      const eqMatch = c.match(/^(\w+)\.eq\.(.+)$/);
+      if (eqMatch) {
+        const [, col, val] = eqMatch;
+        return (r: FakeRecord) => String((r as Record<string, unknown>)[col!]) === val;
+      }
+      throw new Error(`FakeQuery.or: unhandled clause "${c}"`);
+    });
+    this.orGroups.push((r) => matchers.some((m) => m(r)));
+    return this;
+  }
 
   private apply(): FakeRecord[] {
-    return this.rows.filter((r) =>
-      this.filters.every(([col, val]) => {
+    return this.rows.filter((r) => {
+      if (!this.orGroups.every((group) => group(r))) return false;
+      return this.filters.every(([col, val]) => {
         const rec = r as Record<string, unknown>;
         if (col.startsWith("!")) return rec[col.slice(1)] !== val;
         if (col.startsWith(">=")) {
@@ -81,8 +108,8 @@ class FakeQuery {
         // Unknown projected columns (e.g. JSON path filters) are not modeled.
         if (!(col in r)) return true;
         return rec[col] === val;
-      }),
-    );
+      });
+    });
   }
 
   range(from: number, to: number) {
@@ -90,6 +117,10 @@ class FakeQuery {
   }
 
   maybeSingle() {
+    return Promise.resolve({ data: this.apply()[0] ?? null, error: null });
+  }
+
+  single() {
     return Promise.resolve({ data: this.apply()[0] ?? null, error: null });
   }
 

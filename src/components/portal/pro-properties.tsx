@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
+import { ListingPublishedDialog } from "@/components/portal/listing-wizard-v2/listing-published-dialog";
 import {
   ManagerHousePropertiesPanel,
   MANAGER_STAGES,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/demo/demo-playback";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
+import { propertyRowTitle } from "@/lib/property-row-summary";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { resolveAddPropertyWorkspaceAction } from "@/lib/workspaces/add-property-gate";
 import {
@@ -39,8 +41,6 @@ import {
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
 import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
-import { accountLinksKnown, fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
-import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -50,20 +50,7 @@ import {
   maxPropertiesForManagerTier,
 } from "@/lib/manager-access";
 import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-client";
-import {
-  ensureManagerFirstListingDraft,
-  managerHasAnyListing,
-  managerNeedsFirstListingOnboarding,
-  markFirstListingWizardAutoOpened,
-  markFirstListingWizardDismissed,
-  readFirstListingPortfolioSnapshot,
-  readFirstListingWizardAutoOpened,
-  readFirstListingWizardDismissed,
-  shouldAutoOpenFirstListingWizard,
-  shouldSkipFirstListingOnboarding,
-  takePendingFirstListingAutoOpen,
-  writePendingFirstListingAutoOpen,
-} from "@/lib/manager-first-listing-onboarding";
+import { markFirstListingWizardDismissed } from "@/lib/manager-first-listing-onboarding";
 
 /**
  * Adding a property from a co-managed workspace was refused by the records API
@@ -72,8 +59,7 @@ import {
  * PLAN-0916-1119. The gate below switches to an owned workspace before the
  * editor opens; a switch remounts this page (WorkspaceProvider keys its
  * children on the active workspace id), so the intent to open Add is handed to
- * the fresh mount through sessionStorage, the same pattern the first-listing
- * auto-open uses across a stage-change remount.
+ * the fresh mount through sessionStorage.
  */
 const PENDING_ADD_AFTER_SWITCH_KEY = "proplane:add-property-after-workspace-switch";
 function writePendingAddAfterSwitch(userId: string | null) {
@@ -114,7 +100,7 @@ export function ManagerProperties({
   const { showToast } = useAppUi();
   const router = useRouter();
   const workspaces = useWorkspaces();
-  const { userId, email } = useManagerUserId();
+  const { userId } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
   const [skuLoaded, setSkuLoaded] = useState(false);
   const [skuTier, setSkuTier] = useState<string | null>(null);
@@ -132,25 +118,16 @@ export function ManagerProperties({
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("wizard") === "v2") setWizardOpen(true);
   }, []);
-  /** Resume the seeded / first draft in the wizard (PRP-396). */
+  /** Resume an existing draft in the wizard when the manager clicks Add. */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
   /** The draft the open editor last wrote — where closing it lands. */
   const lastSavedDraftIdRef = useRef<string | null>(null);
-  // The page that routed here from an empty /all handed over "open the seeded
-  // draft" — take it exactly once, on the page that actually stays mounted.
-  useEffect(() => {
-    if (!userId) return;
-    const pending = takePendingFirstListingAutoOpen(userId);
-    if (!pending) return;
-    setResumeDraftId(pending);
-    setWizardOpen(true);
-  }, [userId]);
   /**
    * Closing the create-listing wizard is an ANSWER, remembered for good.
    *
-   * It used to reopen on every visit to Properties until a listing existed, so
-   * a manager who closed it found it waiting again the next time they came
-   * back — including on the Drafts tab they were trying to read.
+   * The page used to reopen it on every visit until a listing existed. That
+   * automation is gone — this only records the close so leftover storage
+   * keys stay consistent if a later session still reads them.
    */
   const dismissFirstListingWizard = useCallback(() => {
     setWizardOpen(false);
@@ -158,9 +135,10 @@ export function ManagerProperties({
     markFirstListingWizardDismissed(userId);
   }, [userId]);
   const [portfolioTick, setPortfolioTick] = useState(0);
-  const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [planLimitDialogOpen, setPlanLimitDialogOpen] = useState(false);
+  /** Set the moment publish reports back an id — the confirmation dialog replaces the old immediate navigation (PRP-496). */
+  const [publishedDialog, setPublishedDialog] = useState<{ listingId: string; name: string } | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
@@ -184,8 +162,7 @@ export function ManagerProperties({
 
   /**
    * Resolves whether the portfolio is now SERVER-TRUE. A false here means the
-   * local counts below are whatever this browser happened to be holding, which
-   * is why the first-listing seed refuses to act on them (PRP-429).
+   * local counts below are whatever this browser happened to be holding.
    */
   const refreshPortfolio = useCallback(async (): Promise<boolean> => {
     if (!scopeUserId) {
@@ -236,7 +213,7 @@ export function ManagerProperties({
 
   useEffect(() => {
     queueMicrotask(() => {
-      void refreshPortfolio().then(async (portfolioSynced) => {
+      void refreshPortfolio().then(() => {
         // Only push local state up once a real sync has run (userId resolved) — otherwise
         // this re-uploads a stale locally-cached snapshot and can clobber an admin-side
         // status change (e.g. request-change) that happened since this browser last synced.
@@ -244,80 +221,6 @@ export function ManagerProperties({
           void mirrorLocalPropertyPipelineToServer(userId, collectLinkedPropertyIds(userId), {
             onError: (message) => showToast(message),
           });
-        }
-        // PRP-396 / PRP-429: after a CONFIRMED sync, seed one draft when the
-        // portfolio is empty (skip demo + sandbox accounts), then decide where
-        // this manager should land and whether the wizard opens itself.
-        //
-        // The wizard used to reopen on EVERY visit until a listing existed. That
-        // made closing it meaningless — it was waiting again the next time, on
-        // top of the Drafts tab the manager was trying to read. It now opens on
-        // exactly two conditions, both in `shouldAutoOpenFirstListingWizard`:
-        // no listing of ANY kind (owned, unlisted, or co-managed), and never
-        // closed before.
-        if (
-          userId &&
-          scopeUserId &&
-          portfolioSynced &&
-          !propertyKeyProp &&
-          !firstListingSeedAttemptedRef.current &&
-          !shouldSkipFirstListingOnboarding({
-            email,
-            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-          })
-        ) {
-          firstListingSeedAttemptedRef.current = true;
-          // Wait for a real answer about co-manager links before judging the
-          // portfolio empty. The link cache reads `[]` both before it loads and
-          // when there genuinely are none, and seeding on the first of those
-          // handed a co-manager a draft on every visit (their three properties
-          // live on somebody else's row, so nothing they own says otherwise).
-          try {
-            await fetchAccountLinksCached();
-          } catch {
-            /* the known-flag stays false, which is itself the refusal below */
-          }
-          const linksKnown = accountLinksKnown();
-          const seeded = await ensureManagerFirstListingDraft(userId, {
-            email,
-            portfolioSynced,
-            coManagerLinksKnown: linksKnown,
-            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-            onError: (m) => showToast(`Could not start your first listing: ${m} Press Create to try again.`),
-          });
-          if (seeded) {
-            setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
-            setPortfolioTick((t) => t + 1);
-          }
-          // Read AFTER any seed, and outside the `seeded` branch: an account
-          // that already had a draft still needs to land on Drafts, and one
-          // where seeding was declined must not be stranded on an empty Listed.
-          const snap = readFirstListingPortfolioSnapshot(userId);
-          const mustMoveToDrafts = linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts";
-          const autoOpen =
-            Boolean(seeded) &&
-            shouldAutoOpenFirstListingWizard({
-              snap,
-              dismissed: readFirstListingWizardDismissed(userId),
-              coManagerLinksKnown: linksKnown,
-              autoOpenedThisSession: readFirstListingWizardAutoOpened(userId),
-            });
-          if (autoOpen && seeded) {
-            // One shot per session — set BEFORE any navigation so the page that
-            // mounts on Drafts cannot decide to open it a second time.
-            markFirstListingWizardAutoOpened(userId);
-          }
-          if (mustMoveToDrafts) {
-            // Moving stage remounts this page (`[stage]` is a dynamic segment),
-            // so opening the wizard here would be undone by the router a frame
-            // later and re-done by the fresh page — the open / close / open
-            // flicker. Hand the intent to the page that will mount instead.
-            if (autoOpen && seeded) writePendingFirstListingAutoOpen(userId, seeded.draftId);
-            setActiveStage("drafts");
-          } else if (autoOpen && seeded) {
-            setResumeDraftId(seeded.draftId);
-            setWizardOpen(true);
-          }
         }
       });
     });
@@ -337,15 +240,7 @@ export function ManagerProperties({
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
     };
-  }, [
-    refreshPortfolio,
-    userId,
-    scopeUserId,
-    showToast,
-    email,
-    propertyKeyProp,
-    firstListingSeedAttemptedRef,
-  ]);
+  }, [refreshPortfolio, userId, scopeUserId, showToast]);
 
   const stageCounts = useMemo(() => {
     void portfolioTick;
@@ -467,25 +362,21 @@ export function ManagerProperties({
     }
   };
 
+  /**
+   * "Add property" always starts a BLANK listing (PRP-495 / PRP-497).
+   *
+   * This used to resume the first-listing draft (whichever one
+   * `readAdminPropertyRows(5, …)[0]` happened to return) when the portfolio
+   * still needed onboarding, so a second `+` click reopened the same
+   * half-filled draft instead of a fresh one, and a manager who wanted a
+   * second property could never start one from here. Drafts are resumed only
+   * from the Drafts tab now, which already opens the exact row the manager
+   * picked (`propertyDetailHref(basePath, "drafts", id, "preview")` → the
+   * panel's own edit action).
+   */
   const tryOpenAdd = () => {
     if (!canOpenAdd()) return;
     if (!ensureOwnedWorkspaceForAdd()) return;
-    // Prefer resuming the first-listing draft when that is the only work left.
-    const snap = readFirstListingPortfolioSnapshot(scopeUserId);
-    if (
-      managerNeedsFirstListingOnboarding(snap) &&
-      !shouldSkipFirstListingOnboarding({
-        email,
-        incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-      })
-    ) {
-      const draftId = readAdminPropertyRows(5, scopeUserId)[0]?.adminRefId?.trim() || null;
-      if (draftId) {
-        setResumeDraftId(draftId);
-        setWizardOpen(true);
-        return;
-      }
-    }
     setResumeDraftId(null);
     setWizardOpen(true);
   };
@@ -697,14 +588,22 @@ export function ManagerProperties({
             onPublished={(listingId) => {
               setWizardOpen(false);
               setResumeDraftId(null);
-              showToast("Listing submitted and published.");
-              // Identical to the previous wizard's path — open the listing the
-              // manager just made rather than leaving them on a stage that no
-              // longer holds the row (PRP-429).
+              const id = listingId?.trim();
+              // The manager picks where to go next from the confirmation dialog
+              // (View listing / Share / Back to properties) instead of being
+              // pushed straight to the listing detail route (PRP-496). Refresh
+              // first so the row the dialog names for id actually exists in the
+              // local mirror; a stage that no longer holds the row is why the
+              // wizard used to navigate the manager there at all (PRP-429).
               void refreshPending().then(() => {
-                const id = listingId?.trim();
-                if (!id) return;
-                router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
+                if (!id) {
+                  showToast("Listing submitted and published.");
+                  return;
+                }
+                const row = readAdminPropertyRows(2, scopeUserId).find(
+                  (r) => r.listingId === id || r.adminRefId === id,
+                );
+                setPublishedDialog({ listingId: id, name: row ? propertyRowTitle(row) : "Listing" });
               });
             }}
             initialSubmission={resumeDraftRow?.submission ?? null}
@@ -723,6 +622,23 @@ export function ManagerProperties({
         properties={shareableProperties}
         preselectedPropertyId={shareListingPropertyId}
         preselectedPropertyIds={shareListingPropertyIds}
+      />
+      <ListingPublishedDialog
+        open={publishedDialog !== null}
+        name={publishedDialog?.name ?? "Listing"}
+        listingId={publishedDialog?.listingId ?? ""}
+        onViewListing={() => {
+          const id = publishedDialog?.listingId;
+          setPublishedDialog(null);
+          if (id) router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
+        }}
+        onBackToProperties={() => setPublishedDialog(null)}
+        onShare={() => {
+          const id = publishedDialog?.listingId;
+          setPublishedDialog(null);
+          if (id) openShareListing(id);
+        }}
+        showToast={showToast}
       />
       <PortalDialog
         open={planLimitDialogOpen}

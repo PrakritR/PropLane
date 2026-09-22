@@ -23,6 +23,11 @@ import { managerOwnsVendorDirectoryRow, resolveResidentUserIdByEmail } from "@/l
 import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { notifyDocumentShared } from "@/lib/documents/document-share-notify.server";
 import { defaultExpiryIsoForCategory, parseExpiresAtInput } from "@/lib/documents/document-expiration";
+import {
+  applyWorkspaceRowScope,
+  resolveActiveWorkspaceRowScope,
+  rowAllowedInWorkspaceScope,
+} from "@/lib/workspaces/row-scope.server";
 
 export const runtime = "nodejs";
 
@@ -78,7 +83,15 @@ export async function GET(req: Request) {
     return query;
   };
 
-  const { data, error } = await buildQuery().eq("manager_user_id", auth.userId);
+  // The active workspace's houses, plus whether it is the viewer's own
+  // default — an account-level document (no property at all, `scope=manager`)
+  // only shows there, matching the rule Communication already follows.
+  const wsScope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+
+  const { data, error } = await applyWorkspaceRowScope(
+    buildQuery().eq("manager_user_id", auth.userId),
+    wsScope,
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const rowsById = new Map<string, ManagerDocumentRow>();
@@ -89,11 +102,16 @@ export async function GET(req: Request) {
   // predicate only matches rows with a property set, so other owners'
   // manager-level documents (property_id null) can never leak. Skipped for the
   // manager scope filter, which by definition matches only property-less rows.
+  // These rows are never account-level (always `.in("property_id", …)`), so
+  // the workspace scope narrows them by property membership only — never the
+  // untagged/default-workspace branch, which applies only to the viewer's own
+  // rows above.
   const linkedPropertyIds = await linkedPropertyIdsForModule(auth.db, auth.userId, "documents");
   if (linkedPropertyIds.size > 0 && scope !== "manager") {
-    const { data: linkedData, error: linkedError } = await buildQuery()
-      .in("property_id", [...linkedPropertyIds])
-      .neq("manager_user_id", auth.userId);
+    const { data: linkedData, error: linkedError } = await applyWorkspaceRowScope(
+      buildQuery().in("property_id", [...linkedPropertyIds]).neq("manager_user_id", auth.userId),
+      { propertyIds: wsScope.propertyIds, includeUntagged: false },
+    );
     if (linkedError) return NextResponse.json({ error: linkedError.message }, { status: 500 });
     for (const row of (linkedData as ManagerDocumentRow[] | null) ?? []) {
       if (!rowsById.has(row.id)) rowsById.set(row.id, row);
@@ -163,6 +181,13 @@ export async function POST(req: Request) {
     if (priorError) return NextResponse.json({ error: priorError.message }, { status: 500 });
     if (!prior) return NextResponse.json({ error: "Document not found." }, { status: 404 });
     priorRow = prior as ManagerDocumentRow;
+    // Uploading a new version acts on the prior row (links it via
+    // `superseded_by_document_id`) — refuse it exactly like a missing
+    // document when it sits outside the manager's active workspace.
+    const priorScope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    if (!rowAllowedInWorkspaceScope(priorScope, priorRow.property_id)) {
+      return NextResponse.json({ error: "Document not found." }, { status: 404 });
+    }
     const versionError = validateDocumentVersionUpload({
       priorManagerUserId: priorRow.manager_user_id,
       managerUserId: auth.userId,
@@ -210,6 +235,18 @@ export async function POST(req: Request) {
     expiresAt = defaultExpiryIsoForCategory(category);
   }
 
+  // A document tied to a house must land in the manager's active workspace.
+  // An account-level document (no house — a lease template, a portfolio
+  // policy) has no workspace to land in and is scoped on read by the
+  // default-workspace rule instead.
+  const resolvedPropertyId = str("propertyId") ?? priorRow?.property_id ?? null;
+  if (resolvedPropertyId) {
+    const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    if (scope.propertyIds !== null && !scope.propertyIds.includes(resolvedPropertyId)) {
+      return NextResponse.json({ error: "This property is outside your active workspace." }, { status: 400 });
+    }
+  }
+
   const { error: uploadError } = await auth.db.storage
     .from(MANAGER_DOCUMENTS_BUCKET)
     .upload(storagePath, bytes, { contentType: mime, upsert: false });
@@ -224,7 +261,7 @@ export async function POST(req: Request) {
     checksum,
     storage_path: storagePath,
     category: priorRow && isDocumentCategory(priorRow.category) ? priorRow.category : category,
-    property_id: str("propertyId") ?? priorRow?.property_id ?? null,
+    property_id: resolvedPropertyId,
     unit_label: str("unitLabel") ?? priorRow?.unit_label ?? null,
     lease_id: str("leaseId") ?? priorRow?.lease_id ?? null,
     resident_user_id: resolvedResidentUserId ?? priorRow?.resident_user_id ?? null,

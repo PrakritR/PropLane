@@ -486,7 +486,7 @@ export function bookingRecordHref(
   return `${basePath}/bookings/${encodeURIComponent(bookingId)}/${tab}`;
 }
 
-/** `YYYY-MM-DD` — the day page replacing the old day pop-up. */
+/** `YYYY-MM-DD` — the day popup deep link over `/bookings/calendar`. */
 const BOOKING_DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isBookingDayKeySegment(segment: string): boolean {

@@ -1225,7 +1225,7 @@ export async function renderPortalSection(
       }
       const segmentRaw = tabParts[0]!;
       const ManagerBookings = await loadManagerBookings();
-      // The day page (`/bookings/2026-09-01`) replaces the old day pop-up —
+      // The day popup (`/bookings/2026-09-01`) overlays the calendar tab —
       // a date can never collide with a bucket keyword.
       if (isBookingDayKeySegment(segmentRaw)) {
         if (tabParts.length > 1) notFound();

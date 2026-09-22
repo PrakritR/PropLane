@@ -6,6 +6,7 @@ import {
   createManagerTaskRow,
   deleteManagerTaskRow,
   loadManagerTasks,
+  loadManagerTasksInActiveWorkspace,
   patchManagerTaskRow,
 } from "@/lib/manager-tasks.server";
 
@@ -30,7 +31,10 @@ export async function GET() {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     void processDueTaskReminders(ctx.db, ctx.userId).catch(() => undefined);
-    const tasks = await loadManagerTasks(ctx.db, ctx.userId);
+    // The manager's task list follows the active workspace, like every other
+    // list; the unscoped loader stays for reminder delivery, a vendor's own
+    // assigned tasks, and the import dedupe check, which are not workspace views.
+    const tasks = await loadManagerTasksInActiveWorkspace(ctx.db, ctx.userId);
     return NextResponse.json({ tasks });
   } catch {
     return NextResponse.json({ error: "Could not load tasks." }, { status: 500 });

@@ -92,7 +92,7 @@ describe("applyFactsToSubmission", () => {
     expect(prefillMarkFor({ ...sub, ...patch }, "rooms")).toBeNull();
   });
 
-  it("a half bath makes a half-bath card and copies the Default bathroom", () => {
+  it("a half bath makes a half-bath card and fills every new one from the listing's stored (legacy) bathroom defaults", () => {
     const sub = { ...fresh(), bathroomDefaults: { location: "Upstairs" } };
     const { patch } = applyFactsToSubmission(sub, { ...FACTS, bathrooms: 2.5 }, null, "fixture");
     expect(patch.listingTotalBathroomsId).toBe("2.5");

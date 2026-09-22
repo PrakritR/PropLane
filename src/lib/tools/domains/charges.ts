@@ -11,6 +11,7 @@ import { formatChargeDueDateLabel } from "@/lib/payment-reminder-bootstrap";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { propertyInAgentWorkspace, rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
@@ -50,12 +51,17 @@ async function loadManagerCharges(ctx: AgentContext): Promise<HouseholdCharge[]>
 /**
  * Ownership-gated charge lookup: `charges` MUST be the landlord's own set
  * (scoped by manager_user_id at the database boundary), so a foreign or
- * unknown id simply resolves to null.
+ * unknown id simply resolves to null. Also re-checked against the active
+ * workspace here directly (not just relied on via `loadAllManagerRows`'s own
+ * internal filter) so this file's own scoping guarantee is visible without
+ * depending on a shared loader elsewhere never changing its behavior.
  */
-function findOwnedCharge(charges: HouseholdCharge[], chargeId: string): HouseholdCharge | null {
+function findOwnedCharge(ctx: AgentContext, charges: HouseholdCharge[], chargeId: string): HouseholdCharge | null {
   const id = String(chargeId ?? "").trim();
   if (!id) return null;
-  return charges.find((c) => c.id === id) ?? null;
+  const charge = charges.find((c) => c.id === id) ?? null;
+  if (!charge) return null;
+  return rowAllowedInAgentWorkspace(ctx, charge) ? charge : null;
 }
 
 /** Dollar label matching stored charge rows, e.g. "$1,500.00". */
@@ -127,6 +133,15 @@ async function resolveChargeTarget(
   let propertyLabel = resident.property?.trim() || "";
   const wantedPropertyId = input.propertyId?.trim();
   if (wantedPropertyId) {
+    // A create must land in the active workspace: an explicit override outside
+    // it is refused before the lookup even runs, so this can never be used to
+    // discover — or charge against — a house in another workspace.
+    if (!propertyInAgentWorkspace(ctx.workspace, wantedPropertyId)) {
+      return {
+        ok: false,
+        error: `Property ${wantedPropertyId} is not in the active workspace. Switch workspaces, use list_properties for a valid id, or omit propertyId to use the resident's assigned property.`,
+      };
+    }
     const { data, error } = await ctx.db
       .from("manager_property_records")
       .select("id, row_data, property_data")
@@ -306,7 +321,7 @@ export const updateChargeTool = defineWriteTool({
     })
     .strict(),
   preview: async (ctx, input) => {
-    const charge = findOwnedCharge(await loadManagerCharges(ctx), input.chargeId);
+    const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) {
       throw new Error(`No charge with id ${input.chargeId} belongs to this landlord. Use list_charges to find valid charge ids.`);
     }
@@ -345,7 +360,7 @@ export const updateChargeTool = defineWriteTool({
     };
   },
   handler: async (ctx, input) => {
-    const charge = findOwnedCharge(await loadManagerCharges(ctx), input.chargeId);
+    const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) throw new Error("No charge with that id belongs to this landlord.");
     if (charge.status === "paid") throw new Error("This charge is already paid and cannot be edited.");
     if (input.amountUsd == null && input.dueDate == null && input.title == null) {
@@ -412,7 +427,7 @@ export const deleteChargeTool = defineWriteTool({
     })
     .strict(),
   preview: async (ctx, input) => {
-    const charge = findOwnedCharge(await loadManagerCharges(ctx), input.chargeId);
+    const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) {
       throw new Error(`No charge with id ${input.chargeId} belongs to this landlord. Use list_charges to find valid charge ids.`);
     }
@@ -431,7 +446,7 @@ export const deleteChargeTool = defineWriteTool({
     };
   },
   handler: async (ctx, input) => {
-    const charge = findOwnedCharge(await loadManagerCharges(ctx), input.chargeId);
+    const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) {
       throw new Error("No charge with that id belongs to this landlord (it may already be deleted).");
     }
@@ -491,7 +506,7 @@ export const markChargePaidTool = defineWriteTool({
     })
     .strict(),
   preview: async (ctx, input) => {
-    const charge = findOwnedCharge(await loadManagerCharges(ctx), input.chargeId);
+    const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) {
       throw new Error(`No charge with id ${input.chargeId} belongs to this landlord. Use list_charges to find valid charge ids.`);
     }
@@ -514,7 +529,7 @@ export const markChargePaidTool = defineWriteTool({
     };
   },
   handler: async (ctx, input) => {
-    const charge = findOwnedCharge(await loadManagerCharges(ctx), input.chargeId);
+    const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) throw new Error("No charge with that id belongs to this landlord.");
     if (charge.status === "paid") throw new Error("This charge is already marked paid.");
 

@@ -12,6 +12,14 @@ export const suggestStatementMatchesTool = defineTool({
     const access = await assertFinancialsTier(ctx.landlordId);
     if (!access.ok) throw new Error(access.error);
     if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Open the owning manager's portal for bank reconciliation");
+    // Bank accounts/statements carry no property or workspace column at all
+    // (there is no per-workspace bank account today), so they are account-level
+    // by nature — not the exception. Follow the same rule every other
+    // account-level row follows: visible only while the viewer's own default
+    // workspace is active, never from a second, narrower workspace.
+    if (ctx.workspace?.narrowing && !ctx.workspace.isDefault) {
+      throw new Error("Bank statements are account-level. Switch to the default workspace to reconcile them.");
+    }
     const { data: statement, error } = await ctx.db.from("manager_bank_statements").select("id").eq("id", input.statementId).eq("manager_user_id", ctx.landlordId).single();
     if (error || !statement) throw new Error("Statement not found in your portfolio");
     const { data: lines, error: linesError } = await ctx.db.from("manager_bank_statement_lines").select("id,line_date,amount_cents,cleared").eq("statement_id", input.statementId).order("line_date").limit(1001);

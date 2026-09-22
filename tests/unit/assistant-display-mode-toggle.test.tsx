@@ -76,6 +76,8 @@ describe("assistant display mode", () => {
   });
 
   afterEach(() => {
+    document.documentElement.removeAttribute("data-communication-surface");
+    document.documentElement.removeAttribute("data-communication-thread-selected");
     cleanup();
     vi.unstubAllGlobals();
   });
@@ -114,6 +116,23 @@ describe("assistant display mode", () => {
     expect(rail()!.className).toContain("hidden");
     expect(rail()!.className).toContain("lg:flex");
     await waitFor(() => expect(fab()!.className).toContain("lg:hidden"));
+  });
+
+  it("opens the desktop rail on Communication while a thread is selected", async () => {
+    document.documentElement.setAttribute("data-communication-surface", "true");
+    document.documentElement.setAttribute("data-communication-thread-selected", "true");
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    renderPortalWithTopBar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ask PropLane" }));
+
+    await waitFor(() => expect(rail()).not.toBeNull());
+    expect(readAssistantDisplayMode(USER)).toBe("docked");
+    document.documentElement.removeAttribute("data-communication-surface");
+    document.documentElement.removeAttribute("data-communication-thread-selected");
   });
 
   it("opens Ask PropLane in the right-side conversation rail on desktop", async () => {

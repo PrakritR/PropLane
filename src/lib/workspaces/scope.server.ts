@@ -8,10 +8,13 @@ import { WORKSPACE_COOKIE } from "./types";
  * The houses the viewer's active workspace holds, resolved on the SERVER from
  * the selection cookie rather than from anything the client sends.
  *
- * `null` means "not narrowing": the selection is absent, or the account is a
- * single workspace and the workspace IS the account. An EMPTY ARRAY means the
- * workspace genuinely holds no houses — a caller that treats that as "no
- * filter" hands back the whole account, which is the bug this exists to stop.
+ * `null` means "not narrowing": the workspace load failed, or the viewer has
+ * no workspace at all. A single workspace is NOT the account when co-manager
+ * grants exist — the account still reaches another owner's houses through the
+ * grant, so a resolved single workspace narrows exactly like several would. An
+ * EMPTY ARRAY means the workspace genuinely holds no houses — a caller that
+ * treats that as "no filter" hands back the whole account, which is the bug
+ * this exists to stop.
  *
  * Narrowing only. Authorization stays where it already is; this never widens
  * what the viewer could already read.
@@ -28,7 +31,7 @@ export async function activeWorkspacePropertyScope(
     // keeps its own property filter and the page reports the failure normally.
     return null;
   }
-  if (workspaces.length <= 1) return null;
+  if (workspaces.length === 0) return null;
   const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
   const active = workspaces.find((w) => w.id === selected) ?? workspaces[0];
   if (!active) return null;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Day pop-up ⋯ (now the day page, `docs/agents/record-page.md`): every
+ * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every
  * booking card gets Edit booking + Delete booking. Delete confirms in the
  * PortalDialog shape (destructive red primary, "Keep" secondary) and refuses
  * outright for an in-house active tenancy.
@@ -211,7 +211,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(String(navigate.mock.calls[0]![0])).toContain("lease-1");
   });
 
-  it('"Add booking" still sits at the bottom of the day page', () => {
+  it('"Add booking" still sits in the day dialog header', () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-20"

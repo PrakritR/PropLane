@@ -209,7 +209,10 @@ describe("CreateWorkspace", () => {
     const importStep = screen.getByText(/^Step 1 of \d+$/).textContent;
     const total = importStep?.match(/of (\d+)/)?.[1];
     fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-rooms']")!);
-    await screen.findByText("All rooms");
+    // Rooms has no Default card (PLAN-0921-1648); its chrome is the "N rooms"
+    // heading plus each room's own card.
+    await screen.findByText("4 rooms");
+    expect(document.querySelector("[data-attr='listing-v2-room-card']")).not.toBeNull();
     expect(document.querySelector("[data-attr='listing-v2-rail-rooms']")?.getAttribute("aria-current")).toBe("step");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByText("The home itself");
