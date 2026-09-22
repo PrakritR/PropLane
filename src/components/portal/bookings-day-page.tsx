@@ -18,7 +18,6 @@ import {
   BookingsBlockDatesModal,
   type BlockDatesDraft,
   type BlockDatesSaveResult,
-  type BookingsSheetPane,
 } from "@/components/portal/bookings-block-dates-modal";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -80,7 +79,6 @@ export function BookingsDayPage({
   const navigate = usePortalNavigate();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<PropertyBookingEntry | null>(null);
-  const [pane, setPane] = useState<BookingsSheetPane>("block");
   const [deletingEntry, setDeletingEntry] = useState<PropertyBookingEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
@@ -114,13 +112,11 @@ export function BookingsDayPage({
 
   const openEdit = (entry: PropertyBookingEntry) => {
     setEditingBlock(entry);
-    setPane("block");
     setSheetOpen(true);
   };
 
   const openAdd = () => {
     setEditingBlock(null);
-    setPane("block");
     setSheetOpen(true);
   };
 
@@ -279,16 +275,11 @@ export function BookingsDayPage({
         propertyOptions={propertyOptions}
         initialPropertyId={propertyOptions.length === 1 ? propertyOptions[0]!.id : undefined}
         initialDayKey={dayKey}
-        initialPane={pane}
-        pane={pane}
-        onPaneChange={setPane}
         editingBlock={editingBlock}
         entries={entries}
         residentOptions={residentOptions}
         onSave={onSaveBlock}
         onDeleteBlock={onRemoveBlock}
-        propertyIds={propertyIds}
-        showToast={showToast}
       />
 
       <PortalDialog

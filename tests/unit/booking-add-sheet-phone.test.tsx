@@ -21,25 +21,33 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const PROPERTY = [{ id: "h1", label: "4709A 8th Ave NE" }];
 
 const attr = (view: ReturnType<typeof render>, name: string) =>
   view.container.ownerDocument.querySelector(`[data-attr="${name}"]`) as HTMLElement | null;
 
+function goToReview() {
+  fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
+}
+
 function open(onSave = vi.fn(() => Promise.resolve())) {
   const view = render(
-    <BookingsBlockDatesModal
-      open
-      onClose={() => {}}
-      propertyOptions={PROPERTY}
-      initialPropertyId="h1"
-      initialDayKey="2026-09-20"
-      entries={[]}
-      residentOptions={[]}
-      onSave={onSave}
-    />,
+    <AppUiProvider>
+      <BookingsBlockDatesModal
+        open
+        onClose={() => {}}
+        propertyOptions={PROPERTY}
+        initialPropertyId="h1"
+        initialDayKey="2026-09-20"
+        entries={[]}
+        residentOptions={[]}
+        onSave={onSave}
+      />
+    </AppUiProvider>,
   );
+  fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-property"]')!);
   fireEvent.click(attr(view, "bookings-block-resident-new")!);
   return { view, onSave };
 }
@@ -56,6 +64,7 @@ describe("Add booking — new resident phone", () => {
   it("refuses to save a name with neither email nor phone", () => {
     const { view } = open();
     fireEvent.change(attr(view, "bookings-block-resident-name")!, { target: { value: "Alex Rivera" } });
+    goToReview();
     expect((attr(view, "bookings-block-dates-save") as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -67,6 +76,7 @@ describe("Add booking — new resident phone", () => {
     ) as HTMLInputElement;
     expect(phoneInput).not.toBeNull();
     fireEvent.change(phoneInput, { target: { value: "2065550123" } });
+    goToReview();
     expect((attr(view, "bookings-block-dates-save") as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
@@ -88,6 +98,7 @@ describe("Add booking — new resident phone", () => {
     ) as HTMLInputElement;
     fireEvent.change(phoneInput, { target: { value: "2065550123" } });
 
+    goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![0]).toMatchObject({
@@ -107,6 +118,7 @@ describe("Add booking — new resident phone", () => {
     ) as HTMLInputElement;
     fireEvent.change(phoneInput, { target: { value: "2065550123" } });
 
+    goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await vi.waitFor(() => expect(attr(view, "bookings-invite-result")).not.toBeNull());
     expect(attr(view, "bookings-invite-result")!.textContent).toContain("Invite sent by text");
@@ -117,17 +129,20 @@ describe("Add booking — new resident phone", () => {
   it("never marks picking an existing resident as a new one", async () => {
     const onSave = vi.fn(() => Promise.resolve());
     const view = render(
-      <BookingsBlockDatesModal
-        open
-        onClose={() => {}}
-        propertyOptions={PROPERTY}
-        initialPropertyId="h1"
-        initialDayKey="2026-09-20"
-        entries={[]}
-        residentOptions={[{ key: "email:maya@example.com", name: "Maya Zuneh", email: "maya@example.com", meta: "" }]}
-        onSave={onSave}
-      />,
+      <AppUiProvider>
+        <BookingsBlockDatesModal
+          open
+          onClose={() => {}}
+          propertyOptions={PROPERTY}
+          initialPropertyId="h1"
+          initialDayKey="2026-09-20"
+          entries={[]}
+          residentOptions={[{ key: "email:maya@example.com", name: "Maya Zuneh", email: "maya@example.com", meta: "" }]}
+          onSave={onSave}
+        />
+      </AppUiProvider>,
     );
+    goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![0]).toMatchObject({ isNewResident: false });

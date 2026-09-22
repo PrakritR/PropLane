@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import {
   deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
@@ -441,33 +441,24 @@ export function ChannelCalendarLinkModal({
   const busyAny = footerState.busy || footerState.syncing;
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
       onClose={onClose}
       title="Link calendars"
       dataAttr="channel-calendar-link-modal"
-      footer={
-        <ModalFooter className="justify-start">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busyAny || footerState.syncableCount === 0}
-            data-attr="channel-calendar-sync-all"
-            onClick={() => void actionsRef.current?.syncAll()}
-          >
-            {footerState.syncing ? "Syncing…" : "Sync all"}
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={!footerState.canSave || busyAny}
-            data-attr="channel-calendar-save-link"
-            onClick={() => void actionsRef.current?.save()}
-          >
-            {footerState.busy ? "Saving…" : "Save & sync"}
-          </Button>
-        </ModalFooter>
-      }
+      primaryAction={{
+        label: footerState.busy ? "Saving…" : "Save & sync",
+        onClick: () => void actionsRef.current?.save(),
+        disabled: !footerState.canSave || busyAny,
+        loading: footerState.busy,
+        dataAttr: "channel-calendar-save-link",
+      }}
+      secondaryAction={{
+        label: footerState.syncing ? "Syncing…" : "Sync all",
+        onClick: () => void actionsRef.current?.syncAll(),
+        disabled: busyAny || footerState.syncableCount === 0,
+        dataAttr: "channel-calendar-sync-all",
+      }}
     >
       <ChannelCalendarLinkFields
         active={open}
@@ -479,6 +470,6 @@ export function ChannelCalendarLinkModal({
         onFooterState={setFooterState}
         actionsRef={actionsRef}
       />
-    </Modal>
+    </PortalDialog>
   );
 }

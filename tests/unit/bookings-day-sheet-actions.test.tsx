@@ -13,6 +13,7 @@ const navigate = vi.fn();
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
 
 import { BookingsDayPage } from "@/components/portal/bookings-day-page";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const propertyOptions = [{ id: "p1", label: "5257 Brooklyn Ave" }];
 
@@ -61,17 +62,19 @@ describe("BookingsDayPage — card actions", () => {
 
   it("a manager-made hold gets Edit booking and Delete booking", () => {
     render(
-      <BookingsDayPage
-        dayKey="2026-09-20"
-        basePath="/portal"
-        entries={[hold]}
-        loading={false}
-        propertyOptions={propertyOptions}
-        residentOptions={[]}
-        onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
-        showToast={() => {}}
-      />,
+      <AppUiProvider>
+        <BookingsDayPage
+          dayKey="2026-09-20"
+          basePath="/portal"
+          entries={[hold]}
+          loading={false}
+          propertyOptions={propertyOptions}
+          residentOptions={[]}
+          onSaveBlock={async () => {}}
+          onRemoveBlock={async () => {}}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
     );
     const menu = openMenu("Actions for Prakrit · Room 1");
     expect(menu.textContent).toContain("Edit booking");
@@ -82,17 +85,19 @@ describe("BookingsDayPage — card actions", () => {
 
   it("Edit booking opens the edit sheet prefilled for that entry", () => {
     render(
-      <BookingsDayPage
-        dayKey="2026-09-20"
-        basePath="/portal"
-        entries={[hold]}
-        loading={false}
-        propertyOptions={propertyOptions}
-        residentOptions={[]}
-        onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
-        showToast={() => {}}
-      />,
+      <AppUiProvider>
+        <BookingsDayPage
+          dayKey="2026-09-20"
+          basePath="/portal"
+          entries={[hold]}
+          loading={false}
+          propertyOptions={propertyOptions}
+          residentOptions={[]}
+          onSaveBlock={async () => {}}
+          onRemoveBlock={async () => {}}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
     );
     const menu = openMenu("Actions for Prakrit · Room 1");
     const editButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit booking")!;

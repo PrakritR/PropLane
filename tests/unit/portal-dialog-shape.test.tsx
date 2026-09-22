@@ -207,7 +207,7 @@ describe("PortalDialog adoption — source guard", () => {
     { file: "src/components/portal/pro-work-orders-panel.tsx" },
     { file: "src/components/portal/pro-create-service-request-modal.tsx" },
     { file: "src/components/portal/inspection-editor.tsx" },
-    { file: "src/components/portal/bookings-block-dates-modal.tsx" },
+    { file: "src/components/portal/channel-calendar-link-modal.tsx" },
     { file: "src/components/portal/pro-communication-compose-modal.tsx" },
     { file: "src/components/portal/share-lead-link-modal.tsx" },
     { file: "src/components/portal/manager-invite-link-modal.tsx" },

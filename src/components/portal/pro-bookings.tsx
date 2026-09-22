@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
-import { BookingsBlockDatesModal, type BlockDatesDraft, type BookingsSheetPane } from "@/components/portal/bookings-block-dates-modal";
+import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
+import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -119,10 +120,10 @@ function useBookingsWorkspace({
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [sheet, setSheet] = useState<{
     open: boolean;
-    pane: BookingsSheetPane;
     dayKey: string | null;
     editingBlock: PropertyBookingEntry | null;
-  }>({ open: false, pane: "block", dayKey: null, editingBlock: null });
+  }>({ open: false, dayKey: null, editingBlock: null });
+  const [calendarsOpen, setCalendarsOpen] = useState(false);
 
   const scopedPropertyIds = useMemo(() => {
     if (propertyFilters.length === 0) return propertyIds;
@@ -423,7 +424,7 @@ function useBookingsWorkspace({
             label="Add booking"
             data-attr="bookings-block-dates-open"
             disabled={linkDisabled}
-            onClick={() => setSheet({ open: true, pane: "block", dayKey: null, editingBlock: null })}
+            onClick={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
           />
           <PortalIconAction
             icon={Settings}
@@ -440,7 +441,7 @@ function useBookingsWorkspace({
           icon={CalendarSync}
           disabled={linkDisabled}
           data-attr="portfolio-bookings-link-airbnb"
-          onClick={() => setSheet({ open: true, pane: "airbnb", dayKey: null, editingBlock: null })}
+          onClick={() => setCalendarsOpen(true)}
         />
       }
       activeFilterChips={activeFilterChips}
@@ -476,7 +477,7 @@ function useBookingsWorkspace({
             return next;
           });
         }}
-        onEditBlock={(entry) => setSheet({ open: true, pane: "block", dayKey: null, editingBlock: entry })}
+        onEditBlock={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
         onDeleteBlock={(entry) => void deleteBlockEntry(entry)}
         bulkActions={listBulkActions}
         basePath={basePath ?? "/portal"}
@@ -512,7 +513,7 @@ function useBookingsWorkspace({
                         {
                           label: "Link calendars",
                           icon: CalendarSync,
-                          onClick: () => setSheet({ open: true, pane: "airbnb", dayKey: null, editingBlock: null }),
+                          onClick: () => setCalendarsOpen(true),
                           disabled: linkDisabled,
                           reason: linkDisabled ? "List a property first, then link its rooms." : undefined,
                           dataAttr: "bookings-empty-link-airbnb",
@@ -535,24 +536,29 @@ function useBookingsWorkspace({
     <>
       <BookingsBlockDatesModal
         open={sheet.open}
-        onClose={() => setSheet({ open: false, pane: "block", dayKey: null, editingBlock: null })}
+        onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })}
         propertyOptions={propertyOptions}
         initialPropertyId={
           propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined
         }
         initialRoomId={roomFilterId}
         initialDayKey={sheet.dayKey}
-        initialPane={sheet.pane}
-        pane={sheet.pane}
-        onPaneChange={(pane) => setSheet((current) => ({ ...current, pane }))}
         editingBlock={sheet.editingBlock}
         entries={rawEntries}
         residentOptions={residentOptions}
         onSave={saveBlock}
         onDeleteBlock={removeBlock}
+      />
+      <ChannelCalendarLinkModal
+        open={calendarsOpen}
+        onClose={() => setCalendarsOpen(false)}
         propertyIds={propertyIds}
+        propertyOptions={propertyOptions}
+        initialPropertyId={
+          propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined
+        }
         showToast={showToast}
-        onAirbnbChanged={() => onRefreshSignal?.()}
+        onChanged={() => onRefreshSignal?.()}
       />
       <ProPortalSettingsModal
         open={settingsModalOpen}

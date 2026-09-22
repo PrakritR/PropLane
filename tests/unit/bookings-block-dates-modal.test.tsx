@@ -20,6 +20,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const PROPERTY = [{ id: "h1", label: "4709A 8th Ave NE" }];
 const RESIDENTS = [
@@ -28,18 +29,28 @@ const RESIDENTS = [
 
 function open(onSave = vi.fn(() => Promise.resolve())) {
   const view = render(
-    <BookingsBlockDatesModal
-      open
-      onClose={() => {}}
-      propertyOptions={PROPERTY}
-      initialPropertyId="h1"
-      initialDayKey="2026-09-20"
-      entries={[]}
-      residentOptions={RESIDENTS}
-      onSave={onSave}
-    />,
+    <AppUiProvider>
+      <BookingsBlockDatesModal
+        open
+        onClose={() => {}}
+        propertyOptions={PROPERTY}
+        initialPropertyId="h1"
+        initialDayKey="2026-09-20"
+        entries={[]}
+        residentOptions={RESIDENTS}
+        onSave={onSave}
+      />
+    </AppUiProvider>,
   );
   return { view, onSave };
+}
+
+function goToProperty() {
+  fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-property"]')!);
+}
+
+function goToReview() {
+  fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
 }
 
 const attr = (view: ReturnType<typeof render>, name: string) =>
@@ -65,11 +76,11 @@ describe("BookingsBlockDatesModal — resident", () => {
   // The dialog portals into document.body; without this the next test finds the previous sheet.
   afterEach(cleanup);
 
-  it("puts the primary button bottom-right, not bottom-left", () => {
-    // PortalDialog's shared footer (docs/agents/ui-change-checklist.md § Pop-ups):
-    // one text secondary (left) + one filled primary (right), laid out
-    // `justify-between` rather than the old hand-rolled `justify-end` row.
+  it("puts Add booking on the workspace footer, bottom-right", () => {
     const { view } = open();
+    expect(attr(view, "listing-v2-rail-property")).not.toBeNull();
+    expect(attr(view, "bookings-block-dates-next")).not.toBeNull();
+    goToReview();
     const button = attr(view, "bookings-block-dates-save")!;
     const footer = button.parentElement!;
     expect(footer.className).toContain("justify-between");
@@ -79,10 +90,12 @@ describe("BookingsBlockDatesModal — resident", () => {
 
   it("saves with no one by default, and with the picked resident's name and email", async () => {
     const { view, onSave } = open();
+    goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![0]).toMatchObject({ residentName: "", residentEmail: "" });
 
+    goToProperty();
     const select = attr(view, "bookings-block-resident")!;
     expect(optionLabels(select)).toEqual([
       "No one — just close the room",
@@ -90,6 +103,7 @@ describe("BookingsBlockDatesModal — resident", () => {
       "+ New resident…",
     ]);
     pick(select, "email:maya@example.com");
+    goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1]![0]).toMatchObject({ residentName: "Maya Zuneh", residentEmail: "maya@example.com" });
@@ -97,15 +111,19 @@ describe("BookingsBlockDatesModal — resident", () => {
 
   it("+ New resident reveals inline fields, needs a name, and saves the typed person", async () => {
     const { view, onSave } = open();
+    goToProperty();
     fireEvent.click(attr(view, "bookings-block-resident-new")!);
     expect(attr(view, "bookings-block-resident-new-fields")).not.toBeNull();
     expect(attr(view, "bookings-block-resident")).toBeNull();
 
-    // Empty name: the sheet refuses rather than saving a nameless "new" person.
+    // Empty name: Review refuses rather than saving a nameless "new" person.
+    goToReview();
     expect((attr(view, "bookings-block-dates-save") as HTMLButtonElement).disabled).toBe(true);
 
+    goToProperty();
     fireEvent.change(attr(view, "bookings-block-resident-name")!, { target: { value: "  Alex Rivera " } });
     fireEvent.change(attr(view, "bookings-block-resident-email")!, { target: { value: "Alex@Example.com" } });
+    goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![0]).toMatchObject({ residentName: "Alex Rivera", residentEmail: "alex@example.com" });
@@ -113,48 +131,46 @@ describe("BookingsBlockDatesModal — resident", () => {
 
   it("'Pick from list instead' returns to the select with no one chosen", () => {
     const { view } = open();
+    goToProperty();
     fireEvent.click(attr(view, "bookings-block-resident-new")!);
     fireEvent.click(attr(view, "bookings-block-resident-pick-list")!);
     expect(attr(view, "bookings-block-resident")!.textContent).toContain("No one — just close the room");
   });
 
-  it("labels the form House, Move in, and Move out under Add booking", () => {
+  it("labels the form Property, Move in, and Move out under Add booking", () => {
     const { view } = open();
-    const body = document.body.textContent ?? "";
-    expect(body).toContain("Add booking");
-    expect(body).toContain("House");
-    expect(body).toContain("Move in");
-    expect(body).toContain("Move out");
-    expect(body).toContain("Resident");
-    expect(body).not.toContain("Check-in");
-    expect(body).not.toContain("Check-out");
+    expect(document.body.textContent ?? "").toContain("Add booking");
+    goToProperty();
+    expect(document.body.textContent ?? "").toContain("Property");
+    expect(document.body.textContent ?? "").toContain("Resident");
     expect(attr(view, "bookings-block-property")).not.toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-when"]')!);
+    expect(document.body.textContent ?? "").toContain("Move in");
+    expect(document.body.textContent ?? "").toContain("Move out");
+    expect(document.body.textContent ?? "").not.toContain("Check-in");
+    expect(document.body.textContent ?? "").not.toContain("Check-out");
     expect(attr(view, "bookings-block-check-in")).not.toBeNull();
     expect(attr(view, "bookings-block-check-out")).not.toBeNull();
   });
 
-  it("is one sheet with Add booking and Link calendars panes, and no helper description", () => {
+  it("is the Add task workspace — Property on the rail, no Link calendars tab", () => {
     const { view } = open();
     const body = document.body.textContent ?? "";
-    expect(attr(view, "bookings-sheet-pane-block")).not.toBeNull();
-    expect(attr(view, "bookings-sheet-pane-airbnb")).not.toBeNull();
+    expect(attr(view, "listing-v2-rail-booking")).not.toBeNull();
+    expect(attr(view, "listing-v2-rail-property")).not.toBeNull();
+    expect(attr(view, "listing-v2-rail-when")).not.toBeNull();
+    expect(attr(view, "listing-v2-rail-review")).not.toBeNull();
+    expect(attr(view, "bookings-sheet-pane-block")).toBeNull();
+    expect(attr(view, "bookings-sheet-pane-airbnb")).toBeNull();
+    expect(attr(view, "channel-calendar-link-import-url")).toBeNull();
     expect(body).not.toContain("Close a room to new bookings");
     expect(body).not.toContain("optional");
     expect(body).not.toContain("Puts their name on the hold");
-
-    fireEvent.click(attr(view, "bookings-sheet-pane-airbnb")!);
-    const linkBody = document.body.textContent ?? "";
-    expect(attr(view, "channel-calendar-link-import-url")).not.toBeNull();
-    const provider = attr(view, "channel-calendar-link-provider")!;
-    expect(provider).not.toBeNull();
-    expect(linkBody).toContain("Channel");
-    expect(linkBody).toContain("Airbnb import URL");
-    expect(linkBody).not.toContain("Airbnb → Calendar → Availability");
-    expect(optionLabels(provider)).toEqual(["Airbnb", "Booking.com"]);
   });
 
   it("lists existing holds with Edit dates and Cancel, not a Blocked or View pill", () => {
     const view = render(
+      <AppUiProvider>
       <BookingsBlockDatesModal
         open
         onClose={() => {}}
@@ -178,8 +194,10 @@ describe("BookingsBlockDatesModal — resident", () => {
         residentOptions={RESIDENTS}
         onSave={async () => {}}
         onDeleteBlock={async () => {}}
-      />,
+      />
+      </AppUiProvider>,
     );
+    goToReview();
     expect(attr(view, "bookings-sheet-existing-blocks")).not.toBeNull();
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Sep 20/i }), { key: "ArrowDown" });
     const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
