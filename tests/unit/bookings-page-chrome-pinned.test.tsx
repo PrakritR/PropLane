@@ -91,20 +91,32 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
 
   it("renders the Link Airbnb and Settings controls in the pinned chrome", async () => {
     const view = await renderBookings();
-    // Link Airbnb is the page's one prominent action — the filled circle at the
-    // end of the command row, no headline row above it (PLAN-0914-1345);
-    // Settings is a plain icon beside it. Both stay outside the scroller.
+    // Add booking is the filled primary ("Add <noun>"); Link calendars and
+    // Settings are plain icons beside it. All stay outside the scroller.
     const scroller = view.container.querySelector(`.${PORTAL_PAGE_SCROLL_BODY_CLASS}`)!;
     expect(view.container.querySelector('[data-slot="portal-page-headline"]')).toBeNull();
     const actions = view.container.querySelector('[data-attr="portal-list-command-actions"]')!;
+    expect(actions.querySelector('[data-attr="bookings-block-dates-open"]')?.getAttribute("aria-label")).toBe(
+      "Add booking",
+    );
     expect(actions.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
     expect(actions.querySelector('[data-attr="settings-open-bookings"]')).not.toBeNull();
     expect(scroller.contains(actions)).toBe(false);
   });
 
+  it("does not report the Add <noun> band contract on Bookings", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await renderBookings("calendar");
+    expect(errorSpy.mock.calls.flat().join("\n")).not.toContain("must read \"Add <noun>\"");
+    errorSpy.mockRestore();
+  });
+
   it("puts Search and Filter on the command bar", async () => {
     const view = await renderBookings();
-    expect(view.container.querySelector('[data-attr="bookings-search"]')).not.toBeNull();
+    const search = view.container.querySelector('[data-attr="bookings-search"]') as HTMLInputElement | null;
+    expect(search).not.toBeNull();
+    expect(search!.id).toBe("portal-list-search");
+    expect(search!.name).toBe("q");
     expect(view.container.querySelector('[data-attr="bookings-filter-sheet-open"]')).not.toBeNull();
   });
 

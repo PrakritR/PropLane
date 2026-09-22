@@ -103,10 +103,46 @@ describe("BookingsDayPage — card actions", () => {
     const editButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit booking")!;
     fireEvent.click(editButton);
     expect(document.querySelector('[data-attr="bookings-block-dates-modal"]')).not.toBeNull();
+    // The day card is z-90 and Add booking is z-80 — leave the card mounted
+    // and the schedule sits on top of the form (and two aria-modal layers
+    // fight). Hide it for the whole edit.
+    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeNull();
     const nameInput = document.querySelector('[data-attr="bookings-block-resident-name"]') as HTMLInputElement | null;
     // Editing an existing hold with a named resident lands on the "+ New
     // resident" fields already filled with their name (applyEditingBlock).
     expect(nameInput?.value).toBe("Prakrit");
+  });
+
+  it("hides the day schedule card while Add booking is open, then restores it", async () => {
+    vi.useRealTimers();
+    render(
+      <AppUiProvider>
+        <BookingsDayPage
+          dayKey="2026-09-23"
+          basePath="/portal"
+          entries={[hold]}
+          loading={false}
+          propertyOptions={propertyOptions}
+          residentOptions={[]}
+          onSaveBlock={async () => {}}
+          onRemoveBlock={async () => {}}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
+    );
+    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).not.toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="bookings-day-add"]')!);
+    expect(document.querySelector('[data-attr="bookings-block-dates-modal"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeNull();
+    expect(document.body.textContent).toContain("Add booking");
+    expect(document.body.textContent).not.toContain("Tuesday, September 22");
+    expect(document.body.textContent).not.toContain("Wednesday, September 23");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const discard = await vi.waitFor(() => screen.getByRole("button", { name: "Discard" }));
+    fireEvent.click(discard);
+    await vi.waitFor(() => expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="bookings-block-dates-modal"]')).toBeNull();
   });
 
   it("Delete booking on a hold OUTSIDE today's stay opens the confirm dialog and, on confirm, deletes", async () => {
