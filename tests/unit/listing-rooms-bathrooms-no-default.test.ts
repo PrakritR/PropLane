@@ -110,7 +110,8 @@ describe("the Bathrooms step has no Default card", () => {
     expect(step.includes("sameAsOptions")).toBe(true);
     expect(step.includes("bathroomDescriptionMatches")).toBe(true);
     expect(step.includes("copyBathroomDescriptionFrom")).toBe(true);
-    expect(step.includes('writeBathroomType({ id, name: "", location: groundFloor } as ManagerBathroomSubmission, "shower")')).toBe(true);
+    // A card "Add bathroom" makes starts as a full bath, ground floor, no rooms.
+    expect(step.includes('writeBathroomType({ id, name: "", location: groundFloor } as ManagerBathroomSubmission, "full")')).toBe(true);
   });
 });
 

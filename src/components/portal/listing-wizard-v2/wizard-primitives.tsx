@@ -134,6 +134,20 @@ export function ListingWorkspace({
    */
   headerCenter?: ReactNode;
 }) {
+  /**
+   * Escape reaches the same `onClose` the ✕ calls, even while `closeDisabled`
+   * has the button itself unclickable — PRP-486's toast-instead-of-silence
+   * fix lives in `onClose` (`handleClose`'s own in-flight guard), not in
+   * whether this key can knock on the door.
+   */
+  useEffect(() => {
+    if (!onClose) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-2xl sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
       {/*

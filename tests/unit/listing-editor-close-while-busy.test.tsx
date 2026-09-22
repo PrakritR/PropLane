@@ -71,8 +71,12 @@ describe("listing editor close while busy (PRP-486)", () => {
     fireEvent.click(closeButton); // starts the save; lifecycleRef is now busy
     await waitFor(() => expect(draftSave.fn).toHaveBeenCalledTimes(1));
 
-    // A second close reaches handleClose while the first save is still in flight.
-    fireEvent.click(closeButton);
+    // The ✕ itself is disabled while busy (PRP-486) — a real click no longer reaches it.
+    expect(closeButton).toBeDisabled();
+
+    // Escape still reaches the same handler a fast double-close would have hit,
+    // and PRP-486's guard toasts instead of silently dropping it.
+    fireEvent.keyDown(document, { key: "Escape" });
 
     expect(showToast).toHaveBeenCalledWith("Saving…");
     // Nothing closed and no second save was started for the redundant click.

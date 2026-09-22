@@ -66,7 +66,7 @@ listing and the lease read exactly what the card shows.
   everything else blank — no seeding from another room.
 - **Bathrooms**: Floor, Type and Finishes on the card; Who uses it (unless
   whole-place or no rooms yet); Description, Photos and Video behind More ▾.
-  Adding a bathroom starts it on the listing's ground floor as a shower bath
+  Adding a bathroom starts it on the listing's ground floor as a full bath
   with no rooms assigned.
 - **Shared spaces** (PLAN-0920-0631): Type, Floor and Who may use it on the
   card; What is in it, Size (sq ft, `sizeSqft`, like a room's — labelled "Lot

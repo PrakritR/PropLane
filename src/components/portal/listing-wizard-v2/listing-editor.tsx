@@ -590,7 +590,7 @@ function StepBasics({
    * The bathroom count makes the bathroom cards, the way the bedroom count
    * makes the rooms: 2.5 opens the Bathrooms step with two full baths and a
    * half. A card this creates starts blank — the listing's ground floor, a
-   * shower bath, no rooms yet — except the half the fractional count may add,
+   * full bath, no rooms yet — except the half the fractional count may add,
    * which `applyListingBathroomSlots` already shapes as a half bath and this
    * leaves alone. Lowering the count removes untouched cards from the end
    * and, as with bedrooms, keeps the cards and moves only the number when the
@@ -607,9 +607,14 @@ function StepBasics({
     const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
     const halfIndex = next % 1 !== 0 ? applied.sub.bathrooms.length - 1 : -1;
     const bathrooms = applied.sub.bathrooms.map((bath, i) => {
-      if (i < before) return bath;
-      const withFloor = { ...bath, location: groundFloor };
-      return i === halfIndex ? withFloor : writeBathroomType(withFloor, "shower");
+      // A pre-existing card, or the half the fractional count may add, is
+      // left exactly as `applyListingBathroomSlots` shaped it — untouched,
+      // with a blank location, so it stays eligible for that helper's own
+      // "goes back to full when the count becomes whole" reversion on a
+      // later call. Stamping a floor on it here would mark it as no longer
+      // default and wedge it as a half bath forever.
+      if (i < before || i === halfIndex) return bath;
+      return writeBathroomType({ ...bath, location: groundFloor }, "full");
     });
     patch({ ...applied.sub, bathrooms, listingTotalBathroomsId: id });
   };
@@ -1617,7 +1622,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             return;
           }
           const id = `bath-${Date.now()}`;
-          const blank = writeBathroomType({ id, name: "", location: groundFloor } as ManagerBathroomSubmission, "shower");
+          const blank = writeBathroomType({ id, name: "", location: groundFloor } as ManagerBathroomSubmission, "full");
           patch({ bathrooms: [...baths, blank] });
           setOpen(id);
         }}
