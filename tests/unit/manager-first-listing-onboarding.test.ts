@@ -122,28 +122,17 @@ describe("co-manager links must be KNOWN before a draft is seeded", () => {
   */
   const EMPTY = { listed: 0, listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 };
 
-  it("does not auto-open the wizard while the link answer is outstanding", () => {
+  it("never auto-opens the wizard, even once links are known", () => {
     expect(
       shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false, coManagerLinksKnown: false }),
     ).toBe(false);
-  });
-
-  it("still opens for a genuinely empty account once the links are known", () => {
     expect(
       shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false, coManagerLinksKnown: true }),
-    ).toBe(true);
+    ).toBe(false);
+    expect(shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false })).toBe(false);
   });
 
-  it("never opens when the Listed tab has anything in it", () => {
-    // The captain's rule, in his words: only when there are NO properties
-    // listed. This is read from the very counter the tab renders.
-    expect(
-      shouldAutoOpenFirstListingWizard({
-        snap: { ...EMPTY, listed: 3 },
-        dismissed: false,
-        coManagerLinksKnown: true,
-      }),
-    ).toBe(false);
+  it("still refuses to seed when the Listed tab has anything in it", () => {
     expect(managerPortfolioNeedsFirstListingSeed({ ...EMPTY, listed: 3 })).toBe(false);
   });
 
@@ -156,10 +145,6 @@ describe("co-manager links must be KNOWN before a draft is seeded", () => {
       }),
     ).toBe(false);
   });
-
-  it("treats an omitted flag as known, so existing callers are unchanged", () => {
-    expect(shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false })).toBe(true);
-  });
 });
 
 describe("dashboard first-listing skip uses incoming team links", () => {
@@ -168,5 +153,22 @@ describe("dashboard first-listing skip uses incoming team links", () => {
     expect(dashboard).toContain("await fetchAccountLinksCached()");
     expect(dashboard).toContain("hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites())");
     expect(dashboard).toContain("incomingTeam:");
+  });
+});
+
+describe("Properties never auto-moves to Drafts or opens the wizard", () => {
+  it("does not seed, stage-switch, or auto-open from the Properties page", () => {
+    const properties = readFileSync("src/components/portal/pro-properties.tsx", "utf8");
+    expect(properties).not.toContain("ensureManagerFirstListingDraft");
+    expect(properties).not.toContain("shouldAutoOpenFirstListingWizard");
+    expect(properties).not.toContain("writePendingFirstListingAutoOpen");
+    expect(properties).not.toContain("takePendingFirstListingAutoOpen");
+    expect(properties).not.toContain('setActiveStage("drafts")');
+  });
+
+  it("does not bounce the dashboard onto Drafts", () => {
+    const dashboard = readFileSync("src/components/portal/pro-dashboard.tsx", "utf8");
+    expect(dashboard).not.toContain("firstListingDashboardRedirectStorageKey");
+    expect(dashboard).not.toContain('router.replace(propertyListHref(BASE, "drafts"))');
   });
 });
