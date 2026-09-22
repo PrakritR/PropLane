@@ -18,7 +18,7 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   number, payouts). Vocabulary: Filter `SlidersHorizontal` · Settings/Defaults
   `Settings` (the gear) · Share link `Share2` · Add availability `CalendarPlus` · Block
   dates `CalendarOff` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
-  Set up messaging `Phone`.
+  Set up messaging `Phone` · Update from sheet `RefreshCw`.
 - The primary is `PortalPrimaryIconAction`: `Plus` for "add"; `Link2` (Link
   Airbnb), `PenSquare` (New message), `Upload` (documents), `FileBarChart`
   (reports) where the job is not "add". Keep the accessible name specific
