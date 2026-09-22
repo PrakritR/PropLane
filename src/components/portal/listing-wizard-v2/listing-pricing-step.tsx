@@ -334,7 +334,6 @@ function MoveInFeeRow({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: 
       <MoneyInput
         label="Move-in fee"
         value={amount}
-        placeholder="150"
         onChange={(value) => {
           const nextAmount = sanitizeMoneyInput(value);
           const fees = listingFeesForWizard(sub);
@@ -840,12 +839,12 @@ function MonthlyCards({
           <div>
             <FactRow first label={<>{helpRow("Rent /mo", PRICE_HELP.rent)} {base ? <FieldMark kind={prefillMarkFor(sub, "houseDefaults")} /> : null}</>}>
               {base ? (
-                <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""} placeholder="1,100" onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
+                <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""} onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
               ) : (
                 <MoneyInput
                   label={`Rent for every room on ${term}`}
                   value={termDef("monthlyRent") || ltText("monthlyRent")}
-                  placeholder={ltText("monthlyRent") || "1,100"}
+                  placeholder={ltText("monthlyRent")}
                   onChange={(v) => onTermDefault(term, "monthlyRent", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-rent"
                 />
@@ -853,12 +852,12 @@ function MonthlyCards({
             </FactRow>
             <FactRow label={helpRow("Utilities /mo", PRICE_HELP.util)}>
               {base ? (
-                <MoneyInput label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} placeholder="150" onChange={(v) => onDefault("utilitiesEstimate", sanitizeMoneyInput(v))} />
+                <MoneyInput label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} onChange={(v) => onDefault("utilitiesEstimate", sanitizeMoneyInput(v))} />
               ) : (
                 <MoneyInput
                   label={`Utilities for every room on ${term}`}
                   value={termDef("utilitiesEstimate") || ltText("utilitiesEstimate")}
-                  placeholder={ltText("utilitiesEstimate") || "150"}
+                  placeholder={ltText("utilitiesEstimate")}
                   onChange={(v) => onTermDefault(term, "utilitiesEstimate", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-utilities"
                 />
@@ -866,12 +865,12 @@ function MonthlyCards({
             </FactRow>
             <FactRow label={helpRow("Deposit", PRICE_HELP.dep)}>
               {base ? (
-                <MoneyInput label="Deposit for every room" value={moneyValue(defaults.securityDeposit)} placeholder="1,000" onChange={(v) => onDefault("securityDeposit", sanitizeMoneyInput(v))} />
+                <MoneyInput label="Deposit for every room" value={moneyValue(defaults.securityDeposit)} onChange={(v) => onDefault("securityDeposit", sanitizeMoneyInput(v))} />
               ) : (
                 <MoneyInput
                   label={`Deposit for every room on ${term}`}
                   value={termDef("securityDeposit") || ltText("securityDeposit")}
-                  placeholder={ltText("securityDeposit") || "1,000"}
+                  placeholder={ltText("securityDeposit")}
                   onChange={(v) => onTermDefault(term, "securityDeposit", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-deposit"
                 />
@@ -998,7 +997,6 @@ function MonthlyCards({
                       <MoneyInput
                         label={`${name} Resident ${slot} rent`}
                         value={rp.monthlyRent > 0 ? String(rp.monthlyRent) : ""}
-                        placeholder="1,100"
                         dataAttr={`listing-v2-price-resident-${slot}-rent`}
                         onChange={(v) => onRoom(room.id, writeResidentPrice(room, term, slot, { monthlyRent: num(sanitizeMoneyInput(v)) || 0 }))}
                       />
@@ -1007,7 +1005,6 @@ function MonthlyCards({
                       <MoneyInput
                         label={`${name} Resident ${slot} utilities`}
                         value={moneyValue(rp.utilitiesEstimate)}
-                        placeholder="150"
                         dataAttr={`listing-v2-price-resident-${slot}-utilities`}
                         onChange={(v) => onRoom(room.id, writeResidentPrice(room, term, slot, { utilitiesEstimate: sanitizeMoneyInput(v) }))}
                       />
@@ -1016,7 +1013,6 @@ function MonthlyCards({
                       <MoneyInput
                         label={`${name} Resident ${slot} deposit`}
                         value={moneyValue(rp.securityDeposit)}
-                        placeholder="1,000"
                         dataAttr={`listing-v2-price-resident-${slot}-deposit`}
                         onChange={(v) => onRoom(room.id, writeResidentPrice(room, term, slot, { securityDeposit: sanitizeMoneyInput(v) }))}
                       />
@@ -1040,7 +1036,7 @@ function MonthlyCards({
                     label={`${name} rent on ${term}`}
                     value={rent.src === "own" ? rent.text : ""}
                     inherited={rent.src !== "own"}
-                    placeholder={rent.text || "1,100"}
+                    placeholder={rent.text}
                     onChange={(v) => writeOne("monthlyRent", v)}
                   />
                 </FactRow>
@@ -1049,7 +1045,7 @@ function MonthlyCards({
                     label={`${name} utilities on ${term}`}
                     value={util.src === "own" ? moneyValue(util.text) : ""}
                     inherited={util.src !== "own"}
-                    placeholder={moneyValue(util.text) || "150"}
+                    placeholder={moneyValue(util.text)}
                     onChange={(v) => writeOne("utilitiesEstimate", v)}
                   />
                 </FactRow>
@@ -1058,7 +1054,7 @@ function MonthlyCards({
                     label={`${name} deposit on ${term}`}
                     value={dep.src === "own" ? moneyValue(dep.text) : ""}
                     inherited={dep.src !== "own"}
-                    placeholder={moneyValue(dep.text) || "1,000"}
+                    placeholder={moneyValue(dep.text)}
                     onChange={(v) => writeOne("securityDeposit", v)}
                   />
                 </FactRow>
@@ -1179,10 +1175,10 @@ function StayCards({
         rows={
           <div>
             <FactRow first label="Rent /night">
-              <MoneyInput label="Rent per night for every room" value={moneyValue(defaults.shortTermRent)} placeholder="65" onChange={(v) => onDefault("shortTermRent", sanitizeMoneyInput(v))} />
+              <MoneyInput label="Rent per night for every room" value={moneyValue(defaults.shortTermRent)} onChange={(v) => onDefault("shortTermRent", sanitizeMoneyInput(v))} />
             </FactRow>
             <FactRow label="Rent /week">
-              <MoneyInput label="Rent per week for every room" value={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""} placeholder="395" onChange={(v) => onDefault("weeklyRentPrice", num(sanitizeMoneyInput(v)))} />
+              <MoneyInput label="Rent per week for every room" value={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""} onChange={(v) => onDefault("weeklyRentPrice", num(sanitizeMoneyInput(v)))} />
             </FactRow>
             <FeeRows sub={sub} patch={patch} roomId={null} term={term} />
           </div>
@@ -1207,10 +1203,10 @@ function StayCards({
             dataAttr="listing-v2-stay-card"
           >
             <FactRow first label="Rent /night" own={!nightInh} onReset={() => onRoom(room.id, { ...room, shortTermRent: "" })} resetLabel={`Reset nightly rent for ${name} to every room`}>
-              <MoneyInput label={`${name} rent per night`} value={nightInh ? "" : moneyValue(room.shortTermRent)} inherited={nightInh} placeholder={moneyValue(defaults.shortTermRent) || "65"} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, shortTermRent: sanitizeMoneyInput(v) }); }} />
+              <MoneyInput label={`${name} rent per night`} value={nightInh ? "" : moneyValue(room.shortTermRent)} inherited={nightInh} placeholder={moneyValue(defaults.shortTermRent)} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, shortTermRent: sanitizeMoneyInput(v) }); }} />
             </FactRow>
             <FactRow label="Rent /week" own={!weekInh} onReset={() => onRoom(room.id, { ...room, weeklyRentPrice: undefined })} resetLabel={`Reset weekly rent for ${name} to every room`}>
-              <MoneyInput label={`${name} rent per week`} value={weekInh ? "" : room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""} inherited={weekInh} placeholder={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : "395"} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined }); }} />
+              <MoneyInput label={`${name} rent per week`} value={weekInh ? "" : room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""} inherited={weekInh} placeholder={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined }); }} />
             </FactRow>
             <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={term} />
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-stay-done" />
@@ -1227,13 +1223,13 @@ function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1;
   return (
     <Card dataAttr="listing-v2-whole-place-card">
       <FactRow first label={<>Rent /mo <FieldMark kind={prefillMarkFor(sub, "entireHomeMonthlyRent")} /></>} required>
-        <MoneyInput label="Rent for the whole place" value={sub.entireHomeMonthlyRent ? String(sub.entireHomeMonthlyRent) : ""} placeholder="3,200" onChange={(v) => write({ entireHomeMonthlyRent: num(sanitizeMoneyInput(v)) || undefined })} />
+        <MoneyInput label="Rent for the whole place" value={sub.entireHomeMonthlyRent ? String(sub.entireHomeMonthlyRent) : ""} onChange={(v) => write({ entireHomeMonthlyRent: num(sanitizeMoneyInput(v)) || undefined })} />
       </FactRow>
       <FactRow label="Utilities /mo">
-        <MoneyInput label="Utilities for the whole place" value={moneyValue(sub.entireHomeUtilitiesEstimate)} placeholder="180" onChange={(v) => write({ entireHomeUtilitiesEstimate: sanitizeMoneyInput(v) })} />
+        <MoneyInput label="Utilities for the whole place" value={moneyValue(sub.entireHomeUtilitiesEstimate)} onChange={(v) => write({ entireHomeUtilitiesEstimate: sanitizeMoneyInput(v) })} />
       </FactRow>
       <FactRow label="Deposit">
-        <MoneyInput label="Deposit for the whole place" value={moneyValue(sub.securityDeposit)} placeholder="3,200" onChange={(v) => patch({ securityDeposit: sanitizeMoneyInput(v) })} />
+        <MoneyInput label="Deposit for the whole place" value={moneyValue(sub.securityDeposit)} onChange={(v) => patch({ securityDeposit: sanitizeMoneyInput(v) })} />
       </FactRow>
       <MoveInFeeRow sub={sub} patch={patch} />
       <FactRow label="Utilities are">
@@ -1345,10 +1341,10 @@ function BundlesSection({ sub, patch, defaults }: { sub: ManagerListingSubmissio
               />
             </FactRow>
             <FactRow label="Rent /mo">
-              <MoneyInput label={`${label} rent`} value={moneyValue(b.price)} placeholder="2,000" onChange={(v) => write(b.id, { price: sanitizeMoneyInput(v) })} />
+              <MoneyInput label={`${label} rent`} value={moneyValue(b.price)} onChange={(v) => write(b.id, { price: sanitizeMoneyInput(v) })} />
             </FactRow>
             <FactRow label="Deposit">
-              <MoneyInput label={`${label} deposit`} value={moneyValue(b.securityDeposit)} placeholder="1,500" onChange={(v) => write(b.id, { securityDeposit: sanitizeMoneyInput(v) })} />
+              <MoneyInput label={`${label} deposit`} value={moneyValue(b.securityDeposit)} onChange={(v) => write(b.id, { securityDeposit: sanitizeMoneyInput(v) })} />
             </FactRow>
             <FactRow label="Separately">
               <span className="text-[13.5px] font-semibold text-foreground/70">{separately > 0 ? `${usd(separately)}/mo` : "—"}</span>
@@ -1497,7 +1493,7 @@ export function ListingPricingSections({
         {chargeFee ? (
           <div data-attr="listing-v2-application-fee-rows">
             <FactRow label={split ? "Application fee (default)" : "Application fee"}>
-              <MoneyInput label="Application fee" value={moneyValue(sub.applicationFee)} placeholder="50" onChange={(v) => patch({ applicationFee: sanitizeMoneyInput(v) })} />
+              <MoneyInput label="Application fee" value={moneyValue(sub.applicationFee)} onChange={(v) => patch({ applicationFee: sanitizeMoneyInput(v) })} />
             </FactRow>
             {feeTerms.length > 1 ? (
               <div className="border-t border-border px-3.5 py-1">
@@ -1521,7 +1517,7 @@ export function ListingPricingSections({
                         label={`${termLabel(term)} application fee`}
                         value={own}
                         inherited={own === ""}
-                        placeholder={moneyValue(sub.applicationFee) || "50"}
+                        placeholder={moneyValue(sub.applicationFee)}
                         dataAttr={`listing-v2-application-fee-${term}`}
                         onChange={(v) => writeFee(term, v)}
                       />
