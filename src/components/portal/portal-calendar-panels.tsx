@@ -2516,6 +2516,16 @@ export function PortalCalendarPanels({
     selectedBlock.meeting.source === "planned";
 
   /**
+   * Whether PropLane already emailed the guest "your tour is confirmed" — true
+   * for a Google-sourced PropLane tour too, so the delete warning still names
+   * the consequence even where cancel is unreachable.
+   */
+  const selectedTourGuestAlreadyTold =
+    selectedBlock?.kind === "meeting" &&
+    selectedBlock.meeting.kind === "tour" &&
+    (selectedBlock.meeting.source === "planned" || isPropPlaneGoogleTourMeeting(selectedBlock.meeting));
+
+  /**
    * Is the thing being deleted a tour someone outside PropLane is waiting on?
    *
    * The delete confirmation is armed for EVERY deletable meeting, including a
@@ -2563,13 +2573,30 @@ export function PortalCalendarPanels({
   const selectedBlockTitle =
     selectedBlock?.kind === "meeting"
       ? selectedMeetingChrome?.title ?? selectedBlock.meeting.title
-      : "Availability block";
+      // This dialog only ever opens on an EXISTING block (creation uses the
+      // separate "Create recurring availability block" modal), so the title
+      // says Edit, not just "Availability block" (regression from PLAN-0916-0041
+      // moving this onto the shared PortalDialog).
+      : "Edit availability block";
 
+  /**
+   * The Keep/Delete-submit button pair is armed by `pendingTourAction` alone —
+   * a confirmed tour or pending inquiry with no guest email still falls back to
+   * this same in-dialog arm-and-confirm (see `openConfirmedTourDeletePreview`
+   * and `openTourDeletePreview`), so gating this on "not a confirmed tour" too
+   * left those two paths with an armed delete and no way to submit it.
+   */
+  const pendingMeetingDeleteArmed = pendingTourAction === "delete" && selectedBlock?.kind === "meeting";
+
+  /**
+   * The richer "Delete without telling the guest?" banner is narrower: a
+   * confirmed tour or pending inquiry normally deletes through its own
+   * guest-notification preview, so this generic banner only applies to the
+   * plain in-dialog arm-and-confirm (a manager's own event, or either of those
+   * two flows falling back here for lack of an email to notify).
+   */
   const pendingInDialogDelete =
-    pendingTourAction === "delete" &&
-    selectedBlock?.kind === "meeting" &&
-    !selectedIsPendingTourInquiry &&
-    !selectedIsConfirmedTour;
+    pendingMeetingDeleteArmed && !selectedIsPendingTourInquiry && !selectedIsConfirmedTour;
 
   const meetingFactRows = (() => {
     if (selectedBlock?.kind !== "meeting") return [];
@@ -2661,7 +2688,7 @@ export function PortalCalendarPanels({
 
   const meetingPrimaryAction = ((): PortalDialogAction | null => {
     if (selectedBlock?.kind !== "meeting" || !selectedMeetingChrome) return null;
-    if (pendingInDialogDelete) {
+    if (pendingMeetingDeleteArmed) {
       return {
         label: selectedDeleteLabel,
         onClick: () => deleteSelectedMeeting(),
@@ -2705,7 +2732,7 @@ export function PortalCalendarPanels({
 
   const meetingSecondaryAction = ((): PortalDialogAction | null | undefined => {
     if (selectedBlock?.kind !== "meeting") return undefined;
-    if (pendingInDialogDelete) {
+    if (pendingMeetingDeleteArmed) {
       return {
         label: selectedKeepLabel,
         onClick: () => setPendingTourAction(null),
@@ -2762,13 +2789,13 @@ export function PortalCalendarPanels({
       onClose={closeSelectedBlock}
       title={selectedBlockTitle}
       size="default"
-      tone={pendingInDialogDelete ? "danger" : "default"}
+      tone={pendingMeetingDeleteArmed ? "danger" : "default"}
       dismissBlocked={tourActionBusy}
       dataAttr="calendar-event-detail-modal"
       headerAction={
         selectedBlock?.kind === "meeting" &&
         selectedMeetingChrome?.showMessage &&
-        !pendingInDialogDelete ? (
+        !pendingMeetingDeleteArmed ? (
           <PortalIconAction
             icon={Mail}
             label={selectedMeetingChrome.messageLabel}
@@ -2793,18 +2820,31 @@ export function PortalCalendarPanels({
       {selectedBlock?.kind === "meeting" ? (
         <div className="space-y-4">
           {pendingInDialogDelete ? (
-            <ConfirmRows
-              rows={[
-                { label: "Event", value: selectedBlock.meeting.title },
-                {
-                  label: "When",
-                  value: formatRangeLabel(selectedBlock.meeting.startIso, selectedBlock.meeting.endIso),
-                },
-                ...(selectedBlock.meeting.name
-                  ? [{ label: "Guest", value: selectedBlock.meeting.name }]
-                  : []),
-              ]}
-            />
+            <div className="space-y-3" data-attr="tour-delete-confirm">
+              <p className="text-sm font-semibold text-foreground">
+                {selectedIsGuestFacingTour ? "Delete without telling the guest?" : "Delete this event?"}
+              </p>
+              <p className="text-xs text-muted">
+                {selectedIsGuestFacingTour
+                  ? "This removes the event from your calendar and sends nothing."
+                  : "This removes the event from your calendar. It cannot be undone."}
+                {selectedTourGuestAlreadyTold
+                  ? " The guest was already told this tour is confirmed, so they will still expect it. Use Cancel tour instead unless you have already reached them."
+                  : ""}
+              </p>
+              <ConfirmRows
+                rows={[
+                  { label: "Event", value: selectedBlock.meeting.title },
+                  {
+                    label: "When",
+                    value: formatRangeLabel(selectedBlock.meeting.startIso, selectedBlock.meeting.endIso),
+                  },
+                  ...(selectedIsGuestFacingTour && selectedBlock.meeting.name
+                    ? [{ label: "Guest", value: selectedBlock.meeting.name }]
+                    : []),
+                ]}
+              />
+            </div>
           ) : isGoogleCalendarPrivateBlock(selectedBlock.meeting) ? (
             <p className="text-sm text-muted">
               {selectedBlock.meeting.blocksTourAvailability === false
