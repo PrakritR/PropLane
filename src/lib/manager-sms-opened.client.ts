@@ -2,6 +2,9 @@
 
 const STORAGE_PREFIX = "axis_manager_sms_opened_v2";
 
+/** Fired whenever `markManagerSmsOpenedIds` records a newly-opened message, so the sidebar badge can recount without waiting on its next poll. */
+export const MANAGER_SMS_OPENED_CHANGED_EVENT = "axis:manager-sms-opened-changed";
+
 function storageKey(viewerId: string | null | undefined): string | null {
   const id = viewerId?.trim();
   return id ? `${STORAGE_PREFIX}:${id}` : null;
@@ -60,5 +63,8 @@ export function markManagerSmsOpenedIds(
   }
   const durableChanged = durableNext.size !== stored.size || [...durableNext].some((id) => !stored.has(id));
   if (durableChanged) window.localStorage.setItem(key, JSON.stringify([...durableNext]));
+  if (messageIds.some((id) => id.trim())) {
+    window.dispatchEvent(new CustomEvent(MANAGER_SMS_OPENED_CHANGED_EVENT));
+  }
   return current;
 }

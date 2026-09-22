@@ -112,7 +112,6 @@ vi.mock("@/lib/portal-nav-client", () => ({
 }));
 
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
-import { portalNavCountTone } from "@/components/portal/portal-sidebar";
 import { PortalNativeMoreSheet } from "@/components/portal/portal-native-more-sheet";
 
 beforeEach(() => {
@@ -138,30 +137,30 @@ describe("Application nav count uses submitted pending rows only", () => {
   it("counts a submitted pending application as 1", () => {
     appState.rows = [SUBMITTED];
     const { result } = renderHook(() => usePortalNavCounts("manager"));
-    expect(result.current.applications).toBe(1);
+    expect(result.current.applications?.count).toBe(1);
     expect(result.current.residents).toBeUndefined();
   });
 
   it("does not count withdrawn or in-progress rows", () => {
     appState.rows = [IN_PROGRESS, WITHDRAWN];
     const { result } = renderHook(() => usePortalNavCounts("manager"));
-    expect(result.current.applications).toBe(0);
+    expect(result.current.applications?.count).toBe(0);
   });
 
   it("keeps Communication independent of the application queue", () => {
     appState.rows = [SUBMITTED];
     const { result } = renderHook(() => usePortalNavCounts("manager"));
-    expect(result.current.applications).toBe(1);
-    expect(result.current.communication).toBe(1);
+    expect(result.current.applications?.count).toBe(1);
+    expect(result.current.communication?.count).toBe(1);
   });
 });
 
-describe("Application uses the same alert tone as Communication", () => {
-  it("treats Application and Communication as alert, Residents as muted", () => {
-    expect(portalNavCountTone("applications")).toBe("alert");
-    expect(portalNavCountTone("communication")).toBe("alert");
-    expect(portalNavCountTone("residents")).toBe("muted");
-    expect(portalNavCountTone("properties")).toBe("muted");
+describe("Application is a quiet pending count; Communication stays the alert pill", () => {
+  it("returns muted tone for Application and alert tone for Communication", () => {
+    appState.rows = [SUBMITTED];
+    const { result } = renderHook(() => usePortalNavCounts("manager"));
+    expect(result.current.applications?.tone).toBe("muted");
+    expect(result.current.communication?.tone).toBe("alert");
   });
 
   it("paints Application as a blue pill in More, not a grey number", () => {

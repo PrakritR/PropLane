@@ -25,6 +25,7 @@ import {
   PORTAL_SHELL_ROOT_CLASS,
 } from "@/lib/portal-layout-classes";
 import { buildProPortalDefinition } from "@/lib/portals/pro-nav";
+import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { WorkspaceProvider } from "@/components/portal/workspace-provider";
@@ -68,6 +69,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             subscriptionTier={nav.subscriptionTier}
             subtitle={nav.planLabel}
             initialCollapsed={sidebarCollapsed}
+            smsUiEnabled={isSmsCommUiEnabled()}
           />
           <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <PortalTopBar

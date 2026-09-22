@@ -189,7 +189,10 @@ export function PortalNativeMoreSheet({
                               <PortalNavIcon section={item.section} active={isMoreNavItemActive(item)} />
                             </span>
                           ) : null}
-                          {item.label}
+                          <span className="min-w-0 flex-1">{item.label}</span>
+                          {!item.locked && (item.count ?? 0) > 0 ? (
+                            <PortalNavCountBadge count={item.count ?? 0} tone={moreSheetCountTone(item)} />
+                          ) : null}
                         </p>
                         <ul className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
                           {item.subItems.map((sub) => (
@@ -229,9 +232,12 @@ export function PortalNativeMoreSheet({
 export function PortalNativeMoreNavButton({
   active,
   onClick,
+  count = 0,
 }: {
   active: boolean;
   onClick: () => void;
+  /** Sum of the to-do counts of the sections that live only inside the sheet; 0 hides the badge. */
+  count?: number;
 }) {
   return (
     <button
@@ -251,6 +257,11 @@ export function PortalNativeMoreNavButton({
         aria-hidden
       >
         <MoreGridIcon />
+        {count > 0 ? (
+          <span className="absolute -top-1 -right-1.5">
+            <PortalNavCountBadge count={count} tone="alert" />
+          </span>
+        ) : null}
       </span>
       <span className={`${PORTAL_NATIVE_BOTTOM_NAV_LABEL_CLASS} ${active ? "text-primary" : "text-muted"}`}>
         More
