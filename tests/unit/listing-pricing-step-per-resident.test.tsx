@@ -145,24 +145,25 @@ describe("Pricing card — different rent per resident", () => {
     expect(document.body.textContent).toContain("$900 · $800 · +$75 utilities · $250 deposit · listed from $800");
   });
 
-  it("Reset on Same as default room also clears per-resident", () => {
+  it("Same as Room A copies the price card and leaves per-resident rows on Room B", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Harness onChange={(s) => (latest = s)} />);
     openRoomCard("Room B");
     fireEvent.click(perResidentCheckbox());
+    expect(residentBlocks().length).toBe(2);
 
-    // The room now reads as its own on price ("This room only"), never
-    // "Same as default room", while it prices each resident.
-    const roomBCard = screen.getByText("Room B").closest('[data-attr="listing-v2-price-card"]') as HTMLElement;
-    const sameAsAll = roomBCard.querySelector('[data-attr="listing-v2-price-same-as-all"]') as HTMLInputElement;
-    expect(sameAsAll.checked).toBe(false);
-
-    fireEvent.click(within(roomBCard).getByText("↺ Reset"));
+    const trigger = within(screen.getByText("Room B").closest('[data-attr="listing-v2-price-card"]') as HTMLElement).getByRole("button", { name: "Same as for Room B" });
+    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+    const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector('[data-field-select-option-value="r1"]')!;
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
 
     const r2 = room(latest!, "r2");
-    expect(r2.residentPricing).toBeUndefined();
-    expect(r2.residentPrices).toBeUndefined();
-    expect(residentBlocks().length).toBe(0);
+    expect(r2.monthlyRent).toBe(1000);
+    expect(r2.utilitiesEstimate).toBe("50");
+    expect(r2.securityDeposit).toBe("200");
+    expect(r2.residentPricing).toBe("per_resident");
+    expect(r2.residentPrices?.length).toBe(2);
   });
 
   it("ticking it on the Month-to-Month tab keeps the tick and writes the term's rows, leaving Long-term alone", () => {

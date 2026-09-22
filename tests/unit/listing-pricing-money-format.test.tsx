@@ -24,24 +24,17 @@ import {
 
 afterEach(() => cleanup());
 
-function seededWithHouseDefaults(
-  houseDefaults: ManagerListingSubmissionV1["houseDefaults"],
-): ManagerListingSubmissionV1 {
+function seededRoom(room: Partial<ManagerListingSubmissionV1["rooms"][number]>): ManagerListingSubmissionV1 {
   const base = createDefaultListingSubmission();
   return {
     ...base,
     allowedLeaseTerms: ["Long-term"],
-    rooms: [{ id: "r1", name: "Room A", monthlyRent: 1200, utilitiesEstimate: "150" }],
-    houseDefaults,
+    rooms: [{ id: "r1", name: "Room A", monthlyRent: 1200, utilitiesEstimate: "150", ...room }],
   } as ManagerListingSubmissionV1;
 }
 
-function EditorWithHouseDefaults({
-  houseDefaults,
-}: {
-  houseDefaults: ManagerListingSubmissionV1["houseDefaults"];
-}) {
-  const [sub, setSub] = useState(() => seededWithHouseDefaults(houseDefaults));
+function EditorWithRoom({ room }: { room: Partial<ManagerListingSubmissionV1["rooms"][number]> }) {
+  const [sub, setSub] = useState(() => seededRoom(room));
   return (
     <ListingEditorV2
       title="Edit listing"
@@ -59,17 +52,14 @@ function openPricing() {
   const pricing = Array.from(nav.querySelectorAll("button")).find((b) => /pricing|rent/i.test(b.textContent ?? ""));
   expect(pricing, "Pricing nav entry").toBeTruthy();
   fireEvent.click(pricing!);
+  fireEvent.click(screen.getByRole("button", { name: "Open Room A prices" }));
 }
 
-describe("Default room card — Rent formats like Utilities and Deposit (PRP-499)", () => {
+describe("Room card — Rent formats like Utilities and Deposit (PRP-499)", () => {
   it("trims stray whitespace on Rent exactly like it already does on Utilities and Deposit", () => {
     render(
-      <EditorWithHouseDefaults
-        // A stray leading space is the kind of thing a legacy row or an import
-        // can leave behind on a persisted number-typed field. It still passes
-        // the field's own "is this set" check (it coerces to a real number),
-        // so before this fix it reached the input unstripped.
-        houseDefaults={{
+      <EditorWithRoom
+        room={{
           monthlyRent: " 1200" as unknown as number,
           utilitiesEstimate: " 150",
           securityDeposit: " 900",
@@ -78,9 +68,9 @@ describe("Default room card — Rent formats like Utilities and Deposit (PRP-499
     );
     openPricing();
 
-    const rent = screen.getByLabelText("Rent for every room") as HTMLInputElement;
-    const util = screen.getByLabelText("Utilities for every room") as HTMLInputElement;
-    const dep = screen.getByLabelText("Deposit for every room") as HTMLInputElement;
+    const rent = screen.getByLabelText(/Room A rent on/i) as HTMLInputElement;
+    const util = screen.getByLabelText(/Room A utilities on/i) as HTMLInputElement;
+    const dep = screen.getByLabelText(/Room A deposit on/i) as HTMLInputElement;
 
     expect(rent.value).toBe("1200");
     expect(util.value).toBe("150");
@@ -88,18 +78,14 @@ describe("Default room card — Rent formats like Utilities and Deposit (PRP-499
   });
 
   it("still shows a clean whole-number Rent with no formatting regression", () => {
-    render(
-      <EditorWithHouseDefaults
-        houseDefaults={{ monthlyRent: 1450, utilitiesEstimate: "120", securityDeposit: "1000" }}
-      />,
-    );
+    render(<EditorWithRoom room={{ monthlyRent: 1450, utilitiesEstimate: "120", securityDeposit: "1000" }} />);
     openPricing();
-    expect((screen.getByLabelText("Rent for every room") as HTMLInputElement).value).toBe("1450");
+    expect((screen.getByLabelText(/Room A rent on/i) as HTMLInputElement).value).toBe("1450");
   });
 
-  it("shows an empty Rent field (not '0') when no default rent has been set yet", () => {
-    render(<EditorWithHouseDefaults houseDefaults={{ monthlyRent: 0 }} />);
+  it("shows an empty Rent field (not '0') when no rent has been set yet", () => {
+    render(<EditorWithRoom room={{ monthlyRent: 0, utilitiesEstimate: "", securityDeposit: "" }} />);
     openPricing();
-    expect((screen.getByLabelText("Rent for every room") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/Room A rent on/i) as HTMLInputElement).value).toBe("");
   });
 });

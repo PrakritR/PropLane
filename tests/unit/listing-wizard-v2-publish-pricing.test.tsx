@@ -52,7 +52,8 @@ describe("V2 publish pricing readiness", () => {
       shortTermRentalsAllowed: true,
     });
 
-    fireEvent.change(screen.getByLabelText("Rent per night for every room"), { target: { value: "85" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open Room 1 stay prices" }));
+    fireEvent.change(screen.getByLabelText("Room 1 rent per night"), { target: { value: "85" } });
     publish();
 
     expect(onPublish).toHaveBeenCalledTimes(1);

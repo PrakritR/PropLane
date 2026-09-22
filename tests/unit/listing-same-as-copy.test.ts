@@ -1,9 +1,9 @@
 /**
- * PLAN-0921-1648: the Rooms and Bathrooms steps of the v2 listing wizard have
- * no Default card any more — every record is its own, and "Same as Room X" /
- * "Same as Bathroom X" copies another record's description onto this one
- * once, right now. These are the pure functions behind that pick:
- * `copyRoomDescriptionFrom` / `roomDescriptionMatches`
+ * PLAN-0921-1648 / PLAN-0922-1159: Rooms, Bathrooms and Pricing have no
+ * Default card. "Same as Room X" / "Same as Bathroom X" copies another
+ * record onto this one once, right now. These are the pure functions:
+ * `copyRoomDescriptionFrom` / `roomDescriptionMatches`,
+ * `copyRoomPricingFrom` / `roomPricingMatches`
  * (`src/lib/listing-house-defaults.ts`) and
  * `copyBathroomDescriptionFrom` / `bathroomDescriptionMatches`
  * (`src/lib/listing-record-defaults.ts`).
@@ -11,8 +11,12 @@
 import { describe, expect, it } from "vitest";
 import {
   copyRoomDescriptionFrom,
+  copyRoomPricingFrom,
   ROOM_DESCRIPTION_FIELDS,
+  ROOM_PRICING_FIELDS,
   roomDescriptionMatches,
+  roomPricingHasAnyValue,
+  roomPricingMatches,
 } from "@/lib/listing-house-defaults";
 import {
   copyBathroomDescriptionFrom,
@@ -194,5 +198,122 @@ describe("bathroomDescriptionMatches", () => {
     const a = { ...emptyBathroom(1), assignedRoomIds: ["r1"], allResidents: false };
     const b = { ...emptyBathroom(2), assignedRoomIds: ["r2", "r3"], allResidents: true };
     expect(bathroomDescriptionMatches(a, b)).toBe(true);
+  });
+});
+
+describe("copyRoomPricingFrom", () => {
+  it("copies the price card onto the target, including this term's prices", () => {
+    const source: ManagerRoomSubmission = {
+      ...emptyRoom(0),
+      monthlyRent: 1100,
+      utilitiesEstimate: "75",
+      securityDeposit: "250",
+      pricingMode: "flexible",
+      prorateMethod: "daily_rate",
+      dailyRentRate: 40,
+      dailyUtilitiesRate: 5,
+      weeklyRentPrice: 700,
+      shortTermRent: "120",
+      termPricing: { "Month-to-Month": { monthlyRent: 1050, utilitiesEstimate: "50" } },
+    };
+    const copied = copyRoomPricingFrom(source, emptyRoom(1));
+    expect(copied.monthlyRent).toBe(1100);
+    expect(copied.utilitiesEstimate).toBe("75");
+    expect(copied.securityDeposit).toBe("250");
+    expect(copied.pricingMode).toBe("flexible");
+    expect(copied.prorateMethod).toBe("daily_rate");
+    expect(copied.dailyRentRate).toBe(40);
+    expect(copied.dailyUtilitiesRate).toBe(5);
+    expect(copied.weeklyRentPrice).toBe(700);
+    expect(copied.shortTermRent).toBe("120");
+    expect(copied.termPricing).toEqual({ "Month-to-Month": { monthlyRent: 1050, utilitiesEstimate: "50" } });
+    expect(copied.termPricing).not.toBe(source.termPricing);
+  });
+
+  it("never touches id, name, availability, rentBasis, dailyRentPrice, or per-resident pricing", () => {
+    const source: ManagerRoomSubmission = {
+      ...emptyRoom(0),
+      id: "src",
+      name: "Source",
+      monthlyRent: 1500,
+      residentPricing: "per_resident",
+      residentPrices: [{ monthlyRent: 800 }],
+    };
+    const target: ManagerRoomSubmission = {
+      ...emptyRoom(1),
+      id: "tgt",
+      name: "Target",
+      availability: "occupied",
+      moveInAvailableDate: "2027-03-01",
+      rentBasis: "daily",
+      dailyRentPrice: 90,
+      residentPricing: "per_resident",
+      residentPrices: [{ monthlyRent: 700 }],
+      floor: "2nd floor",
+    };
+    const copied = copyRoomPricingFrom(source, target);
+    expect(copied.id).toBe("tgt");
+    expect(copied.name).toBe("Target");
+    expect(copied.availability).toBe("occupied");
+    expect(copied.moveInAvailableDate).toBe("2027-03-01");
+    expect(copied.rentBasis).toBe("daily");
+    expect(copied.dailyRentPrice).toBe(90);
+    expect(copied.residentPricing).toBe("per_resident");
+    expect(copied.residentPrices).toEqual([{ monthlyRent: 700 }]);
+    expect(copied.floor).toBe("2nd floor");
+    expect(copied.monthlyRent).toBe(1500);
+  });
+
+  it("never copies per-resident rows off a term entry", () => {
+    const source: ManagerRoomSubmission = {
+      ...emptyRoom(0),
+      termPricing: {
+        "Month-to-Month": {
+          monthlyRent: 1050,
+          residentPricing: "per_resident",
+          residentPrices: [{ monthlyRent: 500 }],
+        },
+      },
+    };
+    const copied = copyRoomPricingFrom(source, emptyRoom(1));
+    expect(copied.termPricing?.["Month-to-Month"]).toEqual({ monthlyRent: 1050 });
+  });
+
+  it("names every field the guard list carries", () => {
+    expect(ROOM_PRICING_FIELDS).toEqual([
+      "monthlyRent",
+      "utilitiesEstimate",
+      "securityDeposit",
+      "pricingMode",
+      "prorateMethod",
+      "dailyRentRate",
+      "dailyUtilitiesRate",
+      "weeklyRentPrice",
+      "shortTermRent",
+      "termPricing",
+    ]);
+  });
+});
+
+describe("roomPricingMatches", () => {
+  it("is false for two blank rooms, true for an exact priced copy", () => {
+    expect(roomPricingHasAnyValue(emptyRoom(0))).toBe(false);
+    expect(roomPricingMatches(emptyRoom(0), emptyRoom(1))).toBe(false);
+    const source = { ...emptyRoom(0), monthlyRent: 1100, utilitiesEstimate: "75" };
+    const copied = copyRoomPricingFrom(source, emptyRoom(1));
+    expect(roomPricingMatches(source, copied)).toBe(true);
+  });
+
+  it("is false once a price field diverges, true again after copying back", () => {
+    const a = { ...emptyRoom(0), monthlyRent: 1100 };
+    const b = { ...emptyRoom(1), monthlyRent: 900 };
+    expect(roomPricingMatches(a, b)).toBe(false);
+    expect(roomPricingMatches(a, copyRoomPricingFrom(a, b))).toBe(true);
+  });
+
+  it("ignores name, availability and per-resident rows", () => {
+    const a = { ...emptyRoom(0), name: "A", monthlyRent: 1100, availability: "occupied", residentPrices: [{ monthlyRent: 800 }] };
+    const b = { ...emptyRoom(1), name: "B", monthlyRent: 1100, availability: "available", residentPrices: [{ monthlyRent: 500 }] };
+    expect(roomPricingMatches(a, b)).toBe(true);
   });
 });

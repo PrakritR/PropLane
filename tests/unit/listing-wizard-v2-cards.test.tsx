@@ -8,8 +8,8 @@
 // record is its own, and "Same as Room X" / "Same as Bathroom X" — covered in
 // tests/unit/listing-wizard-v2-rooms-all-rooms.test.tsx and
 // tests/unit/listing-rooms-bathrooms-no-default.test.ts — is the one way a
-// record starts from another's description. Pricing keeps its own Default
-// room and "Same as default room" tick, unaffected by this file's rewrite.
+// record starts from another's description. Pricing uses the same Same as
+// Room X pick for its price card (PLAN-0922-1159).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -273,8 +273,9 @@ describe("pricing as cards", () => {
   it("short-term asks for rent per night and per week only", () => {
     open("pricing", seeded({ allowedLeaseTerms: ["Long-term"], shortTermRentalsAllowed: true }));
     fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Short-Term Stay"]')!);
-    expect(screen.getByLabelText("Rent per night for every room")).toBeTruthy();
-    expect(screen.getByLabelText("Rent per week for every room")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Room A stay prices" }));
+    expect(screen.getByLabelText("Room A rent per night")).toBeTruthy();
+    expect(screen.getByLabelText("Room A rent per week")).toBeTruthy();
     expect(screen.queryByLabelText(/Deposit for a stay/)).toBeNull();
     expect(screen.queryByLabelText(/Utilities for every room/)).toBeNull();
   });
@@ -296,21 +297,16 @@ describe("a house-wide fee on a room card", () => {
         { ...createDefaultListingSubmission().rooms[0]!, id: "r9", name: "Room 9", monthlyRent: 1100 },
       ],
     });
-  /** A $60 monthly Parking fee added on the Default card, the way a manager adds one. */
-  const addParking = () => {
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
-    fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Parking" } });
-    fireEvent.change(screen.getByLabelText("Parking amount"), { target: { value: "60" } });
-  };
+  const withHouseParking = () => ({ ...twoRooms(), parkingMonthly: "60" });
   const parking = (sub: ManagerListingSubmissionV1) => sub.customFees.find((f) => (f as { presetId?: string }).presetId === "parking_monthly");
   // A custom row named exactly "Parking" is read back as the parking preset, so the room's copy carries the room's name.
   const roomOnly = (sub: ManagerListingSubmissionV1) => sub.customFees.filter((f) => (f as { presetId?: string }).presetId === "custom" && f.label === "Parking – Room 9");
 
   it("shows as an inherited row, and ✕ takes only that room out of it", () => {
     const seen: ManagerListingSubmissionV1[] = [];
-    open("pricing", twoRooms(), (s) => seen.push(s));
-    addParking();
-    expect(parking(seen.at(-1)!)?.roomIds).toBeUndefined();
+    const initial = withHouseParking();
+    open("pricing", initial, (s) => seen.push(s));
+    expect(parking(initial)?.roomIds).toBeUndefined();
     openCard("Room 9 prices");
     const row = screen.getByLabelText("Parking amount for Room 9") as HTMLInputElement;
     expect(row.value).toBe("");
@@ -326,8 +322,7 @@ describe("a house-wide fee on a room card", () => {
 
   it("typing an amount splits a room-only copy off the shared fee; Reset folds it back in", () => {
     const seen: ManagerListingSubmissionV1[] = [];
-    open("pricing", twoRooms(), (s) => seen.push(s));
-    addParking();
+    open("pricing", withHouseParking(), (s) => seen.push(s));
     openCard("Room 9 prices");
     fireEvent.change(screen.getByLabelText("Parking amount for Room 9"), { target: { value: "75" } });
     let own = roomOnly(seen.at(-1)!);

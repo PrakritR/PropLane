@@ -2,48 +2,18 @@
 
 The **Pricing** step of the v2 listing wizard
 (`src/components/portal/listing-wizard-v2/listing-editor.tsx`,
-`listing-pricing-step.tsx`) is the only step left with a Default card: its two
-top cards are the Default room, one per lease type. Rooms, Bathrooms and
-Shared spaces have no Default card (PLAN-0921-1648 finished what PLAN-0920-0631
-started for Shared spaces) — every record there is its own, full stop, and
-"Same as Room X" / "Same as Bathroom X" is the one way a record starts from
-another's description (see below).
+`listing-pricing-step.tsx`) has no Default room card (PLAN-0922-1159). Rooms,
+Bathrooms, Shared spaces and Pricing are each their own record. "Same as
+Room X" on Pricing copies another room's **price card** once
+(`copyRoomPricingFrom`); on Rooms it copies the **description**
+(`copyRoomDescriptionFrom`). Neither pick is a live link.
 
-## The Default card is a card, not a record
-
-A record still carries its own copy of every value. The Default card is what
-the top card shows on reopen, never a source a reader downstream resolves:
-the public listing, the preview rail, the assistant and the resident's move-in
-page read `room.photoDataUrls`, `room.moveInInstructions` and so on exactly as
-before. One optional block on the submission holds it
-(`houseDefaults`, `src/lib/manager-listing-submission.ts`); an older listing
-without it infers the card from its rooms (`houseDefaultsForSubmission`).
-`bathroomDefaults` and `sharedSpaceDefaults` are the same idea for bathrooms
-and shared spaces, but both are legacy now — see below.
-
-## A room follows the Pricing Default card **per field**
-
-- A field follows when its value equals the Default card's or is empty. Lists
-  (photos) compare by value.
-- Changing one field on a room makes **only that field** the room's own.
-  A room on its own floor still takes a new default size, amenities or
-  checklist. The step remembers hand edits per field for the session, so a
-  value set while the Default card was still blank is not swept up by the
-  first default.
-- Unticking "Same as default room" is the one whole-record freeze; Reset (per
-  row, or ↺ under the name) copies the Default card back, blanks included
-  (`resetRoomFieldToDefault`) — never blank the room, because Review, the
-  applicant's room list and the signed lease read the record, not the card. A
-  listing opened with a blank follower on rent, utilities or deposit is filled
-  from the card once (`fillRoomsFollowingDefaults`, in the wizard shell) and
-  autosaved.
-- "Make all the same" overwrites every record and asks first when a record has
-  its own photos or clip.
-- Pictures, clips and words are a record's own the moment it has any while the
-  Default card has none (`LISTING_HOUSE_DEFAULT_MEDIA_FIELDS`); a fact keeps
-  the older rule, where the first default fills the blanks.
-- Inference: facts take the most common value; a photo list or clip is
-  inferred only when **every** record carries the same one.
+`houseDefaults` and `houseTermPricing` remain on the submission so an older
+listing still opens priced: the wizard shell fills blank followers once
+(`fillRoomsFollowingDefaults`) and autosaves. The public listing, the preview
+rail, the assistant and the resident's move-in page still read
+`room.monthlyRent` / `room.termPricing` / `room.photoDataUrls` exactly as
+before. `bathroomDefaults` and `sharedSpaceDefaults` are legacy — see below.
 
 Library: `src/lib/listing-house-defaults.ts`. `roomsFollowingDefaults` is the
 older per-record reading the previous (non-v2) wizard still uses.
@@ -88,16 +58,16 @@ Guards: `tests/unit/listing-shared-spaces-no-default.test.ts`,
 
 ## "Same as Room X" / "Same as Bathroom X": a one-time copy, nothing stored
 
-The first row an open Rooms or Bathrooms card unfolds is **Same as** — a pick
-of "—" plus every other room's (or bathroom's) name. Picking one copies that
-record's description onto this one **once, right now**
-(`copyRoomDescriptionFrom` / `copyBathroomDescriptionFrom`,
-`src/lib/listing-house-defaults.ts` / `src/lib/listing-record-defaults.ts`) —
-never a standing link, so editing either record afterward simply makes them
-stop matching. The picker's own value is derived fresh on every render, never
-stored: it reads back whichever other record this one's description still
-equals (`roomDescriptionMatches` / `bathroomDescriptionMatches`), or "—" when
-none does.
+The first row an open Rooms, Bathrooms or Pricing card unfolds is **Same as**
+— a pick of "—" plus every other room's (or bathroom's) name. Picking one
+copies that record onto this one **once, right now**
+(`copyRoomDescriptionFrom` / `copyBathroomDescriptionFrom` /
+`copyRoomPricingFrom`) — never a standing link, so editing either record
+afterward simply makes them stop matching. The picker's own value is derived
+fresh on every render, never stored: it reads back whichever other record
+this one still equals (`roomDescriptionMatches` /
+`bathroomDescriptionMatches` / `roomPricingMatches`), or "—" when none does.
+Two blank rooms never match on Pricing (`roomPricingHasAnyValue`).
 
 The description fields a room's copy touches are exactly
 `ROOM_DESCRIPTION_FIELDS` — floor, beds, occupancy, furnishing, room
@@ -109,6 +79,11 @@ copy is the same idea over `BATHROOM_INHERIT_FIELDS` (floor, type, finishes,
 description, photos, video) and never touches `id`, `name`, `assignedRoomIds`,
 `allResidents`, `accessKindByRoomId` or the access kind — who uses a bathroom
 survives every copy untouched.
+
+Pricing's copy is `ROOM_PRICING_FIELDS` — rent, utilities, deposit, listed
+rent, partial-month rates, stay rates, and `termPricing` (price-card fields
+only). It never copies fees, per-resident slots, `rentBasis` or
+`dailyRentPrice`. A one-room listing hides the row.
 
 `room.ownRoomFields` still records which fields a hand edit or a "Same as"
 copy last touched (kept for whatever else reads it), but nothing in the Rooms
@@ -131,17 +106,16 @@ exactly as before.
 ## Fees live on the card that charges them
 
 There is no separate "Other fees" section on Pricing and no More ▾ on its
-cards: every card — Default room or a room, on every lease tab — lists its
-fees and adds one in place (`FeeRows`, `listing-pricing-step.tsx`). A fee
-added on the Default room (or the whole place) is every room's — stored with
-no `roomIds`, how "All rooms" was always stored; one added on a room is
-scoped to it. The tab it is added on sets `leaseTypes`: the lease types from a
-lease tab, the stay types from a stay tab (`feeScopeForTab`), stored only when
-that narrows what the listing offers. A room lists the house-wide fees that
-reach it read-only ("· all rooms"). Typing a standard fee's name (Parking,
-Holding deposit…) adopts that preset row, so billing and the lease document
-see the same record they always did. Same `customFees` records, no new
-storage.
+cards: every room card, on every lease tab, lists its fees and adds one in
+place (`FeeRows`, `listing-pricing-step.tsx`). A fee added on a room is
+scoped to it. A fee with no `roomIds` (older listings, or the whole place)
+still reaches every room. The tab it is added on sets `leaseTypes`: the lease
+types from a lease tab, the stay types from a stay tab (`feeScopeForTab`),
+stored only when that narrows what the listing offers. A room lists the
+house-wide fees that reach it read-only ("· all rooms"). Typing a standard
+fee's name (Parking, Holding deposit…) adopts that preset row, so billing and
+the lease document see the same record they always did. Same `customFees`
+records, no new storage.
 
 ## The application fee follows one amount, per lease type
 
@@ -156,19 +130,15 @@ the legacy stay fallback and mirrors the Short-term row.
 fee preview and checkout send the chosen lease term as a selector and the
 server still resolves the amount from the stored listing.
 
-## The Pricing Default room has a per-term twin
+## Another lease type is the room's own `termPricing`
 
-On a lease type other than long-term (Month-to-Month, Custom), the Pricing
-step's Default room is `sub.houseTermPricing[term]`, shaped like a room's
-`termPricing` entry: rent, utilities, deposit. Same rules as above — a room
-follows the term default per field when its entry is absent or equal, a
-different number is the room's own, and a cleared default drops the field from
-every following room so it falls back to long-term. "Same as long-term" clears
-the term default and every room's entry on that term. Rooms still carry their
-own copy in `room.termPricing[term]` (absent = same as long-term, PRP-463), so
-the receipt, the public quote and `resolveStayPricing` read nothing new. A
-listing saved before the card existed infers it per term from its rooms
-(`houseTermPricingForSubmission`).
+On a lease type other than long-term (Month-to-Month, Custom), a room follows
+its long-term numbers until it writes `room.termPricing[term]` (absent =
+same as long-term, PRP-463). "Same as long-term" clears every room's entry on
+that term and any leftover `houseTermPricing` block so an older listing does
+not reopen as own. The receipt, the public quote and `resolveStayPricing`
+read the room, not a house default. `houseTermPricingForSubmission` still
+infers a stored block from rooms for older listings.
 
 ## Counts make the cards
 
@@ -232,18 +202,18 @@ hand edit or a "Same as Room X" copy last touched, kept only because it is a
 persisted field other code may still read; nothing in the Rooms step reads it
 back any more now that there is no top card for a field to follow or detach
 from (PLAN-0921-1648 retired the "All rooms" card and its checkbox —
-`SameAsAllToggle` is Pricing's alone now).
+`SameAsAllToggle` is unused on Pricing now that Same as is a Room X pick).
 
 ## Partial months (PLAN-0920-0423)
 
-"Partial months" is a Default-card field like rent: an **Automatic** checkbox
-(`prorateMethod` blank/`auto`) that, unticked (`daily_rate`), reveals one /day row
-per line that prorates — Rent /day, Utilities /day only while utilities are above
-$0, and one row per monthly fee above $0 on that card (`ListingFeeRow.dailyRate`).
-A room follows the card until touched and Resets by copying. A Default-card fee is
-listed on every room card as an inherited row: ✕ takes it off that room only
+"Partial months" lives on each room card: an **Automatic** checkbox
+(`prorateMethod` blank/`auto`) that, unticked (`daily_rate`), reveals one /day
+row per line that prorates — Rent /day, Utilities /day only while utilities
+are above $0, and one row per monthly fee above $0 on that card
+(`ListingFeeRow.dailyRate`). A house-wide fee from an older listing still
+lists on every room card as an inherited row: ✕ takes it off that room only
 (`roomIds` = every other room), typing splits a room-only copy (labelled
-"<Fee> – <Room>" when the label is a preset's, because the normalizer recovers a
-preset from its exact label), and Reset folds it back. Specs:
+"<Fee> – <Room>" when the label is a preset's, because the normalizer
+recovers a preset from its exact label), and Reset folds it back. Specs:
 `listing-pricing-screen-behaviour.test.tsx` ("partial months"),
 `listing-wizard-v2-cards.test.tsx` ("a house-wide fee on a room card").

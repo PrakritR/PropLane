@@ -10,27 +10,24 @@
  * 2. **Each room** — the lease types offered, then the **application fee**
  *    directly under them (one amount, or one per lease type behind a checkbox;
  *    a blank type follows the one amount), then one card per room with a tab
- *    per lease type. The top card is **Default room**: rent, utilities, deposit,
- *    listed rent, and Other fees — no dedicated Move-in fee row. Rooms follow it
- *    until changed (grey and dashed = following, ink with a
- *    dot = the room's own). Month-to-month and custom dates are "same as
- *    long-term" until the box is unticked. Short-term is rent per night, rent
- *    per week — the rate is all-in.
- * 3. **Other fees live on the cards.** Every card — Default room or a room, on
- *    every tab — lists its fees and adds one in place. A fee added on the
- *    Default room is every room's; one added on a room is that room's; the tab
- *    it is added on decides the lease types (the three lease types, or the two
- *    stay types). There is no separate fees section and no More ▾: everything
- *    a card knows is simply listed (the captain, 2026-09-15). A house-wide fee
- *    shows on a room card as an inherited row: ✕ takes that room out of the
- *    fee's `roomIds`, and typing an amount splits a room-only copy off it, with
- *    Reset folding the room back in.
+ *    per lease type. There is no Default room card. Each room prices itself.
+ *    An open room gets **Same as Room X** — a one-time copy of that room's
+ *    price card, not a live link (`copyRoomPricingFrom`). Month-to-month and
+ *    custom dates are "same as long-term" until the box is unticked or a room
+ *    writes its own `termPricing`. Short-term is rent per night, rent per week.
+ * 3. **Other fees live on the cards.** Every room card, on every tab, lists
+ *    its fees and adds one in place. A fee added on a room is that room's; a
+ *    fee with no `roomIds` (older listings, or the whole place) still reaches
+ *    every room. The tab it is added on decides the lease types (the three
+ *    lease types, or the two stay types). There is no separate fees section
+ *    and no More ▾. A house-wide fee shows on a room card as an inherited row:
+ *    ✕ takes that room out of the fee's `roomIds`, and typing an amount splits
+ *    a room-only copy off it, with Reset folding the room back in.
  * 4. **Partial months** — on the lease types that can start mid-month
- *    (long-term, custom dates) every card ends with "Automatic" ticked; unticked,
- *    the card asks for rent, utilities and each monthly fee per day
- *    (`prorateMethod` / `dailyRentRate` / `dailyUtilitiesRate` on the room and
- *    the Default card, `dailyRate` on the fee row). A room follows the Default
- *    card here exactly as it does for rent.
+ *    (long-term, custom dates) every room card ends with "Automatic" ticked;
+ *    unticked, the card asks for rent, utilities and each monthly fee per day
+ *    (`prorateMethod` / `dailyRentRate` / `dailyUtilitiesRate` on the room,
+ *    `dailyRate` on the fee row).
  * 5. **What a resident pays** (side panel) — signing ticks live there: Every
  *    room is house policy; pick a room to override and Reset to follow again.
  *
@@ -43,7 +40,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { AddRowButton, CardAction, CardFoot, CheckboxOption, ColumnHelp, EditorDone, FactRow, MoneyInput, MultiPick, RecordCard, RowSelectCell, SameAsAllToggle } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { AddRowButton, CardAction, CardFoot, CheckboxOption, EditorDone, FactRow, MoneyInput, MultiPick, RecordCard, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { applicationFeeLeaseTypeKey } from "@/lib/listing-application-fee";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
@@ -76,16 +73,12 @@ import { AIRBNB_LEASE_TERM, CUSTOM_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
-  applyHouseDefaultsToRooms,
-  applyHouseTermPricingToRooms,
   clearRoomResidentPricing,
+  copyRoomPricingFrom,
   houseTermPricingForSubmission,
-  resetRoomFieldToDefault,
-  roomInheritsDefault,
+  roomPricingMatches,
   termPriceFieldText,
   writeRoomTermPrice,
-  writeTermPriceEntry,
-  type ListingHouseDefaultField,
   type ListingHouseDefaults,
   type ListingHouseTermPricing,
   type ListingTermPriceField,
@@ -146,40 +139,24 @@ const TERM_FIELD: Record<"rent" | "deposit" | "util", ListingTermPriceField> = {
 
 /**
  * A room's value on `term` and where it came from: the room's own number
- * (`own`), the term's Default room (`tdef`), the room's long-term number
- * (`lt`), or the long-term Default room (`def`).
+ * (`own`), or the room's long-term number when this tab has no override (`lt`).
  */
 function termValue(
   room: ManagerRoomSubmission,
   term: string,
   field: "rent" | "deposit" | "util",
-  defaults: ListingHouseDefaults,
-  termDefaults: ListingHouseTermPricing | undefined,
-): { text: string; src: "own" | "tdef" | "lt" | "def" } {
+): { text: string; src: "own" | "lt" } {
   if (!isBase(term)) {
     const own = termPriceFieldText(room.termPricing?.[term], TERM_FIELD[field]);
-    const def = termPriceFieldText(termDefaults?.[term], TERM_FIELD[field]);
-    if (own) return { text: own, src: def && own === def ? "tdef" : "own" };
-    if (def) return { text: def, src: "tdef" };
+    if (own) return { text: own, src: "own" };
   }
   if (field === "rent") {
-    if (isBase(term) && roomInheritsDefault(room, defaults, "monthlyRent")) {
-      return { text: defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "", src: "def" };
-    }
     return { text: room.monthlyRent > 0 ? String(room.monthlyRent) : "", src: isBase(term) ? "own" : "lt" };
   }
   if (field === "deposit") {
-    if (isBase(term) && roomInheritsDefault(room, defaults, "securityDeposit")) {
-      return { text: moneyValue(defaults.securityDeposit), src: "def" };
-    }
-    if ((room.securityDeposit ?? "").trim()) return { text: room.securityDeposit!, src: isBase(term) ? "own" : "lt" };
-    return { text: defaults.securityDeposit, src: "def" };
+    return { text: moneyValue(room.securityDeposit), src: isBase(term) ? "own" : "lt" };
   }
-  if (isBase(term) && roomInheritsDefault(room, defaults, "utilitiesEstimate")) {
-    return { text: defaults.utilitiesEstimate, src: "def" };
-  }
-  if ((room.utilitiesEstimate ?? "").trim()) return { text: room.utilitiesEstimate, src: isBase(term) ? "own" : "lt" };
-  return { text: defaults.utilitiesEstimate, src: "def" };
+  return { text: moneyValue(room.utilitiesEstimate), src: isBase(term) ? "own" : "lt" };
 }
 
 /** Write one per-term field; an empty value clears the override back to "same as long-term". */
@@ -190,24 +167,6 @@ function writeTerm(
   value: string,
 ): ManagerRoomSubmission {
   return writeRoomTermPrice(room, term, field, value);
-}
-
-/**
- * Put ONE of a room's long-term numbers back on the house — the ↺ in that
- * cell and the "Same as default room" tick. The room takes its own COPY of
- * the Default room's number (`resetRoomFieldToDefault`), never a blank: the
- * card draws a blank follower as "$1,050 · Same as default room", but Review,
- * the applicant's room list and the signed lease read the record and saw a
- * room with no rent. On another lease tab the same ↺ goes through
- * `writeTerm(…, "")`, which drops that tab's override so the cell follows
- * long-term again.
- */
-function resetRoomField(
-  room: ManagerRoomSubmission,
-  field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
-  defaults: ListingHouseDefaults,
-): ManagerRoomSubmission {
-  return resetRoomFieldToDefault(room, field, defaults);
 }
 
 /* ─────────────────────── rent per resident ─────────────────────── */
@@ -300,20 +259,6 @@ const Card = ({ children, dataAttr }: { children: React.ReactNode; dataAttr?: st
 /** "Resident 1", "Resident 2" — the small heading over a per-resident block. */
 const ResidentSubHeading = ({ children }: { children: React.ReactNode }) => (
   <div className="border-t border-border bg-foreground/[0.025] px-3.5 pb-1 pt-3 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{children}</div>
-);
-
-const PRICE_HELP = {
-  all: "Set once. Every room ticked “Same as default room” copies this. Month-to-Month and Short-term start as “same as Long-term”.",
-  rent: "Base monthly rent for this room, before utilities and fees.",
-  util: "A flat monthly utilities estimate, billed with rent. Blank means included.",
-  dep: "Security deposit, collected at signing.",
-} as const;
-
-const helpRow = (title: string, text: string) => (
-  <span className="inline-flex items-center gap-1.5">
-    {title}
-    <ColumnHelp title={title} text={text} />
-  </span>
 );
 
 /* ─────────────────────── fees, on the card that charges them ─────────────────────── */
@@ -727,15 +672,52 @@ function ProrateRows({
   );
 }
 
+function roomCardName(room: ManagerRoomSubmission, rooms: ManagerRoomSubmission[]): string {
+  const index = rooms.findIndex((item) => item.id === room.id);
+  return room.name.trim() || `Room ${index + 1}`;
+}
+
+function SameAsRoomRow({
+  room,
+  rooms,
+  first,
+  onRoom,
+  dataAttr,
+}: {
+  room: ManagerRoomSubmission;
+  rooms: ManagerRoomSubmission[];
+  first?: boolean;
+  onRoom: (id: string, next: ManagerRoomSubmission) => void;
+  dataAttr: string;
+}) {
+  if (rooms.length < 2) return null;
+  const who = roomCardName(room, rooms);
+  const sameAsValue = rooms.find((other) => other.id !== room.id && roomPricingMatches(room, other))?.id ?? "";
+  const sameAsOptions = rooms
+    .map((other, index) => ({ value: other.id, label: other.name.trim() || `Room ${index + 1}` }))
+    .filter((option) => option.value !== room.id);
+  return (
+    <FactRow first={first} label="Same as">
+      <RowSelectCell
+        ariaLabel={`Same as for ${who}`}
+        value={sameAsValue}
+        options={sameAsOptions}
+        placeholder="—"
+        dataAttr={dataAttr}
+        onChange={(sourceId) => {
+          const source = rooms.find((item) => item.id === sourceId);
+          if (source) onRoom(room.id, copyRoomPricingFrom(source, room));
+        }}
+      />
+    </FactRow>
+  );
+}
+
 function MonthlyCards({
   sub,
   patch,
   term,
   feeScopeTerm,
-  defaults,
-  termDefaults,
-  onDefault,
-  onTermDefault,
   onRoom,
   dimmed,
 }: {
@@ -744,194 +726,36 @@ function MonthlyCards({
   term: string;
   /** Lease tab these cards are on — a room's fees respect Applies-to even when rent follows long-term. */
   feeScopeTerm: string;
-  defaults: ListingHouseDefaults;
-  /** The Default room on every lease type but long-term. */
-  termDefaults: ListingHouseTermPricing | undefined;
-  onDefault: (field: ListingHouseDefaultField, value: string | number) => void;
-  onTermDefault: (term: string, field: ListingTermPriceField, value: string) => void;
   onRoom: (id: string, next: ManagerRoomSubmission) => void;
   dimmed: boolean;
 }) {
   const rooms = sub.rooms ?? [];
   const base = isBase(term);
   const [open, setOpen] = useState<string | null>(null);
-  const [unticked, setUnticked] = useState<Set<string>>(new Set());
   /* Partial months show only where a lease can start mid-month; the fields are the room's long-term ones on every such tab. */
   const prorate = proratesOnTab(feeScopeTerm);
-  /* A blank Default method means automatic, so a room set per day is its own even before the card was ever touched. */
-  const prorateDefaults: ListingHouseDefaults = { ...defaults, prorateMethod: defaults.prorateMethod || "auto" };
   const prorateOf = (room: ManagerRoomSubmission) => {
-    const method = room.prorateMethod || defaults.prorateMethod || "auto";
-    const rateOwn = (room.dailyRentRate ?? 0) > 0 && room.dailyRentRate !== defaults.dailyRentRate;
-    const utilOwn = (room.dailyUtilitiesRate ?? 0) > 0 && room.dailyUtilitiesRate !== defaults.dailyUtilitiesRate;
+    const method = room.prorateMethod || "auto";
     return {
       automatic: method !== "daily_rate",
-      own: !roomInheritsDefault(room, prorateDefaults, "prorateMethod"),
-      rate: room.dailyRentRate || defaults.dailyRentRate || 0,
-      rateOwn,
-      utilRate: room.dailyUtilitiesRate || defaults.dailyUtilitiesRate || 0,
-      utilOwn,
-      any: prorate && (!roomInheritsDefault(room, prorateDefaults, "prorateMethod") || rateOwn || utilOwn),
+      rate: room.dailyRentRate || 0,
+      utilRate: room.dailyUtilitiesRate || 0,
     };
   };
-  /** Copy the Default card's partial-month answer onto the room — method and both rates — never a blank. */
-  const resetProrate = (room: ManagerRoomSubmission): ManagerRoomSubmission => ({
-    ...resetRoomFieldToDefault(room, "prorateMethod", prorateDefaults),
-    dailyRentRate: defaults.dailyRentRate || undefined,
-    dailyUtilitiesRate: defaults.dailyUtilitiesRate || undefined,
-  });
-  const values = (room: ManagerRoomSubmission) => ({
-    rent: termValue(room, term, "rent", defaults, termDefaults),
-    util: termValue(room, term, "util", defaults, termDefaults),
-    dep: termValue(room, term, "deposit", defaults, termDefaults),
-    modeOwn: base ? !roomInheritsDefault(room, defaults, "pricingMode") : false,
-    prorateOwn: prorateOf(room).any,
-  });
-  /** The term's Default room, one field: what it holds, and long-term's figure as the placeholder until it holds anything. */
-  const termDef = (field: ListingTermPriceField) => termPriceFieldText(termDefaults?.[term], field);
-  const ltText = (field: ListingTermPriceField) =>
-    field === "monthlyRent"
-      ? defaults.monthlyRent > 0
-        ? moneyValue(String(defaults.monthlyRent))
-        : ""
-      : moneyValue(defaults[field]);
-  /** What the Default card shows on this tab: its own figure, or long-term's until it has one. */
-  const defRent = num(base ? ltText("monthlyRent") : termDef("monthlyRent") || ltText("monthlyRent"));
-  const defUtil = num(base ? ltText("utilitiesEstimate") : termDef("utilitiesEstimate") || ltText("utilitiesEstimate"));
-  const sameAsAll = (room: ManagerRoomSubmission) => {
-    const v = values(room);
-    const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
-    const perResident = capacity >= 2 && roomPricesPerResident(room, base ? undefined : term);
-    return !unticked.has(room.id) && !perResident && v.rent.src !== "own" && v.util.src !== "own" && v.dep.src !== "own" && !v.modeOwn && !v.prorateOwn;
-  };
-  /** Tick: every number on this tab follows the card again. Untick: freeze what the card shows as the room's own. */
-  const setSameAsAll = (room: ManagerRoomSubmission, same: boolean) => {
-    setUnticked((prev) => {
-      const out = new Set(prev);
-      if (same) out.delete(room.id);
-      else out.add(room.id);
-      return out;
-    });
-    const v = values(room);
-    const p = prorateOf(room);
-    /* Partial months ride along only on a tab that shows them. */
-    const followProrate = (r: ManagerRoomSubmission) => (prorate ? resetProrate(r) : r);
-    const frozenProrate: Partial<ManagerRoomSubmission> = prorate
-      ? { prorateMethod: p.automatic ? "auto" : "daily_rate", dailyRentRate: p.rate || undefined, dailyUtilitiesRate: p.utilRate || undefined }
-      : {};
-    if (same) {
-      if (base) onRoom(room.id, followProrate({ ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent", defaults), "utilitiesEstimate", defaults), "securityDeposit", defaults), pricingMode: undefined }));
-      else {
-        const all = { ...(room.termPricing ?? {}) };
-        delete all[term];
-        onRoom(room.id, followProrate({ ...room, termPricing: Object.keys(all).length > 0 ? all : undefined }));
-      }
-    } else if (base) onRoom(room.id, { ...room, monthlyRent: num(v.rent.text), utilitiesEstimate: moneyValue(v.util.text), securityDeposit: moneyValue(v.dep.text), ...frozenProrate });
-    else onRoom(room.id, { ...writeTerm(writeTerm(writeTerm(room, term, "monthlyRent", v.rent.text), term, "utilitiesEstimate", moneyValue(v.util.text)), term, "securityDeposit", moneyValue(v.dep.text)), ...frozenProrate });
-  };
   const listed = (rent: number, util: number, mode: string) => (mode === "flexible" ? `from ${usd(rent)}` : usd(rent + util));
-  const untouch = (id: string) => setUnticked((prev) => { if (!prev.has(id)) return prev; const out = new Set(prev); out.delete(id); return out; });
   return (
     <>
-      <RecordCard
-        every
-        title="Default room"
-        help={PRICE_HELP.all}
-        dimmed={dimmed}
-        dataAttr="listing-v2-price-defaults-card"
-        rows={
-          <div>
-            <FactRow first label={<>{helpRow("Rent /mo", PRICE_HELP.rent)} {base ? <FieldMark kind={prefillMarkFor(sub, "houseDefaults")} /> : null}</>}>
-              {base ? (
-                // PRP-499: Utilities and Deposit both read through moneyValue()
-                // (strips a stray leading "$" and trims); Rent skipped that and
-                // just stringified the number, so the same card showed one field
-                // formatted differently from its two neighbors.
-                <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? moneyValue(String(defaults.monthlyRent)) : ""} onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
-              ) : (
-                <MoneyInput
-                  label={`Rent for every room on ${term}`}
-                  value={termDef("monthlyRent") || ltText("monthlyRent")}
-                  placeholder={ltText("monthlyRent")}
-                  onChange={(v) => onTermDefault(term, "monthlyRent", sanitizeMoneyInput(v))}
-                  dataAttr="listing-v2-price-term-default-rent"
-                />
-              )}
-            </FactRow>
-            <FactRow label={helpRow("Utilities /mo", PRICE_HELP.util)}>
-              {base ? (
-                <MoneyInput label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} onChange={(v) => onDefault("utilitiesEstimate", sanitizeMoneyInput(v))} />
-              ) : (
-                <MoneyInput
-                  label={`Utilities for every room on ${term}`}
-                  value={termDef("utilitiesEstimate") || ltText("utilitiesEstimate")}
-                  placeholder={ltText("utilitiesEstimate")}
-                  onChange={(v) => onTermDefault(term, "utilitiesEstimate", sanitizeMoneyInput(v))}
-                  dataAttr="listing-v2-price-term-default-utilities"
-                />
-              )}
-            </FactRow>
-            <FactRow label={helpRow("Deposit", PRICE_HELP.dep)}>
-              {base ? (
-                <MoneyInput label="Deposit for every room" value={moneyValue(defaults.securityDeposit)} onChange={(v) => onDefault("securityDeposit", sanitizeMoneyInput(v))} />
-              ) : (
-                <MoneyInput
-                  label={`Deposit for every room on ${term}`}
-                  value={termDef("securityDeposit") || ltText("securityDeposit")}
-                  placeholder={ltText("securityDeposit")}
-                  onChange={(v) => onTermDefault(term, "securityDeposit", sanitizeMoneyInput(v))}
-                  dataAttr="listing-v2-price-term-default-deposit"
-                />
-              )}
-            </FactRow>
-            <FactRow label="Listed rent">
-              {base ? (
-                <RowSelectCell ariaLabel="Listed rent for every room" value={defaults.pricingMode || "fixed"} options={PRICING_MODE_OPTIONS} onChange={(v) => onDefault("pricingMode", v)} />
-              ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{defaults.pricingMode === "flexible" ? "Flexible" : "Fixed"}</span>
-              )}
-            </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={null} term={feeScopeTerm} />
-            {prorate ? (
-              <ProrateRows
-                sub={sub}
-                patch={patch}
-                term={feeScopeTerm}
-                roomId={null}
-                name="every room"
-                automatic={defaults.prorateMethod !== "daily_rate"}
-                onAutomatic={(next) => onDefault("prorateMethod", next ? "auto" : "daily_rate")}
-                rent={{
-                  text: defaults.dailyRentRate > 0 ? String(defaults.dailyRentRate) : "",
-                  placeholder: perDay(defRent) || "35",
-                  onChange: (v) => onDefault("dailyRentRate", num(sanitizeMoneyInput(v))),
-                }}
-                util={
-                  defUtil > 0
-                    ? {
-                        text: defaults.dailyUtilitiesRate > 0 ? String(defaults.dailyUtilitiesRate) : "",
-                        placeholder: perDay(defUtil),
-                        onChange: (v) => onDefault("dailyUtilitiesRate", num(sanitizeMoneyInput(v))),
-                      }
-                    : null
-                }
-                dataAttr="listing-v2-price-prorate-default"
-              />
-            ) : null}
-          </div>
-        }
-      />
       {rooms.map((room, i) => {
         const name = room.name.trim() || `Room ${i + 1}`;
-        const rent = termValue(room, term, "rent", defaults, termDefaults);
-        const util = termValue(room, term, "util", defaults, termDefaults);
-        const dep = termValue(room, term, "deposit", defaults, termDefaults);
-        const mode = room.pricingMode ?? defaults.pricingMode ?? "fixed";
-        const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
-        const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") =>
-          onRoom(room.id, base ? resetRoomField(room, field, defaults) : writeTerm(room, term, field, ""));
+        const rent = termValue(room, term, "rent");
+        const util = termValue(room, term, "util");
+        const dep = termValue(room, term, "deposit");
+        const mode = room.pricingMode || "fixed";
+        const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") => {
+          if (base) return;
+          onRoom(room.id, writeTerm(room, term, field, ""));
+        };
         const writeOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit", v: string) => {
-          untouch(room.id);
           if (base) onRoom(room.id, field === "monthlyRent" ? { ...room, monthlyRent: num(sanitizeMoneyInput(v)) } : field === "utilitiesEstimate" ? { ...room, utilitiesEstimate: sanitizeMoneyInput(v) } : { ...room, securityDeposit: sanitizeMoneyInput(v) });
           else onRoom(room.id, writeTerm(room, term, field, sanitizeMoneyInput(v)));
         };
@@ -968,7 +792,6 @@ function MonthlyCards({
           <RecordCard
             key={room.id}
             title={name}
-            same={<SameAsAllToggle same={sameAsAll(room)} noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-price-same-as-all" />}
             summary={summary}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}
@@ -976,9 +799,10 @@ function MonthlyCards({
             dimmed={dimmed}
             dataAttr="listing-v2-price-card"
           >
+            <SameAsRoomRow room={room} rooms={rooms} first onRoom={onRoom} dataAttr="listing-v2-price-same-as" />
             {capacity >= 2 ? (
               <FactRow
-                first
+                first={rooms.length < 2}
                 label={
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
@@ -1039,40 +863,55 @@ function MonthlyCards({
               })
             ) : (
               <>
-                <FactRow first={capacity < 2} label="Rent /mo" own={rent.src === "own"} onReset={() => resetOne("monthlyRent")} resetLabel={`Reset rent for ${name} (${term}) to the row above`}>
+                <FactRow
+                  first={rooms.length < 2 && capacity < 2}
+                  label="Rent /mo"
+                  own={!base && rent.src === "own"}
+                  onReset={!base && rent.src === "own" ? () => resetOne("monthlyRent") : undefined}
+                  resetLabel={`Reset rent for ${name} (${term}) to long-term`}
+                >
                   <MoneyInput
                     label={`${name} rent on ${term}`}
-                    value={rent.src === "own" ? rent.text : ""}
+                    value={rent.src === "own" ? moneyValue(rent.text) : ""}
                     inherited={rent.src !== "own"}
-                    placeholder={rent.text}
+                    placeholder={rent.src === "lt" ? moneyValue(rent.text) : ""}
                     onChange={(v) => writeOne("monthlyRent", v)}
                   />
                 </FactRow>
-                <FactRow label="Utilities /mo" own={util.src === "own"} onReset={() => resetOne("utilitiesEstimate")} resetLabel={`Reset utilities for ${name} (${term}) to the row above`}>
+                <FactRow
+                  label="Utilities /mo"
+                  own={!base && util.src === "own"}
+                  onReset={!base && util.src === "own" ? () => resetOne("utilitiesEstimate") : undefined}
+                  resetLabel={`Reset utilities for ${name} (${term}) to long-term`}
+                >
                   <MoneyInput
                     label={`${name} utilities on ${term}`}
                     value={util.src === "own" ? moneyValue(util.text) : ""}
                     inherited={util.src !== "own"}
-                    placeholder={moneyValue(util.text)}
+                    placeholder={util.src === "lt" ? moneyValue(util.text) : ""}
                     onChange={(v) => writeOne("utilitiesEstimate", v)}
                   />
                 </FactRow>
-                <FactRow label="Deposit" own={dep.src === "own"} onReset={() => resetOne("securityDeposit")} resetLabel={`Reset deposit for ${name} (${term}) to the row above`}>
+                <FactRow
+                  label="Deposit"
+                  own={!base && dep.src === "own"}
+                  onReset={!base && dep.src === "own" ? () => resetOne("securityDeposit") : undefined}
+                  resetLabel={`Reset deposit for ${name} (${term}) to long-term`}
+                >
                   <MoneyInput
                     label={`${name} deposit on ${term}`}
                     value={dep.src === "own" ? moneyValue(dep.text) : ""}
                     inherited={dep.src !== "own"}
-                    placeholder={moneyValue(dep.text)}
+                    placeholder={dep.src === "lt" ? moneyValue(dep.text) : ""}
                     onChange={(v) => writeOne("securityDeposit", v)}
                   />
                 </FactRow>
-                <FactRow label="Listed rent" own={modeOwn} onReset={() => onRoom(room.id, { ...room, pricingMode: undefined })} resetLabel={`Reset listed rent for ${name} to every room`}>
+                <FactRow label="Listed rent">
                     {base ? (
                       <RowSelectCell
                         ariaLabel={`Listed rent for ${name}`}
                         value={mode}
                         options={PRICING_MODE_OPTIONS}
-                        inherited={!modeOwn}
                         onChange={(v) => onRoom(room.id, { ...room, pricingMode: v as ManagerRoomSubmission["pricingMode"] })}
                       />
                     ) : (
@@ -1090,39 +929,18 @@ function MonthlyCards({
                 roomId={room.id}
                 name={name}
                 automatic={p.automatic}
-                inherited={!p.own}
-                own={p.own}
-                onAutomatic={(next) => {
-                  untouch(room.id);
-                  onRoom(room.id, { ...room, prorateMethod: next ? "auto" : "daily_rate" });
-                }}
-                onReset={() => onRoom(room.id, resetProrate(room))}
-                resetLabel={`Reset partial months for ${name} to the row above`}
+                onAutomatic={(next) => onRoom(room.id, { ...room, prorateMethod: next ? "auto" : "daily_rate" })}
                 rent={{
-                  text: p.rateOwn ? String(room.dailyRentRate) : "",
-                  inherited: !p.rateOwn,
-                  own: p.rateOwn,
-                  placeholder: (defaults.dailyRentRate > 0 ? String(defaults.dailyRentRate) : perDay(rentN)) || "35",
-                  onChange: (v) => {
-                    untouch(room.id);
-                    onRoom(room.id, { ...room, dailyRentRate: num(sanitizeMoneyInput(v)) || undefined });
-                  },
-                  onReset: () => onRoom(room.id, { ...room, dailyRentRate: defaults.dailyRentRate || undefined }),
-                  resetLabel: `Reset rent per day for ${name} to the row above`,
+                  text: p.rate > 0 ? String(room.dailyRentRate) : "",
+                  placeholder: perDay(rentN) || "35",
+                  onChange: (v) => onRoom(room.id, { ...room, dailyRentRate: num(sanitizeMoneyInput(v)) || undefined }),
                 }}
                 util={
                   utilN > 0
                     ? {
-                        text: p.utilOwn ? String(room.dailyUtilitiesRate) : "",
-                        inherited: !p.utilOwn,
-                        own: p.utilOwn,
-                        placeholder: defaults.dailyUtilitiesRate > 0 ? String(defaults.dailyUtilitiesRate) : perDay(utilN),
-                        onChange: (v) => {
-                          untouch(room.id);
-                          onRoom(room.id, { ...room, dailyUtilitiesRate: num(sanitizeMoneyInput(v)) || undefined });
-                        },
-                        onReset: () => onRoom(room.id, { ...room, dailyUtilitiesRate: defaults.dailyUtilitiesRate || undefined }),
-                        resetLabel: `Reset utilities per day for ${name} to the row above`,
+                        text: p.utilRate > 0 ? String(room.dailyUtilitiesRate) : "",
+                        placeholder: perDay(utilN),
+                        onChange: (v) => onRoom(room.id, { ...room, dailyUtilitiesRate: num(sanitizeMoneyInput(v)) || undefined }),
                       }
                     : null
                 }
@@ -1142,79 +960,47 @@ function StayCards({
   sub,
   patch,
   term,
-  defaults,
-  onDefault,
   onRoom,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   /** The stay tab these cards are on — a fee added here is billed on the stay types. */
   term: string;
-  defaults: ListingHouseDefaults;
-  onDefault: (field: ListingHouseDefaultField, value: string | number) => void;
   onRoom: (id: string, next: ManagerRoomSubmission) => void;
 }) {
   const rooms = sub.rooms ?? [];
   const [open, setOpen] = useState<string | null>(null);
-  const [unticked, setUnticked] = useState<Set<string>>(new Set());
-  const inh = (room: ManagerRoomSubmission) => ({ night: roomInheritsDefault(room, defaults, "shortTermRent"), week: roomInheritsDefault(room, defaults, "weeklyRentPrice") });
-  const sameAsAll = (room: ManagerRoomSubmission) => {
-    const v = inh(room);
-    return !unticked.has(room.id) && v.night && v.week;
-  };
-  const setSameAsAll = (room: ManagerRoomSubmission, same: boolean) => {
-    setUnticked((prev) => {
-      const out = new Set(prev);
-      if (same) out.delete(room.id);
-      else out.add(room.id);
-      return out;
-    });
-    if (same) onRoom(room.id, { ...room, shortTermRent: "", weeklyRentPrice: undefined });
-    else onRoom(room.id, { ...room, shortTermRent: moneyValue(room.shortTermRent) || moneyValue(defaults.shortTermRent), weeklyRentPrice: room.weeklyRentPrice || defaults.weeklyRentPrice || undefined });
-  };
-  const untouch = (id: string) => setUnticked((prev) => { if (!prev.has(id)) return prev; const out = new Set(prev); out.delete(id); return out; });
   return (
     <>
-      <RecordCard
-        every
-        title="Default room"
-        help={PRICE_HELP.all}
-        dataAttr="listing-v2-stay-defaults-card"
-        rows={
-          <div>
-            <FactRow first label="Rent /night">
-              <MoneyInput label="Rent per night for every room" value={moneyValue(defaults.shortTermRent)} onChange={(v) => onDefault("shortTermRent", sanitizeMoneyInput(v))} />
-            </FactRow>
-            <FactRow label="Rent /week">
-              <MoneyInput label="Rent per week for every room" value={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""} onChange={(v) => onDefault("weeklyRentPrice", num(sanitizeMoneyInput(v)))} />
-            </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={null} term={term} />
-          </div>
-        }
-      />
       {rooms.map((room, i) => {
         const name = room.name.trim() || `Room ${i + 1}`;
-        const nightInh = roomInheritsDefault(room, defaults, "shortTermRent");
-        const weekInh = roomInheritsDefault(room, defaults, "weeklyRentPrice");
-        const night = moneyValue(room.shortTermRent) || moneyValue(defaults.shortTermRent);
-        const week = room.weeklyRentPrice || defaults.weeklyRentPrice;
+        const night = moneyValue(room.shortTermRent);
+        const week = room.weeklyRentPrice || 0;
         const isOpen = open === room.id;
         return (
           <RecordCard
             key={room.id}
             title={name}
-            same={<SameAsAllToggle same={sameAsAll(room)} noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-stay-same-as-all" />}
             summary={[night ? `${usd(num(night))}/night` : "Nightly rate not set", week ? `${usd(week)}/week` : "Weekly rate not set"].join(" · ")}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}
             toggleLabel={`${name} stay prices`}
             dataAttr="listing-v2-stay-card"
           >
-            <FactRow first label="Rent /night" own={!nightInh} onReset={() => onRoom(room.id, { ...room, shortTermRent: "" })} resetLabel={`Reset nightly rent for ${name} to every room`}>
-              <MoneyInput label={`${name} rent per night`} value={nightInh ? "" : moneyValue(room.shortTermRent)} inherited={nightInh} placeholder={moneyValue(defaults.shortTermRent)} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, shortTermRent: sanitizeMoneyInput(v) }); }} />
+            <SameAsRoomRow room={room} rooms={rooms} first onRoom={onRoom} dataAttr="listing-v2-stay-same-as" />
+            <FactRow first={rooms.length < 2} label="Rent /night">
+              <MoneyInput
+                label={`${name} rent per night`}
+                value={night}
+                onChange={(v) => onRoom(room.id, { ...room, shortTermRent: sanitizeMoneyInput(v) })}
+              />
             </FactRow>
-            <FactRow label="Rent /week" own={!weekInh} onReset={() => onRoom(room.id, { ...room, weeklyRentPrice: undefined })} resetLabel={`Reset weekly rent for ${name} to every room`}>
-              <MoneyInput label={`${name} rent per week`} value={weekInh ? "" : room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""} inherited={weekInh} placeholder={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined }); }} />
+            <FactRow label="Rent /week">
+              <MoneyInput
+                label={`${name} rent per week`}
+                value={week > 0 ? String(week) : ""}
+                onChange={(v) => onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined })}
+              />
             </FactRow>
             <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={term} />
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-stay-done" />
@@ -1290,12 +1076,12 @@ function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1;
  * the rooms' own rents so a bundle that costs MORE than its parts is visible
  * before it is published.
  */
-function BundlesSection({ sub, patch, defaults }: { sub: ManagerListingSubmissionV1; patch: Patch; defaults: ListingHouseDefaults }) {
+function BundlesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const rooms = sub.rooms ?? [];
   const bundles = sub.bundles ?? [];
   const [open, setOpen] = useState<string | null>(null);
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const roomRent = (r: ManagerRoomSubmission) => termValue(r, LONG_TERM_LEASE_TERM, "rent", defaults, undefined);
+  const roomRent = (r: ManagerRoomSubmission) => termValue(r, LONG_TERM_LEASE_TERM, "rent");
   const write = (id: string, next: Partial<ManagerBundleRow>) => patch({ bundles: bundles.map((b) => (b.id === id ? { ...b, ...next } : b)) });
   const remove = (id: string) => {
     patch({ bundles: bundles.filter((b) => b.id !== id) });
@@ -1383,8 +1169,8 @@ function BundlesSection({ sub, patch, defaults }: { sub: ManagerListingSubmissio
 export function ListingPricingSections({
   sub,
   patch,
-  defaults,
-  setDefaults,
+  defaults: _defaults,
+  setDefaults: _setDefaults,
   leaseTypesField,
   payments,
   applications,
@@ -1415,28 +1201,11 @@ export function ListingPricingSections({
   const rooms = sub.rooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const onRoom = (id: string, next: ManagerRoomSubmission) => patch({ rooms: rooms.map((r) => (r.id === id ? next : r)) });
-  /** Every room card: write the default and move every room still following that field. */
-  const onDefault = (field: ListingHouseDefaultField, value: string | number) => {
-    const previous = defaults;
-    const next = { ...defaults, [field]: value } as ListingHouseDefaults;
-    setDefaults(next);
-    patch({
-      rooms: applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], previousDefaults: previous }),
-      houseDefaults: next,
-    } as Partial<ManagerListingSubmissionV1>);
-  };
   /**
-   * The Default room on every lease type but long-term. Held like `defaults`:
-   * read once from the listing (or inferred from its rooms), then written
-   * through `onTermDefault`, which also moves every room still following it.
+   * Per-term house prices from older listings. "Same as long-term" still
+   * clears this block so a saved `houseTermPricing` does not reopen as own.
    */
   const [termDefaults, setTermDefaults] = useState<ListingHouseTermPricing | undefined>(() => houseTermPricingForSubmission(sub));
-  const onTermDefault = (term: string, field: ListingTermPriceField, value: string) => {
-    const previous = termDefaults;
-    const next = writeTermPriceEntry(termDefaults, term, field, value);
-    setTermDefaults(next);
-    patch({ rooms: applyHouseTermPricingToRooms(rooms, term, field, next, previous), houseTermPricing: next });
-  };
   /** "Same as long-term" is true when neither the Default room nor any room has its own price on this term. */
   const sameAsLongTerm = (term: string) =>
     !(termDefaults?.[term] && Object.keys(termDefaults[term]!).length > 0) &&
@@ -1573,7 +1342,7 @@ export function ListingPricingSections({
               const missing = wholePlace
                 ? isBase(pricingTerm) && !(sub.entireHomeMonthlyRent && sub.entireHomeMonthlyRent > 0)
                 : isStayLeaseTerm(pricingTerm)
-                  ? rooms.some((r) => !moneyValue(r.shortTermRent) && !moneyValue(defaults.shortTermRent))
+                  ? rooms.some((r) => !moneyValue(r.shortTermRent))
                   : isBase(pricingTerm) && rooms.some((r) => !(r.monthlyRent > 0));
               return (
                 <button key={t} type="button" role="tab" aria-selected={t === active} data-attr={`listing-v2-price-tab-${t}`} onClick={() => setTab(t)} className={cn("-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13.5px] font-bold", t === active ? "border-primary text-primary" : "border-transparent text-foreground/70 hover:text-foreground")}>
@@ -1616,17 +1385,13 @@ export function ListingPricingSections({
           {wholePlace ? (
             <WholePlaceCard sub={sub} patch={patch} term={activeLeaseTerm} />
           ) : stay ? (
-            <StayCards sub={sub} patch={patch} term={activeLeaseTerm} defaults={defaults} onDefault={onDefault} onRoom={onRoom} />
+            <StayCards sub={sub} patch={patch} term={activeLeaseTerm} onRoom={onRoom} />
           ) : (
             <MonthlyCards
               sub={sub}
               patch={patch}
               term={activeLeaseTerm}
               feeScopeTerm={activeLeaseTerm}
-              defaults={defaults}
-              termDefaults={termDefaults}
-              onDefault={onDefault}
-              onTermDefault={onTermDefault}
               onRoom={onRoom}
               dimmed={false}
             />
@@ -1636,7 +1401,7 @@ export function ListingPricingSections({
 
       {seattle ? <p id="listing-v2-fees" className="mt-3 rounded-xl border border-border bg-card px-4 py-3 text-[13px] leading-relaxed text-foreground">{SEATTLE_RENT_RULE_NOTE}</p> : null}
 
-      {wholePlace ? null : <BundlesSection sub={sub} patch={patch} defaults={defaults} />}
+      {wholePlace ? null : <BundlesSection sub={sub} patch={patch} />}
 
       <div className="mt-6">{leaseDocument}</div>
     </>

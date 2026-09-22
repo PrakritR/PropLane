@@ -752,6 +752,133 @@ export function roomDescriptionMatches(a: ManagerRoomSubmission, b: ManagerRoomS
 }
 
 /**
+ * The price-card fields "Same as Room X" copies on Pricing. Never name,
+ * availability, `rentBasis` / `dailyRentPrice` (those change how rent is
+ * billed), fees (`customFees` live on the listing), or per-resident slots.
+ */
+export const ROOM_PRICING_FIELDS = [
+  "monthlyRent",
+  "utilitiesEstimate",
+  "securityDeposit",
+  "pricingMode",
+  "prorateMethod",
+  "dailyRentRate",
+  "dailyUtilitiesRate",
+  "weeklyRentPrice",
+  "shortTermRent",
+  "termPricing",
+] as const;
+
+export type RoomPricingField = (typeof ROOM_PRICING_FIELDS)[number];
+
+function moneyText(value: string | number | undefined | null): string {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function cloneTermPriceCard(entry: ManagerRoomTermPrice | undefined): ManagerRoomTermPrice | undefined {
+  if (!entry) return undefined;
+  const next: ManagerRoomTermPrice = {};
+  if (entry.monthlyRent != null) next.monthlyRent = entry.monthlyRent;
+  if (entry.utilitiesEstimate != null) next.utilitiesEstimate = entry.utilitiesEstimate;
+  if (entry.securityDeposit != null) next.securityDeposit = entry.securityDeposit;
+  if (entry.pricingMode != null) next.pricingMode = entry.pricingMode;
+  if (entry.prorateMethod != null) next.prorateMethod = entry.prorateMethod;
+  if (entry.dailyRentRate != null) next.dailyRentRate = entry.dailyRentRate;
+  if (entry.dailyUtilitiesRate != null) next.dailyUtilitiesRate = entry.dailyUtilitiesRate;
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function cloneTermPricingCard(source: ManagerRoomSubmission["termPricing"]): ManagerRoomSubmission["termPricing"] {
+  if (!source) return undefined;
+  const out: NonNullable<ManagerRoomSubmission["termPricing"]> = {};
+  for (const [term, entry] of Object.entries(source)) {
+    const cloned = cloneTermPriceCard(entry);
+    if (cloned) out[term] = cloned;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sameTermPriceCard(a: ManagerRoomTermPrice | undefined, b: ManagerRoomTermPrice | undefined): boolean {
+  const left = cloneTermPriceCard(a) ?? {};
+  const right = cloneTermPriceCard(b) ?? {};
+  return (
+    (left.monthlyRent ?? 0) === (right.monthlyRent ?? 0) &&
+    moneyText(left.utilitiesEstimate) === moneyText(right.utilitiesEstimate) &&
+    moneyText(left.securityDeposit) === moneyText(right.securityDeposit) &&
+    (left.pricingMode ?? "") === (right.pricingMode ?? "") &&
+    (left.prorateMethod ?? "") === (right.prorateMethod ?? "") &&
+    (left.dailyRentRate ?? 0) === (right.dailyRentRate ?? 0) &&
+    (left.dailyUtilitiesRate ?? 0) === (right.dailyUtilitiesRate ?? 0)
+  );
+}
+
+function sameTermPricingCard(a: ManagerRoomSubmission["termPricing"], b: ManagerRoomSubmission["termPricing"]): boolean {
+  const left = a ?? {};
+  const right = b ?? {};
+  const terms = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const term of terms) {
+    if (!sameTermPriceCard(left[term], right[term])) return false;
+  }
+  return true;
+}
+
+/** True once a room holds any price-card number — two blank rooms must not match. */
+export function roomPricingHasAnyValue(room: ManagerRoomSubmission): boolean {
+  return (
+    (room.monthlyRent ?? 0) > 0 ||
+    moneyText(room.utilitiesEstimate) !== "" ||
+    moneyText(room.securityDeposit) !== "" ||
+    Boolean(room.pricingMode) ||
+    Boolean(room.prorateMethod) ||
+    (room.dailyRentRate ?? 0) > 0 ||
+    (room.dailyUtilitiesRate ?? 0) > 0 ||
+    (room.weeklyRentPrice ?? 0) > 0 ||
+    moneyText(room.shortTermRent) !== "" ||
+    Object.keys(room.termPricing ?? {}).length > 0
+  );
+}
+
+/**
+ * "Same as Room X" on Pricing: copy this room's price card onto `target`,
+ * once, right now. Never `id`, `name`, availability, `rentBasis`,
+ * `dailyRentPrice`, per-resident rows, or fees. Nothing is stored about the
+ * pick — match is derived every render, same as Rooms.
+ */
+export function copyRoomPricingFrom(source: ManagerRoomSubmission, target: ManagerRoomSubmission): ManagerRoomSubmission {
+  return {
+    ...target,
+    monthlyRent: source.monthlyRent,
+    utilitiesEstimate: source.utilitiesEstimate,
+    securityDeposit: source.securityDeposit,
+    pricingMode: source.pricingMode,
+    prorateMethod: source.prorateMethod,
+    dailyRentRate: source.dailyRentRate,
+    dailyUtilitiesRate: source.dailyUtilitiesRate,
+    weeklyRentPrice: source.weeklyRentPrice,
+    shortTermRent: source.shortTermRent,
+    termPricing: cloneTermPricingCard(source.termPricing),
+  };
+}
+
+/** Do two rooms hold the same price card? Two blanks never match. */
+export function roomPricingMatches(a: ManagerRoomSubmission, b: ManagerRoomSubmission): boolean {
+  if (!roomPricingHasAnyValue(a) || !roomPricingHasAnyValue(b)) return false;
+  return (
+    (a.monthlyRent ?? 0) === (b.monthlyRent ?? 0) &&
+    moneyText(a.utilitiesEstimate) === moneyText(b.utilitiesEstimate) &&
+    moneyText(a.securityDeposit) === moneyText(b.securityDeposit) &&
+    (a.pricingMode ?? "") === (b.pricingMode ?? "") &&
+    (a.prorateMethod ?? "") === (b.prorateMethod ?? "") &&
+    (a.dailyRentRate ?? 0) === (b.dailyRentRate ?? 0) &&
+    (a.dailyUtilitiesRate ?? 0) === (b.dailyUtilitiesRate ?? 0) &&
+    (a.weeklyRentPrice ?? 0) === (b.weeklyRentPrice ?? 0) &&
+    moneyText(a.shortTermRent) === moneyText(b.shortTermRent) &&
+    sameTermPricingCard(a.termPricing, b.termPricing)
+  );
+}
+
+/**
  * The per-term Default rooms a submission carries, or, for a term the block
  * does not cover, the most common value the rooms hold on it — so a listing
  * priced room by room before the card existed does not open with an empty

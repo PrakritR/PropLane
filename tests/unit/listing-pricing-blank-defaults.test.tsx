@@ -55,11 +55,13 @@ function openPricing() {
 }
 
 describe("a new listing's Pricing step starts blank", () => {
-  it("shows no example amount in Rent /mo, Utilities /mo or Deposit on the Default room card", () => {
+  it("shows no example amount on a new room card, and draws no Default room card", () => {
     openPricing();
-    const rent = screen.getByLabelText("Rent for every room") as HTMLInputElement;
-    const util = screen.getByLabelText("Utilities for every room") as HTMLInputElement;
-    const deposit = screen.getByLabelText("Deposit for every room") as HTMLInputElement;
+    expect(document.querySelector('[data-attr="listing-v2-price-defaults-card"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Open .* prices$/ }));
+    const rent = screen.getByLabelText(/rent on /i) as HTMLInputElement;
+    const util = screen.getByLabelText(/utilities on /i) as HTMLInputElement;
+    const deposit = screen.getByLabelText(/deposit on /i) as HTMLInputElement;
 
     expect(rent.value).toBe("");
     expect(rent.placeholder).toBe("");
@@ -68,11 +70,8 @@ describe("a new listing's Pricing step starts blank", () => {
     expect(deposit.value).toBe("");
     expect(deposit.placeholder).toBe("");
 
-    // None of the old example numbers leak into the Default room card at all.
-    const defaultsCard = document.querySelector('[data-attr="listing-v2-price-defaults-card"]') as HTMLElement;
-    expect(defaultsCard).toBeTruthy();
     for (const example of ["1,100", "150", "1,000"]) {
-      expect(defaultsCard.textContent).not.toContain(example);
+      expect(document.body.textContent).not.toContain(example);
     }
   });
 
@@ -91,23 +90,41 @@ describe("a new listing's Pricing step starts blank", () => {
     expect(fee.placeholder).toBe("");
   });
 
-  it("a room whose Default room rent is 900 still shows placeholder 900", () => {
+  it("typing Room 1 rent does not fill another room", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
+    function TwoRooms() {
+      const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => {
+        const base = createDefaultListingSubmission();
+        return {
+          ...base,
+          listingPlaceCategoryId: "shared_home",
+          allowedLeaseTerms: ["Long-term"],
+          rooms: [
+            { ...base.rooms[0]!, id: "r1", name: "Room 1", monthlyRent: 0 },
+            { ...base.rooms[0]!, id: "r2", name: "Room 2", monthlyRent: 0 },
+          ],
+        };
+      });
+      return (
+        <ListingEditorV2
+          title="Add listing"
+          submission={sub}
+          onChange={(next) => {
+            setSub(next);
+            latest = next;
+          }}
+          onClose={() => {}}
+          onSaveExit={() => {}}
+          onPublish={() => {}}
+        />
+      );
+    }
+    render(<TwoRooms />);
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    const pricing = Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""));
-    fireEvent.click(pricing!);
-
-    const rent = screen.getByLabelText("Rent for every room") as HTMLInputElement;
-    fireEvent.change(rent, { target: { value: "900" } });
+    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
+    fireEvent.click(screen.getByRole("button", { name: "Open Room 1 prices" }));
+    fireEvent.change(screen.getByLabelText(/Room 1 rent on/i), { target: { value: "900" } });
     expect(latest?.rooms[0]?.monthlyRent).toBe(900);
-
-    const openRoom = screen.getByRole("button", { name: /^Open .* prices$/ });
-    fireEvent.click(openRoom);
-    const roomRent = screen.getByLabelText(/rent on /i) as HTMLInputElement;
-    // The room still follows the Default room, so its own field is blank —
-    // but the placeholder shows the real Default room number, not an example.
-    expect(roomRent.value).toBe("");
-    expect(roomRent.placeholder).toBe("900");
+    expect(latest?.rooms[1]?.monthlyRent ?? 0).toBe(0);
   });
 });

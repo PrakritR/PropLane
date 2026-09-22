@@ -1,11 +1,8 @@
 // @vitest-environment jsdom
 //
-// The captain's 2026-09-15 report: "pricing is set but does not work for room
-// 1". Every room on the Pricing step read "Same as default room · $1,050", yet
-// Review said "1 of 9 rooms have no rent". Ticking "Same as default room" back
-// on (and ↺ on a cell) blanked the room's own copy instead of copying the
-// Default room's number in, so the record — what Review, the applicant's room
-// list and the signed lease read — held $0 while the card drew $1,050.
+// Same as Room X must write the source room's numbers onto the record. The
+// old "Same as default room" tick could draw $1,050 while the record held $0;
+// Review, the applicant's room list and the signed lease read the record.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -74,45 +71,47 @@ function openPricing() {
   fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
 }
 const openPriceCard = (name: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${name} prices` }));
-const sameAsDefault = () => document.querySelector('[data-attr="listing-v2-price-same-as-all"]') as HTMLInputElement;
+const pickSameAs = (who: string, sourceId: string) => {
+  const trigger = screen.getByRole("button", { name: `Same as for ${who}` });
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+  const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector(`[data-field-select-option-value="${sourceId}"]`)!;
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+};
 
-describe("Same as default room stores the Default room's numbers on the record", () => {
-  it("ticking it back on writes $1,050 / $0 / $250 into the room, never a blank", () => {
+describe("Same as Room X writes that room's numbers on the record", () => {
+  it("picking Same as Room 2 writes $1,050 / $0 / $250 into Room 1, never a blank", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor initial={seeded([{}, {}])} onChange={(s) => (latest = s)} />);
     openPricing();
+    expect(document.querySelector('[data-attr="listing-v2-price-defaults-card"]')).toBeNull();
     openPriceCard("Room 1");
 
     fireEvent.change(screen.getByLabelText(/Room 1 rent on/i), { target: { value: "1200" } });
     expect(latest!.rooms[0]!.monthlyRent).toBe(1200);
-    expect(sameAsDefault().checked).toBe(false);
+    expect(latest!.rooms[1]!.monthlyRent).toBe(1050);
 
-    fireEvent.click(sameAsDefault());
+    pickSameAs("Room 1", "r2");
     const room1 = latest!.rooms[0]!;
     expect(room1.monthlyRent).toBe(1050);
     expect(room1.utilitiesEstimate).toBe("0");
     expect(room1.securityDeposit).toBe("250");
-    expect(sameAsDefault().checked).toBe(true);
     expect(screen.getAllByText("$1,050 · +$0 utilities · $250 deposit · listed $1,050 · partial months automatic")).toHaveLength(2);
 
     // Review now agrees with the card.
     expect(listingReadiness(latest!).find((c) => c.id === "rooms")).toMatchObject({ label: "2 rooms, all priced", state: "done" });
   });
 
-  it("↺ on one cell copies that one number from the Default room and leaves the others alone", () => {
+  it("editing Room 1 after a copy leaves Room 2 alone", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor initial={seeded([{}, {}])} onChange={(s) => (latest = s)} />);
+    render(<Editor initial={seeded([{ monthlyRent: 1200, securityDeposit: "900" }, {}])} onChange={(s) => (latest = s)} />);
     openPricing();
     openPriceCard("Room 1");
+    pickSameAs("Room 1", "r2");
+    fireEvent.change(screen.getByLabelText(/Room 1 rent on/i), { target: { value: "1300" } });
 
-    fireEvent.change(screen.getByLabelText(/Room 1 rent on/i), { target: { value: "1200" } });
-    fireEvent.change(screen.getByLabelText(/Room 1 deposit on/i), { target: { value: "900" } });
-    fireEvent.click(screen.getByRole("button", { name: /Reset rent for Room 1/i }));
-
-    const room1 = latest!.rooms[0]!;
-    expect(room1.monthlyRent).toBe(1050);
-    expect(room1.securityDeposit).toBe("900");
-    expect(screen.queryByRole("button", { name: /Reset rent for Room 1/i })).toBeNull();
+    expect(latest!.rooms[0]!.monthlyRent).toBe(1300);
+    expect(latest!.rooms[1]!.monthlyRent).toBe(1050);
   });
 });
 
