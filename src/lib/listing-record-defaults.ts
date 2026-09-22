@@ -1,20 +1,19 @@
 /**
- * Default bathroom for the listing wizard, plus the shared-space readers older
- * listings still need.
+ * Bathroom description-copying for the listing wizard (PLAN-0921-1648), plus
+ * the Default-bathroom and shared-space readers older listings still need.
  *
- * The Rooms step has `listing-house-defaults.ts`; Bathrooms used to keep their
- * defaults in a React `useState` that was forgotten on reload. They now live on
- * the submission (`bathroomDefaults`) and follow the same rule as the rooms: a
- * record follows the Default card for a field when its value equals the
- * default's or is empty, and lists compare by value. The wizard remembers hand
- * edits per field on top of that, so a blank default never sweeps up a value
- * set before the default was.
+ * Rooms and Bathrooms no longer have a Default card: every record is its own,
+ * and "Same as Bathroom X" / "Same as Room X" copies another record's
+ * description onto it once, right now — see {@link copyBathroomDescriptionFrom}
+ * here and `copyRoomDescriptionFrom` in `listing-house-defaults.ts`. Nothing
+ * is stored about the pick; the picker's derived value is whichever other
+ * record still matches by {@link bathroomDescriptionMatches}.
  *
- * Shared spaces no longer have a Default card: every shared space is its own
- * record. A listing saved while the card existed still carries a
- * `sharedSpaceDefaults` block; the readers below keep normalising and reading
- * it (the prefill path fills a blank space from it) but the wizard never
- * draws or writes it again.
+ * A listing saved while the Default bathroom or Default shared space card
+ * existed still carries `bathroomDefaults` / `sharedSpaceDefaults`; the
+ * readers below keep normalising and reading them (the address-prefill path
+ * fills a blank record from them) but the wizard never draws or writes
+ * either block again.
  */
 import type {
   ManagerBathroomSubmission,
@@ -135,6 +134,25 @@ export function applyBathroomDefaults(bath: ManagerBathroomSubmission, defaults:
   return next;
 }
 
+/**
+ * "Same as Bathroom X": copy every {@link BATHROOM_INHERIT_FIELDS} field from
+ * `source` onto `target`, once, right now. Never `id`, `name`,
+ * `assignedRoomIds`, `allResidents`, `accessKindByRoomId`, or the access kind
+ * — who uses a bathroom is not part of what it looks like. A plain value
+ * copy, not a standing link: editing the bathroom afterward just makes it
+ * stop matching its source.
+ */
+export function copyBathroomDescriptionFrom(source: ManagerBathroomSubmission, target: ManagerBathroomSubmission): ManagerBathroomSubmission {
+  let next = target;
+  for (const field of BATHROOM_INHERIT_FIELDS) next = writeBathroomField(next, field, bathroomFieldValue(source, field));
+  return next;
+}
+
+/** Do two bathrooms describe the same bathroom — every {@link BATHROOM_INHERIT_FIELDS} field equal by value? */
+export function bathroomDescriptionMatches(a: ManagerBathroomSubmission, b: ManagerBathroomSubmission): boolean {
+  return BATHROOM_INHERIT_FIELDS.every((field) => defaultValuesMatch(bathroomFieldValue(a, field), bathroomFieldValue(b, field)));
+}
+
 /* ── shared spaces ── */
 
 export function sharedSpaceFieldValue(space: ManagerSharedSpaceSubmission, field: keyof SharedSpaceDefaults): DefaultValue {
@@ -184,9 +202,13 @@ function mostCommonText(values: readonly DefaultValue[]): string {
 }
 
 /**
- * What the Default bathroom is: whatever the listing stored, over a guess from
- * the bathrooms it has. Facts take the most common value; a photo list or clip
- * is inferred only when every bathroom carries the same one.
+ * Read-only, like {@link sharedSpaceDefaultsForSubmission}: what a listing's
+ * stored `bathroomDefaults` block says, over a guess from its bathrooms. The
+ * Bathrooms step no longer draws a Default bathroom card or writes this
+ * block — every bathroom is its own record, copied onto with "Same as
+ * Bathroom X" — but an older listing still carries the block, so this stays
+ * for whatever still reads it. Facts take the most common value; a photo list
+ * or clip is inferred only when every bathroom carries the same one.
  */
 export function bathroomDefaultsForSubmission(sub: Pick<ManagerListingSubmissionV1, "bathrooms" | "bathroomDefaults">): BathroomDefaults {
   const baths = sub.bathrooms ?? [];
