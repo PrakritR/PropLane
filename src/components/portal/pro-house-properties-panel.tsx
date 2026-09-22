@@ -1500,6 +1500,13 @@ export function ManagerHousePropertiesPanel(props: ManagerHousePropertiesPanelPr
   const announcePublished = useCallback(
     (listing: JustPublishedListing) => {
       writeJustPublishedListing(listing);
+      // Also held HERE, on the page the publish was issued from, and set before
+      // the navigation is asked for. Publishing empties the drafts bucket this
+      // page is routed by, so the body's stage correction resolves in the very
+      // same flush and would fire a competing redirect to whichever stage
+      // MANAGER_STAGES names first. The guard has to hold on both sides of the
+      // navigation; the storage marker is what carries it across.
+      setPublishedListing(listing);
       router.replace(propertyDetailHref(propertiesBase, "listed", listing.id, "preview"), { scroll: false });
     },
     [propertiesBase, router],
