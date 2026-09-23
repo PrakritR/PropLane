@@ -2,8 +2,22 @@ import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { isSignupTrialManagerPurchase, resolveEffectiveManagerTier } from "@/lib/manager-tier-expiry";
 import { RESIDENT_FREE_TIER_SECTION_IDS } from "@/lib/portals/resident-sections";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 
-/** Property caps by plan (houses / listings in the portal). Legacy unknown tier → no numeric cap (`null`). */
+/**
+ * Legacy property-count figures (houses / listings in the portal). Per-door
+ * billing (PLAN-DOOR step 2) retired these as an ENFORCED cap:
+ * `assertManagerPropertyListingQuota` no longer refuses Pro or Business for
+ * listing count at all (they price extra doors instead, see `RATE_CARD`), and
+ * Free's actual cap is `RATE_CARD.free.includedDoors` DOORS, not
+ * `FREE_MAX_PROPERTIES` listings.
+ *
+ * These three constants and `maxPropertiesForManagerTier` remain only for
+ * older, purely informational displays (e.g. admin billing rows, the
+ * workspace plan panel) that have not been migrated to doors yet. Do not read
+ * them as the enforced limit for any tier — read `RATE_CARD` for Free's real
+ * cap, and treat Pro/Business as uncapped for listing count.
+ */
 export const FREE_MAX_PROPERTIES = 1;
 export const PRO_MAX_PROPERTIES = 2;
 export const BUSINESS_MAX_PROPERTIES = 20;
@@ -14,11 +28,15 @@ function trimmedText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Public pricing (monthly); keep in sync with `manager-plan-tiers` / partner pricing. */
+/**
+ * Public pricing (monthly, USD). Derived from `RATE_CARD` — the single source
+ * of truth — so a rate change can never leave this drifted from what checkout
+ * actually charges.
+ */
 export const MANAGER_TIER_MONTHLY_USD: Record<ManagerSkuTier, number> = {
-  free: 0,
-  pro: 20,
-  business: 200,
+  free: RATE_CARD.free.floorMonthlyCents / 100,
+  pro: RATE_CARD.pro.floorMonthlyCents / 100,
+  business: RATE_CARD.business.floorMonthlyCents / 100,
 };
 
 /**
@@ -177,12 +195,20 @@ export function resolveEffectiveManagerSkuTier(input: {
 export const MANAGER_PROPERTY_LIMIT_ERROR_CODE = "property_limit_reached";
 
 /**
- * The one refusal message for "you are at your plan's property limit".
+ * The one refusal message for "you are at your plan's listing limit".
  *
  * Shared by the client pre-checks (add-property wizard, Properties header,
  * Relist) and the server's 403 so a manager who trips the limit reads the same
  * sentence whichever layer caught it — always naming the limit AND what lifts
  * it, never an opaque failure.
+ *
+ * Per-door billing (PLAN-DOOR): Pro and Business price extra doors instead of
+ * refusing a listing, so `assertManagerPropertyListingQuota` never produces
+ * this message for either tier anymore — only Free's hard DOOR cap
+ * (`RATE_CARD.free.includedDoors`) still refuses a write, which is why that
+ * branch talks about doors rather than a property count. The pro/business
+ * branches remain for any legacy client-side count check that still calls in
+ * with those tiers.
  *
  * `omitUpgradeCta` is for the native iOS shell: App Store Guideline 2.1(b)
  * forbids surfacing subscription upgrade CTAs outside IAP, so the limit is
@@ -195,7 +221,8 @@ export function managerPropertyLimitMessage(
   const n = normalizeManagerSkuTier(tier);
   const cta = (clause: string) => (opts?.omitUpgradeCta ? "" : ` ${clause}`);
   if (n === "free") {
-    return `Free includes ${FREE_MAX_PROPERTIES} property.${cta("Upgrade to Pro or Business to add more.")}`;
+    const doors = RATE_CARD.free.includedDoors;
+    return `Free includes ${doors} door${doors === 1 ? "" : "s"}.${cta("Upgrade to Pro or Business for more doors.")}`;
   }
   if (n === "pro") {
     return `Pro includes up to ${PRO_MAX_PROPERTIES} properties.${cta("Upgrade to Business to add more.")}`;

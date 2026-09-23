@@ -92,6 +92,9 @@ export const DELETE_ORDER = [
   "rent_reporting_submissions",
   "resident_rent_reporting",
   "manager_bank_statement_lines",
+  // A billing snapshot is a leaf: nothing references it, and it must not
+  // outlive the account whose doors it counted.
+  "manager_door_count_snapshots",
   "manager_invite_link_redemptions",
   "application_fee_waiver_redemptions",
   "document_share_links",

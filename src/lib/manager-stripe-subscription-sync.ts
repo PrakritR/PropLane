@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { resolveRateCardVersionMetadataPatch, syncManagerDoorQuantity } from "@/lib/billing/quantity-sync.server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
@@ -71,19 +72,42 @@ export async function applyScheduledDowngradeAfterInvoicePaid(
 
   const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
   if (currentPriceId === newPriceId) {
-    const meta = clearScheduleMetadata({ ...(sub.metadata ?? {}) });
+    const meta = {
+      ...clearScheduleMetadata({ ...(sub.metadata ?? {}) }),
+      ...(resolveRateCardVersionMetadataPatch(sub.metadata) ?? {}),
+    };
     await stripe.subscriptions.update(subscriptionId, { metadata: meta });
     await reconcileManagerPurchaseByStripeSubscriptionId(subscriptionId);
     return;
   }
 
-  const meta = clearScheduleMetadata({ ...(sub.metadata ?? {}) });
+  const meta = {
+    ...clearScheduleMetadata({ ...(sub.metadata ?? {}) }),
+    ...(resolveRateCardVersionMetadataPatch(sub.metadata) ?? {}),
+  };
   await stripe.subscriptions.update(subscriptionId, {
     items: [{ id: item.id, price: newPriceId }],
     proration_behavior: "none",
     metadata: meta,
   });
   await reconcileManagerPurchaseByStripeSubscriptionId(subscriptionId);
+
+  // The deferred downgrade just took effect, which moves the included door
+  // allowance down (e.g. Business's 120 -> Pro's 20) — the door-overage
+  // quantity is stale the instant this lands. Best-effort: a failure here
+  // must never fail the webhook (it would look like the renewal invoice
+  // itself failed), just leave the quantity to catch up on the next sync.
+  try {
+    await syncManagerDoorQuantity({
+      stripe,
+      db: supabase,
+      managerUserId: ownerUserId,
+      stripeSubscriptionId: subscriptionId,
+      tier: targetPaid,
+    });
+  } catch {
+    /* best-effort; see comment above */
+  }
 }
 
 /** Reconcile the row that owns this Stripe subscription id (webhook-safe). */

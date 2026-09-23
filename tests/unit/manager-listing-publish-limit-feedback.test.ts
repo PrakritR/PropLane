@@ -21,6 +21,7 @@ import {
   submitManagerPendingPropertyToServer,
 } from "@/lib/demo-property-pipeline";
 import { FREE_MAX_PROPERTIES, managerPropertyLimitMessage } from "@/lib/manager-access";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 
 const LIMIT_MESSAGE = managerPropertyLimitMessage("free");
 
@@ -90,8 +91,8 @@ describe("a publish refused by the plan property limit", () => {
 
     expect(ok).toBe(false);
     expect(seen).toEqual([LIMIT_MESSAGE]);
-    // The sentence a manager actually reads: the number, and the way past it.
-    expect(seen[0]).toContain(`Free includes ${FREE_MAX_PROPERTIES} property`);
+    // The sentence a manager actually reads: the door count, and the way past it.
+    expect(seen[0]).toContain(`Free includes ${RATE_CARD.free.includedDoors} doors`);
     expect(seen[0]).toContain("Upgrade to Pro or Business");
   });
 

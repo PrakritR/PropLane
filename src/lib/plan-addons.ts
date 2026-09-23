@@ -11,9 +11,20 @@
  * A quota reads its plan cap PLUS the add-on quantity — never the add-on
  * alone — so a downgrade or a Stripe lapse falls back to the plan, and an
  * account is never left below what its plan already includes.
+ *
+ * `extra_listing` (PLAN-DOOR step 2): retired from this catalogue — per-door
+ * billing (`src/lib/billing/rate-card.ts`) now prices extra doors directly, so
+ * a per-listing add-on would double-price the same axis. It is no longer
+ * `PlanAddonId`, so `isPlanAddonId("extra_listing")` is false and
+ * `setManagerPlanAddonQuantities` refuses any change naming it — it can no
+ * longer be bought, and an account already holding it can no longer change
+ * that quantity through the product either. This deliberately leaves any
+ * existing `manager_plan_addons` row (and its Stripe subscription item, if
+ * any) untouched: no migration here cancels or backfills it. See the
+ * per-door billing PRP for what those existing rows still cost.
  */
 
-export type PlanAddonId = "extra_listing" | "extra_work_number" | "extra_workspace" | "extra_seat";
+export type PlanAddonId = "extra_work_number" | "extra_workspace" | "extra_seat";
 
 export type PaidPlanTier = "pro" | "business";
 
@@ -31,15 +42,6 @@ export type PlanAddonDefinition = {
 };
 
 export const PLAN_ADDONS: readonly PlanAddonDefinition[] = [
-  {
-    id: "extra_listing",
-    label: "Extra property listing",
-    unit: "listing",
-    description: "One more live listing beyond your plan's included count.",
-    monthlyCents: { pro: 800, business: 600 },
-    maxQuantity: { pro: null, business: null },
-    why: "Pro's $20 buys 2 (≈ $10 each); a third at $8 stays cheaper than Business until about 20.",
-  },
   {
     id: "extra_work_number",
     label: "Extra work number",
@@ -84,7 +86,6 @@ export function planAddon(id: PlanAddonId): PlanAddonDefinition {
 export type PlanAddonQuantities = Record<PlanAddonId, number>;
 
 export const EMPTY_PLAN_ADDON_QUANTITIES: PlanAddonQuantities = {
-  extra_listing: 0,
   extra_work_number: 0,
   extra_workspace: 0,
   extra_seat: 0,

@@ -6,10 +6,13 @@ import {
   CalendarClock,
   CalendarOff,
   CalendarPlus,
+  CalendarSync,
   Copy,
   Phone,
+  RefreshCw,
   Search,
-  Settings, Settings2,
+  Settings,
+  Settings2,
   Share2,
   SlidersHorizontal,
   Wrench,
@@ -38,6 +41,8 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Copy, // Copy link
   CalendarPlus, // Add availability
   CalendarOff, // Block dates
+  CalendarSync, // Link calendars
+  RefreshCw, // Update from sheet
   BookOpen, // Vendor catalog
   Wrench, // Payment setup
   Phone, // Set up messaging
@@ -287,7 +292,9 @@ export function PortalListControlStack({
           aria-hidden
         />
         <Input
+          id="portal-list-search"
           type="search"
+          name="q"
           value={search.value}
           onChange={(e) => search.onChange(e.target.value)}
           placeholder={search.placeholder}
@@ -396,7 +403,9 @@ export function PortalListControlStack({
               )}
             >
               <Input
+                id="portal-list-search"
                 type="search"
+                name="q"
                 value={search.value}
                 onChange={(e) => search.onChange(e.target.value)}
                 placeholder={search.placeholder}

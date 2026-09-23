@@ -951,14 +951,16 @@ export function BookingsSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-      <ManagerReminderRuleSettingsPanel
-        kind="booking"
-        audienceMode="manager"
-        teamMembers={teamMembers}
-        formRef={reminderFormRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
+        <ManagerReminderRuleSettingsPanel
+          kind="booking"
+          audienceMode="manager"
+          teamMembers={teamMembers}
+          formRef={reminderFormRef}
+        />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 

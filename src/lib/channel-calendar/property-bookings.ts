@@ -90,9 +90,19 @@ export function bookingVisualSource(entry: Pick<PropertyBookingEntry, "source" |
 
 /** Calendar Airbnb import — stored as a room-date block with this reason, drawn as `source: "airbnb"`. */
 export const IMPORTED_AIRBNB_REASON = "Airbnb";
+/** Sheet / calendar Booking.com import — drawn as `source: "booking_com"`. */
+export const IMPORTED_BOOKING_REASON = "Booking";
 
 export function isImportedAirbnbBlock(block: Pick<RoomDateBlock, "reason">): boolean {
   return block.reason.trim().toLowerCase() === IMPORTED_AIRBNB_REASON.toLowerCase();
+}
+
+export function isImportedBookingBlock(block: Pick<RoomDateBlock, "reason">): boolean {
+  return block.reason.trim().toLowerCase() === IMPORTED_BOOKING_REASON.toLowerCase();
+}
+
+export function isImportedChannelBlock(block: Pick<RoomDateBlock, "reason">): boolean {
+  return isImportedAirbnbBlock(block) || isImportedBookingBlock(block);
 }
 
 /**
@@ -103,9 +113,16 @@ export function importedAirbnbStayEntries(
   blocks: readonly RoomDateBlock[],
   opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
 ): PropertyBookingEntry[] {
-  return roomBlockEntries(blocks.filter(isImportedAirbnbBlock), opts).map((entry) => ({
+  return importedChannelStayEntries(blocks, opts);
+}
+
+export function importedChannelStayEntries(
+  blocks: readonly RoomDateBlock[],
+  opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
+): PropertyBookingEntry[] {
+  return roomBlockEntries(blocks.filter(isImportedChannelBlock), opts).map((entry) => ({
     ...entry,
-    source: "airbnb" as const,
+    source: isImportedBookingBlock({ reason: entry.reason ?? "" }) ? ("booking_com" as const) : ("airbnb" as const),
     statusLabel: undefined,
   }));
 }

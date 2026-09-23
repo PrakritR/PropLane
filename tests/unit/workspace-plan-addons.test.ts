@@ -72,6 +72,10 @@ describe("loadWorkspacePlan add-on capacity", () => {
       dbFor({
         addonRows: [
           { addon_id: "extra_workspace", quantity: 2 },
+          // A retired `extra_listing` row (PLAN-DOOR step 2: paid tiers price
+          // doors, not listings) must not crash this read or inflate
+          // `propertyLimit` — it is silently ignored, exactly like any other
+          // unrecognized `addon_id`.
           { addon_id: "extra_listing", quantity: 3 },
           { addon_id: "extra_seat", quantity: 4 },
         ],
@@ -85,7 +89,7 @@ describe("loadWorkspacePlan add-on capacity", () => {
       unknown: false,
       // Business includes 2 workspaces (PLAN-0920) + the 2 held by the add-on.
       workspaceLimit: 4,
-      propertyLimit: 23,
+      propertyLimit: 20,
       recordsPerWorkspace: 10,
       teamLimit: 24,
       usage: { workspaces: 2, properties: 3, team: 4, vendors: 2 },

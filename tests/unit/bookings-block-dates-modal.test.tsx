@@ -76,6 +76,19 @@ describe("BookingsBlockDatesModal — resident", () => {
   // The dialog portals into document.body; without this the next test finds the previous sheet.
   afterEach(cleanup);
 
+  it("does not leave Property or Room as orphan <label>s", () => {
+    const { view } = open();
+    goToProperty();
+    const orphans = [...view.container.ownerDocument.querySelectorAll("label")].filter((label) => {
+      const associated = Boolean(label.htmlFor && view.container.ownerDocument.getElementById(label.htmlFor));
+      const nested = Boolean(label.querySelector("input, textarea, select"));
+      return !associated && !nested;
+    });
+    expect(orphans.map((label) => (label.textContent ?? "").trim())).toEqual([]);
+    expect(attr(view, "bookings-block-property")).not.toBeNull();
+    expect(attr(view, "bookings-block-room")).not.toBeNull();
+  });
+
   it("puts Add booking on the workspace footer, bottom-right", () => {
     const { view } = open();
     expect(attr(view, "listing-v2-rail-property")).not.toBeNull();
@@ -153,10 +166,11 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(attr(view, "bookings-block-check-out")).not.toBeNull();
   });
 
-  it("is the Add task workspace — Property on the rail, no Link calendars tab", () => {
+  it("is the Add task workspace — Property on the rail, no Reason section", () => {
     const { view } = open();
     const body = document.body.textContent ?? "";
-    expect(attr(view, "listing-v2-rail-booking")).not.toBeNull();
+    expect(attr(view, "listing-v2-rail-booking")).toBeNull();
+    expect(attr(view, "bookings-block-reason")).toBeNull();
     expect(attr(view, "listing-v2-rail-property")).not.toBeNull();
     expect(attr(view, "listing-v2-rail-when")).not.toBeNull();
     expect(attr(view, "listing-v2-rail-review")).not.toBeNull();
@@ -166,6 +180,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(body).not.toContain("Close a room to new bookings");
     expect(body).not.toContain("optional");
     expect(body).not.toContain("Puts their name on the hold");
+    expect(body).not.toMatch(/\bReason\b/);
   });
 
   it("lists existing holds with Edit dates and Cancel, not a Blocked or View pill", () => {

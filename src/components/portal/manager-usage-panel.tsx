@@ -6,6 +6,7 @@ import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import {
   PortalSettingsDisclosureRow,
   PortalSettingsGroup,
+  PortalSettingsRow,
   PortalSettingsScopeTag,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
@@ -22,6 +23,9 @@ import {
 } from "@/lib/comms-billing/credit-packs";
 import { pollUntilCreditPurchaseLands, useCreditCheckout } from "@/lib/comms-billing/use-credit-checkout";
 import type { ManagerUsageSummary } from "@/app/api/manager/usage-summary/route";
+import type { ManagerDoorCountPayload } from "@/app/api/manager/door-count/route";
+import { RATE_CARD, priceForDoors, formatRateCardUsd, type RateCardTier, type RateCardBilling } from "@/lib/billing/rate-card";
+import type { DoorCountBasis } from "@/lib/billing/door-count";
 
 const ENDPOINT = "/api/manager/usage-summary";
 
@@ -97,6 +101,156 @@ function useUsageSummary() {
   }, [load]);
 
   return { summary, error, load };
+}
+
+function useDoorCount() {
+  const [data, setData] = useState<ManagerDoorCountPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  const load = useCallback(async (): Promise<ManagerDoorCountPayload | null> => {
+    try {
+      const res = await fetch("/api/manager/door-count", { credentials: "include", cache: "no-store" });
+      const body = (await res.json()) as ManagerDoorCountPayload & { error?: string };
+      if (!res.ok) throw new Error(body.error || "We couldn't load your door count.");
+      if (mounted.current) {
+        setData(body);
+        setError(null);
+      }
+      return body;
+    } catch (e) {
+      if (mounted.current) setError(e instanceof Error ? e.message : "We couldn't load your door count.");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    const id = window.setTimeout(() => void load(), 0);
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(id);
+    };
+  }, [load]);
+
+  return { data, error, load };
+}
+
+function doorTierName(tier: RateCardTier): string {
+  if (tier === "free") return "Free";
+  if (tier === "pro") return "Pro";
+  return "Business";
+}
+
+/**
+ * The honest "what it is" half of a breakdown row — derived from `basis`
+ * alone (never a separate room count PropLane doesn't store), so it always
+ * agrees with the `doors` figure printed right next to it:
+ * "4 rooms · 4", "whole home · 1", "no rooms recorded · 1". Never says "0
+ * rooms" — `doorCountForListing` never returns 0 doors, so neither does this.
+ */
+function doorBasisLabel(basis: DoorCountBasis, doors: number): string {
+  if (basis === "whole-home") return "whole home";
+  if (basis === "unrecorded") return "no rooms recorded";
+  return `${doors} room${doors === 1 ? "" : "s"}`;
+}
+
+/**
+ * Settings → Billing & plan → Doors. Per-door billing's headline: the
+ * account's live door count against the tier's included allowance, what
+ * pushing past it costs (`priceForDoors`, the one place that arithmetic
+ * happens), and the per-listing breakdown a manager can add up to reach that
+ * total. Reads the LIVE count (`GET /api/manager/door-count` →
+ * `loadManagerDoorCount`) — never the frozen `manager_door_count_snapshots`
+ * row a bill was actually issued against, so this can move between billing
+ * periods as listings change; that is the point of showing it here rather
+ * than only on the invoice.
+ */
+export function ManagerDoorsPanel({
+  tier,
+  billing,
+  data,
+  error,
+  onRefresh,
+}: {
+  tier: RateCardTier;
+  billing: RateCardBilling;
+  data: ManagerDoorCountPayload | null;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  const card = RATE_CARD[tier];
+  const totalDoors = data?.totalDoors ?? 0;
+  const remaining = Math.max(0, card.includedDoors - totalDoors);
+  const overDoors = Math.max(0, totalDoors - card.includedDoors);
+  const currentBillCents = (() => {
+    try {
+      return priceForDoors(tier, totalDoors, billing);
+    } catch {
+      // Free has no overage rate and is meant to be a hard cap; if an
+      // account is somehow over it anyway, fall back to the floor rather
+      // than crash the page a manager is reading their bill on.
+      return billing === "annual" ? card.floorAnnualCents : card.floorMonthlyCents;
+    }
+  })();
+  const billSuffix = billing === "annual" ? "/yr" : "/mo";
+
+  return (
+    <PortalSettingsSection title="Doors">
+      {error ? (
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-danger">{error}</p>
+          <Button variant="outline" onClick={() => onRefresh()}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
+      {!data && !error ? (
+        <div className="h-40 animate-pulse rounded-2xl border border-border bg-accent/30" aria-hidden />
+      ) : null}
+      {data ? (
+        <>
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Doors on your account">
+              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-total">
+                {totalDoors}
+              </span>
+            </PortalSettingsRow>
+            <PortalSettingsRow label={`Included with ${doorTierName(tier)}`}>
+              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-included">
+                {card.includedDoors}
+              </span>
+            </PortalSettingsRow>
+            <PortalSettingsRow label="Before the per-door rate applies">
+              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-remaining">
+                {overDoors > 0 ? `Over by ${overDoors}` : remaining}
+              </span>
+            </PortalSettingsRow>
+            <PortalSettingsRow label="Current bill">
+              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-current-bill">
+                {formatRateCardUsd(currentBillCents)}
+                {billSuffix}
+              </span>
+            </PortalSettingsRow>
+          </PortalSettingsGroup>
+
+          <PortalSettingsGroup>
+            {data.breakdown.length === 0 ? (
+              <p className="px-4 py-3.5 text-sm text-muted">No billable listings yet.</p>
+            ) : (
+              data.breakdown.map((row) => (
+                <PortalSettingsRow key={row.propertyId} label={row.label}>
+                  <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-breakdown-row">
+                    {doorBasisLabel(row.basis, row.doors)} · {row.doors}
+                  </span>
+                </PortalSettingsRow>
+              ))
+            )}
+          </PortalSettingsGroup>
+        </>
+      ) : null}
+    </PortalSettingsSection>
+  );
 }
 
 /**
@@ -456,5 +610,5 @@ export function ManagerExtraUsagePanel({
   );
 }
 
-export { useUsageSummary };
+export { useUsageSummary, useDoorCount };
 export const COMMS_CREDIT_AMOUNT_BOUNDS = { min: COMMS_CREDIT_MIN_CENTS, max: COMMS_CREDIT_MAX_CENTS };

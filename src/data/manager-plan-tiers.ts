@@ -1,9 +1,21 @@
-/** Shared copy for manager Plan page and public partner pricing — keep amounts aligned with `MANAGER_TIER_MONTHLY_USD`. */
+/**
+ * Shared copy for manager Plan page and public partner pricing. Every dollar
+ * figure below is read from `RATE_CARD` (`src/lib/billing/rate-card.ts`), the
+ * single source of truth for manager pricing — never typed in here.
+ */
 
 import { commsAllowanceFeatureText } from "@/lib/comms-billing/allowances";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
+import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
 
 const BUSINESS_WORKSPACES = WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces;
+
+const PRO_MONTHLY_USD = formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents);
+const PRO_ANNUAL_USD = formatRateCardUsd(RATE_CARD.pro.floorAnnualCents);
+const PRO_ANNUAL_DISCOUNT = annualDiscountPercent("pro");
+const BUSINESS_MONTHLY_USD = formatRateCardUsd(RATE_CARD.business.floorMonthlyCents);
+const BUSINESS_ANNUAL_USD = formatRateCardUsd(RATE_CARD.business.floorAnnualCents);
+const BUSINESS_ANNUAL_DISCOUNT = annualDiscountPercent("business");
 
 export type PlanTierId = "free" | "pro" | "business";
 
@@ -56,14 +68,14 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
     id: "pro",
     label: "Pro",
     monthly: {
-      headline: "$20",
+      headline: PRO_MONTHLY_USD,
       period: "/ mo",
       sub: "Everything in Free, plus residents, lease generation, services, inbox, and up to 2 co-managers.",
     },
     annual: {
-      headline: "$192",
+      headline: PRO_ANNUAL_USD,
       period: "/ yr",
-      sub: "Everything in Free, plus residents, lease generation, services, inbox, and up to 2 co-managers (~20% off annual).",
+      sub: `Everything in Free, plus residents, lease generation, services, inbox, and up to 2 co-managers (~${PRO_ANNUAL_DISCOUNT}% off annual).`,
     },
     features: [
       { text: "Up to 2 property listings", included: true },
@@ -81,14 +93,14 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
     id: "business",
     label: "Business",
     monthly: {
-      headline: "$200",
+      headline: BUSINESS_MONTHLY_USD,
       period: "/ mo",
       sub: "Everything in Pro at portfolio scale: 20 properties, 20 co-managers, and priority admin support.",
     },
     annual: {
-      headline: "$1,920",
+      headline: BUSINESS_ANNUAL_USD,
       period: "/ yr",
-      sub: "Everything in Pro at portfolio scale: 20 properties, 20 co-managers, and priority support (~20% off annual).",
+      sub: `Everything in Pro at portfolio scale: 20 properties, 20 co-managers, and priority support (~${BUSINESS_ANNUAL_DISCOUNT}% off annual).`,
     },
     features: [
       { text: "Up to 20 property listings", included: true },

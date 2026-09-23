@@ -17,6 +17,7 @@ import {
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
+import { doorCountForListing } from "@/lib/billing/door-count";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
 import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
@@ -47,6 +48,18 @@ function listingApplicationFeeWaiverCodeFromPayload(rowData: unknown, propertyDa
   const fromRow = read(rowData);
   if (fromRow != null) return fromRow;
   return read(propertyData);
+}
+
+/** The listing submission this write's `rowData`/`propertyData` carries, checking either bucket
+ * the same way `listingApplicationFeeWaiverCodeFromPayload` does — used only to size the door-cap
+ * check below, never to store anything. */
+function incomingListingSubmission(rowData: unknown, propertyData: unknown): unknown {
+  const submissionFrom = (container: unknown): unknown => {
+    if (!container || typeof container !== "object" || Array.isArray(container)) return undefined;
+    const record = container as Record<string, unknown>;
+    return record.submission ?? record.listingSubmission;
+  };
+  return submissionFrom(rowData) ?? submissionFrom(propertyData);
 }
 
 async function sessionUser() {
@@ -335,11 +348,24 @@ export async function POST(req: Request) {
     // that is over its cap keeps every listing it has; it just cannot add
     // another. Admins are not exempt: publishing on a manager's behalf still
     // spends that manager's plan.
+    // Doors this write would ADD, for Free's door cap (`assertManagerPropertyListingQuota`).
+    // Read from whichever of the request's own buckets carries a submission, falling back to the
+    // stored row on an edit that only sent the other bucket — same "leave unchanged" reasoning as
+    // `rowDataForWrite0`/`propertyDataForWrite0` below, computed early because the quota check runs
+    // before those are built.
+    const incomingDoors = doorCountForListing(
+      incomingListingSubmission(
+        body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null),
+        body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null),
+      ),
+    ).doors;
+
     const quota = await assertManagerPropertyListingQuota(db, {
       ownerUserId: managerUserIdForWrite,
       recordId: id,
       nextStatus: body.status,
       existingStatus,
+      incomingDoors,
     });
     if (!quota.ok) {
       return NextResponse.json(

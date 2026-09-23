@@ -74,6 +74,9 @@ vi.mock("@/components/portal/pro-portal-settings-panels", () => ({
 vi.mock("@/components/portal/settings-module-page", () => ({
   SettingsModulePage: ({ tab }: { tab: string }) => <div data-testid={`pane-module-${tab}`} />,
 }));
+vi.mock("@/components/portal/manager-sheet-link-panel", () => ({
+  ManagerSheetLinkPanel: () => <div data-testid="pane-spreadsheets" />,
+}));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
@@ -97,6 +100,7 @@ const CATEGORIES = [
   "tasks",
   "reminders",
   "bookings",
+  "spreadsheets",
   "inspections",
   "services",
 ] as const;
@@ -173,6 +177,7 @@ describe("manager settings categories", () => {
     ["developer", () => screen.getByTestId("pane-api-keys")],
     ["feedback", () => screen.getByTestId("pane-bug-feedback")],
     ["account", () => screen.getByText("Sign out")],
+    ["spreadsheets", () => screen.getByTestId("pane-spreadsheets")],
   ])("deep-links ?tab=%s straight to that pane", async (tab, expectPane) => {
     goto(`?tab=${tab}`);
     renderSettings();
@@ -205,6 +210,8 @@ describe("manager settings categories", () => {
     expect(screen.getByText("Delete account")).toBeTruthy();
     // The theme row is NOT duplicated into the manager's Account pane.
     expect(screen.queryByText("Appearance")).toBeNull();
+    expect(screen.queryByTestId("pane-spreadsheets")).toBeNull();
+    expect(screen.queryByText("Add spreadsheet")).toBeNull();
   });
 
   it("returns to the root list from the back chevron and from browser back", async () => {

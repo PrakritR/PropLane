@@ -4,9 +4,13 @@ import type { ReactNode } from "react";
 import { LandingDashboardChatDemo } from "@/components/marketing/landing-dashboard-chat-demo";
 import { LandingInboxApproveDemo } from "@/components/marketing/landing-inbox-approve-demo";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
 import "./landing-proplane.css";
 
 const GET_STARTED = GET_STARTED_HREF;
+const PRO_MONTHLY_USD = formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents);
+const BUSINESS_MONTHLY_USD = formatRateCardUsd(RATE_CARD.business.floorMonthlyCents);
+const ANNUAL_DISCOUNT_PERCENT = annualDiscountPercent("pro");
 
 /** Dashboard+assistant demo, learn guides, ops banner, FAQ board, closing CTAs. */
 export function LandingHomeSections() {
@@ -193,7 +197,7 @@ const FAQ_NOTES: { q: string; a: ReactNode }[] = [
   },
   {
     q: "How much does it cost?",
-    a: "Free is $0. Pro is $20 a month (up to 2 properties, plus residents, leases, and the inbox). Business is $200 a month (up to 20 properties and priority support). Paying for a year saves about 20%.",
+    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and the inbox, priced by doors past the first 20). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, priced by doors past the first 120). Paying for a year saves about ${ANNUAL_DISCOUNT_PERCENT}%.`,
   },
   {
     q: "Do I need a credit card to try it?",

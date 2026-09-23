@@ -15,6 +15,13 @@ export type ManagerSubscriptionCheckoutBaseInput = {
   allowPromotionCodes?: boolean;
   /** When set, Checkout collects a payment method and defers billing until trial ends. */
   trialPeriodDays?: number;
+  /**
+   * Additional subscription line items beyond the tier floor `priceId` — e.g.
+   * the per-door overage price, when the account already has doors to bill
+   * for at signup (`manager-checkout.ts`). Appended after the floor item;
+   * omit for the common case of a brand-new account with none yet.
+   */
+  extraLineItems?: Array<{ price: string; quantity: number }>;
 };
 
 export type ManagerSubscriptionCheckoutBaseParams = {
@@ -56,7 +63,7 @@ export function buildManagerSubscriptionCheckoutBase(
 
   return {
     mode: "subscription",
-    line_items: [{ price: input.priceId, quantity: 1 }],
+    line_items: [{ price: input.priceId, quantity: 1 }, ...(input.extraLineItems ?? [])],
     metadata: input.metadata,
     ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
     ...(input.clientReferenceId ? { client_reference_id: input.clientReferenceId } : {}),
