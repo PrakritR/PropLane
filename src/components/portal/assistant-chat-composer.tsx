@@ -1,6 +1,6 @@
 "use client";
 
-import { Paperclip, X } from "lucide-react";
+import { ArrowUp, Paperclip, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
@@ -11,6 +11,15 @@ import {
   revokeAttachmentPreview,
 } from "@/lib/assistant-chat-attachments.client";
 import { cn } from "@/lib/utils";
+
+/**
+ * The composer's two round controls. `min-h-0` opts out of the portal shell's
+ * 44px button floor, which otherwise stretches these into pills; the 44px
+ * single-line box around them is the touch target. Inset 6px on every side so
+ * they sit centered on one line and bottom-aligned as the text grows.
+ */
+const COMPOSER_ICON_BTN =
+  "absolute bottom-1.5 flex size-8 min-h-0 items-center justify-center rounded-full transition-[background-color,color,filter,transform] duration-150 disabled:cursor-not-allowed";
 
 export type AssistantChatComposerProps = {
   input: string;
@@ -160,9 +169,9 @@ export function AssistantChatComposer({
       ) : null}
       <div
         className={cn(
-          "relative rounded-2xl border bg-auth-input-bg shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-[border-color,box-shadow] duration-200 focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10",
+          "relative rounded-2xl border bg-auth-input-bg shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:ring-[3px] focus-within:ring-primary/20",
           dragOver
-            ? "border-primary/50 ring-4 ring-primary/15"
+            ? "border-primary/50 ring-[3px] ring-primary/15"
             : "border-border",
         )}
         onDragEnter={onDragEnter}
@@ -187,9 +196,7 @@ export function AssistantChatComposer({
               aria-label="Attach image or PDF"
               data-attr="assistant-attachment-button"
               onClick={() => fileRef.current?.click()}
-              className={cn(
-                "absolute bottom-2 left-2 flex h-8 w-8 items-center justify-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40",
-              )}
+              className={cn(COMPOSER_ICON_BTN, "left-1.5 text-muted hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-40")}
             >
               <Paperclip className="h-4 w-4" aria-hidden />
             </button>
@@ -207,30 +214,31 @@ export function AssistantChatComposer({
               if (canSend) onSend();
             }
           }}
-          rows={compact ? 1 : 1}
+          rows={1}
           placeholder={placeholder}
           className={cn(
-            "w-full resize-none [field-sizing:content] rounded-2xl bg-transparent py-3 pr-12 text-sm text-foreground outline-none placeholder:text-muted/70",
-            allowAttachments ? "pl-11" : "pl-3",
-            compact ? "max-h-20 min-h-[2.5rem]" : "max-h-32 min-h-[2.75rem]",
+            // `block` drops the inline baseline gap under the textarea; the box's
+            // focus-within ring is the focus state, so the global :focus-visible
+            // outline (unlayered, so `!`) would draw a second ring inside it.
+            "block w-full resize-none [field-sizing:content] bg-transparent py-3 pr-12 text-sm leading-5 text-foreground outline-none focus-visible:outline-none! placeholder:text-muted/70",
+            allowAttachments ? "pl-11" : "pl-3.5",
+            compact ? "max-h-20 min-h-11" : "max-h-32 min-h-11",
           )}
         />
         <button
           type="submit"
           disabled={!canSend}
           aria-label="Send message"
-          className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full text-white outline-none transition-[filter,opacity,transform] duration-200 hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: "var(--btn-primary)" }}
+          className={cn(
+            COMPOSER_ICON_BTN,
+            "right-1.5",
+            canSend
+              ? "text-white shadow-[0_2px_6px_-2px_rgba(47,107,255,0.55)] hover:brightness-110 active:scale-95"
+              : "bg-foreground/[0.07] text-muted/70",
+          )}
+          style={canSend ? { background: "var(--btn-primary)" } : undefined}
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-            <path
-              d="M12 19V5M5 12l7-7 7 7"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <ArrowUp className="h-4 w-4" strokeWidth={2.25} aria-hidden />
         </button>
       </div>
     </div>
