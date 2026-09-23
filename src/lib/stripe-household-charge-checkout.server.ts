@@ -21,7 +21,7 @@ import { createAxisAchCheckoutSession, stripeNotConfiguredError } from "@/lib/st
 import {
   isStripeConnectAccountAccessError,
   managerConnectReconnectMessage,
-  resolveAndValidateManagerConnectForPayments,
+  resolveConnectDestinationIfReady,
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
@@ -286,15 +286,7 @@ export async function createHouseholdChargeCheckout(
     if (!feePayerResolved.ok) return feePayerResolved;
     const { feePayer, managerTier } = feePayerResolved;
     const stripe = getStripe();
-    const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
-    if (!connect.ok) {
-      return {
-        ok: false,
-        status: 422,
-        code: connect.code === "NO_ACCOUNT" ? "MANAGER_NO_CONNECT_ACCOUNT" : "MANAGER_CONNECT_TRANSFERS_NOT_READY",
-        error: connect.error,
-      };
-    }
+    const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, managerUserId);
 
     const lineItems = loaded.map(({ charge }) => {
       const amountCents = householdChargeAmountCents(charge);
@@ -326,7 +318,7 @@ export async function createHouseholdChargeCheckout(
       residentEmail,
       lineItems,
       metadata,
-      destinationAccountId: connect.accountId,
+      destinationAccountId,
       mode: input.mode,
       paymentMethod: input.paymentMethod,
       managerTier,

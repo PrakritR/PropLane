@@ -76,7 +76,12 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ ok: true, workOrder: result.workOrder, expenseEntryIds: result.expenseEntryIds });
+    return NextResponse.json({
+      ok: true,
+      workOrder: result.workOrder,
+      expenseEntryIds: result.expenseEntryIds,
+      ...(result.checkoutUrl ? { checkoutUrl: result.checkoutUrl, sessionId: result.sessionId } : {}),
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -14,7 +14,12 @@ import { track } from "@/lib/analytics/posthog";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { createExpensesFromWorkOrder, markWorkOrderPaid, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
-import { payoutVendorForWorkOrder, type VendorPayoutOutcome } from "@/lib/stripe-vendor-payout";
+import { payoutVendorForWorkOrder, recordVendorPayoutSettled, type VendorPayoutOutcome } from "@/lib/stripe-vendor-payout";
+import { createAxisAchCheckoutSession, VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
+import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
+import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
+import { getStripe } from "@/lib/stripe";
+import { resolveShareableAppOrigin } from "@/lib/app-url";
 import {
   existingVendorPayoutWarning,
   VENDOR_DOUBLE_PAY_ACK_ACTION,
@@ -49,6 +54,8 @@ export type ApprovePayInput = {
    * a `pending` / `paid` `vendor_payouts` row is refused with a 409.
    */
   acknowledgeExistingPayout?: boolean;
+  /** Webhook settle — skip starting another Checkout session. */
+  settleOnly?: boolean;
 };
 
 /** A refusal that carries the payout the caller must acknowledge to proceed. */
@@ -64,6 +71,8 @@ export type ApprovePaySuccess = {
   ok: true;
   workOrder: DemoManagerWorkOrderRow;
   expenseEntryIds: string[];
+  checkoutUrl?: string;
+  sessionId?: string;
 };
 
 /**
@@ -198,6 +207,33 @@ export async function approveAndPayWorkOrder(
       ? acceptedBid.vendor_directory_id
       : existingRow.vendorId;
 
+  const vendorUserId = String(existing.vendor_user_id ?? "").trim();
+  const invoiceCents = Math.round(acceptedVendorCostCents ?? 0);
+  if (!input.settleOnly && vendorUserId && invoiceCents >= 100) {
+    const checkout = await startVendorPayCheckout(db, {
+      workOrderId: workOrder.id,
+      ownerManagerUserId,
+      vendorUserId,
+      managerEmail: actor.email,
+      invoiceCents,
+      title: existingRow.title || workOrder.title || "Service",
+      category: input.category,
+      vendorCostCents: acceptedVendorCostCents,
+      materialsCostCents: acceptedMaterialsCostCents,
+      materialsMemo: input.materialsMemo,
+      workDoneSummary: input.workDoneSummary,
+      row: { ...existingRow, ...workOrder },
+    });
+    if (!checkout.ok) return checkout;
+    return {
+      ok: true,
+      workOrder: { ...existingRow, ...workOrder },
+      expenseEntryIds: [],
+      checkoutUrl: checkout.url,
+      sessionId: checkout.sessionId,
+    };
+  }
+
   const expenseEntryIds = await createExpensesFromWorkOrder(db, ownerManagerUserId, {
     workOrderId: workOrder.id,
     category: input.category,
@@ -239,7 +275,7 @@ export async function approveAndPayWorkOrder(
   if (error) return { ok: false, status: 500, error: error.message };
 
   let payoutOutcome: VendorPayoutOutcome | null = null;
-  if (existing.vendor_user_id && paymentChannel === "ach") {
+  if (!input.settleOnly && existing.vendor_user_id && paymentChannel === "ach") {
     // amountCents here is only a fallback for jobs assigned without formal bidding —
     // payoutVendorForWorkOrder anchors to the work order's accepted bid when one exists,
     // so a forged vendorCostCents can't inflate a payout beyond the agreed bid.
@@ -303,4 +339,152 @@ export async function approveAndPayWorkOrder(
   });
   track("work_order_paid", actor.userId, { work_order_id: workOrder.id, property_id: workOrder.propertyId ?? "" });
   return { ok: true, workOrder: paid, expenseEntryIds };
+}
+
+type PendingVendorPay = {
+  sessionId: string;
+  category: WorkOrderCategory;
+  vendorCostCents?: number;
+  materialsCostCents?: number;
+  materialsMemo?: string;
+  workDoneSummary?: string;
+};
+
+async function startVendorPayCheckout(
+  db: Db,
+  input: {
+    workOrderId: string;
+    ownerManagerUserId: string;
+    vendorUserId: string;
+    managerEmail: string;
+    invoiceCents: number;
+    title: string;
+    category: WorkOrderCategory;
+    vendorCostCents?: number;
+    materialsCostCents?: number;
+    materialsMemo?: string;
+    workDoneSummary?: string;
+    row: DemoManagerWorkOrderRow;
+  },
+): Promise<
+  | { ok: true; url: string; sessionId: string }
+  | ApprovePayFailure
+> {
+  const stripe = getStripe();
+  const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, input.vendorUserId);
+  const nowIso = new Date().toISOString();
+  const { error: payoutInsertError } = await db.from("vendor_payouts").insert({
+    manager_user_id: input.ownerManagerUserId,
+    vendor_user_id: input.vendorUserId,
+    work_order_id: input.workOrderId,
+    amount_cents: input.invoiceCents,
+    status: "pending",
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
+  if (payoutInsertError) {
+    return { ok: false, status: 500, error: payoutInsertError.message };
+  }
+  const origin = resolveShareableAppOrigin();
+  const result = await createAxisAchCheckoutSession(stripe, {
+    residentEmail: input.managerEmail,
+    amountCents: input.invoiceCents,
+    productName: `Vendor invoice · ${input.title}`.slice(0, 120),
+    productDescription: "Invoice total to the vendor. You pay Stripe’s processing cost.",
+    metadata: {
+      purpose: VENDOR_INVOICE_PAY_PURPOSE,
+      work_order_id: input.workOrderId,
+      manager_user_id: input.ownerManagerUserId,
+      vendor_user_id: input.vendorUserId,
+      invoice_cents: String(input.invoiceCents),
+    },
+    destinationAccountId: destinationAccountId ?? undefined,
+    mode: "hosted",
+    paymentMethod: "ach",
+    feePayer: "resident",
+    successUrl: `${origin}/portal/services?vendor_pay=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${origin}/portal/services?vendor_pay=cancel`,
+  });
+  if (result.mode !== "hosted" || !result.url) {
+    return { ok: false, status: 500, error: "Could not start vendor checkout." };
+  }
+  if (result.totalCents !== input.invoiceCents + result.processingFeeCents) {
+    return { ok: false, status: 500, error: "Vendor checkout total does not equal invoice plus Stripe’s cost." };
+  }
+  const pending: PendingVendorPay = {
+    sessionId: result.sessionId,
+    category: input.category,
+    vendorCostCents: input.vendorCostCents,
+    materialsCostCents: input.materialsCostCents,
+    materialsMemo: input.materialsMemo,
+    workDoneSummary: input.workDoneSummary,
+  };
+  const { error } = await db
+    .from("portal_work_order_records")
+    .update({
+      row_data: { ...input.row, pendingVendorPay: pending },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.workOrderId);
+  if (error) return { ok: false, status: 500, error: error.message };
+  return { ok: true, url: result.url, sessionId: result.sessionId };
+}
+
+export async function completeVendorPayFromStripeSession(
+  db: Db,
+  session: import("stripe").default.Checkout.Session,
+): Promise<void> {
+  if (session.metadata?.purpose !== VENDOR_INVOICE_PAY_PURPOSE) return;
+  const workOrderId = session.metadata.work_order_id?.trim();
+  const managerUserId = session.metadata.manager_user_id?.trim();
+  if (!workOrderId || !managerUserId) return;
+
+  const { data: existing } = await db
+    .from("portal_work_order_records")
+    .select("manager_user_id, vendor_user_id, row_data")
+    .eq("id", workOrderId)
+    .maybeSingle();
+  if (!existing) return;
+  const row = (existing.row_data ?? {}) as DemoManagerWorkOrderRow & { pendingVendorPay?: PendingVendorPay };
+  const pending = row.pendingVendorPay;
+  if (row.automationStatus === "paid" || row.paidAt) {
+    await creditHoldFromPaidSession(db, session).catch(() => undefined);
+    return;
+  }
+
+  const result = await approveAndPayWorkOrder(
+    db,
+    {
+      userId: managerUserId,
+      email: session.customer_email?.trim() || "manager@proplane.app",
+      isAdmin: true,
+    },
+    {
+      workOrder: { ...row, id: workOrderId },
+      category: pending?.category,
+      vendorCostCents: pending?.vendorCostCents,
+      materialsCostCents: pending?.materialsCostCents,
+      materialsMemo: pending?.materialsMemo,
+      workDoneSummary: pending?.workDoneSummary,
+      paymentChannel: "ach",
+      acknowledgeExistingPayout: true,
+      settleOnly: true,
+    },
+  );
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+
+  const vendorUserId = String(existing.vendor_user_id ?? session.metadata.vendor_user_id ?? "").trim();
+  const invoiceCents = Number(session.metadata.invoice_cents ?? pending?.vendorCostCents ?? 0);
+  if (vendorUserId && invoiceCents > 0) {
+    await recordVendorPayoutSettled(db, {
+      workOrderId,
+      managerUserId,
+      vendorUserId,
+      amountCents: invoiceCents,
+      stripeTransferId: session.metadata.platform_hold === "1" ? null : session.id,
+    });
+    await creditHoldFromPaidSession(db, session);
+  }
 }

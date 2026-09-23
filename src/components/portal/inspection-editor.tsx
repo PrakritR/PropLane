@@ -1,15 +1,22 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ChevronRight, FileText } from "lucide-react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Camera, ChevronRight, Download, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { useNativeCamera, type CapturedPhoto, type PhotoCaptureSource } from "@/lib/native/use-native-camera";
 import { inspectionDraftKey, appendUnsentRecovery, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft, type InspectionEditorSnapshot } from "@/lib/inspections/editor-drafts";
 import { downloadInspection, inspectionRequest } from "@/lib/inspections/client";
@@ -37,9 +44,14 @@ function PhotoList({ photos, label, onRemove, disabled }: { photos: InspectionOb
   </div>)}</div>;
 }
 
-export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
-  initial: InspectionDetail; role: InspectionRole; userId: string; onBack: () => void; onChanged: () => void;
-}) {
+export type InspectionEditorHandle = {
+  addPhotos: () => void;
+  downloadReport: () => void;
+};
+
+export const InspectionEditor = forwardRef<InspectionEditorHandle, {
+  initial: InspectionDetail; role: InspectionRole; userId: string; onBack: () => void; onChanged: () => void; embedded?: boolean;
+}>(function InspectionEditor({ initial, role, userId, onBack, onChanged, embedded = false }, ref) {
   const draftKey = inspectionDraftKey(userId, role, initial.report.id);
   const [restored] = useState(() => peekInspectionDraft(draftKey));
   // A report that is no longer an editable draft is frozen: the server copy is the
@@ -67,7 +79,6 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const [activeAreaId, setActiveAreaId] = useState<string | null>(null);
   /** Which section the source sheet is shooting into. Null only for a legacy multi-item form. */
   const [uploadArea, setUploadArea] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploadSourceOpen, setUploadSourceOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
   const [photoSource, setPhotoSource] = useState<PhotoCaptureSource | null>(null);
@@ -220,6 +231,11 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
    * person pointed at, so only the source is still a question.
    */
   const startUpload = (areaId?: string) => { setUploadArea(areaId ?? activeArea?.id ?? null); setUploadSourceOpen(true); };
+  const downloadReport = () => run(async () => { await save(); await downloadInspection(role, report.id); });
+  useImperativeHandle(ref, () => ({
+    addPhotos: () => { if (editable && !pendingPhoto) startUpload(activeArea?.id); },
+    downloadReport,
+  }), [editable, pendingPhoto, activeArea?.id, downloadReport]);
   const pickUploadSource = (source: PhotoCaptureSource) => {
     setUploadSourceOpen(false);
     const area = roomAreas.find(a => a.id === uploadArea) ?? activeArea;
@@ -242,7 +258,6 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     accept(await inspectionRequest<InspectionDetail>(role, `/${report.id}/submission`, {
       method: "POST", body: JSON.stringify({ revision: current.report.revision, action }),
     }));
-    setSelected(new Set());
     // Submitting already has a standing line of its own; only the reopen needs announcing.
     setNotice(action === "submit" ? "" : "Reopened. The resident can add photos again.");
   });
@@ -254,7 +269,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const renderItem = (item: InspectionItem) => <div key={item.id} className="space-y-5 py-4">
     {activeArea && activeArea.items.length > 1 && <h3 className="text-base font-semibold">{item.label}</h3>}
     {editable ? <div className="space-y-4">
-      {item[role].photos.length ? <PhotoList photos={item[role].photos} label={item.label} disabled={busy} onRemove={item[role].photos.every(p => p.uploadedBy === userId) ? remove : undefined} /> : <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-border bg-card/30 p-6 text-center text-sm text-muted"><span><Camera className="mx-auto mb-3 h-7 w-7 text-primary" />No photos in this section yet. Use Add photos below.</span></div>}
+      {item[role].photos.length ? <PhotoList photos={item[role].photos} label={item.label} disabled={busy} onRemove={item[role].photos.every(p => p.uploadedBy === userId) ? remove : undefined} /> : <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-border bg-card/30 p-6 text-center text-sm text-muted"><span><Camera className="mx-auto mb-3 h-7 w-7 text-primary" />No photos in this section yet.</span></div>}
       <label className="block text-sm font-medium">Note <span className="font-normal text-muted">(optional)</span><Textarea aria-label={`${item.label} notes`} placeholder="For example: a small mark beside the door." value={item[role].notes} maxLength={3000} disabled={busy} className="ph-no-capture ph-no-record mt-2" data-attr="inspection-notes" onChange={e => update(item.id, { notes: e.target.value })} /></label>
     </div> : <ReadObservation label={`Your observations (${role})`} value={item[role]} />}
     {hasObservation(item[role === "manager" ? "resident" : "manager"]) && <div className="border-t border-border pt-4"><ReadObservation label={role === "manager" ? "Resident observations" : "Manager observations"} value={item[role === "manager" ? "resident" : "manager"]} /></div>}
@@ -322,37 +337,62 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     : "You have read-only access to this report.";
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = activeArea ? "Back to room sections" : "Back to inspections";
-  const selectedAreas = roomAreas.filter(area => selected.has(area.id));
   const photoChooserAreas = roomAreas.filter(area => area.id === uploadArea).length
     ? roomAreas.filter(area => area.id === uploadArea)
     : activeArea
       ? [activeArea]
-      : selectedAreas.length
-        ? selectedAreas
-        : roomAreas;
+      : roomAreas;
+  const showAddPhotos = editable && !pendingPhoto;
   return <div className="min-w-0 space-y-5" data-attr="inspection-editor">
-    {/* The type, the date and the room say everything the old meta row and its paragraph of
-        instructions said, in the place a person already reads. */}
-    <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={[report.kind === "move-in" ? "Move-in" : "Move-out", inspectionRoomLabel(report.room_label), report.property_label].filter(Boolean).join(" · ")} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
+    {!embedded ? (
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={[report.kind === "move-in" ? "Move-in" : "Move-out", inspectionRoomLabel(report.room_label), report.property_label].filter(Boolean).join(" · ")} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
+        </div>
+        <div className="flex shrink-0 items-center gap-1 pt-1 pr-2">
+          {showAddPhotos ? <PortalIconAction icon={Camera} label="Add photos" ring ringPrimary disabled={busy} onClick={() => startUpload()} data-attr="inspection-photo-add" /> : null}
+          <PortalIconAction icon={Download} label="Download PDF" ring={!showAddPhotos} ringPrimary={!showAddPhotos} disabled={busy} onClick={downloadReport} data-attr="inspection-download" />
+        </div>
+      </div>
+    ) : activeArea ? (
+      <button type="button" className="px-2 text-sm font-semibold text-foreground" onClick={back} data-attr="inspection-back">{backLabel}</button>
+    ) : null}
     {(busy || dirty || submittedByResident) && <p role="status" className="px-2 text-sm text-muted">{busy ? "Saving…" : dirty ? "Changes waiting to save" : role === "resident" ? "Submitted. Ask your manager to reopen this to add more." : `Resident submitted ${new Date(submission!.at).toLocaleDateString()}.`}</p>}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
     {unsentRecoveryMessage && <p role="status" className="rounded-xl border border-border p-3 text-sm" data-attr="inspection-unsent-notice">{unsentRecoveryMessage}</p>}
     {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : editable ? "This photo has not uploaded. Use Retry upload below." : "This photo has not uploaded and this report can no longer be edited."}</p></div>}
+    {(pendingPhoto || (error && dirty && editable) || error || (role === "resident" && canEdit && !submittedByResident && !pendingPhoto) || (role === "manager" && canEdit && submittedByResident)) ? (
+      <div className="flex flex-wrap gap-2 px-2">
+        {pendingPhoto && editable ? <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button> : null}
+        {pendingPhoto ? <Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button> : null}
+        {error && dirty && editable && !pendingPhoto ? <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button> : null}
+        {error ? <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button> : null}
+        {role === "resident" && canEdit && !submittedByResident && !pendingPhoto ? <Button disabled={busy || ownPhotoCount === 0} onClick={() => changeSubmission("submit")} data-attr="inspection-resident-submit">Submit photos</Button> : null}
+        {role === "manager" && canEdit && submittedByResident ? <Button disabled={busy} onClick={() => changeSubmission("reopen")} data-attr="inspection-resident-reopen">Allow changes</Button> : null}
+      </div>
+    ) : null}
     {activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
       {!editable && <p className="px-2 pb-4 text-sm text-muted">Open a section to read its photos and notes. {readOnlyNotice}</p>}
-      {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-3 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row">
-        {editable && <input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} />}
+      {roomAreas.map(area => <div key={area.id} className="flex min-h-24 items-center gap-3 border-b border-l-2 border-b-border border-l-transparent px-3 py-5" data-attr="inspection-section-row">
         <button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"}` : "No photos yet"}</span></button>
-        {/* The camera belongs on the section, not behind a section picker: this row IS the
-            answer to "which section", so tapping it only leaves the source to choose. */}
-        {editable && <Button variant="outline" className="shrink-0" disabled={busy} aria-label={`Add photos to ${area.label}`} onClick={() => startUpload(area.id)} data-attr="inspection-section-photo-add"><Camera className="h-4 w-4" /></Button>}
+        {editable ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              type="button"
+              aria-label={`Actions for ${area.label}`}
+              disabled={busy}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground"
+              data-attr="inspection-section-actions"
+            >
+              <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={busy} data-attr="inspection-section-photo-add" onSelect={() => startUpload(area.id)}>Add photos</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>)}
-      {selectedAreas.length > 0 && <PortalSectionActionRow variant="header">
-        <Button disabled={busy} onClick={() => startUpload(selectedAreas.length === 1 ? selectedAreas[0]!.id : undefined)} data-attr="inspection-bulk-photo-add"><Camera className="h-4 w-4" />Add photos to {selectedAreas.length} section{selectedAreas.length === 1 ? "" : "s"}</Button>
-        <Button variant="outline" disabled={busy || selectedAreas.length !== 1} onClick={() => setActiveAreaId(selectedAreas[0]!.id)} data-attr="inspection-bulk-open">Open</Button>
-        <Button variant="ghost" disabled={busy} onClick={() => setSelected(new Set())} data-attr="inspection-bulk-clear">Clear</Button>
-      </PortalSectionActionRow>}
     </div>}
     {hasUnsentMaterial && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={unsentPhotos.length > 0}>
       <p className="pb-3 text-sm text-muted">These never reached the server, so they are <strong>not part of the report</strong> above.{editable ? " Reopening the report did not add them — retype anything you still want recorded." : ""} Keep anything you still need, then discard them.</p>
@@ -375,15 +415,6 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       {retainedBaselineItems.map(item => <div key={item.id} className="space-y-3 border-t border-border py-4"><h3 className="text-sm font-semibold">{item.label}</h3><ReadObservation label="Move-in / resident" value={item.resident} /><ReadObservation label="Move-in / manager" value={item.manager} /></div>)}
     </PortalCollapsibleSection>}
     <PortalCollapsibleSection title="Record history" defaultExpanded={false}>{report.document.history.map((event, i) => <p key={i} className="py-1 text-xs text-muted">{new Date(event.at).toLocaleString()} · {event.role} · {event.action}</p>)}</PortalCollapsibleSection>
-    <PortalPageFooterActions pinned rowVariant="header">
-      <Button variant="outline" aria-label="Download PDF" disabled={busy} onClick={() => run(async () => { await save(); await downloadInspection(role, report.id); })} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">Download PDF</span></Button>
-      {editable && !pendingPhoto && <Button disabled={busy} aria-label="Add photos" onClick={() => startUpload()} data-attr="inspection-photo-add"><Camera className="h-4 w-4" /><span>Add photos</span></Button>}
-      {pendingPhoto && <>{editable && <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button>}<Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
-      {error && dirty && editable && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
-      {error && <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button>}
-      {role === "resident" && canEdit && !submittedByResident && !pendingPhoto && <Button disabled={busy || ownPhotoCount === 0} onClick={() => changeSubmission("submit")} data-attr="inspection-resident-submit">Submit photos</Button>}
-      {role === "manager" && canEdit && submittedByResident && <Button disabled={busy} onClick={() => changeSubmission("reopen")} data-attr="inspection-resident-reopen">Allow changes</Button>}
-    </PortalPageFooterActions>
     <PortalDialog
       open={uploadSourceOpen}
       onClose={() => { if (!busy) setUploadSourceOpen(false); }}
@@ -400,8 +431,8 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       dismissBlocked={busy}
       title="Add photos to a section"
       primaryAction={{
-        // Distinct from the pinned "Add photos" footer trigger — both can be
-        // on screen at once while this picker is open.
+        // Distinct from the header camera — both can be on screen at once
+        // while this picker is open.
         label: pickedUploadItemId ? `Use ${photoChooserAreas.flatMap(a => a.items).find(i => i.id === pickedUploadItemId)?.label ?? "this section"}` : "Choose a section",
         onClick: () => { if (pickedUploadItemId && photoSource) upload(pickedUploadItemId, photoSource); },
         disabled: busy || !photoSource || !pickedUploadItemId,
@@ -446,4 +477,4 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
     </PortalDialog>
   </div>;
-}
+});

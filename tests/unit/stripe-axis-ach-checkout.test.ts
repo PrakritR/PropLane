@@ -323,5 +323,25 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
       expect(result.totalCents).toBe(subtotal + fee);
       expect((params.payment_intent_data as Record<string, unknown>).application_fee_amount).toBe(fee);
     });
+
+    it("hold path: no destination, no application fee, platform_hold metadata", async () => {
+      const { stripe, calls } = captureStripe();
+      const subtotal = 120_000;
+      const fee = residentProcessingFeeCents(subtotal, "ach");
+      const result = await createAxisAchCheckoutSession(stripe, {
+        ...baseInput,
+        amountCents: subtotal,
+        paymentMethod: "ach",
+        feePayer: "resident",
+        destinationAccountId: undefined,
+      });
+      const params = calls[0]!;
+      const pid = params.payment_intent_data as Record<string, unknown>;
+      expect(pid.transfer_data).toBeUndefined();
+      expect(pid).not.toHaveProperty("application_fee_amount");
+      expect((pid.metadata as Record<string, string>).platform_hold).toBe("1");
+      expect((pid.metadata as Record<string, string>).hold_amount_cents).toBe(String(subtotal));
+      expect(result.totalCents).toBe(subtotal + fee);
+    });
   });
 });

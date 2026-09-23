@@ -14,14 +14,14 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-detail-subsection-chrome";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
-import { InspectionEditor } from "@/components/portal/inspection-editor";
+import { InspectionEditor, type InspectionEditorHandle } from "@/components/portal/inspection-editor";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { parseServiceRecordTab } from "@/lib/portal-detail-routes";
+import { inspectionDetailHref, parseServiceRecordTab } from "@/lib/portal-detail-routes";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -261,6 +261,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const working = useRef(false);
   const requestVersion = useRef(0);
   const live = useRef(true);
+  const editorRef = useRef<InspectionEditorHandle>(null);
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
   const refresh = useCallback(async (force = false) => {
     const version = ++requestVersion.current;
@@ -349,17 +350,24 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const embeddedEditDisabled = !embeddedPrimaryReport && !embeddedResidency?.canCreate;
 
   if (detail) {
-    const editor = <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
+    const editor = <InspectionEditor ref={editorRef} embedded={role === "manager" && Boolean(routeBase)} initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
     if (role !== "manager" || !routeBase) return editor;
     const recordTabId = parseServiceRecordTab(recordTab);
     const inspectionBasePath = routeBase.replace(/\/inspections$/, "") || "/portal";
     const sections = recordSections("manager", "inspection", {
       basePath: inspectionBasePath,
       inspectionKind: kind,
-    });
+    }, recordTabId);
     const onInspectionHeaderAction = (actionId: string) => {
       if (actionId === "download-report") {
-        void downloadInspection(role, detail.report.id);
+        editorRef.current?.downloadReport() ?? void downloadInspection(role, detail.report.id);
+        return;
+      }
+      if (actionId === "add-photos" || actionId === "request-photos") {
+        if (recordTabId !== "rooms") {
+          router.push(inspectionDetailHref(inspectionBasePath, kind, detail.report.id, "rooms"));
+        }
+        editorRef.current?.addPhotos();
         return;
       }
       showToast("Coming soon");
@@ -390,7 +398,8 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
           ariaLabel="Inspection sections"
           onHeaderAction={onInspectionHeaderAction}
         >
-          {recordTabId === "rooms" ? editor : recordTabId === "payments" ? (
+          <div className={recordTabId === "rooms" ? undefined : "hidden"}>{editor}</div>
+          {recordTabId === "rooms" ? null : recordTabId === "payments" ? (
             <PortalRecordRelatedPanel title="Payments" empty="No payment on this inspection." />
           ) : recordTabId === "communication" ? (
             renderRecordSection("communication", {

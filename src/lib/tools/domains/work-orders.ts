@@ -1130,6 +1130,12 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       paymentChannel: channel,
       expenseEntryCount: result.expenseEntryIds.length,
     });
+    if (result.checkoutUrl) {
+      return {
+        reply: `Approve and pay is ready for "${owned.row.title || owned.id}". Open checkout to pay the invoice plus Stripe’s cost.`,
+        resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel, checkoutUrl: result.checkoutUrl },
+      };
+    }
     const payoutPart =
       laborCents > 0 && owned.vendorUserId
         ? ` A ${centsLabel(laborCents)} transfer to ${owned.row.vendorName || "the vendor"} was initiated (the vendor sees the payout status in their portal).`

@@ -260,3 +260,19 @@ export async function resolveAndValidateManagerConnectForPayments(
   }
   return result;
 }
+
+/**
+ * Destination account when Connect + bank is ready. Otherwise null — the
+ * caller charges the platform and credits a hold.
+ */
+export async function resolveConnectDestinationIfReady(
+  stripe: Stripe,
+  db: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  const validated = await resolveAndValidateManagerConnectForPayments(stripe, db, userId);
+  if (!validated.ok) return null;
+  const account = await retrieveManagerConnectAccountOrNull(stripe, validated.accountId);
+  if (!account) return null;
+  return connectAccountReadyForAchPayouts(account) ? account.id : null;
+}

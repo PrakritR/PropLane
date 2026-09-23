@@ -98,11 +98,9 @@ export function hasAdminRole(ctx: PortalAccessContext): boolean {
  *
  * The sole primary admin (`PRIMARY_ADMIN_EMAIL`) is exempt: that account is
  * intentionally both ops and property manager on production. Holding the
- * `manager` role is NOT an exemption: an admin can hand themselves that role
- * through the self-service "Set up as a property manager" flow, so keying the
- * block on it would make the control bypassable by every admin
- * (`/api/auth/provision-pending-manager` refuses admin accounts for the same
- * reason).
+ * `manager` role is NOT an exemption: an admin can add that role through
+ * self-service "Set up as a property manager", so keying the block on manager
+ * would make the control bypassable by every admin.
  */
 export function adminBlockedFromManagerPortal(ctx: PortalAccessContext): boolean {
   if (isPrimaryAdminEmail(ctx.user?.email)) return false;

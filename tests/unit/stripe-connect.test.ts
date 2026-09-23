@@ -6,6 +6,7 @@ import {
   isApplicationCollected,
   managerConnectValidationError,
   resolveAndValidateManagerConnectForPayments,
+  resolveConnectDestinationIfReady,
 } from "@/lib/stripe-connect";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -121,5 +122,28 @@ describe("resolveAndValidateManagerConnectForPayments — the payout-destination
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("TRANSFERS_NOT_ACTIVE");
+  });
+
+  it("resolveConnectDestinationIfReady returns the account only when transfers and payouts are ready", async () => {
+    const ready = await resolveConnectDestinationIfReady(
+      stripeReturning({ id: "acct_ready", capabilities: { transfers: "active" }, payouts_enabled: true }),
+      dbWithProfileAccount("acct_ready"),
+      "mgr_ready",
+    );
+    expect(ready).toBe("acct_ready");
+
+    const noBank = await resolveConnectDestinationIfReady(
+      stripeReturning({ id: "acct_half", capabilities: { transfers: "active" }, payouts_enabled: false }),
+      dbWithProfileAccount("acct_half"),
+      "mgr_half",
+    );
+    expect(noBank).toBeNull();
+
+    const missing = await resolveConnectDestinationIfReady(
+      stripeReturning({ id: "acct_platform" }),
+      dbWithProfileAccount(null),
+      "mgr_new",
+    );
+    expect(missing).toBeNull();
   });
 });

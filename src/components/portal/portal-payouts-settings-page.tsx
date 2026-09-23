@@ -22,6 +22,7 @@ import {
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 import { track } from "@/lib/analytics/track-client";
+import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { cn } from "@/lib/utils";
 
@@ -273,6 +274,7 @@ export function PortalPayoutsSettingsPage({
   const identityDone = balance.setup.identity === "done";
   const bankDone = balance.setup.bank === "done";
   const ready = balance.setup.ready;
+  const withdrawableCents = withdrawableCentsFromSnapshot(balance);
   const pendingDate = formatDate(balance.schedule.nextPayoutAt);
   const pendingFact =
     balance.onTheWayCents > 0
@@ -309,13 +311,18 @@ export function PortalPayoutsSettingsPage({
               track("payout_withdraw_started", { portal });
               setWithdrawOpen(true);
             }}
-            disabled={!ready || balance.availableCents <= 0}
+            disabled={!ready || withdrawableCents <= 0}
             data-attr="payouts-settings-withdraw"
             className="max-md:w-full"
           >
             Withdraw
           </Button>
         </div>
+        {balance.availableNote ? (
+          <p className="mt-2 text-xs text-muted" data-attr="payouts-settings-available-note">
+            {balance.availableNote}
+          </p>
+        ) : null}
         {pendingFact ? (
           <p className="mt-2 text-xs text-muted" data-attr="payouts-settings-pending">
             {pendingFact}
@@ -472,7 +479,7 @@ export function PortalPayoutsSettingsPage({
         onClose={closeWithdraw}
         apiBase={apiBase}
         currency={balance.currency}
-        availableCents={balance.availableCents}
+        availableCents={withdrawableCents}
         instantAvailableCents={balance.instantAvailableCents}
         accounts={withdrawAccounts}
         initialAmountCents={retryRow?.amountCents}

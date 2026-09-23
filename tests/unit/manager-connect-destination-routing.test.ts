@@ -173,23 +173,18 @@ describe("resident charge routes to the manager's OWN connected account", () => 
     expect(passed.destinationAccountId).not.toBe("acct_manager_A");
   });
 
-  it("BLOCKS the charge when the manager has not onboarded — no silent platform routing", async () => {
+  it("charges the platform (hold) when the manager has not onboarded", async () => {
     vi.mocked(getStripe).mockReturnValue(makeStripe({ id: "acct_platform" }));
     const db = makeDb({ managerUserId: "mgr_new", managerAccountId: null });
 
     const result = await createHouseholdChargeCheckout(db, checkoutInput);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("MANAGER_NO_CONNECT_ACCOUNT");
-      expect(result.status).toBe(422);
-    }
-    // The critical assertion: no checkout session was ever created, so the money
-    // cannot have been routed to the platform account as a fallback.
-    expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    const passed = createAxisAchCheckoutSession.mock.calls[0]?.[1] as { destinationAccountId?: string };
+    expect(passed.destinationAccountId ?? "").toBe("");
   });
 
-  it("BLOCKS the charge when the manager's transfers capability is not active", async () => {
+  it("charges the platform (hold) when the manager's transfers capability is not active", async () => {
     vi.mocked(getStripe).mockReturnValue(
       makeStripe({ id: "acct_incomplete", capabilities: { transfers: "inactive" }, payouts_enabled: false }),
     );
@@ -197,11 +192,8 @@ describe("resident charge routes to the manager's OWN connected account", () => 
 
     const result = await createHouseholdChargeCheckout(db, checkoutInput);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("MANAGER_CONNECT_TRANSFERS_NOT_READY");
-      expect(result.status).toBe(422);
-    }
-    expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    const passed = createAxisAchCheckoutSession.mock.calls[0]?.[1] as { destinationAccountId?: string };
+    expect(passed.destinationAccountId ?? "").toBe("");
   });
 });

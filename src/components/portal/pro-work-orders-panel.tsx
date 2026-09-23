@@ -654,6 +654,10 @@ export function ManagerWorkOrdersPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not approve payment.");
+      if (typeof data.checkoutUrl === "string" && data.checkoutUrl) {
+        window.location.assign(data.checkoutUrl);
+        return;
+      }
       updateManagerWorkOrder(row.id, () => data.workOrder as DemoManagerWorkOrderRow);
       void syncManagerWorkOrdersFromServer();
       showToast("Approved and paid.");

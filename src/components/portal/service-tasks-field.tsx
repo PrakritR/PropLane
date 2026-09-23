@@ -1,58 +1,58 @@
 "use client";
 
-import { X } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { CheckboxOption } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
+import type { WorkAssignee } from "@/lib/work-assignment";
 
 /**
- * Checklist editor for a service being logged — one line per task, "+ Add
- * task" appends, × removes. Titles only; `done` is set on the service itself.
+ * Manager Add service — a checkbox, not a title list. Checked reveals one
+ * Assignee picker (`kind=task`, team + vendors). Title, property, room and
+ * notes come from the service.
  */
 export function ServiceTasksField({
-  tasks,
-  onChange,
+  enabled,
+  onEnabledChange,
+  assignee,
+  onAssigneeChange,
+  teamMembers,
+  vendors,
   disabled = false,
   dataAttr = "service-tasks",
 }: {
-  tasks: string[];
-  onChange: (next: string[]) => void;
+  enabled: boolean;
+  onEnabledChange: (next: boolean) => void;
+  assignee: WorkAssignee | null;
+  onAssigneeChange: (next: WorkAssignee | null) => void;
+  teamMembers: readonly { userId: string; name?: string | null; email?: string | null }[];
+  vendors: readonly { id: string; name?: string | null; trade?: string | null; active?: boolean }[];
   disabled?: boolean;
   dataAttr?: string;
 }) {
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium text-muted">Tasks</p>
-      <div className="space-y-2">
-        {tasks.map((task, index) => (
-          <div key={index} className="flex items-center gap-2">
-            <Input
-              value={task}
-              onChange={(e) => onChange(tasks.map((t, i) => (i === index ? e.target.value : t)))}
-              placeholder={index === 0 ? "e.g. Check supply lines" : "Next task"}
-              className="bg-card"
-              disabled={disabled}
-              data-attr={`${dataAttr}-${index}`}
-            />
-            <button
-              type="button"
-              aria-label="Remove task"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted hover:text-foreground disabled:opacity-50"
-              disabled={disabled}
-              onClick={() => onChange(tasks.filter((_, i) => i !== index))}
-            >
-              <X className="size-4" aria-hidden />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-          disabled={disabled}
-          data-attr={`${dataAttr}-add`}
-          onClick={() => onChange([...tasks, ""])}
-        >
-          + Add task
-        </button>
-      </div>
+      <CheckboxOption
+        label="Add task"
+        checked={enabled}
+        onChange={(next) => {
+          onEnabledChange(next);
+          if (!next) onAssigneeChange(null);
+        }}
+        dataAttr={`${dataAttr}-toggle`}
+      />
+      {enabled ? (
+        <div className="mt-1">
+          <WorkAssignmentPicker
+            kind="task"
+            label="Assignee"
+            value={assignee}
+            teamMembers={teamMembers}
+            vendors={vendors}
+            disabled={disabled}
+            onChange={onAssigneeChange}
+            dataAttr={`${dataAttr}-assignee`}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

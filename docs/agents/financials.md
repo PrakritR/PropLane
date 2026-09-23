@@ -76,10 +76,10 @@ Phase 3 excludes non-income accounts properly.
 
 **Schema** — `supabase/migrations/20260712100000_stripe_payouts_disputes.sql`: `stripe_payouts` (Connect bank payouts), `stripe_disputes`, plus `profiles.stripe_connect_charges_enabled` / `stripe_connect_payouts_enabled` cache.
 
-**Ledger fee capture** — `src/lib/stripe-ledger-fees.ts` populates `stripe_fee_cents`, `net_cents`, `axis_fee_cents`, `stripe_charge_id` on payment ledger rows after checkout. Because these are Connect destination charges on PropLane's platform account, the manager's row carries `stripe_fee_cents = 0` and `net_cents = charge.amount − application_fee` (the destination transfer) — Stripe's fee is PropLane's, not the manager's. See [`resident-payments.md`](resident-payments.md).
+**Ledger fee capture** — `src/lib/stripe-ledger-fees.ts` populates `stripe_fee_cents`, `net_cents`, `axis_fee_cents`, `stripe_charge_id` on payment ledger rows after checkout. On a destination charge the manager's row carries `stripe_fee_cents = 0` and `net_cents = charge.amount − application_fee` (the destination transfer) — Stripe's fee is PropLane's, not the manager's. When Connect + bank is not ready, the same charge sits on the platform as a `platform_payment_holds` row and is transferred once identity + bank is ready (`account.updated`). See [`resident-payments.md`](resident-payments.md).
 
 **Webhook handlers** — `src/lib/stripe-webhook-financials.ts` + extended `src/app/api/stripe/webhook/route.ts`:
-- `account.updated` → Connect readiness on profiles
+- `account.updated` → Connect readiness on profiles + drain leftover `platform_payment_holds` when `connectAccountReadyForAchPayouts`
 - `transfer.created` → `stripe_transfer_id` / `net_cents` on ledger
 - `payout.paid` / `payout.failed` / `payout.canceled` → `stripe_payouts` (resolves manager via `profiles.stripe_connect_account_id`)
 - `charge.refunded` / `refund.*` → refund ledger row + `postGlRefundEntry`
@@ -122,10 +122,17 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   $0.50 minimum PAYOUT amount), Standard/Instant eligibility, arrival
   estimates, `settings.payouts.schedule` ↔ our schedule shape, next-payout-date,
   and the history row normaliser.
+- **Platform hold (PLAN-0923-1041)** — `platform_payment_holds` plus
+  `src/lib/stripe-platform-hold.ts` / `.server.ts`. Ready Connect
+  (`transfers` active AND `payouts_enabled`) is a destination charge —
+  money goes straight to that person. No bank yet: charge the platform,
+  credit a hold, transfer the leftover the moment they become ready.
+  Withdraw never spends a hold. Snapshot: `availableCents` = hold +
+  Stripe; `withdrawableCents` = Stripe only.
 - **Stripe/DB reads and writes** — `src/lib/stripe-payouts.server.ts`:
   `readPayoutSnapshot` (balance, bank/eligibility from the external account's
   `available_payout_methods`, setup state from `account.requirements`,
-  schedule, last-50 history); `createInAppPayout` claims a pending
+  schedule, last-50 history, held vs withdrawable); `createInAppPayout` claims a pending
   `stripe_payouts` row BEFORE calling Stripe — the same pattern as
   `payoutVendorForWorkOrder` (`src/lib/stripe-vendor-payout.ts`) — so a
   double-click loses the insert race on the partial unique index

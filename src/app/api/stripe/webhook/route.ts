@@ -44,6 +44,9 @@ import {
 } from "@/lib/stripe-household-charge";
 import { runScreeningFromStripeSession, SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
 import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
+import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
+import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
+import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import {
   handleAutopayPaymentIntentFailed,
   handleAutopayPaymentIntentSucceeded,
@@ -95,6 +98,8 @@ async function checkoutOwner(
     const { data, error } = await db.from("manager_application_records").select("manager_user_id").eq("id", applicationId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
     owner = String(data?.manager_user_id ?? "").trim();
+  } else if (purpose === "vendor_invoice_pay") {
+    owner = session.metadata?.manager_user_id?.trim() ?? "";
   } else {
     const purchase = await resolveManagerCheckoutPurchase(db, session);
     owner = purchase.userId ?? "";
@@ -271,6 +276,9 @@ export async function POST(req: Request) {
           // returns from Checkout (or returns with a wiped form).
           await promoteIncompleteApplicationAfterFeePaid(db, session);
           await enrichCheckoutLedgerFees(stripe, session);
+          await creditHoldFromPaidSession(db, session).catch((e) => {
+            console.error("[stripe webhook] application fee platform hold", e);
+          });
           const distinctId = session.client_reference_id ?? session.id;
           track("application_fee_paid", distinctId, { session_id: session.id });
         } catch (e) {
@@ -289,11 +297,22 @@ export async function POST(req: Request) {
           } else {
             await markHouseholdChargePaidFromStripeSession(db, session);
             await enrichCheckoutLedgerFees(stripe, session);
+            await creditHoldFromPaidSession(db, session).catch((e) => {
+              console.error("[stripe webhook] household charge platform hold", e);
+            });
             const distinctId = session.client_reference_id ?? session.id;
             track("household_charge_paid", distinctId, { session_id: session.id });
           }
         } catch (e) {
           console.error("[stripe webhook] household_charge checkout", e);
+        }
+      } else if (session.metadata?.purpose === VENDOR_INVOICE_PAY_PURPOSE) {
+        try {
+          await completeVendorPayFromStripeSession(db, session);
+          await enrichCheckoutLedgerFees(stripe, session).catch(() => undefined);
+        } catch (e) {
+          console.error("[stripe webhook] vendor_invoice_pay checkout", e);
+          throw e;
         }
       } else if (session.mode === "setup" && session.metadata?.purpose === "manager_card_setup") {
         // Stripe setup attaches the card to its authenticated manager customer.

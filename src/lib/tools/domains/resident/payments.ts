@@ -5,8 +5,6 @@ import { writeAuditLog } from "../../audit";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { residentChargesListHref } from "@/lib/portal-detail-routes";
 import { getStripe } from "@/lib/stripe";
-import { stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
-import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
 import { householdChargeAmountCents } from "@/lib/stripe-household-charge";
 import { loadHouseholdChargesForCheckout, MAX_BULK_CHARGES } from "@/lib/stripe-household-charge-checkout.server";
 import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
@@ -56,18 +54,6 @@ export const startRentPaymentTool = defineWriteTool({
       expectedManagerUserId: ctx.activeManagerId,
     });
     if (!resolved.ok) throw new Error(resolved.error);
-
-    // Honest preview error when the manager's Stripe payouts aren't ready.
-    try {
-      const connect = await resolveAndValidateManagerConnectForPayments(getStripe(), ctx.db, resolved.managerUserId);
-      if (!connect.ok) throw new Error(connect.error);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Stripe validation failed.";
-      if (stripeNotConfiguredError(message)) {
-        throw new Error("Online payments are not configured on this server.");
-      }
-      throw new Error(message);
-    }
 
     const totalCents = resolved.loaded.reduce((sum, row) => sum + householdChargeAmountCents(row.charge), 0);
     return {

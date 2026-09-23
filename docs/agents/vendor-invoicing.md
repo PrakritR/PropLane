@@ -29,6 +29,16 @@ Phase 3 already generalized Connect via `profiles.stripe_connect_account_id` +
 `ensureVendorConnectAccountId` + `vendor_payouts`; a parallel table would be
 duplicate infrastructure. Reuse the shipped pattern.
 
+**Approve + Pay (PLAN-0923-1041).** When a vendor invoice is at least $1,
+Approve + Pay starts manager ACH Checkout of invoice + Stripe’s cost
+(`feePayer: "resident"` so the manager pays the fee). If the vendor’s
+Connect + bank is ready, that is a destination charge to the vendor’s
+Stripe — they receive the invoice total. If not, the invoice is held on
+PropLane and transfers the moment they connect. Withdraw stays
+connected-account → bank only. `vendor_payouts` is inserted pending
+before Checkout; the webhook settles with `settleOnly` so a second
+Checkout cannot start.
+
 **Routes.** Vendor: `GET/POST /api/vendor/invoices` (list own / submit).
 Submit validation is ONE shared implementation — `prepareVendorInvoiceSubmission`
 in `src/lib/vendor-invoice-submit.server.ts`, used by both the POST route and

@@ -22,11 +22,16 @@ Manager settings and staff overrides use separate atomic RPCs on the same row, s
 manager save cannot overwrite a concurrent staff revocation. Unknown plan reads stop
 checkout before deciding who pays.
 
-**The money still lands in the manager's own connected account.** Every resident
-payment stays a Connect **destination charge** on the PLATFORM account
-(`transfer_data.destination = <manager connected account>`, **never** a direct
-charge / `on_behalf_of` / a `Stripe-Account` header). Only who bears the fee
-moves, via `application_fee_amount`:
+**Two paths, one fee math.** Ready Connect + bank
+(`connectAccountReadyForAchPayouts`: transfers active AND `payouts_enabled`)
+is a destination charge on the PLATFORM account
+(`transfer_data.destination = <that person's connected account>`, **never** a
+direct charge / `on_behalf_of` / a `Stripe-Account` header). No bank yet: the
+same checkout still completes as a platform charge (`platform_hold=1`); the
+webhook credits `platform_payment_holds` and `account.updated` transfers the
+leftover when they become ready. Withdraw never spends a hold. Only who
+bears the fee moves, via `application_fee_amount` on the destination path
+(omitted on the hold path):
 
 | Fee payer | Resident charged | `application_fee_amount` | Manager receives | PropLane net |
 | --- | --- | --- | --- | --- |
@@ -298,21 +303,19 @@ normalization + plan transitions), `tests/unit/stripe-axis-ach-checkout.test.ts`
 `application_fee_amount`, `transfer_data` destination, no `on_behalf_of`), and
 `tests/unit/stripe-ledger-fees.test.ts` (fee attribution).
 
-**The destination is per-manager and the gate has NO platform fallback.** The
-`transfer_data.destination` is resolved from the paying charge's owning manager
-via `resolveAndValidateManagerConnectForPayments` (`src/lib/stripe-connect.ts`),
-which reads that manager's own `profiles.stripe_connect_account_id`. If the
-manager has not onboarded (no account) or Stripe reports transfers not yet active
-(onboarding incomplete), the checkout is REFUSED
-(`MANAGER_NO_CONNECT_ACCOUNT` / `MANAGER_CONNECT_TRANSFERS_NOT_READY`) before any
-session is created — a charge is never silently routed to the platform account.
-This holds for both household charges (`stripe-household-charge-checkout.server.ts`)
-and application fees (`api/stripe/application-fee-checkout/route.ts`). Manager
-Payment setup shows "Connected" ONLY when Stripe reports the account can actually
-receive money; an existing-but-unfinished account reads as "incomplete"
+**The destination is per-manager when they are ready.**
+`resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
+manager's own `profiles.stripe_connect_account_id` and returns the account id
+only when transfers are active and `payouts_enabled`. Otherwise the session
+is a platform hold — never a 422 for missing Connect. This holds for
+household charges (`stripe-household-charge-checkout.server.ts`), application
+fees (`application-fee-checkout.server.ts`), and autopay
+(`resident-autopay.server.ts`). Manager Payment setup still shows "Connected"
+ONLY when Stripe reports the account can actually receive money; an
+existing-but-unfinished account reads as "incomplete"
 (`src/lib/stripe-setup-state.ts`). Coverage:
-`tests/unit/manager-connect-destination-routing.test.ts` (per-manager destination
-isolation + the no-onboard block, real resolver against a fake DB),
+`tests/unit/manager-connect-destination-routing.test.ts` (per-manager
+destination isolation + hold when not onboarded),
 `tests/unit/stripe-connect.test.ts` (the resolver gate), and
 `tests/unit/stripe-setup-state.test.ts` (the UI truth mapping).
 

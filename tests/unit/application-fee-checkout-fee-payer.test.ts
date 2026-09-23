@@ -129,15 +129,15 @@ describe("createApplicationFeeCheckout — destination + ownership", () => {
     expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("BLOCKS the fee when the manager has not connected Stripe payouts", async () => {
+  it("charges the platform (hold) when the manager has not connected Stripe payouts", async () => {
     const stripe = makeStripe({ id: "acct_platform" });
     const db = makeDb({ managerUserId: "mgr_A", managerAccountId: null });
 
     const result = await createApplicationFeeCheckout(db, stripe, baseInput);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("MANAGER_NO_CONNECT_ACCOUNT");
-    expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    const passed = vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1] as { destinationAccountId?: string };
+    expect(passed.destinationAccountId ?? "").toBe("");
   });
 
   it("never falls back to the fee amount the client supplies — always the server-stored listing fee", async () => {

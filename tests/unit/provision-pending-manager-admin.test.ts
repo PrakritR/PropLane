@@ -1,9 +1,7 @@
 /**
- * `/api/auth/provision-pending-manager` must never hand an admin account the
- * `manager` role: that role is what the production admin→manager block
- * (`adminBlockedFromManagerPortal`) keys on, so self-service provisioning
- * would make the control bypassable by every admin. The primary admin is
- * intentionally both and is the one exemption.
+ * `/api/auth/provision-pending-manager` allows admin accounts to add the
+ * manager portal (same as residents). Production entry to `/portal` for
+ * non-primary admins stays gated by `adminBlockedFromManagerPortal`.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
@@ -62,19 +60,19 @@ beforeEach(() => {
 });
 
 describe("POST /api/auth/provision-pending-manager — admin accounts", () => {
-  it("refuses an account holding the admin role row, without provisioning anything", async () => {
+  it("provisions an account holding the admin role row", async () => {
     roleRows = [{ role: "admin" }];
     const res = await post();
-    expect(res.status).toBe(403);
-    expect(res.body).toMatchObject({ ok: false, skipped: true, reason: "admin_account" });
-    expect(ensureFreeManagerPortalAccess).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, managerId: "mgr-1" });
+    expect(ensureFreeManagerPortalAccess).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a legacy profiles.role = admin account with no role rows", async () => {
+  it("provisions a legacy profiles.role = admin account with no role rows", async () => {
     legacyRole = "admin";
     const res = await post();
-    expect(res.status).toBe(403);
-    expect(ensureFreeManagerPortalAccess).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(ensureFreeManagerPortalAccess).toHaveBeenCalledTimes(1);
   });
 
   it("still provisions a resident-only account that asked for the property portal", async () => {
@@ -85,7 +83,7 @@ describe("POST /api/auth/provision-pending-manager — admin accounts", () => {
     expect(ensureFreeManagerPortalAccess).toHaveBeenCalledTimes(1);
   });
 
-  it("exempts the primary admin, which is intentionally both ops and manager", async () => {
+  it("still provisions the primary admin", async () => {
     currentUser = { id: "founder", email: PRIMARY_ADMIN_EMAIL };
     roleRows = [{ role: "admin" }];
     const res = await post();

@@ -137,6 +137,48 @@ export async function payoutVendorForWorkOrder(
   }
 }
 
+/** Records that vendor pay already settled (destination charge or platform hold). */
+export async function recordVendorPayoutSettled(
+  db: SupabaseClient,
+  opts: {
+    workOrderId: string;
+    managerUserId: string;
+    vendorUserId: string;
+    amountCents: number;
+    stripeTransferId?: string | null;
+  },
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const { data: existing } = await db
+    .from("vendor_payouts")
+    .select("id")
+    .eq("work_order_id", opts.workOrderId)
+    .maybeSingle();
+  if (existing?.id) {
+    await db
+      .from("vendor_payouts")
+      .update({
+        status: "paid",
+        amount_cents: opts.amountCents,
+        stripe_transfer_id: opts.stripeTransferId ?? null,
+        failure_reason: null,
+        updated_at: nowIso,
+      })
+      .eq("id", existing.id);
+    return;
+  }
+  await db.from("vendor_payouts").insert({
+    manager_user_id: opts.managerUserId,
+    vendor_user_id: opts.vendorUserId,
+    work_order_id: opts.workOrderId,
+    amount_cents: opts.amountCents,
+    status: "paid",
+    stripe_transfer_id: opts.stripeTransferId ?? null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
+}
+
 const RETRYABLE_VENDOR_PAYOUT_FAILURE = /not connected|onboarding|Connect|payout account/i;
 
 /** Re-attempt failed vendor payouts after Stripe Connect onboarding completes. */

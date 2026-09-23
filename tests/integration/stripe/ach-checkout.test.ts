@@ -40,6 +40,7 @@ vi.mock("@/lib/manager-access-server", () => ({
 
 vi.mock("@/lib/stripe-connect", () => ({
   resolveAndValidateManagerConnectForPayments: vi.fn(),
+  resolveConnectDestinationIfReady: vi.fn(),
   isStripeConnectAccountAccessError: vi.fn(() => false),
   managerConnectReconnectMessage: vi.fn(() => "Reconnect Stripe"),
 }));
@@ -94,7 +95,7 @@ vi.mock("@/lib/test-workspaces/effects.server", () => ({
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
+import { resolveAndValidateManagerConnectForPayments, resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { createAxisAchCheckoutSession } from "@/lib/stripe-axis-ach-checkout";
 import { POST as householdChargeCheckout } from "@/app/api/stripe/household-charge-checkout/route";
 import { GET as householdChargeVerify } from "@/app/api/stripe/household-charge-verify/route";
@@ -115,6 +116,7 @@ describe("ACH checkout routes", () => {
       ok: true,
       accountId: "acct_test_123",
     } as never);
+    vi.mocked(resolveConnectDestinationIfReady).mockResolvedValue("acct_test_123");
 
     vi.mocked(createAxisAchCheckoutSession).mockResolvedValue({
       mode: "embedded",

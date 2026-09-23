@@ -23,13 +23,10 @@ import {
 } from "@/lib/manager-applications-storage";
 import {
   applicationVisibleToPortalUser,
-  collectLinkedPropertyIdsForModule,
-  resolvePropertyLabelForId,
+  buildManagerPropertyFilterOptions,
 } from "@/lib/manager-portfolio-access";
 import {
   PROPERTY_PIPELINE_EVENT,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
@@ -40,6 +37,7 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
+import { emptyRoomsForManagerService, roomLabelForManagerService } from "@/lib/manager-add-service-where";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { formatPreferredArrival } from "@/lib/preferred-arrival";
 import {
@@ -63,22 +61,13 @@ import {
 } from "@/lib/manager-work-orders-storage";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import type { ManagerWorkOrderBucket } from "@/data/demo-portal";
-import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ServiceTasksField } from "@/components/portal/service-tasks-field";
 import { buildServiceAssignmentMessage } from "@/lib/service-assignment-message";
-import { parseResidentChargeCents, serviceTasksFromTitles } from "@/lib/service-tasks";
+import { parseResidentChargeCents } from "@/lib/service-tasks";
 import { createManagerCharge } from "@/lib/household-charges";
-import { normalizeManagerAutomationSettings } from "@/lib/payment-automation-settings";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 /** Who the assignment message goes to, resolved from the directory the picker used. */
 type AssigneeContact = { name: string; email: string; phone?: string };
-
-type AssignmentPreview = {
-  contact: AssigneeContact;
-  subject: string;
-  body: string;
-};
 
 type PropertyOption = { propertyId: string; propertyLabel: string };
 type ResidentOption = ManagerServiceResidentOption & { assignedRoomChoice?: string };
@@ -94,36 +83,12 @@ function displayPropertyLabel(raw: string): string {
 }
 
 function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
-  if (!managerUserId) return [];
-  const seen = new Map<string, PropertyOption>();
-  for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-  for (const property of readPendingManagerPropertiesForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim());
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-  // A co-manager's linked listings live in the OWNER's bucket of the property
-  // pipeline store, never this viewer's, so the two loops above see none of them
-  // and the picker reads as an empty portfolio for a co-manager who can plainly
-  // see the same homes on the Properties tab (AXI-156).
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "services")) {
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  return [...seen.values()].sort((a, b) =>
-    a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
-  );
+  return buildManagerPropertyFilterOptions(managerUserId)
+    .map((option) => {
+      const propertyLabel = displayPropertyLabel(option.label);
+      return propertyLabel ? { propertyId: option.id, propertyLabel } : null;
+    })
+    .filter((row): row is PropertyOption => row !== null);
 }
 
 function buildResidentOptions(managerUserId: string | null): ResidentOption[] {
@@ -189,17 +154,14 @@ export function ManagerAddServiceModal({
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [propertyId, setPropertyId] = useState("");
+  const [roomChoice, setRoomChoice] = useState("");
   const [residentEmail, setResidentEmail] = useState("");
+  const [addTask, setAddTask] = useState(false);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [requestPrice, setRequestPrice] = useState("");
   const [requestDeposit, setRequestDeposit] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
-  const [tasks, setTasks] = useState<string[]>([]);
   const [residentCharge, setResidentCharge] = useState("");
-  // `null` until the setting is read; the assignment step waits for it.
-  const [autoMessageAssignee, setAutoMessageAssignee] = useState<boolean | null>(null);
-  const [assignmentPreview, setAssignmentPreview] = useState<AssignmentPreview | null>(null);
-  const [assignmentBusy, setAssignmentBusy] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
   const [stepError, setStepError] = useState<string | null>(null);
   const [form, setForm] = useState<ServiceIntakeFormState>({
@@ -216,29 +178,6 @@ export function ManagerAddServiceModal({
     entryPermission: "allowed",
     entryNotes: "",
   });
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    void (async () => {
-      if (isDemoModeActive()) {
-        if (!cancelled) setAutoMessageAssignee(false);
-        return;
-      }
-      try {
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
-        if (!cancelled) {
-          setAutoMessageAssignee(res.ok ? normalizeManagerAutomationSettings(body.settings).autoMessageAssignee : false);
-        }
-      } catch {
-        if (!cancelled) setAutoMessageAssignee(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -262,15 +201,17 @@ export function ManagerAddServiceModal({
       if (defaultResident) {
         setPropertyId(defaultResident.propertyId.trim());
         setResidentEmail(defaultResident.residentEmail.trim().toLowerCase());
+        setRoomChoice(defaultResident.assignedRoomChoice?.trim() || "");
       } else {
         setPropertyId(defaultPropertyId?.trim() || "");
         setResidentEmail("");
+        setRoomChoice("");
       }
+      setAddTask(false);
       setAssignee(null);
       setRequestPrice("");
       setRequestDeposit("");
       setPhotos([]);
-      setTasks([]);
       setResidentCharge("");
       setForm({ ...createEmptyServiceIntakeFormState([]), entryPermission: "allowed" });
       setStepIdx(0);
@@ -299,10 +240,8 @@ export function ManagerAddServiceModal({
   };
 
   /**
-   * After the service is saved: message the assignee. With "Message assignee
-   * automatically" on, send straight away and toast; otherwise open the same
-   * preview tours use, with the draft editable. Skip closes without sending —
-   * the service is already saved either way.
+   * After the service is saved: message the assignee immediately. Assigning
+   * yourself still sends nothing. Unchecked Add task or Unassigned skips this.
    */
   const finishWithAssignment = async (ctx: {
     kind: "maintenance" | "add-on";
@@ -311,12 +250,11 @@ export function ManagerAddServiceModal({
     priority?: string | null;
     residentName?: string | null;
     roomLabel?: string | null;
+    assigned: WorkAssignee | null;
   }) => {
-    const contact = assigneeContact(assignee);
-    if (!contact || !selectedProperty) {
-      onClose();
-      return;
-    }
+    const contact = assigneeContact(ctx.assigned);
+    onClose();
+    if (!contact || !selectedProperty) return;
     const managerName =
       teamMembers.find((row) => row.userId === managerUserId)?.name?.trim() || "Your property manager";
     const message = buildServiceAssignmentMessage({
@@ -328,57 +266,18 @@ export function ManagerAddServiceModal({
       propertyLabel: selectedProperty.propertyLabel,
       roomLabel: ctx.roomLabel,
       priority: ctx.priority,
-      tasks,
       residentName: ctx.residentName,
     });
-    if (autoMessageAssignee) {
-      onClose();
-      const sent = await deliverPortalInboxMessage({
-        eventCategory: "maintenance",
-        fromName: managerName,
-        toEmails: [contact.email],
-        subject: message.subject,
-        text: message.body,
-        deliverViaEmail: true,
-        deliverViaSms: Boolean(contact.phone),
-      });
-      showToast(sent.ok ? `Sent to ${contact.name}.` : `Service saved, but the message to ${contact.name} could not be sent.`);
-      return;
-    }
-    onClose();
-    setAssignmentPreview({ contact, subject: message.subject, body: message.body });
-  };
-
-  const sendAssignmentPreview = async (
-    skip: boolean,
-    channels?: { viaEmail: boolean; viaSms: boolean },
-    draft?: { subject: string; body: string },
-  ) => {
-    if (!assignmentPreview || assignmentBusy) return;
-    if (skip) {
-      setAssignmentPreview(null);
-      return;
-    }
-    setAssignmentBusy(true);
-    try {
-      const sent = await deliverPortalInboxMessage({
-        eventCategory: "maintenance",
-        fromName: teamMembers.find((row) => row.userId === managerUserId)?.name?.trim() || "Property Manager",
-        toEmails: [assignmentPreview.contact.email],
-        subject: draft?.subject?.trim() || assignmentPreview.subject,
-        text: draft?.body?.trim() || assignmentPreview.body,
-        deliverViaEmail: channels?.viaEmail ?? true,
-        deliverViaSms: (channels?.viaSms ?? false) && Boolean(assignmentPreview.contact.phone),
-      });
-      if (!sent.ok) {
-        showToast(sent.error || "Could not send the message.");
-        return;
-      }
-      showToast(`Sent to ${assignmentPreview.contact.name}.`);
-      setAssignmentPreview(null);
-    } finally {
-      setAssignmentBusy(false);
-    }
+    const sent = await deliverPortalInboxMessage({
+      eventCategory: "maintenance",
+      fromName: managerName,
+      toEmails: [contact.email],
+      subject: message.subject,
+      text: message.body,
+      deliverViaEmail: true,
+      deliverViaSms: Boolean(contact.phone),
+    });
+    showToast(sent.ok ? `Sent to ${contact.name}.` : `Service saved, but the message to ${contact.name} could not be sent.`);
   };
 
   const propertyOptions = useMemo(() => {
@@ -412,6 +311,15 @@ export function ManagerAddServiceModal({
     if (!property) return residentOptions;
     return residentOptions.filter((r) => residentMatchesProperty(r, property));
   }, [propertyId, propertyOptions, residentOptions]);
+
+  const roomOptions = useMemo(() => {
+    void tick;
+    if (!propertyId) return [];
+    return emptyRoomsForManagerService(propertyId, roomChoice || selectedResident?.assignedRoomChoice);
+  }, [propertyId, roomChoice, selectedResident?.assignedRoomChoice, tick]);
+
+  const roomLabel = roomLabelForManagerService(roomChoice) || selectedResident?.roomLabel || "";
+  const activeAssignee = addTask ? assignee : null;
 
   const propertySubmission = useMemo<ManagerListingSubmissionV1 | null>(() => {
     void tick;
@@ -471,10 +379,6 @@ export function ManagerAddServiceModal({
       showToast("Choose a property.");
       return;
     }
-    if (!residentEmail || !selectedResident) {
-      showToast("Choose a resident.");
-      return;
-    }
 
     const option = findServiceIntakeOption(intakeOptions, form.optionKey);
     if (!option) {
@@ -484,10 +388,12 @@ export function ManagerAddServiceModal({
 
     setBusy(true);
     try {
+      const assigned = addTask ? assignee : null;
+      const assignedRoom = roomChoice || selectedResident?.assignedRoomChoice;
       if (option.kind === "repair") {
-        const title = form.title.trim() || serviceIntakeSuggestedTitle(option, form.categoryLabel);
+        const title = serviceIntakeSuggestedTitle(option, form.categoryLabel);
         if (!title) {
-          showToast("Add a title for the service.");
+          showToast("Choose a maintenance category.");
           return;
         }
         if (!form.description.trim()) {
@@ -499,12 +405,15 @@ export function ManagerAddServiceModal({
           showToast("Resident charge must be an amount like $80.");
           return;
         }
+        if (chargeCents !== null && !selectedResident) {
+          showToast("Choose a resident to add a charge.");
+          return;
+        }
         const id = `REQ-${Date.now()}`;
-        const taskRows = serviceTasksFromTitles(tasks);
         // A resident charge is a real household charge, created through the
         // same helper the Payments tab uses, and remembered on the service.
         const charge =
-          chargeCents !== null
+          chargeCents !== null && selectedResident
             ? createManagerCharge({
                 residentEmail: selectedResident.residentEmail,
                 residentName: selectedResident.residentName,
@@ -524,9 +433,9 @@ export function ManagerAddServiceModal({
           propertyName: selectedProperty.propertyLabel,
           propertyId,
           assignedPropertyId: propertyId,
-          assignedRoomChoice: selectedResident.assignedRoomChoice,
+          assignedRoomChoice: assignedRoom,
           managerUserId,
-          unit: selectedResident.roomLabel || "—",
+          unit: roomLabel || "—",
           title,
           priority: form.priority,
           status: "Submitted",
@@ -537,24 +446,33 @@ export function ManagerAddServiceModal({
           cost: "—",
           preferredArrival: formatPreferredArrival(form.arrivalPreset, form.arrivalCustom),
           entryPermission: form.entryPermission,
-          entryNotes: form.entryNotes.trim() || undefined,
-          residentName: selectedResident.residentName,
-          residentEmail: selectedResident.residentEmail,
+          residentName: selectedResident?.residentName,
+          residentEmail: selectedResident?.residentEmail,
           photoDataUrls: photos.length > 0 ? photos : undefined,
           managerInitiated: true,
-          assignee: assignee ?? undefined,
+          assignee: assigned ?? undefined,
           // The legacy dispatch pair is written beside `assignee` so the vendor
           // portal keeps reading what it always read (see the row type's note).
-          ...(assignee?.type === "vendor"
-            ? { vendorId: assignee.id, vendorName: assignee.name, vendorAssignedAt: new Date().toISOString(), selfAssigned: false }
-            : assignee?.type === "team" && assignee.id === managerUserId
+          ...(assigned?.type === "vendor"
+            ? { vendorId: assigned.id, vendorName: assigned.name, vendorAssignedAt: new Date().toISOString(), selfAssigned: false }
+            : assigned?.type === "team" && assigned.id === managerUserId
               ? { selfAssigned: true }
               : {}),
-          tasks: taskRows.length ? taskRows : undefined,
           residentChargeCents: chargeCents ?? undefined,
           residentChargeId: charge?.id,
         };
         writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);
+        if (assigned) {
+          void createScheduledWorkTask(managerUserId, {
+            title: scheduledTaskTitleForService(title, selectedResident?.residentName),
+            propertyId,
+            propertyTitle: selectedProperty.propertyLabel,
+            roomLabel: roomLabel || undefined,
+            assignee: assigned,
+            notes: form.description.trim() || undefined,
+          });
+        }
+        if (selectedResident) {
         const notify = await deliverPortalInboxMessage({
           eventCategory: "maintenance",
           fromName: "Property Manager",
@@ -583,14 +501,17 @@ export function ManagerAddServiceModal({
         if (!notify.ok) {
           showToast("Service saved, but resident notification could not be sent.");
         }
+        }
+        if (!selectedResident) showToast("Service logged.");
         onSubmitted("open");
         await finishWithAssignment({
           kind: "maintenance",
           title,
           description: form.description.trim(),
           priority: form.priority,
-          residentName: selectedResident.residentName,
-          roomLabel: selectedResident.roomLabel,
+          residentName: selectedResident?.residentName,
+          roomLabel,
+          assigned,
         });
         return;
       }
@@ -610,7 +531,10 @@ export function ManagerAddServiceModal({
         showToast("Resident charge must be an amount like $80.");
         return;
       }
-      const taskRows = serviceTasksFromTitles(tasks);
+      if (isCustom && customChargeCents !== null && !selectedResident) {
+        showToast("Choose a resident to add a charge.");
+        return;
+      }
       const { mirrored } = await createServiceRequest({
         offerId: isCustom ? CUSTOM_SERVICE_REQUEST_OFFER_ID : selectedOffer!.id,
         offerName: isCustom ? form.title.trim() : selectedOffer!.name,
@@ -618,37 +542,39 @@ export function ManagerAddServiceModal({
         // A custom request the manager prices on the spot carries that price
         // like a catalog service does; its pending charge follows the same path.
         price: isCustom ? (customChargeCents !== null ? `$${(customChargeCents / 100).toFixed(2)}` : "") : requestPrice.trim(),
-        priceLimit: isCustom ? form.customPriceLimit.trim() || undefined : undefined,
         deposit: isCustom ? "" : requestDeposit.trim(),
-        residentEmail: selectedResident.residentEmail,
-        residentName: selectedResident.residentName,
+        residentEmail: selectedResident?.residentEmail ?? "",
+        residentName: selectedResident?.residentName ?? "",
         managerUserId,
         propertyId,
         returnByDate: "",
         notes: form.description.trim(),
-        assignee: assignee ?? undefined,
-        tasks: taskRows.length ? taskRows : undefined,
+        assignee: assigned ?? undefined,
       });
       if (!mirrored.ok) {
         showToast(mirrored.error || "Could not save service. Try again.");
         return;
       }
       const taskTitle = isCustom ? form.title.trim() : selectedOffer!.name;
-      void createScheduledWorkTask(managerUserId, {
-        title: scheduledTaskTitleForService(taskTitle, selectedResident.residentName),
-        propertyId,
-        propertyTitle: selectedResident.propertyLabel,
-        assignee: assignee ?? undefined,
-        notes: form.description.trim() || undefined,
-      });
-      showToast(`${taskTitle} created for ${selectedResident.residentName}.`);
+      if (assigned) {
+        void createScheduledWorkTask(managerUserId, {
+          title: scheduledTaskTitleForService(taskTitle, selectedResident?.residentName),
+          propertyId,
+          propertyTitle: selectedProperty.propertyLabel,
+          roomLabel: roomLabel || undefined,
+          assignee: assigned,
+          notes: form.description.trim() || undefined,
+        });
+      }
+      showToast(selectedResident ? `${taskTitle} created for ${selectedResident.residentName}.` : `${taskTitle} created.`);
       onSubmitted();
       await finishWithAssignment({
         kind: "add-on",
         title: taskTitle,
         description: form.description.trim(),
-        residentName: selectedResident.residentName,
-        roomLabel: selectedResident.roomLabel,
+        residentName: selectedResident?.residentName,
+        roomLabel,
+        assigned,
       });
     } finally {
       setBusy(false);
@@ -657,14 +583,20 @@ export function ManagerAddServiceModal({
 
   if (!open) return null;
 
-  const serviceTitle = form.title.trim() || selectedOffer?.name || "Service";
-  const whereIncomplete = !selectedResident;
+  const serviceTitle =
+    form.title.trim() ||
+    selectedOffer?.name ||
+    (selectedIntakeKind === "repair" ? serviceIntakeSuggestedTitle(findServiceIntakeOption(intakeOptions, form.optionKey), form.categoryLabel) : "") ||
+    "Service";
+  const whereIncomplete = !selectedProperty;
   const whatIncomplete = !form.optionKey;
   const steps: AddWorkspaceStep[] = [
     {
       id: "where",
       label: "Where",
-      summary: whereIncomplete ? "Property and resident" : `${selectedResident?.residentName} · ${selectedProperty?.propertyLabel ?? ""}`,
+      summary: whereIncomplete
+        ? "Property"
+        : [selectedProperty?.propertyLabel, roomLabel, selectedResident?.residentName].filter(Boolean).join(" · "),
       incomplete: whereIncomplete,
     },
     {
@@ -688,30 +620,25 @@ export function ManagerAddServiceModal({
         setStepIdx(index);
       }}
       onClose={onClose}
-      onRequestClose={() => {
-        if (assignmentPreview) {
-          if (assignmentBusy) return false;
-          setAssignmentPreview(null);
-          return false;
-        }
-        return true;
-      }}
-      dirty={Boolean(propertyId || residentEmail || form.description.trim() || photos.length)}
+      dirty={Boolean(propertyId || roomChoice || residentEmail || addTask || form.description.trim() || photos.length)}
       discardTitle="Discard this service?"
-      assistantContext="Log a service for a resident. Assignment messages wait until you assign someone."
+      assistantContext="Log a service. Assignment messages send when you assign someone."
       assistantScopeKey="Add service"
       sidePanel={
         <PreviewPanel
           title="Service"
           name={serviceTitle}
           facts={[
-            { label: "Resident", value: selectedResident?.residentName ?? "—", warn: !selectedResident },
             { label: "Property", value: selectedProperty?.propertyLabel ?? "—", warn: !selectedProperty },
+            { label: "Room", value: roomLabel || "—" },
+            { label: "Resident", value: selectedResident?.residentName ?? "—" },
             { label: "Priority", value: form.priority },
           ]}
           creates={[
             { tone: "yes", text: selectedResident ? `Logged service for ${selectedResident.residentName}` : "Logged service" },
-            { tone: "no", text: "No assignment message until you assign" },
+            activeAssignee
+              ? { tone: "yes", text: `Assignment message to ${activeAssignee.name}` }
+              : { tone: "no", text: "No assignment message until you assign" },
           ]}
         />
       }
@@ -720,7 +647,7 @@ export function ManagerAddServiceModal({
       nextDisabled={(stepId === "where" && whereIncomplete) || (stepId === "what" && whatIncomplete)}
       onBeforeNext={() => {
         if (stepId === "where" && whereIncomplete) {
-          setStepError(propertyOptions.length === 0 ? "Add a property first." : "Select a property and resident.");
+          setStepError(propertyOptions.length === 0 ? "Add a property first." : "Select a property.");
           return false;
         }
         if (stepId === "what" && whatIncomplete) {
@@ -735,49 +662,33 @@ export function ManagerAddServiceModal({
       dataAttrPrefix="manager-add-service"
       finishDataAttr="manager-add-service-save"
       footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
-      overlay={
-        assignmentPreview ? (
-          <PortalNotificationPreviewModal
-            open
-            title={`Message ${assignmentPreview.contact.name}`}
-            onClose={() => {
-              if (assignmentBusy) return;
-              setAssignmentPreview(null);
-            }}
-            recipient={assignmentPreview.contact.email}
-            recipientPhone={assignmentPreview.contact.phone}
-            subject={assignmentPreview.subject}
-            body={assignmentPreview.body}
-            editableSubject
-            editableBody
-            skipMessageLabel="Skip message"
-            showChannelPicker
-            emailAvailable
-            smsAvailable={Boolean(assignmentPreview.contact.phone)}
-            defaultViaSms={false}
-            confirmLabel="Send"
-            confirmBusy={assignmentBusy}
-            confirmBusyLabel="Sending…"
-            onConfirm={(skip, channels, draft) => void sendAssignmentPreview(skip, channels, draft)}
-          />
-        ) : null
-      }
     >
       {stepId === "where" ? (
         <StepColumn>
-          <StepHeading title="Property and resident" />
+          <StepHeading title="Where" />
           {propertyOptions.length === 0 ? (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border px-4 py-8">
               <p className="text-[16px] font-bold">No properties</p>
             </div>
           ) : lockedResident ? (
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <p className="text-[15px] font-bold text-foreground">
-                {lockedResident.residentName}
-                {lockedResident.roomLabel ? ` · ${lockedResident.roomLabel}` : ""}
-              </p>
-              <p className="mt-1 text-[13px] font-semibold text-foreground">{lockedResident.propertyLabel}</p>
-            </div>
+            <>
+              <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                <p className="text-[15px] font-bold text-foreground">
+                  {lockedResident.residentName}
+                  {lockedResident.roomLabel ? ` · ${lockedResident.roomLabel}` : ""}
+                </p>
+                <p className="mt-1 text-[13px] font-semibold text-foreground">{lockedResident.propertyLabel}</p>
+              </div>
+              <WizardSelect
+                label="Room"
+                value={roomChoice}
+                onChange={setRoomChoice}
+                options={[{ value: "", label: "None" }, ...roomOptions]}
+                placeholder={roomOptions.length === 0 ? "No empty rooms" : "Optional"}
+                disabled={busy}
+                dataAttr="manager-service-intake-room"
+              />
+            </>
           ) : (
             <>
               <WizardSelect
@@ -786,6 +697,7 @@ export function ManagerAddServiceModal({
                 onChange={(value) => {
                   setPropertyId(value);
                   setResidentEmail("");
+                  setRoomChoice("");
                 }}
                 options={propertyOptions.map((property) => ({
                   value: property.propertyId,
@@ -796,14 +708,32 @@ export function ManagerAddServiceModal({
                 disabled={busy}
               />
               <WizardSelect
+                label="Room"
+                value={roomChoice}
+                onChange={setRoomChoice}
+                options={[{ value: "", label: "None" }, ...roomOptions]}
+                placeholder={!propertyId ? "Select property first" : roomOptions.length === 0 ? "No empty rooms" : "Optional"}
+                disabled={busy || !propertyId}
+                dataAttr="manager-service-intake-room"
+              />
+              <WizardSelect
                 label="Resident"
                 value={residentEmail}
-                onChange={setResidentEmail}
-                options={residentsForProperty.map((resident) => ({
-                  value: resident.residentEmail,
-                  label: resident.roomLabel ? `${resident.residentName} · ${resident.roomLabel}` : resident.residentName,
-                }))}
-                placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Select resident"}
+                onChange={(value) => {
+                  setResidentEmail(value);
+                  const resident = residentsForProperty.find((row) => row.residentEmail === value);
+                  if (resident?.assignedRoomChoice && !roomChoice) {
+                    setRoomChoice(resident.assignedRoomChoice);
+                  }
+                }}
+                options={[
+                  { value: "", label: "None" },
+                  ...residentsForProperty.map((resident) => ({
+                    value: resident.residentEmail,
+                    label: resident.roomLabel ? `${resident.residentName} · ${resident.roomLabel}` : resident.residentName,
+                  })),
+                ]}
+                placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Optional"}
                 disabled={busy || !propertyId}
                 dataAttr="manager-service-intake-resident"
               />
@@ -866,7 +796,16 @@ export function ManagerAddServiceModal({
               />
             }
           />
-          <ServiceTasksField tasks={tasks} onChange={setTasks} disabled={busy} dataAttr="manager-add-service-task" />
+          <ServiceTasksField
+            enabled={addTask}
+            onEnabledChange={setAddTask}
+            assignee={assignee}
+            onAssigneeChange={setAssignee}
+            teamMembers={teamMembers}
+            vendors={vendors}
+            disabled={busy}
+            dataAttr="manager-add-service-task"
+          />
           {selectedOffer ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <WizardField label="Price">
@@ -897,9 +836,11 @@ export function ManagerAddServiceModal({
             title="Service"
             name={serviceTitle}
             facts={[
-              { label: "Resident", value: selectedResident?.residentName ?? "—" },
               { label: "Property", value: selectedProperty?.propertyLabel ?? "—" },
+              { label: "Room", value: roomLabel || "—" },
+              { label: "Resident", value: selectedResident?.residentName ?? "—" },
               { label: "Priority", value: form.priority },
+              { label: "Assignee", value: activeAssignee?.name ?? "—" },
             ]}
             creates={[{ tone: "yes", text: "Logs a manager-initiated service" }]}
           />

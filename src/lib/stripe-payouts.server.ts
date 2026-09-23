@@ -25,6 +25,11 @@ import {
   type VendorPayoutCandidate,
 } from "@/lib/stripe-payouts";
 import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
+import {
+  availableCentsFromHoldAndStripe,
+  payoutsAvailableNote,
+} from "@/lib/stripe-platform-hold";
+import { listPlatformHoldsForOwner, sumHeldCentsForOwner } from "@/lib/stripe-platform-hold.server";
 
 const CURRENCY = "usd";
 
@@ -44,6 +49,9 @@ export type PayoutSnapshot = {
   instantAvailableCents: number;
   pendingCents: number;
   onTheWayCents: number;
+  heldCents: number;
+  withdrawableCents: number;
+  availableNote: string;
   bank: PayoutBankInfo | null;
   schedule: PayoutScheduleWithNext;
   setup: PayoutSetupState;
@@ -57,6 +65,9 @@ export function emptyPayoutSnapshot(): PayoutSnapshot {
     instantAvailableCents: 0,
     pendingCents: 0,
     onTheWayCents: 0,
+    heldCents: 0,
+    withdrawableCents: 0,
+    availableNote: "",
     bank: null,
     schedule: { interval: "weekly", weeklyAnchor: "friday", nextPayoutAt: null },
     setup: { identity: "needed", bank: "needed", ready: false },
@@ -377,20 +388,65 @@ export async function readPayoutSnapshot(
   const setup = resolvePayoutsReadiness(account);
 
   const schedule = fromStripePayoutSchedule(account.settings?.payouts?.schedule ?? null);
-  const availableCents = currencyAmount(balance.available, CURRENCY);
+  const stripeAvailableCents = currencyAmount(balance.available, CURRENCY);
   const nextPayoutAt = computeNextPayoutDate(schedule);
+  const heldCents = await sumHeldCentsForOwner(db, opts.ownerUserId).catch(() => 0);
+  const holdHistory = await holdHistoryItems(db, opts.ownerUserId).catch(() => []);
+  const bankLabel = bank ? `${bank.bankName ?? "Bank"} ··${bank.last4}` : null;
 
   return {
     currency: CURRENCY,
-    availableCents,
+    availableCents: availableCentsFromHoldAndStripe(heldCents, stripeAvailableCents),
     instantAvailableCents: currencyAmount(balance.instant_available, CURRENCY),
     pendingCents: currencyAmount(balance.pending, CURRENCY),
     onTheWayCents,
+    heldCents,
+    withdrawableCents: stripeAvailableCents,
+    availableNote: payoutsAvailableNote({ ready: setup.ready, heldCents, bankLabel }),
     bank,
     schedule: { ...schedule, nextPayoutAt },
     setup,
-    history,
+    history: [...holdHistory, ...history],
   };
+}
+
+export async function snapshotWithPlatformHolds(
+  db: SupabaseClient,
+  ownerUserId: string,
+  base: PayoutSnapshot = emptyPayoutSnapshot(),
+): Promise<PayoutSnapshot> {
+  const heldCents = await sumHeldCentsForOwner(db, ownerUserId).catch(() => 0);
+  const holdHistory = await holdHistoryItems(db, ownerUserId).catch(() => []);
+  return {
+    ...base,
+    availableCents: availableCentsFromHoldAndStripe(heldCents, base.withdrawableCents),
+    heldCents,
+    availableNote: payoutsAvailableNote({ ready: base.setup.ready, heldCents }),
+    history: [...holdHistory, ...base.history],
+  };
+}
+
+async function holdHistoryItems(db: SupabaseClient, ownerUserId: string): Promise<PayoutHistoryItem[]> {
+  const rows = await listPlatformHoldsForOwner(db, ownerUserId);
+  return rows.map((row) => ({
+    id: `hold:${row.id}`,
+    amountCents: row.amountCents,
+    feeCents: 0,
+    netCents: row.amountCents,
+    method: "standard" as const,
+    status: row.status === "held" ? "pending" : row.status === "refunded" ? "canceled" : "paid",
+    destinationLast4: "",
+    createdAt: row.createdAt ?? new Date().toISOString(),
+    arrivalDate: null,
+    initiatedInApp: false,
+    failureMessage: null,
+    serviceLabel:
+      row.status === "transferred"
+        ? "Moved from PropLane"
+        : row.status === "held"
+          ? "Held"
+          : "Refunded hold",
+  }));
 }
 
 export type CreateInAppPayoutResult =

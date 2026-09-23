@@ -60,6 +60,9 @@ export type PortalPayoutBalance = {
   instantAvailableCents: number;
   pendingCents: number;
   onTheWayCents: number;
+  heldCents?: number;
+  withdrawableCents?: number;
+  availableNote?: string;
   bank: PortalPayoutBank | null;
   schedule: {
     interval: PortalPayoutScheduleInterval;

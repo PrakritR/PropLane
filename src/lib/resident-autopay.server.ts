@@ -17,7 +17,8 @@ import {
   resolveHouseholdChargeFeePayer,
 } from "@/lib/stripe-household-charge-checkout.server";
 import { residentServiceFeeBreakdown, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
-import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
+import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
+import { creditHoldFromPaymentIntent } from "@/lib/stripe-platform-hold.server";
 import { getStripe } from "@/lib/stripe";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import { loadManagerAutomationSettings, DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
@@ -405,11 +406,7 @@ export async function chargeAutopay(
   const { feePayer } = feePayerResolved;
 
   const stripe = getStripe();
-  const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
-  if (!connect.ok) {
-    await fail(connect.error);
-    return { ok: false, reason: connect.error };
-  }
+  const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, managerUserId);
 
   const { data: profile } = await db
     .from("profiles")
@@ -448,6 +445,7 @@ export async function chargeAutopay(
   }
 
   try {
+    const holdPath = !destinationAccountId;
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount: fee.totalCents,
@@ -456,8 +454,8 @@ export async function chargeAutopay(
         payment_method: run.paymentMethodId,
         off_session: true,
         confirm: true,
-        transfer_data: { destination: connect.accountId },
-        ...(fee.applicationFeeCents > 0 ? { application_fee_amount: fee.applicationFeeCents } : {}),
+        ...(destinationAccountId ? { transfer_data: { destination: destinationAccountId } } : {}),
+        ...(!holdPath && fee.applicationFeeCents > 0 ? { application_fee_amount: fee.applicationFeeCents } : {}),
         metadata: {
           purpose: HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE,
           autopay_run_id: run.id,
@@ -467,6 +465,8 @@ export async function chargeAutopay(
           resident_email: run.residentEmail.trim().toLowerCase(),
           payment_method: method,
           fee_payer: feePayer,
+          manager_payout_cents: String(fee.managerPayoutCents),
+          ...(holdPath ? { platform_hold: "1", hold_amount_cents: String(fee.managerPayoutCents) } : {}),
         },
       },
       { idempotencyKey: `autopay:${run.id}:${attempt}` },
@@ -478,6 +478,7 @@ export async function chargeAutopay(
     // paid charge.
     if (paymentIntent.status === "succeeded") {
       await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, run.chargeId);
+      await creditHoldFromPaymentIntent(db, paymentIntent).catch(() => undefined);
       await updateRun(db, run.id, { status: "succeeded", stripePaymentIntentId: paymentIntent.id });
     }
     return { ok: true, paymentIntentId: paymentIntent.id };

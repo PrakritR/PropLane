@@ -6,6 +6,7 @@ import {
 } from "@/lib/payment-policy";
 
 export const APPLICATION_FEE_CHECKOUT_PURPOSE = "rental_application_fee";
+export const VENDOR_INVOICE_PAY_PURPOSE = "vendor_invoice_pay";
 
 export type AxisAchCheckoutMode = "embedded" | "hosted";
 
@@ -32,7 +33,12 @@ export type AxisAchCheckoutInput = {
   successUrl?: string;
   cancelUrl?: string;
   mode: AxisAchCheckoutMode;
-  destinationAccountId: string;
+  /**
+   * Connected account to destination-charge. Omit when Connect + bank is not
+   * ready — the session charges the platform and metadata.platform_hold=1
+   * so the webhook credits a hold.
+   */
+  destinationAccountId?: string | null;
   paymentMethod?: ResidentAxisPaymentMethod;
   managerTier?: string | null;
   /**
@@ -249,21 +255,28 @@ export async function createAxisAchCheckoutSession(
   }
 
   const residentEmail = input.residentEmail.trim().toLowerCase();
+  const destinationAccountId = input.destinationAccountId?.trim() || "";
+  const holdPath = !destinationAccountId;
   const paymentIntentData: {
-    transfer_data: { destination: string };
+    transfer_data?: { destination: string };
     metadata: Record<string, string>;
     application_fee_amount?: number;
   } = {
-    transfer_data: { destination: input.destinationAccountId },
     metadata: {
       ...input.metadata,
       payment_method: paymentMethod,
       manager_tier: input.managerTier?.trim().toLowerCase() || "free",
       fee_payer: feePayer,
+      ...(holdPath
+        ? { platform_hold: "1", hold_amount_cents: String(managerPayoutCents) }
+        : {}),
     },
   };
-  if (applicationFeeAmount > 0) {
-    paymentIntentData.application_fee_amount = applicationFeeAmount;
+  if (!holdPath) {
+    paymentIntentData.transfer_data = { destination: destinationAccountId };
+    if (applicationFeeAmount > 0) {
+      paymentIntentData.application_fee_amount = applicationFeeAmount;
+    }
   }
 
   const stripeLineItems: {
@@ -306,10 +319,13 @@ export async function createAxisAchCheckoutSession(
 
   const totalCents = subtotalCents + processingFeeCents + axisFeeCents;
 
-  // Hard money invariant, checked against the numbers actually sent to Stripe:
-  // whatever the payer is charged, minus whatever PropLane retains, must equal
-  // what the manager is owed — in every fee-payer case.
-  if (totalCents !== fee.totalCents || totalCents - applicationFeeAmount !== managerPayoutCents) {
+  // Hard money invariant, checked against the numbers actually sent to Stripe.
+  // Destination: payer total minus retained fee equals the recipient payout.
+  // Hold: no application_fee_amount — Stripe's cost stays on the platform charge.
+  if (totalCents !== fee.totalCents) {
+    throw new Error("Checkout total does not reconcile with the manager payout.");
+  }
+  if (!holdPath && totalCents - applicationFeeAmount !== managerPayoutCents) {
     throw new Error("Checkout total does not reconcile with the manager payout.");
   }
 
@@ -330,6 +346,7 @@ export async function createAxisAchCheckoutSession(
       axis_fee_cents: String(axisFeeCents),
       service_fee_cents: String(fee.serviceFeeCents),
       manager_payout_cents: String(managerPayoutCents),
+      ...(holdPath ? { platform_hold: "1", hold_amount_cents: String(managerPayoutCents) } : {}),
     },
     payment_intent_data: paymentIntentData,
   };

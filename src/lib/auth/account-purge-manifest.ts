@@ -262,6 +262,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
   },
   {
+    table: "platform_payment_holds",
+    phase: 1,
+    manager: { ids: ["owner_user_id"], preserveFinancial: true },
+    vendor: { ids: ["owner_user_id"], preserveFinancial: true },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

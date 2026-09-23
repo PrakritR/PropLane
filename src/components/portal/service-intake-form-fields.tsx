@@ -53,9 +53,9 @@ export function createEmptyServiceIntakeFormState(
 
 /**
  * Who is filling the form in. The resident form asks in the resident's own
- * words ("Can maintenance enter if you're not home?"); the manager logging a
- * service on a resident's behalf is not the resident, so the manager voice
- * drops those two fields and keeps the access notes.
+ * words ("Can maintenance enter if you're not home?"). The manager logging a
+ * service drops Title, Access notes, arrival, and Price limit — maintenance
+ * title is the category line; custom add-on keeps Title + Resident charge.
  */
 export type ServiceIntakeVoice = "resident" | "manager";
 
@@ -184,7 +184,7 @@ export function ServiceIntakeFormFields({
         </div>
       ) : null}
 
-      {isRepair || isCustomAddOn ? (
+      {(isCustomAddOn || (isRepair && !managerVoice)) ? (
         <div>
           <p className="mb-1 text-[11px] font-medium text-muted">
             Title <span className="text-rose-500">*</span>
@@ -222,7 +222,7 @@ export function ServiceIntakeFormFields({
         />
       </div>
 
-      {isCustomAddOn ? (
+      {isCustomAddOn && !managerVoice ? (
         <div>
           <p className="mb-1 text-[11px] font-medium text-muted">
             Price limit <span className="text-rose-500">*</span>
@@ -268,20 +268,18 @@ export function ServiceIntakeFormFields({
                   ))}
                 </Select>
               </div>
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Entry notes (gate code, pets, parking…)</p>
+                <Input
+                  value={form.entryNotes}
+                  onChange={(e) => onChange({ entryNotes: e.target.value })}
+                  placeholder="Optional"
+                  className="bg-card"
+                  disabled={disabled}
+                />
+              </div>
             </>
           )}
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">
-              {managerVoice ? "Access notes (gate code, pets, parking…)" : "Entry notes (gate code, pets, parking…)"}
-            </p>
-            <Input
-              value={form.entryNotes}
-              onChange={(e) => onChange({ entryNotes: e.target.value })}
-              placeholder="Optional"
-              className="bg-card"
-              disabled={disabled}
-            />
-          </div>
           {photoSlot}
         </>
       ) : null}

@@ -779,11 +779,9 @@ export function ResidentPaymentsPanel({
           totalCents?: number;
         };
         if (!res.ok) {
-          // The server already answers 422 MANAGER_NO_CONNECT_ACCOUNT when the
-          // manager never finished onboarding — that code exists so this screen
-          // can say something useful, and nothing read it. Rendering
-          // `payload.error` raw showed a resident a server string for a bill the
-          // product had just told them they could pay.
+          // Checkout still completes when the manager has no bank — that
+          // path is a platform hold. These codes remain for stale Connect
+          // accounts and other refusals; never render `payload.error` raw.
           const copy = paymentFailureCopy({
             code: payload.code,
             status: res.status,

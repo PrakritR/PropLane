@@ -146,6 +146,7 @@ export function ManagerOutgoingPaymentDetail({
       });
       const data = (await res.json()) as {
         workOrder?: DemoManagerWorkOrderRow;
+        checkoutUrl?: string;
         error?: string;
         code?: string;
         existingPayout?: ExistingVendorPayoutSummary | null;
@@ -159,6 +160,10 @@ export function ManagerOutgoingPaymentDetail({
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Could not complete payment.");
+      if (typeof data.checkoutUrl === "string" && data.checkoutUrl) {
+        window.location.assign(data.checkoutUrl);
+        return;
+      }
       if (data.workOrder) updateManagerWorkOrder(workOrder.id, () => data.workOrder as DemoManagerWorkOrderRow);
       void syncManagerWorkOrdersFromServer();
       showToast("Approved and paid through PropLane.");

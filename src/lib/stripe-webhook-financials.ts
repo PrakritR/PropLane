@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { connectAccountTransfersActive } from "@/lib/stripe-connect";
+import { connectAccountReadyForAchPayouts, connectAccountTransfersActive } from "@/lib/stripe-connect";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
 import { identityStatusFromAccount } from "@/lib/stripe-connect-identity.server";
 import { createNsfFeeForFailedPayment, nsfFeeIdForCharge } from "@/lib/nsf-fees";
@@ -13,6 +13,7 @@ import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
 import { notifyAutopayDeclined, runAttempt } from "@/lib/resident-autopay.server";
+import { creditHoldFromPaymentIntent, refundPlatformHoldByChargeId, transferHoldsForOwner } from "@/lib/stripe-platform-hold.server";
 import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
@@ -77,6 +78,15 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
     },
     { onConflict: "owner_user_id" },
   );
+
+  if (connectAccountReadyForAchPayouts(account)) {
+    await transferHoldsForOwner(db, {
+      ownerUserId: targetId,
+      destinationAccountId: account.id,
+    }).catch((e) => {
+      console.error("[stripe webhook] platform hold drain", e);
+    });
+  }
 }
 
 export async function handleStripeTransferCreated(db: SupabaseClient, transfer: Stripe.Transfer): Promise<void> {
@@ -297,6 +307,9 @@ export async function handleStripeRefund(
   refund: Stripe.Refund,
   stripeChargeId: string,
 ): Promise<void> {
+  await refundPlatformHoldByChargeId(db, stripeChargeId).catch((e) => {
+    console.error("[stripe webhook] refund platform hold", e);
+  });
   const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId);
   if (!payment?.source_charge_id || !payment.manager_user_id) return;
   if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "refund")) return;
@@ -396,6 +409,9 @@ export async function handleAutopayPaymentIntentSucceeded(
   if (!runId || !chargeId) return;
 
   await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, chargeId);
+  await creditHoldFromPaymentIntent(db, paymentIntent).catch((e) => {
+    console.error("[stripe webhook] autopay platform hold", e);
+  });
 
   await db
     .from("resident_autopay_runs")

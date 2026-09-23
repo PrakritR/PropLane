@@ -62,11 +62,12 @@ it("resident: room sections, photo upload from the section, autosave, submit", a
   for (const gone of [/^Refresh$/, /^Reload$/, /^Save$/, /^Search$/]) {
     expect(screen.queryByRole("button", { name: gone })).toBeNull();
   }
-  // Every section carries its own camera AND its own checkbox, so one tap shoots and a tick
-  // gathers several sections into one action.
-  expect(screen.getAllByRole("checkbox")).toHaveLength(8);
-  expect(screen.getAllByRole("button", { name: /^Add photos to / })).toHaveLength(8);
-  writeEvidenceSurface("inspection-01-room-sections", "Resident · Inspections · assigned room sections only, each row with a checkbox and its own camera. Pinned bottom actions: Download PDF, Add photos, Submit photos.", 150);
+  // Rows have a ⋯ menu for Add photos — no checkboxes, no per-row cameras, no footer.
+  expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  expect(screen.queryByRole("button", { name: /^Add photos to / })).toBeNull();
+  expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(8);
+  expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
+  writeEvidenceSurface("inspection-01-room-sections", "Resident · Inspections · assigned room sections only, each row with ⋯ for Add photos. Header icons: Add photos, Download PDF. Submit photos sits with the status actions, not a footer.", 150);
 
   fireEvent.click(sectionRow("Room overview"));
 
@@ -129,7 +130,7 @@ it("offers no review ritual, and the resident submit never closes the manager's 
     expect(screen.queryByRole("button", { name: gone })).toBeNull();
   }
   expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
-  writeEvidenceSurface("inspection-04-resident-photos-only", "Resident · a report with saved photos and notes — the pinned footer holds Add photos and View document, and nothing else. No submit, no confirmation.", 150);
+  writeEvidenceSurface("inspection-04-resident-photos-only", "Resident · a report with saved photos and notes — header icons hold Add photos and Download PDF. No review ritual.", 150);
   cleanup();
 
   // The manager opens the SAME report: reads the resident's evidence, adds their own.

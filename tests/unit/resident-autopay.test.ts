@@ -21,9 +21,13 @@ vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({
   resolveHouseholdChargeFeePayer: (...args: unknown[]) => resolveHouseholdChargeFeePayer(...args),
 }));
 
-const resolveAndValidateManagerConnectForPayments = vi.fn();
+const resolveConnectDestinationIfReady = vi.fn();
 vi.mock("@/lib/stripe-connect", () => ({
-  resolveAndValidateManagerConnectForPayments: (...args: unknown[]) => resolveAndValidateManagerConnectForPayments(...args),
+  resolveConnectDestinationIfReady: (...args: unknown[]) => resolveConnectDestinationIfReady(...args),
+}));
+
+vi.mock("@/lib/stripe-platform-hold.server", () => ({
+  creditHoldFromPaymentIntent: vi.fn().mockResolvedValue({ credited: false }),
 }));
 
 const paymentIntentsCreate = vi.fn();
@@ -381,7 +385,7 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
       loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
     });
     resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
-    resolveAndValidateManagerConnectForPayments.mockResolvedValue({ ok: true, accountId: "acct_123" });
+    resolveConnectDestinationIfReady.mockResolvedValue("acct_123");
     paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
     paymentIntentsCreate.mockResolvedValue({ id: "pi_123", status: "succeeded" });
 
@@ -427,7 +431,7 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
       loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
     });
     resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
-    resolveAndValidateManagerConnectForPayments.mockResolvedValue({ ok: true, accountId: "acct_123" });
+    resolveConnectDestinationIfReady.mockResolvedValue("acct_123");
     paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
     paymentIntentsCreate.mockResolvedValue({ id: "pi_456", status: "processing" });
 
@@ -447,7 +451,7 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(paymentIntentsCreate.mock.calls[0][1]).toEqual({ idempotencyKey: "autopay:run_1:2" });
   });
 
-  it("fails the run and records a reason when the manager has no ready Connect account", async () => {
+  it("charges the platform (hold) when the manager has no ready Connect account", async () => {
     const rentCharge = charge();
     loadHouseholdChargesForCheckout.mockResolvedValue({
       ok: true,
@@ -455,13 +459,11 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
       loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
     });
     resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
-    resolveAndValidateManagerConnectForPayments.mockResolvedValue({
-      ok: false,
-      code: "NO_ACCOUNT",
-      error: "This property manager has not connected Stripe payouts yet.",
-    });
+    resolveConnectDestinationIfReady.mockResolvedValue(null);
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
+    paymentIntentsCreate.mockResolvedValue({ id: "pi_hold", status: "succeeded" });
 
-    const { db, runs } = makeFakeDb({
+    const { db } = makeFakeDb({
       resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "claimed", updated_at: new Date().toISOString() }],
       profiles: { res_1: { stripe_customer_id: "cus_1" } },
     });
@@ -475,9 +477,11 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
       paymentMethodId: "pm_bank_1",
     });
 
-    expect(result.ok).toBe(false);
-    expect(paymentIntentsCreate).not.toHaveBeenCalled();
-    expect(runs.find((r) => r.id === "run_1")?.status).toBe("failed");
+    expect(result.ok).toBe(true);
+    const args = paymentIntentsCreate.mock.calls[0][0];
+    expect(args.transfer_data).toBeUndefined();
+    expect(args.application_fee_amount).toBeUndefined();
+    expect(args.metadata.platform_hold).toBe("1");
   });
 });
 

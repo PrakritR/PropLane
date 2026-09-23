@@ -20,7 +20,7 @@ import {
   APPLICATION_FEE_CHECKOUT_PURPOSE,
   createAxisAchCheckoutSession,
 } from "@/lib/stripe-axis-ach-checkout";
-import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
+import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { loadWorkspacePaymentSettingsForProperty } from "@/lib/workspace-payment-settings.server";
 import {
   listingPaymentWaiverCodeMatchesServer,
@@ -268,15 +268,7 @@ export async function createApplicationFeeCheckout(
     };
   }
 
-  const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
-  if (!connect.ok) {
-    return {
-      ok: false,
-      status: 422,
-      code: connect.code === "NO_ACCOUNT" ? "MANAGER_NO_CONNECT_ACCOUNT" : "MANAGER_CONNECT_TRANSFERS_NOT_READY",
-      error: connect.error,
-    };
-  }
+  const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, managerUserId);
 
   const itemization = await resolveApplicationFeeItemization(
     db,
@@ -302,7 +294,7 @@ export async function createApplicationFeeCheckout(
     productDescription: `Listing ${input.propertyId.slice(0, 120)}`,
     metadata,
     mode,
-    destinationAccountId: connect.accountId,
+    destinationAccountId,
     managerTier: itemization.managerTier,
     feePayer: itemization.feePayer,
     // Card method-class → Stripe Checkout surfaces Apple Pay / Google Pay on

@@ -3,7 +3,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { emptyPayoutSnapshot, readPayoutSnapshot, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
+import { emptyPayoutSnapshot, readPayoutSnapshot, snapshotWithPlatformHolds, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
 
@@ -21,7 +21,7 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const accountId = await resolveManagerConnectAccountId(db, access.actor.userId);
     if (!accountId) {
-      return NextResponse.json(emptyPayoutSnapshot());
+      return NextResponse.json(await snapshotWithPlatformHolds(db, access.actor.userId));
     }
 
     try {

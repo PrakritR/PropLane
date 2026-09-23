@@ -18,6 +18,8 @@ import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-se
 const readyBalance = {
   currency: "usd",
   availableCents: 428_000,
+  withdrawableCents: 428_000,
+  heldCents: 0,
   instantAvailableCents: 115_000,
   pendingCents: 240_000,
   onTheWayCents: 310_000,
@@ -165,6 +167,20 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
 
 describe("PortalPayoutsSettingsPage — not-ready state", () => {
   beforeEach(() => stubFetch(notReadyBalance));
+
+  it("keeps Withdraw off when Available is only a platform hold", async () => {
+    stubFetch({
+      ...notReadyBalance,
+      availableCents: 124_000,
+      heldCents: 124_000,
+      withdrawableCents: 0,
+      availableNote: "Held on PropLane until a bank is connected",
+    });
+    render(<PortalPayoutsSettingsPage portal="manager" />);
+    await screen.findByText("$1,240.00");
+    expect(screen.getByText("Held on PropLane until a bank is connected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
+  });
 
   it("shows the Set up rows and a disabled Withdraw button", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);

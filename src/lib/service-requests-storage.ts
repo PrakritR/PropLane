@@ -102,6 +102,7 @@ function resolvePropertyLabel(propertyId: string): string {
 function ensureServiceRequestPendingCharge(row: ServiceRequest): string | undefined {
   const serviceAmount = toPositiveDollarAmount(row.price);
   if (!serviceAmount) return row.serviceChargeId;
+  if (!row.residentEmail.trim().includes("@")) return row.serviceChargeId;
 
   const propertyLabel = resolvePropertyLabel(row.propertyId);
   const title = `${row.offerName} service fee`;

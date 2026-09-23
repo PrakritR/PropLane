@@ -15,12 +15,15 @@ vi.mock("@/lib/stripe-axis-ach-checkout", async () => {
 
 vi.mock("@/lib/manager-access-server", () => ({ getManagerPurchaseSku: vi.fn() }));
 vi.mock("@/lib/manager-manual-payment-settings", () => ({ loadManagerManualPaymentSettings: vi.fn() }));
-vi.mock("@/lib/stripe-connect", () => ({ resolveAndValidateManagerConnectForPayments: vi.fn() }));
+vi.mock("@/lib/stripe-connect", () => ({
+  resolveAndValidateManagerConnectForPayments: vi.fn(),
+  resolveConnectDestinationIfReady: vi.fn(),
+}));
 
 import { createAxisAchCheckoutSession } from "@/lib/stripe-axis-ach-checkout";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
-import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
+import { resolveAndValidateManagerConnectForPayments, resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { createApplicationFeeCheckout } from "@/lib/application-fee-checkout.server";
 
 function makeDb(): SupabaseClient {
@@ -57,6 +60,7 @@ describe("createApplicationFeeCheckout — inline (embedded) by default", () => 
       ok: true,
       accountId: "acct_1",
     } as never);
+    vi.mocked(resolveConnectDestinationIfReady).mockResolvedValue("acct_1");
     vi.mocked(createAxisAchCheckoutSession).mockReset();
   });
 
