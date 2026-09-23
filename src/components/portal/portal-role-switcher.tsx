@@ -26,8 +26,8 @@ export function PortalRoleSwitcher({
     void fetch("/api/auth/portal-roles", { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) return;
-        const body = (await res.json()) as { roles?: AuthRole[] };
-        const roles = body.roles ?? [];
+        const body = (await res.json()) as { roles?: AuthRole[]; reachableRoles?: AuthRole[] };
+        const roles = body.reachableRoles ?? body.roles ?? [];
         setTargets(portalSwitchTargets(currentKind, roles));
       })
       .catch(() => {});

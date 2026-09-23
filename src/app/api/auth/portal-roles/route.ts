@@ -10,11 +10,12 @@ export async function GET() {
     if (!ctx.user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
-    // Only expose portals the account may actually enter in this runtime, so the
-    // portal switch and choose-portal chooser never offer a blocked crossing
-    // (e.g. a production admin identity into the manager/property portal).
+    // `roles` = membership (what the account holds — use for add-portal filtering).
+    // `reachableRoles` = portals the account may enter right now (chooser / switcher).
+    const reachable = reachablePortalRoles(ctx) as AuthRole[];
     return NextResponse.json({
-      roles: reachablePortalRoles(ctx) as AuthRole[],
+      roles: ctx.roles as AuthRole[],
+      reachableRoles: reachable,
       effectiveRole: ctx.effectiveRole,
     });
   } catch (e) {

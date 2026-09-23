@@ -79,6 +79,7 @@ function GetStartedContent() {
             setResolving(false);
             return;
           }
+          // Membership roles — filter what can still be added (not reachable-only).
           setExistingRoles(body.roles ?? []);
           setResolving(false);
         } catch {

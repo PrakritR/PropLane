@@ -32,10 +32,8 @@ describe("add portal picker", () => {
   });
 
   it("never offers the manager card to an account already holding manager and admin", () => {
-    // Roles here mirror what /api/auth/portal-roles returns for an admin who
-    // also holds the manager role (see founder-property-portal-block.test.ts):
-    // reachablePortalRoles includes "manager" for them, so this account must
-    // not be offered the manager card again.
+    // Membership from /api/auth/portal-roles `roles` — held manager must hide
+    // the add card even when the account also has admin.
     const filtered = filterAddablePortalPickerOptions(["admin", "manager"]);
     expect(filtered.some((opt) => opt.id === "manager")).toBe(false);
     expect(filtered.map((opt) => opt.id)).toEqual(["resident", "vendor"]);

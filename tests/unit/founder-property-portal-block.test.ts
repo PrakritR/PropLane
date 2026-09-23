@@ -17,7 +17,7 @@ function ctx(roles: AuthRole[], email = "staff@prop-lane.space"): PortalAccessCo
   };
 }
 
-describe("founder/admin cannot reach the property portal in production", () => {
+describe("any held portal is reachable (admin→manager block lifted)", () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
@@ -29,22 +29,19 @@ describe("founder/admin cannot reach the property portal in production", () => {
       process.env = { ...originalEnv, NODE_ENV: "production", VERCEL_ENV: "production" };
     });
 
-    it("still blocks an admin-only identity from the manager/property portal", () => {
+    it("does not block an admin-only identity from adding/reaching manager once held", () => {
       const account = ctx(["admin"]);
-      expect(adminBlockedFromManagerPortal(account)).toBe(true);
-      // Switch/route authorization decision — must refuse manager.
+      expect(adminBlockedFromManagerPortal(account)).toBe(false);
+      // No manager membership yet — still unreachable until provisioned.
       expect(isPortalRoleReachable(account, "manager")).toBe(false);
-      // The portal switch + choose-portal chooser never offer the property portal.
       expect(reachablePortalRoles(account)).toEqual(["admin"]);
     });
 
-    it("still blocks a non-primary admin who also holds the manager role — that role is self-grantable", () => {
-      // An admin can add `manager` via get-started "Set up as a property
-      // manager", so the production control must key on admin, not manager.
+    it("lets a non-primary admin who holds manager enter the property portal", () => {
       const account = ctx(["admin", "manager"]);
-      expect(adminBlockedFromManagerPortal(account)).toBe(true);
-      expect(isPortalRoleReachable(account, "manager")).toBe(false);
-      expect(reachablePortalRoles(account)).toEqual(["admin"]);
+      expect(adminBlockedFromManagerPortal(account)).toBe(false);
+      expect(isPortalRoleReachable(account, "manager")).toBe(true);
+      expect(reachablePortalRoles(account)).toEqual(["admin", "manager"]);
     });
 
     it("lets the primary admin reach both admin and property portals", () => {

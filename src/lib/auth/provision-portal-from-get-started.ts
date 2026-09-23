@@ -87,6 +87,9 @@ export async function provisionPortalFromGetStarted(role: AuthPortalPickerId): P
   if (!res.ok) {
     return { ok: false, error: body.error || "Could not set up your vendor account. Please try again." };
   }
-  await setActivePortal("vendor");
+  const setResult = await setActivePortal("vendor");
+  if (!setResult.ok) {
+    return { ok: false, error: setResult.error };
+  }
   return { ok: true, redirectTo: body.redirectTo?.startsWith("/") ? body.redirectTo : "/vendor/dashboard" };
 }

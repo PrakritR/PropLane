@@ -5,8 +5,6 @@ import type { AuthRole } from "@/components/auth/portal-switcher";
 import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerSessionProfile, type ServerProfile } from "@/lib/auth/server-profile";
-import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
-import { isProductionRuntime } from "@/lib/server-env";
 
 export const ACTIVE_PORTAL_COOKIE = "axis_active_portal";
 
@@ -89,29 +87,18 @@ export function hasAdminRole(ctx: PortalAccessContext): boolean {
 }
 
 /**
- * In the live production deployment an admin (founder/ops) identity must NOT be
- * able to cross into the manager/property portal — an ops account should never
- * operate as a landlord on the real site. The block is lifted outside
- * production (local, preview) so day-to-day and staging work is unaffected, and
- * it keys on the `admin` role, which genuine manager accounts never hold, so
- * real managers are untouched.
- *
- * The sole primary admin (`PRIMARY_ADMIN_EMAIL`) is exempt: that account is
- * intentionally both ops and property manager on production. Holding the
- * `manager` role is NOT an exemption: an admin can add that role through
- * self-service "Set up as a property manager", so keying the block on manager
- * would make the control bypassable by every admin.
+ * Formerly blocked non-primary admins from the manager portal on production.
+ * Lifted 2026-09-23 so any account can add and enter any portal it holds
+ * ("add any portal from any account"). Always returns false; kept as a named
+ * predicate so layout/switch call sites stay stable.
  */
-export function adminBlockedFromManagerPortal(ctx: PortalAccessContext): boolean {
-  if (isPrimaryAdminEmail(ctx.user?.email)) return false;
-  return hasAdminRole(ctx) && isProductionRuntime();
+export function adminBlockedFromManagerPortal(_ctx: PortalAccessContext): boolean {
+  return false;
 }
 
 /**
- * Whether `role`'s portal is reachable for this account given the current
- * runtime. Layered on top of role membership: a role the account does not hold
- * is never reachable, and the production admin→manager block above removes
- * `manager` for admin identities. This is the single source of truth for both
+ * Whether `role`'s portal is reachable for this account. A role the account
+ * does not hold is never reachable. This is the single source of truth for
  * hiding the portal switch and refusing the server-side switch/route.
  */
 export function isPortalRoleReachable(ctx: PortalAccessContext, role: AuthRole): boolean {

@@ -32,8 +32,8 @@ export async function POST(request: Request) {
     // Reached only via the explicit "add another portal type" / get-started
     // click, never an OAuth callback — the user has explicitly asked to set up
     // a property manager account, so a resident-only or admin account may add
-    // manager. Production entry to /portal for non-primary admins remains gated
-    // by adminBlockedFromManagerPortal.
+    // manager. After provision, set-active-portal + /portal entry are allowed
+    // for any account that holds the manager role.
     const result = await ensureFreeManagerPortalAccess(service, user, {
       trialForNewManager,
       allowResidentUpgrade: true,

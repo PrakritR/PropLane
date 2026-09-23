@@ -67,7 +67,11 @@ function ChoosePortalForm() {
     | { kind: "error"; message: string }
   > => {
     const res = await fetch("/api/auth/portal-roles", { credentials: "include" });
-    const body = (await res.json().catch(() => ({}))) as { roles?: AuthRole[]; error?: string };
+    const body = (await res.json().catch(() => ({}))) as {
+      roles?: AuthRole[];
+      reachableRoles?: AuthRole[];
+      error?: string;
+    };
     if (!res.ok) {
       if (res.status === 401) {
         router.replace(
@@ -83,9 +87,11 @@ function ChoosePortalForm() {
             : (body.error ?? `Could not load your account (HTTP ${res.status}).`),
       };
     }
+    // Prefer reachableRoles (enterable). Fall back to roles for older responses.
+    const list = body.reachableRoles ?? body.roles ?? [];
     return {
       kind: "ok",
-      roles: (body.roles ?? []).filter((role): role is AuthRole => role in ROLE_META),
+      roles: list.filter((role): role is AuthRole => role in ROLE_META),
     };
   }, [nextRaw, router]);
 

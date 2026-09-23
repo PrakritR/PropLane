@@ -1,7 +1,7 @@
 /**
  * `/api/auth/provision-pending-manager` allows admin accounts to add the
- * manager portal (same as residents). Production entry to `/portal` for
- * non-primary admins stays gated by `adminBlockedFromManagerPortal`.
+ * manager portal (same as residents). After provision, any account that holds
+ * manager may enter /portal (admin→manager production block lifted 2026-09-23).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
