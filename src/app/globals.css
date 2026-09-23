@@ -3014,6 +3014,17 @@ html[data-communication-surface] .portal-communication-inbox {
   overflow: hidden;
 }
 
+/* Communication list (and thread): never let empty layout wrappers flex-grow
+   beside the page shell. Thread-reading adds the stronger `display: none` for
+   those leaves so they cannot leave a blank band above the chat. */
+html[data-communication-surface]
+  .portal-main-inner
+  > *:not(.portal-mobile-nav-bar):not([data-slot="portal-page-shell"]):not([data-viewport-fill-body]):not(
+    :has([data-slot="portal-page-shell"])
+  ):not(:has([data-viewport-fill-body])) {
+  flex: 0 0 auto;
+}
+
 html[data-communication-surface] .portal-inbox-list-pane > *,
 html[data-communication-surface] .portal-inbox-thread-pane > * {
   display: flex;
@@ -3112,12 +3123,38 @@ html[data-communication-surface] .portal-inbox-thread-pane > * {
     padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
   }
 
-  /* Thread-reading flex fill: page shell only — never grow the mobile nav bar. */
-  html[data-communication-thread-reading] .portal-main-inner > *:not(.portal-mobile-nav-bar) {
+  /* Thread-reading flex fill: grow the page shell (and any wrappers that
+     contain it — resident wraps children in ResidentPreApplicationGuard).
+     Never grow leaf siblings like the empty `lg:hidden` messaging-banner slot
+     in portal/layout. A prior `> *:not(.portal-mobile-nav-bar)` rule flex-grew
+     every child equally, which left a blank ~40% band above the chat on phones. */
+  html[data-communication-thread-reading] .portal-main-inner > [data-slot="portal-page-shell"],
+  html[data-communication-thread-reading] .portal-main-inner > [data-viewport-fill-body],
+  html[data-communication-thread-reading] .portal-main-inner > *:has([data-slot="portal-page-shell"]),
+  html[data-communication-thread-reading] .portal-main-inner > *:has([data-viewport-fill-body]) {
     flex: 1 1 0%;
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+  }
+
+  html[data-communication-thread-reading] [data-slot="portal-page-shell"],
+  html[data-communication-thread-reading] [data-viewport-fill-body] {
+    flex: 1 1 0%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Leaf siblings with no Communication page shell inside — collapse so they
+     cannot steal column height (empty banner wrappers, mount-only Suspense). */
+  html[data-communication-thread-reading]
+    .portal-main-inner
+    > *:not(.portal-mobile-nav-bar):not([data-slot="portal-page-shell"]):not([data-viewport-fill-body]):not(
+      :has([data-slot="portal-page-shell"])
+    ):not(:has([data-viewport-fill-body])) {
+    display: none !important;
   }
 
   html[data-communication-surface] .portal-resident-detail-inbox .portal-inbox-two-pane {
@@ -3279,8 +3316,8 @@ html[data-native] [data-listing-sections-root] {
      unscoped, this rule (unlayered, so it beats the Tailwind utility) pinned the
      shell to its full content height inside a clipped parent and every phone
      surface taller than the viewport became unscrollable below the fold. The
-     `html[data-communication-thread-reading] .portal-main-inner > *` override
-     earlier in this file exists for the same reason. */
+     `html[data-communication-thread-reading]` page-shell flex fill earlier in
+     this file exists for the same reason. */
   html:not([data-portal-sticky-chrome]):not([data-communication-surface]) .portal-main-inner > *:not([data-viewport-fill-body]) {
     flex: 0 0 auto;
   }
