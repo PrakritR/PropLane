@@ -1630,11 +1630,11 @@ export function InboxComposer({
   maxLength,
   hint,
   dataAttr,
-  /** Inline channel picker rendered beside the reply field (preferred). */
+  /** Inline channel picker rendered in the tools row beside Send (preferred). */
   channelControl,
   /** Optional control before the channel picker (e.g. dismiss draft). */
   leadingControl,
-  /** Tools between the field and Send — ✦ AI, 🕒 schedule, the channel menu. */
+  /** Tools between the field and Send — ✦ AI, 🕒 schedule. Channel may also arrive via `channelControl`. */
   trailingControls,
   /** @deprecated Prefer `channelControl` inline beside the reply field. */
   channelBar,
@@ -1705,10 +1705,6 @@ export function InboxComposer({
           if (canSend) onSubmit();
         }}
       >
-        {/* The channel sits ABOVE the field, full width: a segment beside the
-            field pushed the reply box to a few words wide on a phone, and its
-            menu, anchored to the trigger, overflowed the viewport by ~80px. */}
-        {resolvedChannel ? <div className="mb-1.5 px-1">{resolvedChannel}</div> : null}
         {attachments?.length ? (
           <div className="mb-2 flex flex-wrap gap-2 px-1">
             {attachments.map((att) => {
@@ -1745,13 +1741,22 @@ export function InboxComposer({
             })}
           </div>
         ) : null}
-        <div className={cn("portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap", trailingControls && "max-sm:gap-1 sm:max-md:gap-1.5 max-md:flex-nowrap")}>
+        {/* Channel sits IN the tools row (✦ · schedule · Email · Send) — same as
+            manager Communication. A full-width row above the field was the old
+            record-page layout and is what the captain called out. On a phone the
+            channel menu collapses to the icon (`InboxComposerChannelMenu`). */}
+        <div
+          className={cn(
+            "portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap",
+            (trailingControls || resolvedChannel) && "max-sm:gap-1 sm:max-md:gap-1.5 max-md:flex-nowrap",
+          )}
+        >
           {leadingControl}
           {onAttachmentsPick ? (
             <label
               className={cn(
                 "mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]",
-                trailingControls && "max-md:h-9 max-md:w-9",
+                (trailingControls || resolvedChannel) && "max-md:h-9 max-md:w-9",
               )}
             >
               <Paperclip className="h-4 w-4" strokeWidth={2} />
@@ -1782,7 +1787,7 @@ export function InboxComposer({
               data-attr={dataAttr}
               // With tools in the row, a phone has no width to spare for the
               // emoji picker; the keyboard has one.
-              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} ${trailingControls ? "md:pr-11" : "pr-11"}`}
+              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} ${trailingControls || resolvedChannel ? "md:pr-11" : "pr-11"}`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -1797,12 +1802,13 @@ export function InboxComposer({
                 inputRef.current?.focus();
               }}
               dataAttr={dataAttr ? `${dataAttr}-emoji` : undefined}
-              className={trailingControls ? "max-md:hidden" : undefined}
+              className={trailingControls || resolvedChannel ? "max-md:hidden" : undefined}
             />
           </div>
-          {trailingControls ? (
+          {trailingControls || resolvedChannel ? (
             <div className="mb-0.5 flex shrink-0 items-center gap-1 max-sm:gap-0 md:gap-1.5" data-attr="inbox-composer-tools">
               {trailingControls}
+              {resolvedChannel}
             </div>
           ) : null}
           <button

@@ -1,7 +1,7 @@
 /**
- * PLAN-0921-1648 / PLAN-0922-1159: Rooms, Bathrooms and Pricing have no
- * Default card. "Same as Room X" / "Same as Bathroom X" copies another
- * record onto this one once, right now. These are the pure functions:
+ * PLAN-0921-1648 / PLAN-0922-1159 / PLAN-0922-1904: Rooms and Bathrooms keep
+ * "Same as". Pricing no longer shows the control — `copyRoomPricingFrom`
+ * still copies a card for Duplicate. These are the pure functions:
  * `copyRoomDescriptionFrom` / `roomDescriptionMatches`,
  * `copyRoomPricingFrom` / `roomPricingMatches`
  * (`src/lib/listing-house-defaults.ts`) and
@@ -232,14 +232,16 @@ describe("copyRoomPricingFrom", () => {
     expect(copied.termPricing).not.toBe(source.termPricing);
   });
 
-  it("never touches id, name, availability, rentBasis, dailyRentPrice, or per-resident pricing", () => {
+  it("never touches id, name, availability, rentBasis, or dailyRentPrice — it does copy per-resident and stay rows", () => {
     const source: ManagerRoomSubmission = {
       ...emptyRoom(0),
       id: "src",
       name: "Source",
       monthlyRent: 1500,
       residentPricing: "per_resident",
-      residentPrices: [{ monthlyRent: 800 }],
+      residentPrices: [{ monthlyRent: 800, prorateMethod: "daily_rate", dailyRentRate: 30 }],
+      stayResidentPricing: "per_resident",
+      stayResidentPrices: [{ shortTermRent: "85" }],
     };
     const target: ManagerRoomSubmission = {
       ...emptyRoom(1),
@@ -261,12 +263,14 @@ describe("copyRoomPricingFrom", () => {
     expect(copied.rentBasis).toBe("daily");
     expect(copied.dailyRentPrice).toBe(90);
     expect(copied.residentPricing).toBe("per_resident");
-    expect(copied.residentPrices).toEqual([{ monthlyRent: 700 }]);
+    expect(copied.residentPrices).toEqual([{ monthlyRent: 800, prorateMethod: "daily_rate", dailyRentRate: 30 }]);
+    expect(copied.stayResidentPricing).toBe("per_resident");
+    expect(copied.stayResidentPrices).toEqual([{ shortTermRent: "85" }]);
     expect(copied.floor).toBe("2nd floor");
     expect(copied.monthlyRent).toBe(1500);
   });
 
-  it("never copies per-resident rows off a term entry", () => {
+  it("copies per-resident rows off a term entry", () => {
     const source: ManagerRoomSubmission = {
       ...emptyRoom(0),
       termPricing: {
@@ -278,7 +282,11 @@ describe("copyRoomPricingFrom", () => {
       },
     };
     const copied = copyRoomPricingFrom(source, emptyRoom(1));
-    expect(copied.termPricing?.["Month-to-Month"]).toEqual({ monthlyRent: 1050 });
+    expect(copied.termPricing?.["Month-to-Month"]).toEqual({
+      monthlyRent: 1050,
+      residentPricing: "per_resident",
+      residentPrices: [{ monthlyRent: 500 }],
+    });
   });
 
   it("names every field the guard list carries", () => {
@@ -313,10 +321,11 @@ describe("roomPricingMatches", () => {
     expect(roomPricingMatches(a, copyRoomPricingFrom(a, b))).toBe(true);
   });
 
-  it("ignores name, availability and per-resident rows", () => {
-    const a = { ...emptyRoom(0), name: "A", monthlyRent: 1100, availability: "occupied", residentPrices: [{ monthlyRent: 800 }] };
-    const b = { ...emptyRoom(1), name: "B", monthlyRent: 1100, availability: "available", residentPrices: [{ monthlyRent: 500 }] };
-    expect(roomPricingMatches(a, b)).toBe(true);
+  it("ignores name and availability, and treats different per-resident rows as a mismatch", () => {
+    const a = { ...emptyRoom(0), name: "A", monthlyRent: 1100, availability: "occupied", residentPricing: "per_resident", residentPrices: [{ monthlyRent: 800 }] };
+    const b = { ...emptyRoom(1), name: "B", monthlyRent: 1100, availability: "available", residentPricing: "per_resident", residentPrices: [{ monthlyRent: 500 }] };
+    expect(roomPricingMatches(a, b)).toBe(false);
+    expect(roomPricingMatches(a, { ...b, residentPrices: [{ monthlyRent: 800 }] })).toBe(true);
   });
 });
 

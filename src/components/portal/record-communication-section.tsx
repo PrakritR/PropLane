@@ -64,8 +64,12 @@ export type RecordCommunicationSectionProps = {
   propertyId?: string;
   /** The person(s) this record's thread is naturally with (e.g. the resident on a lease, the vendor on a job). First entry is who the composer addresses. */
   contactIds?: string[];
+  /** Phone for Send via SMS when the contact is not yet a portal user. */
+  contactPhone?: string;
   /** Focus the reply composer immediately — the record's "Message" header/phone action lands here with the cursor already in the field. */
   autoOpenCompose?: boolean;
+  /** Create or resolve the roster row before the first send (catalog vendors). */
+  onEnsureRecord?: () => Promise<RecordRef | null>;
 };
 
 const SCOPE_BY_ROLE: Record<RecordCommunicationSectionRole, string> = {
@@ -118,7 +122,15 @@ function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
   return bubbles;
 }
 
-export function RecordCommunicationSection({ role, recordRef, propertyId, contactIds, autoOpenCompose }: RecordCommunicationSectionProps) {
+export function RecordCommunicationSection({
+  role,
+  recordRef,
+  propertyId,
+  contactIds,
+  contactPhone,
+  autoOpenCompose,
+  onEnsureRecord,
+}: RecordCommunicationSectionProps) {
   const scope = SCOPE_BY_ROLE[role];
   const primaryContact = contactIds?.[0]?.trim().toLowerCase() || undefined;
 
@@ -145,6 +157,10 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
   // The authoritative source is the same persisted inbox cache every other
   // Communication surface reads — this pane never invents a parallel store.
   const [threads, setThreads] = useState(() => loadPersistedInbox(scope, []));
+  const [activeRef, setActiveRef] = useState(recordRef);
+  useEffect(() => {
+    setActiveRef(recordRef);
+  }, [recordRef.kind, recordRef.id, recordRef.label]);
   useEffect(() => {
     const sync = () => setThreads(loadPersistedInbox(scope, []));
     sync();
@@ -160,9 +176,9 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
       propertyIds: [],
       roles: [],
       contactIds: [],
-      recordRefs: [{ kind: recordRef.kind, id: recordRef.id }],
+      recordRefs: [{ kind: activeRef.kind, id: activeRef.id }],
     }),
-    [recordRef.kind, recordRef.id],
+    [activeRef.kind, activeRef.id],
   );
 
   const recordThreads = useMemo(
@@ -206,26 +222,40 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
   // exists; before the first message, fall back to Email when the contact
   // looks like an address, else In-app.
   const [viaEmail, setViaEmail] = useState(true);
+  const [viaSms, setViaSms] = useState(false);
   const [viaProplane, setViaProplane] = useState(false);
+  const smsAvailable = Boolean(contactPhone?.trim());
   useEffect(() => {
     if (primaryThread) {
       const channel = lastInboundChannelOf(primaryThread);
       if (channel === "email") {
         setViaEmail(true);
+        setViaSms(false);
+        setViaProplane(false);
+      } else if (channel === "sms" && smsAvailable) {
+        setViaEmail(false);
+        setViaSms(true);
         setViaProplane(false);
       } else {
         setViaEmail(false);
+        setViaSms(false);
         setViaProplane(true);
       }
     } else if (recipientEmail.includes("@")) {
       setViaEmail(true);
+      setViaSms(false);
+      setViaProplane(false);
+    } else if (smsAvailable) {
+      setViaEmail(false);
+      setViaSms(true);
       setViaProplane(false);
     } else {
       setViaEmail(false);
+      setViaSms(false);
       setViaProplane(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [primaryThread?.id]);
+  }, [primaryThread?.id, smsAvailable]);
 
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<InboxComposerAttachment[]>([]);
@@ -271,13 +301,23 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
     }
     const to = recipientEmail;
     if (!to) {
-      setSendError(`No contact to message about this ${KIND_LABEL[recordRef.kind]} yet.`);
+      setSendError(`No contact to message about this ${KIND_LABEL[activeRef.kind]} yet.`);
       return;
     }
     setSending(true);
     setSendError(null);
     try {
-      const subject = viaEmail ? emailReplySubjectFor(primaryThread?.subject || recordRef.label) : recordRef.label;
+      let ref = activeRef;
+      if (onEnsureRecord) {
+        const next = await onEnsureRecord();
+        if (!next) {
+          setSendError("Could not add this vendor.");
+          return;
+        }
+        ref = next;
+        setActiveRef(next);
+      }
+      const subject = viaEmail ? emailReplySubjectFor(primaryThread?.subject || ref.label) : ref.label;
       const res = await fetch("/api/portal/send-inbox-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -290,11 +330,11 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
           text,
           deliverToPortalInbox: true,
           deliverViaEmail: viaEmail,
-          deliverViaSms: false,
-          eventCategory: "messages",
+          deliverViaSms: viaSms && smsAvailable,
+          ...(viaSms ? {} : { eventCategory: "messages" }),
           senderPortal: role,
           ...(role !== "resident" && propertyId ? { propertyId } : {}),
-          recordRef: { kind: recordRef.kind, id: recordRef.id, label: recordRef.label },
+          recordRef: { kind: ref.kind, id: ref.id, label: ref.label },
           ...(attachmentUrls.length ? { attachmentUrls } : {}),
         }),
       });
@@ -313,7 +353,7 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
     } finally {
       setSending(false);
     }
-  }, [attachments, draft, primaryThread, propertyId, recipientEmail, recordRef, role, scope, senderIdentity, viaEmail]);
+  }, [activeRef, attachments, draft, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scope, senderIdentity, smsAvailable, viaEmail, viaSms]);
 
   const handleArchive = useCallback(async () => {
     if (!primaryThread || archiving) return;
@@ -326,9 +366,9 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
     }
   }, [archiving, primaryThread, scope]);
 
-  const kindLabel = KIND_LABEL[recordRef.kind];
+  const kindLabel = KIND_LABEL[activeRef.kind];
   const commBase = role === "manager" ? "/portal/communication" : `/${role}/communication`;
-  const counterpartyName = primaryThread?.from?.trim() || recordRef.label || recipientEmail || "Contact";
+  const counterpartyName = primaryThread?.from?.trim() || activeRef.label || recipientEmail || "Contact";
 
   const headerActions = primaryThread ? (
     <button
@@ -347,16 +387,16 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
   const channelControl = (
     <InboxComposerChannelMenu
       viaEmail={viaEmail}
-      viaSms={false}
+      viaSms={viaSms}
       onViaEmailChange={setViaEmail}
-      onViaSmsChange={() => {}}
+      onViaSmsChange={setViaSms}
       viaProplane={viaProplane}
       onViaProplaneChange={setViaProplane}
       emailAvailable={emailAvailable}
-      smsAvailable={false}
+      smsAvailable={smsAvailable}
       proplaneAvailable
       disabled={sending}
-      sendingAs={{ proplane: "PropLane", email: senderIdentity?.email }}
+      sendingAs={{ proplane: "PropLane", email: senderIdentity?.email, sms: contactPhone }}
     />
   );
 
@@ -395,7 +435,7 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
         headerActions={headerActions}
         composer={composer}
         emptyLabel={`No messages about this ${kindLabel} yet — write the first one below`}
-        threadKey={primaryThread?.id ?? `record:${recordRef.kind}:${recordRef.id}`}
+        threadKey={primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`}
         scrollMode="page"
       />
       {otherConversationsCount > 0 ? (

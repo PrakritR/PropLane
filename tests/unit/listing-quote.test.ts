@@ -228,4 +228,38 @@ describe("buildListingQuote", () => {
     const depositLine = quote.signingLines.find((l) => l.key === "security_deposit");
     expect(depositLine?.amount).toBe(250);
   });
+
+  it("quotes the chosen resident slot, not the room headline", () => {
+    const sub = listing({
+      rooms: (listing().rooms ?? []).map((room) =>
+        room.id === "room-a"
+          ? {
+              ...room,
+              occupancyCapacity: 2,
+              residentPricing: "per_resident" as const,
+              residentPrices: [
+                { monthlyRent: 1050, securityDeposit: "250" },
+                { monthlyRent: 1200, securityDeposit: "250" },
+              ],
+            }
+          : room,
+      ),
+    });
+    const first = buildListingQuote(sub, {
+      roomId: "room-a",
+      leaseTerm: LONG_TERM_LEASE_TERM,
+      residentSlot: 1,
+    });
+    const second = buildListingQuote(sub, {
+      roomId: "room-a",
+      leaseTerm: LONG_TERM_LEASE_TERM,
+      residentSlot: 2,
+    });
+    expect(first.monthlyRent).toBe(1050);
+    expect(second.monthlyRent).toBe(1200);
+    expect(first.securityDeposit).toBe(250);
+    expect(first.roomName).toContain("Resident 1");
+    expect(second.roomName).toContain("Resident 2");
+    expect(first.signingTotal).not.toBe(second.signingTotal);
+  });
 });

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AXIS_VENDOR_CATALOG, formatVendorCatalogUsd } from "@/lib/axis-vendor-catalog";
-import { parseVendorDirectoryTab, vendorCatalogDetailHref, vendorListHref, VENDOR_DETAIL_TABS } from "@/lib/portal-detail-routes";
+import { parseVendorDetailTab, parseVendorDirectoryTab, vendorCatalogDetailHref, vendorListHref, VENDOR_DETAIL_TABS } from "@/lib/portal-detail-routes";
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
@@ -16,6 +16,8 @@ describe("vendor list sections", () => {
     expect(parseVendorDirectoryTab("catalog")).toBe("catalog");
     expect(parseVendorDirectoryTab("yours")).toBe("yours");
     expect(parseVendorDirectoryTab(null)).toBe("yours");
+    expect(parseVendorDetailTab("profile")).toBe("overview");
+    expect(parseVendorDetailTab("communication")).toBe("communication");
   });
 
   it("lists the PropLane catalog with rates and a click-through card", () => {

@@ -53,6 +53,20 @@ export async function deleteChannelCalendarConnection(connectionId: string): Pro
   if (!res.ok) throw new Error(data.error ?? "Could not remove connection.");
 }
 
+export async function syncAllChannelCalendarConnections(
+  propertyIds: string[],
+): Promise<{ synced: number; failed: number }> {
+  const res = await fetch(`/api/portal/channel-calendar/sync-all`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ propertyIds }),
+  });
+  const data = (await res.json()) as { synced?: number; failed?: number; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Sync failed.");
+  return { synced: data.synced ?? 0, failed: data.failed ?? 0 };
+}
+
 export async function syncChannelCalendarConnection(
   connectionId: string,
 ): Promise<ChannelCalendarConnectionPublic> {
@@ -67,6 +81,41 @@ export async function syncChannelCalendarConnection(
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
   if (!data.connection) throw new Error("Sync failed.");
   return data.connection;
+}
+
+export type OccupancySnapshotResponse = {
+  days: Array<{
+    dayKey: string;
+    occupied: number;
+    total: number;
+    checkIns: number;
+    checkOuts: number;
+    houses?: Array<{
+      propertyId: string;
+      occupied: number;
+      total: number;
+      checkIns: number;
+      checkOuts: number;
+    }>;
+  }>;
+  stays?: unknown[];
+  version?: string;
+};
+
+export async function fetchOccupancySnapshot(input: {
+  propertyIds: string[];
+  from: string;
+  to: string;
+}): Promise<OccupancySnapshotResponse> {
+  const params = new URLSearchParams({
+    propertyIds: input.propertyIds.join(","),
+    from: input.from,
+    to: input.to,
+  });
+  const res = await fetch(`/api/portal/occupancy?${params}`, { credentials: "include" });
+  const data = (await res.json()) as OccupancySnapshotResponse & { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not load occupancy.");
+  return data;
 }
 
 export async function fetchManagerChannelBookings(

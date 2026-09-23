@@ -41,7 +41,9 @@ import {
   isRoomPendingConflict,
   listingOfferedLeaseTerms,
   LISTING_ROOM_CHOICE_SEP,
+  parseRoomChoiceValue,
 } from "@/lib/rental-application/data";
+import { roomResidentPriceForSlot } from "@/lib/room-pricing";
 import {
   SHORT_TERM_LEASE_TERM,
   applicationRentalTypeFor,
@@ -95,7 +97,7 @@ import {
 } from "@/lib/rental-application/lease-dates";
 import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
 import { normalizePersistedWizardStep } from "@/lib/rental-application/wizard-step-schema";
-import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
+import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   activeApplicationWizardSteps,
   applicationConfigForVariant,
@@ -117,6 +119,7 @@ import {
   replaceManagerApplicationRowInCache,
   syncManagerApplicationsFromServer,
   syncPublicApprovedApplicationsFromServer,
+  residentSlotOverrideFields,
   upsertApplicationRowToServerAwait,
 } from "@/lib/manager-applications-storage";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
@@ -1603,6 +1606,22 @@ function RentalApplicationWizardInner({
         withGroupId,
         submittedListingSub,
       );
+      const parsedChoice = parseRoomChoiceValue(submittedForm.roomChoice1);
+      const listingRooms =
+        submittedListingSub?.v === 1
+          ? normalizeManagerListingSubmissionV1(submittedListingSub).rooms
+          : [];
+      const chosenRoom = parsedChoice.listingRoomId
+        ? listingRooms.find((room) => room.id === parsedChoice.listingRoomId)
+        : undefined;
+      const chosenSlot = submittedForm.residentSlot ?? parsedChoice.residentSlot;
+      const slotPrice =
+        chosenRoom && chosenSlot
+          ? roomResidentPriceForSlot(chosenRoom, chosenSlot, submittedForm.leaseTerm)
+          : undefined;
+      const submittedWithSlot: RentalWizardFormState = slotPrice
+        ? { ...submittedForm, ...residentSlotOverrideFields(slotPrice) }
+        : submittedForm;
 
       // A redeemed waiver code means NOTHING is charged: no $0 line, no
       // pending application-fee row.
@@ -1653,7 +1672,7 @@ function RentalApplicationWizardInner({
         email: emailTrim,
         residentUserId: residentUserId ?? undefined,
         axisId,
-        application: structuredClone(submittedForm),
+        application: structuredClone(submittedWithSlot),
       };
 
       replaceManagerApplicationRowInCache(applicationRow);

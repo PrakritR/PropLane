@@ -1,19 +1,16 @@
 "use client";
 
 /**
- * The Bookings day popup (PLAN-0922-1013) — a wizard PortalDialog over the
- * month calendar. `/portal/bookings/<yyyy-mm-dd>` still opens this dialog;
- * closing it returns to `/portal/bookings/calendar`. Rows are grouped by
- * property and open the booking's own record page.
+ * The Bookings day popup (PLAN-0922-1013 / PLAN-0922-1904) — a wizard
+ * PortalDialog over the month calendar. `/portal/bookings/<yyyy-mm-dd>` still
+ * opens this dialog; closing it returns to `/portal/bookings/calendar`.
  *
- * Add / Edit booking is a sibling of this dialog, not a child: the workspace
- * lives at z-80 and the day card at z-90, so a nested open left the schedule
- * painted on top of the form.
+ * Add booking lives on the calendar command-bar +, not here. Edit / Delete
+ * stay siblings of this dialog so the workspace is not painted under the card.
  */
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -23,7 +20,6 @@ import {
   type BlockDatesDraft,
   type BlockDatesSaveResult,
 } from "@/components/portal/bookings-block-dates-modal";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
@@ -33,19 +29,14 @@ import {
   bookingSourceLabel,
   formatBookingStayRange,
 } from "@/lib/channel-calendar/bookings-ui";
-import { dayOccupancy } from "@/lib/channel-calendar/bookings-occupancy";
-import { roomCountForProperty } from "@/lib/channel-calendar/bookings-room-counts";
+import { dayOccupancy, dayOccupancyFromLookup, type OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
+import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
+import { dayStayDisplayName, groupStaysByRoom } from "@/lib/occupancy/snapshot";
 import { bookingRecordHref, managerBookingDayHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
-
-function guestName(entry: PropertyBookingEntry): string {
-  return entry.source === "airbnb" || entry.source === "booking_com"
-    ? bookingGuestLabel(entry.summary, entry.source)
-    : entry.summary;
-}
 
 function dayTitle(dayKey: string): string {
   const [y, m, d] = dayKey.split("-").map(Number);
@@ -60,6 +51,7 @@ export function BookingsDayPage({
   dayKey,
   basePath,
   entries,
+  occupancyDays,
   loading,
   propertyOptions,
   residentOptions,
@@ -71,6 +63,7 @@ export function BookingsDayPage({
   dayKey: string;
   basePath: string;
   entries: readonly PropertyBookingEntry[];
+  occupancyDays?: OccupancyDayLookup;
   loading: boolean;
   propertyOptions: ManagerPropertyFilterOption[];
   residentOptions: readonly BlockDatesResidentOption[];
@@ -95,8 +88,11 @@ export function BookingsDayPage({
   );
 
   const overall = useMemo(
-    () => dayOccupancy(entries, dayKey, propertyIds, roomCountForProperty),
-    [entries, dayKey, propertyIds],
+    () =>
+      dayOccupancyFromLookup(occupancyDays, dayKey, propertyIds, () =>
+        dayOccupancy(entries, dayKey, propertyIds, bookingOccupancyCapacities),
+      ),
+    [occupancyDays, entries, dayKey, propertyIds],
   );
 
   const groups = useMemo(() => {
@@ -109,24 +105,19 @@ export function BookingsDayPage({
     return [...byProperty.values()]
       .map((group) => ({
         ...group,
-        occupancy: dayOccupancy(entries, dayKey, [group.propertyId], roomCountForProperty),
+        occupancy: dayOccupancyFromLookup(occupancyDays, dayKey, [group.propertyId], () =>
+          dayOccupancy(entries, dayKey, [group.propertyId], bookingOccupancyCapacities),
+        ),
+        rooms: groupStaysByRoom(group.bookings),
       }))
       .sort((a, b) => a.propertyLabel.localeCompare(b.propertyLabel));
-  }, [dayBookings, entries, dayKey]);
+  }, [dayBookings, occupancyDays, entries, dayKey]);
 
   const openEdit = (entry: PropertyBookingEntry) => {
     setEditingBlock(entry);
     setSheetOpen(true);
   };
 
-  const openAdd = () => {
-    setEditingBlock(null);
-    setSheetOpen(true);
-  };
-
-  // "Delete booking" — refuse outright for an in-house active tenancy (no
-  // existing rule covered this; `bookingDeleteRefusalReason` is the new one),
-  // otherwise confirm before actually removing the hold.
   const requestDelete = (entry: PropertyBookingEntry) => {
     const refusal = bookingDeleteRefusalReason(entry, todayKey);
     if (refusal) {
@@ -162,15 +153,10 @@ export function BookingsDayPage({
 
   const summaryLine = `${dayBookings.length} booking${dayBookings.length === 1 ? "" : "s"} · ${overall.checkIns} check-in${
     overall.checkIns === 1 ? "" : "s"
-  } · ${overall.occupied} of ${overall.rooms} rooms occupied`;
+  } · ${overall.occupied} of ${overall.rooms} beds occupied`;
 
   const closeDay = onClose ?? (() => navigate(`${basePath}/bookings/calendar`));
 
-  // Add booking is ListingWizardOverlay at z-80. The day card is a PortalDialog
-  // at z-90. Nesting the workspace inside the day dialog both painted the
-  // schedule card on top of the form and left two aria-modal layers fighting
-  // (the Next overlay's "2 Issues"). Close the day card while the workspace is
-  // open, and keep Add / Delete as siblings so they survive that close.
   return (
     <>
       <PortalDialog
@@ -201,13 +187,6 @@ export function BookingsDayPage({
             >
               <ChevronRight className="h-4 w-4" aria-hidden />
             </button>
-            <PortalPrimaryIconAction
-              label="Add booking"
-              icon={Plus}
-              data-attr="bookings-day-add"
-              disabled={propertyOptions.length === 0}
-              onClick={openAdd}
-            />
           </div>
         }
       >
@@ -225,56 +204,52 @@ export function BookingsDayPage({
               <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted sm:px-4">
                 <span className="truncate">{group.propertyLabel}</span>
                 <span className="shrink-0 tabular-nums">
-                  {group.occupancy.occupied} of {group.occupancy.rooms} rooms
+                  {group.occupancy.occupied} of {group.occupancy.rooms} beds
                 </span>
               </div>
-              {group.bookings.map((entry) => {
-                const key = bookingEntryKey(entry);
-                const name = guestName(entry);
-                const isBlock = entry.source === "block" && Boolean(entry.blockId);
-                const meta = [
-                  formatBookingStayRange(entry.start, entry.end, entry.openEnded),
-                  bookingSourceLabel(entry.source),
-                  entry.statusLabel,
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-                // Every card gets an Edit + Delete pair: a manager-made hold
-                // edits/deletes right here, while a signed lease or channel
-                // import jumps to the record that actually owns it — same
-                // repurposing the Upcoming list uses (bookingOpenTarget) — and
-                // stays undeletable from this sheet.
-                const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
-                return (
-                  <BookingsRowOverflow
-                    key={key}
-                    label={name}
-                    onEditDates={
-                      isBlock ? () => openEdit(entry) : openTarget ? () => navigate(openTarget.href) : undefined
-                    }
-                    editDatesLabel={isBlock ? "Edit booking" : openTarget?.label}
-                    onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
-                    onCopyLink={() => void copyLink(entry)}
-                    onCancel={isBlock ? () => requestDelete(entry) : undefined}
-                    cancelLabel="Delete booking"
-                  >
-                    <PortalPersonRecordRow
-                      name={`${name} · ${entry.roomLabel}`}
-                      subtitle={meta}
-                      onOpen={() => navigate(bookingRecordHref(basePath, key))}
-                      omitActionView
-                      dataAttr={`bookings-day-row-${key}`}
-                      // Inside `BookingsRowOverflow`'s context, `RowSelectCheckbox`
-                      // swaps its checkbox for the ⋯ trigger, but only renders at
-                      // all once something asks for it here — without
-                      // `onSelectedChange` this row drew no ⋯ whatsoever, so every
-                      // card's Edit/Delete was unreachable (the actual root cause
-                      // of the day pop-up's dead actions).
-                      onSelectedChange={() => {}}
-                    />
-                  </BookingsRowOverflow>
-                );
-              })}
+              {group.rooms.map((room) => (
+                <div key={room.roomId || room.roomLabel} data-attr={`bookings-day-room-${room.roomId || "home"}`}>
+                  <p className="px-3 pt-2 text-[12px] font-semibold text-foreground sm:px-4" data-attr="bookings-day-room-heading">
+                    {room.roomLabel}
+                  </p>
+                  {room.stays.map((entry) => {
+                    const key = bookingEntryKey(entry);
+                    const name = dayStayDisplayName(entry);
+                    const isBlock = entry.source === "block" && Boolean(entry.blockId);
+                    const meta = [
+                      formatBookingStayRange(entry.start, entry.end, entry.openEnded),
+                      bookingSourceLabel(entry.source),
+                      entry.statusLabel,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                    const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
+                    return (
+                      <BookingsRowOverflow
+                        key={key}
+                        label={name}
+                        onEditDates={
+                          isBlock ? () => openEdit(entry) : openTarget ? () => navigate(openTarget.href) : undefined
+                        }
+                        editDatesLabel={isBlock ? "Edit booking" : openTarget?.label}
+                        onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
+                        onCopyLink={() => void copyLink(entry)}
+                        onCancel={isBlock ? () => requestDelete(entry) : undefined}
+                        cancelLabel="Delete booking"
+                      >
+                        <PortalPersonRecordRow
+                          name={name}
+                          subtitle={meta}
+                          onOpen={() => navigate(bookingRecordHref(basePath, key))}
+                          omitActionView
+                          dataAttr={`bookings-day-row-${key}`}
+                          onSelectedChange={() => {}}
+                        />
+                      </BookingsRowOverflow>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           ))}
         </PortalRecordListSurface>
@@ -311,7 +286,7 @@ export function BookingsDayPage({
       >
         <p className="text-sm text-muted">
           {deletingEntry
-            ? `Delete ${guestName(deletingEntry)}’s booking at ${deletingEntry.roomLabel}? This cannot be undone.`
+            ? `Delete ${dayStayDisplayName(deletingEntry)}’s booking at ${deletingEntry.roomLabel}? This cannot be undone.`
             : ""}
         </p>
       </PortalDialog>

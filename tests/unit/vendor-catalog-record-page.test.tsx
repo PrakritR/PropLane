@@ -41,6 +41,10 @@ describe("vendorCatalog record-sections registry entry", () => {
     const sections = recordSections("manager", "vendorCatalog", { basePath: "/portal" });
     const ownGroupLabels = sections.groups.map((g) => g.label).filter(Boolean);
     expect(ownGroupLabels).toEqual(["Vendor", "Work"]);
+    const railIds = sections.groups.flatMap((g) => g.items.map((i) => i.id));
+    expect(railIds).toContain("overview");
+    expect(railIds).not.toContain("profile");
+    expect(railIds).toContain("communication");
     expect(sections.headerActions.map((a) => a.id)).toEqual(["add", "email", "share"]);
     expect(sections.headerActions.map((a) => a.label)).toEqual(["Add to your vendors", "Email", "Share"]);
   });
@@ -90,8 +94,10 @@ describe("catalog record header wiring in the panel (source-verified)", () => {
     expect(panelSource).toContain('navigate(vendorDetailHref(basePath, catalogRosterMatch.id, "overview"))');
   });
 
-  it("Email opens mailto and Share copies the catalog link and toasts", () => {
-    expect(panelSource).toContain("window.location.assign(`mailto:${catalogDetail.email}`)");
+  it("Email opens catalog Communication and Share copies the catalog link and toasts", () => {
+    expect(panelSource).not.toContain("window.location.assign(`mailto:${catalogDetail.email}`)");
+    expect(panelSource).toContain('vendorCatalogDetailHref(basePath, catalogDetailId, "communication")');
+    expect(panelSource).toContain("RecordCommunicationSection");
     expect(panelSource).toContain("navigator.clipboard.writeText(");
     expect(panelSource).toContain("showToast(\"Vendor link copied.\")");
   });
@@ -107,6 +113,13 @@ describe("catalog record header wiring in the panel (source-verified)", () => {
     expect(panelSource).not.toContain('data-attr="vendor-catalog-add"');
     expect(panelSource).not.toContain('{catalogRosterMatch ? "Added" : "Add"}');
   });
+
+  it("catalog Communication uses the inbox composer and ensures the roster on first send", () => {
+    expect(panelSource).toContain('data-attr="vendor-catalog-communication"');
+    expect(panelSource).toContain("contactPhone={catalogDetail.phone}");
+    expect(panelSource).toContain("onEnsureRecord=");
+    expect(panelSource).toContain("ensureCatalogVendorOnRoster");
+  });
 });
 
 describe("ManagerVendorCatalogDetail overview", () => {
@@ -117,6 +130,12 @@ describe("ManagerVendorCatalogDetail overview", () => {
     }
     expect(screen.getByText("Trade")).toBeTruthy();
     expect(screen.getByText("Plumbing")).toBeTruthy();
+  });
+
+  it("does not render the catalog Communication stub", () => {
+    render(<ManagerVendorCatalogDetail catalogId={VENDOR.catalogId} vendor={VENDOR} tab="communication" />);
+    expect(screen.queryByText(/No communication are available/i)).toBeNull();
+    expect(screen.queryByText("Business")).toBeNull();
   });
 
   it("reads 'Not yet' by default and 'Yes' when inRoster is set", () => {

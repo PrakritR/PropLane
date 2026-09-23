@@ -125,8 +125,10 @@ export function roomUnavailableRangesForExport(
   if (!submission) return [];
   const room = submission.rooms.find((r) => r.id === roomId);
   if (!room) return [];
-  return (room.manualUnavailableRanges ?? []).map((r) => ({
-    start: r.start,
-    end: r.end || r.start,
-  }));
+  return (room.manualUnavailableRanges ?? [])
+    .filter((r) => !String(r.id ?? "").startsWith(`${CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX}-`))
+    .map((r) => ({
+      start: r.start,
+      end: r.end || r.start,
+    }));
 }

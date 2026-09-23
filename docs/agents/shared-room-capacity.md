@@ -8,7 +8,9 @@ A room's capacity defaults to one, with an explicit integer range of 1–20. Eac
 
 Move-out amendments commit the application dates and unsigned replacement lease together through `commit_room_lease_extension`. A final renewal signature reserves its dates in the same database transaction, so lost capacity rolls the signature back. A server-owned `occupancy_start` floor preserves the current stay when a future renewal signs early, independent of renewal billing dates. The floor survives application ID normalization and resets only on an actual owner/property/room transfer. Billing awaits persistence and leaves a failed renewal pending for retry.
 
-The public availability endpoint publishes anonymous room/count spans from approved placements of public listings, scoped to their current owner. It contains no resident identities or application IDs. It paginates placement reads, aggregates whole-property reservations, sends CDN cache headers, and replaces cached snapshots instead of unioning stale rows. Client snapshots expire after 60 seconds, are cleared on private application changes/account switches, and are ignored in demo mode. Concurrent forced loads use the shared coalesced refresher.
+An iCal guest stay (Airbnb / Booking.com, not a "Not available" / "Blocked" summary) is one Current resident and one bed. Typed blocks and leases occupy a bed the same way. `src/lib/occupancy/snapshot.ts` (`occupancyForDay`) is the occupancy reader Bookings, apply, listing Available, and the export ICS all format over — never a second `rooms.length` count.
+
+The public availability endpoint publishes anonymous room/count spans from approved placements of public listings, plus each channel stay and typed block as a one-bed span, scoped to their current owner. It contains no resident identities or application IDs. It paginates placement reads, aggregates whole-property reservations, sends CDN cache headers, and replaces cached snapshots instead of unioning stale rows. Client snapshots expire after 60 seconds, are cleared on private application changes/account switches, and are ignored in demo mode. Concurrent forced loads use the shared coalesced refresher.
 
 ## Rent per resident (PLAN-0920-0631)
 
@@ -51,10 +53,23 @@ keys of `residentPrices` and nothing else. A fee can be scoped to a slot with
 `roomIds`), read through `feeAppliesToResidentSlot`, which also applies when
 the slot is unknown so a fee is never dropped for want of a number.
 
+The apply wizard's first choice lists each bed when the room prices per
+resident (`Room 9 · Resident 1 · $1,050/mo`). The value is
+`propertyId::roomId::rN`; `parseRoomChoiceValue` strips the slot so occupancy
+and the public snapshot still key on `propertyId::roomId`. Second and third
+choices stay room-level. Taken beds show as disabled "Taken"; a pending
+application does not reserve a bed. Submit stores `residentSlot` plus the
+slot's rent/utilities/deposit overrides. The apply "What a resident pays"
+card and Review housing charges read `buildListingQuote` with that slot, so
+they match the listing sidebar. Approval still arbitrates the last bed (409).
+
 Specs: `tests/unit/room-pricing-per-resident.test.ts`,
 `tests/unit/manager-listing-submission-resident-prices.test.ts`,
 `tests/unit/listing-house-defaults-resident-pricing.test.ts`,
-`tests/unit/listing-fees-resident-slots.test.ts`, and the per-resident case in
-`tests/unit/public-listing-projection.test.ts`.
+`tests/unit/listing-fees-resident-slots.test.ts`,
+`tests/unit/listing-fees-display-applicant-slot.test.ts`,
+`tests/unit/rental-application-room-options.test.ts`,
+the per-resident case in `tests/unit/listing-quote.test.ts`, and the
+per-resident case in `tests/unit/public-listing-projection.test.ts`.
 
 Validation includes real two-client PostgreSQL races, stale snapshot refusal, capacity reductions, disjoint stays, metadata upserts, atomic amendment rollback, renewal reservation and transfer semantics in `tests/integration/database/shared-room-capacity.test.ts`. Run against an explicitly chosen disposable local cluster with `ROOM_CAPACITY_TEST_PORT=55439 npx vitest run tests/integration/database/shared-room-capacity.test.ts`; the test creates and drops only its own random database. The migration is applied to dev/test. Staging and production follow the normal release ladder.

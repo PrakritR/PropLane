@@ -152,4 +152,52 @@ describe("RecordCommunicationSection", () => {
     await screen.findByText("Hi, quick question about move-in.");
     expect(screen.queryByText(/other conversation/i)).toBeNull();
   });
+
+  it("offers SMS when contactPhone is set and ensures the record before the first send", async () => {
+    threadRows = [];
+    const onEnsureRecord = vi.fn(async () => ({
+      kind: "vendor" as const,
+      id: "vendor-roster-1",
+      label: "Northwest Plumbing Co",
+    }));
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true }),
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <RecordCommunicationSection
+        role="manager"
+        recordRef={{ kind: "vendor", id: "axis-catalog-plumbing-nw", label: "Northwest Plumbing Co" }}
+        contactIds={["jobs@nwplumbing.example"]}
+        contactPhone="(206) 555-0142"
+        onEnsureRecord={onEnsureRecord}
+      />,
+    );
+
+    await screen.findByText(/No messages about this vendor yet/i);
+    const channel = screen.getByRole("button", { name: /Send via: Email/i });
+    expect(channel).toBeTruthy();
+    // Email sits in the tools row beside Send — not a full-width band above the field.
+    expect(channel.closest('[data-attr="inbox-composer-tools"]')).not.toBeNull();
+
+    const composer = screen.getByPlaceholderText("Write a reply…");
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.change(composer, { target: { value: "Can you quote a leak?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onEnsureRecord).toHaveBeenCalledOnce());
+    await waitFor(() => {
+      const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls as unknown[][];
+      const sendCall = calls.find((call) => String(call[0]).includes("/api/portal/send-inbox-message"));
+      expect(sendCall).toBeTruthy();
+      const body = JSON.parse(String((sendCall![1] as { body: string }).body));
+      expect(body.recordRef).toEqual({
+        kind: "vendor",
+        id: "vendor-roster-1",
+        label: "Northwest Plumbing Co",
+      });
+    });
+  });
 });

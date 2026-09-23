@@ -46,21 +46,6 @@ export function ManagerVendorCatalogDetail({
           </ReviewSection>
         </div>
       ) : null}
-      {tab === "profile" ? (
-        <div className="xl:columns-2 xl:gap-3 [&>*]:mb-3 [&>*]:break-inside-avoid" data-attr="vendor-catalog-profile">
-          <ReviewSection title="Business">
-            <ReviewRow k="Trade" v={row.trade} />
-            {row.city ? <ReviewRow k="Area" v={row.city} /> : null}
-          </ReviewSection>
-          <ReviewSection title="Contact">
-            <ReviewRow k="Phone" v={row.phone} />
-            <ReviewRow k="Email" v={row.email} />
-          </ReviewSection>
-          <ReviewSection title="About">
-            <ReviewRow k="Description" v={row.description} />
-          </ReviewSection>
-        </div>
-      ) : null}
       {tab === "pricing" ? (
         <div className="xl:columns-2 xl:gap-3 [&>*]:mb-3 [&>*]:break-inside-avoid" data-attr="vendor-catalog-pricing">
           <ReviewSection title="Published rates">
@@ -74,7 +59,7 @@ export function ManagerVendorCatalogDetail({
           </ReviewSection>
         </div>
       ) : null}
-      {(["jobs", "reviews", "check-ins", "communication", "documents", "activity"] as VendorDetailTabId[]).includes(tab) ? (
+      {(["jobs", "reviews", "check-ins"] as VendorDetailTabId[]).includes(tab) ? (
         <div className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm" data-attr={`vendor-catalog-empty-${tab}`}>
           No {tab === "jobs" ? "services" : tab} are available for this catalog entry.
         </div>

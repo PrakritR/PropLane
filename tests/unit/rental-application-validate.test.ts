@@ -193,6 +193,57 @@ describe("rental-application validate", () => {
     expect(filled).toEqual({});
   });
 
+  it("requires a resident slot when the first-choice room prices per resident", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      rooms: [
+        {
+          ...createDefaultListingSubmission().rooms[0]!,
+          id: "room-9",
+          name: "Room 9",
+          monthlyRent: 1200,
+          occupancyCapacity: 2,
+          residentPricing: "per_resident" as const,
+          residentPrices: [{ monthlyRent: 1050 }, { monthlyRent: 1200 }],
+        },
+      ],
+    };
+    const start = new Date();
+    start.setDate(start.getDate() + 30);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 60);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const property = { id: "prop-shared", listingSubmission: sub };
+    const missing = validateRentalWizardStep(
+      3,
+      {
+        ...createInitialRentalWizardState(),
+        propertyId: "prop-shared",
+        roomChoice1: "prop-shared::room-9",
+        leaseTerm: "Long-term",
+        leaseStart: iso(start),
+        leaseEnd: iso(end),
+      },
+      { property },
+    );
+    expect(missing.roomChoice1).toContain("which resident");
+
+    const filled = validateRentalWizardStep(
+      3,
+      {
+        ...createInitialRentalWizardState(),
+        propertyId: "prop-shared",
+        roomChoice1: "prop-shared::room-9::r1",
+        residentSlot: 1,
+        leaseTerm: "Long-term",
+        leaseStart: iso(start),
+        leaseEnd: iso(end),
+      },
+      { property },
+    );
+    expect(filled.roomChoice1).toBeUndefined();
+  });
+
   it("rejects a short-term application when the listing does not permit short-term stays", () => {
     const sub = { ...createDefaultListingSubmission(), shortTermRentalsAllowed: false };
     const state = {

@@ -51,8 +51,10 @@ import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { ManagerVendorCatalogDetail } from "@/components/portal/pro-vendor-catalog-detail";
+import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { ensureCatalogVendorOnRoster } from "@/lib/catalog-vendor-roster";
 import {
   personRecordNeedsYouItems,
 } from "@/lib/person-record-actions";
@@ -147,6 +149,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [editingVendor, setEditingVendor] = useState<ManagerVendorRow | null>(null);
   const [addTrade, setAddTrade] = useState<string | undefined>(undefined);
   const [catalogSeed, setCatalogSeed] = useState<AxisCatalogVendor | null>(null);
+  const [catalogComposeOpen, setCatalogComposeOpen] = useState(false);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState(false);
   const [vendorSearch, setVendorSearch] = useState("");
@@ -709,8 +712,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       if (catalogDetail) openAddVendorForm(catalogDetail.trade, catalogDetail);
       return;
     }
-    if (actionId === "email") {
-      if (catalogDetail?.email) window.location.assign(`mailto:${catalogDetail.email}`);
+    if (actionId === "email" || actionId === "compose") {
+      if (catalogDetailId) {
+        setCatalogComposeOpen(true);
+        navigate(vendorCatalogDetailHref(basePath, catalogDetailId, "communication"));
+      }
       return;
     }
     if (actionId === "share" && catalogDetailId) {
@@ -750,7 +756,43 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         ariaLabel="Vendor sections"
         onHeaderAction={onCatalogHeaderAction}
       >
-        {catalogRosterMatch ? (
+        {catalogDetailTab === "communication" && catalogDetail ? (
+          <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-catalog-communication">
+            <RecordCommunicationSection
+              role="manager"
+              recordRef={{
+                kind: "vendor",
+                id: catalogRosterMatch?.id ?? catalogDetail.catalogId,
+                label: catalogDetail.name,
+              }}
+              contactIds={catalogDetail.email ? [catalogDetail.email] : []}
+              contactPhone={catalogDetail.phone}
+              autoOpenCompose={catalogComposeOpen}
+              onEnsureRecord={
+                catalogRosterMatch || !userId
+                  ? undefined
+                  : async () => {
+                      const row = await ensureCatalogVendorOnRoster({
+                        userId,
+                        catalog: catalogDetail,
+                        existing: vendors,
+                      });
+                      if (!row) return null;
+                      return { kind: "vendor", id: row.id, label: row.name };
+                    }
+              }
+            />
+          </div>
+        ) : catalogDetailTab === "documents" || catalogDetailTab === "activity" ? (
+          renderRecordSection(catalogDetailTab, {
+            role: "manager",
+            kind: "vendor",
+            kindLabel: "vendor",
+            recordId: catalogRosterMatch?.id ?? catalogDetailId,
+            recordLabel: catalogDetail?.name ?? "Vendor",
+            contactIds: catalogDetail?.email ? [catalogDetail.email] : [],
+          })
+        ) : catalogRosterMatch && catalogDetailTab !== "overview" ? (
           <div data-attr="vendor-catalog-matched-profile">
             <ManagerVendorDetail
               row={catalogRosterMatch}

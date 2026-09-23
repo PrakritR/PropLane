@@ -67,6 +67,11 @@ export type RoomPricingLike = {
   occupancyCapacity?: number | null;
   residentPricing?: "same" | "per_resident";
   residentPrices?: readonly RoomResidentPriceLike[] | null;
+  prorateMethod?: "auto" | "daily_rate" | null;
+  dailyRentRate?: number | null;
+  dailyUtilitiesRate?: number | null;
+  stayResidentPricing?: "same" | "per_resident";
+  stayResidentPrices?: readonly RoomStayResidentPriceLike[] | null;
   /** Per-lease-type price overrides, shaped like a room's `termPricing` (PRP-463). */
   termPricing?: Record<string, RoomTermPriceLike> | null;
 };
@@ -77,6 +82,14 @@ export type RoomResidentPriceLike = {
   utilitiesEstimate?: string | null;
   securityDeposit?: string | null;
   pricingMode?: "fixed" | "flexible";
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number | null;
+  dailyUtilitiesRate?: number | null;
+};
+
+export type RoomStayResidentPriceLike = {
+  shortTermRent?: string | null;
+  weeklyRentPrice?: number | null;
 };
 
 /** The slice of a room's per-term entry this module reads. */
@@ -99,6 +112,9 @@ export type RoomResidentPrice = {
   utilitiesEstimate?: string;
   securityDeposit?: string;
   pricingMode?: "fixed" | "flexible";
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
 };
 
 /**
@@ -304,6 +320,24 @@ export function roomPricesPerResident(
   return residentRowsFor(room, term).some((row) => positiveNumber(row.monthlyRent) !== undefined);
 }
 
+/**
+ * The stored Pricing tick — true even when every resident rent is still $0.
+ * Headlines and quotes keep using {@link roomPricesPerResident} so a $0 split
+ * room never prints "from $0/mo."
+ */
+export function roomStoresPerResidentPricing(
+  room: RoomPricingLike | null | undefined,
+  term?: string | null,
+): boolean {
+  if (!room) return false;
+  if (roomIsDailyPriced(room) || roomIsWeeklyPriced(room)) return false;
+  if (roomCapacity(room) < 2) return false;
+  const entry = roomTermEntry(room, term);
+  if (entry?.residentPricing === "same") return false;
+  if (entry?.residentPricing === "per_resident") return true;
+  return room.residentPricing === "per_resident";
+}
+
 /** The stored rows that apply — the term's own, else the room's, else none. */
 function residentRowsFor(
   room: RoomPricingLike,
@@ -341,6 +375,13 @@ export function roomResidentPrices(
   if (baseUtilities) base.utilitiesEstimate = baseUtilities;
   if (baseDeposit) base.securityDeposit = baseDeposit;
   if (baseMode) base.pricingMode = baseMode;
+  if (room.prorateMethod === "auto" || room.prorateMethod === "daily_rate") {
+    base.prorateMethod = room.prorateMethod;
+  }
+  const baseDailyRent = positiveNumber(room.dailyRentRate);
+  if (baseDailyRent !== undefined) base.dailyRentRate = baseDailyRent;
+  const baseDailyUtil = positiveNumber(room.dailyUtilitiesRate);
+  if (baseDailyUtil !== undefined) base.dailyUtilitiesRate = baseDailyUtil;
 
   const rows = roomPricesPerResident(room, term) ? residentRowsFor(room, term) : [];
   const out: RoomResidentPrice[] = [];
@@ -355,6 +396,13 @@ export function roomResidentPrices(
       const deposit = String(stored.securityDeposit ?? "").trim();
       if (deposit) resolved.securityDeposit = deposit;
       if (stored.pricingMode) resolved.pricingMode = stored.pricingMode;
+      if (stored.prorateMethod === "auto" || stored.prorateMethod === "daily_rate") {
+        resolved.prorateMethod = stored.prorateMethod;
+      }
+      const dailyRent = positiveNumber(stored.dailyRentRate);
+      if (dailyRent !== undefined) resolved.dailyRentRate = dailyRent;
+      const dailyUtil = positiveNumber(stored.dailyUtilitiesRate);
+      if (dailyUtil !== undefined) resolved.dailyUtilitiesRate = dailyUtil;
     }
     out.push(resolved);
   }
@@ -399,6 +447,87 @@ export function roomResidentRentLines(
   return roomResidentPrices(room, term).map(
     (row) => `Resident ${row.slot} · ${formatRoomPriceAmount(row.monthlyRent)}/mo`,
   );
+}
+
+export type RoomStayResidentPrice = {
+  slot: number;
+  shortTermRent?: string;
+  weeklyRentPrice?: number;
+};
+
+export function roomStayPricesPerResident(room: RoomPricingLike | null | undefined): boolean {
+  if (!room || roomCapacity(room) < 2) return false;
+  if (room.stayResidentPricing !== "per_resident") return false;
+  return (room.stayResidentPrices ?? []).length > 0;
+}
+
+export function roomStayResidentPrices(room: RoomPricingLike | null | undefined): RoomStayResidentPrice[] {
+  if (!room) return [];
+  const capacity = roomCapacity(room);
+  const split = roomStayPricesPerResident(room);
+  const rows = split ? (room.stayResidentPrices ?? []) : [];
+  const out: RoomStayResidentPrice[] = [];
+  for (let i = 0; i < capacity; i += 1) {
+    const stored = rows[i] ?? (rows.length > 0 ? rows[rows.length - 1] : undefined);
+    const resolved: RoomStayResidentPrice = { slot: i + 1 };
+    const night = String(stored?.shortTermRent ?? (split ? "" : room.shortTermRent) ?? "").trim();
+    if (night) resolved.shortTermRent = night;
+    const week = positiveNumber(stored?.weeklyRentPrice ?? (split ? undefined : room.weeklyRentPrice));
+    if (week !== undefined) resolved.weeklyRentPrice = week;
+    if (!split) {
+      const roomNight = String(room.shortTermRent ?? "").trim();
+      if (roomNight) resolved.shortTermRent = roomNight;
+      const roomWeek = positiveNumber(room.weeklyRentPrice);
+      if (roomWeek !== undefined) resolved.weeklyRentPrice = roomWeek;
+    }
+    out.push(resolved);
+  }
+  return out;
+}
+
+export function roomStayPriceForSlot(
+  room: RoomPricingLike | null | undefined,
+  slot: number | null | undefined,
+): RoomStayResidentPrice | undefined {
+  if (!Number.isInteger(slot) || (slot ?? 0) < 1) return undefined;
+  return roomStayResidentPrices(room).find((row) => row.slot === slot);
+}
+
+function stayRowHasOffer(row: { shortTermRent?: string | null; weeklyRentPrice?: number | null } | null | undefined): boolean {
+  return positiveNumber(row?.shortTermRent) != null || positiveNumber(row?.weeklyRentPrice) != null;
+}
+
+/** A renter can take a stay on this room — room-level night/week, or any per-resident slot. */
+export function roomHasStayOffer(room: RoomPricingLike | null | undefined): boolean {
+  if (!room) return false;
+  if (roomStayPricesPerResident(room)) {
+    return roomStayResidentPrices(room).some((row) => stayRowHasOffer(row));
+  }
+  return stayRowHasOffer({ shortTermRent: room.shortTermRent, weeklyRentPrice: room.weeklyRentPrice });
+}
+
+/** First/last-month proration for one 1-based slot, else the room's own method. */
+export function resolveRoomProrationForSlot(
+  room: RoomPricingLike | null | undefined,
+  slot: number | null | undefined,
+  term?: string | null,
+): { method: "auto" | "daily_rate"; dailyRentRate?: number; dailyUtilitiesRate?: number } {
+  const fallback = {
+    method: (room?.prorateMethod === "daily_rate" ? "daily_rate" : "auto") as "auto" | "daily_rate",
+    dailyRentRate: positiveNumber(room?.dailyRentRate),
+    dailyUtilitiesRate: positiveNumber(room?.dailyUtilitiesRate),
+  };
+  if (!room || !Number.isInteger(slot) || (slot ?? 0) < 1) return fallback;
+  if (!roomPricesPerResident(room, term)) return fallback;
+  const row = roomResidentPriceForSlot(room, slot as number, term);
+  if (!row) return fallback;
+  const method =
+    row.prorateMethod === "daily_rate" ? "daily_rate" : row.prorateMethod === "auto" ? "auto" : fallback.method;
+  return {
+    method,
+    dailyRentRate: row.dailyRentRate ?? fallback.dailyRentRate,
+    dailyUtilitiesRate: row.dailyUtilitiesRate ?? fallback.dailyUtilitiesRate,
+  };
 }
 
 /** Whether this room's rent is negotiated per resident rather than advertised as one figure. */
@@ -597,6 +726,7 @@ export type StayPricingInput = {
         managerRentOverride?: string | null;
         managerSecurityDepositOverride?: string | null;
         signedMonthlyRent?: number | null;
+        residentSlot?: number | null;
       }
     | null
     | undefined;
@@ -712,7 +842,9 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     // Then most specific first: the booked room's own short-term rate, then the room's
     // daily basis, then the listing-level nightly cost. The room's short-term rate leads
     // because it is the rate the manager set FOR a short stay on that exact room.
-    const roomShortTerm = shortTermNightlyRate(room?.shortTermRent) || undefined;
+    const staySlot = roomStayPriceForSlot(room, app?.residentSlot);
+    const roomShortTerm =
+      shortTermNightlyRate(staySlot?.shortTermRent ?? room?.shortTermRent) || undefined;
     const listingDaily = shortTermNightlyRate(sub?.shortTermDailyCost) || undefined;
     const roomRate = roomShortTerm ?? roomDaily;
     const dailyRate = roomRate ?? listingDaily;
@@ -721,7 +853,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     // Read straight off the field, NOT through `roomWeeklyRentPrice`: that one answers
     // "is this room priced BY the week" and needs `rentBasis`, which the wizard no longer
     // sets. On a short stay a weekly rate that was typed in is a weekly rate that applies.
-    const shortTermWeekly = positiveNumber(room?.weeklyRentPrice);
+    const shortTermWeekly = positiveNumber(staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice);
     return {
       stayKind: "short",
       basis: "daily",

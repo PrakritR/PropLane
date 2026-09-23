@@ -11,8 +11,7 @@
  *    directly under them (one amount, or one per lease type behind a checkbox;
  *    a blank type follows the one amount), then one card per room with a tab
  *    per lease type. There is no Default room card. Each room prices itself.
- *    An open room gets **Same as Room X** — a one-time copy of that room's
- *    price card, not a live link (`copyRoomPricingFrom`). Month-to-month and
+ *    Rooms still Duplicate via `copyRoomPricingFrom`. Month-to-month and
  *    custom dates are "same as long-term" until the box is unticked or a room
  *    writes its own `termPricing`. Short-term is rent per night, rent per week.
  * 3. **Other fees live on the cards.** Every room card, on every tab, lists
@@ -74,9 +73,7 @@ import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
   clearRoomResidentPricing,
-  copyRoomPricingFrom,
   houseTermPricingForSubmission,
-  roomPricingMatches,
   termPriceFieldText,
   writeRoomTermPrice,
   type ListingHouseDefaults,
@@ -86,17 +83,19 @@ import {
 import {
   applyEntireHomeListingPricing,
   clampRoomResidentPrices,
+  clampStayResidentPrices,
   emptyCustomFeeRow,
   reconcileRoomResidentPricing,
   type ManagerBundleRow,
   type ManagerListingSubmissionV1,
   type ManagerRoomResidentPrice,
+  type ManagerRoomStayResidentPrice,
   type ManagerRoomSubmission,
   type ManagerRoomTermPrice,
   type RoomResidentPriceFallback,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
-import { roomLowestResidentRent, roomPricesPerResident, roomResidentPrices } from "@/lib/room-pricing";
+import { roomHasStayOffer, roomLowestResidentRent, roomResidentPrices, roomStayPricesPerResident, roomStayResidentPrices, roomStoresPerResidentPricing } from "@/lib/room-pricing";
 import { cn } from "@/lib/utils";
 import { FieldMark } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
@@ -125,6 +124,11 @@ const num = (raw: string) => {
 const PRICING_MODE_OPTIONS = [
   { value: "fixed", label: "Fixed" },
   { value: "flexible", label: "Flexible" },
+] as const;
+
+const STAY_PER_RESIDENT_OPTIONS = [
+  { value: "same", label: "Same for every resident" },
+  { value: "per_resident", label: "Different per resident" },
 ] as const;
 
 /* ─────────────────────── per-term reads and writes ─────────────────────── */
@@ -179,6 +183,9 @@ function residentFallbackFor(room: ManagerRoomSubmission, term: string): RoomRes
     utilitiesEstimate: entry?.utilitiesEstimate ?? room.utilitiesEstimate,
     securityDeposit: entry?.securityDeposit ?? room.securityDeposit,
     pricingMode: entry?.pricingMode ?? room.pricingMode,
+    prorateMethod: room.prorateMethod,
+    dailyRentRate: room.dailyRentRate,
+    dailyUtilitiesRate: room.dailyUtilitiesRate,
   };
 }
 
@@ -198,7 +205,16 @@ function togglePerResident(room: ManagerRoomSubmission, term: string, on: boolea
     const first = roomResidentPrices(room, residentTerm)[0];
     if (isBase(term)) {
       const withFirst = first
-        ? { ...room, monthlyRent: first.monthlyRent, utilitiesEstimate: first.utilitiesEstimate ?? room.utilitiesEstimate, securityDeposit: first.securityDeposit ?? room.securityDeposit, pricingMode: first.pricingMode ?? room.pricingMode }
+        ? {
+            ...room,
+            monthlyRent: first.monthlyRent,
+            utilitiesEstimate: first.utilitiesEstimate ?? room.utilitiesEstimate,
+            securityDeposit: first.securityDeposit ?? room.securityDeposit,
+            pricingMode: first.pricingMode ?? room.pricingMode,
+            prorateMethod: first.prorateMethod ?? room.prorateMethod,
+            dailyRentRate: first.dailyRentRate ?? room.dailyRentRate,
+            dailyUtilitiesRate: first.dailyUtilitiesRate ?? room.dailyUtilitiesRate,
+          }
         : room;
       return clearRoomResidentPricing(withFirst);
     }
@@ -242,6 +258,51 @@ function writeResidentPrice(
   const entry = room.termPricing?.[term];
   const nextEntry: ManagerRoomTermPrice = { ...entry, ...mirror, residentPricing: "per_resident", residentPrices: rows };
   return reconcileRoomResidentPricing({ ...room, termPricing: { ...(room.termPricing ?? {}), [term]: nextEntry } });
+}
+
+function toggleStayPerResident(room: ManagerRoomSubmission, on: boolean): ManagerRoomSubmission {
+  if (!on) {
+    const first = roomStayResidentPrices(room)[0];
+    const folded: ManagerRoomSubmission = first
+      ? {
+          ...room,
+          shortTermRent: first.shortTermRent ?? room.shortTermRent,
+          weeklyRentPrice: first.weeklyRentPrice ?? room.weeklyRentPrice,
+        }
+      : room;
+    const { stayResidentPricing: _flag, stayResidentPrices: _rows, ...rest } = folded;
+    void _flag;
+    void _rows;
+    return rest;
+  }
+  const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  return reconcileRoomResidentPricing({
+    ...room,
+    stayResidentPricing: "per_resident",
+    stayResidentPrices: clampStayResidentPrices(room.stayResidentPrices, capacity, {
+      shortTermRent: room.shortTermRent,
+      weeklyRentPrice: room.weeklyRentPrice,
+    }),
+  });
+}
+
+function writeStayResidentPrice(
+  room: ManagerRoomSubmission,
+  slot: number,
+  fields: Partial<ManagerRoomStayResidentPrice>,
+): ManagerRoomSubmission {
+  const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  const rows = (clampStayResidentPrices(room.stayResidentPrices, capacity, {
+    shortTermRent: room.shortTermRent,
+    weeklyRentPrice: room.weeklyRentPrice,
+  }) ?? []).map((row, idx) => (idx === slot - 1 ? { ...row, ...fields } : row));
+  const mirror = slot === 1 ? fields : {};
+  return reconcileRoomResidentPricing({
+    ...room,
+    ...mirror,
+    stayResidentPricing: "per_resident",
+    stayResidentPrices: rows,
+  });
 }
 
 /* ─────────────────────── the room cards ─────────────────────── */
@@ -611,6 +672,7 @@ function ProrateRows({
   rent,
   util,
   dataAttr,
+  hideFees = false,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
@@ -628,6 +690,7 @@ function ProrateRows({
   /** Absent while the card's utilities are $0 or blank: there is nothing to split per day. */
   util: DayRate | null;
   dataAttr: string;
+  hideFees?: boolean;
 }) {
   const rows = useMemo(() => cardFeeRows(sub), [sub]);
   const fees = dailyFeeRows(sub, roomId, term);
@@ -657,7 +720,7 @@ function ProrateRows({
         <>
           {dayRow("Rent /day", rent, `${dataAttr}-rent`)}
           {util ? dayRow("Utilities /day", util, `${dataAttr}-utilities`) : null}
-          {fees.map((fee) => {
+          {hideFees ? null : fees.map((fee) => {
             const feeName = fee.label || "Fee";
             const shared = roomId !== null && (fee.roomIds ?? []).length !== 1;
             return dayRow(
@@ -669,47 +732,6 @@ function ProrateRows({
         </>
       )}
     </>
-  );
-}
-
-function roomCardName(room: ManagerRoomSubmission, rooms: ManagerRoomSubmission[]): string {
-  const index = rooms.findIndex((item) => item.id === room.id);
-  return room.name.trim() || `Room ${index + 1}`;
-}
-
-function SameAsRoomRow({
-  room,
-  rooms,
-  first,
-  onRoom,
-  dataAttr,
-}: {
-  room: ManagerRoomSubmission;
-  rooms: ManagerRoomSubmission[];
-  first?: boolean;
-  onRoom: (id: string, next: ManagerRoomSubmission) => void;
-  dataAttr: string;
-}) {
-  if (rooms.length < 2) return null;
-  const who = roomCardName(room, rooms);
-  const sameAsValue = rooms.find((other) => other.id !== room.id && roomPricingMatches(room, other))?.id ?? "";
-  const sameAsOptions = rooms
-    .map((other, index) => ({ value: other.id, label: other.name.trim() || `Room ${index + 1}` }))
-    .filter((option) => option.value !== room.id);
-  return (
-    <FactRow first={first} label="Same as">
-      <RowSelectCell
-        ariaLabel={`Same as for ${who}`}
-        value={sameAsValue}
-        options={sameAsOptions}
-        placeholder="—"
-        dataAttr={dataAttr}
-        onChange={(sourceId) => {
-          const source = rooms.find((item) => item.id === sourceId);
-          if (source) onRoom(room.id, copyRoomPricingFrom(source, room));
-        }}
-      />
-    </FactRow>
   );
 }
 
@@ -763,7 +785,7 @@ function MonthlyCards({
         const p = prorateOf(room);
         const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
         const residentTerm = base ? undefined : term;
-        const perResidentOn = capacity >= 2 && roomPricesPerResident(room, residentTerm);
+        const perResidentOn = capacity >= 2 && roomStoresPerResidentPricing(room, residentTerm);
         const residentRows = perResidentOn ? roomResidentPrices(room, residentTerm) : [];
         const summary = perResidentOn
           ? (() => {
@@ -799,10 +821,9 @@ function MonthlyCards({
             dimmed={dimmed}
             dataAttr="listing-v2-price-card"
           >
-            <SameAsRoomRow room={room} rooms={rooms} first onRoom={onRoom} dataAttr="listing-v2-price-same-as" />
             {capacity >= 2 ? (
               <FactRow
-                first={rooms.length < 2}
+                first
                 label={
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
@@ -858,13 +879,55 @@ function MonthlyCards({
                       />
                     </FactRow>
                     <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={`${name} Resident ${slot}`} term={feeScopeTerm} residentSlot={slot} />
+                    {prorate ? (
+                      <ProrateRows
+                        sub={sub}
+                        patch={patch}
+                        term={feeScopeTerm}
+                        roomId={room.id}
+                        name={`${name} Resident ${slot}`}
+                        automatic={(rp.prorateMethod || room.prorateMethod || "auto") !== "daily_rate"}
+                        onAutomatic={(next) =>
+                          onRoom(
+                            room.id,
+                            writeResidentPrice(room, term, slot, { prorateMethod: next ? "auto" : "daily_rate" }),
+                          )
+                        }
+                        rent={{
+                          text: (rp.dailyRentRate || 0) > 0 ? String(rp.dailyRentRate) : "",
+                          placeholder: perDay(rp.monthlyRent) || "35",
+                          onChange: (v) =>
+                            onRoom(
+                              room.id,
+                              writeResidentPrice(room, term, slot, { dailyRentRate: num(sanitizeMoneyInput(v)) || undefined }),
+                            ),
+                        }}
+                        util={
+                          num(moneyValue(rp.utilitiesEstimate)) > 0
+                            ? {
+                                text: (rp.dailyUtilitiesRate || 0) > 0 ? String(rp.dailyUtilitiesRate) : "",
+                                placeholder: perDay(num(moneyValue(rp.utilitiesEstimate))),
+                                onChange: (v) =>
+                                  onRoom(
+                                    room.id,
+                                    writeResidentPrice(room, term, slot, {
+                                      dailyUtilitiesRate: num(sanitizeMoneyInput(v)) || undefined,
+                                    }),
+                                  ),
+                              }
+                            : null
+                        }
+                        hideFees
+                        dataAttr={`listing-v2-price-prorate-resident-${slot}`}
+                      />
+                    ) : null}
                   </div>
                 );
               })
             ) : (
               <>
                 <FactRow
-                  first={rooms.length < 2 && capacity < 2}
+                  first={capacity < 2}
                   label="Rent /mo"
                   own={!base && rent.src === "own"}
                   onReset={!base && rent.src === "own" ? () => resetOne("monthlyRent") : undefined}
@@ -921,7 +984,7 @@ function MonthlyCards({
                 <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={feeScopeTerm} />
               </>
             )}
-            {prorate ? (
+            {prorate && !perResidentOn ? (
               <ProrateRows
                 sub={sub}
                 patch={patch}
@@ -977,32 +1040,92 @@ function StayCards({
         const night = moneyValue(room.shortTermRent);
         const week = room.weeklyRentPrice || 0;
         const isOpen = open === room.id;
+        const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+        const staySplit = capacity >= 2 && roomStayPricesPerResident(room);
+        const stayRows = staySplit ? roomStayResidentPrices(room) : [];
+        const summary = staySplit
+          ? stayRows
+              .map((row) => {
+                const n = moneyValue(row.shortTermRent);
+                return n ? `${usd(num(n))}/night` : "Nightly rate not set";
+              })
+              .join(" · ")
+          : [night ? `${usd(num(night))}/night` : "Nightly rate not set", week ? `${usd(week)}/week` : "Weekly rate not set"].join(" · ");
         return (
           <RecordCard
             key={room.id}
             title={name}
-            summary={[night ? `${usd(num(night))}/night` : "Nightly rate not set", week ? `${usd(week)}/week` : "Weekly rate not set"].join(" · ")}
+            summary={summary}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}
             toggleLabel={`${name} stay prices`}
             dataAttr="listing-v2-stay-card"
           >
-            <SameAsRoomRow room={room} rooms={rooms} first onRoom={onRoom} dataAttr="listing-v2-stay-same-as" />
-            <FactRow first={rooms.length < 2} label="Rent /night">
-              <MoneyInput
-                label={`${name} rent per night`}
-                value={night}
-                onChange={(v) => onRoom(room.id, { ...room, shortTermRent: sanitizeMoneyInput(v) })}
-              />
-            </FactRow>
-            <FactRow label="Rent /week">
-              <MoneyInput
-                label={`${name} rent per week`}
-                value={week > 0 ? String(week) : ""}
-                onChange={(v) => onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined })}
-              />
-            </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={term} />
+            {capacity >= 2 ? (
+              <FactRow first label="Rent per resident">
+                <RowSelectCell
+                  ariaLabel={`Rent per resident for ${name}`}
+                  value={staySplit ? "per_resident" : "same"}
+                  options={STAY_PER_RESIDENT_OPTIONS}
+                  dataAttr="listing-v2-stay-per-resident"
+                  onChange={(v) => onRoom(room.id, toggleStayPerResident(room, v === "per_resident"))}
+                />
+              </FactRow>
+            ) : null}
+            {staySplit ? (
+              stayRows.map((row, idx) => {
+                const slot = idx + 1;
+                const slotNight = moneyValue(row.shortTermRent);
+                const slotWeek = row.weeklyRentPrice || 0;
+                return (
+                  <div key={slot} data-attr="listing-v2-stay-resident-block" data-slot={String(slot)}>
+                    <ResidentSubHeading>{`Resident ${slot}`}</ResidentSubHeading>
+                    <FactRow label="Rent /night">
+                      <MoneyInput
+                        label={`${name} Resident ${slot} rent per night`}
+                        value={slotNight}
+                        dataAttr={`listing-v2-stay-resident-${slot}-night`}
+                        onChange={(v) =>
+                          onRoom(room.id, writeStayResidentPrice(room, slot, { shortTermRent: sanitizeMoneyInput(v) }))
+                        }
+                      />
+                    </FactRow>
+                    <FactRow label="Rent /week">
+                      <MoneyInput
+                        label={`${name} Resident ${slot} rent per week`}
+                        value={slotWeek > 0 ? String(slotWeek) : ""}
+                        dataAttr={`listing-v2-stay-resident-${slot}-week`}
+                        onChange={(v) =>
+                          onRoom(
+                            room.id,
+                            writeStayResidentPrice(room, slot, { weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined }),
+                          )
+                        }
+                      />
+                    </FactRow>
+                    <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={`${name} Resident ${slot}`} term={term} residentSlot={slot} />
+                  </div>
+                );
+              })
+            ) : (
+              <>
+                <FactRow first={capacity < 2} label="Rent /night">
+                  <MoneyInput
+                    label={`${name} rent per night`}
+                    value={night}
+                    onChange={(v) => onRoom(room.id, { ...room, shortTermRent: sanitizeMoneyInput(v) })}
+                  />
+                </FactRow>
+                <FactRow label="Rent /week">
+                  <MoneyInput
+                    label={`${name} rent per week`}
+                    value={week > 0 ? String(week) : ""}
+                    onChange={(v) => onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined })}
+                  />
+                </FactRow>
+                <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={term} />
+              </>
+            )}
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-stay-done" />
           </RecordCard>
         );
@@ -1342,7 +1465,7 @@ export function ListingPricingSections({
               const missing = wholePlace
                 ? isBase(pricingTerm) && !(sub.entireHomeMonthlyRent && sub.entireHomeMonthlyRent > 0)
                 : isStayLeaseTerm(pricingTerm)
-                  ? rooms.some((r) => !moneyValue(r.shortTermRent))
+                  ? rooms.some((r) => !roomHasStayOffer(r))
                   : isBase(pricingTerm) && rooms.some((r) => !(r.monthlyRent > 0));
               return (
                 <button key={t} type="button" role="tab" aria-selected={t === active} data-attr={`listing-v2-price-tab-${t}`} onClick={() => setTab(t)} className={cn("-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13.5px] font-bold", t === active ? "border-primary text-primary" : "border-transparent text-foreground/70 hover:text-foreground")}>

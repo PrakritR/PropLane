@@ -32,8 +32,6 @@ vi.mock("@/lib/prepare-listing-submission-for-persist", () => ({
 import { LISTING_V2_STEPS, ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 
-const stepIndex = (id: string) => LISTING_V2_STEPS.findIndex((step) => step.id === id);
-
 function validSubmission(): ManagerListingSubmissionV1 {
 	const sub = createDefaultListingSubmission();
 	return {
@@ -64,8 +62,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("V2 editor action availability", () => {
-	it("renders an explicit Save and Publish action on every step", () => {
-		const onSave = vi.fn(async () => true);
+	it("renders Continue on earlier steps and Publish only on Review", () => {
 		const onClose = vi.fn();
 		const onPublish = vi.fn(async () => true);
 		render(
@@ -74,18 +71,23 @@ describe("V2 editor action availability", () => {
 				submission={validSubmission()}
 				onChange={() => {}}
 				onClose={onClose}
-				onSave={onSave}
 				onPublish={onPublish}
 			/>,
 		);
 
 		for (const step of LISTING_V2_STEPS) {
 			fireEvent.click(rail(step.id));
-			expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
-			expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+			expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+			if (step.id === "review") {
+				expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+				expect(screen.queryByRole("button", { name: /^Continue to/ })).toBeNull();
+			} else {
+				expect(screen.getByRole("button", { name: /^Continue to/ })).toBeTruthy();
+				expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+			}
 		}
-		fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		expect(onSave).toHaveBeenCalledWith(stepIndex("review"));
+		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+		expect(onPublish).toHaveBeenCalled();
 		expect(onClose).not.toHaveBeenCalled();
 	});
 });
@@ -103,6 +105,7 @@ describe("V2 publish gate and recovery", () => {
 				initialSubmission={validSubmission()}
 			/>,
 		);
+		fireEvent.click(rail("review"));
 		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 		await waitFor(() => expect(onPublished).toHaveBeenCalledWith("listing-1"));
 		expect(showToast).not.toHaveBeenCalled();
@@ -119,62 +122,17 @@ describe("V2 publish gate and recovery", () => {
 				initialSubmission={sub}
 			/>,
 		);
+		fireEvent.click(rail("review"));
 		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 		await waitFor(() => expect(document.querySelector('[data-attr="listing-v2-rail-basics"]')).toHaveAttribute("aria-current", "step"));
 		const address = document.querySelector<HTMLInputElement>('input[autocomplete="street-address"]')!;
 		await waitFor(() => expect(address).toHaveFocus());
+		fireEvent.click(rail("review"));
 		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-		await waitFor(() => expect(address).toHaveFocus());
+		await waitFor(() => {
+			const again = document.querySelector<HTMLInputElement>('input[autocomplete="street-address"]')!;
+			expect(again).toHaveFocus();
+		});
 		expect(submitPending).not.toHaveBeenCalled();
-	});
-
-	it("retains input after a failed Save and allows retry", async () => {
-		saveDraft.mockResolvedValueOnce(null).mockResolvedValueOnce("draft-1");
-		const onClose = vi.fn();
-		render(
-			<ListingWizardV2
-				onClose={onClose}
-				showToast={showToast}
-				userId="manager-1"
-				skuTier="starter"
-				initialSubmission={createDefaultListingSubmission()}
-			/>,
-		);
-		const address = document.querySelector<HTMLInputElement>('input[autocomplete="street-address"]')!;
-		fireEvent.change(address, { target: { value: "142 Ash St" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		await waitFor(() => expect(showToast).toHaveBeenCalled());
-		expect(screen.getByDisplayValue("142 Ash St")).toBeTruthy();
-		await waitFor(() => expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false));
-		fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		await waitFor(() => expect(screen.queryByTestId("listing-v2-persistence-error")).toBeNull());
-		expect(onClose).not.toHaveBeenCalled();
-		expect(saveDraft).toHaveBeenCalledTimes(2);
-	});
-});
-
-describe("V2 persistence concurrency", () => {
-	it("suppresses an overlapping Publish while Save owns the lifecycle", async () => {
-		let finishSave!: (id: string | null) => void;
-		saveDraft.mockImplementation(() => new Promise<string | null>((resolve) => { finishSave = resolve; }));
-		render(
-			<ListingWizardV2
-				onClose={() => {}}
-				showToast={showToast}
-				userId="manager-1"
-				skuTier="starter"
-				initialSubmission={validSubmission()}
-			/>,
-		);
-		const address = document.querySelector<HTMLInputElement>('input[autocomplete="street-address"]')!;
-		fireEvent.change(address, { target: { value: "143 Ash St" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-		expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
-		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-		await waitFor(() => expect(saveDraft).toHaveBeenCalledTimes(1));
-		expect(submitPending).not.toHaveBeenCalled();
-		finishSave("draft-1");
-		await waitFor(() => expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false));
 	});
 });

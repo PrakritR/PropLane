@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
+import { fetchManagerChannelBookings, fetchOccupancySnapshot } from "@/lib/channel-calendar/client";
+import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
+import type { OccupancyDayCell } from "@/lib/occupancy/snapshot";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
@@ -47,6 +49,7 @@ export function useManagerBookingEntries({
   showToast: (message: string) => void;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
+  const [occupancyDays, setOccupancyDays] = useState<OccupancyDayLookup>({ overall: {}, houses: {} });
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(true);
   const [applicationRows, setApplicationRows] = useState<DemoApplicantRow[]>([]);
@@ -199,26 +202,64 @@ export function useManagerBookingEntries({
    */
   const propertyIdsKey = useMemo(() => [...propertyIds].sort().join("\u0000"), [propertyIds]);
 
+  const occupancyWindow = useMemo(() => {
+    const now = new Date();
+    const from = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+    const to = new Date(now.getFullYear() + 2, now.getMonth() + 1, 0);
+    const ymd = (value: Date) =>
+      `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    return { from: ymd(from), to: ymd(to) };
+  }, []);
+
   const reloadAirbnb = useCallback(async () => {
     const ids = propertyIdsKey ? propertyIdsKey.split("\u0000") : [];
     if (ids.length === 0) {
       setAirbnbEntries([]);
+      setOccupancyDays({ overall: {}, houses: {} });
       setLoaded(true);
       setRefreshing(false);
       return;
     }
     setRefreshing(true);
     try {
-      const rows = await fetchManagerChannelBookings(ids);
-      setAirbnbEntries(airbnbBookingEntries(rows));
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not load bookings.");
-      setAirbnbEntries([]);
+      const [bookingsResult, snapshotResult] = await Promise.allSettled([
+        fetchManagerChannelBookings(ids),
+        fetchOccupancySnapshot({ propertyIds: ids, from: occupancyWindow.from, to: occupancyWindow.to }),
+      ]);
+      if (bookingsResult.status === "fulfilled") {
+        setAirbnbEntries(airbnbBookingEntries(bookingsResult.value));
+      } else {
+        showToast(
+          bookingsResult.reason instanceof Error ? bookingsResult.reason.message : "Could not load bookings.",
+        );
+        setAirbnbEntries([]);
+      }
+      if (snapshotResult.status === "fulfilled") {
+        const overall: Record<string, OccupancyDayCell> = {};
+        const houses: Record<string, OccupancyDayCell> = {};
+        for (const day of snapshotResult.value.days ?? []) {
+          overall[day.dayKey] = {
+            occupied: day.occupied,
+            total: day.total,
+            checkIns: day.checkIns,
+            checkOuts: day.checkOuts,
+          };
+          for (const house of day.houses ?? []) {
+            houses[`${house.propertyId}:${day.dayKey}`] = {
+              occupied: house.occupied,
+              total: house.total,
+              checkIns: house.checkIns,
+              checkOuts: house.checkOuts,
+            };
+          }
+        }
+        setOccupancyDays({ overall, houses });
+      }
     } finally {
       setLoaded(true);
       setRefreshing(false);
     }
-  }, [propertyIdsKey, showToast]);
+  }, [propertyIdsKey, occupancyWindow, showToast]);
 
   useEffect(() => {
     void reloadAirbnb();
@@ -248,5 +289,5 @@ export function useManagerBookingEntries({
     [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries],
   );
 
-  return { entries, loading, reloadAirbnb, blocks, residentOptions };
+  return { entries, occupancyDays, loading, reloadAirbnb, blocks, residentOptions };
 }

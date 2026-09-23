@@ -4,8 +4,7 @@
 // (each section says what it currently holds), a listing with gaps carries a
 // "things to finish" card, and the status block says the home is live.
 //
-// Save and Publish remain available on every section so a manager can preserve
-// partial work or publish as soon as the required fields are complete.
+// The footer is Back + Continue until Review, where it is Back + Publish.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -16,7 +15,7 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
-import { LISTING_V2_STEPS, ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
@@ -78,30 +77,27 @@ describe("the rail on an edit", () => {
 });
 
 describe("the footer on an edit", () => {
-  it("offers Continue, Save, and Publish on an earlier section", () => {
+  it("offers Continue (not Save or Publish) on an earlier section", () => {
     mount(subWith({}), true);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
   });
 
-  it("review on a live listing has Save beside Publish", () => {
-    const { onSave, onPublish } = mount(subWith({}), true);
+  it("review on a live listing is Publish only", () => {
+    mount(subWith({}), true);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenCalledWith(LISTING_V2_STEPS.length - 1);
-    expect(onPublish).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("keeps the linear flow for a NEW listing", () => {
     mount(subWith({}), false);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });
 
   it("shows Ask PropLane in the header when assistant config is present", () => {

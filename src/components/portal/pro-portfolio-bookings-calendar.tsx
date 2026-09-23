@@ -1,15 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { BookingsKpiStrip } from "@/components/portal/bookings-kpi-strip";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
-import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import {
-  airbnbBookingEntries,
   bookedDayKeyCountInMonth,
   bookingEntriesForDayKey,
   bookingVisualSource,
@@ -25,14 +23,16 @@ import {
 } from "@/lib/channel-calendar/bookings-ui";
 import {
   dayOccupancy,
+  dayOccupancyFromLookup,
   monthOccupancyPercent,
   occupancyHeatBucket,
   occupancyHeatBucketClass,
   occupancyPercent,
   rangeOccupancyPercent,
   OCCUPANCY_HEAT_BUCKETS,
+  type OccupancyDayLookup,
 } from "@/lib/channel-calendar/bookings-occupancy";
-import { roomCountForProperty } from "@/lib/channel-calendar/bookings-room-counts";
+import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
 import { managerBookingDayHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
@@ -181,6 +181,7 @@ function DayBookingCell({
   today,
   onOpenDay,
   propertyIds,
+  occupancyDays,
   selected,
 }: {
   cell: Date;
@@ -188,13 +189,16 @@ function DayBookingCell({
   today: Date;
   onOpenDay: (key: string) => void;
   propertyIds: readonly string[];
+  occupancyDays?: OccupancyDayLookup;
   selected?: boolean;
 }) {
   const key = dateKey(cell);
   const dayBookings = bookingEntriesForDayKey(entries, key);
   const isToday = key === dateKey(today);
   const source = dominantSourceForDay(dayBookings);
-  const stats = dayOccupancy(entries, key, propertyIds, roomCountForProperty);
+  const stats = dayOccupancyFromLookup(occupancyDays, key, propertyIds, () =>
+    dayOccupancy(entries, key, propertyIds, bookingOccupancyCapacities),
+  );
   const percent = occupancyPercent(stats);
   const inOut = [
     stats.checkIns > 0 ? `${stats.checkIns} in` : "",
@@ -241,6 +245,7 @@ function YearMonthMiniGrid({
   isCurrentMonth,
   onSelect,
   propertyIds,
+  occupancyDays,
 }: {
   year: number;
   month: number;
@@ -248,10 +253,34 @@ function YearMonthMiniGrid({
   isCurrentMonth: boolean;
   onSelect: () => void;
   propertyIds: readonly string[];
+  occupancyDays?: OccupancyDayLookup;
 }) {
   const monthStart = new Date(year, month, 1);
   const label = monthStart.toLocaleDateString("en-US", { month: "long" });
-  const percent = monthOccupancyPercent(entries, year, month, propertyIds, roomCountForProperty);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthKeys = Array.from(
+    { length: daysInMonth },
+    (_, index) => `${year}-${String(month + 1).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`,
+  );
+  const fromSnapshot = occupancyDays
+    ? monthKeys.reduce(
+        (sum, key) => {
+          const cell = dayOccupancyFromLookup(occupancyDays, key, propertyIds, () => ({
+            occupied: 0,
+            rooms: 0,
+            checkIns: 0,
+            checkOuts: 0,
+          }));
+          return { occupied: sum.occupied + cell.occupied, rooms: sum.rooms + cell.rooms };
+        },
+        { occupied: 0, rooms: 0 },
+      )
+    : null;
+  const percent = fromSnapshot
+    ? fromSnapshot.rooms > 0
+      ? Math.round((fromSnapshot.occupied / fromSnapshot.rooms) * 100)
+      : 0
+    : monthOccupancyPercent(entries, year, month, propertyIds, bookingOccupancyCapacities);
   const bucket = occupancyHeatBucket(percent);
   const lightText = bucket === "empty" || bucket === "under-half";
 
@@ -298,6 +327,8 @@ export function ManagerPortfolioBookingsCalendar({
   showToast,
   refreshSignal = 0,
   extraEntries,
+  occupancyDays,
+  entriesLoading = false,
   roomFilterId = "",
   emptyMessage,
   variant = "embedded",
@@ -310,6 +341,8 @@ export function ManagerPortfolioBookingsCalendar({
   showToast: (message: string) => void;
   refreshSignal?: number;
   extraEntries?: PropertyBookingEntry[];
+  occupancyDays?: OccupancyDayLookup;
+  entriesLoading?: boolean;
   roomFilterId?: string;
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
@@ -325,6 +358,8 @@ export function ManagerPortfolioBookingsCalendar({
       showToast={showToast}
       refreshSignal={refreshSignal}
       extraEntries={extraEntries}
+      occupancyDays={occupancyDays}
+      entriesLoading={entriesLoading}
       roomFilterId={roomFilterId}
       emptyMessage={emptyMessage}
       variant={variant}
@@ -339,8 +374,9 @@ export function ManagerPortfolioBookingsCalendar({
 export function ManagerBookingsHub({
   propertyIds,
   showToast,
-  refreshSignal = 0,
   extraEntries,
+  occupancyDays,
+  entriesLoading = false,
   roomFilterId = "",
   emptyMessage,
   variant = "embedded",
@@ -353,6 +389,8 @@ export function ManagerBookingsHub({
   showToast: (message: string) => void;
   refreshSignal?: number;
   extraEntries?: PropertyBookingEntry[];
+  occupancyDays?: OccupancyDayLookup;
+  entriesLoading?: boolean;
   roomFilterId?: string;
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
@@ -364,8 +402,7 @@ export function ManagerBookingsHub({
   searchQuery?: string;
 }) {
   const navigate = usePortalNavigate();
-  const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const loading = entriesLoading;
   const [hubMode, setHubMode] = useState<BookingsHubMode>("calendar");
   const [view, setView] = useState<BookingsCalendarView>("month");
   const [anchorDate, setAnchorDate] = useState(() => startOfLocalDay(new Date()));
@@ -383,41 +420,15 @@ export function ManagerBookingsHub({
     [weekStart],
   );
 
-  const propertyIdsKey = propertyIds.join(",");
-  const fetchPropertyIds = useMemo(
-    () => propertyIdsKey.split(",").filter(Boolean),
-    [propertyIdsKey],
-  );
-
-  const reload = useCallback(async () => {
-    if (fetchPropertyIds.length === 0) {
-      setAirbnbEntries([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const rows = await fetchManagerChannelBookings(fetchPropertyIds);
-      setAirbnbEntries(airbnbBookingEntries(rows));
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not load bookings.");
-      setAirbnbEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchPropertyIds, showToast]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload, refreshSignal]);
+  void showToast;
 
   const entries = useMemo(
     () =>
       filterBookingsBySearch(
-        filterBookingEntriesByRoom([...airbnbEntries, ...(extraEntries ?? [])], roomFilterId),
+        filterBookingEntriesByRoom(extraEntries ?? [], roomFilterId),
         searchQuery,
       ),
-    [airbnbEntries, extraEntries, roomFilterId, searchQuery],
+    [extraEntries, roomFilterId, searchQuery],
   );
 
   /**
@@ -431,12 +442,29 @@ export function ManagerBookingsHub({
     const legacy = bookingOccupancyStats(entries, anchorDate, view);
     const dayKeys = dayKeysForView(anchorDate, view);
     const bookedNights = dayKeys.reduce(
-      (total, key) => total + dayOccupancy(entries, key, propertyIds, roomCountForProperty).occupied,
+      (total, key) =>
+        total +
+        dayOccupancyFromLookup(occupancyDays, key, propertyIds, () =>
+          dayOccupancy(entries, key, propertyIds, bookingOccupancyCapacities),
+        ).occupied,
       0,
     );
-    const occupancy = rangeOccupancyPercent(entries, dayKeys, propertyIds, roomCountForProperty);
+    const occupancy = occupancyDays
+      ? (() => {
+          let occupied = 0;
+          let rooms = 0;
+          for (const key of dayKeys) {
+            const cell = dayOccupancyFromLookup(occupancyDays, key, propertyIds, () =>
+              dayOccupancy(entries, key, propertyIds, bookingOccupancyCapacities),
+            );
+            occupied += cell.occupied;
+            rooms += cell.rooms;
+          }
+          return rooms > 0 ? Math.round((occupied / rooms) * 100) : 0;
+        })()
+      : rangeOccupancyPercent(entries, dayKeys, propertyIds, bookingOccupancyCapacities);
     return { bookedNights, checkInsThisWeek: legacy.checkInsThisWeek, occupancyPercent: occupancy };
-  }, [entries, anchorDate, view, propertyIds]);
+  }, [entries, occupancyDays, anchorDate, view, propertyIds]);
 
   const navSubtitle = useMemo(() => {
     if (view === "day") {
@@ -621,6 +649,7 @@ export function ManagerBookingsHub({
                         today={today}
                         onOpenDay={openDay}
                         propertyIds={propertyIds}
+                        occupancyDays={occupancyDays}
                         selected={selectedDayKey === dateKey(cell)}
                       />
                     ))}
@@ -653,6 +682,7 @@ export function ManagerBookingsHub({
                           today={today}
                           onOpenDay={openDay}
                           propertyIds={propertyIds}
+                          occupancyDays={occupancyDays}
                           selected={selectedDayKey === dateKey(cell)}
                         />
                       );
@@ -676,6 +706,7 @@ export function ManagerBookingsHub({
                         isCurrentMonth={isCurrentMonth}
                         onSelect={() => goToMonth(year, month)}
                         propertyIds={propertyIds}
+                        occupancyDays={occupancyDays}
                       />
                     );
                   })}

@@ -526,13 +526,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     ownGroups: [
       { label: "Vendor", ids: [
         { id: "overview", label: "Overview" },
-        { id: "profile", label: "Profile" },
         { id: "pricing", label: "Pricing" },
       ] },
       { label: "Work", ids: [
         { id: "jobs", label: "Jobs" },
         { id: "reviews", label: "Reviews" },
-        { id: "check-ins", label: "Check-ins" },
       ] },
     ],
     headerActions: [
@@ -540,8 +538,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "email", label: "Email", icon: Mail },
       { id: "share", label: "Share", icon: Share2 },
     ],
+    sectionActions: {
+      communication: [{ id: "compose", label: "New message", icon: Mail }],
+    },
     hasDocuments: true,
-    hasActivity: true,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       return (recordId, tab) => vendorCatalogDetailHref(basePath, recordId, tab as VendorDetailTabId);

@@ -1,24 +1,42 @@
 /**
- * Occupancy math shared by the Bookings day page and the month/year calendar
- * (PLAN-0920-1058, area 1e).
+ * Occupancy math shared by the Bookings day page and the month/year calendar.
  *
- * "How full is this day" is a room-count question, not a booked/not-booked
- * flag — a 9-room house with one stay is not "Booked". Every surface that
- * answers it (the day-page header line, a month cell, a year heat tile, the
- * KPI strip) calls THESE functions so they can never disagree, the exact
- * failure the mobile QA sweep caught ("Tours 0" above six tour blocks).
- *
- * Pure and framework-free on purpose — `roomCountForProperty` is injected so
- * this file has no dependency on the client-only listing/property reads
- * (`bookings-room-counts.ts` supplies the real one), and it can be unit
- * tested in a plain node environment.
+ * This file is a formatter over {@link occupancyForDay}: `occupied` is beds
+ * taken, `rooms` is beds total. A function resolver is the legacy contract
+ * (beds total only, one bed per room) so existing unit tests stay green.
+ * Bookings UI injects {@link OccupancyCapacities} from `bookings-room-counts`.
  */
 
-import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { addDaysToDateKey } from "@/lib/channel-calendar/bookings-ui";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import {
+  occupancyForDay,
+  type OccupancyCapacities,
+  type OccupancyDayCell,
+} from "@/lib/occupancy/snapshot";
+
+export type OccupancyDayLookup = {
+  overall: Record<string, OccupancyDayCell>;
+  houses: Record<string, OccupancyDayCell>;
+};
+
+export function dayOccupancyFromLookup(
+  lookup: OccupancyDayLookup | undefined,
+  dayKey: string,
+  propertyIds: readonly string[],
+  fallback: () => DayOccupancy,
+): DayOccupancy {
+  if (!lookup) return fallback();
+  if (propertyIds.length === 1) {
+    const house = lookup.houses[`${propertyIds[0]}:${dayKey}`];
+    if (house) return { occupied: house.occupied, rooms: house.total, checkIns: house.checkIns, checkOuts: house.checkOuts };
+  }
+  const cell = lookup.overall[dayKey];
+  if (!cell) return fallback();
+  return { occupied: cell.occupied, rooms: cell.total, checkIns: cell.checkIns, checkOuts: cell.checkOuts };
+}
 
 export type DayOccupancy = {
-  /** Distinct rooms occupied, capped at the property/properties' total. */
+  /** Beds occupied, capped at the property/properties' bed total. */
   occupied: number;
   rooms: number;
   checkIns: number;
@@ -27,32 +45,13 @@ export type DayOccupancy = {
 
 export type RoomCountResolver = (propertyId: string) => number;
 
-/** One property's occupancy for one day. A whole-home entry (no `roomId`) fills every room. */
-function propertyDayOccupancy(
-  entries: readonly PropertyBookingEntry[],
-  dayKey: string,
-  propertyId: string,
-  totalRooms: number,
-): DayOccupancy {
-  const propertyEntries = entries.filter((entry) => entry.propertyId === propertyId);
-  const dayBookings = bookingEntriesForDayKey(propertyEntries, dayKey);
-  let wholeHome = false;
-  const roomIds = new Set<string>();
-  let checkIns = 0;
-  for (const entry of dayBookings) {
-    if (entry.roomId) roomIds.add(entry.roomId);
-    else wholeHome = true;
-    if (entry.start === dayKey) checkIns += 1;
+export type OccupancyResolver = RoomCountResolver | OccupancyCapacities;
+
+function asCapacities(resolver: OccupancyResolver): OccupancyCapacities {
+  if (typeof resolver === "function") {
+    return { bedsTotal: resolver, roomCapacity: () => 1 };
   }
-  // A checkout on `dayKey` is NOT active that day (checkout is exclusive), so
-  // it never appears in `dayBookings` — scan every entry for the property
-  // instead of just the ones occupying this day.
-  let checkOuts = 0;
-  for (const entry of propertyEntries) {
-    if (!entry.openEnded && addDaysToDateKey(entry.end, 1) === dayKey) checkOuts += 1;
-  }
-  const occupied = wholeHome ? totalRooms : Math.min(roomIds.size, totalRooms);
-  return { occupied, rooms: totalRooms, checkIns, checkOuts };
+  return resolver;
 }
 
 /** Occupancy across every property in scope for one day — what a day-page header and a month/year cell both read. */
@@ -60,21 +59,10 @@ export function dayOccupancy(
   entries: readonly PropertyBookingEntry[],
   dayKey: string,
   propertyIds: readonly string[],
-  roomCountForProperty: RoomCountResolver,
+  roomCountForProperty: OccupancyResolver,
 ): DayOccupancy {
-  let occupied = 0;
-  let rooms = 0;
-  let checkIns = 0;
-  let checkOuts = 0;
-  for (const propertyId of propertyIds) {
-    const totalRooms = Math.max(1, roomCountForProperty(propertyId));
-    const stats = propertyDayOccupancy(entries, dayKey, propertyId, totalRooms);
-    occupied += stats.occupied;
-    rooms += stats.rooms;
-    checkIns += stats.checkIns;
-    checkOuts += stats.checkOuts;
-  }
-  return { occupied, rooms, checkIns, checkOuts };
+  const cell = occupancyForDay(entries, dayKey, propertyIds, asCapacities(roomCountForProperty));
+  return { occupied: cell.occupied, rooms: cell.total, checkIns: cell.checkIns, checkOuts: cell.checkOuts };
 }
 
 export function occupancyPercent(stats: Pick<DayOccupancy, "occupied" | "rooms">): number {
@@ -86,7 +74,7 @@ export function rangeOccupancyPercent(
   entries: readonly PropertyBookingEntry[],
   dayKeys: readonly string[],
   propertyIds: readonly string[],
-  roomCountForProperty: RoomCountResolver,
+  roomCountForProperty: OccupancyResolver,
 ): number {
   let occupiedRoomNights = 0;
   let totalRoomNights = 0;
@@ -104,7 +92,7 @@ export function monthOccupancyPercent(
   year: number,
   monthIndex: number,
   propertyIds: readonly string[],
-  roomCountForProperty: RoomCountResolver,
+  roomCountForProperty: OccupancyResolver,
 ): number {
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const dayKeys = Array.from(

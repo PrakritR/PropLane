@@ -94,7 +94,7 @@ export async function POST(req: Request) {
         roomId,
         provider,
         label: body.label ?? null,
-        importUrl: body.importUrl ?? null,
+        ...(Object.prototype.hasOwnProperty.call(body, "importUrl") ? { importUrl: body.importUrl ?? null } : {}),
       },
       browserOrigin,
     );

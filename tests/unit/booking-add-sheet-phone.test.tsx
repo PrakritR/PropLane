@@ -15,6 +15,7 @@ vi.mock("@/lib/rental-application/data", () => ({
 
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () => Promise.resolve([]),
+  fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveChannelCalendarConnection: () => Promise.resolve({ id: "c1" }),
   syncChannelCalendarConnection: () => Promise.resolve(),
   deleteChannelCalendarConnection: () => Promise.resolve(),

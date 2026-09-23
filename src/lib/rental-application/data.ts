@@ -26,8 +26,21 @@ import {
   SHORT_TERM_LEASE_TERM,
   type LeaseTermOption,
 } from "@/lib/rental-application/lease-terms";
-import { roomDailyRentPrice } from "@/lib/room-pricing";
+import {
+  formatRoomPriceAmount,
+  roomDailyRentPrice,
+  roomPricesPerResident,
+  roomResidentPriceForSlot,
+  type RoomPricingLike,
+} from "@/lib/room-pricing";
 import { manualRangesToSpans } from "@/lib/room-availability-timeline";
+import {
+  evaluateRoomOccupancy,
+  normalizeRoomOccupancyCapacity,
+  openResidentSlots,
+  type RoomOccupancyPlacement,
+  type RoomResidentSlotPlacement,
+} from "@/lib/rental-application/room-occupancy";
 
 export { LEASE_TERM_CHOICES, LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM, type LeaseTermOption };
 export { offeredLeaseTermsFromStored, acceptedLeaseTermsFromStored };
@@ -80,15 +93,25 @@ export function listingRollsOverToMonthToMonth(propertyId: string): boolean {
 }
 
 /** Separates listing property id from submission room id in `roomChoice*` values. */
-import {
-  evaluateRoomOccupancy,
-  normalizeRoomOccupancyCapacity,
-  type RoomOccupancyPlacement,
-} from "@/lib/rental-application/room-occupancy";
-
 export const LISTING_ROOM_CHOICE_SEP = "::";
+/** Trailing `::r2` on a room-choice value names the 1-based resident slot. */
+const LISTING_ROOM_SLOT_SUFFIX = /::r(\d+)$/;
 
-export type ParsedRoomChoice = { propertyId: string; listingRoomId?: string };
+export type ParsedRoomChoice = { propertyId: string; listingRoomId?: string; residentSlot?: number };
+
+export function roomChoiceValue(propertyId: string, listingRoomId: string, residentSlot?: number): string {
+  const base = `${propertyId}${LISTING_ROOM_CHOICE_SEP}${listingRoomId}`;
+  return Number.isInteger(residentSlot) && (residentSlot as number) >= 1
+    ? `${base}${LISTING_ROOM_CHOICE_SEP}r${residentSlot}`
+    : base;
+}
+
+/** Room identity without a slot suffix — occupancy and public snapshots key on this. */
+export function canonicalRoomChoiceValue(value: string): string {
+  const { propertyId, listingRoomId } = parseRoomChoiceValue(value);
+  if (!propertyId) return "";
+  return listingRoomId ? `${propertyId}${LISTING_ROOM_CHOICE_SEP}${listingRoomId}` : propertyId;
+}
 type RoomAvailabilityOptions = {
   leaseStart?: string | null;
   leaseEnd?: string | null;
@@ -97,11 +120,22 @@ type RoomAvailabilityOptions = {
 };
 
 export function parseRoomChoiceValue(value: string): ParsedRoomChoice {
-  const v = value.trim();
-  if (!v) return { propertyId: "" };
+  const raw = value.trim();
+  if (!raw) return { propertyId: "" };
+  const slotMatch = raw.match(LISTING_ROOM_SLOT_SUFFIX);
+  const parsedSlot = slotMatch ? Number(slotMatch[1]) : undefined;
+  const residentSlot =
+    Number.isInteger(parsedSlot) && (parsedSlot as number) >= 1 ? parsedSlot : undefined;
+  const v = slotMatch ? raw.slice(0, raw.length - slotMatch[0].length) : raw;
   const i = v.indexOf(LISTING_ROOM_CHOICE_SEP);
-  if (i === -1) return { propertyId: v };
-  return { propertyId: v.slice(0, i), listingRoomId: v.slice(i + LISTING_ROOM_CHOICE_SEP.length) };
+  if (i === -1) {
+    return residentSlot ? { propertyId: v, residentSlot } : { propertyId: v };
+  }
+  return {
+    propertyId: v.slice(0, i),
+    listingRoomId: v.slice(i + LISTING_ROOM_CHOICE_SEP.length),
+    ...(residentSlot ? { residentSlot } : {}),
+  };
 }
 
 function parseFlexibleLocalDate(value: string | undefined | null): Date | null {
@@ -153,7 +187,10 @@ export type RoomUnavailabilityWindow = {
 };
 
 function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?: string | null): ApprovedRoomOccupancy[] {
-  const publicSpans = !isDemoModeActive() && !excludeApplicationId ? readPublicRoomOccupancy(roomChoiceValue) : undefined;
+  const publicSpans =
+    !isDemoModeActive() && !excludeApplicationId
+      ? readPublicRoomOccupancy(canonicalRoomChoiceValue(roomChoiceValue))
+      : undefined;
   if (publicSpans) return publicSpans.flatMap((span, index) => Array.from({ length: span.count }, (_, bed) => ({
     rowId: `public-capacity-${index}-${bed}`, leaseStart: parseFlexibleLocalDate(span.start)!, leaseEnd: parseFlexibleLocalDate(span.end),
   })));
@@ -228,31 +265,34 @@ function roomCapacityForChoice(roomChoiceValue: string): number {
 
 const DEFAULT_SINGLE_OCCUPANCY = 1;
 
-/**
- * The manager's own occupied dates on this room (and Airbnb imports), as
- * windows. They close the room outright whatever its capacity: a manager who
- * typed "occupied Oct 1 → Oct 31" means every bed.
- */
-function manualBlockWindowsForChoice(roomChoiceValue: string): RoomUnavailabilityWindow[] {
+function occupancyToPlacements(occupancies: ApprovedRoomOccupancy[]): RoomOccupancyPlacement[] {
+  return occupancies.map((occ) => ({ id: occ.rowId, start: occ.leaseStart, end: occ.leaseEnd }));
+}
+
+/** Each channel guest stay and typed block occupies one bed — never the whole room. */
+function manualBlockPlacements(roomChoiceValue: string): RoomOccupancyPlacement[] {
   const parsed = parseRoomChoiceValue(roomChoiceValue);
   if (!parsed.listingRoomId) return [];
   const prop = getPropertyById(parsed.propertyId);
   if (prop?.listingSubmission?.v !== 1) return [];
   const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
   const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
-  return manualRangesToSpans(room?.manualUnavailableRanges).map((span) => {
-    const start = parseFlexibleLocalDate(span.start) ?? null;
-    const end = span.end ? parseFlexibleLocalDate(span.end) ?? null : null;
-    const who = span.source === "channel" ? "Booked on Airbnb" : "Occupied";
-    const label = end
-      ? `${who} ${formatAvailabilityDate(start ?? new Date())} to ${formatAvailabilityDate(end)}`
-      : `${who} from ${formatAvailabilityDate(start ?? new Date())}`;
-    return { id: span.id, start, end, label, source: "manual_block" as const };
+  return manualRangesToSpans(room?.manualUnavailableRanges).flatMap((span, index) => {
+    const start = parseFlexibleLocalDate(span.start);
+    if (!start) return [];
+    const end = span.end ? parseFlexibleLocalDate(span.end) : start;
+    return [{ id: span.id || `block-${index}`, start, end }];
   });
 }
 
-function occupancyToPlacements(occupancies: ApprovedRoomOccupancy[]): RoomOccupancyPlacement[] {
-  return occupancies.map((occ) => ({ id: occ.rowId, start: occ.leaseStart, end: occ.leaseEnd }));
+function occupancyPlacementsForRoom(
+  roomChoiceValue: string,
+  excludeApplicationId?: string | null,
+): RoomOccupancyPlacement[] {
+  return [
+    ...occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue, excludeApplicationId)),
+    ...manualBlockPlacements(roomChoiceValue),
+  ];
 }
 
 /** Earliest day any of these placements begins, used as an unbounded sweep origin. */
@@ -269,11 +309,8 @@ export function getRoomUnavailabilityWindows(
   options: Pick<RoomAvailabilityOptions, "excludeApplicationId"> = {},
 ): RoomUnavailabilityWindow[] {
   const capacity = roomCapacityForChoice(roomChoiceValue);
-  const manualBlocks = manualBlockWindowsForChoice(roomChoiceValue);
-  const placements = occupancyToPlacements(
-    approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
-  );
-  if (placements.length === 0) return manualBlocks;
+  const placements = occupancyPlacementsForRoom(roomChoiceValue, options.excludeApplicationId);
+  if (placements.length === 0) return [];
 
   // A window is unavailable only where the room reaches CAPACITY, not merely where
   // someone is present. At capacity 1 that is the same set of dates the product
@@ -301,16 +338,7 @@ export function getRoomUnavailabilityWindows(
       source: "resident" as const,
     };
   });
-  return [...residentWindows, ...manualBlocks];
-}
-
-/** True when the manager's own occupied dates cover any day of the requested span. */
-function manualBlockCoversSpan(roomChoiceValue: string, targetStart: Date, targetEnd: Date): boolean {
-  return manualBlockWindowsForChoice(roomChoiceValue).some((w) => {
-    const wStart = w.start?.getTime() ?? Number.NEGATIVE_INFINITY;
-    const wEnd = w.end?.getTime() ?? Number.POSITIVE_INFINITY;
-    return wStart <= targetEnd.getTime() && targetStart.getTime() <= wEnd;
-  });
+  return residentWindows;
 }
 
 export function isRoomChoiceAvailable(
@@ -322,13 +350,9 @@ export function isRoomChoiceAvailable(
   // When no end date is given (e.g. search with only move-in), treat as a point-in-time
   // check so we don't falsely conflict with occupancy windows outside the search date.
   const targetEnd = parseFlexibleLocalDate(options.leaseEnd) ?? targetStart;
-  if (manualBlockCoversSpan(roomChoiceValue, targetStart, targetEnd)) return false;
-  const placements = occupancyToPlacements(
-    approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
-  );
   return evaluateRoomOccupancy({
     capacity: roomCapacityForChoice(roomChoiceValue),
-    placements,
+    placements: occupancyPlacementsForRoom(roomChoiceValue, options.excludeApplicationId),
     windowStart: targetStart,
     windowEnd: targetEnd,
   }).hasRoom;
@@ -368,7 +392,7 @@ function pendingConflictForRoom(
   // the pending ones would exceed capacity, so a two-bed room with one pending
   // applicant no longer warns about a bed that is genuinely still free.
   const placements = [
-    ...occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue, excludeApplicationId)),
+    ...occupancyPlacementsForRoom(roomChoiceValue, excludeApplicationId),
     ...pendingPlacements,
   ];
   return !evaluateRoomOccupancy({
@@ -392,9 +416,7 @@ export function roomBedAvailability(
   const targetEnd = parseFlexibleLocalDate(options.leaseEnd) ?? targetStart;
   const { capacity, remaining } = evaluateRoomOccupancy({
     capacity: roomCapacityForChoice(roomChoiceValue),
-    placements: occupancyToPlacements(
-      approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
-    ),
+    placements: occupancyPlacementsForRoom(roomChoiceValue, options.excludeApplicationId),
     windowStart: targetStart,
     windowEnd: targetEnd,
   });
@@ -410,7 +432,7 @@ export function isRoomApprovedConflict(
   const targetEnd = parseFlexibleLocalDate(leaseEnd) ?? targetStart;
   return !evaluateRoomOccupancy({
     capacity: roomCapacityForChoice(roomChoiceValue),
-    placements: occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue)),
+    placements: occupancyPlacementsForRoom(roomChoiceValue),
     windowStart: targetStart,
     windowEnd: targetEnd,
   }).hasRoom;
@@ -481,7 +503,7 @@ export function ledgerRoomNumberForApplication(row: {
 export function getRoomChoiceLabel(roomChoiceValue: string): string {
   const t = roomChoiceValue.trim();
   if (!t) return "";
-  const { propertyId, listingRoomId } = parseRoomChoiceValue(t);
+  const { propertyId, listingRoomId, residentSlot } = parseRoomChoiceValue(t);
   if (listingRoomId) {
     const prop = getPropertyById(propertyId);
     if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return prop?.title ?? "";
@@ -489,8 +511,19 @@ export function getRoomChoiceLabel(roomChoiceValue: string): string {
     const room = sub.rooms.find((r) => r.id === listingRoomId);
     if (!room) return prop.title;
     const daily = roomDailyRentPrice(room);
-    const rent = daily !== undefined ? `$${daily}/day` : room.monthlyRent > 0 ? `$${room.monthlyRent}/mo` : "";
-    const parts = [room.name.trim(), normFloorLabel(room.floor), rent].filter(Boolean);
+    const slotPrice = residentSlot ? roomResidentPriceForSlot(room, residentSlot) : undefined;
+    const rent = slotPrice && slotPrice.monthlyRent > 0
+      ? `${formatRoomPriceAmount(slotPrice.monthlyRent)}/mo`
+      : daily !== undefined
+        ? `$${daily}/day`
+        : room.monthlyRent > 0
+          ? `$${room.monthlyRent}/mo`
+          : "";
+    const parts = [
+      room.name.trim(),
+      residentSlot ? `Resident ${residentSlot}` : normFloorLabel(room.floor),
+      rent,
+    ].filter(Boolean);
     return parts.length ? parts.join(" · ") : room.name.trim();
   }
   const r = getPropertyById(t);
@@ -586,6 +619,213 @@ const NONE = "";
 
 export function roomSelectOptionsWithNone(propertyId: string, options: RoomAvailabilityOptions = {}): { value: string; label: string }[] {
   return [{ value: NONE, label: "None" }, ...getRoomOptionsForProperty(propertyId, options)];
+}
+
+export type FirstChoiceRoomOption = { value: string; label: string; disabled?: boolean };
+
+function approvedSlotPlacementsForChoice(
+  roomChoiceValue: string,
+  options: RoomAvailabilityOptions = {},
+): RoomResidentSlotPlacement[] {
+  const publicSpans =
+    !isDemoModeActive() && !options.excludeApplicationId
+      ? readPublicRoomOccupancy(canonicalRoomChoiceValue(roomChoiceValue))
+      : undefined;
+  if (publicSpans) return [];
+  const parsedTarget = parseRoomChoiceValue(roomChoiceValue);
+  const executedApplicationIds = executedApplicationIdsForManager();
+  const out: RoomResidentSlotPlacement[] = [];
+  for (const row of readManagerApplicationRows()) {
+    if (row.bucket !== "approved" || row.withdrawnAt) continue;
+    if (row.id === options.excludeApplicationId) continue;
+    if (!applicationHoldsRoomPublicly(row, executedApplicationIds)) continue;
+    const effective = effectiveApplicationForRow(row);
+    const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
+    if (!assignedChoice) continue;
+    const parsedAssigned = parseRoomChoiceValue(assignedChoice);
+    if (
+      parsedAssigned.propertyId !== parsedTarget.propertyId ||
+      String(parsedAssigned.listingRoomId ?? "") !== String(parsedTarget.listingRoomId ?? "")
+    ) {
+      continue;
+    }
+    const manualStart = parseFlexibleLocalDate(row.manualResidentDetails?.moveInDate);
+    const manualEnd = parseFlexibleLocalDate(row.manualResidentDetails?.moveOutDate);
+    const appStart = parseFlexibleLocalDate(effective?.leaseStart);
+    const appEnd = parseFlexibleLocalDate(effective?.leaseEnd);
+    const currentStart = manualStart ?? appStart ?? null;
+    const floor = parseFlexibleLocalDate(row.occupancyStartedOn);
+    const leaseStart = floor && currentStart && floor < currentStart ? floor : currentStart;
+    const leaseEnd = manualEnd ?? appEnd;
+    if (!leaseStart) continue;
+    out.push({
+      id: row.id,
+      start: leaseStart,
+      end: leaseEnd,
+      residentSlot: effective?.residentSlot ?? parsedAssigned.residentSlot,
+      holderName: row.name || row.email || null,
+    });
+  }
+  return out;
+}
+
+/** Pure expander: one first-choice row per bed when the room prices per resident. */
+export function expandFirstChoiceRoomOptions(params: {
+  rooms: { value: string; label: string }[];
+  leaseTerm?: string | null;
+  keepValue?: string;
+  resolveRoom: (listingRoomId: string) => RoomPricingLike | undefined;
+  resolveSlots: (roomChoice: string, room: RoomPricingLike) => {
+    slots: { slot: number; monthlyRent: number; taken: boolean }[];
+    allTakenByCount: boolean;
+  };
+}): FirstChoiceRoomOption[] {
+  const keep = params.keepValue?.trim() ?? "";
+  const out: FirstChoiceRoomOption[] = [];
+  for (const opt of params.rooms) {
+    const parsed = parseRoomChoiceValue(opt.value);
+    const room = parsed.listingRoomId ? params.resolveRoom(parsed.listingRoomId) : undefined;
+    if (!room || !roomPricesPerResident(room, params.leaseTerm)) {
+      out.push(opt);
+      continue;
+    }
+    const { slots, allTakenByCount } = params.resolveSlots(opt.value, room);
+    if (slots.length === 0) {
+      out.push(opt);
+      continue;
+    }
+    for (const slot of slots) {
+      const taken = slot.taken || allTakenByCount;
+      const rent = slot.monthlyRent > 0 ? `${formatRoomPriceAmount(slot.monthlyRent)}/mo` : "Rent TBD";
+      const value = roomChoiceValue(parsed.propertyId, parsed.listingRoomId!, slot.slot);
+      const roomName = (room as { name?: string }).name?.trim() || parseRoomChoiceValue(opt.value).listingRoomId || "Room";
+      out.push({
+        value,
+        label: taken
+          ? `${roomName} · Resident ${slot.slot} · ${rent} · Taken`
+          : `${roomName} · Resident ${slot.slot} · ${rent}`,
+        disabled: taken && value !== keep,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * First-choice dropdown: one selectable bed (and rent) per resident slot.
+ * Second and third choices stay room-level via {@link roomSelectOptionsWithNone}.
+ */
+export function firstChoiceRoomOptions(
+  propertyId: string,
+  options: RoomAvailabilityOptions & { leaseTerm?: string | null; keepValue?: string } = {},
+): FirstChoiceRoomOption[] {
+  const rooms = [...getRoomOptionsForProperty(propertyId, options)];
+  const keep = options.keepValue?.trim();
+  if (keep) {
+    const canonical = canonicalRoomChoiceValue(keep);
+    if (canonical && !rooms.some((r) => canonicalRoomChoiceValue(r.value) === canonical)) {
+      const extra = getRoomOptionsForProperty(propertyId, { ...options, includeUnavailable: true }).find(
+        (r) => canonicalRoomChoiceValue(r.value) === canonical,
+      );
+      if (extra) rooms.push(extra);
+    }
+  }
+  const selected = getPropertyById(propertyId);
+  if (!selected?.listingSubmission || selected.listingSubmission.v !== 1) return rooms;
+  const sub = normalizeManagerListingSubmissionV1(selected.listingSubmission);
+  const at = parseFlexibleLocalDate(options.leaseStart) ?? new Date();
+  return expandFirstChoiceRoomOptions({
+    rooms,
+    leaseTerm: options.leaseTerm,
+    keepValue: keep,
+    resolveRoom: (listingRoomId) => sub.rooms.find((r) => r.id === listingRoomId),
+    resolveSlots: (roomChoice, room) => {
+      const placements = approvedSlotPlacementsForChoice(roomChoice, options);
+      const slots = openResidentSlots({
+        room,
+        placements,
+        at,
+        term: options.leaseTerm,
+      });
+      const { remaining } = roomBedAvailability(canonicalRoomChoiceValue(roomChoice), options);
+      return {
+        slots: slots.map((slot) => ({
+          slot: slot.slot,
+          monthlyRent: slot.price.monthlyRent,
+          taken: Boolean(slot.holder),
+        })),
+        allTakenByCount: remaining === 0 && placements.length === 0,
+      };
+    },
+  });
+}
+
+export function firstChoiceSlotIsTaken(
+  roomChoiceValue: string,
+  options: RoomAvailabilityOptions & { leaseTerm?: string | null } = {},
+): boolean {
+  const parsed = parseRoomChoiceValue(roomChoiceValue);
+  if (!parsed.listingRoomId || !parsed.residentSlot) return false;
+  const prop = getPropertyById(parsed.propertyId);
+  if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return false;
+  const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
+  const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
+  if (!room || !roomPricesPerResident(room, options.leaseTerm)) return false;
+  const placements = approvedSlotPlacementsForChoice(roomChoiceValue, options);
+  const slots = openResidentSlots({
+    room,
+    placements,
+    at: parseFlexibleLocalDate(options.leaseStart) ?? new Date(),
+    term: options.leaseTerm,
+  });
+  if (slots.find((s) => s.slot === parsed.residentSlot)?.holder) return true;
+  const { remaining } = roomBedAvailability(canonicalRoomChoiceValue(roomChoiceValue), options);
+  return remaining === 0 && placements.length === 0;
+}
+
+export function firstChoiceSelectionPatch(
+  value: string,
+  options: { propertyId: string; leaseTerm?: string | null },
+): {
+  roomChoice1: string;
+  residentSlot?: number;
+  managerRentOverride: string;
+  managerUtilitiesOverride: string;
+  managerSecurityDepositOverride: string;
+} {
+  const cleared = {
+    roomChoice1: "",
+    residentSlot: undefined as number | undefined,
+    managerRentOverride: "",
+    managerUtilitiesOverride: "",
+    managerSecurityDepositOverride: "",
+  };
+  const trimmed = value.trim();
+  if (!trimmed) return cleared;
+  const parsed = parseRoomChoiceValue(trimmed);
+  const prop = getPropertyById(options.propertyId || parsed.propertyId);
+  const sub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : undefined;
+  const room = parsed.listingRoomId && sub ? sub.rooms.find((r) => r.id === parsed.listingRoomId) : undefined;
+  const price =
+    room && parsed.residentSlot
+      ? roomResidentPriceForSlot(room, parsed.residentSlot, options.leaseTerm)
+      : undefined;
+  if (!price) {
+    return {
+      roomChoice1: trimmed,
+      residentSlot: parsed.residentSlot,
+      managerRentOverride: "",
+      managerUtilitiesOverride: "",
+      managerSecurityDepositOverride: "",
+    };
+  }
+  return {
+    roomChoice1: trimmed,
+    residentSlot: price.slot,
+    managerRentOverride: String(price.monthlyRent),
+    managerUtilitiesOverride: price.utilitiesEstimate ?? "",
+    managerSecurityDepositOverride: price.securityDeposit ?? "",
+  };
 }
 
 /**

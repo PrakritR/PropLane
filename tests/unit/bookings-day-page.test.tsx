@@ -91,7 +91,7 @@ describe("BookingsDayPage", () => {
     const summary = document.querySelector('[data-attr="bookings-day-summary"]');
     expect(summary?.textContent).toContain("2 bookings");
     expect(summary?.textContent).toContain("2 check-ins");
-    expect(summary?.textContent).toContain("rooms occupied");
+    expect(summary?.textContent).toContain("beds occupied");
   });
 
   it("groups rows by property, each with its own occupied/rooms line", () => {
@@ -133,7 +133,7 @@ describe("BookingsDayPage", () => {
       />,
     );
     expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeTruthy();
-    fireEvent.click(screen.getByText("Ada Lovelace · Room 1"));
+    fireEvent.click(screen.getByText("Ada Lovelace"));
     expect(navigate).toHaveBeenCalledWith(bookingRecordHref("/portal", bookingEntryKey(brooklyn)));
   });
 });

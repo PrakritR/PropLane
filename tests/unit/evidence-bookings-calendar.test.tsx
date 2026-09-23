@@ -50,6 +50,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
         ],
       },
     ]),
+  fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
 }));
 
@@ -141,9 +142,10 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
     // channel name per cell (PLAN-0920-1058, area 1e: names belong on the day
     // page, not 30 identical cells) — the guarantee here is that the Airbnb
     // stay is still counted in that day's occupancy, not silently dropped.
+    // "Not available" occupies a bed but is not a check-in (PLAN-0922-1904).
     const airbnbDay = document.querySelector('[data-attr="portfolio-booking-day-2026-08-18"]');
     expect(airbnbDay?.textContent).toContain("1/1");
-    expect(airbnbDay?.textContent).toContain("1 in");
+    expect(airbnbDay?.textContent ?? "").not.toMatch(/\d+\s+in/);
     fireEvent.click(document.querySelector('button[data-attr="bookings-bucket-inhouse"]')!);
     await act(async () => {
       await Promise.resolve();

@@ -7,6 +7,8 @@ import {
   executedApplicationIdsFromLeaseRecords,
 } from "@/lib/rental-application/room-public-occupancy-eligibility";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX } from "@/lib/channel-calendar/types";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
 export const runtime = "nodejs";
 
@@ -64,11 +66,26 @@ export async function GET() {
     for (let chunk = 0; chunk < listingIds.length; chunk += 100) {
       const { data, error } = await db
         .from("manager_property_records")
-        .select("id,manager_user_id")
+        .select("id,manager_user_id,property_data")
         .in("id", listingIds.slice(chunk, chunk + 100));
       if (error) throw error;
       for (const record of data ?? []) {
         if (record.manager_user_id) ownerByListing.set(String(record.id), String(record.manager_user_id));
+        const submission = (record.property_data as { listingSubmission?: ManagerListingSubmissionV1 } | null)
+          ?.listingSubmission;
+        if (submission?.v !== 1) continue;
+        for (const room of submission.rooms ?? []) {
+          const bucket = placements.get(`${record.id}::${room.id}`);
+          if (!bucket) continue;
+          for (const range of room.manualUnavailableRanges ?? []) {
+            if (String(range.id ?? "").startsWith(`${CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX}-`)) continue;
+            const start = day(range.start);
+            if (!start) continue;
+            const end = day(range.end) || start;
+            const id = String(range.id || `${start}:${end}`).trim() || `${start}:${end}`;
+            bucket.set(id, { start, end, count: 1 });
+          }
+        }
       }
     }
     const owners = [...new Set(ownerByListing.values())];
@@ -124,6 +141,27 @@ export async function GET() {
           }
         }
         if ((data ?? []).length < 500) break;
+      }
+    }
+    for (let chunk = 0; chunk < listingIds.length; chunk += 100) {
+      const { data, error } = await db
+        .from("external_calendar_connections")
+        .select("property_id, room_id, imported_ranges")
+        .in("property_id", listingIds.slice(chunk, chunk + 100));
+      if (error) throw error;
+      for (const row of data ?? []) {
+        const propertyId = String(row.property_id ?? "");
+        const roomId = String(row.room_id ?? "");
+        const bucket = placements.get(`${propertyId}::${roomId}`);
+        if (!bucket) continue;
+        const imported = Array.isArray(row.imported_ranges) ? row.imported_ranges : [];
+        for (const range of imported) {
+          const start = day((range as { start?: unknown }).start);
+          if (!start) continue;
+          const end = day((range as { end?: unknown }).end) || start;
+          const id = String((range as { sourceUid?: unknown; id?: unknown }).sourceUid || (range as { id?: unknown }).id || `${start}:${end}`);
+          bucket.set(id, { start, end, count: 1 });
+        }
       }
     }
     const rooms: PublicRoomOccupancy[] = [...placements].map(([roomChoice, rows]) => ({

@@ -30,7 +30,7 @@ function escapeIcsText(value: string): string {
 /** Build an iCalendar feed for Airbnb "Import calendar". DTEND is exclusive. */
 export function generateIcsCalendar(
   ranges: IcalDateRange[],
-  options?: { calendarName?: string; prodId?: string },
+  options?: { calendarName?: string; prodId?: string; uidPrefix?: string },
 ): string {
   const now = formatIcsUtcStamp(new Date());
   const name = options?.calendarName?.trim() || "PropLane availability";
@@ -49,7 +49,9 @@ export function generateIcsCalendar(
     const endInclusive = range.end.trim() || start;
     if (!start) continue;
     const dtEndExclusive = addDaysYmd(endInclusive, 1);
-    const uid = `proplane-block-${start}-${dtEndExclusive}`;
+    const uid = options?.uidPrefix
+      ? `${options.uidPrefix}-${start}`
+      : `proplane-block-${start}-${dtEndExclusive}`;
     lines.push(
       "BEGIN:VEVENT",
       `UID:${uid}`,

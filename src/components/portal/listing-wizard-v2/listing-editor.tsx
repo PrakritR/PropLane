@@ -143,6 +143,7 @@ import {
   type ListingHouseDefaultField,
   type RoomDescriptionField,
 } from "@/lib/listing-house-defaults";
+import { roomHasStayOffer } from "@/lib/room-pricing";
 import {
   AddRowButton,
   ColumnHelp,
@@ -2482,7 +2483,7 @@ export type ListingReadiness = { id: string; label: string; state: "done" | "tod
 /** What the review step reports, and what a completeness percentage means. */
 export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadiness[] {
   const rooms = sub.rooms ?? [];
-  const priced = rooms.filter((r) => r.monthlyRent > 0 || (r.dailyRentPrice ?? 0) > 0);
+  const priced = rooms.filter((r) => r.monthlyRent > 0 || (r.dailyRentPrice ?? 0) > 0 || roomHasStayOffer(r));
   const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0);
   const allowed = resolveAllowedLeaseTerms(sub);
   return [
@@ -2779,8 +2780,7 @@ function hasOfferedListingRent(submission: ManagerListingSubmissionV1): boolean 
     if (isStayLeaseTerm(term)) {
       return rooms.some(
         (room) =>
-          hasPositiveMoney(room.shortTermRent) ||
-          hasPositiveMoney(room.weeklyRentPrice) ||
+          roomHasStayOffer(room) ||
           (roomInheritsDefault(room, defaults, "shortTermRent") && hasPositiveMoney(defaults.shortTermRent)) ||
           (roomInheritsDefault(room, defaults, "weeklyRentPrice") && hasPositiveMoney(defaults.weeklyRentPrice)),
       );
@@ -2805,8 +2805,6 @@ export function ListingEditorV2({
   propertyId = null,
   onChange,
   onClose,
-  onSave,
-  onSaveExit,
   onPublish,
   onStepChange,
   title,
@@ -2856,10 +2854,6 @@ export function ListingEditorV2({
   /** The doors a renter reaches the manager through, shown on Review. */
   contact?: ListingContactDoors;
 }) {
-  // Save and Publish share one `busy`; remember which was pressed so only that
-  // button reads as in flight. The flag is read only while busy, so a stale
-  // true after the write lands is harmless and the next press resets it.
-  const [savePressed, setSavePressed] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   useEffect(() => {
     setPublishError(null);
@@ -3120,24 +3114,15 @@ export function ListingEditorV2({
             {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <Button variant="outline" disabled={busy} loading={busy && savePressed} onClick={() => {
-              setSavePressed(true);
-              setPublishError(null);
-              return onSave?.(step) ?? onSaveExit?.(step);
-            }} data-attr={isEdit ? "listing-v2-save" : "listing-v2-save-draft"} className="px-3 sm:px-5">
-              Save
-            </Button>
-            <Button disabled={busy} loading={busy && !savePressed} onClick={() => {
-              setSavePressed(false);
-              return publishFromCurrentStep();
-            }} data-attr="listing-v2-publish" className="px-3 sm:px-5">
-              Publish
-            </Button>
             {nextStep != null ? (
               <Button variant="outline" disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
                 Continue
               </Button>
-            ) : null}
+            ) : (
+              <Button disabled={busy} loading={busy} onClick={() => publishFromCurrentStep()} data-attr="listing-v2-publish" className="px-3 sm:px-5">
+                Publish
+              </Button>
+            )}
           </div>
         </>
       }

@@ -10,8 +10,8 @@ describe("catalog vendor detail layout", () => {
     expect(source).toContain("ReviewRow");
     expect(source).not.toContain("function Preview");
     expect(source).not.toContain("function Field");
-    expect(source).toContain('tab === "profile"');
-    expect(source).not.toContain('tab === "overview" || tab === "profile"');
+    expect(source).not.toContain('tab === "profile"');
+    expect(source).not.toContain("vendor-catalog-profile");
   });
 
   it("keeps catalog history empty and rates truthful", () => {

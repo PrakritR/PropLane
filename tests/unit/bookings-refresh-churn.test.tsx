@@ -16,6 +16,7 @@ const fetchBookings = vi.fn(() => Promise.resolve([]));
 
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: (...args: unknown[]) => fetchBookings(...(args as [])),
+  fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({

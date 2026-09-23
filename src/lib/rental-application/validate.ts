@@ -17,9 +17,19 @@ import {
 } from "@/app/(public)/rent/apply/apply-validation";
 import type { MockProperty } from "@/data/types";
 import {
+  normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
-import { propertyAllowsShortTermRental, listingAllowedLeaseTerms, getPropertyById, isEntireHomeProperty } from "./data";
+import { roomPricesPerResident } from "@/lib/room-pricing";
+import {
+  propertyAllowsShortTermRental,
+  listingAllowedLeaseTerms,
+  getPropertyById,
+  isEntireHomeProperty,
+  parseRoomChoiceValue,
+  canonicalRoomChoiceValue,
+  firstChoiceSlotIsTaken,
+} from "./data";
 import { LEASE_TERM_OPTIONS, acceptedLeaseTermsFromStored } from "./lease-terms";
 import type { RentalWizardErrors, RentalWizardFormState } from "./types";
 import { digitsOnly, parseMoneyInput } from "./masks";
@@ -208,8 +218,41 @@ export function validateStandardWizardStep(
     const r1 = f.roomChoice1.trim();
     const r2 = f.roomChoice2.trim();
     const r3 = f.roomChoice3.trim();
-    if (fieldEnabled("roomChoice2") && r2 && r2 === r1) e.roomChoice2 = "Second choice must differ from your first choice.";
-    if (fieldEnabled("roomChoice3") && r3 && (r3 === r1 || r3 === r2)) e.roomChoice3 = "Third choice must differ from your other choices.";
+    const r1Room = canonicalRoomChoiceValue(r1);
+    const r2Room = canonicalRoomChoiceValue(r2);
+    const r3Room = canonicalRoomChoiceValue(r3);
+    if (fieldEnabled("roomChoice2") && r2 && r2Room && r2Room === r1Room) {
+      e.roomChoice2 = "Second choice must differ from your first choice.";
+    }
+    if (fieldEnabled("roomChoice3") && r3 && ((r3Room && r3Room === r1Room) || (r3Room && r3Room === r2Room) || r3 === r1 || r3 === r2)) {
+      e.roomChoice3 = "Third choice must differ from your other choices.";
+    }
+    if (fieldEnabled("roomChoice1") && r1 && !f.bundleId.trim()) {
+      const parsed = parseRoomChoiceValue(r1);
+      const listingProp = f.propertyId.trim() ? getPropertyById(f.propertyId) : undefined;
+      const listingSub =
+        listingProp?.listingSubmission?.v === 1
+          ? normalizeManagerListingSubmissionV1(listingProp.listingSubmission)
+          : prop?.listingSubmission?.v === 1
+            ? normalizeManagerListingSubmissionV1(prop.listingSubmission)
+            : undefined;
+      const room = parsed.listingRoomId && listingSub
+        ? listingSub.rooms.find((row) => row.id === parsed.listingRoomId)
+        : undefined;
+      const slot = f.residentSlot ?? parsed.residentSlot;
+      if (room && roomPricesPerResident(room, f.leaseTerm) && !slot) {
+        e.roomChoice1 = "Choose which resident you are applying as.";
+      } else if (
+        slot &&
+        firstChoiceSlotIsTaken(r1, {
+          leaseStart: f.leaseStart,
+          leaseEnd: f.leaseEnd,
+          leaseTerm: f.leaseTerm,
+        })
+      ) {
+        e.roomChoice1 = "That bed is taken. Choose another.";
+      }
+    }
     if (fieldEnabled("leaseTerm") && !f.leaseTerm.trim()) e.leaseTerm = "Lease term is required.";
     if (
       fieldEnabled("leaseTerm") &&

@@ -1,6 +1,8 @@
-import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { normalizeManagerListingSubmissionV1, PAYMENT_AT_SIGNING_OPTIONS, isEntireHomeListing, entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
+import { buildListingQuote, type ListingQuote } from "@/lib/listing-quote";
+import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { leaseDocumentFeeLines, listingPresetFeeAmount } from "@/lib/listing-fees";
 import { paymentAtSigningKeysFor } from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
@@ -30,24 +32,59 @@ export function monthlyRentListingLabel(sub: ListingSigningComputationInput): st
   return lo === hi ? `$${lo.toFixed(2)}/mo` : `$${lo.toFixed(2)}–${hi.toFixed(2)}/mo`;
 }
 
+export function formatQuoteMoney(amount: number): string {
+  return amount.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** The listing receipt for the applicant's first-choice room and resident slot. Hidden until a room is chosen. */
+export function applicantListingQuote(
+  sub: ListingSigningComputationInput,
+  input: { roomChoice1: string; leaseTerm?: string | null; residentSlot?: number | null },
+): ListingQuote | null {
+  if (!sub?.v) return null;
+  const roomChoice1 = input.roomChoice1.trim();
+  if (!roomChoice1) return null;
+  const n = normalizeManagerListingSubmissionV1(sub);
+  const parsed = parseRoomChoiceValue(roomChoice1);
+  const leaseTerm = String(input.leaseTerm ?? "").trim() || LONG_TERM_LEASE_TERM;
+  const residentSlot = input.residentSlot ?? parsed.residentSlot ?? null;
+  if (isEntireHomeListing(n)) {
+    return buildListingQuote(n, { roomId: null, leaseTerm, residentSlot });
+  }
+  if (!parsed.listingRoomId) return null;
+  return buildListingQuote(n, { roomId: parsed.listingRoomId, leaseTerm, residentSlot });
+}
+
 /**
  * Monthly rent for the applicant’s first-choice room when the choice includes a room id; otherwise the listing range.
  */
-export function applicantFirstChoiceRentLabel(sub: ListingSigningComputationInput, roomChoice1: string): string {
-  if (!sub?.v) return "—";
-  const n = normalizeManagerListingSubmissionV1(sub);
-  const v = roomChoice1.trim();
-  const sep = LISTING_ROOM_CHOICE_SEP;
-  if (v.includes(sep)) {
-    const roomId = v.slice(v.indexOf(sep) + sep.length);
-    const room = n.rooms.find((r) => r.id === roomId);
-    if (room) {
-      const daily = roomDailyRentPrice(room);
-      if (daily !== undefined) return `$${daily.toFixed(2)}/day`;
-      if (room.monthlyRent > 0) return `$${room.monthlyRent.toFixed(2)}/mo`;
+export function applicantFirstChoiceRentLabel(
+  sub: ListingSigningComputationInput,
+  roomChoice1: string,
+  options: { leaseTerm?: string | null; residentSlot?: number | null } = {},
+): string {
+  const quote = applicantListingQuote(sub, { roomChoice1, ...options });
+  if (quote) {
+    if (quote.isStay && quote.nightlyRate && quote.nightlyRate > 0) {
+      return `$${quote.nightlyRate.toFixed(2)}/night`;
     }
+    if (quote.monthlyRent > 0) return `$${quote.monthlyRent.toFixed(2)}/mo`;
   }
   return monthlyRentListingLabel(sub);
+}
+
+export function applicantPaymentAtSigningPriceLabel(
+  sub: ListingSigningComputationInput,
+  input: { roomChoice1: string; leaseTerm?: string | null; residentSlot?: number | null },
+): string {
+  const quote = applicantListingQuote(sub, input);
+  if (quote && quote.signingTotal > 0) return `$${quote.signingTotal.toFixed(2)}`;
+  return paymentAtSigningPriceLabel(sub);
 }
 
 /** Human-readable list of charges included in “payment due at signing” (from listing settings). */

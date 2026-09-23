@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  resolveRoomProrationForSlot,
   roomAdvertisedPriceLabel,
   roomHeadlineAmount,
   roomHeadlinePriceIsFrom,
@@ -16,6 +17,9 @@ import {
   roomResidentPriceForSlot,
   roomResidentPrices,
   roomResidentRentLines,
+  roomHasStayOffer,
+  roomStayPriceForSlot,
+  roomStayPricesPerResident,
   type RoomPricingLike,
 } from "@/lib/room-pricing";
 
@@ -159,5 +163,49 @@ describe("per-term resident pricing", () => {
       termPricing: { "Month-to-Month": { monthlyRent: 1100, residentPricing: "per_resident", residentPrices: [{ monthlyRent: 0 }, { monthlyRent: 0 }] } },
     });
     expect(roomResidentPrices(room, "Month-to-Month").map((r) => r.monthlyRent)).toEqual([1100, 1100]);
+  });
+});
+
+describe("resolveRoomProrationForSlot", () => {
+  it("uses the slot's own daily rate when that resident is set per day", () => {
+    const room = sharedRoom({
+      prorateMethod: "auto",
+      residentPrices: [
+        { monthlyRent: 900, prorateMethod: "auto" },
+        { monthlyRent: 800, prorateMethod: "daily_rate", dailyRentRate: 28 },
+      ],
+    });
+    expect(resolveRoomProrationForSlot(room, 1)).toMatchObject({ method: "auto" });
+    expect(resolveRoomProrationForSlot(room, 2)).toEqual({ method: "daily_rate", dailyRentRate: 28, dailyUtilitiesRate: undefined });
+  });
+
+  it("falls back to the room when the slot is missing or per-resident is off", () => {
+    const room = { monthlyRent: 1000, prorateMethod: "daily_rate" as const, dailyRentRate: 35 };
+    expect(resolveRoomProrationForSlot(room, 2)).toEqual({ method: "daily_rate", dailyRentRate: 35, dailyUtilitiesRate: undefined });
+    expect(resolveRoomProrationForSlot(null, 1)).toEqual({ method: "auto", dailyRentRate: undefined, dailyUtilitiesRate: undefined });
+  });
+});
+
+describe("stay rent per resident", () => {
+  it("is on only with the flag, capacity 2+, and a stored row", () => {
+    const room = sharedRoom({
+      stayResidentPricing: "per_resident",
+      stayResidentPrices: [{ shortTermRent: "85" }, { shortTermRent: "70" }],
+    });
+    expect(roomStayPricesPerResident(room)).toBe(true);
+    expect(roomStayPriceForSlot(room, 2)?.shortTermRent).toBe("70");
+    expect(roomStayPricesPerResident(sharedRoom({ stayResidentPricing: undefined }))).toBe(false);
+  });
+
+  it("counts a stay offer from any per-resident slot, not only the room-level night", () => {
+    const split = sharedRoom({
+      shortTermRent: "",
+      weeklyRentPrice: 0,
+      stayResidentPricing: "per_resident",
+      stayResidentPrices: [{ shortTermRent: "" }, { shortTermRent: "70" }],
+    });
+    expect(roomHasStayOffer(split)).toBe(true);
+    expect(roomHasStayOffer(sharedRoom({ shortTermRent: "85" }))).toBe(true);
+    expect(roomHasStayOffer(sharedRoom({ shortTermRent: "", weeklyRentPrice: 0 }))).toBe(false);
   });
 });

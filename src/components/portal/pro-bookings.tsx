@@ -140,7 +140,7 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, loading, residentOptions } = useManagerBookingEntries({
+  const { entries: rawEntries, occupancyDays, loading, residentOptions } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
@@ -154,15 +154,7 @@ function useBookingsWorkspace({
     [rawEntries, roomFilterId],
   );
 
-  /**
-   * The calendar fetches Airbnb itself; everything PropLane knows — signed
-   * stays, approved-application holds, blocked dates — rides in here. Without
-   * this the grid showed only the channel import and reported a let room free.
-   */
-  const calendarExtraEntries = useMemo(
-    () => rawEntries.filter((entry) => entry.source !== "airbnb"),
-    [rawEntries],
-  );
+  /** One stay list — the hook already merged channel + leases + holds + typed blocks. */
 
   const saveBlock = useCallback(
     async (draft: BlockDatesDraft) => {
@@ -485,7 +477,9 @@ function useBookingsWorkspace({
         propertyIds={scopedPropertyIds}
         showToast={showToast}
         refreshSignal={refreshSignal}
-        extraEntries={calendarExtraEntries}
+        extraEntries={rawEntries}
+        occupancyDays={occupancyDays}
+        entriesLoading={loading}
         roomFilterId={roomFilterId}
         emptyMessage={emptyMessage}
         variant="standalone"
@@ -609,6 +603,7 @@ function useBookingsWorkspace({
     modals,
     /** Unfiltered by the workspace's own property/room filters — what a record or day page looks a booking up in. */
     rawEntries,
+    occupancyDays,
     entriesLoading: !authReady || loading,
     residentOptions,
     saveBlock,
@@ -693,7 +688,7 @@ export function ManagerBookings({
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
     selectedDayKey: dayKey,
   });
-  const { controlStack, content, modals, rawEntries, entriesLoading, residentOptions, saveBlock, removeBlock } = workspace;
+  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, removeBlock } = workspace;
 
   if (bookingId) {
     return (
@@ -736,6 +731,7 @@ export function ManagerBookings({
           dayKey={dayKey}
           basePath={basePath}
           entries={rawEntries}
+          occupancyDays={occupancyDays}
           loading={entriesLoading}
           propertyOptions={propertyOptions}
           residentOptions={residentOptions}

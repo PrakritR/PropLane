@@ -6,7 +6,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { roomDailyRentPrice } from "@/lib/room-pricing";
+import { resolveRoomProrationForSlot, roomDailyRentPrice } from "@/lib/room-pricing";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { intraMonthStaySpan } from "@/lib/short-term-stay-pricing";
 
@@ -50,14 +50,17 @@ export function resolveLeaseProrationInputForApplicant(
 
   const entireHome = isEntireHomeListing(sub);
   const room = roomForApplicant(sub, applicant, prop?.unitLabel);
+  const slotProration = resolveRoomProrationForSlot(
+    room,
+    applicant.application?.residentSlot,
+    applicant.application?.leaseTerm,
+  );
   const prorateMethod =
     entireHome && sub.entireHomeProrateMethod === "daily_rate"
       ? "daily_rate"
-      : room?.prorateMethod === "daily_rate"
-        ? "daily_rate"
-        : "auto";
-  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : room?.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : room?.dailyUtilitiesRate;
+      : slotProration.method;
+  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : slotProration.dailyRentRate;
+  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
   const dailyBasisRate = roomDailyRentPrice(room);
   const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
   const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";

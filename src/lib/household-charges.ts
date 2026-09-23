@@ -27,9 +27,10 @@ import {
 } from "@/lib/manager-listing-submission";
 import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
-import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
+import { formatRoomPriceAmount, resolveStayPricing, resolveRoomProrationForSlot, roomDailyRentPrice,
   DAILY_RENT_MONTH_ESTIMATE_DAYS,
   roomPricingIsFlexible,
+  roomResidentPriceForSlot,
   roomWeeklyRentPrice,
   tenancyPaysShortLeaseSurcharge,
   roomShortLeaseSurcharge,
@@ -1712,6 +1713,8 @@ function selectedRoomUtilities(row: Pick<DemoApplicantRow, "assignedRoomChoice" 
   // A room may estimate utilities differently for this lease's term (PRP-463). Absent —
   // every room until a manager unticks "Same as Long-term" — falls through untouched.
   const term = row.application?.leaseTerm?.trim();
+  const slotUtilities = roomResidentPriceForSlot(room, row.application?.residentSlot ?? 0, term)?.utilitiesEstimate?.trim();
+  if (slotUtilities) return { raw: slotUtilities, amount: parseMoneyAmount(slotUtilities) };
   const termUtilities = term
     ? (room as { termPricing?: Record<string, { utilitiesEstimate?: string }> } | undefined)
         ?.termPricing?.[term]?.utilitiesEstimate?.trim()
@@ -1764,7 +1767,13 @@ function selectedRoomRentAmount(row: DemoApplicantRow): number {
     if (entireHomeRent > 0) return Number((entireHomeRent + includedFees).toFixed(2));
   }
   if (roomPricingIsFlexible(room)) return 0;
-  const base = room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : 0;
+  const slotRent = roomResidentPriceForSlot(
+    room,
+    row.application?.residentSlot ?? 0,
+    row.application?.leaseTerm,
+  )?.monthlyRent;
+  const base =
+    slotRent && slotRent > 0 ? slotRent : room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : 0;
   if (base <= 0) return 0;
   const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
   return Number((base + surcharge + includedFees).toFixed(2));
@@ -3626,14 +3635,17 @@ function buildApprovedStandardChargeDrafts(
   // one function price rent off one room and prorate off another.
   const { room, prop: listingProperty } = resolveRowSubmissionRoom(row);
   const entireHome = isEntireHomeListing(sub);
+  const slotProration = resolveRoomProrationForSlot(
+    room,
+    row.application?.residentSlot,
+    row.application?.leaseTerm,
+  );
   const prorateMethod =
     entireHome && sub.entireHomeProrateMethod === "daily_rate"
       ? "daily_rate"
-      : room?.prorateMethod === "daily_rate"
-        ? "daily_rate"
-        : "auto";
-  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : room?.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : room?.dailyUtilitiesRate;
+      : slotProration.method;
+  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : slotProration.dailyRentRate;
+  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
   const weeklyBasisRate =
@@ -3735,7 +3747,9 @@ function buildApprovedStandardChargeDrafts(
   // Room-first precedence, identical to recordApprovedApplicationCharges: a room's own
   // deposit wins over the shared listing amount, so a live re-sync never patches a per-room
   // deposit charge back down to the listing value. The two layers must not disagree.
-  const roomSecurityDeposit = room?.securityDeposit?.trim() ? room.securityDeposit : undefined;
+  const roomSecurityDeposit =
+    roomResidentPriceForSlot(room, row.application?.residentSlot ?? 0, row.application?.leaseTerm)?.securityDeposit?.trim() ||
+    (room?.securityDeposit?.trim() ? room.securityDeposit : undefined);
   const securityDeposit = savedAmount(
     row.application?.managerSecurityDepositOverride,
     row.manualResidentDetails?.securityDeposit != null
@@ -4282,14 +4296,17 @@ export function recordApprovedApplicationCharges(
   // listing briefly folded (rent baked-in, no util rate) bills the same total, never a
   // double-charge; do NOT derive a utilities figure from the rate.
   const entireHome = Boolean(sub && isEntireHomeListing(sub));
+  const slotProration = resolveRoomProrationForSlot(
+    room,
+    row.application?.residentSlot,
+    row.application?.leaseTerm,
+  );
   const prorateMethod =
     entireHome && sub?.entireHomeProrateMethod === "daily_rate"
       ? "daily_rate"
-      : room?.prorateMethod === "daily_rate"
-        ? "daily_rate"
-        : "auto";
-  const dailyRentRate = entireHome ? sub?.entireHomeDailyRentRate : room?.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub?.entireHomeDailyUtilitiesRate : room?.dailyUtilitiesRate;
+      : slotProration.method;
+  const dailyRentRate = entireHome ? sub?.entireHomeDailyRentRate : slotProration.dailyRentRate;
+  const dailyUtilitiesRate = entireHome ? sub?.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
   // When the room is priced by the day, rent (not utilities) bills per-day every period —
   // unless this resident has their own negotiated monthly rent, which wins exactly as it
   // does over the room's listing monthly rent.
@@ -4407,7 +4424,9 @@ export function recordApprovedApplicationCharges(
   // wins over the listing-level shared deposit — the same room-first precedence rent uses.
   // A room with no per-room deposit falls back to sub.securityDeposit, so listings that
   // never set one bill exactly as before. Manager override / manual detail still win above.
-  const roomSecurityDeposit = room?.securityDeposit?.trim() ? room.securityDeposit : undefined;
+  const roomSecurityDeposit =
+    roomResidentPriceForSlot(room, row.application?.residentSlot ?? 0, row.application?.leaseTerm)?.securityDeposit?.trim() ||
+    (room?.securityDeposit?.trim() ? room.securityDeposit : undefined);
   const securityDeposit = savedAmount(
     row.application?.managerSecurityDepositOverride,
     row.manualResidentDetails?.securityDeposit != null

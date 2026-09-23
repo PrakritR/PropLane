@@ -47,6 +47,14 @@ sets its `vendor_user_id`, and marks the invite accepted. A vendor CAN also
 self-serve signup from the public marketing CTA with no invite at all — they
 just land with no linked manager until one exists.
 
+**PropLane catalog vendors are not a blank invite.** Adding one from the
+catalog is property-scope only (which houses they can work) — contact, trade,
+and rates stay on the catalog card. Overview and Profile are one Overview tab.
+Catalog Communication is the record thread (`RecordCommunicationSection`) with
+Send via PropLane / Email / SMS; the first send adds them to Your vendors
+(Every property) if they are not already there. Regular Add vendor keeps the
+six-step workspace.
+
 **Invites are server-issued and always expire.** `vendor_invites` is
 `SELECT`-only for `anon`/`authenticated` (owner-scoped read;
 `20260722123000_lock_role_grant_surface.sql`) — only the service-role issuing

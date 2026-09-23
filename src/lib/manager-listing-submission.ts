@@ -109,6 +109,16 @@ export type ManagerRoomResidentPrice = {
   securityDeposit?: string;
   /** Fixed / Flexible for this resident's listed rent. Absent = the room's. */
   pricingMode?: "fixed" | "flexible";
+  /** How this resident's own first/last month is prorated. Absent = the room's. */
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
+};
+
+/** One resident slot's short-stay night/week rates, when the stay card splits them. */
+export type ManagerRoomStayResidentPrice = {
+  shortTermRent?: string;
+  weeklyRentPrice?: number;
 };
 
 /**
@@ -346,6 +356,17 @@ export type ManagerRoomSubmission = {
    * the application — so the public projection may carry it.
    */
   residentPrices?: ManagerRoomResidentPrice[];
+  /**
+   * Short stay / Airbnb: whether each resident has their own night and week
+   * rates. Independent of {@link residentPricing} so a room can split monthly
+   * rent and keep stay the same (PLAN-0922-1748). Absent or `"same"` means
+   * every resident pays {@link shortTermRent} / {@link weeklyRentPrice}.
+   * `"per_resident"` keeps {@link stayResidentPrices}. Normalization drops
+   * both on a one-resident room and never stores `"same"`.
+   */
+  stayResidentPricing?: "same" | "per_resident";
+  /** One night/week row per slot when {@link stayResidentPricing} is `"per_resident"`. */
+  stayResidentPrices?: ManagerRoomStayResidentPrice[];
   /**
    * How many BEDS are physically in the room, for the listing to describe.
    *
@@ -2089,6 +2110,12 @@ function normalizeManagerListingSubmissionV1Base(
       residentPrices: normalizeRoomResidentPriceRows(
         (legacyRoom as ManagerRoomSubmission & { residentPrices?: unknown }).residentPrices,
       ),
+      stayResidentPricing: normalizeRoomResidentPricingFlag(
+        (legacyRoom as ManagerRoomSubmission & { stayResidentPricing?: unknown }).stayResidentPricing,
+      ),
+      stayResidentPrices: normalizeStayResidentPriceRows(
+        (legacyRoom as ManagerRoomSubmission & { stayResidentPrices?: unknown }).stayResidentPrices,
+      ),
       // Raw-cleaned only here; the capacity clamp and empty-drop need the
       // normalized room, so `reconcileRoomResidentMoveIn` runs on it below.
       moveInResidentDetails: normalizeRoomResidentMoveInRows(
@@ -2866,6 +2893,7 @@ export function duplicateRoomEntry(
     })),
     // Own copies, so editing Resident 2 on the duplicate never edits the source.
     ...(source.residentPrices ? { residentPrices: source.residentPrices.map((row) => ({ ...row })) } : {}),
+    ...(source.stayResidentPrices ? { stayResidentPrices: source.stayResidentPrices.map((row) => ({ ...row })) } : {}),
     ...(source.moveInResidentDetails
       ? {
           moveInResidentDetails: source.moveInResidentDetails.map((row) => ({
@@ -3092,13 +3120,37 @@ function normalizeRoomResidentPriceRows(raw: unknown): ManagerRoomResidentPrice[
     const deposit = typeof v.securityDeposit === "string" ? v.securityDeposit.replace(/^\$/, "").trim() : "";
     if (deposit) row.securityDeposit = deposit;
     if (v.pricingMode === "fixed" || v.pricingMode === "flexible") row.pricingMode = v.pricingMode;
+    if (v.prorateMethod === "auto" || v.prorateMethod === "daily_rate") row.prorateMethod = v.prorateMethod;
+    const dailyRent = typeof v.dailyRentRate === "number" ? v.dailyRentRate : Number(v.dailyRentRate);
+    if (Number.isFinite(dailyRent) && dailyRent > 0) row.dailyRentRate = Math.round(dailyRent * 100) / 100;
+    const dailyUtil = typeof v.dailyUtilitiesRate === "number" ? v.dailyUtilitiesRate : Number(v.dailyUtilitiesRate);
+    if (Number.isFinite(dailyUtil) && dailyUtil > 0) row.dailyUtilitiesRate = Math.round(dailyUtil * 100) / 100;
+    out.push(row);
+  }
+  return out;
+}
+
+function normalizeStayResidentPriceRows(raw: unknown): ManagerRoomStayResidentPrice[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ManagerRoomStayResidentPrice[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const v = item as Record<string, unknown>;
+    const row: ManagerRoomStayResidentPrice = {};
+    const night = typeof v.shortTermRent === "string" ? v.shortTermRent.replace(/^\$/, "").trim() : "";
+    if (night) row.shortTermRent = night;
+    const week = typeof v.weeklyRentPrice === "number" ? v.weeklyRentPrice : Number(String(v.weeklyRentPrice ?? "").replace(/[$,]/g, ""));
+    if (Number.isFinite(week) && week > 0) row.weeklyRentPrice = Math.round(week * 100) / 100;
     out.push(row);
   }
   return out;
 }
 
 /** The figures a resident row falls back to when it leaves one blank. */
-export type RoomResidentPriceFallback = Pick<ManagerRoomResidentPrice, "monthlyRent" | "utilitiesEstimate" | "securityDeposit" | "pricingMode">;
+export type RoomResidentPriceFallback = Pick<
+  ManagerRoomResidentPrice,
+  "monthlyRent" | "utilitiesEstimate" | "securityDeposit" | "pricingMode" | "prorateMethod" | "dailyRentRate" | "dailyUtilitiesRate"
+>;
 
 /**
  * Clamp resident rows to a room's capacity: extras are truncated, missing rows are
@@ -3121,12 +3173,33 @@ export function clampRoomResidentPrices(
   if (fallback.utilitiesEstimate?.trim()) seed.utilitiesEstimate = fallback.utilitiesEstimate.trim();
   if (fallback.securityDeposit?.trim()) seed.securityDeposit = fallback.securityDeposit.trim();
   if (fallback.pricingMode) seed.pricingMode = fallback.pricingMode;
+  if (fallback.prorateMethod) seed.prorateMethod = fallback.prorateMethod;
+  if (fallback.dailyRentRate && fallback.dailyRentRate > 0) seed.dailyRentRate = fallback.dailyRentRate;
+  if (fallback.dailyUtilitiesRate && fallback.dailyUtilitiesRate > 0) seed.dailyUtilitiesRate = fallback.dailyUtilitiesRate;
   const out: ManagerRoomResidentPrice[] = [];
   for (let slot = 0; slot < n; slot += 1) {
     const source = rows?.[slot] ?? out[out.length - 1] ?? seed;
     const row: ManagerRoomResidentPrice = { ...source };
     if (!(row.monthlyRent > 0)) row.monthlyRent = fallbackRent;
     out.push(row);
+  }
+  return out;
+}
+
+export function clampStayResidentPrices(
+  rows: readonly ManagerRoomStayResidentPrice[] | undefined,
+  capacity: number,
+  fallback: ManagerRoomStayResidentPrice,
+): ManagerRoomStayResidentPrice[] | undefined {
+  const n = Number.isInteger(capacity) ? capacity : 0;
+  if (n < 2) return undefined;
+  const seed: ManagerRoomStayResidentPrice = {};
+  if (fallback.shortTermRent?.trim()) seed.shortTermRent = fallback.shortTermRent.trim();
+  if (fallback.weeklyRentPrice && fallback.weeklyRentPrice > 0) seed.weeklyRentPrice = fallback.weeklyRentPrice;
+  const out: ManagerRoomStayResidentPrice[] = [];
+  for (let slot = 0; slot < n; slot += 1) {
+    const source = rows?.[slot] ?? out[out.length - 1] ?? seed;
+    out.push({ ...source });
   }
   return out;
 }
@@ -3155,6 +3228,9 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
     utilitiesEstimate: room.utilitiesEstimate,
     securityDeposit: room.securityDeposit,
     pricingMode: room.pricingMode,
+    prorateMethod: room.prorateMethod,
+    dailyRentRate: room.dailyRentRate,
+    dailyUtilitiesRate: room.dailyUtilitiesRate,
   };
 
   let termPricing = room.termPricing;
@@ -3179,13 +3255,28 @@ export function reconcileRoomResidentPricing(room: ManagerRoomSubmission): Manag
     termPricing = Object.keys(next).length > 0 ? next : undefined;
   }
 
-  const { residentPricing: _flag, residentPrices: _rows, ...bare } = room;
+  const {
+    residentPricing: _flag,
+    residentPrices: _rows,
+    stayResidentPricing: _stayFlag,
+    stayResidentPrices: _stayRows,
+    ...bare
+  } = room;
   void _flag;
   void _rows;
+  void _stayFlag;
+  void _stayRows;
   const out: ManagerRoomSubmission = { ...bare, termPricing };
   if (perResident) {
     out.residentPricing = "per_resident";
     out.residentPrices = clampRoomResidentPrices(room.residentPrices, capacity, roomFallback);
+  }
+  if (capacity >= 2 && room.stayResidentPricing === "per_resident") {
+    out.stayResidentPricing = "per_resident";
+    out.stayResidentPrices = clampStayResidentPrices(room.stayResidentPrices, capacity, {
+      shortTermRent: room.shortTermRent,
+      weeklyRentPrice: room.weeklyRentPrice,
+    });
   }
   return out;
 }

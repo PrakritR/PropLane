@@ -41,6 +41,7 @@ function mount(submission: ManagerListingSubmissionV1) {
 }
 
 function publish() {
+  fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
   fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 }
 
@@ -54,6 +55,28 @@ describe("V2 publish pricing readiness", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Room 1 stay prices" }));
     fireEvent.change(screen.getByLabelText("Room 1 rent per night"), { target: { value: "85" } });
+    publish();
+
+    expect(onPublish).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a short-term stay priced only on a per-resident slot", () => {
+    const base = readyBase();
+    const onPublish = mount({
+      ...base,
+      allowedLeaseTerms: [SHORT_TERM_LEASE_TERM],
+      shortTermRentalsAllowed: true,
+      rooms: [
+        {
+          ...base.rooms[0]!,
+          occupancyCapacity: 2,
+          monthlyRent: 0,
+          stayResidentPricing: "per_resident",
+          stayResidentPrices: [{ shortTermRent: "" }, { shortTermRent: "70" }],
+        },
+      ],
+    });
+
     publish();
 
     expect(onPublish).toHaveBeenCalledTimes(1);

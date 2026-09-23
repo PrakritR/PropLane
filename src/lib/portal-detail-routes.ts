@@ -1531,6 +1531,7 @@ export const VENDOR_RAIL_GROUPS: Array<{ label: string; ids: VendorDetailTabId[]
 export function parseVendorDetailTab(raw: string | undefined | null): VendorDetailTabId {
   if (raw === "messages") return "communication";
   if (raw === "checkins") return "check-ins";
+  if (raw === "profile") return "overview";
   if (raw && (VENDOR_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as VendorDetailTabId;
   }

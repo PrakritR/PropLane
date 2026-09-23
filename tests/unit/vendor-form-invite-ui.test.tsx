@@ -119,6 +119,36 @@ describe("three-path vendor invitation", () => {
     expect(screen.getByLabelText("Share on PropLane")).toBeInTheDocument();
   });
 
+  it("scopes a PropLane catalog invite to properties only", () => {
+    render(
+      <ManagerVendorFormModal
+        open
+        mode="add"
+        catalogVendor={{
+          catalogId: "axis-catalog-plumbing-nw",
+          name: "Northwest Plumbing Co",
+          trade: "Plumbing",
+          city: "Seattle, WA",
+          zip: "98101",
+          phone: "(206) 555-0142",
+          email: "jobs@nwplumbing.example",
+          description: "Licensed plumber.",
+          hourlyCents: 9500,
+          serviceCents: 18500,
+        }}
+        onClose={vi.fn()}
+        showToast={() => {}}
+      />,
+    );
+    expect(screen.getByText("Invite vendor")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Invite by")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Invite by first name")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Properties")).toBeInTheDocument();
+    expect(screen.getByText("Northwest Plumbing Co")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continue to / })).not.toBeInTheDocument();
+  });
+
   it("opens on Invite by, then Contact", () => {
     show();
     expect(screen.getByLabelText("Invite by")).toBeInTheDocument();

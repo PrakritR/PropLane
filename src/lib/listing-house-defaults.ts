@@ -773,7 +773,8 @@ export function roomDescriptionIsBlank(room: ManagerRoomSubmission): boolean {
 /**
  * The price-card fields "Same as Room X" copies on Pricing. Never name,
  * availability, `rentBasis` / `dailyRentPrice` (those change how rent is
- * billed), fees (`customFees` live on the listing), or per-resident slots.
+ * billed), or fees (`customFees` live on the listing). Per-resident monthly
+ * and stay rows copy so Room B bills the same split as Room A.
  */
 export const ROOM_PRICING_FIELDS = [
   "monthlyRent",
@@ -805,6 +806,8 @@ function cloneTermPriceCard(entry: ManagerRoomTermPrice | undefined): ManagerRoo
   if (entry.prorateMethod != null) next.prorateMethod = entry.prorateMethod;
   if (entry.dailyRentRate != null) next.dailyRentRate = entry.dailyRentRate;
   if (entry.dailyUtilitiesRate != null) next.dailyUtilitiesRate = entry.dailyUtilitiesRate;
+  if (entry.residentPricing != null) next.residentPricing = entry.residentPricing;
+  if (entry.residentPrices) next.residentPrices = entry.residentPrices.map((row) => ({ ...row }));
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
@@ -828,7 +831,9 @@ function sameTermPriceCard(a: ManagerRoomTermPrice | undefined, b: ManagerRoomTe
     (left.pricingMode ?? "") === (right.pricingMode ?? "") &&
     (left.prorateMethod ?? "") === (right.prorateMethod ?? "") &&
     (left.dailyRentRate ?? 0) === (right.dailyRentRate ?? 0) &&
-    (left.dailyUtilitiesRate ?? 0) === (right.dailyUtilitiesRate ?? 0)
+    (left.dailyUtilitiesRate ?? 0) === (right.dailyUtilitiesRate ?? 0) &&
+    (left.residentPricing ?? "") === (right.residentPricing ?? "") &&
+    sameResidentPriceRows(left.residentPrices, right.residentPrices)
   );
 }
 
@@ -854,6 +859,8 @@ export function roomPricingHasAnyValue(room: ManagerRoomSubmission): boolean {
     (room.dailyUtilitiesRate ?? 0) > 0 ||
     (room.weeklyRentPrice ?? 0) > 0 ||
     moneyText(room.shortTermRent) !== "" ||
+    room.residentPricing === "per_resident" ||
+    room.stayResidentPricing === "per_resident" ||
     Object.keys(room.termPricing ?? {}).length > 0
   );
 }
@@ -861,8 +868,8 @@ export function roomPricingHasAnyValue(room: ManagerRoomSubmission): boolean {
 /**
  * "Same as Room X" on Pricing: copy this room's price card onto `target`,
  * once, right now. Never `id`, `name`, availability, `rentBasis`,
- * `dailyRentPrice`, per-resident rows, or fees. Nothing is stored about the
- * pick — match is derived every render, same as Rooms.
+ * `dailyRentPrice`, or fees. Nothing is stored about the pick — match is
+ * derived every render, same as Rooms.
  */
 export function copyRoomPricingFrom(source: ManagerRoomSubmission, target: ManagerRoomSubmission): ManagerRoomSubmission {
   return {
@@ -876,6 +883,10 @@ export function copyRoomPricingFrom(source: ManagerRoomSubmission, target: Manag
     dailyUtilitiesRate: source.dailyUtilitiesRate,
     weeklyRentPrice: source.weeklyRentPrice,
     shortTermRent: source.shortTermRent,
+    residentPricing: source.residentPricing,
+    residentPrices: source.residentPrices?.map((row) => ({ ...row })),
+    stayResidentPricing: source.stayResidentPricing,
+    stayResidentPrices: source.stayResidentPrices?.map((row) => ({ ...row })),
     termPricing: cloneTermPricingCard(source.termPricing),
   };
 }
@@ -893,8 +904,49 @@ export function roomPricingMatches(a: ManagerRoomSubmission, b: ManagerRoomSubmi
     (a.dailyUtilitiesRate ?? 0) === (b.dailyUtilitiesRate ?? 0) &&
     (a.weeklyRentPrice ?? 0) === (b.weeklyRentPrice ?? 0) &&
     moneyText(a.shortTermRent) === moneyText(b.shortTermRent) &&
+    (a.residentPricing ?? "") === (b.residentPricing ?? "") &&
+    sameResidentPriceRows(a.residentPrices, b.residentPrices) &&
+    (a.stayResidentPricing ?? "") === (b.stayResidentPricing ?? "") &&
+    sameStayResidentPriceRows(a.stayResidentPrices, b.stayResidentPrices) &&
     sameTermPricingCard(a.termPricing, b.termPricing)
   );
+}
+
+function sameResidentPriceRows(
+  left: ManagerRoomSubmission["residentPrices"],
+  right: ManagerRoomSubmission["residentPrices"],
+): boolean {
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  return a.every((row, i) => {
+    const other = b[i]!;
+    return (
+      (row.monthlyRent ?? 0) === (other.monthlyRent ?? 0) &&
+      moneyText(row.utilitiesEstimate) === moneyText(other.utilitiesEstimate) &&
+      moneyText(row.securityDeposit) === moneyText(other.securityDeposit) &&
+      (row.pricingMode ?? "") === (other.pricingMode ?? "") &&
+      (row.prorateMethod ?? "") === (other.prorateMethod ?? "") &&
+      (row.dailyRentRate ?? 0) === (other.dailyRentRate ?? 0) &&
+      (row.dailyUtilitiesRate ?? 0) === (other.dailyUtilitiesRate ?? 0)
+    );
+  });
+}
+
+function sameStayResidentPriceRows(
+  left: ManagerRoomSubmission["stayResidentPrices"],
+  right: ManagerRoomSubmission["stayResidentPrices"],
+): boolean {
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  return a.every((row, i) => {
+    const other = b[i]!;
+    return (
+      moneyText(row.shortTermRent) === moneyText(other.shortTermRent) &&
+      (row.weeklyRentPrice ?? 0) === (other.weeklyRentPrice ?? 0)
+    );
+  });
 }
 
 /**

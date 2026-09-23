@@ -25,6 +25,7 @@
 
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
+  feeAppliesToResidentSlot,
   isListingFeeAmountFilled,
   listingFeeCadence,
   listingFeeMonthlyEquivalent,
@@ -32,6 +33,7 @@ import {
   type ListingFeeCadence,
   type ListingFeeRow,
 } from "@/lib/listing-fees";
+import { roomResidentPriceForSlot, roomStayPriceForSlot } from "@/lib/room-pricing";
 import {
   PAYMENT_AT_SIGNING_FEE_KEY_PREFIX,
   PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
@@ -183,7 +185,7 @@ function roomUtilitiesForTerm(
  */
 export function buildListingQuote(
   sub: ManagerListingSubmissionV1,
-  options: { roomId?: string | null; leaseTerm: string },
+  options: { roomId?: string | null; leaseTerm: string; residentSlot?: number | null },
 ): ListingQuote {
   const leaseTerm = String(options.leaseTerm ?? "").trim();
   const isStay = isStayLeaseTerm(leaseTerm);
@@ -191,25 +193,41 @@ export function buildListingQuote(
   const room = options.roomId ? rooms.find((r) => r.id === options.roomId) ?? null : null;
   const roomId = room?.id ?? null;
   const defaults = houseDefaultsForSubmission(sub);
+  const residentSlot =
+    typeof options.residentSlot === "number" && Number.isInteger(options.residentSlot) && options.residentSlot >= 1
+      ? options.residentSlot
+      : undefined;
+  const slotPrice = room && residentSlot ? roomResidentPriceForSlot(room, residentSlot, leaseTerm) : undefined;
+  const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
 
-  const baseMonthlyRent = room
-    ? roomRentForTerm(room, leaseTerm, sub)
-    : isEntireHomeListing(sub)
-      ? (sub.entireHomeMonthlyRent ?? 0)
-      : defaults.monthlyRent > 0
-        ? defaults.monthlyRent
-        : 0;
+  const baseMonthlyRent = slotPrice
+    ? slotPrice.monthlyRent
+    : room
+      ? roomRentForTerm(room, leaseTerm, sub)
+      : isEntireHomeListing(sub)
+        ? (sub.entireHomeMonthlyRent ?? 0)
+        : defaults.monthlyRent > 0
+          ? defaults.monthlyRent
+          : 0;
   const monthlyUtilities = isStay
     ? 0
-    : room
-      ? roomUtilitiesForTerm(room, leaseTerm, sub)
-      : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
-  const securityDeposit = room
-    ? roomDepositForTerm(room, leaseTerm, sub, isStay)
-    : parseMoneyAmount((defaults.securityDeposit || sub.securityDeposit || "").trim());
+    : slotPrice?.utilitiesEstimate != null && String(slotPrice.utilitiesEstimate).trim()
+      ? parseMoneyAmount(slotPrice.utilitiesEstimate)
+      : room
+        ? roomUtilitiesForTerm(room, leaseTerm, sub)
+        : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
+  const securityDeposit =
+    slotPrice?.securityDeposit != null && String(slotPrice.securityDeposit).trim()
+      ? parseMoneyAmount(slotPrice.securityDeposit)
+      : room
+        ? roomDepositForTerm(room, leaseTerm, sub, isStay)
+        : parseMoneyAmount((defaults.securityDeposit || sub.securityDeposit || "").trim());
 
   const applicable = listingFeesForWizard(sub).filter(
-    (fee) => feeAppliesToLeaseType(fee, leaseTerm) && feeAppliesToRoom(fee, roomId),
+    (fee) =>
+      feeAppliesToLeaseType(fee, leaseTerm) &&
+      feeAppliesToRoom(fee, roomId) &&
+      feeAppliesToResidentSlot(fee, residentSlot),
   );
 
   const foldMonthlyIntoRent = listingFoldsAllMonthlyFeesIntoRent(sub);
@@ -323,15 +341,21 @@ export function buildListingQuote(
     .filter((fee) => !isRefundable(fee))
     .reduce((sum, fee) => sum + amountForTerm(fee, isStay), 0);
 
-  const nightly = room
-    ? parseMoneyAmount(room.shortTermRent ?? "") || room.dailyRentPrice || 0
-    : parseMoneyAmount(sub.shortTermDailyCost ?? "");
-  const weekly = room?.weeklyRentPrice ?? 0;
+  const nightly = staySlot
+    ? parseMoneyAmount(staySlot.shortTermRent ?? "") || 0
+    : room
+      ? parseMoneyAmount(room.shortTermRent ?? "") || room.dailyRentPrice || 0
+      : parseMoneyAmount(sub.shortTermDailyCost ?? "");
+  const weekly = staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice ?? 0;
 
   return {
     leaseTerm,
     roomId,
-    roomName: room?.name?.trim() || "Whole place",
+    roomName: room
+      ? residentSlot
+        ? `${room.name?.trim() || "Room"} · Resident ${residentSlot}`
+        : room.name?.trim() || "Room"
+      : "Whole place",
     isStay,
     monthlyRent,
     monthlyUtilities,

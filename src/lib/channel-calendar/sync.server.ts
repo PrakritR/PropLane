@@ -23,6 +23,7 @@ import type {
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
 
 const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 
@@ -254,6 +255,23 @@ export async function syncChannelCalendarConnection(
       imported,
     );
     await persistListingSubmission(db, connection.property_id, record.property, updatedSubmission);
+    try {
+      const room = updatedSubmission.rooms.find((item) => item.id === connection.room_id);
+      await upsertAirbnbResidentsFromImportedRanges(db, {
+        managerUserId: connection.manager_user_id,
+        propertyId: connection.property_id,
+        propertyLabel:
+          record.property.buildingName?.trim() ||
+          record.property.title?.trim() ||
+          connection.property_id,
+        roomId: connection.room_id,
+        roomLabel: room?.name?.trim() || connection.label?.trim() || connection.room_id,
+        connectionId: connection.id,
+        ranges: imported,
+      });
+    } catch {
+      // A resident row must never fail the calendar sync — Bookings still paints.
+    }
 
     const { data: saved, error: saveError } = await db
       .from("external_calendar_connections")

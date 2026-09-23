@@ -76,7 +76,7 @@ describe("BookingsDayPage — card actions", () => {
         />
       </AppUiProvider>,
     );
-    const menu = openMenu("Actions for Prakrit · Room 1");
+    const menu = openMenu("Actions for Prakrit");
     expect(menu.textContent).toContain("Edit booking");
     expect(menu.textContent).toContain("Delete booking");
     expect(menu.textContent).not.toContain("Edit dates");
@@ -99,7 +99,7 @@ describe("BookingsDayPage — card actions", () => {
         />
       </AppUiProvider>,
     );
-    const menu = openMenu("Actions for Prakrit · Room 1");
+    const menu = openMenu("Actions for Prakrit");
     const editButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Edit booking")!;
     fireEvent.click(editButton);
     expect(document.querySelector('[data-attr="bookings-block-dates-modal"]')).not.toBeNull();
@@ -111,38 +111,6 @@ describe("BookingsDayPage — card actions", () => {
     // Editing an existing hold with a named resident lands on the "+ New
     // resident" fields already filled with their name (applyEditingBlock).
     expect(nameInput?.value).toBe("Prakrit");
-  });
-
-  it("hides the day schedule card while Add booking is open, then restores it", async () => {
-    vi.useRealTimers();
-    render(
-      <AppUiProvider>
-        <BookingsDayPage
-          dayKey="2026-09-23"
-          basePath="/portal"
-          entries={[hold]}
-          loading={false}
-          propertyOptions={propertyOptions}
-          residentOptions={[]}
-          onSaveBlock={async () => {}}
-          onRemoveBlock={async () => {}}
-          showToast={() => {}}
-        />
-      </AppUiProvider>,
-    );
-    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).not.toBeNull();
-    fireEvent.click(document.querySelector('[data-attr="bookings-day-add"]')!);
-    expect(document.querySelector('[data-attr="bookings-block-dates-modal"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).toBeNull();
-    expect(document.body.textContent).toContain("Add booking");
-    expect(document.body.textContent).not.toContain("Tuesday, September 22");
-    expect(document.body.textContent).not.toContain("Wednesday, September 23");
-
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    const discard = await vi.waitFor(() => screen.getByRole("button", { name: "Discard" }));
-    fireEvent.click(discard);
-    await vi.waitFor(() => expect(document.querySelector('[data-attr="bookings-day-detail-modal"]')).not.toBeNull());
-    expect(document.querySelector('[data-attr="bookings-block-dates-modal"]')).toBeNull();
   });
 
   it("Delete booking on a hold OUTSIDE today's stay opens the confirm dialog and, on confirm, deletes", async () => {
@@ -161,7 +129,7 @@ describe("BookingsDayPage — card actions", () => {
         showToast={() => {}}
       />,
     );
-    const menu = openMenu("Actions for Prakrit · Room 1");
+    const menu = openMenu("Actions for Prakrit");
     const deleteButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Delete booking")!;
     // Past the destructive-action settle window (RECORD_ACTION_DESTRUCTIVE_SETTLE_MS)
     // so this click is not the "stray synthetic tap right after opening" it guards against.
@@ -194,7 +162,7 @@ describe("BookingsDayPage — card actions", () => {
         showToast={() => {}}
       />,
     );
-    const menu = openMenu("Actions for Prakrit · Room 1");
+    const menu = openMenu("Actions for Prakrit");
     const deleteButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Delete booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(deleteButton);
@@ -220,7 +188,7 @@ describe("BookingsDayPage — card actions", () => {
         showToast={showToast}
       />,
     );
-    const menu = openMenu("Actions for Prakrit · Room 1");
+    const menu = openMenu("Actions for Prakrit");
     const deleteButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Delete booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(deleteButton);
@@ -243,7 +211,7 @@ describe("BookingsDayPage — card actions", () => {
         showToast={() => {}}
       />,
     );
-    const menu = openMenu("Actions for Ada Lovelace · Room 2");
+    const menu = openMenu("Actions for Ada Lovelace");
     expect(menu.textContent).toContain("Open lease");
     expect(menu.textContent).not.toContain("Delete booking");
     const openLeaseButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Open lease")!;
@@ -252,7 +220,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(String(navigate.mock.calls[0]![0])).toContain("lease-1");
   });
 
-  it('"Add booking" still sits in the day dialog header', () => {
+  it("does not put Add booking in the day dialog header", () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-20"
@@ -266,6 +234,6 @@ describe("BookingsDayPage — card actions", () => {
         showToast={() => {}}
       />,
     );
-    expect(document.querySelector('[data-attr="bookings-day-add"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="bookings-day-add"]')).toBeNull();
   });
 });

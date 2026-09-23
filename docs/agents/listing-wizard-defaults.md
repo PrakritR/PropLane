@@ -58,20 +58,20 @@ Guards: `tests/unit/listing-shared-spaces-no-default.test.ts`,
 
 ## "Same as Room X" / "Same as Bathroom X": a one-time copy, nothing stored
 
-The first row an open Rooms, Bathrooms or Pricing card unfolds is **Same as**
+The first row an open Rooms or Bathrooms card unfolds is **Same as**
 — a pick of "—" plus every other room's (or bathroom's) name. Picking one
 copies that record onto this one **once, right now**
-(`copyRoomDescriptionFrom` / `copyBathroomDescriptionFrom` /
-`copyRoomPricingFrom`) — never a standing link, so editing either record
-afterward simply makes them stop matching. The picker's own value is derived
-fresh on every render, never stored: it reads back whichever other record
-this one still equals (`roomDescriptionMatches` /
-`bathroomDescriptionMatches` / `roomPricingMatches`), or "—" when none does.
+(`copyRoomDescriptionFrom` / `copyBathroomDescriptionFrom`) — never a standing
+link, so editing either record afterward simply makes them stop matching.
+Pricing no longer shows Same as (PLAN-0922-1904). Duplicate on Rooms still
+copies the price card with `copyRoomPricingFrom`. The picker's own value is
+derived fresh on every render, never stored: it reads back whichever other
+record this one still equals (`roomDescriptionMatches` /
+`bathroomDescriptionMatches`), or "—" when none does.
 **A Rooms or Bathrooms card that describes nothing yet always reads "—"**
 (`roomDescriptionIsBlank` / `bathroomDescriptionIsBlank`): every record is
 minted identical, so matching a sibling by value there would announce a copy
-that never happened. Two blank rooms never match on Pricing
-(`roomPricingHasAnyValue`).
+that never happened.
 
 The description fields a room's copy touches are exactly
 `ROOM_DESCRIPTION_FIELDS` — floor, beds, occupancy, furnishing, room
@@ -222,10 +222,25 @@ from (PLAN-0921-1648 retired the "All rooms" card and its checkbox —
 (`prorateMethod` blank/`auto`) that, unticked (`daily_rate`), reveals one /day
 row per line that prorates — Rent /day, Utilities /day only while utilities
 are above $0, and one row per monthly fee above $0 on that card
-(`ListingFeeRow.dailyRate`). A house-wide fee from an older listing still
-lists on every room card as an inherited row: ✕ takes it off that room only
-(`roomIds` = every other room), typing splits a room-only copy (labelled
-"<Fee> – <Room>" when the label is a preset's, because the normalizer
-recovers a preset from its exact label), and Reset folds it back. Specs:
-`listing-pricing-screen-behaviour.test.tsx` ("partial months"),
+(`ListingFeeRow.dailyRate`). The Pricing tick is the stored `residentPricing === "per_resident"` flag
+(`roomStoresPerResidentPricing`), even when every resident rent is still $0.
+`roomPricesPerResident` stays the headline predicate so a $0 split room never
+prints "from $0/mo." When **Different rent per resident** is on,
+Partial months moves inside each Resident N block and writes
+`residentPrices[n].prorateMethod` / daily rates (PLAN-0922-1748). Charges and
+the lease read that slot via `resolveRoomProrationForSlot` and
+`roomResidentPriceForSlot`. A house-wide fee
+from an older listing still lists on every room card as an inherited row: ✕
+takes it off that room only (`roomIds` = every other room), typing splits a
+room-only copy (labelled "<Fee> – <Room>" when the label is a preset's,
+because the normalizer recovers a preset from its exact label), and Reset
+folds it back. Specs: `listing-pricing-screen-behaviour.test.tsx` ("partial
+months"), `listing-pricing-step-per-resident.test.tsx`,
 `listing-wizard-v2-cards.test.tsx` ("a house-wide fee on a room card").
+
+## Short-stay rent per resident (PLAN-0922-1748)
+
+On Short stay / Airbnb, a two-or-more-resident room has a **Rent per
+resident** dropdown: Same for every resident / Different per resident
+(`stayResidentPricing` / `stayResidentPrices`). Different opens Resident 1 /
+2 with Rent /night and Rent /week. Independent of the long-term checkbox.

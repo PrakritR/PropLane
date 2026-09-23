@@ -23,6 +23,8 @@ import { ApplyFieldRow } from "@/app/(public)/rent/apply/apply-field-row";
 import {
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
+  firstChoiceRoomOptions,
+  firstChoiceSelectionPatch,
   getBundleChoiceLabel,
   getBundleOptionsForProperty,
   getPropertyById,
@@ -38,9 +40,12 @@ import {
 import { addMonthsToDateString, longTermLengthFor } from "@/lib/rental-application/long-term-length";
 import { LONG_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import {
+  applicantListingQuote,
+  formatQuoteMoney,
   paymentAtSigningPriceLabel,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
+import type { ListingQuote } from "@/lib/listing-quote";
 import type { RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-application/types";
 import { makeApplicationGroupId } from "@/lib/rental-application/application-groups";
 import { digitsOnly, formatMoneyBlur } from "@/lib/rental-application/masks";
@@ -201,6 +206,76 @@ function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
       <dt className="font-medium text-muted">{k}</dt>
       <dd className="text-foreground">{v}</dd>
     </div>
+  );
+}
+
+function ApplicantPaysCard({ quote }: { quote: ListingQuote }) {
+  const monthlyBreakdown = [
+    quote.monthlyRent > 0 ? `rent ${formatQuoteMoney(quote.monthlyRent)}` : "",
+    quote.monthlyUtilities > 0 ? `utilities ${formatQuoteMoney(quote.monthlyUtilities)}` : "",
+    ...quote.monthlyFees.map((f) =>
+      f.cadence === "weekly"
+        ? `${f.label.toLowerCase()} ${formatQuoteMoney(f.amount)}/wk`
+        : f.cadence === "daily"
+          ? `${f.label.toLowerCase()} ${formatQuoteMoney(f.amount)}/day`
+          : `${f.label.toLowerCase()} ${formatQuoteMoney(f.amount)}`,
+    ),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <aside className="rounded-2xl border border-border bg-card p-4">
+      <h3 className="text-sm font-semibold text-foreground">What a resident pays</h3>
+      <p className="pt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
+      {quote.signingLines.map((line) => (
+        <div key={line.key} className="flex items-baseline justify-between gap-3 pt-2">
+          <span className={line.dueAtSigning ? "text-[13px] text-foreground" : "text-[13px] text-muted"}>
+            {line.label}
+          </span>
+          <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-foreground">
+            {formatQuoteMoney(line.amount)}
+          </b>
+        </div>
+      ))}
+      <div className="flex items-baseline justify-between pt-3">
+        <span className="text-[13px] text-foreground">Total at signing</span>
+        <b className="text-[24px] font-extrabold tabular-nums tracking-tight text-foreground">
+          {formatQuoteMoney(quote.signingTotal)}
+        </b>
+      </div>
+      {quote.isStay ? (
+        <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl bg-accent/50 p-2.5">
+          <span className="text-[13px] font-semibold text-foreground">Stay rate</span>
+          <b className="text-[15px] font-extrabold tabular-nums text-foreground">
+            {quote.nightlyRate ? `${formatQuoteMoney(quote.nightlyRate)}/night` : "Not set"}
+          </b>
+        </div>
+      ) : (
+        <div className="mt-2.5 flex items-center justify-between gap-3 rounded-xl bg-accent/50 p-2.5">
+          <span className="min-w-0">
+            <b className="block text-[13px] font-semibold text-foreground">Then each month</b>
+            {monthlyBreakdown ? <span className="text-[11.5px] text-muted">{monthlyBreakdown}</span> : null}
+          </span>
+          <b className="shrink-0 text-[15px] font-extrabold tabular-nums text-foreground">
+            {formatQuoteMoney(quote.monthlyTotal)}
+          </b>
+        </div>
+      )}
+      {quote.applicationFees.length > 0 ? (
+        <>
+          <p className="mt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Application fee</p>
+          {quote.applicationFees.map((fee) => (
+            <div key={fee.id} className="flex items-baseline justify-between gap-3 pt-2">
+              <span className="text-[13px] text-foreground">{fee.label}</span>
+              <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-foreground">
+                {formatQuoteMoney(fee.amount)}
+              </b>
+            </div>
+          ))}
+        </>
+      ) : null}
+    </aside>
   );
 }
 
@@ -579,6 +654,20 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
     );
     const roomsWithNone = [{ value: "", label: "None" }, ...rooms];
+    const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {
+      leaseStart: form.leaseStart,
+      leaseEnd: form.leaseEnd,
+      leaseTerm: form.leaseTerm,
+      keepValue: form.roomChoice1,
+    });
+    const listingQuote =
+      selectedProperty?.listingSubmission?.v === 1 && form.roomChoice1.trim()
+        ? applicantListingQuote(selectedProperty.listingSubmission, {
+            roomChoice1: form.roomChoice1,
+            leaseTerm: form.leaseTerm,
+            residentSlot: form.residentSlot,
+          })
+        : null;
     // Whole-unit listings (leased as one place, not room-by-room) don't ask for
     // ranked 1st/2nd/3rd room choices — see the property step below.
     const isByRoom = isPropertyRentedByRoom(form.propertyId);
@@ -649,7 +738,19 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 ? roomSelectOptionsWithNone(pid, { includeUnavailable: true }).filter((o) => o.value !== "")
                 : [];
               const autoRoom = isEntire ? pid : wholeUnit && unitOpts.length <= 1 ? (unitOpts[0]?.value ?? pid) : "";
-              patch({ propertyId: pid, bundleId: "", roomChoice1: autoRoom, roomChoice2: "", roomChoice3: "", leaseTerm: "", rentalType: "standard" });
+              patch({
+                propertyId: pid,
+                bundleId: "",
+                roomChoice1: autoRoom,
+                roomChoice2: "",
+                roomChoice3: "",
+                leaseTerm: "",
+                rentalType: "standard",
+                residentSlot: undefined,
+                managerRentOverride: "",
+                managerUtilitiesOverride: "",
+                managerSecurityDepositOverride: "",
+              });
             }}
             placeholder="Search by address, neighborhood, or property name…"
             emptyMessage="No properties match your search."
@@ -681,6 +782,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               const keepBundle =
                 Boolean(form.bundleId.trim()) &&
                 nextBundleOptions.some((o) => o.value === form.bundleId);
+              const slotPatch = form.roomChoice1.trim()
+                ? firstChoiceSelectionPatch(form.roomChoice1, {
+                    propertyId: form.propertyId,
+                    leaseTerm: v,
+                  })
+                : {};
               patch(
                 v === "Month-to-Month"
                   ? {
@@ -688,11 +795,13 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                       leaseEnd: "",
                       rentalType,
                       ...(keepBundle ? {} : { bundleId: "" }),
+                      ...slotPatch,
                     }
                   : {
                       leaseTerm: v,
                       rentalType,
                       ...(keepBundle ? {} : { bundleId: "" }),
+                      ...slotPatch,
                     },
               );
             }}
@@ -756,6 +865,10 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                     roomChoice1: "",
                     roomChoice2: "",
                     roomChoice3: "",
+                    residentSlot: undefined,
+                    managerRentOverride: "",
+                    managerUtilitiesOverride: "",
+                    managerSecurityDepositOverride: "",
                   });
                 } else {
                   patch({ bundleId: next });
@@ -776,13 +889,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </div>
         ) : null}
 
+        <div className={listingQuote ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] lg:items-start" : undefined}>
         <WizardFieldGate fieldKey="roomChoice1" enabled={showWizardField}>
         {isByRoom && !bundleSelected ? (
         <div className="space-y-2">
           <Label required>Room preferences</Label>
-          <p className="text-xs text-muted">
-            Your first choice is used for availability and processing; second and third choices help with placement.
-          </p>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">1st choice</span>
@@ -790,12 +901,17 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <Select
                   value={form.roomChoice1}
                   disabled={!form.propertyId}
-                  onChange={(e) => patch({ roomChoice1: e.target.value })}
+                  onChange={(e) =>
+                    patch(firstChoiceSelectionPatch(e.target.value, {
+                      propertyId: form.propertyId,
+                      leaseTerm: form.leaseTerm,
+                    }))
+                  }
                   className={errors.roomChoice1 ? "border-red-400 ring-2 ring-red-100" : ""}
                 >
                 <option value="">{form.propertyId ? "Select a room" : "Select a property first"}</option>
-                {rooms.map((o) => (
-                  <option key={o.value} value={o.value}>
+                {firstChoiceRooms.map((o) => (
+                  <option key={o.value} value={o.value} disabled={o.disabled}>
                     {o.label}
                   </option>
                 ))}
@@ -867,6 +983,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <div data-wizard-field="roomChoice1" className="hidden" aria-hidden />
         )}
         </WizardFieldGate>
+        {listingQuote ? <ApplicantPaysCard quote={listingQuote} /> : null}
+        </div>
 
         <WizardFieldGate fieldKey="leaseStart" enabled={showWizardField}>
         <div className={form.leaseTerm === "Month-to-Month" ? "space-y-2" : "grid gap-4 sm:grid-cols-2"}>
@@ -1978,10 +2096,38 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                   </>
                 }
               />
-              <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
-              <ReviewRow k="Move-in fee" v={displayOrDash(prop.listingSubmission.moveInFee)} />
-              <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />
-              <ReviewRow k="Utilities (estimate, by room)" v={displayOrDash(utilitiesListingEstimateLabel(prop.listingSubmission))} />
+              {(() => {
+                const reviewQuote = applicantListingQuote(prop.listingSubmission, {
+                  roomChoice1: form.roomChoice1,
+                  leaseTerm: form.leaseTerm,
+                  residentSlot: form.residentSlot,
+                });
+                if (!reviewQuote) {
+                  return (
+                    <>
+                      <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
+                      <ReviewRow k="Move-in fee" v={displayOrDash(prop.listingSubmission.moveInFee)} />
+                      <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />
+                      <ReviewRow k="Utilities (estimate, by room)" v={displayOrDash(utilitiesListingEstimateLabel(prop.listingSubmission))} />
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {reviewQuote.signingLines.map((line) => (
+                      <ReviewRow key={line.key} k={line.label} v={formatQuoteMoney(line.amount)} />
+                    ))}
+                    <ReviewRow k="Payment due at signing" v={formatQuoteMoney(reviewQuote.signingTotal)} />
+                    {reviewQuote.isStay ? (
+                      reviewQuote.nightlyRate ? (
+                        <ReviewRow k="Stay rate" v={`${formatQuoteMoney(reviewQuote.nightlyRate)}/night`} />
+                      ) : null
+                    ) : (
+                      <ReviewRow k="Then each month" v={formatQuoteMoney(reviewQuote.monthlyTotal)} />
+                    )}
+                  </>
+                );
+              })()}
             </ReviewSection>
             ) : null
           ) : activeStepSet.has(3) ? (

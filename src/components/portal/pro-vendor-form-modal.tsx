@@ -540,7 +540,7 @@ export function ManagerVendorFormModal({
     }
     setError(null);
     setSaving(false);
-    setInvitePath("link");
+    setInvitePath(catalogVendor?.phone?.trim() ? "message" : "link");
     setMintedVendorUrl(null);
     setInviteSendPreview(null);
     setAxisInput("");
@@ -712,7 +712,7 @@ export function ManagerVendorFormModal({
         }
         url = minted.url;
         setMintedVendorUrl(url);
-        if (invitePath === "link") {
+        if (invitePath === "link" && !catalogVendor) {
           setStepIdx(0);
           return;
         }
@@ -878,7 +878,8 @@ export function ManagerVendorFormModal({
     }
   };
 
-  const title = mode === "edit" ? "Edit vendor" : "Add vendor";
+  const isCatalogAdd = mode === "add" && Boolean(catalogVendor);
+  const title = mode === "edit" ? "Edit vendor" : isCatalogAdd ? "Invite vendor" : "Add vendor";
   const steps: AddWorkspaceStep[] =
     mode === "edit"
       ? [
@@ -888,7 +889,15 @@ export function ManagerVendorFormModal({
           { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
           { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Save changes" },
         ]
-      : [
+      : isCatalogAdd
+        ? [
+            {
+              id: "properties",
+              label: "Properties",
+              summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property",
+            },
+          ]
+        : [
           {
             id: "invite",
             label: "Invite by",
@@ -925,7 +934,7 @@ export function ManagerVendorFormModal({
           discardTitle={mode === "edit" ? "Discard these edits?" : "Discard this vendor?"}
           assistantContext={title}
           assistantScopeKey={mode === "add" ? "invite-vendor" : "edit-vendor"}
-          lastLabel={mode === "edit" ? "Save vendor" : "Invite vendor"}
+          lastLabel={mode === "edit" ? "Save vendor" : isCatalogAdd ? "Invite" : "Invite vendor"}
           lastDisabled={saving || !draft.name.trim()}
           nextDisabled={false}
           onBeforeNext={() => {
@@ -1013,31 +1022,40 @@ export function ManagerVendorFormModal({
             </div>
           ) : null}
           {stepId === "properties" ? (
-            <CheckboxMultiSelect
-              label="Properties"
-              dataAttr="vendor-form-properties"
-              emptyLabel="Every property"
-              selectionTriggerLabel={draft.propertyIds.length === 0 ? "Every property" : undefined}
-              options={[
-                { value: "__all__", label: "Every property" },
-                ...propertyOptions.map((option) => ({ value: option.id, label: option.label })),
-              ]}
-              selected={draft.propertyIds.length === 0 ? ["__all__"] : draft.propertyIds}
-              onChange={(next) => {
-                const houses = next.filter((id) => id !== "__all__");
-                const pickedAll = next.includes("__all__");
-                const wasAll = draft.propertyIds.length === 0;
-                if (pickedAll && !wasAll) {
-                  patch({ propertyIds: [] });
-                  return;
-                }
-                if (pickedAll && wasAll && houses.length > 0) {
+            <div className="space-y-4">
+              {isCatalogAdd && catalogVendor ? (
+                <div className="rounded-2xl border border-border bg-card px-4 py-3 text-[13.5px]" data-attr="vendor-catalog-invite-facts">
+                  <p className="font-semibold">{catalogVendor.name}</p>
+                  <p className="mt-1">{[catalogVendor.trade, catalogVendor.phone, catalogVendor.email].filter(Boolean).join(" · ")}</p>
+                </div>
+              ) : null}
+              <CheckboxMultiSelect
+                label="Properties"
+                dataAttr="vendor-form-properties"
+                emptyLabel="Every property"
+                selectionTriggerLabel={draft.propertyIds.length === 0 ? "Every property" : undefined}
+                options={[
+                  { value: "__all__", label: "Every property" },
+                  ...propertyOptions.map((option) => ({ value: option.id, label: option.label })),
+                ]}
+                selected={draft.propertyIds.length === 0 ? ["__all__"] : draft.propertyIds}
+                onChange={(next) => {
+                  const houses = next.filter((id) => id !== "__all__");
+                  const pickedAll = next.includes("__all__");
+                  const wasAll = draft.propertyIds.length === 0;
+                  if (pickedAll && !wasAll) {
+                    patch({ propertyIds: [] });
+                    return;
+                  }
+                  if (pickedAll && wasAll && houses.length > 0) {
+                    patch({ propertyIds: houses });
+                    return;
+                  }
                   patch({ propertyIds: houses });
-                  return;
-                }
-                patch({ propertyIds: houses });
-              }}
-            />
+                }}
+              />
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+            </div>
           ) : null}
           {stepId === "trades" ? (
             <div className="space-y-4" data-attr="vendor-form-trades">
