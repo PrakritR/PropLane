@@ -11,7 +11,6 @@ import {
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -22,14 +21,7 @@ import {
   type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
-import { PortalListControls, usePortalListGroupSort } from "@/components/portal/portal-list-controls";
-import { PortalListGroup } from "@/components/portal/portal-list-group";
 import { roomDisplayLabel } from "@/lib/room-display-label";
-import {
-  PORTAL_LIST_GROUP_NONE,
-  groupAndSortPaymentLedgerRows,
-  type PortalListGroupBucket,
-} from "@/lib/portals/list-grouping";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
 import { paymentDetailHref, paymentListHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -37,7 +29,7 @@ import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { importedActivity } from "@/lib/portfolio-import/activity";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import { Bell, CalendarDays, DollarSign, Trash2 } from "lucide-react";
+import { Bell, CalendarDays, Trash2 } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -415,9 +407,9 @@ export function ManagerPaymentsLedgerPanel({
 
   /**
    * The Pending bucket only: a charge not yet due this month or earlier
-   * ("Upcoming") renders in its own trailing group, after everything due
-   * now — and drops out of the list entirely once `showUpcomingCharges` is
-   * off, matching the exclusion `manager-payments-scope.ts` already applies
+   * ("Upcoming") is appended after due-now rows with no heading — and
+   * drops out of the list entirely once `showUpcomingCharges` is off,
+   * matching the exclusion `manager-payments-scope.ts` already applies
    * to the Pending tab count and the dashboard/sidebar counts.
    */
   const { dueNowRows, upcomingRows } = useMemo(() => {
@@ -1798,64 +1790,17 @@ export function ManagerPaymentsLedgerPanel({
 
   /**
    * The Properties row for a charge (AGENTS.md → Portal UI system: "Every
-   * list tab copies Properties"). Outside a resident-keyed group — Group =
-   * None, or any other grouping — nothing else on screen names the
-   * resident, so the row keeps naming them: the resident is the title and
-   * fills the tile, the charge and where it belongs make the place line.
-   *
-   * Inside a group whose header already carries the resident's name
-   * (`group.identity === "resident"`, `list-grouping.ts`), the row would
-   * otherwise repeat it — a Noah Park group full of rows all titled "Noah
-   * Park" again. There the CHARGE becomes the title, the tile is a quiet
-   * money glyph, and the place line is just the due date (plus the room,
-   * only when it differs from the room the group's own sub-line already
-   * shows — PLAN-0921-1029 "Grouping & sort", `LISTS.payments`).
-   *
-   * Either way: the due date and the next reminder are the row's facts, the
-   * amount sits bold on the right (green once paid), and the ⋯ the list
-   * surface draws carries the row's actions. No grouping box on the row
-   * itself and no pill: the tab says the bucket
+   * list tab copies Properties"). Payments is a flat list — each row names
+   * the resident as the title, the charge and where it belongs make the
+   * place line, the due date and next reminder are the facts, and the
+   * amount sits bold on the right (green once paid). No grouping box and
+   * no pill: the tab says the bucket
    * (`tests/unit/portal-list-rows-no-pills.test.ts`).
    */
-  const renderChargeRow = (
-    row: DemoManagerPaymentLedgerRow,
-    group?: PortalListGroupBucket<DemoManagerPaymentLedgerRow>,
-  ) => {
+  const renderChargeRow = (row: DemoManagerPaymentLedgerRow) => {
     const property = ledgerRowPropertyLine(row);
     const due = formatDueMeta(row.dueDate ?? "");
     const reminder = paymentReminderMetaHint(row, displayScheduledMessages);
-
-    if (group?.identity === "resident") {
-      // The group's own header sub-line was built from its FIRST row's
-      // property/room (`list-grouping.ts`'s `groupOf`, resident branch) —
-      // exactly `group.rows[0]`, since grouping never reorders rows once a
-      // bucket is created. Only show the room here when this row's differs
-      // from what the header already said.
-      const headerRoomLabel = formatLedgerRoomLabel(group.rows[0]?.roomNumber ?? "");
-      const rowRoomLabel = formatLedgerRoomLabel(row.roomNumber);
-      const place = [due, rowRoomLabel && rowRoomLabel !== headerRoomLabel ? rowRoomLabel : null]
-        .filter(Boolean)
-        .join(" · ");
-      return (
-        <PortalEntryRow
-          key={row.id}
-          tile={{ kind: "glyph", icon: DollarSign }}
-          title={row.chargeTitle}
-          place={place || undefined}
-          facts={
-            reminder
-              ? [{ icon: Bell, label: <span data-attr="payment-row-reminder">{reminder}</span> }]
-              : undefined
-          }
-          figure={{ value: row.lineAmount, tone: row.bucket === "paid" ? "ok" : undefined }}
-          checked={showSelection && selectedIds.has(row.id)}
-          onSelectedChange={showSelection ? () => toggleSelected(row.id) : undefined}
-          onOpen={() => openPaymentDetail(row)}
-          selectLabel={`${paymentLedgerResidentLabel(row)} · ${row.chargeTitle}`}
-          dataAttr="payment-list-row"
-        />
-      );
-    }
 
     return (
       <PortalApplicantRecordRow
@@ -1926,61 +1871,16 @@ export function ManagerPaymentsLedgerPanel({
     return flattenLedgerClusters(ledgerClusters, groupMode);
   }, [embeddedInResident, groupMode, ledgerClusters, rows]);
 
-  // Upcoming is always the LAST section — house/resident grouping applies within
-  // it exactly as it does for the due-now rows above, so an "Upcoming" property
-  // or resident cluster reads the same way the main list already does.
+  // Upcoming rows stay last, flattened the same way as due-now, with no heading.
   const orderedUpcomingLedgerRows = useMemo(() => {
     if (embeddedInResident || upcomingLedgerClusters.length === 0) return [];
     return flattenLedgerClusters(upcomingLedgerClusters, groupMode);
   }, [embeddedInResident, groupMode, upcomingLedgerClusters]);
 
-  /**
-   * The redesign's Group/Sort control (`docs/agents/record-page.md` "Lists") —
-   * the manager Payments list's proof case, grouped by Resident by default.
-   * Only the due-now section adopts it; Upcoming stays the existing flat
-   * trailing section. Not read when embedded in a resident's own record —
-   * that view is already scoped to one person.
-   */
-  const paymentsGroupSort = usePortalListGroupSort("payments");
-  const groupedLedgerBuckets = useMemo(
-    () => groupAndSortPaymentLedgerRows(orderedLedgerRows, paymentsGroupSort.group, paymentsGroupSort.sort),
-    [orderedLedgerRows, paymentsGroupSort.group, paymentsGroupSort.sort],
-  );
-
   const renderManagerGroupedLedger = () => (
     <div data-attr={groupMode === "house" ? "payments-house-groups" : "payments-resident-groups"}>
-      {paymentsGroupSort.group === PORTAL_LIST_GROUP_NONE
-        ? groupedLedgerBuckets.flatMap((bucket) => bucket.rows).map((row) => renderChargeRow(row))
-        : groupedLedgerBuckets.map((bucket) => (
-            <PortalListGroup
-              key={bucket.key}
-              listKey="payments"
-              groupKey={bucket.key}
-              name={bucket.name}
-              sub={bucket.sub}
-              avatar={bucket.avatar}
-              figure={bucket.summary.figure}
-              count={bucket.summary.count}
-              // "Paid this year" is the only one of the plan's two footer facts
-              // this panel can prove from `DemoManagerPaymentLedgerRow[]` — there
-              // is no next-charge / rent-schedule date on that row to source a
-              // "Next rent posts …" fact from, so it is omitted rather than
-              // invented.
-              footer={bucket.summary.extra ? [bucket.summary.extra] : undefined}
-              dataAttr="payments-list-group"
-            >
-              {bucket.rows.map((row) => renderChargeRow(row, bucket))}
-            </PortalListGroup>
-          ))}
-      {orderedUpcomingLedgerRows.length > 0 ? (
-        <div className="mt-4" data-attr="payments-upcoming-section">
-          <div className="mb-1.5 flex items-baseline gap-2 px-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted">Upcoming</span>
-            <span className="text-xs text-muted tabular-nums">{orderedUpcomingLedgerRows.length}</span>
-          </div>
-          {orderedUpcomingLedgerRows.map((row) => renderChargeRow(row))}
-        </div>
-      ) : null}
+      {orderedLedgerRows.map((row) => renderChargeRow(row))}
+      {orderedUpcomingLedgerRows.map((row) => renderChargeRow(row))}
     </div>
   );
 
@@ -2235,17 +2135,6 @@ export function ManagerPaymentsLedgerPanel({
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={embeddedInResident ? 0 : selectedIds.size}
         bulkActions={embeddedInResident ? undefined : bulkSelectionActions}
-        listControls={
-          embeddedInResident ? undefined : (
-            <PortalListControls
-              listKey="payments"
-              group={paymentsGroupSort.group}
-              sort={paymentsGroupSort.sort}
-              onGroupChange={paymentsGroupSort.setGroup}
-              onSortChange={paymentsGroupSort.setSort}
-            />
-          )
-        }
         dataAttr="payments-ledger-list"
       >
         {embeddedInResident ? renderResidentStatusSections() : renderManagerGroupedLedger()}

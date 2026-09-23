@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 //
-// PLAN-0920-2357 stream B: within the Pending bucket, a charge not yet due
-// this month or earlier ("Upcoming") groups separately, after everything due
-// now — and drops out of the list entirely once the manager's
-// `showUpcomingCharges` setting is off.
+// Within the Pending bucket, a charge not yet due this month or earlier
+// stays in the same flat list after everything due now — and drops out
+// entirely once the manager's `showUpcomingCharges` setting is off.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
@@ -87,24 +86,20 @@ function renderPending(rows: DemoManagerPaymentLedgerRow[], showUpcomingCharges 
   );
 }
 
-describe("manager Payments — Upcoming group", () => {
-  it("renders a due-now section plus an Upcoming header with the right count when Show is on", () => {
-    const { container, getByText } = renderPending([row(), upcomingRow()], true);
+describe("manager Payments — upcoming charges stay in the flat list", () => {
+  it("lists due-now charges first, then later-month charges, with no Upcoming heading", () => {
+    const { container } = renderPending([row(), upcomingRow()], true);
 
-    const section = container.querySelector('[data-attr="payments-upcoming-section"]');
-    expect(section).toBeTruthy();
-    expect(getByText("Upcoming")).toBeTruthy();
-    expect(section?.textContent).toContain("1");
-    expect(section?.textContent).toContain("October rent");
+    expect(container.querySelector('[data-attr="payments-upcoming-section"]')).toBeNull();
+    expect(container.textContent).not.toContain("Upcoming");
 
     const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
     expect(rows).toHaveLength(2);
-    // Due-now first, Upcoming after.
     expect(rows[0]?.textContent).toContain("September rent");
     expect(rows[1]?.textContent).toContain("October rent");
   });
 
-  it("excludes the Upcoming row entirely — from the list AND the header count — when Hide is set", () => {
+  it("excludes later-month charges entirely when Hide is set", () => {
     const { container } = renderPending([row(), upcomingRow()], false);
 
     expect(container.querySelector('[data-attr="payments-upcoming-section"]')).toBeNull();
@@ -114,12 +109,13 @@ describe("manager Payments — Upcoming group", () => {
     expect(container.textContent).not.toContain("October rent");
   });
 
-  it("omits the Upcoming header entirely when there is nothing upcoming", () => {
+  it("does not invent an Upcoming heading when every charge is due now", () => {
     const { container } = renderPending([row()], true);
     expect(container.querySelector('[data-attr="payments-upcoming-section"]')).toBeNull();
+    expect(container.textContent).not.toContain("Upcoming");
   });
 
-  it("keeps Upcoming as the LAST section when grouping by property is active", () => {
+  it("still appends later-month charges last when the list is ordered by property", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
@@ -137,13 +133,14 @@ describe("manager Payments — Upcoming group", () => {
 
     const surface = container.querySelector('[data-attr="payments-house-groups"]');
     expect(surface).toBeTruthy();
-    const upcomingSection = container.querySelector('[data-attr="payments-upcoming-section"]');
-    expect(upcomingSection).toBeTruthy();
-    // The Upcoming section is the last child of the group surface.
-    expect(surface?.lastElementChild).toBe(upcomingSection);
+    expect(container.querySelector('[data-attr="payments-upcoming-section"]')).toBeNull();
+    const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("House A");
+    expect(rows[1]?.textContent).toContain("House B");
   });
 
-  it("never touches the Overdue or Paid tabs", () => {
+  it("never splits Overdue or Paid into an upcoming section", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[row({ id: "od", bucket: "overdue", statusLabel: "Overdue", dueDateSortMs: Date.parse("2026-08-01") })]}

@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
-import { writeStoredPortalListGroupSort } from "@/lib/portals/list-grouping";
 
 const navigate = vi.fn();
 
@@ -55,9 +54,6 @@ vi.stubGlobal(
 afterEach(() => {
   cleanup();
   navigate.mockClear();
-  // A couple of tests below set the remembered Group choice (Group = None) —
-  // never leak that into a later test, which otherwise assumes the list's
-  // default (Resident) grouping.
   window.localStorage.clear();
 });
 
@@ -83,7 +79,7 @@ function sampleRow(overrides: Partial<DemoManagerPaymentLedgerRow> = {}): DemoMa
 }
 
 describe("ManagerPaymentsLedgerPanel", () => {
-  it("groups a resident's charges into one container, named once by the group header — not repeated on each row", () => {
+  it("lists every charge as its own row, each naming its resident, with a resident's charges kept adjacent", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
@@ -106,29 +102,21 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(container.querySelector('[data-attr="payments-resident-groups"]')).toBeTruthy();
     expect(container.querySelector('[data-attr="application-household-cluster"]')).toBeNull();
     expect(container.querySelector('[data-slot="data-list"]')).toBeNull();
+    expect(container.querySelector('[data-attr="payments-list-group"]')).toBeNull();
+    expect(container.querySelector('[data-attr="portal-list-group-header"]')).toBeNull();
     const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
     expect(rows).toHaveLength(3);
-
-    const groups = Array.from(container.querySelectorAll('[data-attr="payments-list-group"]'));
-    expect(groups).toHaveLength(2);
-    const mayaGroup = groups.find((g) => g.querySelector('[data-attr="portal-list-group-header"]')?.textContent?.includes("Maya Chen"));
-    const jordanGroup = groups.find((g) => g.querySelector('[data-attr="portal-list-group-header"]')?.textContent?.includes("Jordan Lee"));
-    expect(mayaGroup).toBeTruthy();
-    expect(jordanGroup).toBeTruthy();
-    // Resident then due: Maya's two charges sit together, inside her one group,
-    // even though Jordan's charge arrived between them in the input.
-    const mayaRows = Array.from(mayaGroup!.querySelectorAll('[data-attr="payment-list-row"]'));
-    expect(mayaRows).toHaveLength(2);
-    expect(Array.from(jordanGroup!.querySelectorAll('[data-attr="payment-list-row"]'))).toHaveLength(1);
-    // The resident's name is on the group header, never repeated on the row.
-    for (const row of mayaRows) expect(row.textContent).not.toContain("Maya Chen");
-    for (const row of jordanGroup!.querySelectorAll('[data-attr="payment-list-row"]')) {
-      expect(row.textContent).not.toContain("Jordan Lee");
-    }
+    // Resident then due: Maya's two charges sit together even though Jordan's
+    // charge arrived between them in the input.
+    expect(rows[0]?.textContent).toContain("Maya Chen");
+    expect(rows[0]?.textContent).toContain("Move-in cost");
+    expect(rows[1]?.textContent).toContain("Maya Chen");
+    expect(rows[1]?.textContent).toContain("July rent");
+    expect(rows[2]?.textContent).toContain("Jordan Lee");
+    expect(rows[2]?.textContent).toContain("Application fee");
   });
 
-  it("Group = None lists rows flat, and each row names its own resident since nothing else does", () => {
-    writeStoredPortalListGroupSort("payments", { group: "none", sort: "due-date" });
+  it("names the resident on every flat row — there is no group chrome to carry that name", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
@@ -155,7 +143,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(rows.some((row) => row.textContent?.includes("Jordan Lee"))).toBe(true);
   });
 
-  it("renders a resident's group as ONE container — header, hairline-separated rows and footer all inside it, never a card per row", () => {
+  it("renders each charge as its own card row, never a shared group container", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
@@ -169,26 +157,17 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    const group = container.querySelector('[data-attr="payments-list-group"]');
-    expect(group).toBeTruthy();
-    // The single card's chrome lives on the group container...
-    expect(group!.className).toContain("rounded-xl");
-    expect(group!.className).toContain("border");
-    expect(group!.className).toContain("shadow-sm");
-    // ...its rows sit inside it, hairline-separated...
-    expect(group!.querySelector(".divide-y")).toBeTruthy();
-    const rows = Array.from(group!.querySelectorAll('[data-attr="payment-list-row"]'));
+    expect(container.querySelector('[data-attr="payments-list-group"]')).toBeNull();
+    expect(container.querySelector(".divide-y")).toBeNull();
+    const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
     expect(rows).toHaveLength(2);
-    // ...and never repeat that chrome as their own floating card.
     for (const row of rows) {
       const card = row.closest(".portal-property-row");
-      expect(card?.className).not.toMatch(/(?:^|\s)rounded-xl(?:\s|$)/);
-      expect(card?.className).not.toMatch(/(?:^|\s)shadow-sm(?:\s|$)/);
-      expect(card?.className).not.toMatch(/(?:^|\s)mb-2(?:\s|$)/);
+      expect(card?.className).toMatch(/(?:^|\s)rounded-xl(?:\s|$)/);
     }
   });
 
-  it("titles the grouped row by the charge and places the due date under it — the group header already names the resident", () => {
+  it("titles the row by the resident, with the charge and due date on the same card", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -201,17 +180,16 @@ describe("ManagerPaymentsLedgerPanel", () => {
 
     const row = container.querySelector('[data-attr="payment-list-row"]');
     expect(row).toBeTruthy();
-    expect(row?.textContent).not.toContain("Maya Chen");
+    expect(row?.textContent).toContain("Maya Chen");
     expect(row?.textContent).toContain("July rent");
     expect(row?.textContent).toContain("Due Jul 1, 2026");
     expect(container.textContent).toContain("$1,850.00");
-    // The resident is named exactly once, by the group header.
-    expect(container.querySelector('[data-attr="portal-list-group-header"]')?.textContent).toContain("Maya Chen");
+    expect(container.querySelector('[data-attr="portal-list-group-header"]')).toBeNull();
     // No pill on the row: the tab says the bucket.
     expect(container.querySelector('[data-attr="payments-cluster-scheduled"]')).toBeNull();
   });
 
-  it("shows the room on a grouped row only when it differs from the room the group header already names", () => {
+  it("shows each charge's room on its own row", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
@@ -227,11 +205,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
 
     const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
     expect(rows).toHaveLength(2);
-    // The group's header sub-line already carries the first row's room
-    // (2B) — that row's own place line does not repeat it.
-    expect(rows[0]?.textContent).not.toMatch(/Room 2B/);
-    // The second row's room (Garage 1) differs from what the header showed,
-    // so it stays on the row.
+    expect(rows[0]?.textContent).toMatch(/Room 2B/);
     expect(rows[1]?.textContent).toContain("Garage 1");
   });
 
@@ -252,7 +226,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(rows[1]?.textContent).toContain("Before move-in");
   });
 
-  it("shows compact reminder copy on grouped charge rows", () => {
+  it("shows compact reminder copy on charge rows", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
     try {
@@ -338,7 +312,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(container.textContent).toContain("$1,850.00");
   });
 
-  it("shows the group's 'Paid this year' footer fact from paid charges, and omits the unprovable second fact", () => {
+  it("lists each paid charge as its own row — no group footer summing the year", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[
@@ -360,11 +334,13 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    const group = container.querySelector('[data-attr="payments-list-group"]');
-    expect(group?.textContent).toContain("Paid this year · $3,700");
-    // The plan's other footer fact ("Next rent posts …") has no source field
-    // on a payment row — never invented.
-    expect(group?.textContent).not.toContain("Next rent posts");
+    expect(container.querySelector('[data-attr="payments-list-group"]')).toBeNull();
+    expect(container.textContent).not.toContain("Paid this year");
+    expect(container.textContent).not.toContain("Next rent posts");
+    const rows = Array.from(container.querySelectorAll('[data-attr="payment-list-row"]'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("July rent");
+    expect(rows[1]?.textContent).toContain("August rent");
   });
 
   it("colours a paid charge's amount green", () => {
@@ -378,10 +354,8 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    // The grouped row's figure uses the row shell's shared "ok" tone
-    // (`text-emerald-600`), not a bespoke class — same green, one source.
     const amount = Array.from(container.querySelectorAll("span")).find(
-      (el) => el.textContent === "$1,850.00" && el.className.includes("text-emerald-600"),
+      (el) => el.textContent === "$1,850.00" && el.className.includes("status-confirmed-fg"),
     );
     expect(amount).toBeTruthy();
   });
@@ -414,7 +388,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(screen.getByText("No charges yet")).toBeInTheDocument();
   });
 
-  it("renders action menus on grouped charge rows", () => {
+  it("renders action menus on charge rows", () => {
     render(
       <ManagerPaymentsLedgerPanel
         rows={[
