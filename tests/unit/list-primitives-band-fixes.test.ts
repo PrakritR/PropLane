@@ -46,16 +46,22 @@ describe("phone More sheet nests a section's sub-tabs", () => {
 });
 
 describe("assistant desktop side panel gets a real close", () => {
-  it("AssistantDockPanel exposes onClose independent of onCollapse", () => {
+  it("AssistantDockPanel passes its ✕ straight to the header", () => {
     const dockPanelSource = source("assistant-dock-panel.tsx");
     expect(dockPanelSource).toMatch(/onClose\?:\s*\(\)\s*=>\s*void/);
-    expect(dockPanelSource).toMatch(/onClose=\{onClose \?\?/);
+    expect(dockPanelSource).toMatch(/onClose=\{onClose\}/);
   });
 
-  it("both desktop rails wire a real onClose instead of only the unpin icon", () => {
+  it("both desktop rails close themselves instead of jumping to the popup", () => {
     for (const file of ["portal-assistant-rail.tsx", "portal-assistant-dock-rail.tsx"]) {
       const railSource = source(file);
-      expect(railSource, file).toMatch(/onClose=\{undockToPopup\}/);
+      expect(railSource, file).toMatch(/onClose=\{closeRail\}/);
+      expect(railSource, file).toMatch(/focusAskPropLane\(\)/);
+      expect(railSource, file).not.toMatch(/openAxisAssistant/);
     }
+    // The manager rail keeps its docked preference (Settings owns the switch)...
+    expect(source("portal-assistant-dock-rail.tsx")).toMatch(/collapseAssistantDock\(\);/);
+    // ...admin/vendor have no Settings toggle, so their ✕ leaves rail mode.
+    expect(source("portal-assistant-rail.tsx")).toMatch(/undockAssistantFromRail\(\);/);
   });
 });

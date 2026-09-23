@@ -269,13 +269,16 @@ workspace, `ModalAssistantStrip`, `AssistantDockPanel`, and
 
 - **Independent close controls + outside-click dismissal.** The modal rail's
   assistant now renders a labeled X (`Close PropLane Assistant`,
-  `data-attr="modal-assistant-close"`, `AssistantDockPanel
-  collapseVariant="close"`) distinct from the editor's `Close`. Closing the
+  `data-attr="modal-assistant-close"`, `AssistantDockPanel onClose`) distinct
+  from the editor's `Close`. Closing the
   assistant keeps the editor and its draft and returns focus to the Ask
   PropLane pill; closing the editor keeps the assistant on a fresh, context-free
   thread; a pointer-down outside both panels — or Escape — dismisses both, while
-  a pointer-down inside the rail never counts as outside. The portal rail's
-  `Collapse PropLane Assistant` control is unchanged.
+  a pointer-down inside the rail never counts as outside. The portal rail has
+  one control to dismiss it, the same ✕: it closes the rail, keeps the docked
+  preference (Ask PropLane reopens it) and returns focus to Ask PropLane. It
+  never opens the popup; switching to the popup is the Settings toggle. Admin
+  and vendor have no Settings toggle, so their rail's ✕ leaves rail mode.
 - **Context hygiene.** A modal's or Communication thread's seeded context
   travels only as the request's `contextHint` (server: untrusted block of the
   system prompt via `withAssistantTaskContext`). It never appears in the

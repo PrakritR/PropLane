@@ -2719,29 +2719,12 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
   }
 }
 
-/* Lift assistant FAB when bulk selection bar is open (desktop). */
+/* Desktop has no assistant FAB (Ask PropLane lives in the top bar), so
+   nothing here reserves room for one. */
 @media (min-width: 1024px) {
-  html[data-bulk-action-bar] .axis-assistant-fab {
-    bottom: 5.5rem !important;
-  }
-
-  html[data-bulk-action-bar][data-bulk-action-variant="payments"] .axis-assistant-fab {
-    bottom: 7.5rem !important;
-  }
-
-  /* Keep Mark as paid / Delete clear of the docked FAB on desktop. */
-  html[data-bulk-action-bar] [data-bulk-action-actions] {
-    padding-right: 3.5rem;
-  }
-
   html[data-bulk-action-bar] [data-communication-inbox-list] {
     padding-bottom: 4.75rem;
     scroll-padding-bottom: 4.75rem;
-  }
-
-  /* Pinned record-detail footer (resident profile sections) — sit above the action row. */
-  html:has([data-slot="portal-page-footer-actions"][data-pinned]) .axis-assistant-fab {
-    bottom: 5.75rem !important;
   }
 
   html[data-portal-sidebar-collapsed] [data-slot="bulk-action-bar"][data-variant="payments"] {
@@ -2783,8 +2766,7 @@ html[data-rental-wizard-active] {
    tab is a CLIPPED fixed-height surface (record lists, record detail, the
    inbox) whose own inner scroller does the scrolling — on those the padding
    cannot scroll away and is just an 80px band of dead canvas under the cards,
-   on every tab of every portal. The button is a 56px circle in the corner;
-   what it may cover is the corner of one row, not the page. */
+   on every tab of every portal. Desktop has no FAB at all now. */
 
 html[data-communication-surface] {
   --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);

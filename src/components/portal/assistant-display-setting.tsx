@@ -8,7 +8,6 @@ import {
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
 import { useAxisAssistantDock } from "@/components/portal/axis-assistant";
-import { useIsSmallPortalViewport } from "@/hooks/use-is-native-app";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { AssistantDisplayMode } from "@/lib/assistant-display-preferences";
 import { cn } from "@/lib/utils";
@@ -28,12 +27,12 @@ const OPTIONS: { mode: AssistantDisplayMode; label: string; description: string 
 
 /**
  * Settings entry point for the assistant display mode, on the manager Settings
- * page. It writes the SAME persisted preference as the in-assistant pin and the
- * rail's unpin (`useAxisAssistantDock` / `assistant-display-preferences.ts`).
+ * page. It writes the SAME persisted preference as the in-assistant pin
+ * (`useAxisAssistantDock` / `assistant-display-preferences.ts`). It is the only
+ * way back to the popup: the rail's ✕ closes the rail and keeps "docked".
  */
 export function AssistantDisplaySetting() {
   const { dockable, mode, setMode } = useAxisAssistantDock();
-  const isSmall = useIsSmallPortalViewport();
   const groupId = useId();
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 

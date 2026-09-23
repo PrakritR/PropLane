@@ -77,16 +77,6 @@ export function AssistantPinIcon({ className }: { className?: string }) {
   );
 }
 
-/** "Unpin" — the same panel with the right column emptied back out. */
-export function AssistantUnpinIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="2" />
-      <path d="M14 4v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export type AssistantSuggestion = {
   label: string;
   prompt: string;

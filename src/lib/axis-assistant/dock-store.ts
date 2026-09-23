@@ -88,17 +88,23 @@ export function collapseAssistantDock(): void {
   setAssistantDockCollapsed(true);
 }
 
-export function toggleAssistantDock(): void {
-  setAssistantDockCollapsed(!collapsed);
-}
-
-/** Pin the assistant to the right rail (closes the popup). */
-export function dockAssistantToRail(): void {
-  expandAssistantDock();
-}
-
-/** Return to popup-only mode and hide the right rail. */
+/** Leave rail mode entirely (portals with no Settings toggle to undock from). */
 export function undockAssistantFromRail(): void {
   setAssistantDocked(false);
   setAssistantDockCollapsed(true);
+}
+
+/**
+ * A closing rail unmounts the ✕ that had focus; hand it to the top bar's Ask
+ * PropLane, the control that reopens the assistant.
+ */
+export function focusAskPropLane(): void {
+  if (typeof document === "undefined") return;
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>('[data-attr="portal-ask-proplane"]')?.focus();
+  });
+}
+
+export function toggleAssistantDock(): void {
+  setAssistantDockCollapsed(!collapsed);
 }

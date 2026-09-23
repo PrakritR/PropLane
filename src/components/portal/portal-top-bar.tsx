@@ -18,6 +18,7 @@ import { AssistantDockExpandButton } from "@/components/portal/assistant-layout-
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { useAxisAssistantDock } from "@/components/portal/axis-assistant";
 import {
+  collapseAssistantDock,
   getAssistantDockCollapsed,
   getAssistantDocked,
   subscribeAssistantDockCollapsed,
@@ -111,9 +112,9 @@ export function PortalTopBar({
       closeAxisAssistant();
       return;
     }
+    // An open rail closes like its ✕: the docked preference stays.
     if (dockInput?.offsetParent) {
-      setMode("popup");
-      closeAxisAssistant();
+      collapseAssistantDock();
       return;
     }
     openAskProPlane();
