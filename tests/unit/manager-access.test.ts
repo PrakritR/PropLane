@@ -32,10 +32,17 @@ describe("manager-access", () => {
     expect(managerTierPropertyLimitReached("pro", 1)).toBe(false);
   });
 
-  it("limits account links per tier", () => {
-    expect(maxAccountLinksForTier("free")).toBe(1);
-    expect(maxAccountLinksForTier("pro")).toBe(2);
-    expect(maxAccountLinksForTier("business")).toBe(20);
+  it("does not cap account links by plan tier", () => {
+    expect(maxAccountLinksForTier("free")).toBeNull();
+    expect(maxAccountLinksForTier("pro")).toBeNull();
+    expect(maxAccountLinksForTier("business")).toBeNull();
+  });
+
+  it("caps residents by plan tier", async () => {
+    const { maxResidentsForManagerTier } = await import("@/lib/manager-access");
+    expect(maxResidentsForManagerTier("free")).toBe(20);
+    expect(maxResidentsForManagerTier("pro")).toBe(100);
+    expect(maxResidentsForManagerTier("business")).toBe(500);
   });
 
   it("requires Pro or Business for co-manager invites", () => {

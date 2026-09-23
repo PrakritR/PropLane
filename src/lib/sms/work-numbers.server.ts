@@ -23,7 +23,7 @@ import {
  */
 
 /** Hard ceiling, mirrored by the database trigger. */
-export const WORKSPACE_WORK_NUMBER_LIMIT = 2;
+export const WORKSPACE_WORK_NUMBER_LIMIT = 1;
 
 export type WorkspaceNumberEntry = {
   numberId: string;
@@ -161,7 +161,7 @@ export async function assignNumberToWorkspace(
 
   const { data: existingHolds } = await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", workspaceId);
   if ((existingHolds?.length ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
-    return { ok: false, error: "A workspace can hold at most 2 work numbers.", code: "cap_exceeded" };
+    return { ok: false, error: "A workspace can hold at most 1 work number.", code: "cap_exceeded" };
   }
 
   const { error: insertError } = await db
@@ -169,8 +169,8 @@ export async function assignNumberToWorkspace(
     .insert({ workspace_id: workspaceId, number_id: numberId, is_primary: false });
   if (insertError) {
     const message = String(insertError.message ?? "");
-    if (message.includes("at most 2")) {
-      return { ok: false, error: "A workspace can hold at most 2 work numbers.", code: "cap_exceeded" };
+    if (message.includes("at most 2") || message.includes("at most 1")) {
+      return { ok: false, error: "A workspace can hold at most 1 work number.", code: "cap_exceeded" };
     }
     if ((insertError as { code?: string }).code === "23505") {
       return { ok: false, error: "This workspace already has that number.", code: "already_assigned" };
@@ -295,7 +295,7 @@ export async function provisionNumberForWorkspace(
 
   const { data: heldNow } = await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", workspaceId);
   if ((heldNow?.length ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
-    return { ok: false, error: "A workspace can hold at most 2 work numbers.", state: "failed", code: "cap_exceeded" };
+    return { ok: false, error: "A workspace can hold at most 1 work number.", state: "failed", code: "cap_exceeded" };
   }
 
   const { data: existingHome } = await db

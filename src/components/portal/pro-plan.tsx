@@ -33,7 +33,6 @@ import {
   ManagerExtraUsagePanel,
   ManagerDoorsPanel,
   useUsageSummary,
-  useDoorCount,
 } from "@/components/portal/manager-usage-panel";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { ManagerPlanAddonsPanel } from "@/components/portal/manager-plan-addons-panel";
@@ -251,7 +250,6 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoError, setPromoError] = useState<string | null>(null);
   const { summary: usageSummary, error: usageError, load: loadUsage } = useUsageSummary();
-  const { data: doorCountData, error: doorCountError, load: loadDoorCount } = useDoorCount();
 
   const load = useCallback(async () => {
     try {
@@ -613,6 +611,8 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
     void startEmbeddedCheckout(currentTier as "pro" | "business", priceView);
   };
 
+  // Kept for ?activatePaid=1 deep-links from email; trial UI uses Choose plan.
+
   useEffect(() => {
     if (!embedded || typeof window === "undefined") return;
     if (window.location.hash !== `#${MANAGER_PLAN_PORTAL_SECTION_ID}`) return;
@@ -695,10 +695,10 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
                   variant="primary"
                   className="rounded-full text-[13px]"
                   disabled={anyBusy}
-                  onClick={() => activatePaidPlan()}
-                  data-attr="billing-activate-paid-plan"
+                  onClick={() => setAdjustOpen(true)}
+                  data-attr="billing-choose-plan-trial"
                 >
-                  Activate paid plan
+                  Choose plan
                 </Button>
               ) : (
                 <Button
@@ -721,9 +721,10 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       <ManagerDoorsPanel
         tier={currentTier}
         billing={currentBilling}
-        data={doorCountData}
-        error={doorCountError}
-        onRefresh={() => void loadDoorCount()}
+        used={usageSummary?.residents.used ?? null}
+        max={usageSummary?.residents.max ?? null}
+        error={usageError}
+        onRefresh={() => void loadUsage()}
       />
       <ManagerUsagePanel summary={usageSummary} error={usageError} onRefresh={() => void loadUsage()} />
       <ManagerExtraUsagePanel summary={usageSummary} load={loadUsage} />
@@ -927,7 +928,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       renewalLabel={renewalLabel}
       busy={adjustBusy}
       onConfirm={(target, billing) => void handleAdjustConfirm(target, billing)}
-      doorCount={doorCountData?.totalDoors ?? null}
+      residentCount={usageSummary?.residents.used ?? null}
     />
   ) : null;
 

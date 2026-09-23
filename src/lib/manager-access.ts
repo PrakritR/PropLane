@@ -240,13 +240,35 @@ export function managerTierPropertyLimitReached(tier: string | null | undefined,
   return propertyCount >= max;
 }
 
-/** Max linked owners or linked managers per account-links tab (same cap both directions). */
+/** Max linked owners or linked managers per account-links tab.
+ * Uncapped — plans limit residents and workspaces, not team seats. */
 export function maxAccountLinksForTier(tier: string | null | undefined): number | null {
-  const n = normalizeManagerSkuTier(tier);
-  if (n === "free") return 1;
-  if (n === "pro") return 2;
-  if (n === "business") return 20;
+  void tier;
   return null;
+}
+
+/** Max approved / manually-added residents an account may hold. Grandfather
+ * existing over-cap portfolios: callers must only refuse NEW slots. */
+export const FREE_MAX_RESIDENTS = 20;
+export const PRO_MAX_RESIDENTS = 100;
+export const BUSINESS_MAX_RESIDENTS = 500;
+
+export function maxResidentsForManagerTier(tier: string | null | undefined): number | null {
+  const n = normalizeManagerSkuTier(tier);
+  if (n === "free") return FREE_MAX_RESIDENTS;
+  if (n === "pro") return PRO_MAX_RESIDENTS;
+  if (n === "business") return BUSINESS_MAX_RESIDENTS;
+  return null;
+}
+
+export function managerResidentLimitMessage(tier: string | null | undefined, opts?: { omitUpgradeCta?: boolean }): string {
+  const max = maxResidentsForManagerTier(tier);
+  const n = normalizeManagerSkuTier(tier);
+  const cta = (clause: string) => (opts?.omitUpgradeCta ? "" : ` ${clause}`);
+  if (max == null) return "Your plan's resident limit has been reached.";
+  if (n === "free") return `Free includes ${max} residents.${cta("Upgrade to Pro or Business for more.")}`;
+  if (n === "pro") return `Pro includes ${max} residents.${cta("Upgrade to Business for more.")}`;
+  return `Business includes ${max} residents.`;
 }
 
 /** @deprecated use managerTierPropertyLimitReached */

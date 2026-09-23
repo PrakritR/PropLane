@@ -35,6 +35,7 @@ function summary(overrides: Partial<ManagerUsageSummary> = {}): ManagerUsageSumm
     },
     listings: { used: 12, max: 20 },
     workspaces: { used: 2, max: 2 },
+    residents: { used: 40, max: 500 },
     workNumbers: { used: 2, max: 2, perWorkspace: true },
     coManagers: { used: 3, max: 20 },
     monthlyBudgetCents: null,
@@ -118,7 +119,7 @@ describe("ManagerExtraUsagePanel", () => {
     render(<ManagerExtraUsagePanel summary={summary()} load={async () => null} />);
     const input = screen.getByLabelText("Credit amount in dollars") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "4" } });
-    fireEvent.click(screen.getByText(/Buy/));
+    fireEvent.click(screen.getByText("Update usage"));
     expect(screen.getByText("Enter a whole-dollar amount from $5 to $500.")).toBeTruthy();
   });
 
@@ -126,7 +127,7 @@ describe("ManagerExtraUsagePanel", () => {
     render(<ManagerExtraUsagePanel summary={summary()} load={async () => null} />);
     const input = screen.getByLabelText("Credit amount in dollars") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "501" } });
-    fireEvent.click(screen.getByText(/Buy/));
+    fireEvent.click(screen.getByText("Update usage"));
     expect(screen.getByText("Enter a whole-dollar amount from $5 to $500.")).toBeTruthy();
   });
 
@@ -134,26 +135,26 @@ describe("ManagerExtraUsagePanel", () => {
     render(<ManagerExtraUsagePanel summary={summary()} load={async () => null} />);
     const input = screen.getByLabelText("Credit amount in dollars") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "20.50" } });
-    fireEvent.click(screen.getByText(/Buy/));
+    fireEvent.click(screen.getByText("Update usage"));
     expect(screen.getByText("Enter a whole-dollar amount from $5 to $500.")).toBeTruthy();
   });
 
-  it("opens checkout for a valid whole-dollar amount within bounds", async () => {
+  it("opens Stripe checkout for a valid whole-dollar amount (confirm even with a saved card)", async () => {
     render(<ManagerExtraUsagePanel summary={summary()} load={async () => null} />);
     const input = screen.getByLabelText("Credit amount in dollars") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "50" } });
-    fireEvent.click(screen.getByText("Buy $50 more"));
-    expect(await screen.findByRole("dialog", { name: "Buy credit" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Update usage"));
+    expect(await screen.findByRole("dialog", { name: "Confirm payment" })).toBeTruthy();
   });
 
-  it("hides the Buy row on native", () => {
+  it("hides the Update usage row on native", () => {
     native.value = true;
     render(<ManagerExtraUsagePanel summary={summary()} load={async () => null} />);
     expect(screen.queryByLabelText("Credit amount in dollars")).toBeNull();
     expect(screen.getByText("Managed on the web")).toBeTruthy();
   });
 
-  it("reads Paused instead of the Buy control while purchases are paused", () => {
+  it("reads Paused instead of the Update usage control while purchases are paused", () => {
     render(
       <ManagerExtraUsagePanel
         summary={summary({ communication: { ...summary().communication, paused: true } })}

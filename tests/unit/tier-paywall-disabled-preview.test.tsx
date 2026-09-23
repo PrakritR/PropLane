@@ -20,7 +20,7 @@ describe("tier paywall disabled previews", () => {
     expect(preview?.hasAttribute("inert")).toBe(true);
     expect(
       screen.getByRole("link", { name: "Upgrade to Pro or Business" }).getAttribute("href"),
-    ).toBe("/portal/profile#portal-plan");
+    ).toBe("/portal/profile?tab=billing#portal-plan");
   });
 
   it("shows residents the same disabled preview with a manager-contact path", () => {

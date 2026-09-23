@@ -4,14 +4,11 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
-  BUSINESS_MAX_PROPERTIES,
-  PRO_MAX_PROPERTIES,
-  maxAccountLinksForTier,
   type ManagerSkuTier,
 } from "@/lib/manager-access";
 import { includedAllowanceCents } from "@/lib/comms-billing/allowances";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
-import { RATE_CARD, priceForDoors, formatRateCardUsd } from "@/lib/billing/rate-card";
+import { RATE_CARD, priceForResidents, formatRateCardUsd, includedResidentsForTier } from "@/lib/billing/rate-card";
 
 export type AdjustablePaidTier = "pro" | "business";
 export type BillingInterval = "monthly" | "annual";
@@ -33,41 +30,38 @@ function wholeDollars(cents: number | null): string {
   return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
 }
 
-/** "20 doors incl. · $3/door after · 2 listings · 1 workspace · 1 work number ·
- * $25 credit/mo · 2 co-managers" — every number here is read live from the
- * same sources the product enforces (doors from `RATE_CARD`, never
- * hardcoded), so a change to an entitlement (e.g. Business workspaces, or a
- * rate-card revision) updates this copy for free. */
+/** "100 residents incl. · $3/resident after · 1 workspace · 1 work number ·
+ * $25 credit/mo" — every number here is read live from the same sources the
+ * product enforces. */
 function entitlementLine(tier: AdjustablePaidTier): string {
   const card = RATE_CARD[tier];
-  const listings = tier === "pro" ? PRO_MAX_PROPERTIES : BUSINESS_MAX_PROPERTIES;
   const workspaces = WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces;
-  const workNumber = tier === "pro" ? "1 work number" : "1 work number per workspace";
+  const residents = includedResidentsForTier(tier);
+  const workNumber = "1 work number per workspace";
   const credit = wholeDollars(includedAllowanceCents(tier));
-  const coManagers = maxAccountLinksForTier(tier) ?? 0;
-  const doors = `${card.includedDoors} doors incl. · ${formatRateCardUsd(card.perExtraDoorMonthlyCents ?? 0)}/door after`;
-  return `${doors} · ${listings} listings · ${workspaces} workspace${workspaces === 1 ? "" : "s"} · ${workNumber} · ${credit} credit/mo · ${coManagers} co-managers`;
+  const residentLine = `${residents} residents incl. · ${formatRateCardUsd(card.perExtraDoorMonthlyCents ?? 0)}/resident after`;
+  return `${residentLine} · ${workspaces} workspace${workspaces === 1 ? "" : "s"} · ${workNumber} · ${credit} credit/mo`;
 }
 
 /** The tier's own floor, read from the rate card — never a hand-typed
- * dollar figure that can drift from what `priceForDoors` actually charges. */
+ * dollar figure that can drift from what `priceForResidents` actually charges. */
 function tierFloorPriceLine(tier: AdjustablePaidTier): string {
   const card = RATE_CARD[tier];
   return `${formatRateCardUsd(card.floorMonthlyCents)}/mo · ${formatRateCardUsd(card.floorAnnualCents)}/yr`;
 }
 
 /** What THIS account would actually pay on `tier` at `billing`, priced
- * against its real live door count — so switching plans is never a guess.
- * `null` while the door count is still loading. */
+ * against its real live resident count — so switching plans is never a guess.
+ * `null` while the resident count is still loading. */
 function tierAccountPriceLine(
   tier: AdjustablePaidTier,
   billing: BillingInterval,
-  doorCount: number | null,
+  residentCount: number | null,
 ): string | null {
-  if (doorCount == null) return null;
-  const cents = priceForDoors(tier, doorCount, billing);
+  if (residentCount == null) return null;
+  const cents = priceForResidents(tier, residentCount, billing);
   const suffix = billing === "annual" ? "/yr" : "/mo";
-  return `${formatRateCardUsd(cents)}${suffix} for your ${doorCount} door${doorCount === 1 ? "" : "s"}`;
+  return `${formatRateCardUsd(cents)}${suffix} for your ${residentCount} resident${residentCount === 1 ? "" : "s"}`;
 }
 
 /**
@@ -104,7 +98,7 @@ export function PlanAdjustSheet({
   renewalLabel,
   busy,
   onConfirm,
-  doorCount = null,
+  residentCount = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -113,10 +107,9 @@ export function PlanAdjustSheet({
   renewalLabel: string | null;
   busy: boolean;
   onConfirm: (target: AdjustablePaidTier, billing: BillingInterval) => void;
-  /** This account's live door count (`GET /api/manager/door-count`), so each
-   * card can price what switching to it would actually cost. `null` while
-   * still loading. */
-  doorCount?: number | null;
+  /** This account's live resident count, so each card can price what switching
+   * to it would actually cost. `null` while still loading. */
+  residentCount?: number | null;
 }) {
   const [billing, setBilling] = useState<BillingInterval>(currentBilling);
   const [selected, setSelected] = useState<AdjustablePaidTier | null>(
@@ -184,12 +177,12 @@ export function PlanAdjustSheet({
                   ) : null}
                 </div>
                 <p className="text-sm tabular-nums text-muted">{tierFloorPriceLine(tier)}</p>
-                {tierAccountPriceLine(tier, billing, doorCount) ? (
+                {tierAccountPriceLine(tier, billing, residentCount) ? (
                   <p
                     className="text-sm font-semibold tabular-nums text-foreground"
                     data-attr={`plan-adjust-account-price-${tier}`}
                   >
-                    {tierAccountPriceLine(tier, billing, doorCount)}
+                    {tierAccountPriceLine(tier, billing, residentCount)}
                   </p>
                 ) : null}
                 <p className="text-xs text-muted">{entitlementLine(tier)}</p>

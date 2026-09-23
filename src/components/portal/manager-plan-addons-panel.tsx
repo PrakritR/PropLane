@@ -9,14 +9,15 @@ import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
-import { formatAddonPrice, type PlanAddonId } from "@/lib/plan-addons";
+import { formatAddonPrice, PLAN_ADDON_STOREFRONT_IDS, type PlanAddonId } from "@/lib/plan-addons";
 
 const ENDPOINT = "/api/manager/plan-addons";
 
 /** The fact that follows the per-unit price on each add-on's row label (PLAN-0920 UI mock). */
 const ADDON_ROW_FACT: Partial<Record<PlanAddonId, string>> = {
-  extra_work_number: "up to 2 per workspace",
-  extra_workspace: "includes a work number",
+  extra_comms_credit: "$10 credit / pack",
+  extra_workspace: "includes a work number + work email",
+  extra_resident: "beyond plan included",
 };
 
 type AddonRow = {
@@ -47,21 +48,18 @@ function formatSignedAddonPrice(cents: number): string {
 
 /**
  * Settings → Billing & plan → Add-ons. Steppers only ever change LOCAL draft
- * state; nothing is sent to the server until Buy (PLAN-0920). A banner
- * appears the moment any row differs from what the account already holds,
- * with the combined monthly delta, and one Buy commits every changed row as
- * a single prorated batch — quantities are re-read from that response, never
- * assumed from the click. Free sees the prices and an upgrade link instead
- * of steppers. Add-ons are always purchasable: a row is never disabled for a
- * missing Stripe price (the server creates one from the catalog before the
- * first charge) — only at a real plan/workspace cap.
+ * state; nothing is sent until "Update monthly costs". A banner appears when
+ * any storefront row differs from what the account already holds. Committing
+ * applies the new quantities on the next monthly cycle — add-ons are always
+ * billed monthly, never prorated mid-cycle. Free sees the prices and an
+ * upgrade link instead of steppers.
  */
 export function ManagerPlanAddonsPanel() {
   const { isNative } = useIsNativeApp();
   const [data, setData] = useState<AddonsPayload | null>(null);
   const [draft, setDraft] = useState<Partial<Record<PlanAddonId, number>>>({});
   const [error, setError] = useState<string | null>(null);
-  const [buying, setBuying] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const mounted = useRef(true);
 
@@ -95,14 +93,17 @@ export function ManagerPlanAddonsPanel() {
     });
   };
 
-  // Rows whose local draft differs from the account's committed quantity —
-  // exactly what Buy will send, and what drives the banner and its delta.
+  const storefrontAddons = useMemo(
+    () => (data?.addons ?? []).filter((row) => (PLAN_ADDON_STOREFRONT_IDS as readonly string[]).includes(row.id)),
+    [data],
+  );
+
+  // Only storefront rows — retired seat / work-number quantities never enter the commit.
   const changes = useMemo(() => {
-    if (!data) return [];
-    return data.addons
+    return storefrontAddons
       .filter((row) => (draft[row.id] ?? row.quantity) !== row.quantity)
       .map((row) => ({ addonId: row.id, quantity: draft[row.id] ?? row.quantity }));
-  }, [data, draft]);
+  }, [storefrontAddons, draft]);
 
   const deltaCents = useMemo(() => {
     if (!data) return 0;
@@ -112,9 +113,9 @@ export function ManagerPlanAddonsPanel() {
     }, 0);
   }, [data, changes]);
 
-  const buy = async () => {
+  const save = async () => {
     if (!changes.length) return;
-    setBuying(true);
+    setSaving(true);
     setNotice(null);
     try {
       const response = await fetch(ENDPOINT, {
@@ -126,17 +127,18 @@ export function ManagerPlanAddonsPanel() {
       const body = (await response.json()) as AddonsPayload & { error?: string; stripeSynced?: boolean };
       if (!response.ok) throw new Error(body.error || "We couldn’t update your add-ons. Nothing changed.");
       if (!mounted.current) return;
-      // Quantities always come back from the server response — never assumed
-      // from what was clicked — so an all-or-nothing Stripe failure or a
-      // partial catch-up on reload never drifts from what was actually billed.
       setData(body);
       setDraft(quantitiesOf(body.addons));
       setError(null);
-      setNotice(`Add-ons updated${body.stripeSynced ? ", prorated from today" : ""}.`);
+      setNotice(
+        body.stripeSynced
+          ? "Monthly add-on costs update on your next billing cycle."
+          : "Add-ons updated.",
+      );
     } catch (e) {
       if (mounted.current) setNotice(e instanceof Error ? e.message : "We couldn’t update your add-ons. Nothing changed.");
     } finally {
-      if (mounted.current) setBuying(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
@@ -174,14 +176,16 @@ export function ManagerPlanAddonsPanel() {
               <Link href={MANAGER_PLAN_PORTAL_URL} className="font-semibold text-primary hover:underline">
                 Upgrade your plan
               </Link>{" "}
-              to add listings, a work number, workspaces or seats.
+              to add communication credits, workspaces, or residents.
             </p>
           ) : null}
           <PortalSettingsGroup>
-            {data.addons.map((row) => {
+            {storefrontAddons.map((row) => {
               const quantity = draft[row.id] ?? row.quantity;
               const atCap = row.maxQuantity !== null && quantity >= row.maxQuantity;
               const fact = ADDON_ROW_FACT[row.id];
+              const capNoun =
+                row.maxQuantity === 1 ? row.unit : `${row.unit}${row.unit.endsWith("s") ? "" : "s"}`;
               return (
                 <PortalSettingsRow
                   key={row.id}
@@ -199,7 +203,7 @@ export function ManagerPlanAddonsPanel() {
                       <button
                         type="button"
                         aria-label={`Remove one ${row.unit}`}
-                        disabled={buying || quantity === 0}
+                        disabled={saving || quantity === 0}
                         onClick={() => step(row, -1)}
                         className="grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40"
                         data-attr={`plan-addon-${row.id}-remove`}
@@ -212,8 +216,8 @@ export function ManagerPlanAddonsPanel() {
                       <button
                         type="button"
                         aria-label={`Add one ${row.unit}`}
-                        disabled={buying || atCap}
-                        title={atCap ? `Your plan can hold up to ${row.maxQuantity} of these` : undefined}
+                        disabled={saving || atCap}
+                        title={atCap ? `Your plan can hold up to ${row.maxQuantity} ${capNoun}` : undefined}
                         onClick={() => step(row, 1)}
                         className="grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40"
                         data-attr={`plan-addon-${row.id}-add`}
@@ -230,14 +234,14 @@ export function ManagerPlanAddonsPanel() {
           </PortalSettingsGroup>
           {canEdit && changes.length > 0 ? (
             <div
-              className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 px-4 py-2.5"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 px-4 py-2.5"
               data-attr="plan-addons-commit-banner"
             >
               <span className="text-sm text-muted" data-attr="plan-addons-delta">
-                {formatSignedAddonPrice(deltaCents)}/mo from today, prorated
+                {formatSignedAddonPrice(deltaCents)}/mo on your next billing cycle
               </span>
-              <Button onClick={buy} loading={buying} data-attr="plan-addons-buy">
-                Buy
+              <Button onClick={save} loading={saving} data-attr="plan-addons-update">
+                Update monthly costs
               </Button>
             </div>
           ) : null}

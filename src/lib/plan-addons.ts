@@ -24,7 +24,7 @@
  * per-door billing PRP for what those existing rows still cost.
  */
 
-export type PlanAddonId = "extra_work_number" | "extra_workspace" | "extra_seat";
+export type PlanAddonId = "extra_work_number" | "extra_workspace" | "extra_seat" | "extra_resident" | "extra_comms_credit";
 
 export type PaidPlanTier = "pro" | "business";
 
@@ -41,35 +41,58 @@ export type PlanAddonDefinition = {
   why: string;
 };
 
+/** Add-ons the Billing panel offers to buy. Retired ids stay in PLAN_ADDONS for grandfathered rows. */
+export const PLAN_ADDON_STOREFRONT_IDS: readonly PlanAddonId[] = [
+  "extra_comms_credit",
+  "extra_workspace",
+  "extra_resident",
+] as const;
+
 export const PLAN_ADDONS: readonly PlanAddonDefinition[] = [
   {
-    id: "extra_work_number",
-    label: "Extra work number",
-    unit: "number",
-    description: "Another texting and calling line beyond the one your plan includes.",
-    monthlyCents: { pro: 500, business: 500 },
+    id: "extra_comms_credit",
+    label: "Communication credits",
+    unit: "credit pack",
+    description: "Another $10 of texting, calling, and AI credit each month.",
+    monthlyCents: { pro: 1_000, business: 1_000 },
     maxQuantity: { pro: null, business: null },
-    why: "Carrier cost ≈ $1.15 plus A2P registration; $5 leaves margin.",
+    why: "Top up the included monthly communication allowance.",
   },
   {
     id: "extra_workspace",
     label: "Extra workspace",
     unit: "workspace",
-    description: "A second team of houses and people, with its own work number on Business.",
+    description: "Another team of houses and people, with its own work number and work email.",
     monthlyCents: { pro: 1500, business: 3000 },
-    // Pro: 1 included + 2 extra = the 3 the product supports. Business: 3
-    // included; extras up to the database ceiling.
-    maxQuantity: { pro: 2, business: null },
+    maxQuantity: { pro: null, business: null },
     why: "A workspace is a second team and a second number.",
+  },
+  {
+    id: "extra_resident",
+    label: "Extra residents",
+    unit: "resident",
+    description: "One more resident slot beyond what your plan includes.",
+    monthlyCents: { pro: 300, business: 200 },
+    maxQuantity: { pro: null, business: null },
+    why: "Matches the per-resident overage rate on the rate card.",
+  },
+  {
+    id: "extra_work_number",
+    label: "Extra work number",
+    unit: "number",
+    description: "Retired — each workspace includes exactly one work number.",
+    monthlyCents: { pro: 500, business: 500 },
+    maxQuantity: { pro: 0, business: 0 },
+    why: "Hard product limit: 1 work number per workspace.",
   },
   {
     id: "extra_seat",
     label: "Extra co-manager seat",
     unit: "seat",
-    description: "One more manager on your houses beyond the seats your plan includes.",
+    description: "Retired — team seats are no longer plan-capped.",
     monthlyCents: { pro: 500, business: 500 },
-    maxQuantity: { pro: null, business: null },
-    why: "Seat pricing, Slack-style.",
+    maxQuantity: { pro: 0, business: 0 },
+    why: "Seats are uncapped; invite anyone with workspace permissions.",
   },
 ];
 
@@ -86,8 +109,10 @@ export function planAddon(id: PlanAddonId): PlanAddonDefinition {
 export type PlanAddonQuantities = Record<PlanAddonId, number>;
 
 export const EMPTY_PLAN_ADDON_QUANTITIES: PlanAddonQuantities = {
-  extra_work_number: 0,
+  extra_comms_credit: 0,
   extra_workspace: 0,
+  extra_resident: 0,
+  extra_work_number: 0,
   extra_seat: 0,
 };
 
@@ -120,18 +145,19 @@ export function includedWorkNumbers(tier: string | null | undefined, workspaceCo
 }
 
 /**
- * Every workspace holds at most 2 work numbers (1 included + 1 extra, or on
- * Pro's single workspace 1 included + 1 extra too). Pure of any table read so
- * both the panel's displayed cap and the route's write-time validation share
- * one answer.
+ * Every workspace holds at most 1 work number (hard product limit). Pure of
+ * any table read so both the panel's displayed cap and the route's write-time
+ * validation share one answer.
  */
 export function maxWorkNumbersForWorkspaces(totalWorkspaces: number): number {
-  return Math.max(0, totalWorkspaces) * 2;
+  return Math.max(0, totalWorkspaces);
 }
 
-/** The `extra_work_number` quantity a plan may hold once `totalWorkspaces` (included + `extra_workspace`) is known. */
+/** No extra work numbers for sale — 1 per workspace is the hard ceiling. */
 export function maxExtraWorkNumberQuantity(tier: string | null | undefined, totalWorkspaces: number): number {
-  return Math.max(0, maxWorkNumbersForWorkspaces(totalWorkspaces) - includedWorkNumbers(tier, totalWorkspaces));
+  void tier;
+  void totalWorkspaces;
+  return 0;
 }
 
 /**

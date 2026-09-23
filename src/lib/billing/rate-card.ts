@@ -115,6 +115,38 @@ export function priceForDoors(tier: RateCardTier, doors: number, billing: RateCa
 }
 
 /**
+ * Residents included in the floor before per-resident overage applies.
+ * Kept separate from `includedDoors` (Free listing door hard-cap).
+ */
+export function includedResidentsForTier(tier: RateCardTier): number {
+  if (tier === "free") return 20;
+  if (tier === "pro") return 100;
+  return 500;
+}
+
+/**
+ * Same arithmetic as `priceForDoors`, metered on residents: floor plus
+ * overage at `perExtraDoorMonthlyCents` (now the per-resident rate).
+ */
+export function priceForResidents(tier: RateCardTier, residents: number, billing: RateCardBilling): number {
+  if (!Number.isFinite(residents) || residents < 0) {
+    throw new Error(`priceForResidents: residents must be a non-negative number, got ${residents}`);
+  }
+  const card = RATE_CARD[tier];
+  const floor = floorCentsFor(tier, billing);
+  const included = includedResidentsForTier(tier);
+  const extra = Math.max(0, Math.floor(residents) - included);
+  if (extra === 0) return floor;
+  if (card.perExtraDoorMonthlyCents === null) {
+    throw new Error(
+      `priceForResidents: ${tier} has no overage rate and cannot price ${residents} residents above its ${included}-resident cap`,
+    );
+  }
+  const periodMultiplier = billing === "annual" ? 12 : 1;
+  return floor + extra * card.perExtraDoorMonthlyCents * periodMultiplier;
+}
+
+/**
  * Whole-dollar USD for a plan-card headline, e.g. `4_900` -> `"$49"`,
  * `249_000` -> `"$2,490"`. Every rate-card cents figure is a whole dollar
  * amount, so this never needs a decimal.

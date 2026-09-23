@@ -1,3 +1,4 @@
+import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
 import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from "@/lib/security/application-record-normalization.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
@@ -1401,6 +1402,23 @@ export async function POST(req: Request) {
       );
     }
     const previousRow = (priorLoad.record?.row_data ?? null) as DemoApplicantRow | null;
+    const nextIsResidentSlot =
+      row.bucket === "approved" || row.manuallyAdded === true;
+    const priorWasResidentSlot =
+      previousRow?.bucket === "approved" || previousRow?.manuallyAdded === true;
+    if (nextIsResidentSlot && !priorWasResidentSlot) {
+      const quota = await assertManagerResidentQuota(db, {
+        ownerUserId: row.managerUserId || authorizedWriteRecord?.manager_user_id || null,
+        occupiesNewSlot: true,
+        excludeRecordId: String(authorizedWriteRecord?.id ?? row.id),
+      });
+      if (!quota.ok) {
+        return NextResponse.json(
+          { error: quota.error, code: quota.code ?? MANAGER_RESIDENT_LIMIT_ERROR_CODE },
+          { status: quota.status },
+        );
+      }
+    }
     row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {

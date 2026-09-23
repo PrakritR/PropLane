@@ -106,25 +106,19 @@ describe("assignNumberToWorkspace — sharing a number into a second workspace",
     expect(result).toMatchObject({ ok: false, code: "not_authorized" });
   });
 
-  it("caps a workspace at 2 numbers", async () => {
+  it("caps a workspace at 1 number", async () => {
     const db = seed({
       manager_sms_numbers: [
         { id: "n-1", manager_user_id: prakrit, workspace_id: PRAKRIT_WS, phone_number: "+12065550001", provision_state: "active" },
         { id: "n-2", manager_user_id: prakrit, workspace_id: PRAKRIT_WS2, phone_number: "+12065550002", provision_state: "active" },
-        { id: "n-3", manager_user_id: prakrit, workspace_id: null, phone_number: "+12065550003", provision_state: "active" },
       ],
       workspace_work_numbers: [
         { workspace_id: PRAKRIT_WS, number_id: "n-1", is_primary: true, created_at: "2026-02-02" },
         { workspace_id: PRAKRIT_WS2, number_id: "n-2", is_primary: true, created_at: "2026-02-02" },
-        // PRAKRIT_WS already has its own number PLUS n-2 shared in — at the cap.
-        { workspace_id: PRAKRIT_WS, number_id: "n-2", is_primary: false, created_at: "2026-02-03" },
-        // n-3 is held by PRAKRIT_WS2 too, so Prakrit legitimately holds it and
-        // can attempt to share it further — into the already-full PRAKRIT_WS.
-        { workspace_id: PRAKRIT_WS2, number_id: "n-3", is_primary: false, created_at: "2026-02-04" },
       ],
     });
     expect((await listWorkspaceNumbers(db as never, PRAKRIT_WS)).length).toBe(WORKSPACE_WORK_NUMBER_LIMIT);
-    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-3", workspaceId: PRAKRIT_WS });
+    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-2", workspaceId: PRAKRIT_WS });
     expect(result).toMatchObject({ ok: false, code: "cap_exceeded" });
   });
 

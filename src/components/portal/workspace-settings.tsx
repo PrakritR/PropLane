@@ -31,7 +31,6 @@ import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import {
   WORKSPACE_PLAN_ENTITLEMENTS,
-  WORKSPACE_PROPERTY_LIMIT,
   type PortalWorkspace,
   type WorkspacePlan,
   type WorkspacePlanTier,
@@ -48,11 +47,13 @@ function Meter({
   used,
   limit,
   dataAttr,
+  footnote,
 }: {
   label: string;
   used: number;
   limit: number | null;
   dataAttr?: string;
+  footnote?: string;
 }) {
   const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const full = limit !== null && used >= limit;
@@ -69,7 +70,13 @@ function Meter({
         <div className={cn("h-full rounded-full", full ? "bg-[var(--status-pending-fg)]" : "bg-primary")} style={{ width: `${pct}%` }} />
       </div>
       <p className="mt-1 text-xs text-muted">
-        {limit === null ? "No numeric cap" : full ? "Limit reached" : `${limit - used} remaining`}
+        {footnote
+          ? footnote
+          : limit === null
+            ? "No numeric cap"
+            : full
+              ? "Limit reached"
+              : `${limit - used} remaining`}
       </p>
     </div>
   );
@@ -78,6 +85,8 @@ function Meter({
 function PlanCard({ plan }: { plan: WorkspacePlan }) {
   const [compare, setCompare] = useState(false);
   const tierLabel = plan.unknown ? "Plan unavailable" : plan.tier ? WORKSPACE_PLAN_ENTITLEMENTS[plan.tier].label : "Legacy";
+  const included = plan.tier ? WORKSPACE_PLAN_ENTITLEMENTS[plan.tier].workspaces : null;
+  const extras = included != null ? Math.max(0, plan.usage.workspaces - included) : 0;
   return (
     <section className="rounded-2xl border border-border bg-card shadow-sm" data-attr="workspace-plan-card">
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
@@ -99,10 +108,26 @@ function PlanCard({ plan }: { plan: WorkspacePlan }) {
       {plan.unknown ? (
         <p className="px-4 py-3 text-sm text-muted">We could not verify your plan just now. Limits below are unknown until it loads; nothing was downgraded.</p>
       ) : (
-        <div className="grid gap-4 px-4 py-4 sm:grid-cols-3">
-          <Meter label="Workspaces" used={plan.usage.workspaces} limit={plan.workspaceLimit} dataAttr="workspace-meter-workspaces" />
-          <Meter label="Properties" used={plan.usage.properties} limit={plan.propertyLimit} dataAttr="workspace-meter-properties" />
-          <Meter label="Team members" used={plan.usage.team} limit={plan.teamLimit} dataAttr="workspace-meter-team" />
+        <div className="grid gap-4 px-4 py-4 sm:grid-cols-2">
+          <Meter
+            label="Workspaces"
+            used={plan.usage.workspaces}
+            limit={plan.workspaceLimit}
+            dataAttr="workspace-meter-workspaces"
+            footnote={
+              included != null && extras > 0
+                ? `+${extras} extra beyond ${included} included`
+                : included != null
+                  ? `${included} included with plan`
+                  : undefined
+            }
+          />
+          <Meter
+            label="Residents"
+            used={plan.usage.residents}
+            limit={plan.residentLimit}
+            dataAttr="workspace-meter-residents"
+          />
         </div>
       )}
       <button
@@ -134,11 +159,11 @@ function PlanCard({ plan }: { plan: WorkspacePlan }) {
             </thead>
             <tbody className="divide-y divide-border">
               {[
-                ["Workspaces", (t: WorkspacePlanTier) => String(WORKSPACE_PLAN_ENTITLEMENTS[t].workspaces)],
-                ["Properties (listings)", (t: WorkspacePlanTier) => String(WORKSPACE_PLAN_ENTITLEMENTS[t].properties)],
-                ["Records per workspace, drafts included", (t: WorkspacePlanTier) => String(WORKSPACE_PLAN_ENTITLEMENTS[t].recordsPerWorkspace)],
-                ["Team members (co-managers)", (t: WorkspacePlanTier) => (WORKSPACE_PLAN_ENTITLEMENTS[t].team ? String(WORKSPACE_PLAN_ENTITLEMENTS[t].team) : "—")],
-                ["Vendors", () => "Unlimited"],
+                ["Workspaces included", (t: WorkspacePlanTier) => String(WORKSPACE_PLAN_ENTITLEMENTS[t].workspaces)],
+                ["Residents", (t: WorkspacePlanTier) => String(WORKSPACE_PLAN_ENTITLEMENTS[t].residents)],
+                ["Extra workspace", (t: WorkspacePlanTier) => (t === "free" ? "—" : t === "pro" ? "$15/mo" : "$30/mo")],
+                ["Work number / work email", () => "1 per workspace"],
+                ["Properties & team", () => "No plan cap"],
               ].map(([label, cell]) => (
                 <tr key={label as string}>
                   <td className="px-4 py-2 text-foreground">{label as string}</td>
@@ -176,7 +201,6 @@ function WorkspaceCard({
   teamSection: ReactNode;
 }) {
   const records = workspace.propertyIds.length;
-  const pct = Math.min(100, Math.round((records / WORKSPACE_PROPERTY_LIMIT) * 100));
   return (
     <section id={`workspace-${workspace.id}`} className="scroll-mt-4 overflow-hidden rounded-2xl border border-border bg-card shadow-sm" data-attr="workspace-card">
       <div className="flex items-center gap-3 px-4 py-3">
@@ -205,22 +229,6 @@ function WorkspaceCard({
             />
           </div>
         ) : null}
-      </div>
-
-      <div className="border-t border-border px-4 py-3">
-        <div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-[13px] font-medium text-foreground">Property records</span>
-            <span className="text-sm font-semibold tabular-nums">
-              {records}
-              <span className="text-muted"> / {WORKSPACE_PROPERTY_LIMIT}</span>
-            </span>
-          </div>
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--secondary)]" aria-hidden>
-            <div className={cn("h-full rounded-full", records >= WORKSPACE_PROPERTY_LIMIT ? "bg-[var(--status-pending-fg)]" : "bg-primary")} style={{ width: `${pct}%` }} />
-          </div>
-          <p className="mt-1 text-xs text-muted">Drafts count toward this workspace&apos;s records.</p>
-        </div>
       </div>
 
       <div className="divide-y divide-border border-t border-border">
@@ -472,7 +480,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
                     .filter((workspace) => workspace.id !== deleting.workspace.id)
                     .map((workspace) => (
                       <option key={workspace.id} value={workspace.id}>
-                        {workspace.name} · {workspace.propertyIds.length} / {WORKSPACE_PROPERTY_LIMIT}
+                        {workspace.name} · {workspace.propertyIds.length} {workspace.propertyIds.length === 1 ? "house" : "houses"}
                       </option>
                     ))}
                 </Select>

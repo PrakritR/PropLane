@@ -35,23 +35,19 @@ export const WORKSPACE_COOKIE = "proplane-workspace";
 export type WorkspacePlanTier = "free" | "pro" | "business";
 
 /**
- * What each plan buys, in the nouns the Workspaces pane shows. Property and
- * team caps are the same numbers the listing quota and the co-manager link
- * cap already enforce (src/lib/manager-access.ts); workspaces per plan is
- * enforced by `/api/workspaces` on create under the database ceiling.
+ * What each plan buys, in the nouns the Workspaces pane shows. Plans limit
+ * workspaces (with paid extras) and residents — not properties or team seats.
+ * `recordsPerWorkspace` is informational only; the DB record trigger is lifted.
  */
 export const WORKSPACE_PLAN_ENTITLEMENTS: Record<
   WorkspacePlanTier,
-  { label: string; workspaces: number; properties: number; recordsPerWorkspace: number; team: number; vendors: number | null }
+  { label: string; workspaces: number; properties: number | null; recordsPerWorkspace: number | null; team: number | null; residents: number; vendors: number | null }
 > = {
-  free: { label: "Free", workspaces: 1, properties: 1, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 0, vendors: null },
-  // Round 3 plan model: Pro includes ONE workspace; a second and third are
-  // the "extra workspace" add-on. Business includes two (PLAN-0920 add-ons
-  // decision); an existing Business account already holding a third
-  // workspace keeps it — `loadWorkspacePlan` grandfathers `workspaceLimit` up
-  // to the account's current workspace count, never below it.
-  pro: { label: "Pro", workspaces: 1, properties: 2, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 2, vendors: null },
-  business: { label: "Business", workspaces: 2, properties: 20, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 20, vendors: null },
+  free: { label: "Free", workspaces: 1, properties: null, recordsPerWorkspace: null, team: null, residents: 20, vendors: null },
+  // Pro includes ONE workspace; extras are the "extra workspace" add-on.
+  // Business includes two; grandfather via loadWorkspacePlan.
+  pro: { label: "Pro", workspaces: 1, properties: null, recordsPerWorkspace: null, team: null, residents: 100, vendors: null },
+  business: { label: "Business", workspaces: 2, properties: null, recordsPerWorkspace: null, team: null, residents: 500, vendors: null },
 };
 
 export type WorkspaceMember = {
@@ -77,11 +73,14 @@ export type WorkspacePlan = {
   /** True when the plan could not be resolved; caps are then shown as unknown, never as Free. */
   unknown: boolean;
   workspaceLimit: number;
+  /** Always null — properties are not plan-capped (doors may still be for Free). */
   propertyLimit: number | null;
-  recordsPerWorkspace: number;
+  recordsPerWorkspace: number | null;
+  /** Always null — team seats are not plan-capped. */
   teamLimit: number | null;
+  residentLimit: number | null;
   /** Usage across the account. */
-  usage: { workspaces: number; properties: number; team: number; vendors: number };
+  usage: { workspaces: number; properties: number; team: number; vendors: number; residents: number };
 };
 export type PortalWorkspace = {
   id: string;

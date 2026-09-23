@@ -493,22 +493,21 @@ export function PortalProfileClient({
     return list;
   }, [demo, idLabel, variant]);
 
-  // Legacy upgrade CTAs across the product still link to
-  // `/portal/profile#portal-plan`, and Stripe returns to
-  // `/portal/profile?checkout=…&session_id=…`. Both need the billing pane
-  // mounted so ManagerPlan's own hash-scroll and checkout-confirm effects run.
-  // ManagerPlan clears those params itself (`replaceState` to the bare
-  // pathname), so this override is sticky until the manager navigates.
+  // Legacy upgrade CTAs still link to `/portal/profile#portal-plan`; the
+  // canonical deep-link is `?tab=billing` (+ optional hash). Stripe returns to
+  // `/portal/profile?checkout=…`. Re-run whenever search/hash changes so
+  // Workspaces → View plans opens Billing even when Profile is already mounted.
   const [billingOverride, setBillingOverride] = useState(false);
+  const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
-    if (window.location.hash === MANAGER_PLAN_PORTAL_HASH || q.has("checkout")) {
-      setBillingOverride(true);
-    }
-  }, []);
-
-  const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
+    const wantsBilling =
+      rawTab === "billing" ||
+      window.location.hash === MANAGER_PLAN_PORTAL_HASH ||
+      q.has("checkout");
+    if (wantsBilling) setBillingOverride(true);
+  }, [rawTab, searchParams]);
   useEffect(() => {
     if (rawTab === "properties") router.replace("/portal/profile?tab=applications");
     if (rawTab === "vendors") router.replace("/portal/vendors");

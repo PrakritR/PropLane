@@ -77,7 +77,7 @@ describe("PATCH /api/manager/plan-addons", () => {
 
   it("applies a multi-row batch as ONE Stripe subscription update and one database write", async () => {
     vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_WORKSPACE_BUSINESS", "price_workspace_biz");
-    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_SEAT_BUSINESS", "price_seat_biz");
+    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_RESIDENT_BUSINESS", "price_resident_biz");
     const db = makeDb();
     mocks.createSupabaseServiceRoleClient.mockReturnValue(db);
     mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business" });
@@ -86,7 +86,7 @@ describe("PATCH /api/manager/plan-addons", () => {
       items: {
         data: [
           { id: "si_workspace", price: "price_workspace_biz" },
-          { id: "si_seat", price: "price_seat_biz" },
+          { id: "si_resident", price: "price_resident_biz" },
         ],
       },
     });
@@ -98,7 +98,7 @@ describe("PATCH /api/manager/plan-addons", () => {
       request({
         changes: [
           { addonId: "extra_workspace", quantity: 2 },
-          { addonId: "extra_seat", quantity: 1 },
+          { addonId: "extra_resident", quantity: 1 },
         ],
       }),
     );
@@ -111,39 +111,37 @@ describe("PATCH /api/manager/plan-addons", () => {
       expect.objectContaining({
         items: [
           { price: "price_workspace_biz", quantity: 2 },
-          { price: "price_seat_biz", quantity: 1 },
+          { price: "price_resident_biz", quantity: 1 },
         ],
-        proration_behavior: "create_prorations",
+        proration_behavior: "none",
       }),
     );
     expect(db.upsert).toHaveBeenCalledTimes(1);
     expect((db.upsertCalls[0] as unknown[]).length).toBe(2);
     expect(body.stripeSynced).toBe(true);
     expect(body.addons.find((a) => a.id === "extra_workspace")?.quantity).toBe(2);
-    expect(body.addons.find((a) => a.id === "extra_seat")?.quantity).toBe(1);
+    expect(body.addons.find((a) => a.id === "extra_resident")?.quantity).toBe(1);
   });
 
-  it("refuses an extra_work_number quantity past 2-per-workspace before touching Stripe or the database", async () => {
+  it("refuses extra_work_number purchases — work numbers are not sold as add-ons", async () => {
     const db = makeDb();
     mocks.createSupabaseServiceRoleClient.mockReturnValue(db);
-    // Business default: 2 included workspaces, no extra_workspace held → cap is
-    // maxWorkNumbersForWorkspaces(2) - includedWorkNumbers("business", 2) = 4 - 2 = 2.
     mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business" });
     mocks.getManagerPurchaseSku.mockResolvedValue({ tier: "business", billing: "monthly", stripeSubscriptionId: "sub_test" });
     const update = vi.fn();
     mocks.getStripe.mockReturnValue({ subscriptions: { update, retrieve: vi.fn() } });
 
-    const response = await PATCH(request({ changes: [{ addonId: "extra_work_number", quantity: 3 }] }));
+    const response = await PATCH(request({ changes: [{ addonId: "extra_work_number", quantity: 1 }] }));
     const body = (await response.json()) as { error: string };
 
     expect(response.status).toBe(400);
-    expect(body.error).toMatch(/2 work numbers/i);
+    expect(body.error).toMatch(/not sold/i);
     expect(update).not.toHaveBeenCalled();
     expect(db.upsert).not.toHaveBeenCalled();
   });
 
   it("writes nothing when the Stripe subscription update fails", async () => {
-    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_SEAT_BUSINESS", "price_seat_biz");
+    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_RESIDENT_BUSINESS", "price_resident_biz");
     const db = makeDb();
     mocks.createSupabaseServiceRoleClient.mockReturnValue(db);
     mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business" });
@@ -153,7 +151,7 @@ describe("PATCH /api/manager/plan-addons", () => {
       subscriptions: { update, retrieve: vi.fn().mockResolvedValue({ status: "active" }) },
     });
 
-    const response = await PATCH(request({ changes: [{ addonId: "extra_seat", quantity: 3 }] }));
+    const response = await PATCH(request({ changes: [{ addonId: "extra_resident", quantity: 3 }] }));
     const body = (await response.json()) as { error: string; code: string };
 
     expect(response.status).toBe(402);
@@ -163,17 +161,17 @@ describe("PATCH /api/manager/plan-addons", () => {
   });
 
   it("still accepts the older single-item body over POST", async () => {
-    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_SEAT_PRO", "price_seat_pro");
+    vi.stubEnv("STRIPE_PRICE_ADDON_EXTRA_RESIDENT_PRO", "price_resident_pro");
     const db = makeDb();
     mocks.createSupabaseServiceRoleClient.mockReturnValue(db);
     mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "pro" });
     mocks.getManagerPurchaseSku.mockResolvedValue({ tier: "pro", billing: "monthly", stripeSubscriptionId: "sub_test" });
-    const update = vi.fn().mockResolvedValue({ items: { data: [{ id: "si_seat", price: "price_seat_pro" }] } });
+    const update = vi.fn().mockResolvedValue({ items: { data: [{ id: "si_resident", price: "price_resident_pro" }] } });
     mocks.getStripe.mockReturnValue({
       subscriptions: { update, retrieve: vi.fn().mockResolvedValue({ status: "active" }) },
     });
 
-    const response = await POST(request({ addonId: "extra_seat", quantity: 1 }));
+    const response = await POST(request({ addonId: "extra_resident", quantity: 1 }));
 
     expect(response.status).toBe(200);
     expect(update).toHaveBeenCalledTimes(1);
@@ -187,7 +185,7 @@ describe("PATCH /api/manager/plan-addons", () => {
     mocks.getManagerPurchaseSku.mockResolvedValue({ tier: "pro", billing: "apple", stripeSubscriptionId: null });
     mocks.getStripe.mockReturnValue({ subscriptions: { update: vi.fn(), retrieve: vi.fn() } });
 
-    const response = await PATCH(request({ changes: [{ addonId: "extra_seat", quantity: 1 }] }));
+    const response = await PATCH(request({ changes: [{ addonId: "extra_resident", quantity: 1 }] }));
     const body = (await response.json()) as { stripeSynced: boolean };
 
     expect(response.status).toBe(200);

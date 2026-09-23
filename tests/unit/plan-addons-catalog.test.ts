@@ -31,22 +31,22 @@ describe("plan entitlements (PLAN-0920)", () => {
   });
 
   describe("work number caps", () => {
-    it("allows 2 per workspace", () => {
-      expect(maxWorkNumbersForWorkspaces(2)).toBe(4);
-      expect(maxWorkNumbersForWorkspaces(4)).toBe(8);
+    it("allows 1 per workspace (hard product limit)", () => {
+      expect(maxWorkNumbersForWorkspaces(2)).toBe(2);
+      expect(maxWorkNumbersForWorkspaces(4)).toBe(4);
     });
 
-    it("derives the extra_work_number ceiling from included numbers", () => {
-      // Business, 2 workspaces: included 2, ceiling 4 → 2 purchasable extra.
-      expect(maxExtraWorkNumberQuantity("business", 2)).toBe(2);
-      // Pro, 1 workspace: included 1, ceiling 2 → 1 purchasable extra.
-      expect(maxExtraWorkNumberQuantity("pro", 1)).toBe(1);
+    it("sells no extra work numbers — 1 per workspace is the ceiling", () => {
+      expect(maxExtraWorkNumberQuantity("business", 2)).toBe(0);
+      expect(maxExtraWorkNumberQuantity("pro", 1)).toBe(0);
     });
   });
 
   describe("maxExtraWorkspaceQuantity", () => {
-    it("caps Pro at the product limit (2 extra, 3 total)", () => {
-      expect(maxExtraWorkspaceQuantity("pro", WORKSPACE_PLAN_ENTITLEMENTS.pro.workspaces, WORKSPACE_LIMIT)).toBe(2);
+    it("caps Pro at the database ceiling minus included workspaces", () => {
+      expect(maxExtraWorkspaceQuantity("pro", WORKSPACE_PLAN_ENTITLEMENTS.pro.workspaces, WORKSPACE_LIMIT)).toBe(
+        WORKSPACE_LIMIT - WORKSPACE_PLAN_ENTITLEMENTS.pro.workspaces,
+      );
     });
 
     it("caps Business at the database ceiling minus included workspaces", () => {

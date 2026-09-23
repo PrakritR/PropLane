@@ -32,10 +32,11 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Link2, Share2 } from "lucide-react";
+import { Copy, Link2, Share2, Trash2 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { parseInviteRecipient } from "@/lib/invite-recipient";
@@ -155,9 +156,15 @@ export function WorkspaceInviteSheet({
 
   const [sendValue, setSendValue] = useState("");
   const [sending, setSending] = useState(false);
+  /** How the invite is delivered — invite link is the default. */
+  const [channel, setChannel] = useState<"link" | "phone" | "email" | "code">("link");
 
   const recipient = useMemo(() => parseInviteRecipient(sendValue), [sendValue]);
-  const canSend = recipient.kind === "phone" || recipient.kind === "email" || recipient.kind === "code";
+  const canSend =
+    channel !== "link" &&
+    ((channel === "phone" && recipient.kind === "phone") ||
+      (channel === "email" && recipient.kind === "email") ||
+      (channel === "code" && recipient.kind === "code"));
 
   const effectivePermissions = useMemo(
     () => (role === "custom" ? customPermissions : stampTeamRolePermissions(role) ?? EMPTY_CO_MANAGER_PERMISSIONS),
@@ -325,13 +332,20 @@ export function WorkspaceInviteSheet({
     return { ok: true, url: result.url, linkId: result.linkId };
   };
 
-  /** The link action: resolve (reuse-or-mint) the URL for what is on screen and let the link box render. */
+  /** Resolve (reuse-or-mint) the URL for what is on screen, then copy it. */
   const openInviteLink = async () => {
     setLinkLoading(true);
     try {
       const result = await resolveLinkForCurrentTerms();
       if (!result.ok) {
         showToast(result.error);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(result.url);
+        showToast("Invite link copied.");
+      } catch {
+        showToast("Link ready — select it and copy manually.");
       }
     } finally {
       setLinkLoading(false);
@@ -479,43 +493,65 @@ export function WorkspaceInviteSheet({
       panelClassName="max-w-2xl"
       dataAttr="workspace-invite-sheet"
       footer={
-        <ModalFooter className="justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full"
-            loading={linkLoading}
-            onClick={() => openInviteLink()}
-            data-attr="workspace-invite-copy"
-          >
-            <Link2 className="h-4 w-4" />
-            <span className="ml-1.5">Invite link</span>
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            disabled={!canSend}
-            loading={sending}
-            onClick={() => send()}
-            data-attr="workspace-invite-send"
-          >
-            Send
-          </Button>
+        <ModalFooter className="justify-end">
+          {channel === "link" ? (
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              loading={linkLoading}
+              onClick={() => openInviteLink()}
+              data-attr="workspace-invite-copy"
+            >
+              <Link2 className="h-4 w-4" />
+              <span className="ml-1.5">Copy invite link</span>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              disabled={!canSend}
+              loading={sending}
+              onClick={() => send()}
+              data-attr="workspace-invite-send"
+            >
+              Send
+            </Button>
+          )}
         </ModalFooter>
       }
     >
       <div className="space-y-4">
-        <Input
-          aria-label="Add people"
-          placeholder="Phone, email or PropLane code"
-          value={sendValue}
-          onChange={(e) => setSendValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && canSend) void send();
-          }}
-          data-attr="workspace-invite-add"
+        <FieldSingleSelect
+          label="Channel"
+          value={channel}
+          onChange={(next) => setChannel(next as "link" | "phone" | "email" | "code")}
+          options={[
+            { value: "link", label: "Invite link" },
+            { value: "phone", label: "Phone" },
+            { value: "email", label: "Email" },
+            { value: "code", label: "PropLane code" },
+          ]}
+          dataAttr="workspace-invite-channel"
         />
+
+        {channel === "link" ? null : (
+          <Input
+            aria-label={
+              channel === "phone" ? "Phone number" : channel === "email" ? "Email" : "PropLane code"
+            }
+            placeholder={
+              channel === "phone" ? "Phone number" : channel === "email" ? "Email" : "PropLane code"
+            }
+            value={sendValue}
+            onChange={(e) => setSendValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSend) void send();
+            }}
+            data-attr="workspace-invite-add"
+          />
+        )}
 
         <WorkspacePermissionsFields
           role={role}
@@ -566,7 +602,7 @@ export function WorkspaceInviteSheet({
           </div>
         ) : showLinkStale ? (
           <p className="text-[13px] text-muted" data-attr="workspace-invite-link-stale">
-            Access changed — press Invite link again for a link with these terms.
+            Access changed — press Copy invite link again for a link with these terms.
           </p>
         ) : null}
       </div>

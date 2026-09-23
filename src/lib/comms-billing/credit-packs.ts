@@ -13,7 +13,7 @@ export const COMMS_CREDIT_PURPOSE = "manager_communication_credit";
 /** Whole-dollar bounds for a manual communication-credit purchase (PLAN-0920-1400). */
 export const COMMS_CREDIT_MIN_CENTS = 500;
 export const COMMS_CREDIT_MAX_CENTS = 50_000;
-/** Default amount shown in the Extra usage "Buy $N more" field. */
+/** Default amount shown in the Extra usage amount field. */
 export const COMMS_CREDIT_DEFAULT_CENTS = 2000;
 
 /**

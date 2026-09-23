@@ -17,14 +17,13 @@ import {
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
-import { maxAccountLinksForTier, maxPropertiesForManagerTier } from "@/lib/manager-access";
+import { maxResidentsForManagerTier } from "@/lib/manager-access";
 import { EMPTY_PLAN_ADDON_QUANTITIES } from "@/lib/plan-addons";
 import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 import {
   WORKSPACE_LIMIT,
   WORKSPACE_PLAN_ENTITLEMENTS,
-  WORKSPACE_PROPERTY_LIMIT,
   type PortalWorkspace,
   type WorkspaceMember,
   type WorkspacePlan,
@@ -244,17 +243,20 @@ export async function loadWorkspacePlan(
   const tier = tierResult.ok ? tierResult.tier : null;
   const entitlements = tier ? WORKSPACE_PLAN_ENTITLEMENTS[tier] : null;
   const owned = workspaces.filter((w) => w.owned);
-  const [links, vendors, addons] = await Promise.all([
+  const [links, vendors, addons, residents] = await Promise.all([
     db.from("account_link_invites").select("id", { count: "exact", head: true }).eq("inviter_user_id", userId).eq("status", "accepted"),
     db.from("manager_vendor_records").select("id", { count: "exact", head: true }).eq("manager_user_id", userId),
     loadManagerPlanAddonQuantities(db, userId),
+    db
+      .from("manager_application_records")
+      .select("id", { count: "exact", head: true })
+      .eq("manager_user_id", userId)
+      .or("row_data->>bucket.eq.approved,row_data->>manuallyAdded.eq.true"),
   ]);
   // A failed add-on read is an unknown plan. Treating it as zero would reject
   // a manager who already pays for capacity, so callers must fail closed.
   const unknown = !tierResult.ok || !addons.ok;
   const extra = addons.ok ? addons.quantities : EMPTY_PLAN_ADDON_QUANTITIES;
-  const planPropertyLimit = unknown ? null : maxPropertiesForManagerTier(tier);
-  const planTeamLimit = unknown ? null : maxAccountLinksForTier(tier);
   // A legacy account with no committed plan keeps the database ceiling.
   const computedWorkspaceLimit = entitlements
     ? Math.min(entitlements.workspaces + addonUnitsForCap(extra, "extra_workspace", tier), WORKSPACE_LIMIT)
@@ -262,19 +264,20 @@ export async function loadWorkspacePlan(
   return {
     tier,
     unknown,
-    // Grandfathered: a plan cap (e.g. Business 3 -> 2, PLAN-0920) never
-    // strands a workspace the account already owns.
+    // Grandfathered: a plan cap never strands a workspace the account already owns.
     workspaceLimit: Math.max(computedWorkspaceLimit, owned.length),
-    // `extra_listing` is retired (PLAN-DOOR step 2: paid tiers price doors, not
-    // listing count) — this is the plan figure alone now, with no add-on boost.
-    propertyLimit: planPropertyLimit,
-    recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT,
-    teamLimit: planTeamLimit === null ? null : planTeamLimit + addonUnitsForCap(extra, "extra_seat", tier),
+    propertyLimit: null,
+    recordsPerWorkspace: null,
+    teamLimit: null,
+    residentLimit: unknown
+      ? null
+      : (maxResidentsForManagerTier(tier) ?? 0) + addonUnitsForCap(extra, "extra_resident", tier),
     usage: {
       workspaces: owned.length,
       properties: owned.reduce((sum, w) => sum + w.propertyIds.length, 0),
       team: links.count ?? 0,
       vendors: vendors.count ?? 0,
+      residents: residents.count ?? 0,
     },
   };
 }

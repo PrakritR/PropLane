@@ -77,6 +77,8 @@ export async function createCommsCreditCheckout(
     {
       mode: "payment",
       customer,
+      // Saved cards may appear for convenience, but Checkout still requires
+      // an explicit confirm — never off-session / silent charge.
       saved_payment_method_options: { payment_method_save: "enabled" },
       ui_mode: "embedded_page",
       payment_method_types: ["card"],

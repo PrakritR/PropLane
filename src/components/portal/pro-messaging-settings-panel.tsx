@@ -55,7 +55,7 @@ import {
 
 const ENDPOINT = "/api/manager/messaging-number";
 /** Mirrors `WORKSPACE_WORK_NUMBER_LIMIT` in src/lib/sms/work-numbers.server.ts (server-only, not importable from a client component). */
-const WORKSPACE_NUMBER_LIMIT = 2;
+const WORKSPACE_NUMBER_LIMIT = 1;
 
 type WorkspaceWithNumbers = NonNullable<ManagerMessagingNumberStatus["workspaces"]>[number];
 

@@ -23,9 +23,7 @@ import {
 } from "@/lib/comms-billing/credit-packs";
 import { pollUntilCreditPurchaseLands, useCreditCheckout } from "@/lib/comms-billing/use-credit-checkout";
 import type { ManagerUsageSummary } from "@/app/api/manager/usage-summary/route";
-import type { ManagerDoorCountPayload } from "@/app/api/manager/door-count/route";
-import { RATE_CARD, priceForDoors, formatRateCardUsd, type RateCardTier, type RateCardBilling } from "@/lib/billing/rate-card";
-import type { DoorCountBasis } from "@/lib/billing/door-count";
+import { RATE_CARD, priceForResidents, formatRateCardUsd, includedResidentsForTier, type RateCardTier, type RateCardBilling } from "@/lib/billing/rate-card";
 
 const ENDPOINT = "/api/manager/usage-summary";
 
@@ -143,60 +141,43 @@ function doorTierName(tier: RateCardTier): string {
 }
 
 /**
- * The honest "what it is" half of a breakdown row — derived from `basis`
- * alone (never a separate room count PropLane doesn't store), so it always
- * agrees with the `doors` figure printed right next to it:
- * "4 rooms · 4", "whole home · 1", "no rooms recorded · 1". Never says "0
- * rooms" — `doorCountForListing` never returns 0 doors, so neither does this.
- */
-function doorBasisLabel(basis: DoorCountBasis, doors: number): string {
-  if (basis === "whole-home") return "whole home";
-  if (basis === "unrecorded") return "no rooms recorded";
-  return `${doors} room${doors === 1 ? "" : "s"}`;
-}
-
-/**
- * Settings → Billing & plan → Doors. Per-door billing's headline: the
- * account's live door count against the tier's included allowance, what
- * pushing past it costs (`priceForDoors`, the one place that arithmetic
- * happens), and the per-listing breakdown a manager can add up to reach that
- * total. Reads the LIVE count (`GET /api/manager/door-count` →
- * `loadManagerDoorCount`) — never the frozen `manager_door_count_snapshots`
- * row a bill was actually issued against, so this can move between billing
- * periods as listings change; that is the point of showing it here rather
- * than only on the invoice.
+ * Settings → Billing & plan → Residents. Plan included residents + paid
+ * extras, priced with the same floor + per-extra rate as the rate card
+ * (`priceForResidents`). Metered on approved / manually-added residents,
+ * not listing doors.
  */
 export function ManagerDoorsPanel({
   tier,
   billing,
-  data,
+  used,
+  max,
   error,
   onRefresh,
 }: {
   tier: RateCardTier;
   billing: RateCardBilling;
-  data: ManagerDoorCountPayload | null;
+  used: number | null;
+  max: number | null;
   error: string | null;
   onRefresh: () => void;
 }) {
   const card = RATE_CARD[tier];
-  const totalDoors = data?.totalDoors ?? 0;
-  const remaining = Math.max(0, card.includedDoors - totalDoors);
-  const overDoors = Math.max(0, totalDoors - card.includedDoors);
+  const included = includedResidentsForTier(tier);
+  const total = used ?? 0;
+  const remaining = Math.max(0, included - total);
+  const over = Math.max(0, total - included);
   const currentBillCents = (() => {
     try {
-      return priceForDoors(tier, totalDoors, billing);
+      return priceForResidents(tier, total, billing);
     } catch {
-      // Free has no overage rate and is meant to be a hard cap; if an
-      // account is somehow over it anyway, fall back to the floor rather
-      // than crash the page a manager is reading their bill on.
       return billing === "annual" ? card.floorAnnualCents : card.floorMonthlyCents;
     }
   })();
   const billSuffix = billing === "annual" ? "/yr" : "/mo";
+  const capLabel = max == null ? `${total}` : `${total} of ${max}`;
 
   return (
-    <PortalSettingsSection title="Doors">
+    <PortalSettingsSection title="Residents">
       {error ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-danger">{error}</p>
@@ -205,49 +186,33 @@ export function ManagerDoorsPanel({
           </Button>
         </div>
       ) : null}
-      {!data && !error ? (
+      {used == null && !error ? (
         <div className="h-40 animate-pulse rounded-2xl border border-border bg-accent/30" aria-hidden />
       ) : null}
-      {data ? (
-        <>
-          <PortalSettingsGroup>
-            <PortalSettingsRow label="Doors on your account">
-              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-total">
-                {totalDoors}
-              </span>
-            </PortalSettingsRow>
-            <PortalSettingsRow label={`Included with ${doorTierName(tier)}`}>
-              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-included">
-                {card.includedDoors}
-              </span>
-            </PortalSettingsRow>
-            <PortalSettingsRow label="Before the per-door rate applies">
-              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-remaining">
-                {overDoors > 0 ? `Over by ${overDoors}` : remaining}
-              </span>
-            </PortalSettingsRow>
-            <PortalSettingsRow label="Current bill">
-              <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-current-bill">
-                {formatRateCardUsd(currentBillCents)}
-                {billSuffix}
-              </span>
-            </PortalSettingsRow>
-          </PortalSettingsGroup>
-
-          <PortalSettingsGroup>
-            {data.breakdown.length === 0 ? (
-              <p className="px-4 py-3.5 text-sm text-muted">No billable listings yet.</p>
-            ) : (
-              data.breakdown.map((row) => (
-                <PortalSettingsRow key={row.propertyId} label={row.label}>
-                  <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="doors-breakdown-row">
-                    {doorBasisLabel(row.basis, row.doors)} · {row.doors}
-                  </span>
-                </PortalSettingsRow>
-              ))
-            )}
-          </PortalSettingsGroup>
-        </>
+      {used != null ? (
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Residents on your account">
+            <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="residents-total">
+              {capLabel}
+            </span>
+          </PortalSettingsRow>
+          <PortalSettingsRow label={`Included with ${doorTierName(tier)}`}>
+            <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="residents-included">
+              {included}
+            </span>
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Before the per-resident rate applies">
+            <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="residents-remaining">
+              {over > 0 ? `Over by ${over}` : remaining}
+            </span>
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Current bill">
+            <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="residents-current-bill">
+              {formatRateCardUsd(currentBillCents)}
+              {billSuffix}
+            </span>
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
       ) : null}
     </PortalSettingsSection>
   );
@@ -299,7 +264,7 @@ export function ManagerUsagePanel({
         <>
           <PortalSettingsGroup>
             <UsageBarRow
-              label="Communication"
+              label="Communication credits"
               fact={`Resets ${resetLabel(summary.communication.resetsAt)}`}
               primary={
                 summary.communication.paused ? "Paused" : `${formatUsdFromCents(summary.communication.remainingCents)} left`
@@ -309,37 +274,20 @@ export function ManagerUsagePanel({
               dataAttr="usage-communication"
             />
             <UsageBarRow
-              label="Property listings"
-              primary={
-                summary.listings.max === null
-                  ? `${summary.listings.used}`
-                  : `${summary.listings.used} of ${summary.listings.max}`
-              }
-              percent={percentOf(summary.listings.used, summary.listings.max)}
-              dataAttr="usage-listings"
-            />
-            <UsageBarRow
               label="Workspaces"
               primary={`${summary.workspaces.used} of ${summary.workspaces.max}`}
               percent={percentOf(summary.workspaces.used, summary.workspaces.max)}
               dataAttr="usage-workspaces"
             />
             <UsageBarRow
-              label="Work numbers"
-              fact={summary.workNumbers.perWorkspace ? "1 per workspace" : undefined}
-              primary={`${summary.workNumbers.used} of ${summary.workNumbers.max}`}
-              percent={percentOf(summary.workNumbers.used, summary.workNumbers.max)}
-              dataAttr="usage-work-numbers"
-            />
-            <UsageBarRow
-              label="Co-managers"
+              label="Residents"
               primary={
-                summary.coManagers.max === null
-                  ? `${summary.coManagers.used}`
-                  : `${summary.coManagers.used} of ${summary.coManagers.max}`
+                summary.residents.max === null
+                  ? `${summary.residents.used}`
+                  : `${summary.residents.used} of ${summary.residents.max}`
               }
-              percent={percentOf(summary.coManagers.used, summary.coManagers.max)}
-              dataAttr="usage-co-managers"
+              percent={percentOf(summary.residents.used, summary.residents.max)}
+              dataAttr="usage-residents"
             />
           </PortalSettingsGroup>
           <button
@@ -361,9 +309,11 @@ export function ManagerUsagePanel({
 /**
  * Settings → Billing & plan → Extra usage. A typed whole-dollar credit
  * purchase (not a fixed pack), the included-credit alert threshold as a
- * percent, and the usage-rates disclosure. Reads the same `summary` the Usage
- * panel above already fetched, and refetches it (`onPurchased`) once the
- * webhook-written wallet catches up with a purchase.
+ * percent, and the usage-rates disclosure. "Update usage" always opens
+ * Stripe Checkout to confirm payment — a saved card never charges silently
+ * (comms-billing compliance). Reads the same `summary` the Usage panel
+ * above already fetched, and refetches it once the webhook-written wallet
+ * catches up with a purchase.
  */
 export function ManagerExtraUsagePanel({
   summary,
@@ -506,12 +456,11 @@ export function ManagerExtraUsagePanel({
               <Button
                 variant="outline"
                 className="rounded-full text-[13px]"
+                loading={loading && buyOpen}
                 onClick={() => void buyCredit()}
-                data-attr="extra-usage-buy"
+                data-attr="extra-usage-update"
               >
-                {amountCents !== null && isValidCommsCreditAmountCents(amountCents)
-                  ? `Buy $${amountCents / 100} more`
-                  : "Buy"}
+                Update usage
               </Button>
             </div>
           ) : (
@@ -584,7 +533,7 @@ export function ManagerExtraUsagePanel({
         </PortalSettingsDisclosureRow>
       </PortalSettingsGroup>
 
-      <Modal open={buyOpen} title="Buy credit" onClose={closeBuy} assistantStrip={false} scrollableContent>
+      <Modal open={buyOpen} title="Confirm payment" onClose={closeBuy} assistantStrip={false} scrollableContent>
         {clientSecret ? (
           <EmbeddedCheckoutMount
             clientSecret={clientSecret}

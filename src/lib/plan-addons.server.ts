@@ -252,29 +252,34 @@ export async function setManagerPlanAddonQuantities(input: {
   const nextQuantities: PlanAddonQuantities = { ...current.quantities };
   for (const change of changes) nextQuantities[change.addonId] = change.quantity;
 
-  for (const addon of PLAN_ADDONS) {
-    if (addon.id === "extra_work_number" || addon.id === "extra_workspace") continue;
-    const max = addon.maxQuantity[tier];
-    if (max !== null && nextQuantities[addon.id] > max) {
-      return { ok: false, status: 400, error: `Your plan can hold up to ${max} of ${addon.unit}s.` };
+  for (const change of changes) {
+    if (change.addonId === "extra_work_number" || change.addonId === "extra_seat") {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          change.addonId === "extra_work_number"
+            ? "Work numbers are not sold as add-ons. Each workspace includes one."
+            : "Co-manager seats are not sold as add-ons.",
+      };
     }
   }
 
-  const totalWorkspaces = totalWorkspacesFor(tier, nextQuantities);
+  for (const addon of PLAN_ADDONS) {
+    if (addon.id === "extra_work_number" || addon.id === "extra_seat" || addon.id === "extra_workspace") continue;
+    const max = addon.maxQuantity[tier];
+    if (max !== null && nextQuantities[addon.id] > max) {
+      const noun = max === 1 ? addon.unit : `${addon.unit}${addon.unit.endsWith("s") ? "" : "s"}`;
+      return { ok: false, status: 400, error: `Your plan can hold up to ${max} ${noun}.` };
+    }
+  }
+
   const maxWorkspaceAddon = maxExtraWorkspaceQuantity(tier, WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces, WORKSPACE_LIMIT);
   if (nextQuantities.extra_workspace > maxWorkspaceAddon) {
     return {
       ok: false,
       status: 400,
       error: `Your plan can hold up to ${maxWorkspaceAddon} extra workspace${maxWorkspaceAddon === 1 ? "" : "s"}.`,
-    };
-  }
-  const maxNumberAddon = maxExtraWorkNumberQuantity(tier, totalWorkspaces);
-  if (nextQuantities.extra_work_number > maxNumberAddon) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Each workspace can hold at most 2 work numbers. Add another workspace first.",
     };
   }
 
@@ -319,7 +324,7 @@ export async function setManagerPlanAddonQuantities(input: {
   try {
     updated = await stripe.subscriptions.update(purchase.stripeSubscriptionId!, {
       items,
-      proration_behavior: "create_prorations",
+      proration_behavior: "none",
     });
   } catch (err) {
     // All-or-nothing: on any Stripe failure, write nothing and hand back

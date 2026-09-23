@@ -48,7 +48,7 @@ beforeEach(() => {
   mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business" });
   mocks.loadManagerPlanAddonQuantities.mockResolvedValue({
     ok: true,
-    quantities: { extra_listing: 0, extra_work_number: 0, extra_workspace: 0, extra_seat: 0 },
+    quantities: { extra_comms_credit: 0, extra_resident: 0, extra_work_number: 0, extra_workspace: 0, extra_seat: 0 },
   });
   mocks.provisionManagerNumber.mockResolvedValue({ ok: true, number: "+12065550001", state: "provisioning", alreadyProvisioned: false });
 });
@@ -65,7 +65,7 @@ describe("provisionNumberForWorkspace", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("refuses a workspace already at the 2-number cap", async () => {
+  it("refuses a workspace already at the 1-number cap", async () => {
     const db = seed({
       manager_sms_numbers: [
         { id: "n-other", manager_user_id: prakrit, workspace_id: PRAKRIT_WS2, phone_number: "+12065559999", provision_state: "active" },
@@ -80,7 +80,7 @@ describe("provisionNumberForWorkspace", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("refuses buying a second HOME number for a workspace that already has one — share it in instead", async () => {
+  it("refuses buying a second HOME number once the workspace already holds one", async () => {
     const db = seed({
       manager_sms_numbers: [
         { id: "n-1", manager_user_id: prakrit, workspace_id: PRAKRIT_WS, phone_number: "+12065550001", provision_state: "active" },
@@ -88,14 +88,14 @@ describe("provisionNumberForWorkspace", () => {
       workspace_work_numbers: [{ workspace_id: PRAKRIT_WS, number_id: "n-1", is_primary: true, created_at: "2026-02-02" }],
     });
     const result = await provisionNumberForWorkspace(db as never, prakrit, { workspaceId: PRAKRIT_WS });
-    expect(result).toMatchObject({ ok: false, code: "second_number_via_share_only" });
+    expect(result).toMatchObject({ ok: false, code: "cap_exceeded" });
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
   it("refuses once the account is at its included + extra_work_number budget", async () => {
     mocks.loadManagerPlanAddonQuantities.mockResolvedValue({
       ok: true,
-      quantities: { extra_listing: 0, extra_work_number: 0, extra_workspace: 0, extra_seat: 0 },
+      quantities: { extra_comms_credit: 0, extra_resident: 0, extra_work_number: 0, extra_workspace: 0, extra_seat: 0 },
     });
     // Business includes 1 per owned workspace; this account owns 1 workspace
     // and already holds 1 home number account-wide — at budget.

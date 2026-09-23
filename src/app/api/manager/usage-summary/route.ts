@@ -23,15 +23,13 @@ export type ManagerUsageSummary = {
     resetsAt: string;
     paused: boolean;
   };
+  /** @deprecated kept for older clients; Usage UI no longer shows listings. */
   listings: { used: number; max: number | null };
   workspaces: { used: number; max: number };
-  /**
-   * Today's model is one work number per OWNED workspace (`perWorkspace`
-   * always true once the account has more than one workspace); `max` is the
-   * owned-workspace count, matching what `resolveWorkspaceWorkNumbers` can
-   * actually hold before the shared-number join table lands.
-   */
+  residents: { used: number; max: number | null };
+  /** @deprecated Usage UI no longer shows work numbers. */
   workNumbers: { used: number; max: number; perWorkspace: boolean };
+  /** @deprecated Usage UI no longer shows co-managers. */
   coManagers: { used: number; max: number | null };
   monthlyBudgetCents: number | null;
   ratesCents: Record<string, number>;
@@ -73,6 +71,7 @@ export async function GET() {
       },
       listings: { used: plan.usage.properties, max: plan.propertyLimit },
       workspaces: { used: plan.usage.workspaces, max: plan.workspaceLimit },
+      residents: { used: plan.usage.residents, max: plan.residentLimit },
       workNumbers: {
         used: ownedNumbers.filter((n) => Boolean(n.phoneNumber)).length,
         max: ownedNumbers.length,

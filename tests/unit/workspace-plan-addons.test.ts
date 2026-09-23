@@ -50,9 +50,11 @@ function dbFor(options: { addonRows?: unknown[]; addonError?: { message: string 
       const q: Record<string, unknown> = {};
       q.select = vi.fn(() => q);
       q.eq = vi.fn(() => q);
+      q.or = vi.fn(() => q);
       q.then = (resolve: (value: unknown) => unknown) => {
         if (table === "account_link_invites") return Promise.resolve({ count: 4, error: null }).then(resolve);
         if (table === "manager_vendor_records") return Promise.resolve({ count: 2, error: null }).then(resolve);
+        if (table === "manager_application_records") return Promise.resolve({ count: 12, error: null }).then(resolve);
         if (table === "manager_plan_addons") return Promise.resolve({ data: addonRows, error: addonError }).then(resolve);
         throw new Error(`unexpected workspace-plan table: ${table}`);
       };
@@ -89,10 +91,11 @@ describe("loadWorkspacePlan add-on capacity", () => {
       unknown: false,
       // Business includes 2 workspaces (PLAN-0920) + the 2 held by the add-on.
       workspaceLimit: 4,
-      propertyLimit: 20,
-      recordsPerWorkspace: 10,
-      teamLimit: 24,
-      usage: { workspaces: 2, properties: 3, team: 4, vendors: 2 },
+      propertyLimit: null,
+      recordsPerWorkspace: null,
+      teamLimit: null,
+      residentLimit: 500,
+      usage: { workspaces: 2, properties: 3, team: 4, vendors: 2, residents: 12 },
     });
   });
 
@@ -103,8 +106,9 @@ describe("loadWorkspacePlan add-on capacity", () => {
       tier: "business",
       unknown: false,
       workspaceLimit: 2,
-      propertyLimit: 20,
-      teamLimit: 20,
+      propertyLimit: null,
+      teamLimit: null,
+      residentLimit: 500,
     });
   });
 

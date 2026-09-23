@@ -15,6 +15,7 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
+import { WorkspaceInviteLinkStrip } from "@/components/portal/workspace-invite-link-strip";
 import {
   WorkspacePermissionsFields,
   RoleCapabilitiesList,
@@ -2014,6 +2015,15 @@ export function ProAccountLinksPanel({
             data-attr="workspace-team-invite"
           />
         </div>
+        {(workspace.owned || workspace.canManageMembers) && !inviteLinkBlocked ? (
+          <WorkspaceInviteLinkStrip
+            workspaceId={workspace.id}
+            workspaceName={workspace.name}
+            propertyIds={workspace.propertyIds}
+            canManage
+            onEdit={() => openLinkModal(workspace.id)}
+          />
+        ) : null}
         {loading ? (
           <div className="space-y-2 border-t border-border/60 px-4 py-3" role="status" aria-label="Loading team">
             <div className="h-3 w-1/3 rounded-lg bg-[var(--secondary)]" />
