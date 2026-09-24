@@ -21,6 +21,7 @@ import {
   buildManagerBrowseUrl,
   buildManagerPortfolioApplyUrl,
   buildManagerListingUrl,
+  buildManagerLeaseSignUrl,
   buildManagerPortfolioTourUrl,
   buildManagerTourUrl,
   copyTextToClipboard,
@@ -244,7 +245,7 @@ export function ShareLeadLinkModal({
   }, [kind, properties, propertyIds]);
 
   const roomOptions = useMemo(() => {
-    if (kind !== "apply" || !singlePropertyId) return [];
+    if ((kind !== "apply" && kind !== "lease") || !singlePropertyId) return [];
     return getRoomOptionsForProperty(singlePropertyId, { includeUnavailable: true }).filter((o) => o.value);
   }, [kind, singlePropertyId]);
 
@@ -270,9 +271,26 @@ export function ShareLeadLinkModal({
     }
   }, [shortTermApplyAvailable]);
 
+  // Lease invites are always one property (create-account → /resident/lease).
+  useEffect(() => {
+    if (!open || kind !== "lease") return;
+    if (propertyIds.length <= 1) return;
+    setPropertyIds((prev) => (prev[0] ? [prev[0]] : []));
+    setRoomChoice("");
+  }, [open, kind, propertyIds.length]);
+
   const linkUrl = useMemo(() => {
     if (propertyIds.length === 0 || typeof window === "undefined") return "";
     const origin = window.location.origin;
+    if (kind === "lease") {
+      if (!singlePropertyId) return "";
+      return buildManagerLeaseSignUrl(origin, {
+        propertyId: singlePropertyId,
+        email: prospectEmail.trim() || undefined,
+        fullName: prospectName.trim() || undefined,
+        phone: prospectPhone.trim() || undefined,
+      });
+    }
     if (isPortfolioTour) return portfolioTourUrl;
     if (isMultiListing) return buildManagerBrowseUrl(origin, propertyIds);
     if (isMultiApply) {
@@ -291,7 +309,21 @@ export function ShareLeadLinkModal({
       roomName: roomName || undefined,
       rentalType: applyLinkRentalType(effectiveApplyRentalTypes),
     });
-  }, [kind, propertyIds, singlePropertyId, isMultiListing, isMultiApply, isPortfolioTour, portfolioTourUrl, roomChoice, roomOptions, effectiveApplyRentalTypes]);
+  }, [
+    kind,
+    propertyIds,
+    singlePropertyId,
+    isMultiListing,
+    isMultiApply,
+    isPortfolioTour,
+    portfolioTourUrl,
+    roomChoice,
+    roomOptions,
+    effectiveApplyRentalTypes,
+    prospectEmail,
+    prospectName,
+    prospectPhone,
+  ]);
 
   const applyAllowsBothRentalTypes =
     kind === "apply" &&
@@ -361,7 +393,7 @@ export function ShareLeadLinkModal({
   const previewBody = viaSms && !viaEmail ? inviteSmsBody : invitePreviewBody;
 
   const sendListingRoomParams = useMemo(() => {
-    if (kind === "listing" || isMultiListing || isMultiApply) {
+    if (kind === "listing" || kind === "lease" || isMultiListing || isMultiApply) {
       return { listingRoomId: undefined, roomName: undefined };
     }
     if (!roomChoice) return { listingRoomId: undefined, roomName: undefined };
@@ -371,6 +403,15 @@ export function ShareLeadLinkModal({
       roomName: roomOptions.find((o) => o.value === roomChoice)?.label,
     };
   }, [kind, isMultiListing, isMultiApply, roomChoice, roomOptions]);
+
+  const inviteTitle =
+    kind === "listing"
+      ? "Send listing"
+      : kind === "apply"
+        ? "Send application"
+        : kind === "lease"
+          ? "Send lease to sign"
+          : "Send tour link";
 
   const handleCopy = async (text: string, successMessage: string) => {
     if (!text) {
@@ -466,7 +507,7 @@ export function ShareLeadLinkModal({
     }
   };
 
-  const title = kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link";
+  const title = inviteTitle;
 
   return (
     <>
@@ -487,7 +528,7 @@ export function ShareLeadLinkModal({
             </p>
           ) : (
             <>
-              {multiEnabled ? (
+              {multiEnabled && kind !== "lease" ? (
                 <div>
                   <div className="mb-1.5 flex items-center justify-between gap-2">
                     <label htmlFor="share-lead-property-multi" className={FIELD_LABEL_CLASS}>
@@ -537,7 +578,9 @@ export function ShareLeadLinkModal({
               ) : (
                 <div
                   className={
-                    kind === "apply" && roomOptions.length > 0 ? "grid gap-3 sm:grid-cols-2" : undefined
+                    (kind === "apply" || kind === "lease") && roomOptions.length > 0
+                      ? "grid gap-3 sm:grid-cols-2"
+                      : undefined
                   }
                 >
                   <div>
@@ -560,7 +603,7 @@ export function ShareLeadLinkModal({
                       ))}
                     </Select>
                   </div>
-                  {kind === "apply" && roomOptions.length > 0 ? (
+                  {(kind === "apply" || kind === "lease") && roomOptions.length > 0 ? (
                     <div>
                       <label htmlFor="share-lead-room" className={FIELD_LABEL_CLASS}>
                         Room (optional)
@@ -711,9 +754,19 @@ export function ShareLeadLinkModal({
                         ? `Opens the application flow so the prospect can choose one of the ${propertyIds.length} homes you selected, then long-term or short-term.`
                         : `Opens the application flow so the prospect can choose one of the ${propertyIds.length} homes you selected.`
                       : applyAllowsBothRentalTypes
-                        ? "Applicants choose long-term or short-term in the application after signing in or continuing as a guest."
+                        ? "Applicants create a resident account first, then choose long-term or short-term in the application."
                         : "Applicants create a resident account first, then complete the application in their portal."
                   }
+                />
+              ) : null}
+
+              {kind === "lease" ? (
+                <ShareLinkCopyRow
+                  label="Lease sign-in link"
+                  url={linkUrl}
+                  copyLabel="Copy lease link"
+                  onCopy={() => void handleCopy(linkUrl, "Lease link copied.")}
+                  hint="Opens create-account (or sign-in from that page) with next=/resident/lease so the prospect can review and sign."
                 />
               ) : null}
 
@@ -800,7 +853,7 @@ export function ShareLeadLinkModal({
 
       <PortalNotificationPreviewModal
         open={sendPreviewOpen}
-        title={kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link"}
+        title={inviteTitle}
         onClose={() => setSendPreviewOpen(false)}
         recipient={prospectEmail.trim() || "prospect"}
         recipientPhone={prospectPhone.trim() || undefined}
@@ -814,7 +867,7 @@ export function ShareLeadLinkModal({
         defaultViaSms={viaSms}
         editableSubject={viaEmail}
         footerNote=""
-        confirmLabel={kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link"}
+        confirmLabel={inviteTitle}
         confirmBusy={sendBusy}
         confirmBusyLabel="Sending…"
         onConfirm={(_skip, channels) => {

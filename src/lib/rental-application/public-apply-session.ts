@@ -1,7 +1,5 @@
 import { buildPortfolioApplyHref } from "@/lib/manager-property-links";
 
-const GUEST_CONTINUE_PREFIX = "proplane_apply_guest_continue:";
-
 /** Session key for the account gate — one property id or a sorted portfolio token. */
 export function publicApplyGateKey(input: {
   propertyId?: string;
@@ -62,27 +60,16 @@ export function publicApplyReturnPath(input: {
   return "/resident/applications/apply";
 }
 
-/** Remember that the applicant chose to apply without signing in (per gate key). */
-export function markPublicApplyGuestContinue(gateKey: string): void {
-  if (typeof window === "undefined") return;
-  const key = gateKey.trim();
-  if (!key) return;
-  try {
-    window.sessionStorage.setItem(`${GUEST_CONTINUE_PREFIX}${key}`, "1");
-  } catch {
-    /* ignore */
-  }
-}
-
+/**
+ * A resident account is required to apply (PLAN-0924-1421) — there is no guest
+ * path left to remember. Kept as a stub so a stale session key written before
+ * the gate closed cannot reopen it.
+ *
+ * @deprecated Always false. Do not reintroduce a guest bypass.
+ */
 export function hasPublicApplyGuestContinue(gateKey: string): boolean {
-  if (typeof window === "undefined") return false;
-  const key = gateKey.trim();
-  if (!key) return false;
-  try {
-    return window.sessionStorage.getItem(`${GUEST_CONTINUE_PREFIX}${key}`) === "1";
-  } catch {
-    return false;
-  }
+  void gateKey;
+  return false;
 }
 
 function publicApplyNext(propertyId: string): string {
@@ -108,27 +95,37 @@ export type PublicApplyView = "account-prompt" | "signed-in-create-resident" | "
 /**
  * Decide what the public apply surface renders when a property link is present:
  *
- *  - SIGNED OUT → the anonymous "Before you apply" account prompt (sign in /
- *    continue as guest), owned by the public-apply gate.
+ *  - SIGNED OUT → the anonymous "Before you apply" account prompt (create an
+ *    account or sign in), owned by the public-apply gate.
  *  - SIGNED IN but NOT a resident (a manager or vendor — residents are
  *    redirected to the portal apply flow before this surface mounts) → the
  *    "create your resident account" prompt: they add a separate resident
  *    account to their existing login and apply from the resident portal. This
  *    is the branch whose absence rendered a blank content area — a signed-in
  *    non-resident matched no case and saw nothing.
- *  - GUEST chosen, or no property link → the wizard directly.
+ *  - No property link, or a resume link from the applicant's own email → the
+ *    wizard directly.
+ *
+ * An account is required (PLAN-0924-1421): nothing a visitor can click in the
+ * prompt reaches the wizard without one.
  */
 export function resolvePublicApplyView(input: {
   propertyId?: string;
   gateKey?: string;
-  guestContinue: boolean;
+  /** @deprecated Ignored — guest apply is gone. */
+  guestContinue?: boolean;
   signedInNonResident: boolean;
   /** When true, the caller already holds the resident role — skip the account gate. */
   hasResidentRole?: boolean;
+  /**
+   * The applicant opened their own tokened resume link, so the draft they are
+   * returning to is already theirs. Not a guest bypass — a signed link.
+   */
+  resumeFromEmailLink?: boolean;
 }): PublicApplyView {
   const key = input.gateKey?.trim() || input.propertyId?.trim() || "";
-  const gateInPlay = Boolean(key) && !input.guestContinue;
-  if (!gateInPlay) return "wizard";
+  if (!key) return "wizard";
+  if (input.resumeFromEmailLink) return "wizard";
   if (input.hasResidentRole) return "wizard";
   return input.signedInNonResident ? "signed-in-create-resident" : "account-prompt";
 }

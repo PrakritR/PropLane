@@ -17,7 +17,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings } from "lucide-react";
+import { Settings, Share2 } from "lucide-react";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -35,6 +35,11 @@ import { getPropertyById } from "@/lib/rental-application/data";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
+import {
+  leaseSendRequiresApprovedApplication,
+  leaseUnlocksWithoutApplicationApproval,
+} from "@/lib/leasing-pipeline-preferences";
+import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 
 const leasesSettingsEntry = getSettingsEntryPoint("leases");
 
@@ -180,6 +185,12 @@ export function ManagerLeases({
     return buildManagerShareablePropertyOptions(userId);
   }, [userId, propertyTick]);
 
+  const showSendLeaseInvite = useMemo(() => {
+    void tick;
+    const prefs = readCachedLeasingPipelinePreferences();
+    return leaseUnlocksWithoutApplicationApproval(prefs) || !leaseSendRequiresApprovedApplication(prefs);
+  }, [tick]);
+
   const leasesFilterSheet = (
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([propertyFilters])}
@@ -202,10 +213,23 @@ export function ManagerLeases({
   );
 
   // Lease form lives inside Settings (Form | Automation) — the toolbar is one
-  // row of plain icons.
+  // row of plain icons. Lease-first (or application not required) adds Send lease.
   const leasesListActions = (
     <>
       {leasesFilterSheet}
+      {showSendLeaseInvite ? (
+        <PortalIconAction
+          icon={Share2}
+          label={
+            shareableProperties.length === 0
+              ? "Send lease to sign (list a property first)"
+              : "Send lease to sign"
+          }
+          data-attr="leases-send"
+          onClick={() => setShareLeasesOpen(true)}
+          disabled={shareableProperties.length === 0}
+        />
+      ) : null}
       <PortalIconAction
         icon={Settings}
         label={leasesSettingsEntry.label}
@@ -224,7 +248,7 @@ export function ManagerLeases({
       <ShareLeadLinkModal
         open={shareLeasesOpen}
         onClose={() => setShareLeasesOpen(false)}
-        kind="listing"
+        kind="lease"
         properties={shareableProperties}
       />
       <ManagerAddLeaseModal

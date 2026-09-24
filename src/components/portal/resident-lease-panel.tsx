@@ -2,7 +2,8 @@
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Download, Flag, PenLine, RefreshCw, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -10,6 +11,8 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-lease-report-issue-modal";
+import { ResidentLeaseSigningFeeCard } from "@/components/portal/resident-lease-signing-fee-card";
+import { ResidentLeaseIntakeSection } from "@/components/portal/resident-lease-intake-section";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -63,6 +66,7 @@ import {
 import { residentLeaseRenewalStatus } from "@/lib/resident-lease-renewal-status";
 import { cn } from "@/lib/utils";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { useResidentLeaseSigningFee } from "@/hooks/use-resident-lease-signing-fee";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -84,6 +88,8 @@ export function ResidentLeasePanel({
 }) {
   const { showToast } = useAppUi();
   const portalNavigate = usePortalNavigate();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const uploadRef = useRef<HTMLInputElement>(null);
   const { email, residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const pipelineRow = useResidentLeasePipelineRow();
@@ -168,6 +174,55 @@ export function ResidentLeasePanel({
   const showSigningWorkflowActions = !leaseFullyExecuted && pipelineRow?.status !== "Fully Signed";
 
   const residentAlreadySigned = Boolean(pipelineRow?.residentSignature);
+
+  /**
+   * Signing fee. The plan's order is form → sign → pay, so a signature is never
+   * blocked on payment; the fee becomes the one remaining step afterwards, and
+   * the lease is not complete from the resident's side until it is settled.
+   */
+  const signingFee = useResidentLeaseSigningFee(pipelineRow?.id);
+  const signingFeeDue = signingFee.ready && signingFee.feeCents > 0 && !signingFee.paid;
+  const refreshSigningFee = signingFee.refresh;
+  // The lease row arrives asynchronously, so this effect re-runs once the fee
+  // hook rebinds. One verification per Stripe session is enough.
+  const verifiedSessionRef = useRef("");
+
+  useEffect(() => {
+    if (searchParams.get("signing_fee") !== "return") return;
+    const sessionId = searchParams.get("session_id")?.trim();
+    const clearQuery = () => router.replace(`${basePath}/lease`);
+    if (!sessionId) {
+      clearQuery();
+      return;
+    }
+    if (verifiedSessionRef.current === sessionId) return;
+    verifiedSessionRef.current = sessionId;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/stripe/lease-signing-fee-verify?session_id=${encodeURIComponent(sessionId)}`,
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          paid?: boolean;
+          processing?: boolean;
+          error?: string;
+        };
+        if (data.paid) {
+          await refreshSigningFee();
+          showToast("Lease signing fee paid. Thank you.");
+        } else if (data.processing) {
+          showToast("Payment submitted. We will mark it paid when it clears.");
+        } else {
+          showToast(typeof data.error === "string" ? data.error : "Payment not completed yet.");
+        }
+      } catch {
+        showToast("Could not verify your payment.");
+      } finally {
+        clearQuery();
+      }
+    })();
+  }, [basePath, refreshSigningFee, router, searchParams, showToast]);
+
   const canReportLeaseIssue = Boolean(
     pipelineRow &&
       pipelineRow.bucket === "resident" &&
@@ -349,13 +404,35 @@ export function ResidentLeasePanel({
       </PortalRecordActions>
     ) : undefined;
 
-  const leaseDetailBody = documentView ? (
-    <div className="px-3 pb-6 pt-2 sm:px-4 text-left">
-      <ResidentLeaseBareDocumentPreview
-        pdfSrc={documentView.pdfSrc}
-        leaseHtml={documentView.leaseHtml}
-        title={RESIDENT_LEASE_LIST_LABEL}
+  const signingFeeCard =
+    signingFeeDue && pipelineRow ? (
+      <ResidentLeaseSigningFeeCard
+        leaseId={pipelineRow.id}
+        managerUserId={signingFee.managerUserId}
+        propertyId={signingFee.propertyId}
+        feeCents={signingFee.feeCents}
+        alreadySigned={residentAlreadySigned}
       />
+    ) : null;
+
+  const leaseDetailBody = documentView || pipelineRow ? (
+    <div className="px-3 pb-6 pt-2 sm:px-4 text-left">
+      {pipelineRow ? (
+        <ResidentLeaseIntakeSection
+          row={pipelineRow}
+          onSaved={() => {
+            void syncLeasePipelineFromServer(undefined, { force: true });
+          }}
+        />
+      ) : null}
+      {signingFeeCard ? <div className="mb-3">{signingFeeCard}</div> : null}
+      {documentView ? (
+        <ResidentLeaseBareDocumentPreview
+          pdfSrc={documentView.pdfSrc}
+          leaseHtml={documentView.leaseHtml}
+          title={RESIDENT_LEASE_LIST_LABEL}
+        />
+      ) : null}
       {isPendingDetail &&
       pipelineRow?.managerUploadedPdf?.dataUrl &&
       pipelineRow.status === "Resident Signature Pending" ? (
@@ -499,6 +576,7 @@ export function ResidentLeasePanel({
             activeDestinationId={bucket}
             destinationAriaLabel="Lease status"
           />
+          {signingFeeCard ? <div className="mb-3 max-lg:mb-2.5">{signingFeeCard}</div> : null}
           {renewalStatus.kind !== "none" ? (
             <div
               className={cn(
@@ -611,6 +689,21 @@ export function ResidentLeasePanel({
     ],
     overviewNeeds: [
       ...(!residentSigned ? [{ id: "sign", title: "Sign your lease", detail: managerSigned ? "Manager signed" : "Awaiting your signature", onClick: () => onSignLease() }] : []),
+      // Sign first, pay after: an unpaid fee is what keeps the lease from being
+      // finished on the resident's side, so it stays on the needs list.
+      ...(signingFeeDue
+        ? [
+            {
+              id: "signing-fee",
+              title: `Pay your lease signing fee · $${(signingFee.feeCents / 100).toFixed(2)}`,
+              detail: residentSigned ? "Last step to complete your lease" : "Due after you sign",
+              onClick: () =>
+                portalNavigate(
+                  residentLeaseDetailHref(basePath, activeBucket, leaseDetailId ?? "", "lease-document"),
+                ),
+            },
+          ]
+        : []),
     ],
     overviewCards: [
       {

@@ -2,9 +2,7 @@ import { buildPortfolioApplyHref } from "@/lib/manager-property-links";
 import { residentCreateAccountHref, residentSignInHref } from "@/lib/resident-public-nav";
 import { residentPortalApplyReturnPath } from "@/lib/rental-application/public-apply-session";
 
-export type ProspectActionKind = "apply" | "tour" | "message";
-
-const GUEST_CONTINUE_PREFIX = "proplane_prospect_guest:";
+export type ProspectActionKind = "apply" | "tour" | "message" | "lease";
 
 /** Session key for an account gate — action + property (apply keeps legacy bare-id keys). */
 export function prospectGateKey(kind: ProspectActionKind, propertyId: string): string {
@@ -13,26 +11,16 @@ export function prospectGateKey(kind: ProspectActionKind, propertyId: string): s
   return kind === "apply" ? pid : `${kind}:${pid}`;
 }
 
-export function markProspectGuestContinue(gateKey: string): void {
-  if (typeof window === "undefined") return;
-  const key = gateKey.trim();
-  if (!key) return;
-  try {
-    window.sessionStorage.setItem(`${GUEST_CONTINUE_PREFIX}${key}`, "1");
-  } catch {
-    /* ignore */
-  }
-}
-
+/**
+ * A resident account is required for every prospect action (PLAN-0924-1421) —
+ * there is no guest path left to remember. Kept as a stub so a stale session key
+ * written before the gate closed cannot reopen it.
+ *
+ * @deprecated Always false. Do not reintroduce a guest bypass.
+ */
 export function hasProspectGuestContinue(gateKey: string): boolean {
-  if (typeof window === "undefined") return false;
-  const key = gateKey.trim();
-  if (!key) return false;
-  try {
-    return window.sessionStorage.getItem(`${GUEST_CONTINUE_PREFIX}${key}`) === "1";
-  } catch {
-    return false;
-  }
+  void gateKey;
+  return false;
 }
 
 export function prospectPortalReturnPath(
@@ -40,6 +28,7 @@ export function prospectPortalReturnPath(
   input: { propertyId: string; rentalType?: "standard" | "short_term"; listingRoomId?: string; bundleId?: string },
 ): string {
   const pid = input.propertyId.trim();
+  if (kind === "lease") return "/resident/lease";
   if (!pid) {
     return kind === "apply"
       ? "/resident/applications/apply"
@@ -72,6 +61,9 @@ export function prospectPublicReturnPath(
   },
 ): string {
   const pid = input.propertyId.trim();
+  // A lease only exists inside the resident portal — there is no public surface
+  // to bounce a signer back to.
+  if (kind === "lease") return "/resident/lease";
   if (kind === "apply") {
     if (pid) {
       const q = new URLSearchParams({ propertyId: pid });
@@ -102,7 +94,7 @@ export function prospectCreateAccountHref(
   returnPath: string,
   opts?: { email?: string; fullName?: string; phone?: string; tourInquiryId?: string },
 ): string {
-  const next = returnPath.trim() || prospectPortalReturnPath(kind, { propertyId: gateKey.replace(/^(tour|message):/, "") });
+  const next = returnPath.trim() || prospectPortalReturnPath(kind, { propertyId: gateKey.replace(/^(tour|message|lease):/, "") });
   if (kind === "message") {
     return residentCreateAccountHref(next, {
       email: opts?.email,
@@ -132,7 +124,7 @@ export function prospectSignInHref(
   returnPath: string,
   opts?: { email?: string; fullName?: string; phone?: string; tourInquiryId?: string },
 ): string {
-  const next = returnPath.trim() || prospectPortalReturnPath(kind, { propertyId: gateKey.replace(/^(tour|message):/, "") });
+  const next = returnPath.trim() || prospectPortalReturnPath(kind, { propertyId: gateKey.replace(/^(tour|message|lease):/, "") });
   return residentSignInHref(next, {
     tourInquiryId: opts?.tourInquiryId,
     email: opts?.email,
@@ -144,15 +136,19 @@ export function prospectSignInHref(
 
 export type ProspectGateView = "account-prompt" | "signed-in-create-resident" | "resident-portal" | "action";
 
+/**
+ * A resident account is required (PLAN-0924-1421): once a gate key is in play,
+ * the only way past this gate is holding the resident role.
+ */
 export function resolveProspectGateView(input: {
   gateKey?: string;
-  guestContinue: boolean;
+  /** @deprecated Ignored — guest continue is gone. */
+  guestContinue?: boolean;
   signedInNonResident: boolean;
   hasResidentRole?: boolean;
 }): ProspectGateView {
   const key = input.gateKey?.trim() ?? "";
   if (input.hasResidentRole) return "resident-portal";
-  const gateInPlay = Boolean(key) && !input.guestContinue;
-  if (!gateInPlay) return "action";
+  if (!key) return "action";
   return input.signedInNonResident ? "signed-in-create-resident" : "account-prompt";
 }

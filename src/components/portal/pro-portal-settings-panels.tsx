@@ -333,6 +333,15 @@ export function ApplicationsSettingsPanel({
       : (applicationSettings.applicationFeeCents / 100).toFixed(
           applicationSettings.applicationFeeCents % 100 === 0 ? 0 : 2,
         );
+  // The signing fee lives on `leasingPipeline`, the same namespace Lease
+  // Automation writes — one stored value, shown next to Application cost so a
+  // manager prices the whole pipeline in one place.
+  const leaseFeeDollars =
+    leasingPipeline.leaseSigningFeeCents == null
+      ? ""
+      : (leasingPipeline.leaseSigningFeeCents / 100).toFixed(
+          leasingPipeline.leaseSigningFeeCents % 100 === 0 ? 0 : 2,
+        );
 
   return (
     <div className="space-y-6">
@@ -399,6 +408,32 @@ export function ApplicationsSettingsPanel({
                 onApplicationSettingsChange?.({
                   ...applicationSettings,
                   applicationFeeCents: Math.round(dollars * 100),
+                });
+              }}
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Lease cost">
+            <input
+              id="manager-application-lease-signing-fee"
+              type="text"
+              inputMode="decimal"
+              aria-label="Lease cost"
+              className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
+              value={leaseFeeDollars}
+              disabled={disabled || !onLeasingPipelineChange}
+              placeholder="0"
+              data-attr="manager-application-settings-lease-fee"
+              onChange={(e) => {
+                const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
+                if (raw === "") {
+                  onLeasingPipelineChange?.({ ...leasingPipeline, leaseSigningFeeCents: null });
+                  return;
+                }
+                const dollars = Number(raw);
+                if (!Number.isFinite(dollars)) return;
+                onLeasingPipelineChange?.({
+                  ...leasingPipeline,
+                  leaseSigningFeeCents: Math.round(dollars * 100),
                 });
               }}
             />

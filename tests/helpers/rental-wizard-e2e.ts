@@ -32,15 +32,79 @@ export async function pickApplySelect(page: Page, fieldLabel: string | RegExp, o
   await page.getByRole("option", { name: optionName, exact: true }).filter({ visible: true }).first().click();
 }
 
+export async function openApplyAccountGate(page: Page, propertyId: string) {
+  await page.goto(`/rent/apply?propertyId=${propertyId}`, { waitUntil: "domcontentloaded" });
+  const createAccount = page.getByRole("link", { name: /create account/i }).filter({ visible: true }).first();
+  const guestBtn = page.locator('[data-attr="public-apply-continue-guest"]');
+  await expect(createAccount).toBeVisible({ timeout: 60_000 });
+  await expect(guestBtn).toHaveCount(0);
+}
+
+/** @deprecated Guest apply is gone (PLAN-0924-1421). Prefer {@link openApplyAccountGate}. */
 export async function openGuestApplyWizard(page: Page, propertyId: string) {
+  await openApplyAccountGate(page, propertyId);
+}
+
+/**
+ * Walk the rental wizard after the resident is already signed in (or the
+ * account gate has been cleared). Guest continue was removed — do not click it.
+ */
+export async function walkSignedInRentalApplication(
+  page: Page,
+  propertyId: string,
+  applicant: ApplicantInfo,
+  household: HouseholdConfig = { kind: "solo" },
+) {
   await page.goto(`/rent/apply?propertyId=${propertyId}`, { waitUntil: "domcontentloaded" });
   const guestBtn = page.locator('[data-attr="public-apply-continue-guest"]');
+  await expect(guestBtn).toHaveCount(0);
   const householdStep = page.locator('[data-wizard-field="applyingAsGroup"]').filter({ visible: true }).first();
-  await expect(guestBtn.or(householdStep)).toBeVisible({ timeout: 60_000 });
-  if (await guestBtn.isVisible()) {
-    await guestBtn.click();
+  const createAccount = page.getByRole("link", { name: /create account/i }).filter({ visible: true }).first();
+  // If the account gate is still up, stop — the caller must create/sign in first.
+  if (await createAccount.isVisible().catch(() => false)) {
+    await expect(createAccount).toBeVisible();
+    return;
   }
   await expect(householdStep).toBeVisible({ timeout: 60_000 });
+
+  await fillHouseholdStep(page, household);
+  await continueBtn(page).click();
+
+  await fillSignerStep(page, applicant);
+  await continueBtn(page).click();
+
+  await fillPropertyLeaseStep(page);
+  await continueBtn(page).click();
+
+  await fillCurrentAddressStep(page);
+  await continueBtn(page).click();
+
+  await fillPreviousAddressStep(page);
+  await continueBtn(page).click();
+
+  await fillEmploymentStep(page);
+  await continueBtn(page).click();
+
+  await fillReferencesStep(page);
+  await continueBtn(page).click();
+
+  await fillAdditionalDetailsStep(page);
+  await continueBtn(page).click();
+
+  await fillConsentStep(page, applicant.name);
+  await continueBtn(page).click();
+
+  await submitReviewAndApplication(page);
+}
+
+/** @deprecated Use {@link walkSignedInRentalApplication} — guest path removed. */
+export async function walkGuestRentalApplication(
+  page: Page,
+  propertyId: string,
+  applicant: ApplicantInfo,
+  household: HouseholdConfig = { kind: "solo" },
+) {
+  await walkSignedInRentalApplication(page, propertyId, applicant, household);
 }
 
 export type HouseholdConfig =
@@ -193,41 +257,5 @@ export async function submitReviewAndApplication(page: Page, opts?: { expectFini
   }
 }
 
-/** Walk the 11-step rental wizard as a guest and submit. */
-export async function walkGuestRentalApplication(
-  page: Page,
-  propertyId: string,
-  applicant: ApplicantInfo,
-  household: HouseholdConfig = { kind: "solo" },
-) {
-  await openGuestApplyWizard(page, propertyId);
-
-  await fillHouseholdStep(page, household);
-  await continueBtn(page).click();
-
-  await fillSignerStep(page, applicant);
-  await continueBtn(page).click();
-
-  await fillPropertyLeaseStep(page);
-  await continueBtn(page).click();
-
-  await fillCurrentAddressStep(page);
-  await continueBtn(page).click();
-
-  await fillPreviousAddressStep(page);
-  await continueBtn(page).click();
-
-  await fillEmploymentStep(page);
-  await continueBtn(page).click();
-
-  await fillReferencesStep(page);
-  await continueBtn(page).click();
-
-  await fillAdditionalDetailsStep(page);
-  await continueBtn(page).click();
-
-  await fillConsentStep(page, applicant.name);
-  await continueBtn(page).click();
-
-  await submitReviewAndApplication(page);
-}
+/** Walk the 11-step rental wizard as a signed-in resident and submit. */
+// (legacy walkGuestRentalApplication body removed — see walkSignedInRentalApplication above)

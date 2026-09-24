@@ -1,12 +1,15 @@
 import type { ListingShareSummary } from "@/lib/listing-share-summary";
 
-export type LeadInviteKind = "apply" | "tour" | "listing";
+export type LeadInviteKind = "apply" | "tour" | "listing" | "lease";
 
 export function leadInviteSubject(kind: LeadInviteKind, propertyTitle: string, listingCount?: number): string {
   const title = propertyTitle.trim() || "your property";
   if (kind === "listing") {
     if (listingCount && listingCount > 1) return `${listingCount} listings for you — PropLane`;
     return `Listing: ${title} — PropLane`;
+  }
+  if (kind === "lease") {
+    return `Sign your lease — ${title} — PropLane`;
   }
   if (kind === "tour" && listingCount && listingCount > 1) {
     return `Schedule a tour — choose your property — PropLane`;
@@ -106,8 +109,15 @@ export function buildLeadInviteEmailBody(params: {
   const intro =
     params.kind === "apply"
       ? `Your property manager invited you to apply for ${propertyTitle} on PropLane.`
-      : `Your property manager invited you to schedule a tour for ${propertyTitle} on PropLane.`;
-  const cta = params.kind === "apply" ? "Start your application here:" : "Schedule your tour here:";
+      : params.kind === "lease"
+        ? `Your property manager invited you to review and sign your lease for ${propertyTitle} on PropLane.`
+        : `Your property manager invited you to schedule a tour for ${propertyTitle} on PropLane.`;
+  const cta =
+    params.kind === "apply"
+      ? "Start your application here:"
+      : params.kind === "lease"
+        ? "Create your resident account (or sign in) to open your lease:"
+        : "Schedule your tour here:";
   const lines = [greeting, "", intro, "", cta, params.linkUrl];
   if (params.managerNote?.trim()) {
     lines.push("", "Note from your property manager:", params.managerNote.trim());
@@ -141,6 +151,8 @@ export function buildLeadInviteSmsText(params: {
     lead = `${hi}Listing for ${title} on PropLane: ${params.linkUrl}`;
   } else if (params.kind === "apply") {
     lead = `${hi}Apply for ${title} on PropLane: ${params.linkUrl}`;
+  } else if (params.kind === "lease") {
+    lead = `${hi}Sign your lease for ${title} on PropLane: ${params.linkUrl}`;
   } else {
     lead = `${hi}Schedule a tour for ${title} on PropLane: ${params.linkUrl}`;
   }
@@ -261,8 +273,11 @@ ${noteBlock}
   const intro =
     params.kind === "apply"
       ? `Your property manager invited you to apply for <strong>${propertyTitle}</strong> on PropLane.`
-      : `Your property manager invited you to schedule a tour for <strong>${propertyTitle}</strong> on PropLane.`;
-  const ctaLabel = params.kind === "apply" ? "Start application" : "Schedule tour";
+      : params.kind === "lease"
+        ? `Your property manager invited you to review and sign your lease for <strong>${propertyTitle}</strong> on PropLane.`
+        : `Your property manager invited you to schedule a tour for <strong>${propertyTitle}</strong> on PropLane.`;
+  const ctaLabel =
+    params.kind === "apply" ? "Start application" : params.kind === "lease" ? "Open lease to sign" : "Schedule tour";
   return `<!DOCTYPE html>
 <html>
 <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,sans-serif;line-height:1.55;color:#0f172a;font-size:15px;background:#f8fafc">

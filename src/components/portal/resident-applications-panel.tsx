@@ -77,8 +77,6 @@ import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionPublicSite } from "@/lib/public-demo-access";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
-  hasPublicApplyGuestContinue,
-  markPublicApplyGuestContinue,
   publicApplyGateKey,
   publicApplyReturnPath,
   resolvePublicApplyView,
@@ -101,6 +99,11 @@ import {
 } from "@/lib/manager-applications-storage";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { clearRentalWizardDraft, loadRentalWizardDraft, loadRentalWizardDraftAxisId, saveRentalWizardDraft, saveRentalWizardDraftAxisId } from "@/lib/rental-application/drafts";
+import { readLeasePipeline } from "@/lib/lease-pipeline-storage";
+import {
+  applicationFieldsFromLeaseRow,
+  mergeLeaseAutofillIntoApplication,
+} from "@/lib/leasing/lease-application-field-map";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { getRoomChoiceLabel, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import {
@@ -470,33 +473,14 @@ export function ResidentApplicationsPanel({
     [applyTarget, rentalType],
   );
 
-  const [guestBypass, setGuestBypass] = useState(false);
-  const [guestContinuedInSession, setGuestContinuedInSession] = useState(false);
-
-  useEffect(() => {
-    if (!applyGateKey) {
-      setGuestContinuedInSession(false);
-      return;
-    }
-    setGuestContinuedInSession(hasPublicApplyGuestContinue(applyGateKey));
-  }, [applyGateKey]);
-
-  const continueApplyAsGuest = useCallback(() => {
-    if (applyGateKey) markPublicApplyGuestContinue(applyGateKey);
-    setGuestBypass(true);
-  }, [applyGateKey]);
-
-  const guestContinue = !applyGateKey || guestBypass || guestContinuedInSession;
-
   const applyView = useMemo(
     () =>
       resolvePublicApplyView({
         gateKey: applyGateKey,
-        guestContinue,
         signedInNonResident,
         hasResidentRole,
       }),
-    [applyGateKey, guestContinue, signedInNonResident, hasResidentRole],
+    [applyGateKey, signedInNonResident, hasResidentRole],
   );
 
   const applyPropertyTitle = useMemo(() => {
@@ -669,6 +653,28 @@ export function ResidentApplicationsPanel({
         nextPropertyId: pid,
         inProgressRows,
       });
+    } else {
+      // Lease-first: prefill allowlisted fields from a linked lease intake when present.
+      const email = (sessionEmail ?? "").trim().toLowerCase();
+      const leaseRows = readLeasePipeline();
+      const linkedLease =
+        leaseRows.find(
+          (row) =>
+            (row.propertyId?.trim() === pid || row.application?.propertyId?.trim() === pid) &&
+            (!email || row.residentEmail.trim().toLowerCase() === email),
+        ) ??
+        leaseRows.find((row) => row.propertyId?.trim() === pid || row.application?.propertyId?.trim() === pid);
+      if (linkedLease) {
+        const fromLease = applicationFieldsFromLeaseRow(linkedLease);
+        if (Object.keys(fromLease).length > 0) {
+          const base = {
+            ...createInitialRentalWizardState(),
+            propertyId: pid,
+            email,
+          };
+          saveRentalWizardDraft(mergeLeaseAutofillIntoApplication(base, fromLease));
+        }
+      }
     }
 
     if (demoMode) {
@@ -921,17 +927,14 @@ export function ResidentApplicationsPanel({
         <div className="mx-auto w-full max-w-3xl py-4 sm:py-8">
           {applyView === "signed-in-create-resident" ? (
             <SignedInResidentAccountPrompt
-              gateKey={applyGateKey}
               applyReturnPath={applyReturnPath}
               propertyTitle={applyPropertyTitle}
-              onContinueGuest={continueApplyAsGuest}
             />
           ) : (
             <PublicApplyAccountPrompt
               gateKey={applyGateKey}
               applyReturnPath={applyReturnPath}
               propertyTitle={applyPropertyTitle}
-              onContinueGuest={continueApplyAsGuest}
             />
           )}
         </div>

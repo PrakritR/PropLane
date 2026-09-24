@@ -2,42 +2,31 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
-  hasPublicApplyGuestContinue,
-  markPublicApplyGuestContinue,
   publicApplyCreateAccountHref,
   publicApplySignInHref,
 } from "@/lib/rental-application/public-apply-session";
 
 /**
  * Shown before the public rental wizard when the applicant is not signed in.
- * Recommends creating a resident account (then applying from the portal); sign-in
- * is for returning residents; guest apply remains the last option.
+ * A resident account is required to apply (PLAN-0924-1421): create one, or sign
+ * in if you are a returning resident. There is no guest path.
  */
 export function PublicApplyAccountPrompt({
   gateKey,
   applyReturnPath,
   propertyTitle,
-  onContinueGuest,
 }: {
   gateKey: string;
   applyReturnPath: string;
   propertyTitle?: string;
-  onContinueGuest: () => void;
 }) {
   const [resolved, setResolved] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
-  const [guestChosen, setGuestChosen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    if (hasPublicApplyGuestContinue(gateKey)) {
-      setGuestChosen(true);
-      setResolved(true);
-      return;
-    }
     void (async () => {
       try {
         const supabase = createSupabaseBrowserClient();
@@ -55,13 +44,7 @@ export function PublicApplyAccountPrompt({
     };
   }, [gateKey]);
 
-  const continueAsGuest = () => {
-    markPublicApplyGuestContinue(gateKey);
-    setGuestChosen(true);
-    onContinueGuest();
-  };
-
-  if (!resolved || signedIn || guestChosen) return null;
+  if (!resolved || signedIn) return null;
 
   const listing = propertyTitle?.trim() || "this home";
 
@@ -72,9 +55,8 @@ export function PublicApplyAccountPrompt({
         Create your resident account
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        We recommend a resident account for {listing} — create one and apply from your portal, where you can track your
-        application, messages, and payments. Already have an account? Sign in. Or apply as a guest and we&apos;ll email
-        setup instructions to the address you use.
+        A resident account is required to apply for {listing}. Create one and apply from your portal, where you track
+        your application, messages, and payments. Already have an account? Sign in.
       </p>
       <div className="mt-4 flex flex-wrap gap-2.5">
         <Link
@@ -91,15 +73,6 @@ export function PublicApplyAccountPrompt({
         >
           Sign in
         </Link>
-        <Button
-          type="button"
-          variant="ghost"
-          className="min-h-[44px] w-full rounded-full text-[15px] font-semibold text-muted"
-          data-attr="public-apply-continue-guest"
-          onClick={continueAsGuest}
-        >
-          Continue without an account
-        </Button>
       </div>
     </div>
   );

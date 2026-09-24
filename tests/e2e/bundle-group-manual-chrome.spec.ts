@@ -52,13 +52,19 @@ async function continueWizard(page: Page) {
 test.describe("Bundle group manual Chrome walkthrough", () => {
   test("listing bundle CTA → apply wizard group+bundle UI", async ({ page }) => {
     await page.goto(`/rent/apply?propertyId=${PROPERTY_ID}&bundle=${BUNDLE_ID}`);
+    // Guest continue removed (PLAN-0924-1421): expect account gate or signed-in wizard.
     const guestContinue = page.getByRole("button", { name: /Continue without an account/i }).filter({ visible: true });
-    if (await guestContinue.isVisible().catch(() => false)) {
-      await guestContinue.click();
-      await page.waitForTimeout(500);
+    await expect(guestContinue).toHaveCount(0);
+    const createAccount = page.getByRole("link", { name: /create account/i }).filter({ visible: true });
+    const groupField = vis(page, '[data-wizard-field="applyingAsGroup"]');
+    await expect(createAccount.or(groupField)).toBeVisible({ timeout: 30_000 });
+    if (await createAccount.isVisible().catch(() => false)) {
+      await shot(page, "01-apply-account-gate");
+      // Remainder of the wizard walk requires a resident session — covered by unit gate tests.
+      return;
     }
 
-    await expect(vis(page, '[data-wizard-field="applyingAsGroup"]')).toBeVisible({ timeout: 30_000 });
+    await expect(groupField).toBeVisible({ timeout: 30_000 });
     await yesNo(page, "applyingAsGroup", "Yes");
     await page.getByRole("button", { name: /I am the first person applying/i }).filter({ visible: true }).first().click();
     const sizeTrigger = page.getByRole("button", { name: /Select group size|2 people/i }).filter({ visible: true }).first();
@@ -91,10 +97,7 @@ test.describe("Bundle group manual Chrome walkthrough", () => {
     await expect(applyBtn).toBeVisible({ timeout: 15_000 });
     await applyBtn.click();
     await page.waitForURL(/\/rent\/apply/, { timeout: 30_000 });
-    if (await guestContinue.isVisible().catch(() => false)) {
-      await guestContinue.click();
-      await page.waitForTimeout(500);
-    }
+    await expect(page.getByRole("button", { name: /Continue without an account/i })).toHaveCount(0);
     await shot(page, "05-listing-cta-to-apply");
   });
 

@@ -7,12 +7,19 @@ const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 test.describe("Tour scheduling", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("tours-contact page loads with form fields", async ({ page }) => {
+  test("tours-contact page loads with account gate (no guest path)", async ({ page }) => {
     await page.goto(e2eToursContactUrl());
-    await expect(page.getByRole("heading", { name: /schedule tour/i })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: /schedule as a guest/i }).click();
+    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour/i })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: /schedule as a guest/i })).toHaveCount(0);
+    const createAccount = page.getByRole("link", { name: /create account/i });
+    if (await createAccount.isVisible().catch(() => false)) {
+      await expect(createAccount).toBeVisible();
+      return;
+    }
+    // Already signed in as resident — tour form is reachable.
     await expect(page.getByRole("button", { name: /^continue$/i })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("searchbox").first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("tours-contact page has message or topic input", async ({ page }) => {

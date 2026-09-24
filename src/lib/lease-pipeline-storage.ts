@@ -47,6 +47,11 @@ import {
 import { stripLeaseAiDisclaimerFromHtml, stripLeaseAiReviewDisclaimer } from "@/lib/lease-templates/types";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { effectiveApplicationForRow, enrichApplicationForLease, readManagerApplicationRows, signedRentLabelForRow, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
+import {
+  normalizeLeaseIntakeAnswers,
+  leaseIntakeFromApplication,
+  type LeaseIntakeAnswers,
+} from "@/lib/leasing/lease-application-field-map";
 import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
 import { cachedLandlordLegalName, LEASE_LANDLORD_PLACEHOLDER } from "@/lib/manager-landlord-profile";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -767,6 +772,12 @@ export type LeasePipelineRow = {
   roomChoice?: string | null;
   signedRentLabel?: string | null;
   application?: Partial<RentalWizardFormState>;
+  /**
+   * Lease-first intake answers (PLAN-0924-1421). Allowlisted fields only —
+   * see `lease-application-field-map.ts`. Prefer this over guessing from
+   * `application` when autofilling a later application.
+   */
+  leaseIntake?: LeaseIntakeAnswers | null;
   generatedHtml?: string | null;
   generatedAtIso?: string | null;
   /** Manager-authored, typed section overrides. The generated HTML stays the source document. */
@@ -1081,6 +1092,7 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     roomChoice: typeof r.roomChoice === "string" ? r.roomChoice : null,
     signedRentLabel: typeof r.signedRentLabel === "string" ? r.signedRentLabel : null,
     application: r.application,
+    leaseIntake: normalizeLeaseIntakeAnswers(r.leaseIntake),
     // Do not alter persisted historical bytes on read. Section overrides stay
     // separate until they are materialized for signing.
     generatedHtml: stripLeaseAiDisclaimerFromHtml(
@@ -1771,6 +1783,7 @@ function syncApprovedApplications(rows: LeasePipelineRow[], managerUserId?: stri
         roomChoice: roomChoice || null,
         signedRentLabel: signedRentLabelForRow(app),
         application: effectiveApplicationForRow(app),
+        leaseIntake: leaseIntakeFromApplication(effectiveApplicationForRow(app)),
         generatedHtml: existing?.generatedHtml ?? null,
         generatedAtIso: existing?.generatedAtIso ?? null,
         managerUploadedPdf: uploadedPdf,
@@ -1815,6 +1828,10 @@ function syncApprovedApplications(rows: LeasePipelineRow[], managerUserId?: stri
       roomChoice: roomChoice || null,
       signedRentLabel: signedRentLabelForRow(app),
       application: effectiveApplicationForRow(app),
+      leaseIntake:
+        idx === -1
+          ? leaseIntakeFromApplication(effectiveApplicationForRow(app))
+          : next[idx]!.leaseIntake ?? leaseIntakeFromApplication(effectiveApplicationForRow(app)),
       generatedHtml: idx === -1 ? null : next[idx]!.generatedHtml,
       generatedAtIso: idx === -1 ? null : next[idx]!.generatedAtIso,
       managerUploadedPdf: idx === -1 ? null : next[idx]!.managerUploadedPdf,
@@ -2351,6 +2368,7 @@ export function ensureManagerReviewLeaseForApplication(
     roomChoice: roomChoice || null,
     signedRentLabel: signedRentLabelForRow(app),
     application: effectiveApplicationForRow(app),
+    leaseIntake: leaseIntakeFromApplication(effectiveApplicationForRow(app)),
     generatedHtml: null,
     generatedAtIso: null,
     managerUploadedPdf: null,

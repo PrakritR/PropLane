@@ -902,6 +902,7 @@ const SHARE_KIND_LABELS: Record<LeadInviteKind, string> = {
   apply: "Application invite",
   tour: "Tour-scheduling invite",
   listing: "Listing details (with apply + tour links)",
+  lease: "Lease-to-sign invite",
 };
 
 export const sharePropertyLinkTool = defineWriteTool({
@@ -911,8 +912,8 @@ export const sharePropertyLinkTool = defineWriteTool({
   inputSchema: z
     .object({
       kind: z
-        .enum(["apply", "tour", "listing"])
-        .describe("What to send: an application link, a tour-scheduling link, or the listing details."),
+        .enum(["apply", "tour", "listing", "lease"])
+        .describe("What to send: an application link, a tour-scheduling link, listing details, or a lease-to-sign invite."),
       propertyId: z.string().min(1).describe("The live property id, from list_properties."),
       toEmail: z.string().min(3).describe("The prospect's email address."),
       prospectName: z.string().optional().describe("Optional prospect name used in the email greeting."),

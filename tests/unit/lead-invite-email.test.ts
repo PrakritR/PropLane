@@ -17,6 +17,25 @@ describe("leadInviteSubject", () => {
   it("treats a count of 1 as a single listing", () => {
     expect(leadInviteSubject("listing", "Ballard Commons", 1)).toBe("Listing: Ballard Commons — PropLane");
   });
+
+  it("names a lease-to-sign invite", () => {
+    expect(leadInviteSubject("lease", "Ballard Commons")).toBe("Sign your lease — Ballard Commons — PropLane");
+  });
+});
+
+describe("buildLeadInviteEmailBody — lease send", () => {
+  it("points the prospect at the create-account lease link", () => {
+    const link = "https://app.example.com/auth/create-account?mode=create&role=resident&next=%2Fresident%2Flease";
+    const body = buildLeadInviteEmailBody({
+      kind: "lease",
+      propertyTitle: "Ballard Commons",
+      linkUrl: link,
+      prospectName: "Sam",
+    });
+    expect(body).toContain("Hi Sam,");
+    expect(body).toContain("sign your lease");
+    expect(body).toContain(link);
+  });
 });
 
 describe("buildLeadInviteEmailBody — multi-listing send", () => {
