@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
  * Merge required PropLane OAuth redirect URLs into a Supabase project's auth config.
+ * Optionally set Site URL to the canonical production origin (proplane.ai).
  *
  * Usage:
  *   node scripts/sync-supabase-oauth-redirect-urls.mjs --project-ref qahnczmilgptcedaqype
+ *   node scripts/sync-supabase-oauth-redirect-urls.mjs --project-ref qahnczmilgptcedaqype --set-site-url
  *   node scripts/sync-supabase-oauth-redirect-urls.mjs --project-ref emstjswhotsnyksqhqyf --dry-run
  *
  * Requires a Supabase personal access token in SUPABASE_ACCESS_TOKEN or macOS Keychain
@@ -11,7 +13,12 @@
  */
 import { execSync } from "node:child_process";
 
+/** Canonical user-facing origin — Site URL + primary redirect host after domain cutover. */
+const CANONICAL_PRODUCTION_ORIGIN = "https://proplane.ai";
+
 const PRODUCTION_ORIGINS = [
+  CANONICAL_PRODUCTION_ORIGIN,
+  "https://www.proplane.ai",
   "https://prop-lane.space",
   "https://www.prop-lane.space",
   "https://axis-seattle-housing.com",
@@ -52,6 +59,8 @@ function requiredRedirectUrls({ includeLocal = false } = {}) {
   }
   for (const native of NATIVE_CALLBACKS) urls.add(native);
   // Wildcards for production hosts (Supabase supports ** on some plans).
+  urls.add(`${CANONICAL_PRODUCTION_ORIGIN}/**`);
+  urls.add("https://www.proplane.ai/**");
   urls.add("https://prop-lane.space/**");
   urls.add("https://www.prop-lane.space/**");
   return [...urls].sort();
@@ -70,14 +79,18 @@ function parseArgs(argv) {
   let projectRef = null;
   let dryRun = false;
   let includeLocal = false;
+  let setSiteUrl = false;
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--dry-run") dryRun = true;
     else if (arg === "--include-local") includeLocal = true;
+    else if (arg === "--set-site-url") setSiteUrl = true;
     else if (arg === "--project-ref") {
       projectRef = argv[++i]?.trim() ?? null;
     } else if (arg === "--help" || arg === "-h") {
-      console.log(`usage: node scripts/sync-supabase-oauth-redirect-urls.mjs --project-ref <ref> [--include-local] [--dry-run]`);
+      console.log(
+        `usage: node scripts/sync-supabase-oauth-redirect-urls.mjs --project-ref <ref> [--include-local] [--set-site-url] [--dry-run]`,
+      );
       process.exit(0);
     }
   }
@@ -85,11 +98,11 @@ function parseArgs(argv) {
     console.error("Missing --project-ref");
     process.exit(1);
   }
-  return { projectRef, dryRun, includeLocal };
+  return { projectRef, dryRun, includeLocal, setSiteUrl };
 }
 
 async function main() {
-  const { projectRef, dryRun, includeLocal } = parseArgs(process.argv);
+  const { projectRef, dryRun, includeLocal, setSiteUrl } = parseArgs(process.argv);
   const token = readAccessToken();
   if (!token) {
     console.error("No Supabase access token. Set SUPABASE_ACCESS_TOKEN or log in via Supabase CLI.");
@@ -114,13 +127,20 @@ async function main() {
   const merged = [...new Set([...existing, ...requiredRedirectUrls({ includeLocal })])].sort();
 
   const added = merged.filter((url) => !existing.includes(url));
+  const currentSite = String(current.site_url ?? "").replace(/\/$/, "");
+  const siteUrlNeedsUpdate = setSiteUrl && currentSite !== CANONICAL_PRODUCTION_ORIGIN;
+
   console.log(`Project: ${projectRef}`);
-  console.log(`Existing entries: ${existing.length}`);
-  console.log(`Merged entries: ${merged.length}`);
-  console.log(`New entries (${added.length}):`);
+  console.log(`Site URL: ${currentSite || "(empty)"}`);
+  if (siteUrlNeedsUpdate) {
+    console.log(`Site URL → ${CANONICAL_PRODUCTION_ORIGIN}`);
+  }
+  console.log(`Existing redirect entries: ${existing.length}`);
+  console.log(`Merged redirect entries: ${merged.length}`);
+  console.log(`New redirect entries (${added.length}):`);
   for (const url of added) console.log(`  + ${url}`);
 
-  if (added.length === 0) {
+  if (added.length === 0 && !siteUrlNeedsUpdate) {
     console.log("Nothing to update.");
     return;
   }
@@ -130,16 +150,20 @@ async function main() {
     return;
   }
 
+  const body = {};
+  if (added.length > 0) body.uri_allow_list = merged.join(",");
+  if (siteUrlNeedsUpdate) body.site_url = CANONICAL_PRODUCTION_ORIGIN;
+
   const patchRes = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/config/auth`, {
     method: "PATCH",
     headers,
-    body: JSON.stringify({ uri_allow_list: merged.join(",") }),
+    body: JSON.stringify(body),
   });
   if (!patchRes.ok) {
     console.error(`Failed to update auth config (${patchRes.status}):`, await patchRes.text());
     process.exit(1);
   }
-  console.log("Updated Supabase auth redirect URLs.");
+  console.log("Updated Supabase auth config.");
 }
 
 main().catch((e) => {
