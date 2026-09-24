@@ -57,7 +57,7 @@ async function publishBurstJob(args: {
   revision: number;
   delaySeconds: number;
   attemptId: string;
-}): Promise<{ ok: true; jobId: string | null } | { ok: false }> {
+}): Promise<{ ok: true; jobId: string | null } | { ok: false; status?: number }> {
   const config = qstashConfig();
   if (!config) return { ok: false };
   const publish = await fetch(`${config.url.replace(/\/$/, "")}/v2/publish/${config.callback}`, {
@@ -72,7 +72,7 @@ async function publishBurstJob(args: {
     body: JSON.stringify({ burstId: args.burstId, revision: args.revision }),
     signal: AbortSignal.timeout(5_000),
   }).catch(() => null);
-  if (!publish?.ok) return { ok: false };
+  if (!publish?.ok) return { ok: false, status: publish?.status };
   const response = await publish.json().catch(() => null) as { messageId?: unknown } | null;
   return { ok: true, jobId: typeof response?.messageId === "string" ? response.messageId : null };
 }
@@ -81,7 +81,7 @@ async function publishBurstJob(args: {
 export async function enqueueProspectSmsBurst(db: SupabaseClient, args: {
   sourceMessageId: string; managerUserId: string; counterpartyPhoneE164: string;
   channel: ProspectSmsChannel; body: string; replyFromNumber?: string | null;
-}): Promise<{ ok: true; burstId: string; revision: number; duplicate: boolean } | { ok: false; error: string }> {
+}): Promise<{ ok: true; burstId: string; revision: number; duplicate: boolean; published: boolean; dueAt: string | null } | { ok: false; error: string }> {
   if (args.channel === "claw") {
     return { ok: false, error: "retired_transport_unsupported" };
   }
@@ -102,17 +102,25 @@ export async function enqueueProspectSmsBurst(db: SupabaseClient, args: {
   const dueMs = Date.parse(String(row.due_at ?? ""));
   const delaySeconds = Number.isFinite(dueMs) ? Math.max(0, (dueMs - Date.now()) / 1000) : QUIET_SECONDS;
   const publish = await publishBurstJob({ burstId, revision, delaySeconds, attemptId: "ingress" });
-  if (!publish.ok) return { ok: false, error: "durable_queue_unavailable" };
+  const dueAt = Number.isFinite(dueMs) ? new Date(dueMs).toISOString() : null;
+  if (!publish.ok) {
+    // The ingress row is durable, so a queue outage (quota, network) must not
+    // drop the text: the caller runs this burst itself behind the same claim.
+    console.warn("prospect burst queue publish failed; running inline", { burstId, revision, status: publish.status });
+    return { ok: true, burstId, revision, duplicate: row.inserted !== true, published: false, dueAt };
+  }
   await db.from("prospect_sms_bursts").update({
     queue_job_id: publish.jobId,
     published_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }).eq("id", burstId).eq("revision", revision);
-  return { ok: true, burstId, revision, duplicate: row.inserted !== true };
+  return { ok: true, burstId, revision, duplicate: row.inserted !== true, published: true, dueAt };
 }
 
 /** Republish unpublished/expired-lease work with a fresh queue-attempt identity. */
-export async function recoverProspectSmsBursts(db: SupabaseClient, now = new Date()): Promise<{ scanned: number; published: number; failed: number; shadowsCompleted: number; shadowsUnknown: number }> {
+export type InlineProspectBurst = { burstId: string; revision: number; dueAt: string | null };
+
+export async function recoverProspectSmsBursts(db: SupabaseClient, now = new Date()): Promise<{ scanned: number; published: number; failed: number; unpublished: InlineProspectBurst[]; shadowsCompleted: number; shadowsUnknown: number }> {
   const health = durableProspectSmsHealth();
   if (!health.ok) throw new Error(health.error);
   const stalePublishedAt = new Date(now.getTime() - 10 * 60_000).toISOString();
@@ -123,6 +131,7 @@ export async function recoverProspectSmsBursts(db: SupabaseClient, now = new Dat
   if (error) throw new Error("prospect_burst_recovery_unavailable");
   let published = 0;
   let failed = 0;
+  const unpublished: InlineProspectBurst[] = [];
   const publicationDeadline = Date.now() + 15_000;
   for (const row of data ?? []) {
     if (Date.now() >= publicationDeadline) break;
@@ -134,7 +143,11 @@ export async function recoverProspectSmsBursts(db: SupabaseClient, now = new Dat
       delaySeconds,
       attemptId: `recovery-${now.getTime()}-${randomUUID()}`,
     });
-    if (!result.ok) { failed += 1; continue; }
+    if (!result.ok) {
+      failed += 1;
+      unpublished.push({ burstId: String(row.id), revision: Number(row.revision), dueAt: row.due_at ? String(row.due_at) : null });
+      continue;
+    }
     published += 1;
     await db.from("prospect_sms_bursts").update({
       queue_job_id: result.jobId,
@@ -143,7 +156,7 @@ export async function recoverProspectSmsBursts(db: SupabaseClient, now = new Dat
     }).eq("id", row.id).eq("revision", row.revision);
   }
   const shadows = await runPendingProspectShadows(db, now);
-  return { scanned: data?.length ?? 0, published, failed, ...shadows };
+  return { scanned: data?.length ?? 0, published, failed, unpublished, ...shadows };
 }
 
 type StoredShadowSnapshot = ProspectShadowBurst & {

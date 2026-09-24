@@ -76,10 +76,10 @@ describe("durable prospect ingress publication retry", () => {
     };
 
     await expect(enqueueProspectSmsBurst(db, input)).resolves.toEqual({
-      ok: false, error: "durable_queue_unavailable",
+      ok: true, burstId: "burst-1", revision: 4, duplicate: false, published: false, dueAt: "2099-01-01T00:00:00.000Z",
     });
     await expect(enqueueProspectSmsBurst(db, input)).resolves.toEqual({
-      ok: true, burstId: "burst-1", revision: 4, duplicate: true,
+      ok: true, burstId: "burst-1", revision: 4, duplicate: true, published: true, dueAt: "2099-01-01T00:00:00.000Z",
     });
     expect(db.rpc).toHaveBeenCalledTimes(2);
     expect(db.rpc).toHaveBeenNthCalledWith(2, "record_prospect_sms_ingress", expect.objectContaining({
@@ -94,6 +94,25 @@ describe("durable prospect ingress publication retry", () => {
     expect(secondHeaders["Upstash-Deduplication-Id"]).toBe(firstHeaders["Upstash-Deduplication-Id"]);
     expect(firstHeaders["Upstash-Deduplication-Id"]).not.toContain(":");
     expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts the durable text as unpublished when QStash refuses it, so the caller runs it inline", async () => {
+    const publish = vi.fn().mockResolvedValue(new Response('{"error":"daily ratelimit 1000 exceeded"}', { status: 429 }));
+    vi.stubGlobal("fetch", publish);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db, update } = durableDb();
+    const { enqueueProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(enqueueProspectSmsBurst(db, {
+      sourceMessageId: "source-quota-exhausted",
+      managerUserId: "00000000-0000-0000-0000-000000000001",
+      counterpartyPhoneE164: "+15550001111",
+      channel: "twilio",
+      body: "Is Jain Home available?",
+    })).resolves.toMatchObject({ ok: true, burstId: "burst-1", revision: 4, published: false });
+    expect(update).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("running inline"), expect.objectContaining({ status: 429 }));
+    warn.mockRestore();
   });
 
   it.each(["/api/internal/prospect-sms-burst", "ftp://prop-lane.test/callback", "not a url"])(
@@ -156,7 +175,7 @@ describe("durable prospect ingress publication retry", () => {
       counterpartyPhoneE164: "+15550001111",
       channel: "twilio",
       body: "Is Jain Home available?",
-    })).resolves.toEqual({ ok: true, burstId: "burst-1", revision: 4, duplicate: false });
+    })).resolves.toEqual({ ok: true, burstId: "burst-1", revision: 4, duplicate: false, published: true, dueAt: "2099-01-01T00:00:00.000Z" });
     expect(db.rpc).toHaveBeenCalledTimes(1);
     expect(db.rpc).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ p_quiet_seconds: 10 }));
     expect(publish).toHaveBeenCalledTimes(1);
