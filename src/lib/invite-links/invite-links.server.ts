@@ -467,16 +467,13 @@ export async function listInviteLinksForActor(db: SupabaseClient, actorUserId: s
 }
 
 /**
- * Get the active link for a workspace.
- *
- * The active link is the most recently created manager link for this workspace
- * that has not been revoked and is still usable. Returns null if none exists.
- * Requires the actor to have members rights in the workspace.
+ * Saved invite links for a workspace (newest first), including deactivated
+ * rows so Members can show Active / Off. Requires members rights.
  */
-export async function activeInviteLinkForWorkspace(
+export async function listInviteLinksForWorkspace(
   db: SupabaseClient,
-  input: { actorUserId: string; workspaceId: string },
-): Promise<{ ok: true; link: InviteLinkRow | null } | { ok: false; status: number; error: string }> {
+  input: { actorUserId: string; workspaceId: string; now?: Date },
+): Promise<{ ok: true; links: InviteLinkRow[] } | { ok: false; status: number; error: string }> {
   const standing = await actorWorkspaceStanding(db, input.actorUserId, input.workspaceId);
   if (!standing) {
     return { ok: false, status: 403, error: "That workspace is not yours to invite into." };
@@ -491,34 +488,43 @@ export async function activeInviteLinkForWorkspace(
     .eq("owner_user_id", standing.ownerUserId)
     .eq("kind", "manager")
     .eq("workspace_id", input.workspaceId)
-    .is("revoked_at", null)
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(50);
 
-  if (!data || data.length === 0) {
-    return { ok: true, link: null };
+  return {
+    ok: true,
+    links: (data ?? []).map((row) => toInviteLinkRow(row as DbRow)),
+  };
+}
+
+/**
+ * Get the active link for a workspace.
+ *
+ * The active link is the most recently created manager link for this workspace
+ * that has not been revoked and is still usable. Returns null if none exists.
+ * Requires the actor to have members rights in the workspace.
+ */
+export async function activeInviteLinkForWorkspace(
+  db: SupabaseClient,
+  input: { actorUserId: string; workspaceId: string },
+): Promise<{ ok: true; link: InviteLinkRow | null } | { ok: false; status: number; error: string }> {
+  const listed = await listInviteLinksForWorkspace(db, input);
+  if (!listed.ok) return listed;
+
+  const now = new Date();
+  for (const link of listed.links) {
+    const unusable = inviteLinkUnusableReason(
+      {
+        expiresAt: link.expiresAt,
+        revokedAt: link.revokedAt,
+        maxUses: link.maxUses,
+        usedCount: link.usedCount,
+      },
+      now,
+    );
+    if (!unusable) return { ok: true, link };
   }
-
-  const row = data[0] as DbRow;
-  const link = toInviteLinkRow(row);
-
-  // Check if the link is unusable (expired, max uses reached, etc.).
-  const unusable = inviteLinkUnusableReason(
-    {
-      expiresAt: link.expiresAt,
-      revokedAt: link.revokedAt,
-      maxUses: link.maxUses,
-      usedCount: link.usedCount,
-    },
-    new Date(),
-  );
-
-  // Drop the link if it is unusable.
-  if (unusable) {
-    return { ok: true, link: null };
-  }
-
-  return { ok: true, link };
+  return { ok: true, link: null };
 }
 
 type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string };
