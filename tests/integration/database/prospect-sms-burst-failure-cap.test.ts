@@ -90,10 +90,10 @@ describe.skipIf(!configuredPort)("prospect burst failure cap", () => {
     const done = await db.query("select public.complete_prospect_sms_burst($1,$2,$3,'failed') as ok", [burstId, revision, worker]);
     expect(done.rows[0].ok).toBe(true);
     const { rows } = await db.query(
-      "select status, failed_attempts, failed_revision, extract(epoch from due_at - now()) as wait_s from public.prospect_sms_bursts where id = $1",
+      "select status, failed_attempts, failed_revision, published_at, due_at = 'infinity' as terminal_due, extract(epoch from due_at - now()) as wait_s from public.prospect_sms_bursts where id = $1",
       [burstId],
     );
-    return rows[0] as { status: string; failed_attempts: number; failed_revision: number; wait_s: number };
+    return rows[0] as { status: string; failed_attempts: number; failed_revision: number; published_at: string | null; terminal_due: boolean; wait_s: number };
   };
 
   it("backs off 1, 2, 4, 8 minutes and leaves the revision terminal after the fifth failure", async () => {
@@ -105,6 +105,12 @@ describe.skipIf(!configuredPort)("prospect burst failure cap", () => {
     expect(states.slice(0, 4).map((s) => s.status)).toEqual(["queued", "queued", "queued", "queued"]);
     expect(states.slice(0, 4).map((s) => Math.round(Number(s.wait_s) / 60))).toEqual([1, 2, 4, 8]);
     expect(states[4]!.status).toBe("failed");
+    // The recovery sweep republishes only rows with no fresh publication.
+    expect(states.every((state) => state.published_at === null)).toBe(true);
+    // A terminal revision can never be claimed again, even by a late delivery.
+    expect(states[4]!.terminal_due).toBe(true);
+    const late = await db.query("select * from public.claim_prospect_sms_burst($1,$2,'w-late',120)", [burst_id, revision]);
+    expect(late.rows[0]?.claimed ?? null).not.toBe(true);
   });
 
   it("starts the count over when the prospect texts again", async () => {
@@ -114,7 +120,7 @@ describe.skipIf(!configuredPort)("prospect burst failure cap", () => {
 
     expect(next.revision).toBe(first.revision + 1);
     const state = await claimAndFail(next.burst_id, next.revision);
-    expect(state).toMatchObject({ status: "queued", failed_attempts: 1, failed_revision: next.revision });
+    expect(state).toMatchObject({ status: "queued", failed_attempts: 1, failed_revision: next.revision, terminal_due: false });
   });
 
   it("clears the count when the revision succeeds", async () => {

@@ -3,7 +3,10 @@
 -- an empty result failed every cron sweep and exhausted the daily QStash quota.
 -- Failures are now counted per revision (a new inbound text is a new revision
 -- and starts over), backed off 1, 2, 4, 8 minutes, and after the fifth failure
--- the revision is left terminal ('failed'), which the recovery sweep skips.
+-- the revision is left terminal ('failed', due_at infinity so no claim can take
+-- it), which the recovery sweep skips. A backoff clears published_at so the next
+-- sweep republishes with a delay of due_at - now: the sweep only republishes
+-- queued rows whose publication is missing or over 10 minutes old.
 alter table public.prospect_sms_bursts
   add column if not exists failed_revision integer not null default 0,
   add column if not exists failed_attempts integer not null default 0;
@@ -23,6 +26,7 @@ begin
                 when failed_revision = p_revision then failed_attempts + 1
                 else 1 end as n
     from public.prospect_sms_bursts where id = p_burst_id
+    for update
   )
   update public.prospect_sms_bursts b set
     status = case when p_status <> 'failed' then p_status when attempt.n >= 5 then 'failed' else 'queued' end,
@@ -30,7 +34,11 @@ begin
     failed_attempts = attempt.n,
     failed_revision = case when p_status = 'failed' then p_revision else b.failed_revision end,
     outbox_id = coalesce(p_outbox_id, b.outbox_id), candidate_body = p_candidate_body,
-    due_at = case when p_status = 'failed' then now() + make_interval(mins => least(8, power(2, attempt.n - 1)::integer)) else b.due_at end,
+    due_at = case when p_status <> 'failed' then b.due_at
+                  when attempt.n >= 5 then 'infinity'::timestamptz
+                  else now() + make_interval(mins => least(8, power(2, attempt.n - 1)::integer)) end,
+    published_at = case when p_status = 'failed' then null else b.published_at end,
+    queue_job_id = case when p_status = 'failed' then null else b.queue_job_id end,
     lease_owner = null, lease_expires_at = null, updated_at = now()
   from attempt
   where b.id = p_burst_id and b.revision = p_revision and b.status = 'generating'
