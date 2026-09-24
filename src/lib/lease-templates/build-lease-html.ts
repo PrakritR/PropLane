@@ -1,3 +1,4 @@
+import { formatLeaseDateLabel, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { leaseSharedRoomOccupancySentence } from "@/lib/shared-room-display";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import {

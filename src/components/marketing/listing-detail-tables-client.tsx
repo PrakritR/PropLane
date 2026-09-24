@@ -30,6 +30,8 @@ import { useProspectListingHrefs } from "@/hooks/use-prospect-listing-hrefs";
 import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-cta-labels";
 import { getRoomUnavailabilityWindows, LISTING_ROOM_CHOICE_SEP, type RoomUnavailabilityWindow } from "@/lib/rental-application/data";
 import { roomAvailabilityPillClasses, roomAvailabilityTone } from "@/lib/room-availability-style";
+import { formatRoomPriceAmount } from "@/lib/room-pricing";
+import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
 import { ColumnHelp } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-room-display";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
