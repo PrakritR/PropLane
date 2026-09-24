@@ -73,6 +73,8 @@ export type ManagerSmsResidentConversation = {
    * should key on rather than the phone number.
    */
   conversationKey?: string;
+  /** Server-owned archive flag from `manager_tour_followup_controls`. */
+  archived?: boolean;
   /**
    * EVERY stored conversation key folded into this thread. A directory
    * resident's conversation merges the keys that match them by account id or

@@ -115,6 +115,7 @@ import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
 import {
   loadManagerSmsArchivedIds,
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
+  mirrorManagerSmsArchivedFromServer,
 } from "@/lib/manager-sms-archive.client";
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
@@ -389,7 +390,11 @@ export function ManagerUnifiedInbox({
     if (!smsUiEnabled) return true;
     if (smsPollHaltedRef.current) return false;
     try {
-      const res = await loadManagerSmsConversationsClient(requestViewerId ?? "", force);
+      const res = await loadManagerSmsConversationsClient(
+        requestViewerId ?? "",
+        force,
+        workspaceIdentity.id,
+      );
       if (
         currentViewerIdRef.current !== requestViewerId ||
         viewerEpochRef.current !== requestViewerEpoch ||
@@ -412,6 +417,8 @@ export function ManagerUnifiedInbox({
         return false;
       }
       const normalized = normalizeManagerSmsConversationsPayload(body);
+      mirrorManagerSmsArchivedFromServer(normalized.residents);
+      setSmsArchivedIds(loadManagerSmsArchivedIds());
       setSmsResidents((current) => {
         if (smsResidentsViewerEpochRef.current !== requestViewerEpoch) return current;
         const server = normalized.residents;
@@ -438,7 +445,7 @@ export function ManagerUnifiedInbox({
       /* keep prior */
       return false;
     }
-  }, [smsUiEnabled, viewerId]);
+  }, [smsUiEnabled, viewerId, workspaceIdentity.id]);
 
   const loadInitialList = useCallback(async (): Promise<void> => {
     const requestGeneration = ++initialLoadGeneration.current;
@@ -461,7 +468,7 @@ export function ManagerUnifiedInbox({
     if (applications.ok) onApplicationsLoaded?.();
     if (inbox.ok) setEmailThreads(inbox.rows);
     setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
-  }, [isClient, loadSms, onApplicationsLoaded, sessionReady, smsUiEnabled, viewerId]);
+  }, [isClient, loadSms, onApplicationsLoaded, sessionReady, smsUiEnabled, viewerId, workspaceIdentity.id]);
 
   const retryInitialList = useCallback(async (): Promise<void> => {
     // An authorization refusal pauses automatic SMS polling for this viewer.
@@ -694,7 +701,7 @@ export function ManagerUnifiedInbox({
         const lastMessage = messages[messages.length - 1] ?? null;
         const rowId = smsConversationId(resident);
         if (smsHiddenIds.has(rowId)) return null;
-        const archived = smsArchivedIds.has(rowId);
+        const archived = resident.archived === true || smsArchivedIds.has(rowId);
         const unread = smsThreadHasUnread(messages, smsOpenedIds);
         const lastOutbound = lastMessage?.direction === "outbound";
         const item: UnifiedInboxListItem = {
@@ -896,7 +903,7 @@ export function ManagerUnifiedInbox({
       ? buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace)
       : undefined,
     onSmsDeleted: () => {
-      invalidateManagerSmsConversationsClient(viewerId);
+      invalidateManagerSmsConversationsClient(viewerId, workspaceIdentity.id);
       void loadSms({ force: true });
     },
     showToast: appUi?.showToast,
@@ -1315,9 +1322,8 @@ export function ManagerUnifiedInbox({
       onArchive={
         selectedRow
           ? async () => {
-              bulk.selection.clearSelection();
-              bulk.selection.toggleSelected(selectedRow.key);
-              await bulk.handleArchive();
+              const keys = [...new Set([selectedRow.key, ...(selectedRow.memberKeys ?? [])])];
+              await bulk.handleArchiveKeys(keys);
               closeActiveThread();
             }
           : undefined

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Bath, BedDouble, DoorOpen, UserRound, type LucideIcon } from "lucide-react";
+import { Bath, DoorOpen, UserRound, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { usePortalListGroupFlushRow } from "@/components/portal/portal-list-group";
@@ -104,8 +104,9 @@ export function PortalPersonRecordRow({
  * lines and a glance.
  *
  * No chevron after the title: the whole row is the link and hover says so; the
- * old "2 ›" read as a count (PLAN-0914-1345). Bed / bath / room counts come as
- * glyphs (`meta`) rather than a grey sentence.
+ * old "2 ›" read as a count (PLAN-0914-1345). Bath / room / resident counts come
+ * as glyphs (`meta`) rather than a grey sentence. Bedroom count is not shown —
+ * it is irrelevant next to resident capacity (PLAN-0924-0718).
  */
 export function PortalPropertyRecordRow({
   title,
@@ -142,8 +143,11 @@ export function PortalPropertyRecordRow({
    */
   selectLabel?: string;
   summary?: string;
-  /** Bed / bath / room counts drawn as glyphs under the address. */
-  meta?: { beds?: number; baths?: number; rooms?: number | null };
+  /**
+   * Bath / room / resident counts drawn as glyphs under the address.
+   * `beds` is accepted but ignored (callers may still pass it).
+   */
+  meta?: { beds?: number; baths?: number; rooms?: number | null; residents?: number | null };
   /** Any other glyph facts on that same line — a person row's date, email, household. */
   facts?: ReactNode;
   /** @deprecated Pass `statusWord` — plain coloured text, never a pill. Kept so existing callers still compile. */
@@ -205,16 +209,16 @@ export function PortalPropertyRecordRow({
           {facts}
         </p>
       ) : null}
-      {meta && (meta.beds || meta.baths || meta.rooms) ? (
+      {meta && (meta.baths || meta.rooms || meta.residents) ? (
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="property-row-meta">
-          {meta.beds ? (
-            <span className="inline-flex items-center gap-1"><BedDouble className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bedrooms</span>{meta.beds}</span>
-          ) : null}
           {meta.baths ? (
             <span className="inline-flex items-center gap-1"><Bath className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bathrooms</span>{meta.baths}</span>
           ) : null}
           {meta.rooms ? (
             <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>
+          ) : null}
+          {meta.residents ? (
+            <span className="inline-flex items-center gap-1"><UserRound className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Residents</span>{meta.residents} {meta.residents === 1 ? "resident" : "residents"}</span>
           ) : null}
         </p>
       ) : null}

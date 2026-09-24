@@ -11,6 +11,7 @@
 import type { AdminPropertyRow } from "@/lib/demo-admin-property-inventory";
 import { listingBathroomCountForDisplay, listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { propertyListResidentsGlyph } from "@/lib/shared-room-display";
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
@@ -109,16 +110,20 @@ export function propertyRowAddressLine(
   return [street, place].filter(Boolean).join(" · ") || propertyRowAddress(row);
 }
 
-/** Bed / bath / room counts for the row's glyph line. */
+/**
+ * Bath / room / resident counts for the row's glyph line.
+ * Bedroom count is omitted (irrelevant next to resident capacity — PLAN-0924-0718).
+ * `residents` is Σ occupancyCapacity when any room holds 2+, else omitted.
+ */
 export function propertyRowMeta(
   row: Pick<AdminPropertyRow, "submission" | "beds" | "baths">,
-): { beds: number; baths: number; rooms: number | null } {
+): { baths: number; rooms: number | null; residents: number | null } {
   const rooms = row.submission?.rooms?.length ?? 0;
   const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
   return {
-    beds: row.beds ?? 0,
     baths: listingBathroomCountForDisplay(row.submission, row.baths ?? 0),
     rooms: byRoom && rooms > 0 ? rooms : null,
+    residents: propertyListResidentsGlyph(row.submission?.rooms),
   };
 }
 
@@ -150,33 +155,37 @@ export function propertyRowRentLabel(
   return row.monthlyRent > 0 ? `${usd(row.monthlyRent)}/mo` : "Rent not set";
 }
 
-/** "3 rooms · 2 bd / 1 ba · Green Lake" — the summary without the rent, which the row shows on the right. */
+/** "3 rooms · 1 ba · Green Lake" — the summary without the rent, which the row shows on the right. */
 export function propertyRowDetail(
   row: Pick<AdminPropertyRow, "submission" | "beds" | "baths" | "neighborhood">,
 ): string {
   const rooms = row.submission?.rooms?.length ?? 0;
   const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
   const baths = listingBathroomCountForDisplay(row.submission, row.baths ?? 0);
+  const residents = propertyListResidentsGlyph(row.submission?.rooms);
   return [
     byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
-    row.beds || baths ? `${row.beds} bd / ${baths} ba` : "",
+    baths ? `${baths} ba` : "",
+    residents ? `${residents} residents` : "",
     (row.neighborhood ?? "").trim(),
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
-/** "From $1,160/mo · 3 rooms · 2 bd / 1 ba · Green Lake" */
+/** "From $1,160/mo · 3 rooms · 1 ba · Green Lake" */
 export function propertyRowSummary(
   row: Pick<AdminPropertyRow, "monthlyRent" | "rentRangeLabel" | "submission" | "beds" | "baths" | "neighborhood">,
 ): string {
   const rooms = row.submission?.rooms?.length ?? 0;
   const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
   const baths = listingBathroomCountForDisplay(row.submission, row.baths ?? 0);
+  const residents = propertyListResidentsGlyph(row.submission?.rooms);
   return [
     propertyRowRentLabel(row),
     byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
-    row.beds || baths ? `${row.beds} bd / ${baths} ba` : "",
+    baths ? `${baths} ba` : "",
+    residents ? `${residents} residents` : "",
     (row.neighborhood ?? "").trim(),
   ]
     .filter(Boolean)

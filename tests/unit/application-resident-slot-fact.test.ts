@@ -1,6 +1,6 @@
 /**
- * `applicationResidentSlotFact` (PLAN-0920-0631): the Applications list row
- * fact "Resident N of M · $rent/mo" for a room priced per resident.
+ * `applicationResidentSlotFact` (PLAN-0924-0718): shared rooms show
+ * "Shared · N residents · $X/mo each" — same rent for every resident.
  */
 import { describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -17,8 +17,6 @@ function sharedRoomListing() {
     utilitiesEstimate: "75",
     securityDeposit: "250",
     occupancyCapacity: 2,
-    residentPricing: "per_resident" as const,
-    residentPrices: [{ monthlyRent: 900 }, { monthlyRent: 800 }],
   };
   return { ...createDefaultListingSubmission(), rooms: [room] };
 }
@@ -48,19 +46,11 @@ function row(overrides: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
 }
 
 describe("applicationResidentSlotFact", () => {
-  it("reads the resolved rent for the application's own stored slot", () => {
-    expect(applicationResidentSlotFact(row({ application: { residentSlot: 2 } as never }))).toBe(
-      "Resident 2 of 2 · $800/mo",
-    );
+  it("names shared capacity and the same per-resident rent", () => {
+    expect(applicationResidentSlotFact(row())).toBe("Shared · 2 residents · $1,000/mo each");
   });
 
-  it("is undefined without a stored slot", () => {
-    expect(applicationResidentSlotFact(row())).toBeUndefined();
-  });
-
-  it("is undefined for a room that does not price per resident", () => {
-    expect(
-      applicationResidentSlotFact(row({ assignedRoomChoice: `${LISTING}::not-a-room`, application: { residentSlot: 1 } as never })),
-    ).toBeUndefined();
+  it("is undefined for an unknown room", () => {
+    expect(applicationResidentSlotFact(row({ assignedRoomChoice: `${LISTING}::not-a-room` }))).toBeUndefined();
   });
 });

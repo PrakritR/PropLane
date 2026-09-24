@@ -337,7 +337,7 @@ function inboxThreadsFromUnknown(rows: unknown): PersistedInboxThread[] {
 export function mergeInboxRowsWithLocalTrash(
   serverRows: PersistedInboxThread[],
   localRows: PersistedInboxThread[],
-  opts?: { excludeIds?: Set<string> },
+  opts?: { excludeIds?: Set<string>; serverAuthoritative?: boolean },
 ): PersistedInboxThread[] {
   const excludeIds = opts?.excludeIds ?? new Set<string>();
   const localById = new Map(localRows.map((row) => [row.id, row]));
@@ -360,6 +360,7 @@ export function mergeInboxRowsWithLocalTrash(
       }
       return serverRow;
     });
+  if (opts?.serverAuthoritative) return merged;
   for (const localRow of localRows) {
     if (excludeIds.has(localRow.id) || serverIds.has(localRow.id)) continue;
     merged.push(localRow);
@@ -410,7 +411,10 @@ export async function syncPersistedInboxFromServerWithStatus(
       }
       const rows = inboxThreadsFromUnknown(body.rows);
       const existing = memoryByKey.get(cacheKey) ?? [];
-      const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
+      const merged = mergeInboxRowsWithLocalTrash(rows, existing, {
+        excludeIds: opts?.excludeIds,
+        serverAuthoritative: true,
+      });
       const collapsed = applyInboxCollapseForScope(key, merged);
       memoryByKey.set(cacheKey, collapsed);
       persistInboxToSession(key, collapsed);

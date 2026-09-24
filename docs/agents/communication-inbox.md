@@ -271,8 +271,15 @@ conversations) plus the archive toggle. Invariants:
   conversation only when it is about a house they hold Communication on at the
   level asked for (`read` lists, `edit` replies and sends, `delete` deletes),
   and a conversation about no house is never shared; (3) the active workspace
-  narrows — a conversation shows in the workspace that holds its house, and an
-  untagged one lives in the owner's default workspace. A conversation's house:
+  narrows — a conversation shows in the workspace that holds its house; a
+  house-less thread follows the work line it used (the owning workspace's SMS
+  number or assistant address — shared-in number assignments do not duplicate
+  threads), and only when no line places it does it fall back to the owner's
+  default workspace. Manager email inbox sync is server-authoritative on fetch:
+  rows the API omits are dropped from local storage (local-only ghosts do not
+  resurrect). SMS archive flags mirror from `manager_tour_followup_controls` on
+  each conversations fetch; the SMS reader cache keys on workspace so a switch
+  refetches. A conversation's house:
   SMS uses `houses[]` (conversation-houses tags, else residency); email uses
   the stamped `row_data.propertyId`, else the counterparty's applications and
   residency with that owner (`emailThreadHouses`, every house kept). Owner

@@ -237,7 +237,7 @@ export function mergeContiguousOccupiedNights(
   return out;
 }
 
-/** PropLane → Airbnb: leases, holds, typed blocks. Never re-export an imported iCal row. */
+/** PropLane export: leases, holds, manual blocks, and imported channel stays. */
 export function exportBlockedRanges(input: {
   leases?: readonly { start: string; end: string }[];
   holds?: readonly { start: string; end: string }[];

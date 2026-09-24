@@ -59,3 +59,20 @@ export async function restoreManagerSmsConversation(conversationId: string): Pro
 export function isManagerSmsConversationArchived(conversationId: string): boolean {
   return loadManagerSmsArchivedIds().has(conversationId.trim());
 }
+
+/** Mirror server archive flags into this browser — localStorage is not authoritative. */
+export function mirrorManagerSmsArchivedFromServer(
+  residents: Array<{ conversationKey?: string | null; memberKeys?: string[] | null; archived?: boolean }>,
+): void {
+  const next = new Set<string>();
+  for (const row of residents) {
+    if (!row.archived) continue;
+    const key = row.conversationKey?.trim();
+    if (key) next.add(key);
+    for (const member of row.memberKeys ?? []) {
+      const trimmed = member.trim();
+      if (trimmed) next.add(trimmed);
+    }
+  }
+  persistManagerSmsArchivedIds(next);
+}

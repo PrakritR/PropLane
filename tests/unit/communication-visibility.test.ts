@@ -183,33 +183,34 @@ describe("emailThreadHouses — where an email thread's house comes from", () =>
   });
 });
 
-describe("a shared work number's thread is visible in every holding workspace", () => {
+describe("a work number's thread is scoped to the workspace that owns the line", () => {
   const HOME_WS = "ws-home";
   const SHARED_WS = "ws-shared";
   const OTHER_WS = "ws-other";
 
-  it("shows the thread in the home workspace and the workspace it was shared into", () => {
-    const shared = scope({
-      workspaceHouseIds: new Set(),
-      untaggedOwnedVisible: false,
-      activeWorkspaceId: SHARED_WS,
-      workspaceByLine: new Map([["2065550001", new Set([HOME_WS, SHARED_WS])]]),
-    });
+  it("shows in the owning workspace only, not a workspace that merely shared the number", () => {
+    const lineMap = new Map([["2065550001", new Set([HOME_WS])]]);
     const home = scope({
       workspaceHouseIds: new Set(),
       untaggedOwnedVisible: false,
       activeWorkspaceId: HOME_WS,
-      workspaceByLine: new Map([["2065550001", new Set([HOME_WS, SHARED_WS])]]),
+      workspaceByLine: lineMap,
+    });
+    const shared = scope({
+      workspaceHouseIds: new Set(),
+      untaggedOwnedVisible: false,
+      activeWorkspaceId: SHARED_WS,
+      workspaceByLine: lineMap,
     });
     const elsewhere = scope({
       workspaceHouseIds: new Set(),
       untaggedOwnedVisible: false,
       activeWorkspaceId: OTHER_WS,
-      workspaceByLine: new Map([["2065550001", new Set([HOME_WS, SHARED_WS])]]),
+      workspaceByLine: lineMap,
     });
     const input = { ownerId: VIEWER, houseIds: [], lines: ["+1 (206) 555-0001"] };
     expect(conversationVisible(home, input)).toBe(true);
-    expect(conversationVisible(shared, input)).toBe(true);
+    expect(conversationVisible(shared, input)).toBe(false);
     expect(conversationVisible(elsewhere, input)).toBe(false);
   });
 });

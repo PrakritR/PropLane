@@ -1015,6 +1015,35 @@ export async function fetchManagerSmsConversations(
 
   await attachConversationHouses(db, scopeManagerIds, conversations);
 
+  const archiveKeys = [
+    ...new Set(
+      conversations.flatMap((conversation) => {
+        const owner = String(conversation.ownerManagerUserId ?? managerUserId).trim();
+        const keys = [conversation.conversationKey, ...(conversation.memberKeys ?? [])].filter(Boolean) as string[];
+        return keys.map((key) => `${owner}\0${key}`);
+      }),
+    ),
+  ];
+  const archivedLookup = new Set<string>();
+  if (archiveKeys.length > 0) {
+    const owners = [...new Set(archiveKeys.map((pair) => pair.split("\0")[0]!).filter(Boolean))];
+    const keys = [...new Set(archiveKeys.map((pair) => pair.split("\0")[1]!).filter(Boolean))];
+    const { data: archivedRows } = await db
+      .from("manager_tour_followup_controls")
+      .select("manager_user_id, conversation_key, archived")
+      .in("manager_user_id", owners)
+      .in("conversation_key", keys);
+    for (const row of archivedRows ?? []) {
+      if (row.archived !== true) continue;
+      archivedLookup.add(`${String(row.manager_user_id)}\0${String(row.conversation_key)}`);
+    }
+  }
+  for (const conversation of conversations) {
+    const owner = String(conversation.ownerManagerUserId ?? managerUserId).trim();
+    const keys = [conversation.conversationKey, ...(conversation.memberKeys ?? [])].filter(Boolean) as string[];
+    conversation.archived = keys.some((key) => archivedLookup.has(`${owner}\0${key}`));
+  }
+
   // The houses on a thread decide who sees it: a co-manager only where they
   // hold Communication on one of them, and only inside the workspace that
   // holds it. Untagged threads stay with their owner's default workspace.

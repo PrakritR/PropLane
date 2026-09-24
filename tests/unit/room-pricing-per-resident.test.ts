@@ -55,7 +55,7 @@ describe("roomPricesPerResident", () => {
 });
 
 describe("headline for a room priced per resident", () => {
-  it("is the LOWEST resident rent, prefixed 'from'", () => {
+  it("is the LOWEST resident rent, prefixed 'from' only when slots differ", () => {
     const room = sharedRoom();
     expect(roomHeadlineAmount(room)).toBe(800);
     expect(roomHeadlinePriceIsFrom(room)).toBe(true);
@@ -63,12 +63,19 @@ describe("headline for a room priced per resident", () => {
     expect(roomLowestResidentRent(room)).toBe(800);
   });
 
+  it("drops 'from' when every resident pays the same amount", () => {
+    const room = sharedRoom({ residentPrices: [{ monthlyRent: 900 }, { monthlyRent: 900 }] });
+    expect(roomHeadlinePriceIsFrom(room)).toBe(false);
+    expect(roomHeadlinePriceLabel(room)).toBe("$900/mo");
+    expect(roomResidentRentLines(room)).toEqual([]);
+  });
+
   it("ranks, filters and ranges on the lowest rent", () => {
     expect(roomMonthlyEquivalent(sharedRoom())).toBe(800);
     expect(roomMonthlyEquivalent(sharedRoom({ residentPrices: [{ monthlyRent: 950 }, { monthlyRent: 1200 }] }))).toBe(950);
   });
 
-  it("keeps 'from' under the Flexible suffix", () => {
+  it("keeps 'from' under the Flexible suffix when slots differ", () => {
     expect(roomAdvertisedPriceLabel(sharedRoom({ pricingMode: "flexible" }))).toBe("from $800/mo · Flexible");
   });
 

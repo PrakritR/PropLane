@@ -669,7 +669,7 @@ function approvedSlotPlacementsForChoice(
   return out;
 }
 
-/** Pure expander: one first-choice row per bed when the room prices per resident. */
+/** Pure expander: one first-choice row per bed when the room holds 2+ residents. */
 export function expandFirstChoiceRoomOptions(params: {
   rooms: { value: string; label: string }[];
   leaseTerm?: string | null;
@@ -685,7 +685,7 @@ export function expandFirstChoiceRoomOptions(params: {
   for (const opt of params.rooms) {
     const parsed = parseRoomChoiceValue(opt.value);
     const room = parsed.listingRoomId ? params.resolveRoom(parsed.listingRoomId) : undefined;
-    if (!room || !roomPricesPerResident(room, params.leaseTerm)) {
+    if (!room || normalizeRoomOccupancyCapacity(room.occupancyCapacity) < 2) {
       out.push(opt);
       continue;
     }
@@ -694,9 +694,14 @@ export function expandFirstChoiceRoomOptions(params: {
       out.push(opt);
       continue;
     }
+    // Same rent for every resident (PLAN-0924-0718) — never show unequal slot prices.
+    const roomRent = Number((room as { monthlyRent?: number }).monthlyRent);
+    const slotRents = slots.map((s) => s.monthlyRent).filter((n) => n > 0);
+    const sameAmount =
+      roomRent > 0 ? roomRent : slotRents.length > 0 ? slotRents[0]! : 0;
+    const rent = sameAmount > 0 ? `${formatRoomPriceAmount(sameAmount)}/mo` : "Rent TBD";
     for (const slot of slots) {
       const taken = slot.taken || allTakenByCount;
-      const rent = slot.monthlyRent > 0 ? `${formatRoomPriceAmount(slot.monthlyRent)}/mo` : "Rent TBD";
       const value = roomChoiceValue(parsed.propertyId, parsed.listingRoomId!, slot.slot);
       const roomName = (room as { name?: string }).name?.trim() || parseRoomChoiceValue(opt.value).listingRoomId || "Room";
       out.push({
@@ -770,7 +775,7 @@ export function firstChoiceSlotIsTaken(
   if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return false;
   const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
   const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
-  if (!room || !roomPricesPerResident(room, options.leaseTerm)) return false;
+  if (!room || normalizeRoomOccupancyCapacity(room.occupancyCapacity) < 2) return false;
   const placements = approvedSlotPlacementsForChoice(roomChoiceValue, options);
   const slots = openResidentSlots({
     room,

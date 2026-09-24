@@ -17,7 +17,7 @@ describe("channel calendar export ICS", () => {
     expect(ics).not.toContain("Vedel");
   });
 
-  it("does not re-export an imported iCal range stored on the listing", () => {
+  it("includes an imported Airbnb stay and a manual block in the export merge", () => {
     const sub = createDefaultListingSubmission();
     const room = sub.rooms[0]!;
     room.id = "r3";
@@ -25,7 +25,15 @@ describe("channel calendar export ICS", () => {
       { id: `${CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX}-conn-1-uid`, start: "2026-09-01", end: "2026-09-10" },
       { id: "typed-1", start: "2026-09-20", end: "2026-09-22" },
     ];
-    expect(roomUnavailableRangesForExport(sub, "r3")).toEqual([{ start: "2026-09-20", end: "2026-09-22" }]);
+    expect(roomUnavailableRangesForExport(sub, "r3")).toEqual([
+      { start: "2026-09-01", end: "2026-09-10" },
+      { start: "2026-09-20", end: "2026-09-22" },
+    ]);
+    const ranges = exportBlockedRanges({ typedBlocks: roomUnavailableRangesForExport(sub, "r3") });
+    expect(ranges).toEqual([
+      { start: "2026-09-01", end: "2026-09-10" },
+      { start: "2026-09-20", end: "2026-09-22" },
+    ]);
   });
 
   it("an empty room is a valid empty calendar", () => {

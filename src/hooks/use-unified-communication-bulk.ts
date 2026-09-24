@@ -104,41 +104,68 @@ export function useUnifiedCommunicationBulk({
     onSelectionCleared?.();
   }, [onSelectionCleared, selection]);
 
+  const rowsFromListKeys = useCallback(
+    (keys: string[]): SelectedRow[] => {
+      const wanted = new Set(keys.map((key) => key.trim()).filter(Boolean));
+      if (wanted.size === 0) return [];
+      return mergedRows
+        .filter(
+          (row) =>
+            wanted.has(row.key) || (row.memberKeys ?? []).some((memberKey) => wanted.has(memberKey)),
+        )
+        .flatMap((row) =>
+          [...new Set([row.key, ...(row.memberKeys ?? [])])].flatMap((key) => {
+            const parsed = parseUnifiedInboxKey(key);
+            return parsed ? [{ key, ...parsed }] : [];
+          }),
+        );
+    },
+    [mergedRows],
+  );
+
+  const archiveRows = useCallback(
+    async (rows: SelectedRow[], clearSelectionAfter = true) => {
+      const emailIds = rows.filter((row) => row.channel === "email").map((row) => row.threadId);
+      const smsIds = rows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+
+      if (emailIds.length > 0) {
+        const { ok, next } = await archivePersistedInboxThreads(storageKey, emailIds);
+        if (!ok) {
+          showToast("Could not archive conversations.");
+          return false;
+        }
+        onEmailThreadsChange(next);
+      }
+
+      if (smsIds.length > 0) {
+        try {
+          for (const id of smsIds) await archiveManagerSmsConversation(id);
+          onSmsArchiveChange?.();
+        } catch {
+          showToast("Could not archive text conversations. Try again.");
+          return false;
+        }
+      }
+
+      showToast("Archived.");
+      if (clearSelectionAfter) clearAfterBulk();
+      return true;
+    },
+    [clearAfterBulk, onEmailThreadsChange, onSmsArchiveChange, showToast, storageKey],
+  );
+
   const handleArchive = useCallback(async () => {
-    const emailIds = selectedRows
-      .filter((row) => row.channel === "email")
-      .map((row) => row.threadId);
-    const smsIds = selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+    await archiveRows(selectedRows, true);
+  }, [archiveRows, selectedRows]);
 
-    if (emailIds.length > 0) {
-      const { ok, next } = await archivePersistedInboxThreads(storageKey, emailIds);
-      if (!ok) {
-        showToast("Could not archive conversations.");
-        return;
-      }
-      onEmailThreadsChange(next);
-    }
-
-    if (smsIds.length > 0) {
-      try {
-        for (const id of smsIds) await archiveManagerSmsConversation(id);
-        onSmsArchiveChange?.();
-      } catch {
-        showToast("Could not archive text conversations. Try again.");
-        return;
-      }
-    }
-
-    showToast("Archived.");
-    clearAfterBulk();
-  }, [
-    clearAfterBulk,
-    onEmailThreadsChange,
-    onSmsArchiveChange,
-    selectedRows,
-    showToast,
-    storageKey,
-  ]);
+  const handleArchiveKeys = useCallback(
+    async (keys: string[]) => {
+      const rows = rowsFromListKeys(keys);
+      if (rows.length === 0) return;
+      await archiveRows(rows, false);
+    },
+    [archiveRows, rowsFromListKeys],
+  );
 
   const handleRestore = useCallback(async () => {
     const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
@@ -399,6 +426,7 @@ export function useUnifiedCommunicationBulk({
     openEdit,
     saveEdit,
     handleArchive,
+    handleArchiveKeys,
     handleRestore,
     handleDelete,
     handleClearAssistant,

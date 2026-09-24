@@ -5,20 +5,46 @@ import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 
 const readers = new Map<string, ReturnType<typeof createCoalescedRefresher<Response>>>();
 
-export function invalidateManagerSmsConversationsClient(viewerId?: string | null): void {
+function smsReaderCacheKey(viewerId: string, workspaceId?: string | null): string {
+  const viewer = String(viewerId ?? "").trim();
+  const workspace = String(workspaceId ?? "").trim();
+  return workspace ? `${viewer}:${workspace}` : viewer;
+}
+
+export function invalidateManagerSmsConversationsClient(
+  viewerId?: string | null,
+  workspaceId?: string | null,
+): void {
   const normalized = String(viewerId ?? "").trim();
-  if (normalized) readers.delete(normalized);
-  else readers.clear();
+  const workspace = String(workspaceId ?? "").trim();
+  if (normalized && workspace) {
+    readers.delete(smsReaderCacheKey(normalized, workspace));
+    return;
+  }
+  if (normalized) {
+    for (const key of [...readers.keys()]) {
+      if (key === normalized || key.startsWith(`${normalized}:`)) readers.delete(key);
+    }
+    return;
+  }
+  readers.clear();
 }
 
 onPortalSessionViewerChange(() => invalidateManagerSmsConversationsClient());
 
 /** The inbox and composer share a directory read; every consumer owns its body. */
-export async function loadManagerSmsConversationsClient(viewerId: string, force = false): Promise<Response> {
-  let reader = readers.get(viewerId);
+export async function loadManagerSmsConversationsClient(
+  viewerId: string,
+  force = false,
+  workspaceId?: string | null,
+): Promise<Response> {
+  const cacheKey = smsReaderCacheKey(viewerId, workspaceId);
+  let reader = readers.get(cacheKey);
   if (!reader) {
-    reader = createCoalescedRefresher(() => fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" }));
-    readers.set(viewerId, reader);
+    reader = createCoalescedRefresher(() =>
+      fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" }),
+    );
+    readers.set(cacheKey, reader);
   }
   return (await reader.run(force)).clone();
 }

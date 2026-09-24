@@ -1,4 +1,5 @@
-import { formatLeaseDateLabel, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { leaseSharedRoomOccupancySentence } from "@/lib/shared-room-display";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import {
   activeCustomLeaseTerms,
   entireHomeMonthlyRentAmount,
@@ -1684,6 +1685,11 @@ ${jointPartiesNote ? `<p>${jointPartiesNote}</p>` : ""}
   <tr><th>Room / unit</th><td><strong>${roomLabel}</strong></td></tr>
   <tr><th>Full description</th><td>${fullPremises}</td></tr>
 </table>
+${(() => {
+  const cap = normalizeRoomOccupancyCapacity(specificRoom?.occupancyCapacity);
+  const sentence = leaseSharedRoomOccupancySentence(cap, monthlyRentBaseStr);
+  return sentence ? `<p data-lease-shared-occupancy="1">${escapeHtml(sentence)}</p>` : "";
+})()}
 ${config.municipalComplianceParagraph ? `<p>${escapeHtml(config.municipalComplianceParagraph)}</p>` : ""}
 ${premisesBaseDisclosureHtml}
 ${premisesDisclosureHtml}

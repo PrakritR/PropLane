@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * "Rent for this resident" — the pick between a per-resident room's open
- * slots, used at Approval and at Add resident (PLAN-0920-0631). One radio row
- * per slot: "Resident N · $rent/mo" plus utilities and deposit, and either
- * "Open" or who holds it and since when. A taken row is disabled.
+ * Bed pick for a shared room (PLAN-0924-0718). One radio row per slot —
+ * "Resident N · $rent/mo" with the SAME rent for every resident (never split).
+ * Taken rows show who holds the bed; open rows are selectable.
  *
  * Pure presentation over `openResidentSlots` — this component never decides
  * openness itself, so the picker and the write it feeds are always reading
@@ -27,6 +26,14 @@ function formatSinceDate(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** Same rent every resident pays — first positive amount wins (never unequal display). */
+function sameRentAmount(slots: OpenResidentSlot[]): number {
+  for (const slot of slots) {
+    if (slot.price.monthlyRent > 0) return slot.price.monthlyRent;
+  }
+  return 0;
+}
+
 /** The lowest OPEN slot, or the first slot when every one is taken — the picker's own default. */
 export function defaultOpenResidentSlot(slots: OpenResidentSlot[]): number | null {
   const firstOpen = slots.find((slot) => !slot.holder);
@@ -41,11 +48,14 @@ export function ApplicationResidentSlotPicker({
   name = "application-resident-slot",
 }: ApplicationResidentSlotPickerProps) {
   if (slots.length === 0) return null;
+  const rentAmount = sameRentAmount(slots);
+  const rentLabel = rentAmount > 0 ? `${formatRoomPriceAmount(rentAmount)}/mo` : "Rent TBD";
+  const first = slots[0]!.price;
 
   return (
     <fieldset className="space-y-2" data-attr="application-resident-slot-picker">
       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">
-        Rent for this resident
+        Bed in this room
       </legend>
       {slots.map((slot) => {
         const taken = slot.holder != null;
@@ -70,13 +80,13 @@ export function ApplicationResidentSlotPicker({
             />
             <span className="min-w-0 flex-1 text-sm">
               <span className={taken ? "font-semibold" : "font-semibold text-foreground"}>
-                Resident {slot.slot} · {formatRoomPriceAmount(slot.price.monthlyRent)}/mo
+                Resident {slot.slot} · {rentLabel}
               </span>
-              {slot.price.utilitiesEstimate ? (
-                <span className="text-muted"> · +${slot.price.utilitiesEstimate} utilities</span>
+              {first.utilitiesEstimate ? (
+                <span className="text-muted"> · +${first.utilitiesEstimate} utilities</span>
               ) : null}
-              {slot.price.securityDeposit ? (
-                <span className="text-muted"> · ${slot.price.securityDeposit} deposit</span>
+              {first.securityDeposit ? (
+                <span className="text-muted"> · ${first.securityDeposit} deposit</span>
               ) : null}
             </span>
             <span className={`shrink-0 text-xs font-semibold ${taken ? "text-muted" : "text-emerald-600"}`}>
