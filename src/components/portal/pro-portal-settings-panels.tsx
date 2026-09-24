@@ -333,16 +333,6 @@ export function ApplicationsSettingsPanel({
       : (applicationSettings.applicationFeeCents / 100).toFixed(
           applicationSettings.applicationFeeCents % 100 === 0 ? 0 : 2,
         );
-  // The signing fee lives on `leasingPipeline`, the same namespace Lease
-  // Automation writes — one stored value, shown next to Application cost so a
-  // manager prices the whole pipeline in one place.
-  const leaseFeeDollars =
-    leasingPipeline.leaseSigningFeeCents == null
-      ? ""
-      : (leasingPipeline.leaseSigningFeeCents / 100).toFixed(
-          leasingPipeline.leaseSigningFeeCents % 100 === 0 ? 0 : 2,
-        );
-
   return (
     <div className="space-y-6">
       <PortalSettingsSection
@@ -377,15 +367,6 @@ export function ApplicationsSettingsPanel({
               dataAttr="leasing-pipeline-require-application"
             />
           </PortalSettingsRow>
-          <PortalSettingsRow label="Lease required">
-            <PortalSettingsToggle
-              checked={leasingPipeline.requireLease}
-              onChange={(next) => onLeasingPipelineChange?.({ ...leasingPipeline, requireLease: next })}
-              label="Lease required"
-              disabled={disabled || !onLeasingPipelineChange}
-              dataAttr="leasing-pipeline-require-lease"
-            />
-          </PortalSettingsRow>
           <PortalSettingsRow label="Application cost">
             <input
               id="manager-application-fee"
@@ -408,32 +389,6 @@ export function ApplicationsSettingsPanel({
                 onApplicationSettingsChange?.({
                   ...applicationSettings,
                   applicationFeeCents: Math.round(dollars * 100),
-                });
-              }}
-            />
-          </PortalSettingsRow>
-          <PortalSettingsRow label="Lease cost">
-            <input
-              id="manager-application-lease-signing-fee"
-              type="text"
-              inputMode="decimal"
-              aria-label="Lease cost"
-              className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
-              value={leaseFeeDollars}
-              disabled={disabled || !onLeasingPipelineChange}
-              placeholder="0"
-              data-attr="manager-application-settings-lease-fee"
-              onChange={(e) => {
-                const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
-                if (raw === "") {
-                  onLeasingPipelineChange?.({ ...leasingPipeline, leaseSigningFeeCents: null });
-                  return;
-                }
-                const dollars = Number(raw);
-                if (!Number.isFinite(dollars)) return;
-                onLeasingPipelineChange?.({
-                  ...leasingPipeline,
-                  leaseSigningFeeCents: Math.round(dollars * 100),
                 });
               }}
             />
@@ -864,8 +819,6 @@ export function LeaseSettingsPanel({
       : (leasingPipeline.leaseSigningFeeCents / 100).toFixed(
           leasingPipeline.leaseSigningFeeCents % 100 === 0 ? 0 : 2,
         );
-  const requirePaymentToSign = (leasingPipeline.leaseSigningFeeCents ?? 0) > 0;
-
   return (
     <div className="space-y-6">
       <PortalSettingsSection
@@ -897,22 +850,6 @@ export function LeaseSettingsPanel({
                   leaseSigningFeeCents: Math.round(dollars * 100),
                 });
               }}
-            />
-          </PortalSettingsRow>
-          <PortalSettingsRow label="Require payment to sign">
-            <PortalSettingsToggle
-              checked={requirePaymentToSign}
-              onChange={(next) =>
-                onLeasingPipelineChange?.({
-                  ...leasingPipeline,
-                  leaseSigningFeeCents: next
-                    ? Math.max(leasingPipeline.leaseSigningFeeCents ?? 2500, 100)
-                    : 0,
-                })
-              }
-              label="Require payment to sign"
-              disabled={disabled || !onLeasingPipelineChange}
-              dataAttr="leasing-pipeline-require-signing-fee"
             />
           </PortalSettingsRow>
         </PortalSettingsGroup>
