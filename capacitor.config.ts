@@ -59,7 +59,7 @@ const nativeEntryPath = nativeShellEntryPath();
 const nativeAppUrl = `${serverBase}${nativeEntryPath}`;
 
 function allowNavigationHosts(): string[] {
-  const hosts = [...CAPACITOR_ALLOW_NAVIGATION_HOSTS];
+  const hosts: string[] = [...CAPACITOR_ALLOW_NAVIGATION_HOSTS];
   try {
     const devHost = new URL(serverBase).hostname;
     if (devHost && !hosts.includes(devHost)) hosts.unshift(devHost);
