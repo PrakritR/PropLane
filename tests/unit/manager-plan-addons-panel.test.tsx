@@ -17,18 +17,8 @@ afterEach(() => {
 const BASE_PAYLOAD = {
   tier: "business" as const,
   canHoldAddons: true,
-  monthlyTotalCents: 0,
+  monthlyTotalCents: 3000,
   addons: [
-    {
-      id: "extra_listing",
-      label: "Extra property listing",
-      unit: "listing",
-      description: "One more live listing.",
-      monthlyCents: 600,
-      maxQuantity: null,
-      quantity: 0,
-      purchasable: true,
-    },
     {
       id: "extra_workspace",
       label: "Extra workspace",
@@ -39,6 +29,16 @@ const BASE_PAYLOAD = {
       quantity: 1,
       purchasable: true,
     },
+    {
+      id: "extra_resident",
+      label: "Extra residents",
+      unit: "resident",
+      description: "One more resident slot.",
+      monthlyCents: 200,
+      maxQuantity: null,
+      quantity: 0,
+      purchasable: true,
+    },
   ],
 };
 
@@ -46,10 +46,6 @@ function quantityFor(container: HTMLElement, addonId: string): string | null {
   return container.querySelector(`[data-attr="plan-addon-${addonId}-quantity"]`)?.textContent ?? null;
 }
 
-// The panel also renders the separate Rent reporting row (its own endpoint,
-// its own fetch) beside the PLAN_ADDONS catalogue most tests exercise here.
-// Route that call to a stub default so the addons-specific mock's call
-// count/args assertions stay scoped to the plan-addons endpoint only.
 function stubbedFetch(addonsFetchMock: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).includes("/api/manager/rent-reporting-addon")) {
@@ -59,10 +55,6 @@ function stubbedFetch(addonsFetchMock: (input: RequestInfo | URL, init?: Request
   });
 }
 
-// PLAN-0920: add-ons are always purchasable and commit as one batch, so this
-// suite replaces the retired per-click purchase-closure assertions — nothing
-// here should ever find a row disabled for a missing price.
-
 describe("ManagerPlanAddonsPanel", () => {
   it("moving a stepper never calls the server — only local draft state changes", async () => {
     const addonsFetchMock = vi.fn(async () => Response.json(BASE_PAYLOAD));
@@ -70,20 +62,19 @@ describe("ManagerPlanAddonsPanel", () => {
 
     const { container } = render(<ManagerPlanAddonsPanel />);
 
-    const add = await screen.findByRole("button", { name: "Add one listing" });
+    const add = await screen.findByRole("button", { name: "Add one resident" });
     fireEvent.click(add);
     fireEvent.click(add);
 
-    expect(quantityFor(container, "extra_listing")).toBe("2");
-    // Only the initial GET happened; no write was sent for either click.
+    expect(quantityFor(container, "extra_resident")).toBe("2");
     expect(addonsFetchMock).toHaveBeenCalledTimes(1);
     expect(addonsFetchMock).toHaveBeenCalledWith("/api/manager/plan-addons", expect.objectContaining({ cache: "no-store" }));
   });
 
-  it("shows a Buy banner with the combined delta only after something moved, and sends ONE batch PATCH", async () => {
+  it("shows Update monthly costs after a change, confirms cost increases, then sends ONE batch PATCH", async () => {
     const patchedBody = {
       ...BASE_PAYLOAD,
-      monthlyTotalCents: 4200,
+      monthlyTotalCents: 6400,
       stripeSynced: true,
       addons: [
         { ...BASE_PAYLOAD.addons[0], quantity: 2 },
@@ -98,19 +89,21 @@ describe("ManagerPlanAddonsPanel", () => {
 
     render(<ManagerPlanAddonsPanel />);
 
-    // Nothing moved yet — no banner, no Buy.
-    await screen.findByRole("button", { name: "Add one listing" });
-    expect(screen.queryByText(/\/mo from today, prorated/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Buy" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Add one workspace" });
+    expect(screen.queryByRole("button", { name: "Update monthly costs" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add one listing" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add one listing" }));
     fireEvent.click(screen.getByRole("button", { name: "Add one workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add one resident" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add one resident" }));
 
-    // +2 listings * $6 + +1 workspace * $30 = +$42/mo.
-    expect(await screen.findByText("+$42/mo from today, prorated")).toBeInTheDocument();
+    // +1 workspace * $30 + +2 residents * $2 = +$34/mo.
+    expect(await screen.findByText("+$34/mo on your next billing cycle")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Buy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update monthly costs" }));
+    expect(await screen.findByRole("heading", { name: "Confirm payment" })).toBeInTheDocument();
+    expect(addonsFetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(addonsFetchMock).toHaveBeenCalledTimes(2));
     expect(addonsFetchMock).toHaveBeenLastCalledWith(
@@ -119,32 +112,32 @@ describe("ManagerPlanAddonsPanel", () => {
         method: "PATCH",
         body: JSON.stringify({
           changes: [
-            { addonId: "extra_listing", quantity: 2 },
             { addonId: "extra_workspace", quantity: 2 },
+            { addonId: "extra_resident", quantity: 2 },
           ],
         }),
       }),
     );
 
-    // Quantities and the banner both come from the server response, not the click.
-    await waitFor(() => expect(screen.queryByText(/\/mo from today, prorated/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Update monthly costs" })).not.toBeInTheDocument());
   });
 
   it("never disables a row for a missing Stripe price — only a real plan cap disables Add", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json({
-        ...BASE_PAYLOAD,
-        addons: [{ ...BASE_PAYLOAD.addons[1], quantity: 7, maxQuantity: 7, purchasable: true }],
-      }),
+    const fetchMock = stubbedFetch(
+      vi.fn(async () =>
+        Response.json({
+          ...BASE_PAYLOAD,
+          addons: [{ ...BASE_PAYLOAD.addons[0], quantity: 7, maxQuantity: 7, purchasable: true }],
+        }),
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ManagerPlanAddonsPanel />);
 
     const add = await screen.findByRole("button", { name: "Add one workspace" });
-    // At its cap: disabled by the CAP, never by `purchasable` (which is always true now).
     expect(add).toBeDisabled();
-    expect(add).toHaveAttribute("title", "Your plan can hold up to 7 of these");
+    expect(add).toHaveAttribute("title", "Your plan can hold up to 7 workspaces");
 
     const remove = screen.getByRole("button", { name: "Remove one workspace" });
     expect(remove).not.toBeDisabled();
@@ -159,10 +152,37 @@ describe("ManagerPlanAddonsPanel", () => {
 
     render(<ManagerPlanAddonsPanel />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add one listing" }));
-    fireEvent.click(screen.getByRole("button", { name: "Buy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add one resident" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update monthly costs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
 
     expect(await screen.findByText("We couldn't update your add-ons. Nothing changed.")).toBeInTheDocument();
+  });
+
+  it("does not list retired communication credits on the storefront", async () => {
+    const addonsFetchMock = vi.fn(async () =>
+      Response.json({
+        ...BASE_PAYLOAD,
+        addons: [
+          ...BASE_PAYLOAD.addons,
+          {
+            id: "extra_comms_credit",
+            label: "Communication credits",
+            unit: "credit pack",
+            description: "Retired.",
+            monthlyCents: 1000,
+            maxQuantity: 0,
+            quantity: 0,
+            purchasable: false,
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", stubbedFetch(addonsFetchMock));
+
+    render(<ManagerPlanAddonsPanel />);
+    await screen.findByRole("button", { name: "Add one workspace" });
+    expect(screen.queryByText("Communication credits")).not.toBeInTheDocument();
   });
 });
 

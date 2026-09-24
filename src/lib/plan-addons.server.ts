@@ -238,6 +238,21 @@ export async function setManagerPlanAddonQuantities(input: {
   if (!validated.ok) return { ok: false, status: 400, error: validated.error };
   const changes = input.changes.map((c) => ({ addonId: c.addonId, quantity: Math.round(c.quantity) }));
 
+  for (const change of changes) {
+    if (change.addonId === "extra_work_number" || change.addonId === "extra_seat" || change.addonId === "extra_comms_credit") {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          change.addonId === "extra_work_number"
+            ? "Work numbers are not sold as add-ons. Each workspace includes one."
+            : change.addonId === "extra_seat"
+              ? "Co-manager seats are not sold as add-ons."
+              : "Communication credits are not sold as monthly add-ons. Use Extra usage instead.",
+      };
+    }
+  }
+
   const tierResult = await getEffectiveManagerSkuTier(managerUserId);
   if (!tierResult.ok) return { ok: false, status: 503, error: "Could not read your plan." };
   if (!planTierCanHoldAddons(tierResult.tier)) {
@@ -251,19 +266,6 @@ export async function setManagerPlanAddonQuantities(input: {
 
   const nextQuantities: PlanAddonQuantities = { ...current.quantities };
   for (const change of changes) nextQuantities[change.addonId] = change.quantity;
-
-  for (const change of changes) {
-    if (change.addonId === "extra_work_number" || change.addonId === "extra_seat") {
-      return {
-        ok: false,
-        status: 400,
-        error:
-          change.addonId === "extra_work_number"
-            ? "Work numbers are not sold as add-ons. Each workspace includes one."
-            : "Co-manager seats are not sold as add-ons.",
-      };
-    }
-  }
 
   for (const addon of PLAN_ADDONS) {
     if (addon.id === "extra_work_number" || addon.id === "extra_seat" || addon.id === "extra_workspace") continue;

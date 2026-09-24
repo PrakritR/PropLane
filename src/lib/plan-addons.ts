@@ -43,7 +43,6 @@ export type PlanAddonDefinition = {
 
 /** Add-ons the Billing panel offers to buy. Retired ids stay in PLAN_ADDONS for grandfathered rows. */
 export const PLAN_ADDON_STOREFRONT_IDS: readonly PlanAddonId[] = [
-  "extra_comms_credit",
   "extra_workspace",
   "extra_resident",
 ] as const;
@@ -53,10 +52,10 @@ export const PLAN_ADDONS: readonly PlanAddonDefinition[] = [
     id: "extra_comms_credit",
     label: "Communication credits",
     unit: "credit pack",
-    description: "Another $10 of texting, calling, and AI credit each month.",
+    description: "Retired — buy communication credit under Extra usage, not as a monthly add-on.",
     monthlyCents: { pro: 1_000, business: 1_000 },
-    maxQuantity: { pro: null, business: null },
-    why: "Top up the included monthly communication allowance.",
+    maxQuantity: { pro: 0, business: 0 },
+    why: "Monthly communication top-ups moved to Extra usage Embedded Checkout.",
   },
   {
     id: "extra_workspace",

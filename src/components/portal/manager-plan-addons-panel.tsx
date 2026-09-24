@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { formatAddonPrice, PLAN_ADDON_STOREFRONT_IDS, type PlanAddonId } from "@/lib/plan-addons";
@@ -15,7 +16,6 @@ const ENDPOINT = "/api/manager/plan-addons";
 
 /** The fact that follows the per-unit price on each add-on's row label (PLAN-0920 UI mock). */
 const ADDON_ROW_FACT: Partial<Record<PlanAddonId, string>> = {
-  extra_comms_credit: "$10 credit / pack",
   extra_workspace: "includes a work number + work email",
   extra_resident: "beyond plan included",
 };
@@ -61,6 +61,7 @@ export function ManagerPlanAddonsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const mounted = useRef(true);
 
   const load = useCallback(async () => {
@@ -115,6 +116,7 @@ export function ManagerPlanAddonsPanel() {
 
   const save = async () => {
     if (!changes.length) return;
+    setConfirmOpen(false);
     setSaving(true);
     setNotice(null);
     try {
@@ -140,6 +142,16 @@ export function ManagerPlanAddonsPanel() {
     } finally {
       if (mounted.current) setSaving(false);
     }
+  };
+
+  /** Cost increases need an explicit confirm; decreases / zero-net apply immediately. */
+  const requestSave = () => {
+    if (!changes.length) return;
+    if (deltaCents > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void save();
   };
 
   const canEdit = Boolean(data?.canHoldAddons) && isNative === false;
@@ -176,7 +188,7 @@ export function ManagerPlanAddonsPanel() {
               <Link href={MANAGER_PLAN_PORTAL_URL} className="font-semibold text-primary hover:underline">
                 Upgrade your plan
               </Link>{" "}
-              to add communication credits, workspaces, or residents.
+              to add workspaces or residents.
             </p>
           ) : null}
           <PortalSettingsGroup>
@@ -240,7 +252,7 @@ export function ManagerPlanAddonsPanel() {
               <span className="text-sm text-muted" data-attr="plan-addons-delta">
                 {formatSignedAddonPrice(deltaCents)}/mo on your next billing cycle
               </span>
-              <Button onClick={save} loading={saving} data-attr="plan-addons-update">
+              <Button variant="outline" onClick={requestSave} loading={saving} data-attr="plan-addons-update">
                 Update monthly costs
               </Button>
             </div>
@@ -256,6 +268,21 @@ export function ManagerPlanAddonsPanel() {
         </>
       ) : null}
       <RentReportingAddonRow disabled={isNative === true} />
+      <Modal
+        open={confirmOpen}
+        title="Confirm payment"
+        onClose={() => setConfirmOpen(false)}
+        assistantStrip={false}
+      >
+        <p className="text-sm text-foreground" data-attr="plan-addons-confirm-delta">
+          {formatSignedAddonPrice(deltaCents)}/mo on your next billing cycle.
+        </p>
+        <ModalFooter className="mt-6">
+          <Button variant="outline" onClick={save} loading={saving} data-attr="plan-addons-confirm">
+            Confirm
+          </Button>
+        </ModalFooter>
+      </Modal>
     </PortalSettingsSection>
   );
 }

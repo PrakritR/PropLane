@@ -26,16 +26,28 @@ Past the bundle a paying account adds units from Settings → Billing & plan
 `/api/manager/plan-addons`). Each quota reads its plan cap PLUS the add-on quantity
 (`manager-property-quota.server.ts`, `workspaces/server.ts`, `/api/pro/account-links`).
 
-| Add-on | Pro | Business |
+The Billing storefront sells only **Extra workspace** and **Extra residents**.
+Communication credit is bought under **Extra usage** (typed dollar amount, Embedded
+Checkout) — not as a monthly add-on. `extra_comms_credit`, `extra_work_number`, and
+`extra_seat` remain in the catalogue for grandfathered rows but refuse writes
+(`setManagerPlanAddonQuantities`). `extra_resident` is allowed in the DB check
+constraint (`20260923200000_manager_plan_addons_extra_resident`).
+
+| Add-on (storefront) | Pro | Business |
 | --- | --- | --- |
-| Extra property listing | $8/mo | $6/mo |
-| Extra work number | $5/mo | $5/mo |
-| Extra workspace | $15/mo (up to 2, i.e. 3 total) | $30/mo (up to the database ceiling, `WORKSPACE_LIMIT`) |
-| Extra co-manager seat | $5/mo | $5/mo |
+| Extra workspace | $15/mo | $30/mo |
+| Extra residents | $3/mo | $2/mo |
+
+| Retired (not sold) | Notes |
+| --- | --- |
+| Communication credits | Use Extra usage |
+| Extra work number | One number per workspace |
+| Extra co-manager seat | Seats uncapped |
+| Extra property listing | Per-door billing |
 
 **Add-ons are always purchasable (PLAN-0920).** A row is never disabled for a missing
 Stripe Price: `ensureAddonPrice()` (`plan-addons.server.ts`) resolves it in order — the
-env override `STRIPE_PRICE_ADDON_<EXTRA_LISTING|EXTRA_WORK_NUMBER|EXTRA_WORKSPACE|EXTRA_SEAT>_<PRO|BUSINESS>`,
+env override `STRIPE_PRICE_ADDON_<EXTRA_WORKSPACE|EXTRA_RESIDENT>_<PRO|BUSINESS>`,
 then an existing Price under the add-on's stable `lookup_key`
 (`planAddonLookupKey`, `proplane_addon_<id>_<tier>`), then creates the Product + Price
 from the catalog — idempotent across processes and cached per process. Comp and admin
