@@ -22,6 +22,7 @@ import {
   isValidCommsCreditAmountCents,
 } from "@/lib/comms-billing/credit-packs";
 import { pollUntilCreditPurchaseLands, useCreditCheckout } from "@/lib/comms-billing/use-credit-checkout";
+import type { ManagerDoorCountPayload } from "@/app/api/manager/door-count/route";
 import type { ManagerUsageSummary } from "@/app/api/manager/usage-summary/route";
 import { RATE_CARD, priceForResidents, formatRateCardUsd, includedResidentsForTier, type RateCardTier, type RateCardBilling } from "@/lib/billing/rate-card";
 
