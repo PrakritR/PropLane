@@ -74,7 +74,7 @@ export function workEmailAudienceLabel(status: ManagerAssistantEmailStatus): str
 
 /**
  * The Channels row for the work email (PLAN-0920-1530). One row, one ⋯ menu
- * (Copy address · Share with residents · Rename) — the old standalone "Work
+ * (Copy address · Share with residents · Edit) — the old standalone "Work
  * email" card, its Availability/Status/Who-can-write-in fields, and the
  * bottom read-only copy box are gone; every fact it carried now lives either
  * on this row or in Settings → Communication → Automation (`workEmailAudienceLabel`,
@@ -108,7 +108,7 @@ export function ManagerAssistantEmailChannelRow() {
   const [addressCheck, setAddressCheck] = useState<MailboxLocalCheckResult | null>(null);
   const [checkingAddress, setCheckingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
-  /** Rename is opened from the row's ⋯ menu rather than always being live. */
+  /** Edit (local-part rename) is opened from the row's ⋯ menu rather than always being live. */
   const [renaming, setRenaming] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -424,8 +424,8 @@ export function ManagerAssistantEmailChannelRow() {
       });
     }
     menuItems.push({
-      key: "rename",
-      label: "Rename",
+      key: "edit",
+      label: "Edit",
       onClick: () => {
         setLocalInput(addressLocal);
         setAddressCheck(null);
@@ -434,8 +434,8 @@ export function ManagerAssistantEmailChannelRow() {
     });
   } else if (status.canRequest) {
     menuItems.push({
-      key: "request",
-      label: pendingAction === "request" ? "Requesting…" : "Request work email",
+      key: "setup",
+      label: pendingAction === "request" ? "Setting up…" : "Setup",
       disabled: pendingAction !== null,
       onClick: () => void postAction("request_address"),
     });

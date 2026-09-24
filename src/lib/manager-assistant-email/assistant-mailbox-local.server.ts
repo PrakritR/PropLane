@@ -3,12 +3,13 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isReservedMailboxLocal,
+  isValidMailboxLocal,
   MAILBOX_LOCAL_PATTERN,
 } from "@/lib/manager-assistant-email/assistant-email-address";
 
 const MAILBOX_LOCAL_PREFIX = "assist-";
 
-/** The default-allocation shape only: `assist-<slug>`, unchanged behaviour. */
+/** The default-allocation shape only: `assist-<slug>`, for profile-based fallbacks. */
 export function isAssistantMailboxLocal(local: string): boolean {
   const trimmed = local.trim().toLowerCase();
   return trimmed.startsWith(MAILBOX_LOCAL_PREFIX) && MAILBOX_LOCAL_PATTERN.test(trimmed);
@@ -33,12 +34,34 @@ function baseMailboxLocalFromProfile(fullName: string, email: string): string {
   return `${MAILBOX_LOCAL_PREFIX}manager`;
 }
 
+/**
+ * Prefer the workspace name as `{slug}@proplane.ai` (no `assist-` prefix).
+ * Falls back to the legacy `assist-<profile>` shape when the workspace slug is
+ * too short, reserved, or missing.
+ */
+function baseMailboxLocal(profile: { fullName: string; email: string }, workspaceName?: string | null): string {
+  const fromWorkspace = workspaceName ? slugifyName(workspaceName) : "";
+  if (
+    fromWorkspace.length >= 3 &&
+    isValidMailboxLocal(fromWorkspace) &&
+    !isReservedMailboxLocal(fromWorkspace)
+  ) {
+    return fromWorkspace;
+  }
+  return baseMailboxLocalFromProfile(profile.fullName, profile.email);
+}
+
+function isAllocatableMailboxLocal(local: string): boolean {
+  return isValidMailboxLocal(local) && !isReservedMailboxLocal(local);
+}
+
 export async function allocateAssistantMailboxLocal(
   db: SupabaseClient,
   profile: { fullName: string; email: string },
   tokenSuffix?: string,
+  workspaceName?: string | null,
 ): Promise<string> {
-  const base = baseMailboxLocalFromProfile(profile.fullName, profile.email);
+  const base = baseMailboxLocal(profile, workspaceName);
   const candidates = [base];
   if (tokenSuffix) {
     candidates.push(`${base}-${tokenSuffix.slice(0, 4).toLowerCase()}`);
@@ -48,7 +71,7 @@ export async function allocateAssistantMailboxLocal(
   }
 
   for (const candidate of candidates) {
-    if (!isAssistantMailboxLocal(candidate) || isReservedMailboxLocal(candidate)) continue;
+    if (!isAllocatableMailboxLocal(candidate)) continue;
     const { data, error } = await db
       .from("manager_assistant_emails")
       .select("manager_user_id")
@@ -59,7 +82,7 @@ export async function allocateAssistantMailboxLocal(
   }
 
   const fallback = `${MAILBOX_LOCAL_PREFIX}${(tokenSuffix ?? "x").slice(0, 8).toLowerCase()}`;
-  return isAssistantMailboxLocal(fallback) ? fallback : `${MAILBOX_LOCAL_PREFIX}inbox`;
+  return isAllocatableMailboxLocal(fallback) ? fallback : `${MAILBOX_LOCAL_PREFIX}inbox`;
 }
 
 /**

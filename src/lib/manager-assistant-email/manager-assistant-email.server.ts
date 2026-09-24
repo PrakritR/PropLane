@@ -223,7 +223,12 @@ export async function upgradeManagerAssistantMailboxLocal(
   if (!ASSISTANT_EMAIL_TOKEN_PATTERN.test(token)) return null;
 
   const profile = await loadManagerProfile(db, managerUserId);
-  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token);
+  let workspaceName: string | null = null;
+  if (workspaceId?.trim()) {
+    const { data: ws } = await db.from("portal_workspaces").select("name").eq("id", workspaceId.trim()).maybeSingle();
+    workspaceName = String(ws?.name ?? "").trim() || null;
+  }
+  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token, workspaceName);
   const now = new Date().toISOString();
   const { error: updateError } = await db
     .from("manager_assistant_emails")
@@ -433,7 +438,7 @@ export class WorkspaceNotOwnedError extends Error {
 export async function ensureManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,
-  workspace?: Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault"> | null,
+  workspace?: (Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault"> & { name?: string }) | null,
 ): Promise<ManagerAssistantEmailRow> {
   let target = workspace ?? null;
   if (!target) {
@@ -443,7 +448,14 @@ export async function ensureManagerAssistantEmail(
       throw new WorkspaceEmailSharedError();
     }
     const id = await ensureDefaultWorkspaceId(db, managerUserId);
-    target = { id, ownerUserId: managerUserId, owned: true, isDefault: true };
+    const { data: ws } = await db.from("portal_workspaces").select("name").eq("id", id).maybeSingle();
+    target = {
+      id,
+      ownerUserId: managerUserId,
+      owned: true,
+      isDefault: true,
+      name: String(ws?.name ?? "").trim() || "My workspace",
+    };
   }
   if (!target.owned || target.ownerUserId !== managerUserId) throw new WorkspaceNotOwnedError();
 
@@ -464,7 +476,9 @@ export async function ensureManagerAssistantEmail(
 
   const token = generateAssistantEmailToken();
   const profile = await loadManagerProfile(db, managerUserId);
-  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token);
+  const workspaceName =
+    ("name" in target && typeof target.name === "string" ? target.name.trim() : "") || null;
+  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token, workspaceName);
   const now = new Date().toISOString();
   const { error } = await db.from("manager_assistant_emails").insert({
     manager_user_id: managerUserId,
@@ -568,7 +582,7 @@ export async function checkWorkspaceAssistantMailboxLocal(
 export async function setWorkspaceAssistantMailboxLocal(
   db: SupabaseClient,
   managerUserId: string,
-  workspace: Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault">,
+  workspace: Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault"> & { name?: string },
   local: string,
 ): Promise<{ ok: true; address: string } | { ok: false; state: "invalid" | "reserved" | "taken"; message: string }> {
   // Throws WorkspaceNotOwnedError / WorkspaceEmailSharedError for a

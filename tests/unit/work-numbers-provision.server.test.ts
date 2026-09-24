@@ -1,10 +1,7 @@
 /**
  * provisionNumberForWorkspace gates a work-number purchase by the account-wide
- * included + extra_work_number budget, and refuses buying a genuine SECOND
- * home number for a workspace that already has one — `manager_sms_numbers`
- * keeps its one-row-per-home-workspace shape, so a real second number for
- * that workspace can only come from sharing (assignNumberToWorkspace), never
- * a second purchase into the same home slot.
+ * included + extra_work_number budget, and refuses buying a second home number
+ * for a workspace that already has one — each workspace gets exactly one.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceMemoryDb } from "./support/workspace-memory-db";

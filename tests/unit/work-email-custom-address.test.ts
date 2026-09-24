@@ -145,7 +145,7 @@ describe("setWorkspaceAssistantMailboxLocal", () => {
     const db = seedDb();
     await expect(
       setWorkspaceAssistantMailboxLocal(db as never, owner, OWNER_WORKSPACE, "newname"),
-    ).resolves.toEqual({ ok: true, address: "newname@prop-lane.space" });
+    ).resolves.toEqual({ ok: true, address: "newname@proplane.ai" });
 
     const { data } = await (db as unknown as {
       from: (t: string) => { select: () => Promise<{ data: { workspace_id: string; mailbox_local: string }[] }> };
@@ -162,7 +162,7 @@ describe("setWorkspaceAssistantMailboxLocal", () => {
     const db = seedDb();
     await expect(
       setWorkspaceAssistantMailboxLocal(db as never, owner, OWNER_WORKSPACE, "assist-owner-name"),
-    ).resolves.toEqual({ ok: true, address: "assist-owner-name@prop-lane.space" });
+    ).resolves.toEqual({ ok: true, address: "assist-owner-name@proplane.ai" });
   });
 
   it("refuses a local already active on another workspace, without mutating either row", async () => {
@@ -202,25 +202,25 @@ describe("setWorkspaceAssistantMailboxLocal", () => {
 
 describe("inbound resolution routes a custom local part like the legacy token form", () => {
   it("routes frontdesk@<domain> to the workspace holding mailbox_local = \"frontdesk\"", async () => {
-    vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "prop-lane.space");
+    vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "proplane.ai");
     await expect(
-      resolveAssistantMailboxByInboundAddresses(seedDb() as never, ["frontdesk@prop-lane.space"]),
+      resolveAssistantMailboxByInboundAddresses(seedDb() as never, ["frontdesk@proplane.ai"]),
     ).resolves.toEqual({ managerUserId: otherOwner, workspaceId: "ws-other" });
   });
 
   it("still routes the legacy assistant+<token>@ form", async () => {
-    vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "prop-lane.space");
+    vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "proplane.ai");
     await expect(
       resolveAssistantMailboxByInboundAddresses(seedDb() as never, [
-        "assistant+tok000000001@prop-lane.space",
+        "assistant+tok000000001@proplane.ai",
       ]),
     ).resolves.toEqual({ managerUserId: owner, workspaceId: "ws-owner" });
   });
 
-  it.each(["support@prop-lane.space", "admin@prop-lane.space"])(
+  it.each(["support@proplane.ai", "admin@proplane.ai"])(
     "never matches a reserved local (%s), even with no row to find",
     async (address) => {
-      vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "prop-lane.space");
+      vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "proplane.ai");
       await expect(
         resolveAssistantMailboxByInboundAddresses(seedDb() as never, [address]),
       ).resolves.toBeNull();

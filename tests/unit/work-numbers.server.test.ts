@@ -1,13 +1,11 @@
 /**
- * Part 3 of the work-numbers-per-workspace plan: a workspace may hold up to 2
- * work numbers via the `workspace_work_numbers` join table, and one number
- * may serve two workspaces. These pin the server module's cap, sharing,
- * removal, and cross-account authorization.
+ * One work number per workspace — cross-workspace sharing is refused.
+ * Primary/home numbers cannot be removed once set up; legacy shared-in
+ * rows can still be cleared with unassign.
  */
 import { describe, expect, it } from "vitest";
 import { createWorkspaceMemoryDb } from "./support/workspace-memory-db";
 import {
-  WORKSPACE_WORK_NUMBER_LIMIT,
   assignNumberToWorkspace,
   listWorkspaceNumbers,
   unassignNumber,
@@ -58,79 +56,26 @@ describe("listWorkspaceNumbers", () => {
   });
 });
 
-describe("assignNumberToWorkspace — sharing a number into a second workspace", () => {
-  it("assigns the workspace's number to a sibling workspace of the same owner", async () => {
+describe("assignNumberToWorkspace — sharing is retired", () => {
+  it("refuses every cross-workspace assign", async () => {
     const db = seed();
     const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-1", workspaceId: PRAKRIT_WS2 });
-    expect(result).toEqual({ ok: true });
-
-    const home = await listWorkspaceNumbers(db as never, PRAKRIT_WS);
-    expect(home).toEqual([
-      expect.objectContaining({
-        numberId: "n-1",
-        isPrimary: true,
-        sharedWithWorkspaceIds: [PRAKRIT_WS2],
-        sharedWithWorkspaceNames: ["Ballard houses"],
-      }),
-    ]);
-    const shared = await listWorkspaceNumbers(db as never, PRAKRIT_WS2);
-    expect(shared).toEqual([
-      expect.objectContaining({
-        numberId: "n-1",
-        isPrimary: false,
-        sharedWithWorkspaceIds: [PRAKRIT_WS],
-        sharedWithWorkspaceNames: ["My workspace"],
-      }),
-    ]);
-  });
-
-  it("refuses assigning a number the actor does not already hold (owner re-derived, never trusted)", async () => {
-    const db = seed({
-      manager_sms_numbers: [
-        { id: "n-1", manager_user_id: prakrit, workspace_id: PRAKRIT_WS, phone_number: "+12065550001", provision_state: "active" },
-        { id: "n-2", manager_user_id: stranger, workspace_id: STRANGER_WS, phone_number: "+12065550099", provision_state: "active" },
-      ],
-      workspace_work_numbers: [
-        { workspace_id: PRAKRIT_WS, number_id: "n-1", is_primary: true, created_at: "2026-02-02" },
-        { workspace_id: STRANGER_WS, number_id: "n-2", is_primary: true, created_at: "2026-02-02" },
-      ],
-    });
-    // Prakrit tries to assign the STRANGER's number into his own workspace.
-    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-2", workspaceId: PRAKRIT_WS2 });
     expect(result).toMatchObject({ ok: false, code: "not_authorized" });
+    expect(await listWorkspaceNumbers(db as never, PRAKRIT_WS2)).toEqual([]);
   });
 
-  it("refuses assigning into a workspace the actor does not own", async () => {
+  it("refuses even when the actor owns both workspaces", async () => {
     const db = seed();
-    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-1", workspaceId: STRANGER_WS });
-    expect(result).toMatchObject({ ok: false, code: "not_authorized" });
-  });
-
-  it("caps a workspace at 1 number", async () => {
-    const db = seed({
-      manager_sms_numbers: [
-        { id: "n-1", manager_user_id: prakrit, workspace_id: PRAKRIT_WS, phone_number: "+12065550001", provision_state: "active" },
-        { id: "n-2", manager_user_id: prakrit, workspace_id: PRAKRIT_WS2, phone_number: "+12065550002", provision_state: "active" },
-      ],
-      workspace_work_numbers: [
-        { workspace_id: PRAKRIT_WS, number_id: "n-1", is_primary: true, created_at: "2026-02-02" },
-        { workspace_id: PRAKRIT_WS2, number_id: "n-2", is_primary: true, created_at: "2026-02-02" },
-      ],
-    });
-    expect((await listWorkspaceNumbers(db as never, PRAKRIT_WS)).length).toBe(WORKSPACE_WORK_NUMBER_LIMIT);
-    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-2", workspaceId: PRAKRIT_WS });
-    expect(result).toMatchObject({ ok: false, code: "cap_exceeded" });
-  });
-
-  it("refuses re-assigning a number the workspace already holds", async () => {
-    const db = seed();
-    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-1", workspaceId: PRAKRIT_WS });
-    expect(result).toMatchObject({ ok: false, code: "already_assigned" });
+    const result = await assignNumberToWorkspace(db as never, prakrit, { numberId: "n-1", workspaceId: PRAKRIT_WS2 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/one workspace/i);
+    }
   });
 });
 
 describe("unassignNumber", () => {
-  it("removes a number from a workspace, leaving other holders untouched", async () => {
+  it("clears a legacy shared-in hold, leaving the home workspace untouched", async () => {
     const db = seed({
       workspace_work_numbers: [
         { workspace_id: PRAKRIT_WS, number_id: "n-1", is_primary: true, created_at: "2026-02-02" },
@@ -144,7 +89,7 @@ describe("unassignNumber", () => {
     expect(remaining).toEqual([expect.objectContaining({ numberId: "n-1", isPrimary: true, sharedWithWorkspaceIds: [] })]);
   });
 
-  it("promotes the earliest remaining holder to primary when the home copy is removed", async () => {
+  it("refuses removing a workspace's own set-up (primary/home) number", async () => {
     const db = seed({
       workspace_work_numbers: [
         { workspace_id: PRAKRIT_WS, number_id: "n-1", is_primary: true, created_at: "2026-02-02" },
@@ -152,9 +97,10 @@ describe("unassignNumber", () => {
       ],
     });
     const result = await unassignNumber(db as never, prakrit, { numberId: "n-1", workspaceId: PRAKRIT_WS });
-    expect(result).toEqual({ ok: true });
-    const remaining = await listWorkspaceNumbers(db as never, PRAKRIT_WS2);
-    expect(remaining).toEqual([expect.objectContaining({ numberId: "n-1", isPrimary: true })]);
+    expect(result).toMatchObject({ ok: false, code: "setup_locked" });
+    expect(await listWorkspaceNumbers(db as never, PRAKRIT_WS)).toEqual([
+      expect.objectContaining({ numberId: "n-1", isPrimary: true }),
+    ]);
   });
 
   it("refuses removing a number for a workspace the actor does not own", async () => {
