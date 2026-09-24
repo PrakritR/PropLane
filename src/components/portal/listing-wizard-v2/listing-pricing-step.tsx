@@ -7,10 +7,10 @@
  *    processing. First, because nothing below matters until money can move.
  *    "PropLane pays" always asks for a processing coverage code; no plan and no
  *    subscription promo can stand in for one.
- * 2. **Each room** — the lease types offered, then the **application fee**
- *    directly under them (one amount, or one per lease type behind a checkbox;
- *    a blank type follows the one amount), then one card per room with a tab
- *    per lease type. There is no Default room card. Each room prices itself.
+ * 2. **Each room** — the lease types offered, then the Applications form
+ *    knobs (fee is set under Settings → Application system, not here), then
+ *    one card per room with a tab per lease type. There is no Default room
+ *    card. Each room prices itself.
  *    Rooms still Duplicate via `copyRoomPricingFrom`. Month-to-month and
  *    custom dates are "same as long-term" until the box is unticked or a room
  *    writes its own `termPricing`. Short-term is rent per night, rent per week.
@@ -30,8 +30,8 @@
  * 5. **What a resident pays** (side panel) — signing ticks live there: Every
  *    room is house policy; pick a room to override and Reset to follow again.
  *
- * Nothing new is stored besides `applicationFeeByLeaseType` and an optional
- * per-room signing matrix. Rent is `room.monthlyRent`; another lease type's
+ * Nothing new is stored for the application fee on this screen (PLAN-0924-1254).
+ * Rent is `room.monthlyRent`; another lease type's
  * own price is `room.termPricing[term]` with ABSENT meaning "same as
  * long-term" (PRP-463), which also drives signing inherit; fees are the same
  * `customFees` records scoped by `leaseTypes` / `roomIds`; the house defaults
@@ -41,7 +41,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AddRowButton, CardAction, CardFoot, CheckboxOption, ColumnHelp, EditorDone, FactRow, MoneyInput, MultiPick, RecordCard, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { RENT_PER_RESIDENT_HELP, sharedRoomPricingSummaryLine } from "@/lib/shared-room-display";
-import { applicationFeeLeaseTypeKey } from "@/lib/listing-application-fee";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   feeAppliesToLeaseType,
@@ -1225,106 +1224,15 @@ export function ListingPricingSections({
   const stay = isStayLeaseTerm(activeLeaseTerm);
 
   /*
-   * The application-fee switch. On means the listing charges one; off blanks
-   * the one amount, every per-type amount, the legacy short-term fee and the
-   * waiver code so nothing is billed. A listing that already has any of them is on.
+   * Application fee lives under Settings → Applications → Application system
+   * (PLAN-0924-1254). Pricing keeps only the house application form knobs
+   * (`applications` prop = HouseApplicationsGroup) — no fee / waiver fields.
    */
-  const perType = sub.applicationFeeByLeaseType ?? {};
-  const legacyStay = moneyValue(sub.shortTermApplicationFee);
-  const feeStored = moneyFilled(sub.applicationFee) || Boolean(legacyStay) || Object.keys(perType).length > 0 || Boolean(sub.applicationFeeWaiverCode);
-  const [feeOn, setFeeOn] = useState(feeStored);
-  const chargeFee = feeOn || feeStored;
-  /*
-   * "Different application fee per lease type": one row per offered type. A
-   * blank row FOLLOWS the one amount (dashed, placeholder), exactly as a room
-   * follows the Default room — so "$50 everywhere, $25 for short stays" is one
-   * tick and one number. Unticking clears every per-type amount.
-   */
-  const splitStored = Object.keys(perType).length > 0 || Boolean(legacyStay);
-  const [splitOn, setSplitOn] = useState(splitStored);
-  const split = splitOn || splitStored;
-  /** A lease type's own fee: its map entry, or the legacy short-term fee for the stay row. */
-  const ownFee = (term: string) => perType[term] ?? (term === SHORT_TERM_LEASE_TERM ? legacyStay : "") ?? "";
-  const writeFee = (term: string, raw: string) => {
-    const v = sanitizeMoneyInput(raw);
-    const next = { ...perType };
-    if (v.trim() === "") delete next[term];
-    else next[term] = v;
-    patch({
-      applicationFeeByLeaseType: Object.keys(next).length ? next : undefined,
-      // Older readers still look here for a stay; keep them agreeing with the row.
-      ...(term === SHORT_TERM_LEASE_TERM ? { shortTermApplicationFee: v } : {}),
-    });
-  };
-  const feeTerms = tabs.map(applicationFeeLeaseTypeKey);
-  const termLabel = (term: string) => (term === "Month-to-Month" ? "Month to month" : term === SHORT_TERM_LEASE_TERM ? "Short-term" : term);
-
   const applicationsCard = (
     <>
       <SectionTitle>Applications</SectionTitle>
       <Card dataAttr="listing-v2-applications-card">
-        <div className="px-3.5 py-1">
-          <CheckboxOption
-            label="Charge an application fee"
-            checked={chargeFee}
-            dataAttr="listing-v2-application-fee-on"
-            onChange={(next) => {
-              setFeeOn(next);
-              if (!next) {
-                setSplitOn(false);
-                patch({ applicationFee: "", shortTermApplicationFee: "", applicationFeeByLeaseType: undefined, applicationFeeWaiverCode: "" });
-              }
-            }}
-          />
-        </div>
-        {chargeFee ? (
-          <div data-attr="listing-v2-application-fee-rows">
-            <FactRow label={split ? "Application fee (default)" : "Application fee"}>
-              <MoneyInput label="Application fee" value={moneyValue(sub.applicationFee)} onChange={(v) => patch({ applicationFee: sanitizeMoneyInput(v) })} />
-            </FactRow>
-            {feeTerms.length > 1 ? (
-              <div className="border-t border-border px-3.5 py-1">
-                <CheckboxOption
-                  label="Different application fee per lease type"
-                  checked={split}
-                  dataAttr="listing-v2-application-fee-split"
-                  onChange={(next) => {
-                    setSplitOn(next);
-                    if (!next) patch({ applicationFeeByLeaseType: undefined, shortTermApplicationFee: "" });
-                  }}
-                />
-              </div>
-            ) : null}
-            {split
-              ? feeTerms.map((term) => {
-                  const own = ownFee(term);
-                  return (
-                    <FactRow key={term} sub label={termLabel(term)} own={own !== ""} onReset={() => writeFee(term, "")} resetLabel={`Reset ${termLabel(term)} application fee to the amount above`}>
-                      <MoneyInput
-                        label={`${termLabel(term)} application fee`}
-                        value={own}
-                        inherited={own === ""}
-                        placeholder={moneyValue(sub.applicationFee)}
-                        dataAttr={`listing-v2-application-fee-${term}`}
-                        onChange={(v) => writeFee(term, v)}
-                      />
-                    </FactRow>
-                  );
-                })
-              : null}
-            <FactRow label="Waiver code">
-              <input
-                aria-label="Waiver code"
-                style={{ textTransform: "uppercase" }}
-                value={sub.applicationFeeWaiverCode ?? ""}
-                placeholder="WELCOME50"
-                onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase() })}
-                className="min-h-[36px] w-[150px] rounded-lg border border-border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary"
-              />
-            </FactRow>
-            <div className="border-t border-border">{applications}</div>
-          </div>
-        ) : null}
+        <div data-attr="listing-v2-applications-form-only">{applications}</div>
       </Card>
     </>
   );

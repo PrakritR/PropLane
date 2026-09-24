@@ -45,4 +45,9 @@ export type ResidentPortalAccessState = {
    */
   fullPortalAccess: boolean;
   managerSubscriptionTier: ManagerSubscriptionTier;
+  /**
+   * Manager leasing pipeline order for this resident's property/workspace
+   * (PLAN-0924-1254). Defaults to application-first when unknown.
+   */
+  pipelineOrder: "application_then_lease" | "lease_then_application";
 };

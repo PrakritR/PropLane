@@ -1,22 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Manager-global application settings — currently just the application fee the
- * manager charges applicants, set ONCE for the whole account instead of per
- * listing (captain decision, 2026-07: "manager sets cost of application in
- * application rather than in the property listing").
+ * Manager-global application settings — the application fee the manager charges
+ * applicants, set ONCE for the account / Application system (PLAN-0924-1254),
+ * not on listing Pricing.
  *
  * Source-of-truth model (see `docs/agents/resident-payments.md`):
  * - `applicationFeeCents` is the authoritative fee for EVERY one of the
  *   manager's listings once the manager has saved it (non-null).
- * - Until the manager saves a value it is `null`, and the fee resolver falls
- *   back to each listing's stored `applicationFee` (grandfathered) so nothing a
- *   live listing already charges changes silently on deploy.
- * - New listings no longer carry their own fee field, so they always resolve to
- *   this manager-level value (or the $50 legacy default when still unset).
- *
- * `0` is a MEANINGFUL saved value ("applications are free for my properties"),
- * distinct from `null` ("not configured — use the listing/legacy fallback").
+ * - Until the manager saves a value it is `null`, and the fee resolver uses the
+ *   legacy $50 default. Listing `applicationFee` fields are ignored.
+ * - `0` is a MEANINGFUL saved value ("applications are free"), distinct from
+ *   `null` ("not configured — use the legacy default").
  *
  * Stored on `manager_automation_settings.row_data.applicationSettings` — the
  * `row_data` JSON column that table always has — so this needs NO schema
@@ -113,25 +108,26 @@ export function validateManagerApplicationFeeCents(raw: unknown): ManagerApplica
 }
 
 /**
- * The effective application fee (cents) for one listing, applying the
- * source-of-truth priority: a configured manager-level value wins for every
- * listing; otherwise the listing's own grandfathered value; otherwise the
- * legacy $50 default. Pure — safe to use on client and server.
+ * The effective application fee (cents) for one listing.
+ *
+ * PLAN-0924-1254 Decide: Application system fee is the ONE source of truth.
+ * Listing `applicationFee` fields are retired from Pricing and are ignored
+ * here (callers may still pass `listingFeeCents` for API stability; it never
+ * wins). Priority: configured manager/system fee → legacy $50 when unset.
+ * Pure — safe to use on client and server.
+ *
+ * `0` on the manager setting means applications are free. `null` means not
+ * configured yet (legacy default applies until the manager saves).
  */
 export function effectiveApplicationFeeCents(input: {
   managerFeeCents: number | null;
   /**
-   * The listing's OWN application fee in cents, or `null` when the listing sets no value.
-   *
-   * Per-listing is AUTHORITATIVE (captain decision, [app-fee-authority] option B): a value
-   * here — INCLUDING 0, which means "free" — wins and is charged. The account-wide
-   * `managerFeeCents` is only a DEFAULT for listings that set nothing; it never overrides a
-   * listing's own value. Passing 0 vs `null` is load-bearing: a deliberate per-listing $0
-   * must never fall through to a non-zero account-wide value.
+   * @deprecated Listing fees are ignored (PLAN-0924-1254). Kept so existing
+   * call sites keep compiling; do not pass a value expecting it to charge.
    */
-  listingFeeCents: number | null;
+  listingFeeCents?: number | null;
 }): number {
-  if (input.listingFeeCents !== null) return input.listingFeeCents;
+  void input.listingFeeCents;
   if (input.managerFeeCents !== null) return input.managerFeeCents;
   return LEGACY_DEFAULT_APPLICATION_FEE_CENTS;
 }

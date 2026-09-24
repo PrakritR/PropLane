@@ -36,6 +36,17 @@ import {
 import type { ManagerReminderRuleSettingsHandle } from "@/components/portal/manager-reminder-rule-settings";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
 import {
+  DEFAULT_MANAGER_APPLICATION_SETTINGS,
+  normalizeManagerApplicationSettings,
+  type ManagerApplicationSettings,
+} from "@/lib/manager-application-settings";
+import {
+  DEFAULT_LEASING_PIPELINE,
+  normalizeLeasingPipelinePreferences,
+  type LeasingPipelinePreferences,
+} from "@/lib/leasing-pipeline-preferences";
+import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
+import {
   SettingsSaveStatusContext,
   type ReportSettingsSaveStatus,
   type SettingsSaveStatusEvent,
@@ -160,6 +171,10 @@ export const SettingsModulePage = forwardRef<
   const [residentHubArea, setResidentHubArea] = useState<ResidentSettingsArea>("household");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
+  const [applicationSettings, setApplicationSettings] = useState<ManagerApplicationSettings>(
+    DEFAULT_MANAGER_APPLICATION_SETTINGS,
+  );
+  const [leasingPipeline, setLeasingPipeline] = useState<LeasingPipelinePreferences>(DEFAULT_LEASING_PIPELINE);
   const [applicationSource, setApplicationSource] = useState<SettingsResolutionSource | null>(null);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
   const scopedPropertyOptions = useMemo(() => {
@@ -199,6 +214,8 @@ export const SettingsModulePage = forwardRef<
   const loadApplications = useCallback(async () => {
     if (demo) {
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
+      setApplicationSettings(DEFAULT_MANAGER_APPLICATION_SETTINGS);
+      setLeasingPipeline(DEFAULT_LEASING_PIPELINE);
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
@@ -216,6 +233,8 @@ export const SettingsModulePage = forwardRef<
       const data = (await res.json().catch(() => ({}))) as {
         automation?: unknown;
         waiverCode?: string | null;
+        settings?: unknown;
+        leasingPipeline?: unknown;
         error?: string;
         source?: SettingsResolutionSource;
       };
@@ -225,6 +244,9 @@ export const SettingsModulePage = forwardRef<
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
       setWaiverCode(typeof data.waiverCode === "string" ? data.waiverCode : "");
+      setApplicationSettings(normalizeManagerApplicationSettings(data.settings));
+      setLeasingPipeline(normalizeLeasingPipelinePreferences(data.leasingPipeline));
+      cacheLeasingPipelinePreferences(data.leasingPipeline);
       setApplicationSource(data.source ?? null);
       scope.reportSource("manager-application-settings", data.source);
     } catch {
@@ -283,7 +305,16 @@ export const SettingsModulePage = forwardRef<
    * must never fan it out.
    */
   const saveApplicationAutomationSettings = useCallback(
-    async (fields: { automation?: ApplicationAutomationPreferences; waiverCode?: string }, targetPropertyIds: string[]) => {
+    async (
+      fields: {
+        automation?: ApplicationAutomationPreferences;
+        waiverCode?: string;
+        applicationFeeCents?: number | null;
+        applicationFeeChargePolicy?: ManagerApplicationSettings["applicationFeeChargePolicy"];
+        leasingPipeline?: LeasingPipelinePreferences;
+      },
+      targetPropertyIds: string[],
+    ) => {
       if (demo) return;
       const allowed = scope.workspaceId
         ? (workspaces?.workspaces.find((item) => item.id === scope.workspaceId)?.propertyIds ?? [])
@@ -369,6 +400,31 @@ export const SettingsModulePage = forwardRef<
       void saveApplicationAutomationSettings({ automation: next }, ids);
     },
     [propertyId, propertyIds, saveApplicationAutomationSettings],
+  );
+
+  const changeApplicationSettings = useCallback(
+    (next: ManagerApplicationSettings) => {
+      setApplicationSettings(next);
+      // Fee is account-wide — never fan out onto property ids.
+      void saveApplicationAutomationSettings(
+        {
+          applicationFeeCents: next.applicationFeeCents,
+          applicationFeeChargePolicy: next.applicationFeeChargePolicy,
+        },
+        [],
+      );
+    },
+    [saveApplicationAutomationSettings],
+  );
+
+  const changeLeasingPipeline = useCallback(
+    (next: LeasingPipelinePreferences) => {
+      setLeasingPipeline(next);
+      cacheLeasingPipelinePreferences(next);
+      const ids = propertyIds.length === 1 ? propertyIds : [];
+      void saveApplicationAutomationSettings({ leasingPipeline: next }, ids);
+    },
+    [propertyIds, saveApplicationAutomationSettings],
   );
 
   const saveRegistryRef = useRef(new Map<string, PendingSaveHandle>());
@@ -516,6 +572,10 @@ export const SettingsModulePage = forwardRef<
           reminderFormRef={applicationsReminderFormRef}
           showFormLink={showFormLink}
           source={applicationSource}
+          applicationSettings={applicationSettings}
+          onApplicationSettingsChange={changeApplicationSettings}
+          leasingPipeline={leasingPipeline}
+          onLeasingPipelineChange={changeLeasingPipeline}
         />
       ) : null}
 
@@ -544,6 +604,8 @@ export const SettingsModulePage = forwardRef<
           reminderFormRef={leaseReminderFormRef}
           showFormLink={showFormLink}
           source={applicationSource}
+          leasingPipeline={leasingPipeline}
+          onLeasingPipelineChange={changeLeasingPipeline}
         />
       ) : null}
 
