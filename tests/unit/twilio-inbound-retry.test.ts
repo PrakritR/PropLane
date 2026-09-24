@@ -360,6 +360,22 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.handleInbound).not.toHaveBeenCalled();
   });
 
+  it("logs the failing step timeline and error so a Twilio timeout can be traced", async () => {
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await POST(inboundRequest());
+
+    const call = warn.mock.calls.find(([label]) => label === "twilio inbound timing");
+    expect(call?.[1]).toMatchObject({
+      status: 503,
+      error: expect.stringContaining("still pending"),
+      marks: expect.stringMatching(/signed:\d+ .*rate-limit:\d+/),
+    });
+    expect(String(call?.[1]?.marks)).not.toContain("claimed");
+    warn.mockRestore();
+  });
+
   it("acknowledges a duplicate only after the receipt is completed", async () => {
     mocks.rpc.mockResolvedValue({ data: false, error: null });
     mocks.receipt = { status: "completed" };
