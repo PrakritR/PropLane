@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { routeResolves } from "../helpers/route-resolves";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 
 vi.mock("@/lib/public-listings.server", () => ({
   getPublicListings: vi.fn(),
@@ -37,7 +38,7 @@ import {
   type RawPropertyRecord,
 } from "@/lib/tools/domains/leasing-sms";
 
-const PROD_ORIGIN = "https://prop-lane.space";
+const PROD_ORIGIN = PRODUCTION_APP_ORIGIN;
 
 /** Minimal chainable Supabase mock: owned queries resolve to the given result. */
 function makeDb(result: { many?: unknown; single?: unknown }) {

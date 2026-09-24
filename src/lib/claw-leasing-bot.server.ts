@@ -1292,6 +1292,18 @@ export async function handleClawLeasingInbound(args: {
             shadowInput: agent.shadowInput,
           };
         }
+        console.warn("leasing SMS reply was not accepted for delivery", {
+          burstId: args.prospectBurst?.burstId,
+          revision: args.prospectBurst?.revision,
+          // ponytail: transport errors can echo a raw DB message; mask phone-like digit runs.
+          error: send.error?.replace(/\+?\d{7,}/g, "[redacted]"),
+        });
+      } else if (args.durableBurstWorker) {
+        console.warn("leasing SMS agent returned no reply", {
+          burstId: args.prospectBurst?.burstId,
+          revision: args.prospectBurst?.revision,
+          agentReturned: Boolean(agent),
+        });
       }
     } catch (e) {
       console.error("leasing SMS agent path failed", e);
@@ -1307,6 +1319,12 @@ export async function handleClawLeasingInbound(args: {
   }
 
   if (args.durableBurstWorker) {
+    console.warn("leasing SMS burst worker produced no durable outcome", {
+      burstId: args.prospectBurst?.burstId,
+      revision: args.prospectBurst?.revision,
+      hasLandlord: Boolean(landlordId),
+      hasRoutingReply: Boolean(args.routingReply),
+    });
     return { ok: false, intent, replied: false, error: "Leasing agent did not produce a durable outcome." };
   }
 
