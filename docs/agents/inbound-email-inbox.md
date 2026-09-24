@@ -270,8 +270,9 @@ The code is ready; these steps must be done in the Resend dashboard + DNS:
    residents and listings — the address can send but nothing can reach it.
    Work addresses live at `ASSISTANT_EMAIL_DOMAIN` (default `proplane.ai`,
    dual-accepting legacy `prop-lane.space` on inbound during cutover via
-   `assistantEmailAcceptedDomains()`). New mints prefer the workspace slug as
-   the local part (`my-workspace@proplane.ai`); the owner may still Edit.
+   `assistantEmailAcceptedDomains()`). Each owned workspace auto-mints one
+   address as `{workspace-slug}@proplane.ai` on Messaging GET and on workspace
+   create (`ensureOwnedWorkspaceAssistantEmails`); the owner may still Edit.
    Prefer a subdomain for support MX so existing root-domain MX for other mail
    is untouched; the MX in step 1 must cover the work-email domain, not only
    `support@`.

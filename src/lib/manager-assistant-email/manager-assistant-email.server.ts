@@ -505,6 +505,38 @@ export async function ensureManagerAssistantEmail(
   };
 }
 
+/**
+ * Mint a work email for every owned workspace that does not have one yet.
+ *
+ * Default local is `{workspace-slug}@proplane.ai` (via
+ * {@link allocateAssistantMailboxLocal}). Safe to call on Messaging GET and
+ * on workspace create: already-placed rows are left alone, co-managers mint
+ * nothing, and provisioning/storage must already be ready (caller gates
+ * entitlement). Returns how many brand-new rows were inserted.
+ */
+export async function ensureOwnedWorkspaceAssistantEmails(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<{ minted: number }> {
+  if (!isAssistantEmailProvisioningEnabled()) return { minted: 0 };
+  if (!(await probeAssistantEmailStorageReady(db))) return { minted: 0 };
+
+  // Only workspaces this account owns. A pure co-manager has none here and
+  // mints nothing; an owner who is also a co-manager elsewhere still mints
+  // for every workspace they own (never for shared ones).
+  const owned = (await listViewerWorkspaces(db, managerUserId)).filter(
+    (w) => w.owned && w.ownerUserId === managerUserId,
+  );
+  let minted = 0;
+  for (const workspace of owned) {
+    const before = await loadWorkspaceAssistantEmail(db, workspace);
+    if (before?.workspaceId === workspace.id) continue;
+    await ensureManagerAssistantEmail(db, managerUserId, workspace);
+    if (!before) minted += 1;
+  }
+  return { minted };
+}
+
 export type MailboxLocalCheckResult =
   | { ok: true; state: "available" | "current" }
   | { ok: false; state: "invalid" | "reserved" | "taken"; message: string };

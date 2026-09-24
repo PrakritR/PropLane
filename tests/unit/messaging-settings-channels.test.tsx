@@ -111,7 +111,26 @@ const readyEmail: ManagerAssistantEmailStatus = {
   entitlement: { eligible: true, tier: "pro", source: "stripe" },
   workspaceRole: "primary",
   workspaceEmail: null,
-  address: "assist-test-manager@proplane.ai",
+  workspace: { id: "ws-1", name: "My workspace", owned: true, isDefault: true },
+  workspaces: [
+    {
+      workspaceId: "ws-1",
+      workspaceName: "My workspace",
+      owned: true,
+      isDefault: true,
+      ownerName: "Prakrit",
+      address: "my-workspace@proplane.ai",
+    },
+    {
+      workspaceId: "ws-2",
+      workspaceName: "Ballard houses",
+      owned: true,
+      isDefault: false,
+      ownerName: "Prakrit",
+      address: "ballard-houses@proplane.ai",
+    },
+  ],
+  address: "my-workspace@proplane.ai",
   state: "ready",
   canRequest: false,
   canUse: true,
@@ -170,8 +189,8 @@ describe("work number resident announce recipients", () => {
   });
 });
 
-describe("Channels renders one row per number per workspace and one email row", () => {
-  it("shows a work number row for each owned workspace and exactly one work email row", async () => {
+describe("Channels renders one row per number per workspace and one email per workspace", () => {
+  it("shows a work number row for each owned workspace and one work email per owned workspace", async () => {
     globalThis.fetch = stubFetch(twoWorkspaceStatus());
     render(<ManagerMessagingSettingsPanel />);
 
@@ -180,10 +199,10 @@ describe("Channels renders one row per number per workspace and one email row", 
     // Empty workspace: placeholder row + Request in ⋯ (no dashed "Add number").
     expect(screen.getByText("Not set up")).toBeTruthy();
     expect(screen.queryByText("Add number")).toBeNull();
-    expect(await screen.findByText("assist-test-manager@proplane.ai")).toBeTruthy();
-
-    // The email address appears exactly once on the page.
-    expect(screen.getAllByText("assist-test-manager@proplane.ai")).toHaveLength(1);
+    expect(await screen.findByText("my-workspace@proplane.ai")).toBeTruthy();
+    expect(screen.getByText("ballard-houses@proplane.ai")).toBeTruthy();
+    expect(screen.getAllByText("my-workspace@proplane.ai")).toHaveLength(1);
+    expect(screen.getAllByText("ballard-houses@proplane.ai")).toHaveLength(1);
   });
 
   it("shows an 'assigning' placeholder and the coarse status for a number with no phone yet", async () => {
@@ -374,11 +393,11 @@ describe("Channels ⋯ actions call the existing routes", () => {
     globalThis.fetch = stubFetch(twoWorkspaceStatus());
     render(<ManagerMessagingSettingsPanel />);
 
-    await screen.findByLabelText("Work email actions");
-    openChannelMenu("Work email actions");
+    await screen.findByLabelText("my-workspace@proplane.ai work email actions");
+    openChannelMenu("my-workspace@proplane.ai work email actions");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Copy address" }));
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("assist-test-manager@proplane.ai"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("my-workspace@proplane.ai"));
   });
 });
 
@@ -390,6 +409,7 @@ describe("Channels workspace filter", () => {
     await screen.findByText(/\+1 \(206\) 555-0001/);
     expect(screen.getByText("Not set up")).toBeTruthy();
     expect(screen.queryByText("Add number")).toBeNull();
+    expect(await screen.findByText("ballard-houses@proplane.ai")).toBeTruthy();
 
     const filterTrigger = await screen.findByRole("button", { name: "Workspace" });
     fireEvent.click(filterTrigger);
@@ -398,5 +418,7 @@ describe("Channels workspace filter", () => {
 
     await waitFor(() => expect(screen.queryByText("Not set up")).toBeNull());
     expect(screen.getByText(/\+1 \(206\) 555-0001/)).toBeTruthy();
+    expect(screen.getByText("my-workspace@proplane.ai")).toBeTruthy();
+    expect(screen.queryByText("ballard-houses@proplane.ai")).toBeNull();
   });
 });

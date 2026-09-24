@@ -8,6 +8,7 @@ import { assistantEmailEligibilityError } from "@/lib/manager-assistant-email/as
 import {
   checkWorkspaceAssistantMailboxLocal,
   ensureManagerAssistantEmail,
+  ensureOwnedWorkspaceAssistantEmails,
   isAssistantEmailProvisioningEnabled,
   isAssistantEmailReceivingEnabled,
   isAssistantEmailSendingEnabled,
@@ -171,6 +172,26 @@ export async function GET(req?: Request) {
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
+
+  // Auto-mint one {slug}@proplane.ai per owned workspace when the account
+  // could request Setup today — so 3 workspaces → 3 addresses without a click.
+  if (workspace.owned && isAssistantEmailProvisioningEnabled()) {
+    try {
+      const entitlement = await getEffectiveManagerSmsEntitlement(actor.db, actor.userId);
+      if (
+        managerCommsRequestIsOfferable({ entitlement }) &&
+        (await probeAssistantEmailStorageReady(actor.db))
+      ) {
+        await ensureOwnedWorkspaceAssistantEmails(actor.db, actor.userId);
+      }
+    } catch (cause) {
+      console.warn(
+        "assistant-email auto-mint failed",
+        cause instanceof Error ? cause.message : cause,
+      );
+    }
+  }
+
   const status = await buildStatus(actor.db, actor.userId, workspace);
   return NextResponse.json(status, { headers: { "Cache-Control": "private, no-store" } });
 }

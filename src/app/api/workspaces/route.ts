@@ -7,6 +7,13 @@ import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.
 import { loadWorkspacePlan, loadWorkspaces } from "@/lib/workspaces/server";
 import { actorWorkspaceStanding, previewHouseMove } from "@/lib/workspaces/membership.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import {
+  ensureManagerAssistantEmail,
+  isAssistantEmailProvisioningEnabled,
+  probeAssistantEmailStorageReady,
+} from "@/lib/manager-assistant-email/manager-assistant-email.server";
+import { getEffectiveManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
+import { managerCommsRequestIsOfferable } from "@/lib/comms-billing/manager-comms-eligibility.server";
 
 export const runtime = "nodejs";
 
@@ -110,7 +117,30 @@ export async function POST(request: Request) {
       // The pre-check is only courtesy. A null RPC result means another
       // request consumed the last slot while this request was in flight.
       if (!result.data) return NextResponse.json({ error: limitError }, { status: 409 });
-      return NextResponse.json({ id: result.data }, { status: 201 });
+      const newWorkspaceId = String(result.data);
+      // Mint {slug}@proplane.ai for the new workspace when the account may
+      // hold a work email — same gates as Messaging auto-backfill. Failure
+      // here must not fail the create; Messaging GET will retry.
+      try {
+        if (isAssistantEmailProvisioningEnabled() && (await probeAssistantEmailStorageReady(db))) {
+          const entitlement = await getEffectiveManagerSmsEntitlement(db, user.id);
+          if (managerCommsRequestIsOfferable({ entitlement })) {
+            await ensureManagerAssistantEmail(db, user.id, {
+              id: newWorkspaceId,
+              ownerUserId: user.id,
+              owned: true,
+              isDefault: false,
+              name,
+            });
+          }
+        }
+      } catch (cause) {
+        console.warn(
+          "workspace-create assistant-email mint failed",
+          cause instanceof Error ? cause.message : cause,
+        );
+      }
+      return NextResponse.json({ id: newWorkspaceId }, { status: 201 });
     }
     if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) {
       return NextResponse.json({ error: "A valid workspace is required." }, { status: 400 });

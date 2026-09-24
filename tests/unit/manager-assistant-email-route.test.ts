@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   reconcileManagerSmsEntitlement: vi.fn(),
   loadManagerAssistantEmail: vi.fn(),
   ensureManagerAssistantEmail: vi.fn(),
+  ensureOwnedWorkspaceAssistantEmails: vi.fn(),
   isAssistantEmailProvisioningEnabled: vi.fn(),
   isPureCoManagerWorkspace: vi.fn(),
   probeAssistantEmailStorageReady: vi.fn(),
@@ -49,6 +50,7 @@ const { WorkspaceEmailSharedError, WorkspaceNotOwnedError } = vi.hoisted(() => (
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
   loadWorkspaceAssistantEmail: mocks.loadManagerAssistantEmail,
   ensureManagerAssistantEmail: mocks.ensureManagerAssistantEmail,
+  ensureOwnedWorkspaceAssistantEmails: mocks.ensureOwnedWorkspaceAssistantEmails,
   isAssistantEmailProvisioningEnabled: mocks.isAssistantEmailProvisioningEnabled,
   // Same env reads as the real module, so vi.stubEnv keeps driving the states.
   isAssistantEmailSendingEnabled: () => Boolean(process.env.RESEND_API_KEY?.trim()),
@@ -141,6 +143,7 @@ beforeEach(() => {
     address: "assistant+tok123456789@prop-lane.space",
     provisionState: "active",
   });
+  mocks.ensureOwnedWorkspaceAssistantEmails.mockResolvedValue({ minted: 0 });
   mocks.isAssistantEmailProvisioningEnabled.mockReturnValue(true);
   mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
   mocks.activeWorkspace = null;

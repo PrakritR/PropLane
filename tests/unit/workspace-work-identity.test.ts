@@ -149,17 +149,44 @@ describe("a manager can set up a line and an address in each workspace they own"
         { id: PRAKRIT_WS2, owner_user_id: prakrit, name: "Seattle rentals", is_default: false, created_at: "2026-03-01" },
       ],
     });
-    const mine = { id: PRAKRIT_WS, ownerUserId: prakrit, owned: true, isDefault: true };
-    const second = { id: PRAKRIT_WS2, ownerUserId: prakrit, owned: true, isDefault: false };
+    const mine = { id: PRAKRIT_WS, ownerUserId: prakrit, owned: true, isDefault: true, name: "My workspace" };
+    const second = { id: PRAKRIT_WS2, ownerUserId: prakrit, owned: true, isDefault: false, name: "Seattle rentals" };
     const a = await ensureManagerAssistantEmail(db as never, prakrit, mine);
     const b = await ensureManagerAssistantEmail(db as never, prakrit, second);
     expect(a.workspaceId).toBe(PRAKRIT_WS);
     expect(b.workspaceId).toBe(PRAKRIT_WS2);
     expect(a.address).not.toBe(b.address);
+    expect(a.address).toBe("my-workspace@proplane.ai");
+    expect(b.address).toBe("seattle-rentals@proplane.ai");
     await expect(
       ensureManagerAssistantEmail(db as never, prakrit, { id: AMBIKA_WS, ownerUserId: ambika, owned: false, isDefault: true }),
     ).rejects.toBeInstanceOf(WorkspaceNotOwnedError);
     expect(await resolveWorkspaceWorkEmail(db as never, prakrit, PRAKRIT_WS2)).toMatchObject({ address: b.address });
+  });
+
+  it("ensureOwnedWorkspaceAssistantEmails mints a distinct slug per owned workspace", async () => {
+    const db = seed({
+      portal_workspaces: [
+        { id: AMBIKA_WS, owner_user_id: ambika, name: "Ambika's workspace", is_default: true, created_at: "2026-01-01" },
+        { id: PRAKRIT_WS, owner_user_id: prakrit, name: "Axis Housing", is_default: true, created_at: "2026-02-01" },
+        { id: PRAKRIT_WS2, owner_user_id: prakrit, name: "9 Rooms", is_default: false, created_at: "2026-03-01" },
+        { id: "ws-prakrit-3", owner_user_id: prakrit, name: "Capitol Hill", is_default: false, created_at: "2026-04-01" },
+      ],
+    });
+    const { ensureOwnedWorkspaceAssistantEmails } = await import(
+      "@/lib/manager-assistant-email/manager-assistant-email.server"
+    );
+    const result = await ensureOwnedWorkspaceAssistantEmails(db as never, prakrit);
+    expect(result.minted).toBe(3);
+    const { emails } = await resolveWorkspaceWorkEmails(db as never, prakrit);
+    const owned = emails.filter((e) => e.owned);
+    expect(owned.map((e) => e.address).sort()).toEqual([
+      "9-rooms@proplane.ai",
+      "axis-housing@proplane.ai",
+      "capitol-hill@proplane.ai",
+    ]);
+    // Second call is a no-op — no duplicate rows.
+    await expect(ensureOwnedWorkspaceAssistantEmails(db as never, prakrit)).resolves.toEqual({ minted: 0 });
   });
 
   it("the legacy per-user read means the owner's DEFAULT workspace's row", async () => {
