@@ -48,10 +48,9 @@ export type CommunicationScope = {
   /** The active workspace, when the account is partitioned; null = not narrowing. */
   activeWorkspaceId: string | null;
   /**
-   * The viewer's own work lines (phone digits / lower-cased address) → every
-   * workspace that line is visible in. A work EMAIL still belongs to exactly
-   * one workspace; a work NUMBER may be shared into a second workspace
-   * (`workspace_work_numbers`), so its thread shows in every holder.
+   * The viewer's own work lines (phone digits / lower-cased address) → the
+   * workspace that owns the line in `manager_sms_numbers` / assistant email
+   * rows. Shared-in number assignments do not duplicate threads.
    */
   workspaceByLine: Map<string, Set<string>>;
 };
@@ -123,18 +122,24 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
 
   const inWorkspace = (houseId: string) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(houseId);
 
+  const lineHolders = workspaceHoldersForLines(scope, input.lines);
+
   // Own rows, and legacy owner-less rows the store query matched by the
-  // viewer's email: house decides the workspace; no house means default only.
+  // viewer's email. A work line places the thread before house membership.
   if (!ownerId || ownerId === scope.viewerId) {
-    if (houses.length === 0) {
-      const holders = workspaceHoldersForLines(scope, input.lines);
-      if (holders && scope.activeWorkspaceId) return holders.has(scope.activeWorkspaceId);
-      return scope.untaggedOwnedVisible;
+    if (lineHolders) {
+      if (!scope.activeWorkspaceId) return lineHolders.size > 0;
+      return lineHolders.has(scope.activeWorkspaceId);
     }
+    if (houses.length === 0) return scope.untaggedOwnedVisible;
     return houses.some(inWorkspace);
   }
 
-  // Another owner's row: the SAME house must be granted and in the workspace.
+  // Another owner's row: line must match the active workspace when present,
+  // then the SAME house must be granted and in the workspace.
+  if (lineHolders && scope.activeWorkspaceId && !lineHolders.has(scope.activeWorkspaceId)) {
+    return false;
+  }
   const granted = scope.grantedHousesByOwner.get(ownerId);
   if (!granted || granted.size === 0 || houses.length === 0) return false;
   return houses.some((houseId) => granted.has(houseId) && inWorkspace(houseId));
@@ -223,50 +228,16 @@ export async function resolveCommunicationScope(
         scope.workspaceByLine.set(key, set);
       };
 
-      // Work numbers: a HOME row places the number, and every workspace that
-      // holds it via the join table (its home included) sees the thread —
-      // a shared-in number is not distinguished from an owned one here. The
-      // join table read is best-effort: an error leaves only the direct
-      // home-number mapping below, never wider than before this change.
-      const [numbers, emails, holds] = await Promise.all([
+      // Work numbers and work emails belong to exactly one workspace — the row
+      // that owns the line. Shared-in assignments do not duplicate threads.
+      const [numbers, emails] = await Promise.all([
         db.from("manager_sms_numbers").select("id, workspace_id, phone_number").in("workspace_id", ownedIds),
         db.from("manager_assistant_emails").select("workspace_id, inbox_token, mailbox_local, provision_state").in("workspace_id", ownedIds),
-        db.from("workspace_work_numbers").select("workspace_id, number_id").in("workspace_id", ownedIds),
       ]);
-      const phoneById = new Map<string, string>();
       for (const row of numbers.data ?? []) {
-        const id = clean((row as { id?: unknown }).id);
         const phone = clean(row.phone_number);
-        if (id && phone) phoneById.set(id, phone);
-        // Backward-compatible default: even without the join table, a
-        // workspace's own home number places its house-less threads.
         const ws = clean(row.workspace_id);
         if (phone && ws) addHolder(lineKey(phone), ws);
-      }
-      if (!holds.error && (holds.data ?? []).length > 0) {
-        // A number's home may not be among `ownedIds` when only a SHARED-IN
-        // assignment matched — fetch those homes too so every holder maps.
-        const missingNumberIds = [
-          ...new Set(
-            (holds.data ?? [])
-              .map((r) => clean((r as { number_id?: unknown }).number_id))
-              .filter((id) => id && !phoneById.has(id)),
-          ),
-        ];
-        if (missingNumberIds.length > 0) {
-          const { data: extraNumbers } = await db.from("manager_sms_numbers").select("id, phone_number").in("id", missingNumberIds);
-          for (const row of extraNumbers ?? []) {
-            const id = clean((row as { id?: unknown }).id);
-            const phone = clean((row as { phone_number?: unknown }).phone_number);
-            if (id && phone) phoneById.set(id, phone);
-          }
-        }
-        for (const row of holds.data ?? []) {
-          const numberId = clean((row as { number_id?: unknown }).number_id);
-          const ws = clean(row.workspace_id);
-          const phone = phoneById.get(numberId);
-          if (phone && ws) addHolder(lineKey(phone), ws);
-        }
       }
 
       const { assistantEmailAddress, assistantMailboxAddress } = await import("@/lib/manager-assistant-email/assistant-email-address");

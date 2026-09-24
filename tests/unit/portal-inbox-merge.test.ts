@@ -58,4 +58,12 @@ describe("mergeInboxRowsWithLocalTrash", () => {
     const merged = mergeInboxRowsWithLocalTrash(server, local);
     expect(merged[0]?.previousFolder).toBe("inbox");
   });
+
+  it("drops local-only rows when server is authoritative", () => {
+    const server = [thread({ id: "a", folder: "inbox" })];
+    const local = [thread({ id: "b", folder: "inbox" })];
+    const merged = mergeInboxRowsWithLocalTrash(server, local, { serverAuthoritative: true });
+    expect(merged.map((row) => row.id)).toEqual(["a"]);
+  });
+
 });

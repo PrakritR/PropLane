@@ -60,6 +60,21 @@ describe("loadManagerSmsConversationsClient", () => {
     await expect(forced).resolves.toBeInstanceOf(Response);
   });
 
+  it("keeps separate readers per workspace for the same viewer", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(payload("ws-a"))
+      .mockResolvedValueOnce(payload("ws-b"));
+    setPortalSessionViewer("viewer-ws");
+
+    const first = await loadManagerSmsConversationsClient("viewer-ws", false, "ws-a");
+    const second = await loadManagerSmsConversationsClient("viewer-ws", false, "ws-b");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(first.json()).resolves.toEqual({ residents: [{ conversationKey: "ws-a", messages: [] }] });
+    await expect(second.json()).resolves.toEqual({ residents: [{ conversationKey: "ws-b", messages: [] }] });
+  });
+
   it("clears readers when the portal viewer changes", async () => {
     const fetchMock = vi.mocked(fetch);
     const firstResponse = deferred<Response>();
