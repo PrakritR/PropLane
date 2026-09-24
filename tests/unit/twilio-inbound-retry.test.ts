@@ -18,9 +18,13 @@ const mocks = vi.hoisted(() => ({
   runManagerTurn: vi.fn(),
   deliverManagerReply: vi.fn(),
   replyConsent: vi.fn(async () => "allowed"),
+  after: vi.fn(),
+  runInlineBurst: vi.fn(async () => undefined),
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
+vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()), after: mocks.after }));
+vi.mock("@/lib/sms/prospect-sms-burst-job.server", () => ({ runInlineProspectBurst: mocks.runInlineBurst }));
 vi.mock("@/lib/twilio-client.server", () => ({
   twilioWebhookAuthToken: () => "auth-token",
   fetchTwilioMessageCreatedAt: vi.fn(),
@@ -154,6 +158,26 @@ beforeEach(() => {
 });
 
 describe("managed Twilio inbound retry", () => {
+  it("acknowledges Twilio and runs the burst after the response when the queue refused it", async () => {
+    const inlineBurst = { burstId: "burst-1", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" };
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true, inlineBurst });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(mocks.runInlineBurst).not.toHaveBeenCalled();
+    await mocks.after.mock.calls[0]![0]();
+    expect(mocks.runInlineBurst).toHaveBeenCalledWith(expect.anything(), inlineBurst);
+  });
+
+  it("schedules nothing extra when the burst was queued normally", async () => {
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
+
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.after).not.toHaveBeenCalled();
+  });
+
   it("removes a fresh manager self-SMS transport row from Communication", async () => {
     mocks.detectSelfReply.mockResolvedValue({
       actorUserId: "co-manager",

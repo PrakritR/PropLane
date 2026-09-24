@@ -26,6 +26,7 @@ vi.mock("@/lib/twilio-client.server", () => ({
 import { reserveBoundedVoiceCall } from "@/lib/comms-billing/voice-credit.server";
 import {
   INTERRUPTED_COMMS_REPLY,
+  commsTurnKey,
   completeCommsTurn,
   readCommsTurnResult,
 } from "@/lib/comms-billing/turn-result.server";
@@ -134,5 +135,59 @@ describe("replayed model turns never repeat tools", () => {
     await expect(completeCommsTurn(db, "owner", "turn:6", { text: "x" })).rejects.toThrow(/could not be saved/);
     expect(chain.update).not.toHaveBeenCalled();
     expect(wallet.finishCommsCredit).not.toHaveBeenCalled();
+  });
+});
+
+function keyFamilyDb(rows: Array<{ idempotency_key: string; credit_state: string; metadata?: Record<string, unknown> }>) {
+  const chain: Record<string, unknown> = {};
+  for (const m of ["from", "select", "eq", "like"]) chain[m] = vi.fn(() => chain);
+  chain.order = vi.fn(async () => ({ data: rows, error: null }));
+  return chain as never;
+}
+
+describe("a failed model turn is retried under a fresh credit key, never replayed as silence", () => {
+  const base = "ai_turn:sms:sess-1:msg-1";
+
+  it("uses the base key for a first attempt", async () => {
+    await expect(commsTurnKey(keyFamilyDb([]), "owner", base)).resolves.toBe(base);
+  });
+
+  it("keeps replaying a completed turn that produced a reply", async () => {
+    const db = keyFamilyDb([{ idempotency_key: base, credit_state: "settled", metadata: { turnCompleted: true, turnResult: { reply: "Yes" } } }]);
+    await expect(commsTurnKey(db, "owner", base)).resolves.toBe(base);
+  });
+
+  it("keeps a held reservation so a concurrent worker sees it as still processing", async () => {
+    await expect(commsTurnKey(keyFamilyDb([{ idempotency_key: base, credit_state: "reserved" }]), "owner", base)).resolves.toBe(base);
+  });
+
+  it("moves past a released attempt", async () => {
+    const db = keyFamilyDb([{ idempotency_key: base, credit_state: "released" }]);
+    await expect(commsTurnKey(db, "owner", base)).resolves.toBe(`${base}:r1`);
+  });
+
+  it("moves past a legacy settled empty result cached before failures were released", async () => {
+    const db = keyFamilyDb([
+      { idempotency_key: `${base}:r1`, credit_state: "released" },
+      { idempotency_key: base, credit_state: "settled", metadata: { turnCompleted: true, turnResult: null } },
+    ]);
+    await expect(commsTurnKey(db, "owner", base)).resolves.toBe(`${base}:r2`);
+  });
+
+  it("never retries an empty result once tools ran, or an interrupted turn", async () => {
+    const toolsRan = keyFamilyDb([{ idempotency_key: base, credit_state: "settled", metadata: { turnCompleted: true, turnResult: null, turnToolsRan: true } }]);
+    await expect(commsTurnKey(toolsRan, "owner", base)).resolves.toBe(base);
+    const interrupted = keyFamilyDb([{ idempotency_key: base, credit_state: "settled", metadata: { turnCompleted: true, turnResult: null, turnInterrupted: true } }]);
+    await expect(commsTurnKey(interrupted, "owner", base)).resolves.toBe(base);
+  });
+
+  it("ignores keys that only match through LIKE wildcards", async () => {
+    const db = keyFamilyDb([{ idempotency_key: "aiXturn:sms:sess-1:msg-1", credit_state: "released" }]);
+    await expect(commsTurnKey(db, "owner", base)).resolves.toBe(base);
+  });
+
+  it("ignores unrelated keys that merely share the prefix", async () => {
+    const db = keyFamilyDb([{ idempotency_key: `${base}0`, credit_state: "released" }]);
+    await expect(commsTurnKey(db, "owner", base)).resolves.toBe(base);
   });
 });

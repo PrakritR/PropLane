@@ -389,6 +389,23 @@ queued or expired-lease bursts. Treat Twilio inbound webhook failures and
 QStash callback failures as separate incidents unless request evidence links
 them.
 
+**QStash outage fallback.** If QStash refuses a publish (daily quota `429`,
+network, 5xx), the ingress row is already durable, so the text is still accepted.
+The inbound route answers Twilio, then runs the burst itself in `after()`
+(`runInlineProspectBurst`): it waits out the quiet window and runs the same
+`runProspectSmsBurstJob` the QStash callback runs. The recovery cron does the same
+for up to three unpublished bursts per sweep. The revision claim decides who
+replies, so a late queue delivery, the cron and the fallback never double-send.
+A publish failure logs `prospect burst queue publish failed; running inline` with
+the QStash status.
+
+**A failed model call is never a completed turn.** The leasing agent releases its
+credit hold when a turn ends with no outcome before any tool ran (provider outage,
+bad key). `commsTurnKey` then gives the retry a fresh `:rN` credit key so it runs
+the model again instead of replaying a cached empty result. On 2026-09-21 an
+unscoped Anthropic key cached empty turns this way. Their retries 503'd forever
+and exhausted the QStash quota on 2026-09-24.
+
 The leasing SMS agent has a prospect-only scheduling exception implemented by
 the separate typed `prepare_prospect_tour_confirmation` and
 `confirm_prospect_sms_tour` tools. Links remain the default. When a prospect

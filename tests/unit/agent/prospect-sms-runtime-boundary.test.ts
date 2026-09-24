@@ -39,11 +39,13 @@ vi.mock("@/lib/tour-inquiry-create.server", () => ({ createTourInquiry: mocks.cr
 vi.mock("@/lib/proplane-sms-transport.server", () => ({ sendFromManagerWorkNumber: mocks.sendWorkNumber }));
 vi.mock("@/lib/comms-billing/wallet.server", () => ({
   reserveCommsCredit: vi.fn(async () => ({ allowed: true, duplicate: false, state: "reserved" })),
+  finishCommsCredit: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/comms-billing/turn-result.server", () => ({
   INTERRUPTED_COMMS_REPLY: "interrupted",
   readCommsTurnResult: vi.fn(),
   completeCommsTurn: vi.fn(async (_db: unknown, _owner: string, _key: string, result: unknown) => result),
+  commsTurnKey: vi.fn(async (_db: unknown, _owner: string, base: string) => base),
 }));
 
 import { deliverLeasingSmsReply, runLeasingSmsAgentTurn } from "@/lib/agent/leasing-sms-agent.server";

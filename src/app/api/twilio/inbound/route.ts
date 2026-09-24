@@ -1,8 +1,9 @@
 import { intakeResidentSmsPhotos } from "@/lib/inspections/attachment-intake.server";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
+import { runInlineProspectBurst } from "@/lib/sms/prospect-sms-burst-job.server";
 import { rateLimit } from "@/lib/rate-limit";
 import { normalizeConsentPhone, readSmsSuppressionState } from "@/lib/sms-consent";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
@@ -38,7 +39,8 @@ import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.serv
 import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
+export const maxDuration = 120;
 
 /**
  * Standard carrier/Twilio SMS control keywords. Twilio's Advanced Opt-Out sends
@@ -722,6 +724,11 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   if (!handled.ok) {
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: handled.error ?? "Inbound processing failed." }, { status: 503 });
+  }
+  const inlineBurst = handled.inlineBurst;
+  if (inlineBurst) {
+    mark("inline-burst");
+    after(() => runInlineProspectBurst(createSupabaseServiceRoleClient(), inlineBurst));
   }
   if (handled.outboxId) {
     const attached = await attachInboundOutbox(db, {

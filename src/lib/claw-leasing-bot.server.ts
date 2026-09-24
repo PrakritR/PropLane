@@ -55,7 +55,7 @@ import {
 } from "@/lib/agent/manager-sms-agent.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
-import { durableProspectSmsEnabled, enqueueProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
+import { durableProspectSmsEnabled, enqueueProspectSmsBurst, type InlineProspectBurst } from "@/lib/sms/prospect-sms-burst.server";
 import type { ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { normalizeListingIdentity } from "@/lib/listing-identity";
 
@@ -498,6 +498,8 @@ export type HandleClawInboundResult = {
   suppressed?: boolean;
   completedWithoutReply?: "quiet_handoff";
   shadowInput?: ProspectShadowBurst;
+  /** Durably recorded but not queued (QStash unavailable): the caller runs it. */
+  inlineBurst?: InlineProspectBurst;
 };
 
 /* In-memory idempotency for redelivered relay frames (gateway restarts, webhook
@@ -1143,8 +1145,9 @@ export async function handleClawLeasingInbound(args: {
   }
 
   // A prospect burst is acknowledged only after its source receipt and quiet
-  // window are durable. Do not fall back to an inline reply if queue publishing
-  // is unavailable: that would recreate the duplicate-reply incident.
+  // window are durable. Never reply inline from here: that recreated the
+  // duplicate-reply incident. If the queue refuses the burst, hand it back as
+  // `inlineBurst` so the caller runs the same claimed worker after responding.
   if (landlordId && durableProspectSmsEnabled() && !args.durableBurstWorker) {
     if (!scopedManagerId) {
       releaseInboundMessageClaims(claimedMessageIds);
@@ -1165,7 +1168,13 @@ export async function handleClawLeasingInbound(args: {
       releaseInboundMessageClaims(claimedMessageIds);
       return { ok: false, intent, replied: false, error: queued.error };
     }
-    return { ok: true, intent, replied: false, durablyAccepted: true };
+    return {
+      ok: true,
+      intent,
+      replied: false,
+      durablyAccepted: true,
+      ...(queued.published ? {} : { inlineBurst: { burstId: queued.burstId, revision: queued.revision, dueAt: queued.dueAt } }),
+    };
   }
 
   // Claude leasing agent on the manager's work number — grounds replies on live

@@ -439,4 +439,28 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     });
     expect(enqueueProspectSmsBurst).not.toHaveBeenCalled();
   });
+
+  it("hands a durably recorded but unqueued burst back to the caller to run inline", async () => {
+    findResidentProfileByPhone.mockResolvedValue(null);
+    findThreadByResidentPhone.mockResolvedValue(null);
+    resolveRegisteredClawManagers.mockResolvedValue([{ userId: "mgr-1", defaultPropertyId: null, defaultPropertyLabel: null }]);
+    resolveMappedManagerContacts.mockResolvedValue([{ userId: "mgr-1", email: "manager@example.com", fullName: "Manager", personalPhone: null }]);
+    durableProspectSmsEnabled.mockReturnValue(true);
+    enqueueProspectSmsBurst.mockResolvedValue({
+      ok: true, burstId: "burst-9", revision: 2, duplicate: false, published: false, dueAt: "2026-09-24T15:00:10.000Z",
+    });
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+
+    await expect(handleClawLeasingInbound({
+      from: "+15105794002",
+      text: "Is JainHome available?",
+      messageId: "SM-queue-quota-exhausted",
+      managerUserId: "mgr-1",
+      workNumber: "+12065559999",
+    })).resolves.toMatchObject({
+      ok: true,
+      durablyAccepted: true,
+      inlineBurst: { burstId: "burst-9", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" },
+    });
+  });
 });
