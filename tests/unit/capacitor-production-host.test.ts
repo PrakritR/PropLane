@@ -11,10 +11,10 @@ describe("Capacitor production host (domain cutover)", () => {
     expect(CAPACITOR_PRODUCTION_SERVER_ORIGIN).toBe(PRODUCTION_APP_ORIGIN);
   });
 
-  it("allow-lists proplane.ai so a prop-lane 308 stays in the WebView", () => {
+  it("allow-lists canonical + legacy hosts so residual deep links stay in the WebView", () => {
     expect(CAPACITOR_ALLOW_NAVIGATION_HOSTS).toContain("proplane.ai");
     expect(CAPACITOR_ALLOW_NAVIGATION_HOSTS).toContain("www.proplane.ai");
-    // Redirect source + legacy Axis — residual deep links must not eject.
+    // Legacy shells / deep links — Vercel must serve these hosts (no cross-host 308).
     expect(CAPACITOR_ALLOW_NAVIGATION_HOSTS).toContain("prop-lane.space");
     expect(CAPACITOR_ALLOW_NAVIGATION_HOSTS).toContain("www.prop-lane.space");
     expect(CAPACITOR_ALLOW_NAVIGATION_HOSTS).toContain("axis-seattle-housing.com");
