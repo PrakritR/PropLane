@@ -533,7 +533,9 @@ export function PortalSidebar({
   const mobileTopStripItems = useMemo(
     () =>
       orderNativeBottomNavItems(
-        navItems.filter((s) => !isHiddenFromMobileNav(definition.kind, s.section)),
+        navItems.filter(
+          (s) => !isHiddenFromMobileNav(definition.kind, s.section) && s.section !== "profile",
+        ),
         definition.kind,
       ),
     [navItems, definition.kind],

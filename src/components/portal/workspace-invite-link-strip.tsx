@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Saved invite links under Members — one row per minted link (Active / Off).
- * Edit opens the invite sheet; Copy reveals the URL; Deactivate revokes.
+ * Saved invite links under Members — one row per live minted link.
+ * Edit opens the invite sheet; Copy reveals the URL; Delete revokes the link
+ * and removes the row (deactivated links are never listed).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -84,7 +85,7 @@ export function WorkspaceInviteLinkStrip({
         setLoaded(true);
         return;
       }
-      const next = Array.isArray(body.links) ? body.links : [];
+      const next = (Array.isArray(body.links) ? body.links : []).filter(isActive);
       setLinks(next);
       // Eager-reveal active URLs for the list preview (tokens stay server-side until reveal).
       const revealed: Record<string, string> = {};
@@ -129,7 +130,7 @@ export function WorkspaceInviteLinkStrip({
     }
   };
 
-  const deactivate = async (link: SavedLink) => {
+  const remove = async (link: SavedLink) => {
     if (!canManage || busyId || !isActive(link)) return;
     setBusyId(link.id);
     try {
@@ -139,17 +140,18 @@ export function WorkspaceInviteLinkStrip({
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        showToast(body.error ?? "Could not deactivate the invite link.");
+        showToast(body.error ?? "Could not delete the invite link.");
         return;
       }
-      setLinks((prev) =>
-        prev.map((row) =>
-          row.id === link.id ? { ...row, revokedAt: new Date().toISOString() } : row,
-        ),
-      );
-      showToast("Invite link deactivated.");
+      setLinks((prev) => prev.filter((row) => row.id !== link.id));
+      setUrls((prev) => {
+        const next = { ...prev };
+        delete next[link.id];
+        return next;
+      });
+      showToast("Invite link deleted.");
     } catch {
-      showToast("Could not deactivate the invite link.");
+      showToast("Could not delete the invite link.");
     } finally {
       setBusyId(null);
     }
@@ -168,8 +170,13 @@ export function WorkspaceInviteLinkStrip({
 
   return (
     <div data-attr="workspace-invite-link-strip">
+      <div
+        className="border-t border-border/60 px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
+        data-attr="workspace-invite-links-heading"
+      >
+        Invite links
+      </div>
       {links.map((link) => {
-        const active = isActive(link);
         const url = urls[link.id];
         const busy = busyId === link.id;
         return (
@@ -189,19 +196,16 @@ export function WorkspaceInviteLinkStrip({
                   className="block truncate font-mono text-[12px] text-muted"
                   data-attr="workspace-invite-link-url"
                 >
-                  {active && url ? url : active ? "Invite link" : "Deactivated"}
+                  {url ?? "Invite link"}
                 </span>
               </span>
             </span>
             <span>
               <span
-                className={cn(
-                  "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                  active ? "bg-primary/10 text-primary" : "bg-[var(--secondary)] text-muted",
-                )}
+                className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary"
                 data-attr="workspace-invite-link-status"
               >
-                {active ? "Active" : "Off"}
+                Active
               </span>
             </span>
             <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">
@@ -224,20 +228,16 @@ export function WorkspaceInviteLinkStrip({
                   <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => onEdit()}>
                     Edit
                   </DropdownMenuItem>
-                  {active ? (
-                    <DropdownMenuItem data-attr="workspace-invite-link-copy" onSelect={() => void copy(link)}>
-                      Copy link
-                    </DropdownMenuItem>
-                  ) : null}
-                  {active ? (
-                    <DropdownMenuItem
-                      data-attr="workspace-invite-link-deactivate"
-                      className="text-[var(--status-overdue-fg)]"
-                      onSelect={() => void deactivate(link)}
-                    >
-                      Deactivate
-                    </DropdownMenuItem>
-                  ) : null}
+                  <DropdownMenuItem data-attr="workspace-invite-link-copy" onSelect={() => void copy(link)}>
+                    Copy link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    data-attr="workspace-invite-link-delete"
+                    className="text-[var(--status-overdue-fg)]"
+                    onSelect={() => void remove(link)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </span>

@@ -119,6 +119,8 @@ describe("active invite link per workspace", () => {
     expect(source).toContain("export async function listInviteLinksForWorkspace");
     expect(source).toContain("export async function activeInviteLinkForWorkspace");
     expect(source).toContain("actorWorkspaceStanding(db, input.actorUserId, input.workspaceId)");
+    // Members never lists revoked / expired / exhausted rows (no Off / Deactivated).
+    expect(source).toContain(".filter((link) => !inviteLinkUnusableReason(link, now))");
   });
 
   it("GET route with workspaceId returns links list (and active link)", () => {
@@ -151,24 +153,45 @@ describe("active invite link per workspace", () => {
     expect(source).toContain("replaceActive: body.replaceActive === true");
   });
 
-  it("invite sheet Copy and save mints without replaceActive", () => {
+  it("invite sheet Copy invite link mints without replaceActive", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/workspace-invite-sheet.tsx"),
       "utf8",
     );
-    expect(source).toContain("Copy and save invite link");
+    expect(source).toContain("Copy invite link");
     expect(source).toContain("copyAndSaveInviteLink");
     expect(source).toContain("replaceActive: false");
+    expect(source).toContain("onClose()");
+    expect(source).not.toContain("workspace-invite-link-box");
   });
 
-  it("Members strip lists saved links from workspace GET", () => {
+  it("Members strip lists live saved links only (no Off rows)", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/workspace-invite-link-strip.tsx"),
       "utf8",
     );
     expect(source).toContain("workspace-invite-link-row");
+    expect(source).toContain("workspace-invite-links-heading");
     expect(source).toContain("body.links");
+    expect(source).toContain(".filter(isActive)");
+    expect(source).toContain("workspace-invite-link-delete");
+    expect(source).toContain("Invite link deleted.");
+    expect(source).toMatch(/Active/);
+    expect(source).not.toContain("Deactivate");
+    expect(source).not.toContain("Deactivated");
+    expect(source).not.toContain(">Off<");
     expect(source).not.toContain("replaceActive: true");
+  });
+
+  it("workspace team renders invite strip after TeamMembersBlock", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-account-links-panel.tsx"),
+      "utf8",
+    );
+    const membersIdx = source.indexOf("<TeamMembersBlock embedded");
+    const stripIdx = source.indexOf("<WorkspaceInviteLinkStrip");
+    expect(membersIdx).toBeGreaterThan(-1);
+    expect(stripIdx).toBeGreaterThan(membersIdx);
   });
 
   it("replaceActive aborts the mint rather than inserting when the revoke fails (security review Medium)", () => {

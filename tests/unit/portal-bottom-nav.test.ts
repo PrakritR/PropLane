@@ -90,8 +90,10 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).toContain("leases");
     expect(overflow.map((item) => item.section)).toContain("documents");
+    expect(overflow.map((item) => item.section)).toContain("profile");
     expect(overflow.map((item) => item.section)).not.toContain("bugs-feedback");
-    expect(primary.length + overflow.length).toBe(items.length - 2);
+    // bugs-feedback stays out of More; Settings (profile) overflows into More.
+    expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 
   // Submitting is not approval: the bar must not promote Lease/Payments here, or
@@ -109,7 +111,7 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).not.toContain("dashboard");
     expect(overflow.map((item) => item.section)).toContain("documents");
-    // Settings ("profile") is excluded from the split entirely, same as pro/admin.
+    // Resident orderNativeBottomNavItems omits Settings from the catalog; avatar menu remains.
     expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 
@@ -126,7 +128,7 @@ describe("splitNativeBottomNavItems", () => {
     expect(overflow.map((item) => item.section)).toContain("documents");
     expect(overflow.map((item) => item.section)).toContain("applications");
     expect(overflow.map((item) => item.section)).not.toContain("dashboard");
-    // Settings ("profile") is excluded from the split entirely, same as pro/admin.
+    // Resident catalog still omits Settings from bar+More; avatar menu covers it.
     expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 
@@ -134,8 +136,8 @@ describe("splitNativeBottomNavItems", () => {
     const items = adminPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const { primary, overflow } = splitNativeBottomNavItems(items, "admin");
     expect(primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_ADMIN_PRIMARY]);
-    expect(overflow.map((item) => item.section)).not.toContain("profile");
-    expect(primary.length + overflow.length).toBe(items.length - 1);
+    expect(overflow.map((item) => item.section)).toContain("profile");
+    expect(primary.length + overflow.length).toBe(items.length);
   });
 
   it("fails closed (not open) for an unrecognized kind — nothing goes on the fixed bar", () => {

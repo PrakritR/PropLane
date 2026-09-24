@@ -10,9 +10,9 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
@@ -151,9 +151,11 @@ export function BookingsDayPage({
     }
   };
 
-  const summaryLine = `${dayBookings.length} booking${dayBookings.length === 1 ? "" : "s"} · ${overall.checkIns} check-in${
+  // Match the month cell (beds occupied / beds total) — never lead with a
+  // booking-row count that fights the occupancy fraction (PLAN-0923-1737).
+  const summaryLine = `${overall.occupied} of ${overall.rooms} beds occupied · ${overall.checkIns} check-in${
     overall.checkIns === 1 ? "" : "s"
-  } · ${overall.occupied} of ${overall.rooms} beds occupied`;
+  }`;
 
   const closeDay = onClose ?? (() => navigate(`${basePath}/bookings/calendar`));
 
@@ -216,13 +218,7 @@ export function BookingsDayPage({
                     const key = bookingEntryKey(entry);
                     const name = dayStayDisplayName(entry);
                     const isBlock = entry.source === "block" && Boolean(entry.blockId);
-                    const meta = [
-                      formatBookingStayRange(entry.start, entry.end, entry.openEnded),
-                      bookingSourceLabel(entry.source),
-                      entry.statusLabel,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ");
+                    const placeLine = [entry.propertyLabel, entry.roomLabel].filter(Boolean).join(" · ");
                     const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
                     return (
                       <BookingsRowOverflow
@@ -237,9 +233,22 @@ export function BookingsDayPage({
                         onCancel={isBlock ? () => requestDelete(entry) : undefined}
                         cancelLabel="Delete booking"
                       >
-                        <PortalPersonRecordRow
+                        <PortalApplicantRecordRow
                           name={name}
-                          subtitle={meta}
+                          address={placeLine}
+                          facts={
+                            <>
+                              <PortalRowFact icon={CalendarDays} srLabel="Stay">
+                                {formatBookingStayRange(entry.start, entry.end, entry.openEnded)}
+                              </PortalRowFact>
+                              <PortalRowFact icon={Tag} srLabel="Source">
+                                {bookingSourceLabel(entry.source)}
+                              </PortalRowFact>
+                              {entry.statusLabel ? (
+                                <span data-attr="booking-row-status">{entry.statusLabel}</span>
+                              ) : null}
+                            </>
+                          }
                           onOpen={() => navigate(bookingRecordHref(basePath, key))}
                           omitActionView
                           dataAttr={`bookings-day-row-${key}`}

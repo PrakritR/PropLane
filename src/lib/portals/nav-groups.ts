@@ -38,10 +38,9 @@ export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
  */
 export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolean {
   if (section === "bugs-feedback") return kind !== "admin";
-  // Settings reaches a phone through the account menu / mobile profile menu,
-  // never the mobile nav strip or native bottom bar — same as the desktop
-  // sidebar, which also has no Settings row (see SIDEBAR_EXCLUDED_SECTIONS).
-  if (section === "profile") return true;
+  // Settings (`profile`) is reachable from the avatar menu AND the More sheet
+  // (PLAN-0923-1805). It stays off the desktop sidebar and the fixed primary
+  // bottom-bar slots — callers that build a top strip must still omit it.
   // App download page: reachable from Settings, never a nav destination.
   if (section === "app" && (kind === "manager" || kind === "pro")) return true;
   // Manager team management lives in Settings.

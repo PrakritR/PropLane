@@ -110,6 +110,7 @@ describe("platform parity (web + native WebView)", () => {
     const items = RESIDENT_PRE_APPLICATION_PORTAL_SECTIONS.map((section) => ({ section: section.section }));
     const split = splitNativeBottomNavItems(items, "resident", "pre_approval");
     expect(split.primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_PRE_APPLICATION_PRIMARY]);
+    // Resident catalog omits Settings from bar+More; avatar menu remains the path.
     expect(split.overflow.map((item) => item.section)).not.toContain("profile");
   });
 

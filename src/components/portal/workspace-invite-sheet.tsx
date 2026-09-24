@@ -1,45 +1,28 @@
 "use client";
 
 /**
- * Invite to a workspace: one view, same width and field kit as "Edit
- * permissions" (`ProAccountLinksPanel`'s member sheet) — Recipient, Role,
- * Houses, the effective grant, and (only for terms that currently resolve to
- * a link) the invite link box. Opened by `ProAccountLinksPanel`'s
- * `openLinkModal(workspaceId)`.
+ * Invite to a workspace: Channel, Role, Houses, and the effective grant.
+ * Opened by `ProAccountLinksPanel`'s `openLinkModal(workspaceId)`.
  *
  * Role / Houses / Selected houses render through `WorkspacePermissionsFields`,
- * the shared field kit in `workspace-permissions-fields.tsx` — the invite
- * sheet and the Team page's Edit permissions sheet always show the identical
- * controls. The default Houses scope is capped to the inviter's own reach —
- * an Admin whose own membership is scoped to selected houses defaults to
- * "Only selected houses" too, rather than silently offering every house in
- * the workspace (`defaultHouseScopeFor`).
+ * the shared field kit in `workspace-permissions-fields.tsx`.
  *
- * The link and the send box share ONE access setting (role + houses). Opening
- * the sheet only READS the workspace's latest active link (hydrating role/houses/
- * permissions from it) and never mints as a side effect. Changing Role or
- * Houses only updates local state.
+ * Opening the sheet only READS the workspace's latest active link (hydrating
+ * role/houses/permissions) and never mints as a side effect.
  *
- * "Copy and save invite link" always mints a NEW row with `replaceActive: false`
- * so prior saved links stay on the Members list. Send (email/SMS) still
- * reuses a matching held link, and remints with `replaceActive: true` only when
- * on-screen terms changed — so a message never ships a URL that silently gained
- * power (see `docs/agents/co-manager-access.md`).
- *
- * The link box renders ONLY while `linkUrl` is in hand AND its terms still
- * match what is on screen (`termsMatchHeldLink`). The moment Role or Houses
- * changes after a link was shown, the box disappears and a single line asks
- * for "Copy and save invite link" again — never a stale URL for terms nobody
- * confirmed.
+ * "Copy invite link" always mints a NEW row with `replaceActive: false`,
+ * copies the URL, refreshes Members, and closes the sheet — the unique link
+ * appears in the Invite links list under Members. Send (email/SMS) still
+ * reuses a matching held link, and remints with `replaceActive: true` only
+ * when on-screen terms changed (see `docs/agents/co-manager-access.md`).
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Link2, Share2, Trash2 } from "lucide-react";
+import { Link2 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
@@ -127,6 +110,7 @@ export function WorkspaceInviteSheet({
   workspace,
   onClose,
   onChanged,
+  onInviteLinkSaved,
   onEditMember,
   inviterName,
 }: {
@@ -134,6 +118,8 @@ export function WorkspaceInviteSheet({
   workspace: PortalWorkspace;
   onClose: () => void;
   onChanged: () => void;
+  /** After Copy invite link succeeds — refresh the list and scroll to Invite links. */
+  onInviteLinkSaved?: () => void;
   /** Accepted for the panel's call site; this single-view sheet has no member row of its own to edit. */
   onEditMember: (linkId: string) => void;
   /** The manager sending the invite — used in the emailed/texted message body, never the workspace name. */
@@ -331,7 +317,7 @@ export function WorkspaceInviteSheet({
     return { ok: true, url: result.url, linkId: result.linkId };
   };
 
-  /** Always mint a new saved link (append), copy it, refresh Members. */
+  /** Always mint a new saved link (append), copy it, refresh Members, close sheet. */
   const copyAndSaveInviteLink = async () => {
     setLinkLoading(true);
     try {
@@ -359,41 +345,15 @@ export function WorkspaceInviteSheet({
       setHeldTerms(currentTerms);
       try {
         await navigator.clipboard.writeText(result.url);
-        showToast("Invite link copied and saved.");
+        showToast("Invite link copied.");
       } catch {
-        showToast("Link saved — select it and copy manually.");
+        showToast("Link saved — copy it from Invite links below Members.");
       }
+      onInviteLinkSaved?.();
       onChanged();
+      onClose();
     } finally {
       setLinkLoading(false);
-    }
-  };
-
-  const copyLinkUrl = async () => {
-    if (!linkUrl) return;
-    try {
-      await navigator.clipboard.writeText(linkUrl);
-      showToast("Invite link copied.");
-    } catch {
-      showToast("Could not copy. Select the link and copy it manually.");
-    }
-  };
-
-  const shareLink = async () => {
-    if (!linkUrl) return;
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ title: `Invite to ${workspace.name}`, url: linkUrl });
-        return;
-      } catch {
-        return; // the share sheet was dismissed — nothing else to do.
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(linkUrl);
-      showToast("Link copied.");
-    } catch {
-      showToast("Could not copy. Select the link and copy it manually.");
     }
   };
 
@@ -497,11 +457,6 @@ export function WorkspaceInviteSheet({
     }
   };
 
-  /** A link has been resolved for exactly the Role + Houses on screen. */
-  const showLinkBox = linkUrl != null && termsMatchHeldLink;
-  /** A link is held, but Role or Houses changed since it was minted or hydrated. */
-  const showLinkStale = linkId != null && !termsMatchHeldLink;
-
   return (
     <Modal
       open={open}
@@ -521,7 +476,7 @@ export function WorkspaceInviteSheet({
               data-attr="workspace-invite-copy"
             >
               <Link2 className="h-4 w-4" />
-              <span className="ml-1.5">Copy and save invite link</span>
+              <span className="ml-1.5">Copy invite link</span>
             </Button>
           ) : (
             <Button
@@ -592,36 +547,6 @@ export function WorkspaceInviteSheet({
         ) : (
           <RoleCapabilitiesList role={role} grant={effectivePermissions} />
         )}
-
-        {showLinkBox ? (
-          <div className="space-y-3 rounded-xl border border-border bg-card p-3.5" data-attr="workspace-invite-link-box">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Invite link</p>
-              <div className="flex items-center gap-1">
-                <PortalIconAction icon={Copy} label="Copy link" onClick={() => void copyLinkUrl()} data-attr="workspace-invite-copy-link" />
-                <PortalIconAction icon={Share2} label="Share link" onClick={() => void shareLink()} data-attr="workspace-invite-share" />
-              </div>
-            </div>
-            <Input
-              readOnly
-              value={linkUrl ?? ""}
-              aria-label="Invite link"
-              className="truncate font-mono text-xs"
-              onFocus={(e) => e.currentTarget.select()}
-              data-attr="workspace-invite-link-url"
-            />
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[13px] font-medium text-muted">This link joins as</span>
-              <span className="truncate text-[13.5px] font-semibold text-foreground" data-attr="workspace-invite-link-access">
-                {roleLabelFor(role)} · {reach}
-              </span>
-            </div>
-          </div>
-        ) : showLinkStale ? (
-          <p className="text-[13px] text-muted" data-attr="workspace-invite-link-stale">
-            Access changed — press Copy and save invite link again for a link with these terms.
-          </p>
-        ) : null}
       </div>
     </Modal>
   );

@@ -149,8 +149,8 @@ export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis
 export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "calendar", "dashboard", "communication"] as const;
 
 /**
- * Every role gets the fixed native bottom bar. Settings stays in the profile
- * menu; Dashboard is on the manager/resident primary bar when curated above.
+ * Every role gets the fixed native bottom bar. Settings overflows into More
+ * (and the avatar menu); it is not a primary-bar slot.
  */
 export function nativeBottomBarEnabledForKind(_kind?: PortalDefinition["kind"]): boolean {
   return true;
@@ -213,11 +213,11 @@ export function splitNativeBottomNavItems<T extends { section: string }>(
     .map((section) => bySection.get(section))
     .filter((item): item is T => Boolean(item));
   const primarySections = new Set(primary.map((item) => item.section));
-  // Settings is always reached via the mobile profile menu, never the bar or More sheet.
+  // Settings stays off the fixed primary bar; it overflows into More (and the
+  // avatar menu) so phone / native can open /profile without a dead Link tap.
   const overflow = ordered.filter(
     (item) =>
       !primarySections.has(item.section) &&
-      item.section !== SETTINGS_SECTION &&
       (kind === "admin" || item.section !== "bugs-feedback"),
   );
   return { primary, overflow };

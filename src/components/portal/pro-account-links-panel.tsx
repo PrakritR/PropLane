@@ -1759,6 +1759,14 @@ export function ProAccountLinksPanel({
               syncWorkspaceRollup();
               setInviteLinksRefreshKey((n) => n + 1);
             }}
+            onInviteLinkSaved={() => {
+              setInviteLinksRefreshKey((n) => n + 1);
+              window.setTimeout(() => {
+                document
+                  .querySelector<HTMLElement>('[data-attr="workspace-invite-link-strip"]')
+                  ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              }, 120);
+            }}
             onEditMember={(memberLinkId) => openMemberSheet(memberLinkId)}
             inviterName={managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName}
           />
@@ -2018,14 +2026,6 @@ export function ProAccountLinksPanel({
             data-attr="workspace-team-invite"
           />
         </div>
-        {(workspace.owned || workspace.canManageMembers) && !inviteLinkBlocked ? (
-          <WorkspaceInviteLinkStrip
-            workspaceId={workspace.id}
-            canManage
-            refreshKey={inviteLinksRefreshKey}
-            onEdit={() => openLinkModal(workspace.id)}
-          />
-        ) : null}
         {loading ? (
           <div className="space-y-2 border-t border-border/60 px-4 py-3" role="status" aria-label="Loading team">
             <div className="h-3 w-1/3 rounded-lg bg-[var(--secondary)]" />
@@ -2049,6 +2049,14 @@ export function ProAccountLinksPanel({
               <p className="border-t border-border/60 px-4 py-2.5 text-sm text-muted" data-attr="workspace-team-empty">
                 Only you. Invite a manager to share this workspace.
               </p>
+            ) : null}
+            {(workspace.owned || workspace.canManageMembers) && !inviteLinkBlocked ? (
+              <WorkspaceInviteLinkStrip
+                workspaceId={workspace.id}
+                canManage
+                refreshKey={inviteLinksRefreshKey}
+                onEdit={() => openLinkModal(workspace.id)}
+              />
             ) : null}
           </>
         )}

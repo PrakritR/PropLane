@@ -55,5 +55,27 @@ describe("Settings has no sidebar entry anywhere — account menu only", () => {
       "utf8",
     );
     expect(topBarSrc).toContain("${basePath}/profile");
+    expect(topBarSrc).toContain("portal-top-bar-settings");
+    expect(topBarSrc).toContain("router.push(`${basePath}/profile`)");
+  });
+
+  it("mobile avatar menu pushes Settings in-app (not Link-asChild)", () => {
+    const mobileSrc = readFileSync(
+      join(process.cwd(), "src/components/portal/portal-mobile-nav-bar.tsx"),
+      "utf8",
+    );
+    expect(mobileSrc).toContain("portal-mobile-profile-settings");
+    expect(mobileSrc).toContain("router.push(`${definition.basePath}/profile`)");
+    expect(mobileSrc).not.toMatch(/DropdownMenuItem asChild[\s\S]{0,120}portal-mobile-profile-settings/);
+  });
+
+  it("More sheet can list Settings (profile is not hidden from mobile nav)", () => {
+    const navGroups = readFileSync(join(process.cwd(), "src/lib/portals/nav-groups.ts"), "utf8");
+    expect(navGroups).not.toMatch(/if \(section === "profile"\) return true;/);
+    const moreSheet = readFileSync(
+      join(process.cwd(), "src/components/portal/portal-native-more-sheet.tsx"),
+      "utf8",
+    );
+    expect(moreSheet).not.toContain('&& i.section !== "profile"');
   });
 });
