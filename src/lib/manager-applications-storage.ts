@@ -28,8 +28,9 @@ import {
   type RoomResidentSlotPlacement,
 } from "@/lib/rental-application/room-occupancy";
 import type { RoomPricingLike, RoomResidentPrice } from "@/lib/room-pricing";
+import { MANAGER_APPLICATIONS_EVENT } from "@/lib/property-pipeline-events";
 
-export const MANAGER_APPLICATIONS_EVENT = "axis:manager-applications";
+export { MANAGER_APPLICATIONS_EVENT };
 const MANAGER_APPLICATIONS_SESSION_KEY_PREFIX = "axis:manager-applications:v2";
 
 const EMPTY_FALLBACK: DemoApplicantRow[] = [];
