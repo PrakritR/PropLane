@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isProspectGptShadowEnabled, runProspectGptShadow, type ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { traceProspectShadowComparison } from "@/lib/observability/langfuse";
+import { isProductionRuntime } from "@/lib/server-env";
 
 const QUIET_SECONDS = 20;
+const PROSPECT_SMS_BURST_CALLBACK_PATH = "/api/internal/prospect-sms-burst";
 
 export type ProspectSmsChannel = "twilio" | "claw";
 
@@ -20,6 +23,14 @@ function qstashConfig(): { url: string; token: string; callback: string; callbac
   try {
     const callbackUrl = new URL(callback);
     if (callbackUrl.protocol !== "https:" && callbackUrl.protocol !== "http:") return null;
+    if (isProductionRuntime() && (
+      callbackUrl.origin !== PRODUCTION_APP_ORIGIN ||
+      callbackUrl.pathname !== PROSPECT_SMS_BURST_CALLBACK_PATH ||
+      callbackUrl.username ||
+      callbackUrl.password ||
+      callbackUrl.search ||
+      callbackUrl.hash
+    )) return null;
   } catch {
     return null;
   }
