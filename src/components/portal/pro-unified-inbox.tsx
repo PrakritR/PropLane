@@ -1315,9 +1315,8 @@ export function ManagerUnifiedInbox({
       onArchive={
         selectedRow
           ? async () => {
-              bulk.selection.clearSelection();
-              bulk.selection.toggleSelected(selectedRow.key);
-              await bulk.handleArchive();
+              const keys = [...new Set([selectedRow.key, ...(selectedRow.memberKeys ?? [])])];
+              await bulk.handleArchiveKeys(keys);
               closeActiveThread();
             }
           : undefined

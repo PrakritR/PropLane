@@ -11,6 +11,27 @@ function apiOrigin(): string {
   return window.location.origin;
 }
 
+export async function fetchRoomExportCalendarUrl(input: {
+  propertyId: string;
+  roomId: string;
+  roomLabel?: string;
+}): Promise<string> {
+  const origin = encodeURIComponent(apiOrigin());
+  const params = new URLSearchParams({
+    propertyId: input.propertyId,
+    roomId: input.roomId,
+    origin,
+  });
+  if (input.roomLabel?.trim()) params.set("roomLabel", input.roomLabel.trim());
+  const res = await fetch(`/api/portal/channel-calendar/connections?${params}`, {
+    credentials: "include",
+  });
+  const data = (await res.json()) as { exportUrl?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not load export calendar.");
+  if (!data.exportUrl?.trim()) throw new Error("Could not load export calendar.");
+  return data.exportUrl;
+}
+
 export async function fetchChannelCalendarConnections(
   propertyId: string,
 ): Promise<ChannelCalendarConnectionPublic[]> {

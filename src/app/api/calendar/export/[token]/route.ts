@@ -4,7 +4,11 @@ import {
   loadConnectionByExportToken,
   loadPropertyRecord,
 } from "@/lib/channel-calendar/sync.server";
-import { listingSubmissionFromProperty, roomUnavailableRangesForExport } from "@/lib/channel-calendar/connections.server";
+import {
+  importedRangesFromConnections,
+  listingSubmissionFromProperty,
+  roomUnavailableRangesForExport,
+} from "@/lib/channel-calendar/connections.server";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 import { exportBlockedRanges } from "@/lib/occupancy/snapshot";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -69,6 +73,12 @@ export async function GET(
     const record = await loadPropertyRecord(db, connection.property_id);
     const submission = listingSubmissionFromProperty(record?.property ?? null);
     const typedBlocks = roomUnavailableRangesForExport(submission, connection.room_id);
+    const { data: roomConnections } = await db
+      .from("external_calendar_connections")
+      .select("imported_ranges")
+      .eq("property_id", connection.property_id)
+      .eq("room_id", connection.room_id);
+    const importedFromConnections = importedRangesFromConnections(roomConnections ?? []);
     const occupancy = await occupancyRangesForRoom(
       db,
       connection.manager_user_id,
@@ -78,7 +88,7 @@ export async function GET(
     const ranges = exportBlockedRanges({
       leases: occupancy.leases,
       holds: occupancy.holds,
-      typedBlocks,
+      typedBlocks: [...typedBlocks, ...importedFromConnections],
     });
     const room = submission?.rooms.find((r) => r.id === connection.room_id);
     const calendarName = connection.label?.trim() || room?.name?.trim() || "PropLane calendar";

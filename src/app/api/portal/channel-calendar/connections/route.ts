@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   deleteChannelCalendarConnection,
+  ensureRoomExportCalendarUrl,
   listChannelCalendarConnections,
   upsertChannelCalendarConnection,
 } from "@/lib/channel-calendar/sync.server";
@@ -41,6 +42,8 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const propertyId = url.searchParams.get("propertyId")?.trim() ?? "";
+    const roomId = url.searchParams.get("roomId")?.trim() ?? "";
+    const roomLabel = url.searchParams.get("roomLabel")?.trim() ?? "";
     if (!propertyId) {
       return NextResponse.json({ error: "propertyId is required." }, { status: 400 });
     }
@@ -49,6 +52,15 @@ export async function GET(req: Request) {
     }
 
     const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
+    if (roomId) {
+      const exportUrl = await ensureRoomExportCalendarUrl(
+        ctx.db,
+        { propertyId, roomId, label: roomLabel || null },
+        browserOrigin,
+      );
+      return NextResponse.json({ exportUrl });
+    }
+
     const connections = await listChannelCalendarConnections(ctx.db, propertyId, browserOrigin);
     return NextResponse.json({ connections });
   } catch (e) {

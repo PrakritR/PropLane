@@ -10,6 +10,7 @@ import {
   normalizeChannelImportUrl,
 } from "@/lib/channel-calendar/airbnb-url";
 import {
+  buildExportCalendarUrl,
   mergeChannelImportedRanges,
   mintChannelCalendarExportToken,
   parseConnectionRow,
@@ -145,15 +146,7 @@ export async function upsertChannelCalendarConnection(
     throw new Error("Property not found.");
   }
 
-  const { data: existing } = await db
-    .from("external_calendar_connections")
-    .select("id, export_token")
-    .eq("property_id", input.propertyId)
-    .eq("room_id", input.roomId)
-    .eq("provider", provider)
-    .maybeSingle();
-
-  const exportToken = existing?.export_token ? String(existing.export_token) : mintChannelCalendarExportToken();
+  const exportToken = await resolveRoomExportToken(db, input.propertyId, input.roomId, provider);
   const now = new Date().toISOString();
 
   const payload = {
@@ -294,6 +287,91 @@ export async function syncChannelCalendarConnection(
       .eq("id", connectionId);
     throw new Error(message);
   }
+}
+
+async function resolveRoomExportToken(
+  db: SupabaseClient,
+  propertyId: string,
+  roomId: string,
+  provider: ChannelCalendarProvider,
+): Promise<string> {
+  const { data: sameProvider } = await db
+    .from("external_calendar_connections")
+    .select("export_token")
+    .eq("property_id", propertyId)
+    .eq("room_id", roomId)
+    .eq("provider", provider)
+    .maybeSingle();
+  if (sameProvider?.export_token) return String(sameProvider.export_token);
+
+  const { data: siblings } = await db
+    .from("external_calendar_connections")
+    .select("export_token")
+    .eq("property_id", propertyId)
+    .eq("room_id", roomId)
+    .limit(1);
+  const siblingToken = siblings?.[0]?.export_token;
+  if (siblingToken) return String(siblingToken);
+
+  return mintChannelCalendarExportToken();
+}
+
+/** One PropLane export link per room — reuses an existing token when present. */
+export async function ensureRoomExportCalendarUrl(
+  db: SupabaseClient,
+  input: {
+    propertyId: string;
+    roomId: string;
+    label?: string | null;
+  },
+  browserOrigin?: string,
+): Promise<string> {
+  const { data: existing } = await db
+    .from("external_calendar_connections")
+    .select("export_token")
+    .eq("property_id", input.propertyId)
+    .eq("room_id", input.roomId)
+    .limit(1);
+  const token = existing?.[0]?.export_token;
+  if (token) return buildExportCalendarUrl(String(token), browserOrigin);
+
+  const record = await loadPropertyRecord(db, input.propertyId);
+  const ownerUserId = record?.managerUserId?.trim();
+  if (!ownerUserId) throw new Error("Property not found.");
+
+  const connection = await upsertChannelCalendarConnection(
+    db,
+    {
+      managerUserId: ownerUserId,
+      propertyId: input.propertyId,
+      roomId: input.roomId,
+      provider: "airbnb",
+      label: input.label ?? null,
+    },
+    browserOrigin,
+  );
+  return connection.exportUrl;
+}
+
+export async function syncAllChannelCalendarImports(db: SupabaseClient): Promise<{ synced: number; failed: number }> {
+  const { data, error } = await db
+    .from("external_calendar_connections")
+    .select("id, import_url")
+    .not("import_url", "is", null);
+  if (error) throw new Error(error.message);
+
+  let synced = 0;
+  let failed = 0;
+  for (const row of data ?? []) {
+    if (!String(row.import_url ?? "").trim()) continue;
+    try {
+      await syncChannelCalendarConnection(db, String(row.id));
+      synced += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { synced, failed };
 }
 
 export async function loadConnectionByExportToken(

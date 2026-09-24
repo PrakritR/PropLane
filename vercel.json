@@ -76,6 +76,10 @@
     {
       "path": "/api/cron/sync-manager-sheets",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/sync-channel-calendars",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
