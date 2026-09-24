@@ -52,15 +52,27 @@ describe("resolvePublicApplyView", () => {
     );
   });
 
-  it("lets a signed-in non-resident fall back to the guest wizard when they choose guest", () => {
+  // PLAN-0924-1421 closed guest apply. A stale `guestContinue` — from an old
+  // session key or an old caller — must not unlock the wizard.
+  it("keeps a signed-in non-resident gated even when guestContinue is true", () => {
     expect(
       resolvePublicApplyView({ gateKey: propertyId, guestContinue: true, signedInNonResident: true }),
-    ).toBe("wizard");
+    ).toBe("signed-in-create-resident");
   });
 
-  it("shows the wizard once a signed-out visitor chose to continue as guest", () => {
+  it("keeps a signed-out visitor gated even when guestContinue is true", () => {
     expect(
       resolvePublicApplyView({ gateKey: propertyId, guestContinue: true, signedInNonResident: false }),
+    ).toBe("account-prompt");
+  });
+
+  it("still opens the wizard for the applicant's own tokened resume link", () => {
+    expect(
+      resolvePublicApplyView({
+        gateKey: propertyId,
+        signedInNonResident: false,
+        resumeFromEmailLink: true,
+      }),
     ).toBe("wizard");
   });
 

@@ -10,6 +10,7 @@ import {
 import {
   buildManagerApplyUrl,
   buildManagerBrowseUrl,
+  buildManagerLeaseSignUrl,
   buildManagerListingUrl,
   buildManagerPortfolioApplyUrl,
   buildManagerPortfolioTourUrl,
@@ -81,7 +82,15 @@ export async function POST(req: Request) {
     }
 
     const kind =
-      body.kind === "tour" ? "tour" : body.kind === "listing" ? "listing" : body.kind === "apply" ? "apply" : null;
+      body.kind === "tour"
+        ? "tour"
+        : body.kind === "listing"
+          ? "listing"
+          : body.kind === "apply"
+            ? "apply"
+            : body.kind === "lease"
+              ? "lease"
+              : null;
     const viaSms = body.viaSms === true;
     const viaEmail = body.viaEmail !== false;
     const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
@@ -95,7 +104,7 @@ export async function POST(req: Request) {
     const note = typeof body.note === "string" ? body.note.trim() : "";
     const rentalType = body.rentalType === "short_term" ? "short_term" : "standard";
 
-    if (!kind) return NextResponse.json({ error: "kind must be apply, tour, or listing." }, { status: 400 });
+    if (!kind) return NextResponse.json({ error: "kind must be apply, tour, listing, or lease." }, { status: 400 });
     if (!viaEmail && !viaSms) {
       return NextResponse.json({ error: "Choose email, SMS, or both." }, { status: 400 });
     }
@@ -107,6 +116,7 @@ export async function POST(req: Request) {
     }
 
     // Listing, apply, and tour sends may include several properties at once.
+    // Lease invites are single-property (create-account → /resident/lease).
     // Normalize both shapes (array or legacy scalar) into a deduped id list; the
     // room selector only applies to a single-property apply send.
     const rawIds = Array.isArray(body.propertyIds)
@@ -131,6 +141,13 @@ export async function POST(req: Request) {
       );
     }
     const effectiveIds = requestedIds;
+
+    if (kind === "lease" && effectiveIds.length !== 1) {
+      return NextResponse.json(
+        { error: "Send lease to sign supports one property at a time." },
+        { status: 400 },
+      );
+    }
 
     const svc = createSupabaseServiceRoleClient();
     if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
@@ -207,6 +224,12 @@ export async function POST(req: Request) {
         ? buildManagerPortfolioTourUrl(origin, authorizedIds)
         : kind === "tour"
           ? tourUrl
+          : kind === "lease"
+            ? buildManagerLeaseSignUrl(origin, {
+                propertyId,
+                email: to || undefined,
+                fullName: prospectName || undefined,
+              })
           : applyUrl;
     const listingSummary =
       kind === "listing" && !isMultiListing && listing

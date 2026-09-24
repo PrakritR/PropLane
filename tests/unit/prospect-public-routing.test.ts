@@ -20,6 +20,12 @@ describe("prospect-public-gate", () => {
     expect(prospectGateKey("message", "mgr-abc")).toBe("message:mgr-abc");
   });
 
+  it("keys lease gates and returns signers to the portal lease", () => {
+    expect(prospectGateKey("lease", "mgr-abc")).toBe("lease:mgr-abc");
+    expect(prospectPortalReturnPath("lease", { propertyId: "mgr-abc" })).toBe("/resident/lease");
+    expect(prospectPublicReturnPath("lease", { propertyId: "mgr-abc" })).toBe("/resident/lease");
+  });
+
   it("resolves gate view for signed-in non-residents", () => {
     expect(
       resolveProspectGateView({
@@ -28,13 +34,21 @@ describe("prospect-public-gate", () => {
         signedInNonResident: true,
       }),
     ).toBe("signed-in-create-resident");
+    // PLAN-0924-1421 closed guest continue: a stale flag must not unlock the action.
     expect(
       resolveProspectGateView({
         gateKey: "mgr-1",
         guestContinue: true,
         signedInNonResident: true,
       }),
-    ).toBe("action");
+    ).toBe("signed-in-create-resident");
+    expect(
+      resolveProspectGateView({
+        gateKey: "mgr-1",
+        guestContinue: true,
+        signedInNonResident: false,
+      }),
+    ).toBe("account-prompt");
     expect(
       resolveProspectGateView({
         gateKey: "mgr-1",

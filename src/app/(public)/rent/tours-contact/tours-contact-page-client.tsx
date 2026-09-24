@@ -178,10 +178,8 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
                 {tourGate.gateView === "signed-in-create-resident" ? (
                   <ProspectSignedInResidentGate
                     action="tour"
-                    gateKey={tourGate.gateKey}
                     returnPath={tourGate.portalReturn}
                     propertyTitle={linkedProperty.title}
-                    onContinueGuest={tourGate.continueAsGuest}
                   />
                 ) : (
                   <ProspectGuestAccountGate
@@ -189,7 +187,6 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
                     gateKey={tourGate.gateKey}
                     returnPath={tourGate.portalReturn}
                     propertyTitle={linkedProperty.title}
-                    onContinueGuest={tourGate.continueAsGuest}
                   />
                 )}
               </div>
@@ -499,10 +496,8 @@ function MessageFlow({
         {messageGate.gateView === "signed-in-create-resident" ? (
           <ProspectSignedInResidentGate
             action="message"
-            gateKey={messageGate.gateKey}
             returnPath={messageGate.portalReturn}
             propertyTitle={propertyTitle}
-            onContinueGuest={messageGate.continueAsGuest}
           />
         ) : (
           <ProspectGuestAccountGate
@@ -510,7 +505,6 @@ function MessageFlow({
             gateKey={messageGate.gateKey}
             returnPath={messageGate.portalReturn}
             propertyTitle={propertyTitle}
-            onContinueGuest={messageGate.continueAsGuest}
           />
         )}
       </div>

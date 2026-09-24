@@ -18,6 +18,7 @@ import {
 } from "@/lib/lead-invite-email";
 import {
   buildManagerApplyUrl,
+  buildManagerLeaseSignUrl,
   buildManagerListingUrl,
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
@@ -47,14 +48,21 @@ export function leadInviteAppOrigin(_requestOrigin?: string | null): string {
   return resolveEmailLinkBaseUrl();
 }
 
-/** The link a given invite kind sends the prospect to (apply/listing → apply URL, tour → tour URL). */
+/** The link a given invite kind sends the prospect to (apply/listing → apply URL, tour → tour URL, lease → create-account → lease). */
 export function buildLeadInviteLinkUrl(
   origin: string,
   kind: LeadInviteKind,
   propertyId: string,
-  opts?: { listingRoomId?: string; roomName?: string },
+  opts?: { listingRoomId?: string; roomName?: string; email?: string; prospectName?: string },
 ): string {
   if (kind === "tour") return buildManagerTourUrl(origin, propertyId);
+  if (kind === "lease") {
+    return buildManagerLeaseSignUrl(origin, {
+      propertyId,
+      email: opts?.email,
+      fullName: opts?.prospectName,
+    });
+  }
   return buildManagerApplyUrl(origin, {
     propertyId,
     listingRoomId: opts?.listingRoomId || undefined,
@@ -117,6 +125,8 @@ export async function sendLeadInvite(
   const linkUrl = buildLeadInviteLinkUrl(input.origin, input.kind, input.propertyId, {
     listingRoomId: input.listingRoomId,
     roomName: input.roomName,
+    email: input.to,
+    prospectName: input.prospectName,
   });
   const tourUrl = buildManagerTourUrl(input.origin, input.propertyId);
   const listingPageUrl = buildManagerListingUrl(input.origin, input.propertyId);
