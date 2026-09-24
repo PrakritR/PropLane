@@ -6,6 +6,8 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
+import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 import { type DemoApplicantRow, type ManagerLeaseBucket, type ManagerLeaseTab } from "@/data/demo-portal";
 import {
   buildAiGeneratedLeaseHtml,
@@ -428,7 +430,9 @@ function applicationRowForLease(row: LeasePipelineRow, apps: DemoApplicantRow[])
 export function leaseApplicationApprovalBlockerAmong(
   row: LeasePipelineRow,
   apps: DemoApplicantRow[],
+  opts?: { requireApprovedApplication?: boolean },
 ): string | null {
+  if (opts?.requireApprovedApplication === false) return null;
   const app = applicationRowForLease(row, apps);
   if (!app) return null;
   if (app.withdrawnAt) {
@@ -510,7 +514,10 @@ export function leaseLandlordNameWarning(row: LeasePipelineRow): string | null {
 }
 
 export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {
-  const approval = leaseApplicationApprovalBlockerAmong(row, apps);
+  const requireApproved = leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences());
+  const approval = leaseApplicationApprovalBlockerAmong(row, apps, {
+    requireApprovedApplication: requireApproved,
+  });
   if (approval) return approval;
   // Parties-mismatch guard. Confirming the review IS the explicit
   // acknowledgement, and it is bound to BOTH sides of the comparison: the

@@ -24,6 +24,12 @@ describe("resident portal nav stages", () => {
     applicationApproved: true,
     hasCompletedApplicationSubmission: true,
   };
+  const leaseFirst = {
+    leaseAccessUnlocked: false,
+    applicationApproved: false,
+    hasCompletedApplicationSubmission: false,
+    pipelineOrder: "lease_then_application" as const,
+  };
   const postLease = {
     leaseAccessUnlocked: true,
     applicationApproved: true,
@@ -34,6 +40,7 @@ describe("resident portal nav stages", () => {
     expect(resolveResidentPortalNavStage(preApproval)).toBe("pre_approval");
     expect(resolveResidentPortalNavStage(applicationSubmitted)).toBe("application_submitted");
     expect(resolveResidentPortalNavStage(postApproval)).toBe("post_approval_pre_lease");
+    expect(resolveResidentPortalNavStage(leaseFirst)).toBe("post_approval_pre_lease");
     expect(resolveResidentPortalNavStage(postLease)).toBe("post_lease");
   });
 

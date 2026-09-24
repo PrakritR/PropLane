@@ -42,6 +42,17 @@ import {
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
+  DEFAULT_LEASING_PIPELINE,
+  normalizeLeasingPipelinePreferences,
+  type LeasingPipelinePreferences,
+  type PipelineOrder,
+} from "@/lib/leasing-pipeline-preferences";
+import {
+  DEFAULT_MANAGER_APPLICATION_SETTINGS,
+  type ApplicationFeeChargePolicy,
+  type ManagerApplicationSettings,
+} from "@/lib/manager-application-settings";
+import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
   cacheShowUpcomingChargesSetting,
@@ -278,6 +289,10 @@ export function ApplicationsSettingsPanel({
   reminderFormRef,
   showFormLink = false,
   source,
+  applicationSettings = DEFAULT_MANAGER_APPLICATION_SETTINGS,
+  onApplicationSettingsChange,
+  leasingPipeline = DEFAULT_LEASING_PIPELINE,
+  onLeasingPipelineChange,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -299,6 +314,10 @@ export function ApplicationsSettingsPanel({
   showFormLink?: boolean;
   /** The `source` the host's `manager-application-settings` GET resolved to, for the Handling tag. */
   source?: SettingsResolutionSource | null;
+  applicationSettings?: ManagerApplicationSettings;
+  onApplicationSettingsChange?: (next: ManagerApplicationSettings) => void;
+  leasingPipeline?: LeasingPipelinePreferences;
+  onLeasingPipelineChange?: (next: LeasingPipelinePreferences) => void;
 }) {
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
   const hasSelection = selectedIds.length > 0;
@@ -308,9 +327,103 @@ export function ApplicationsSettingsPanel({
   const hasSingleSelection = selectedIds.length === 1;
   const disabled = loading || saving;
   const scope = useSettingsPropertyScope();
+  const feeDollars =
+    applicationSettings.applicationFeeCents == null
+      ? ""
+      : (applicationSettings.applicationFeeCents / 100).toFixed(
+          applicationSettings.applicationFeeCents % 100 === 0 ? 0 : 2,
+        );
 
   return (
     <div className="space-y-6">
+      <PortalSettingsSection
+        title="Application system"
+        action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Pipeline order">
+            <FieldSingleSelect
+              label="Pipeline order"
+              hideLabel
+              value={leasingPipeline.pipelineOrder}
+              disabled={disabled || !onLeasingPipelineChange}
+              options={[
+                { value: "application_then_lease", label: "Application first → then lease" },
+                { value: "lease_then_application", label: "Lease first → then application" },
+              ]}
+              onChange={(next) =>
+                onLeasingPipelineChange?.({
+                  ...leasingPipeline,
+                  pipelineOrder: next as PipelineOrder,
+                })
+              }
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Application required">
+            <PortalSettingsToggle
+              checked={leasingPipeline.requireApplication}
+              onChange={(next) => onLeasingPipelineChange?.({ ...leasingPipeline, requireApplication: next })}
+              label="Application required"
+              disabled={disabled || !onLeasingPipelineChange}
+              dataAttr="leasing-pipeline-require-application"
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Lease required">
+            <PortalSettingsToggle
+              checked={leasingPipeline.requireLease}
+              onChange={(next) => onLeasingPipelineChange?.({ ...leasingPipeline, requireLease: next })}
+              label="Lease required"
+              disabled={disabled || !onLeasingPipelineChange}
+              dataAttr="leasing-pipeline-require-lease"
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Application cost">
+            <input
+              id="manager-application-fee"
+              type="text"
+              inputMode="decimal"
+              aria-label="Application cost"
+              className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
+              value={feeDollars}
+              disabled={disabled || !onApplicationSettingsChange}
+              placeholder="50"
+              data-attr="manager-application-settings-fee"
+              onChange={(e) => {
+                const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
+                if (raw === "") {
+                  onApplicationSettingsChange?.({ ...applicationSettings, applicationFeeCents: null });
+                  return;
+                }
+                const dollars = Number(raw);
+                if (!Number.isFinite(dollars)) return;
+                onApplicationSettingsChange?.({
+                  ...applicationSettings,
+                  applicationFeeCents: Math.round(dollars * 100),
+                });
+              }}
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Charge policy">
+            <FieldSingleSelect
+              label="Charge policy"
+              hideLabel
+              value={applicationSettings.applicationFeeChargePolicy}
+              disabled={disabled || !onApplicationSettingsChange}
+              options={[
+                { value: "first_only", label: "First submission only" },
+                { value: "every_time", label: "Every new application" },
+              ]}
+              onChange={(next) =>
+                onApplicationSettingsChange?.({
+                  ...applicationSettings,
+                  applicationFeeChargePolicy: next as ApplicationFeeChargePolicy,
+                })
+              }
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
       <PortalSettingsSection
         title="Handling"
         action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
@@ -368,6 +481,22 @@ export function ApplicationsSettingsPanel({
             submissions are approved without a manual review step.
           </p>
         ) : null}
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Questions" action={<SettingsGroupSourceTag namespace="manager-application-settings" />}>
+        <PortalSettingsGroup>
+          {showFormLink ? (
+            <SettingsFormJumpRow
+              detailTab="application"
+              propertyId={selectedIds[0]}
+              propertyOptions={propertyOptions}
+            />
+          ) : (
+            <PortalSettingsRow label="Form questions">
+              <span className="text-sm text-muted">Open a house → Form to edit questions</span>
+            </PortalSettingsRow>
+          )}
+        </PortalSettingsGroup>
       </PortalSettingsSection>
 
       <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
@@ -662,6 +791,8 @@ export function LeaseSettingsPanel({
   reminderFormRef,
   showFormLink = false,
   source,
+  leasingPipeline = DEFAULT_LEASING_PIPELINE,
+  onLeasingPipelineChange,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -675,6 +806,8 @@ export function LeaseSettingsPanel({
   showFormLink?: boolean;
   /** The `source` the host's `manager-application-settings` GET resolved to, for the Documents tag. */
   source?: SettingsResolutionSource | null;
+  leasingPipeline?: LeasingPipelinePreferences;
+  onLeasingPipelineChange?: (next: LeasingPipelinePreferences) => void;
 }) {
   const disabled = loading || saving;
   const scope = useSettingsPropertyScope();
@@ -690,9 +823,66 @@ export function LeaseSettingsPanel({
       meta: "Send the generated lease for signature when it is ready.",
     },
   ];
+  const signingFeeDollars =
+    leasingPipeline.leaseSigningFeeCents == null
+      ? ""
+      : (leasingPipeline.leaseSigningFeeCents / 100).toFixed(
+          leasingPipeline.leaseSigningFeeCents % 100 === 0 ? 0 : 2,
+        );
+  const requirePaymentToSign = (leasingPipeline.leaseSigningFeeCents ?? 0) > 0;
 
   return (
     <div className="space-y-6">
+      <PortalSettingsSection
+        title="Lease system"
+        action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Lease signing cost">
+            <input
+              id="manager-lease-signing-fee"
+              type="text"
+              inputMode="decimal"
+              aria-label="Lease signing cost"
+              className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
+              value={signingFeeDollars}
+              disabled={disabled || !onLeasingPipelineChange}
+              placeholder="0"
+              data-attr="manager-lease-signing-fee"
+              onChange={(e) => {
+                const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
+                if (raw === "") {
+                  onLeasingPipelineChange?.({ ...leasingPipeline, leaseSigningFeeCents: null });
+                  return;
+                }
+                const dollars = Number(raw);
+                if (!Number.isFinite(dollars)) return;
+                onLeasingPipelineChange?.({
+                  ...leasingPipeline,
+                  leaseSigningFeeCents: Math.round(dollars * 100),
+                });
+              }}
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Require payment to sign">
+            <PortalSettingsToggle
+              checked={requirePaymentToSign}
+              onChange={(next) =>
+                onLeasingPipelineChange?.({
+                  ...leasingPipeline,
+                  leaseSigningFeeCents: next
+                    ? Math.max(leasingPipeline.leaseSigningFeeCents ?? 2500, 100)
+                    : 0,
+                })
+              }
+              label="Require payment to sign"
+              disabled={disabled || !onLeasingPipelineChange}
+              dataAttr="leasing-pipeline-require-signing-fee"
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
       <PortalSettingsSection
         title="Documents"
         action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}

@@ -13,10 +13,12 @@ export function resolveResidentPortalNavStage(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>,
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "pipelineOrder">>,
 ): ResidentPortalNavStage {
   if (access.leaseAccessUnlocked) return "post_lease";
   if (access.applicationApproved) return "post_approval_pre_lease";
+  // Lease-first: unlock Lease (and docs) before an approved application.
+  if (access.pipelineOrder === "lease_then_application") return "post_approval_pre_lease";
   // A booking-created resident has neither row — checked before the ordinary
   // application-submitted branch since they never submitted one.
   if (access.isBookingResidency) return "booking_residency";

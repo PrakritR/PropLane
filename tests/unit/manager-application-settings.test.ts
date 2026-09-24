@@ -154,22 +154,26 @@ describe("PATCH /api/portal/manager-application-settings — invalid fees 400, n
   });
 });
 
-describe("effectiveApplicationFeeCents — per-listing authoritative (option B)", () => {
-  it("the listing's own fee WINS over a configured account-wide fee", () => {
-    expect(effectiveApplicationFeeCents({ managerFeeCents: 7500, listingFeeCents: 3000 })).toBe(3000);
+describe("effectiveApplicationFeeCents — Application system is the source of truth (PLAN-0924-1254)", () => {
+  it("ignores a listing fee when a manager/system fee is configured", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: 7500, listingFeeCents: 3000 })).toBe(7500);
   });
-  it("a per-listing 0 means FREE and does NOT fall through to a non-zero account-wide fee", () => {
-    // The load-bearing case: a deliberate per-listing $0 must never reintroduce a charge.
-    expect(effectiveApplicationFeeCents({ managerFeeCents: 7500, listingFeeCents: 0 })).toBe(0);
+  it("ignores a listing $0 when the system fee is set", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: 7500, listingFeeCents: 0 })).toBe(7500);
   });
-  it("falls back to the account-wide fee (a default) when the listing sets nothing", () => {
+  it("uses the account-wide fee when the listing sets nothing", () => {
     expect(effectiveApplicationFeeCents({ managerFeeCents: 7500, listingFeeCents: null })).toBe(7500);
   });
-  it("an account-wide 0 default applies only when the listing is unset", () => {
+  it("honors an account-wide 0 (applications free)", () => {
     expect(effectiveApplicationFeeCents({ managerFeeCents: 0, listingFeeCents: null })).toBe(0);
   });
-  it("falls back to the legacy default when neither is set", () => {
+  it("falls back to the legacy default when the system fee is unset", () => {
     expect(effectiveApplicationFeeCents({ managerFeeCents: null, listingFeeCents: null })).toBe(
+      LEGACY_DEFAULT_APPLICATION_FEE_CENTS,
+    );
+  });
+  it("ignores a listing fee even when the system fee is unset (legacy default)", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, listingFeeCents: 3000 })).toBe(
       LEGACY_DEFAULT_APPLICATION_FEE_CENTS,
     );
   });
@@ -208,7 +212,7 @@ function makeDb(opts: { listingFee: string; managerFeeCents: number | null }): S
   return { from } as unknown as SupabaseClient;
 }
 
-describe("resolveApplicationFeeProperty — the listing's own fee is authoritative (option B)", () => {
+describe("resolveApplicationFeeProperty — Application system fee wins (PLAN-0924-1254)", () => {
   beforeEach(async () => {
     const actual = await vi.importActual<typeof import("@/lib/manager-application-settings")>(
       "@/lib/manager-application-settings",
@@ -216,24 +220,24 @@ describe("resolveApplicationFeeProperty — the listing's own fee is authoritati
     vi.mocked(loadManagerApplicationSettings).mockImplementation(actual.loadManagerApplicationSettings);
   });
 
-  it("charges the LISTING's fee, not the account-wide fee, when the listing sets one", async () => {
+  it("charges the system fee, ignoring a listing fee", async () => {
     const db = makeDb({ listingFee: "$30", managerFeeCents: 7500 });
     const res = await resolveApplicationFeeProperty(db, { propertyId: "prop_1", managerUserId: "mgr_A" });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(3000);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 
-  it("uses the account-wide fee as a default only when the listing sets nothing", async () => {
+  it("uses the account-wide fee when the listing sets nothing", async () => {
     const db = makeDb({ listingFee: "", managerFeeCents: 7500 });
     const res = await resolveApplicationFeeProperty(db, { propertyId: "prop_1", managerUserId: "mgr_A" });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 
-  it("a per-listing $0 is FREE — it rejects rather than falling through to the account-wide fee", async () => {
+  it("ignores a listing \$0 and still charges the system fee", async () => {
     const db = makeDb({ listingFee: "$0", managerFeeCents: 7500 });
     const res = await resolveApplicationFeeProperty(db, { propertyId: "prop_1", managerUserId: "mgr_A" });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.code).toBe("NO_APPLICATION_FEE");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 });

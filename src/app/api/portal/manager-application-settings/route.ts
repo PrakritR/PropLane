@@ -27,6 +27,16 @@ import {
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
+  loadLeasingPipeline,
+  loadLeasingPipelineState,
+  normalizeLeasingPipelinePreferences,
+  resolveLeasingPipelineForProperty,
+  saveLeasingPipeline,
+  saveLeasingPipelineForProperty,
+  validateLeaseSigningFeeCents,
+  type LeasingPipelinePreferences,
+} from "@/lib/leasing-pipeline-preferences";
+import {
   loadTaskAutomation,
   saveTaskAutomation,
   type TaskAutomationPreferences,
@@ -144,6 +154,8 @@ export async function GET(req: Request) {
     // comment above `loadCurrentAutomation`; `automation` itself now comes
     // from the shared resolver.
     const automationState = await loadApplicationAutomationState(ctx.db, ownerUserId);
+    const leasingState = await loadLeasingPipelineState(ctx.db, ownerUserId);
+    const leasingPipeline = resolveLeasingPipelineForProperty(leasingState, propertyId);
     const [{ automation, source }, overriddenPropertyIds] = await Promise.all([
       loadCurrentAutomation(ctx.db, ownerUserId, propertyId, workspaceId),
       listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
@@ -182,6 +194,7 @@ export async function GET(req: Request) {
       settings,
       automation,
       automationState,
+      leasingPipeline,
       taskAutomation,
       landlord,
       suggestedFeeCents,
@@ -278,9 +291,29 @@ export async function PATCH(req: Request) {
       taskAutomation = await saveTaskAutomation(ctx.db, ownerUserId, body.taskAutomation);
     }
 
+    let leasingPipeline: LeasingPipelinePreferences | undefined;
+    if ("leasingPipeline" in body) {
+      const existingPipeline = propertyId
+        ? resolveLeasingPipelineForProperty(await loadLeasingPipelineState(ctx.db, ownerUserId), propertyId)
+        : await loadLeasingPipeline(ctx.db, ownerUserId);
+      const incoming = normalizeLeasingPipelinePreferences({
+        ...existingPipeline,
+        ...(body.leasingPipeline as Record<string, unknown>),
+      });
+      const feeCheck = validateLeaseSigningFeeCents(incoming.leaseSigningFeeCents);
+      if (!feeCheck.ok) {
+        return NextResponse.json({ error: feeCheck.error }, { status: 400 });
+      }
+      incoming.leaseSigningFeeCents = feeCheck.leaseSigningFeeCents;
+      leasingPipeline = propertyId
+        ? await saveLeasingPipelineForProperty(ctx.db, ownerUserId, propertyId, incoming)
+        : await saveLeasingPipeline(ctx.db, ownerUserId, incoming);
+    }
+
     const overriddenPropertyIds = automation !== undefined ? await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE) : undefined;
     const automationFields = {
       automation,
+      ...(leasingPipeline ? { leasingPipeline } : {}),
       ...(automationSource ? { source: automationSource, scope: propertyId ? "property" : "workspace", inherited: false } : {}),
       ...(overriddenPropertyIds ? { overriddenPropertyIds } : {}),
     };

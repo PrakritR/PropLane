@@ -8,6 +8,7 @@ import type {
   ManagerSubscriptionTier,
   ResidentPortalAccessState,
 } from "@/lib/resident-portal-access-types";
+import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 
 export type { ManagerSubscriptionTier, ResidentPortalAccessState } from "@/lib/resident-portal-access-types";
 export { residentPortalHomePath } from "@/lib/resident-portal-nav";
@@ -29,6 +30,7 @@ function emptyAccessState(managerSubscriptionTier: ManagerSubscriptionTier): Res
     isBookingResidency: false,
     fullPortalAccess: false,
     managerSubscriptionTier,
+    pipelineOrder: "application_then_lease",
   };
 }
 
@@ -292,6 +294,33 @@ const loadResidentPortalAccessStateCached = cache(
     const isPreLeaseResident =
       roleOk && !leaseAccessUnlocked && (hasTourLink || hasSubmittedApplication || applicationApproved);
 
+    let pipelineOrder: ResidentPortalAccessState["pipelineOrder"] = "application_then_lease";
+    const pipelineManagerId =
+      managerUserId ??
+      (await (async () => {
+        if (!userId) return null;
+        const { data: profile } = await db.from("profiles").select("manager_id").eq("id", userId).maybeSingle();
+        // Prefer a real owner id from an owned application row when available.
+        const { data: owned } = await db
+          .from("manager_application_records")
+          .select("manager_user_id")
+          .eq("resident_email", email)
+          .limit(1)
+          .maybeSingle();
+        const fromApp = typeof owned?.manager_user_id === "string" ? owned.manager_user_id.trim() : "";
+        if (fromApp) return fromApp;
+        void profile;
+        return null;
+      })());
+    if (pipelineManagerId) {
+      try {
+        const pipeline = await loadLeasingPipeline(db, pipelineManagerId);
+        pipelineOrder = pipeline.pipelineOrder;
+      } catch {
+        /* keep default */
+      }
+    }
+
     return {
       roleOk,
       hasSubmittedApplication,
@@ -308,6 +337,7 @@ const loadResidentPortalAccessStateCached = cache(
       isBookingResidency,
       fullPortalAccess: leaseSigned,
       managerSubscriptionTier,
+      pipelineOrder,
     };
   },
 );
