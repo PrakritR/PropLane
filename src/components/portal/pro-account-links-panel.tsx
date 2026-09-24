@@ -698,6 +698,8 @@ export function ProAccountLinksPanel({
   // Controls the WorkspaceInviteSheet; inviteWorkspaceId (below) picks which
   // workspace it opens for.
   const [linkModalOpen, setLinkModalOpen] = useState(false);
+  /** Bumped when a link is copy-saved so Members reloads the saved-links list. */
+  const [inviteLinksRefreshKey, setInviteLinksRefreshKey] = useState(0);
 
   const [teamRemovePreview, setTeamRemovePreview] = useState<TeamRemovePreviewItem[] | null>(null);
   const [teamRemoveBusy, setTeamRemoveBusy] = useState(false);
@@ -1755,6 +1757,7 @@ export function ProAccountLinksPanel({
             onChanged={() => {
               void loadRemoteInvites();
               syncWorkspaceRollup();
+              setInviteLinksRefreshKey((n) => n + 1);
             }}
             onEditMember={(memberLinkId) => openMemberSheet(memberLinkId)}
             inviterName={managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName}
@@ -2018,9 +2021,8 @@ export function ProAccountLinksPanel({
         {(workspace.owned || workspace.canManageMembers) && !inviteLinkBlocked ? (
           <WorkspaceInviteLinkStrip
             workspaceId={workspace.id}
-            workspaceName={workspace.name}
-            propertyIds={workspace.propertyIds}
             canManage
+            refreshKey={inviteLinksRefreshKey}
             onEdit={() => openLinkModal(workspace.id)}
           />
         ) : null}

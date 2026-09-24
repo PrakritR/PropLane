@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Invite link row under Members — same grid/⋯ pattern as team member rows.
+ * Saved invite links under Members — one row per minted link (Active / Off).
  * Edit opens the invite sheet; Copy reveals the URL; Deactivate revokes.
  */
 
@@ -15,60 +15,88 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { mintInviteLinkClient, revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
+import { revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
+import { inviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
+import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 import { cn } from "@/lib/utils";
+
+type SavedLink = {
+  id: string;
+  label: string | null;
+  teamRole?: string | null;
+  houseScope?: "all" | "selected" | null;
+  assignedPropertyIds: string[];
+  revokedAt: string | null;
+  expiresAt: string | null;
+  maxUses: number | null;
+  usedCount: number;
+  createdAt: string;
+};
 
 type Props = {
   workspaceId: string;
-  workspaceName: string;
-  propertyIds: string[];
   canManage: boolean;
-  /** Opens the invite sheet so Role / Houses can be edited before reminting. */
+  /** Bump after Copy and save so the list reloads. */
+  refreshKey?: number;
+  /** Opens the invite sheet so Role / Houses can be edited before saving another. */
   onEdit: () => void;
 };
 
 const ROW_GRID = "md:grid md:grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_44px] md:items-center md:gap-x-3";
 
+function linkTitle(link: SavedLink): string {
+  const trimmed = link.label?.trim();
+  if (trimmed) return trimmed;
+  const role = teamRoleListLabel(link.teamRole);
+  if (link.houseScope === "all") return `${role} · All houses`;
+  const n = link.assignedPropertyIds.length;
+  return `${role} · ${n === 1 ? "1 house" : `${n} houses`}`;
+}
+
+function isActive(link: SavedLink): boolean {
+  return !inviteLinkUnusableReason(link, new Date());
+}
+
 export function WorkspaceInviteLinkStrip({
   workspaceId,
-  workspaceName,
-  propertyIds,
   canManage,
+  refreshKey = 0,
   onEdit,
 }: Props) {
   const { showToast } = useAppUi();
-  const [linkId, setLinkId] = useState<string | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
-  const [active, setActive] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [links, setLinks] = useState<SavedLink[]>([]);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   const hydrate = useCallback(async () => {
     try {
       const res = await fetch(`/api/pro/invite-links?workspaceId=${encodeURIComponent(workspaceId)}`, {
         credentials: "include",
+        cache: "no-store",
       });
-      const body = (await res.json().catch(() => ({}))) as { link?: { id?: string } | null };
+      const body = (await res.json().catch(() => ({}))) as {
+        links?: SavedLink[];
+        link?: { id?: string } | null;
+      };
       if (!res.ok) {
-        setLinkId(null);
-        setUrl(null);
-        setActive(false);
+        setLinks([]);
         setLoaded(true);
         return;
       }
-      const id = body.link?.id?.trim() || null;
-      setLinkId(id);
-      setActive(Boolean(id));
-      if (id) {
-        const revealed = await revealInviteLinkClient(id);
-        setUrl(revealed.ok ? revealed.url : null);
-      } else {
-        setUrl(null);
-      }
+      const next = Array.isArray(body.links) ? body.links : [];
+      setLinks(next);
+      // Eager-reveal active URLs for the list preview (tokens stay server-side until reveal).
+      const revealed: Record<string, string> = {};
+      await Promise.all(
+        next.filter(isActive).slice(0, 10).map(async (link) => {
+          const result = await revealInviteLinkClient(link.id);
+          if (result.ok) revealed[link.id] = result.url;
+        }),
+      );
+      setUrls(revealed);
     } catch {
-      setLinkId(null);
-      setUrl(null);
-      setActive(false);
+      setLinks([]);
     } finally {
       setLoaded(true);
     }
@@ -76,58 +104,36 @@ export function WorkspaceInviteLinkStrip({
 
   useEffect(() => {
     void hydrate();
-  }, [hydrate]);
+  }, [hydrate, refreshKey]);
 
-  const mintFresh = async (): Promise<string | null> => {
-    const minted = await mintInviteLinkClient({
-      kind: "manager",
-      label: `Invite to ${workspaceName}`,
-      workspaceId,
-      assignedPropertyIds: propertyIds,
-      houseScope: "all",
-      teamRole: "viewer",
-      replaceActive: true,
-    });
-    if (!minted.ok) {
-      showToast(minted.error);
-      return null;
-    }
-    setLinkId(minted.linkId || null);
-    setUrl(minted.url);
-    setActive(true);
-    return minted.url;
-  };
-
-  const copy = async () => {
-    if (busy) return;
-    setBusy(true);
+  const copy = async (link: SavedLink) => {
+    if (busyId) return;
+    setBusyId(link.id);
     try {
-      let nextUrl = url;
-      if (!nextUrl && linkId && active) {
-        const revealed = await revealInviteLinkClient(linkId);
-        if (revealed.ok) {
-          nextUrl = revealed.url;
-          setUrl(revealed.url);
-        }
-      }
+      let nextUrl = urls[link.id];
       if (!nextUrl) {
-        nextUrl = await mintFresh();
-        if (!nextUrl) return;
+        const revealed = await revealInviteLinkClient(link.id);
+        if (!revealed.ok) {
+          showToast(revealed.error);
+          return;
+        }
+        nextUrl = revealed.url;
+        setUrls((prev) => ({ ...prev, [link.id]: revealed.url }));
       }
       await navigator.clipboard.writeText(nextUrl);
       showToast("Invite link copied.");
     } catch {
       showToast("Could not copy the invite link.");
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   };
 
-  const deactivate = async () => {
-    if (!canManage || busy || !linkId) return;
-    setBusy(true);
+  const deactivate = async (link: SavedLink) => {
+    if (!canManage || busyId || !isActive(link)) return;
+    setBusyId(link.id);
     try {
-      const res = await fetch(`/api/pro/invite-links?id=${encodeURIComponent(linkId)}`, {
+      const res = await fetch(`/api/pro/invite-links?id=${encodeURIComponent(link.id)}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -136,108 +142,108 @@ export function WorkspaceInviteLinkStrip({
         showToast(body.error ?? "Could not deactivate the invite link.");
         return;
       }
-      setActive(false);
-      setLinkId(null);
-      setUrl(null);
+      setLinks((prev) =>
+        prev.map((row) =>
+          row.id === link.id ? { ...row, revokedAt: new Date().toISOString() } : row,
+        ),
+      );
       showToast("Invite link deactivated.");
     } catch {
       showToast("Could not deactivate the invite link.");
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const activate = async () => {
-    if (!canManage || busy) return;
-    setBusy(true);
-    try {
-      const next = await mintFresh();
-      if (next) showToast("Invite link activated.");
-    } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   };
 
   if (!canManage) return null;
-
-  const statusLabel = !loaded ? "…" : active ? "Active" : "Off";
-  const detail = !loaded
-    ? "Loading…"
-    : active && url
-      ? url
-      : "No active invite link";
+  if (!loaded) {
+    return (
+      <div className="space-y-2 border-t border-border/60 px-4 py-3" role="status" aria-label="Loading invite links">
+        <div className="h-3 w-1/3 rounded-lg bg-[var(--secondary)]" />
+        <div className="h-3 w-1/2 rounded-lg bg-[var(--secondary)]" />
+      </div>
+    );
+  }
+  if (links.length === 0) return null;
 
   return (
-    <div
-      className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", ROW_GRID)}
-      data-attr="workspace-invite-link-strip"
-    >
-      <span className="flex min-w-0 items-center gap-2.5">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-          <Link2 className="size-3.5" aria-hidden />
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate text-[14px] font-semibold text-foreground">Invite link</span>
-          <span className="block truncate font-mono text-[12px] text-muted" data-attr="workspace-invite-link-url">
-            {detail}
-          </span>
-        </span>
-      </span>
-      <span>
-        <span
-          className={cn(
-            "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
-            active ? "bg-primary/10 text-primary" : "bg-[var(--secondary)] text-muted",
-          )}
-          data-attr="workspace-invite-link-status"
-        >
-          {statusLabel}
-        </span>
-      </span>
-      <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">
-        Anyone with the link
-      </span>
-      <span className="text-[12.5px] text-muted max-md:hidden">—</span>
-      <span className="ml-auto md:ml-0 md:justify-self-end">
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger
-            type="button"
-            aria-label="Invite link actions"
-            disabled={busy || !loaded}
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-            data-portal-row-ignore
-            data-attr="workspace-invite-link-actions"
+    <div data-attr="workspace-invite-link-strip">
+      {links.map((link) => {
+        const active = isActive(link);
+        const url = urls[link.id];
+        const busy = busyId === link.id;
+        return (
+          <div
+            key={link.id}
+            className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", ROW_GRID)}
+            data-attr="workspace-invite-link-row"
+            data-link-id={link.id}
           >
-            <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" data-attr="workspace-invite-link-actions-menu">
-            <DropdownMenuItem
-              data-attr="workspace-invite-link-edit"
-              onSelect={() => onEdit()}
-            >
-              Edit
-            </DropdownMenuItem>
-            {active ? (
-              <DropdownMenuItem data-attr="workspace-invite-link-copy" onSelect={() => void copy()}>
-                Copy link
-              </DropdownMenuItem>
-            ) : null}
-            {active ? (
-              <DropdownMenuItem
-                data-attr="workspace-invite-link-deactivate"
-                className="text-[var(--status-overdue-fg)]"
-                onSelect={() => void deactivate()}
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                <Link2 className="size-3.5" aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[14px] font-semibold text-foreground">{linkTitle(link)}</span>
+                <span
+                  className="block truncate font-mono text-[12px] text-muted"
+                  data-attr="workspace-invite-link-url"
+                >
+                  {active && url ? url : active ? "Invite link" : "Deactivated"}
+                </span>
+              </span>
+            </span>
+            <span>
+              <span
+                className={cn(
+                  "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                  active ? "bg-primary/10 text-primary" : "bg-[var(--secondary)] text-muted",
+                )}
+                data-attr="workspace-invite-link-status"
               >
-                Deactivate
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem data-attr="workspace-invite-link-activate" onSelect={() => void activate()}>
-                Activate
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </span>
+                {active ? "Active" : "Off"}
+              </span>
+            </span>
+            <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">
+              Anyone with the link
+            </span>
+            <span className="text-[12.5px] text-muted max-md:hidden">—</span>
+            <span className="ml-auto md:ml-0 md:justify-self-end">
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger
+                  type="button"
+                  aria-label="Invite link actions"
+                  disabled={busy}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                  data-portal-row-ignore
+                  data-attr="workspace-invite-link-actions"
+                >
+                  <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" data-attr="workspace-invite-link-actions-menu">
+                  <DropdownMenuItem data-attr="workspace-invite-link-edit" onSelect={() => onEdit()}>
+                    Edit
+                  </DropdownMenuItem>
+                  {active ? (
+                    <DropdownMenuItem data-attr="workspace-invite-link-copy" onSelect={() => void copy(link)}>
+                      Copy link
+                    </DropdownMenuItem>
+                  ) : null}
+                  {active ? (
+                    <DropdownMenuItem
+                      data-attr="workspace-invite-link-deactivate"
+                      className="text-[var(--status-overdue-fg)]"
+                      onSelect={() => void deactivate(link)}
+                    >
+                      Deactivate
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

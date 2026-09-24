@@ -16,18 +16,20 @@
  * the workspace (`defaultHouseScopeFor`).
  *
  * The link and the send box share ONE access setting (role + houses). Opening
- * the sheet only READS the workspace's active link (hydrating role/houses/
+ * the sheet only READS the workspace's latest active link (hydrating role/houses/
  * permissions from it) and never mints as a side effect. Changing Role or
- * Houses only updates local state. A link is minted or re-minted — always
- * with `replaceActive: true` — only at the moment the "Invite link" action or
- * Send is pressed, and only when the on-screen terms differ from the held
- * link's terms, so an already-shared URL never gains power without the
- * sender re-confirming it (see `docs/agents/co-manager-access.md`).
+ * Houses only updates local state.
+ *
+ * "Copy and save invite link" always mints a NEW row with `replaceActive: false`
+ * so prior saved links stay on the Members list. Send (email/SMS) still
+ * reuses a matching held link, and remints with `replaceActive: true` only when
+ * on-screen terms changed — so a message never ships a URL that silently gained
+ * power (see `docs/agents/co-manager-access.md`).
  *
  * The link box renders ONLY while `linkUrl` is in hand AND its terms still
  * match what is on screen (`termsMatchHeldLink`). The moment Role or Houses
  * changes after a link was shown, the box disappears and a single line asks
- * for "Invite link" to be pressed again — never a stale URL for terms nobody
+ * for "Copy and save invite link" again — never a stale URL for terms nobody
  * confirmed.
  */
 
@@ -289,12 +291,8 @@ export function WorkspaceInviteSheet({
   const changeCustomPermissions = (next: CoManagerPermissions) => setCustomPermissions(next);
 
   /**
-   * The URL for what is on screen right now. Reuses the held link's URL
-   * (revealing it if not already in hand) when its terms still match the
-   * permissions fields; otherwise mints a fresh link with `replaceActive:
-   * true` so the new URL always matches what is about to be copied or sent,
-   * and any URL already out in the world stops working. Only toasts about a
-   * replacement when a prior link actually existed to replace.
+   * The URL for what is on screen right now (Send path). Reuses the held link's
+   * URL when its terms still match; otherwise mints with `replaceActive: true`.
    */
   const resolveLinkForCurrentTerms = async (): Promise<
     { ok: true; url: string; linkId: string } | { ok: false; error: string }
@@ -310,6 +308,7 @@ export function WorkspaceInviteSheet({
     const hadPriorLink = linkId != null;
     const result = await mintInviteLinkClient({
       kind: "manager",
+      label: `${roleLabelFor(role)} · ${reach}`,
       workspaceId: workspace.id,
       assignedPropertyIds: houseIds,
       propertyPermissions: normalizePropertyCoManagerPermissions(
@@ -332,21 +331,39 @@ export function WorkspaceInviteSheet({
     return { ok: true, url: result.url, linkId: result.linkId };
   };
 
-  /** Resolve (reuse-or-mint) the URL for what is on screen, then copy it. */
-  const openInviteLink = async () => {
+  /** Always mint a new saved link (append), copy it, refresh Members. */
+  const copyAndSaveInviteLink = async () => {
     setLinkLoading(true);
     try {
-      const result = await resolveLinkForCurrentTerms();
+      const result = await mintInviteLinkClient({
+        kind: "manager",
+        label: `${roleLabelFor(role)} · ${reach}`,
+        workspaceId: workspace.id,
+        assignedPropertyIds: houseIds,
+        propertyPermissions: normalizePropertyCoManagerPermissions(
+          Object.fromEntries(houseIds.map((id) => [id, effectivePermissions])),
+          houseIds,
+        ),
+        propertyLabelsById: workspace.propertyLabels,
+        teamRole: role,
+        houseScope,
+        workspacePermissions: effectiveWorkspacePermissions,
+        replaceActive: false,
+      });
       if (!result.ok) {
         showToast(result.error);
         return;
       }
+      setLinkId(result.linkId);
+      setLinkUrl(result.url);
+      setHeldTerms(currentTerms);
       try {
         await navigator.clipboard.writeText(result.url);
-        showToast("Invite link copied.");
+        showToast("Invite link copied and saved.");
       } catch {
-        showToast("Link ready — select it and copy manually.");
+        showToast("Link saved — select it and copy manually.");
       }
+      onChanged();
     } finally {
       setLinkLoading(false);
     }
@@ -500,11 +517,11 @@ export function WorkspaceInviteSheet({
               variant="primary"
               className="rounded-full"
               loading={linkLoading}
-              onClick={() => openInviteLink()}
+              onClick={() => copyAndSaveInviteLink()}
               data-attr="workspace-invite-copy"
             >
               <Link2 className="h-4 w-4" />
-              <span className="ml-1.5">Copy invite link</span>
+              <span className="ml-1.5">Copy and save invite link</span>
             </Button>
           ) : (
             <Button
@@ -602,7 +619,7 @@ export function WorkspaceInviteSheet({
           </div>
         ) : showLinkStale ? (
           <p className="text-[13px] text-muted" data-attr="workspace-invite-link-stale">
-            Access changed — press Copy invite link again for a link with these terms.
+            Access changed — press Copy and save invite link again for a link with these terms.
           </p>
         ) : null}
       </div>

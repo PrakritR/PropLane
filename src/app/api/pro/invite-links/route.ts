@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
+import { inviteLinkUnusableReason, inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import {
-  activeInviteLinkForWorkspace,
   listInviteLinksForActor,
+  listInviteLinksForWorkspace,
   mintInviteLink,
   revokeInviteLink,
 } from "@/lib/invite-links/invite-links.server";
@@ -29,15 +29,18 @@ export async function GET(req: Request) {
   const workspaceId = searchParams.get("workspaceId")?.trim();
 
   if (workspaceId) {
-    // Get the active link for a specific workspace.
-    const result = await activeInviteLinkForWorkspace(
+    // Saved invite links for this workspace (Active + Off), newest first.
+    const result = await listInviteLinksForWorkspace(
       createSupabaseServiceRoleClient(),
       { actorUserId: userId, workspaceId },
     );
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    return NextResponse.json({ link: result.link });
+    const now = new Date();
+    const active =
+      result.links.find((link) => !inviteLinkUnusableReason(link, now)) ?? null;
+    return NextResponse.json({ links: result.links, link: active });
   }
 
   // Get all links for the actor.
