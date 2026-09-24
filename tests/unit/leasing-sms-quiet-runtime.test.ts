@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   reserveCredit: vi.fn(),
   completeTurn: vi.fn(),
   readTurn: vi.fn(),
+  finishCredit: vi.fn(),
+  turnKey: vi.fn(),
   traceResult: null as { reply: string } | null,
   traceObserver: undefined as { onToolCall?: (event: unknown) => void } | undefined,
   agentMessageInserts: [] as Record<string, unknown>[],
@@ -12,11 +14,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/agent/loop", () => ({ runAgentTurn: mocks.runAgentTurn }));
-vi.mock("@/lib/comms-billing/wallet.server", () => ({ reserveCommsCredit: mocks.reserveCredit }));
+vi.mock("@/lib/comms-billing/wallet.server", () => ({ reserveCommsCredit: mocks.reserveCredit, finishCommsCredit: mocks.finishCredit }));
 vi.mock("@/lib/comms-billing/turn-result.server", () => ({
   INTERRUPTED_COMMS_REPLY: "interrupted",
   readCommsTurnResult: mocks.readTurn,
   completeCommsTurn: mocks.completeTurn,
+  commsTurnKey: mocks.turnKey,
 }));
 vi.mock("@/lib/agent/leasing-sms-custom-instructions", () => ({
   leasingSmsSystemPromptForWorkNumberOwner: vi.fn(async () => "sealed test prompt"),
@@ -81,6 +84,8 @@ beforeEach(() => {
   mocks.reserveCredit.mockResolvedValue({ allowed: true, duplicate: false });
   mocks.completeTurn.mockImplementation(async (_db: unknown, _owner: string, _key: string, result: unknown) => result);
   mocks.readTurn.mockReset();
+  mocks.turnKey.mockImplementation(async (_db: unknown, _owner: string, base: string) => base);
+  mocks.finishCredit.mockResolvedValue(undefined);
   mocks.runAgentTurn.mockImplementation(async (args: { observer?: { onToolCall?: (event: unknown) => void } }) => {
     args.observer?.onToolCall?.({
       iteration: 0,
@@ -173,6 +178,39 @@ describe("leasing SMS quiet handoff runtime", () => {
 
     expect(turn).toMatchObject({ reply: "", disposition: "quiet_handoff", assistantMessageId: null });
     expect(mocks.agentMessageInserts).toHaveLength(1);
+  });
+
+  it("releases the credit hold instead of caching an empty turn when the model fails before any tool", async () => {
+    mocks.runAgentTurn.mockImplementationOnce(async () => {
+      throw new Error("400 This API key is not scoped to a workspace");
+    });
+    const { runLeasingSmsAgentTurn } = await import("@/lib/agent/leasing-sms-agent.server");
+
+    const turn = await runLeasingSmsAgentTurn(makeDb() as never, {
+      landlordId: "manager-1", prospectPhoneE164: "+12065550123", inboundText: "Is the room available?",
+      inboundMessageSid: "SM-provider-outage",
+    });
+
+    expect(turn).toBeNull();
+    expect(mocks.finishCredit).toHaveBeenCalledWith(expect.anything(), "manager-1", "ai_turn:sms:session-1:inbound-1", true);
+    expect(mocks.completeTurn).not.toHaveBeenCalled();
+  });
+
+  it("caches a failed turn and marks that tools ran so a retry never repeats them", async () => {
+    mocks.runAgentTurn.mockImplementationOnce(async (args: { observer?: { onToolCall?: (event: unknown) => void } }) => {
+      args.observer?.onToolCall?.({ iteration: 0, name: "list_listings", input: {}, ok: true, output: { ok: true } });
+      throw new Error("final provider call failed");
+    });
+    const { runLeasingSmsAgentTurn } = await import("@/lib/agent/leasing-sms-agent.server");
+
+    const turn = await runLeasingSmsAgentTurn(makeDb() as never, {
+      landlordId: "manager-1", prospectPhoneE164: "+12065550123", inboundText: "Is the room available?",
+      inboundMessageSid: "SM-failure-after-tool",
+    });
+
+    expect(turn).toBeNull();
+    expect(mocks.finishCredit).not.toHaveBeenCalled();
+    expect(mocks.completeTurn).toHaveBeenCalledWith(expect.anything(), "manager-1", "ai_turn:sms:session-1:inbound-1", null, true);
   });
 
   it("detects quiet delivery even when the optional trace observer throws", async () => {

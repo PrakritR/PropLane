@@ -1,5 +1,5 @@
-import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
-import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
+import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
+import { finishCommsCredit, reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 /**
  * Leasing SMS agent runtime. A session (agent_sessions, kind `leasing_sms`)
  * binds one manager (work-number owner) + one prospect phone. Inbound Twilio
@@ -401,6 +401,7 @@ export async function runLeasingSmsAgentTurn(
     console.warn("leasing-sms turn skipped: inbound message id unavailable", session.id);
     return null;
   }
+  let toolsRan = false;
   const execute = async (): Promise<LeasingSmsTurn | null> => {
   let history: Anthropic.MessageParam[];
   if (args.prospectBurst && !args.testActor) {
@@ -527,6 +528,7 @@ export async function runLeasingSmsAgentTurn(
       async (observer) => {
         const observeToolCall = (event: ToolCallEvent) => {
           observedToolTrace.push({ tool: event.name, ok: event.ok });
+          toolsRan = true;
           if (
             event.name === "escalate_to_manager" &&
             event.ok &&
@@ -754,7 +756,7 @@ export async function runLeasingSmsAgentTurn(
   };
   };
   if (args.testActor) return execute();
-  const creditKey = `ai_turn:${channel}:${session.id}:${inboundMessageId}`;
+  const creditKey = await commsTurnKey(db, session.landlord_id, `ai_turn:${channel}:${session.id}:${inboundMessageId}`);
   const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
     idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
   if (!credit.allowed) {
@@ -769,7 +771,15 @@ export async function runLeasingSmsAgentTurn(
     assistantMessageId: null,
     traceId: null,
   });
-  return completeCommsTurn(db, session.landlord_id, creditKey, await execute());
+  const outcome = await execute();
+  if (!outcome && !toolsRan) {
+    // A failed model call (provider outage, bad key) is not a turn. Caching it
+    // as a completed `null` silenced the prospect forever and billed the
+    // manager; release the hold so the retry reserves a fresh key and runs.
+    await finishCommsCredit(db, session.landlord_id, creditKey, true);
+    return null;
+  }
+  return completeCommsTurn(db, session.landlord_id, creditKey, outcome, toolsRan);
 }
 
 /** Leasing / prospect voice — shares session history with leasing SMS on the same phone. */
