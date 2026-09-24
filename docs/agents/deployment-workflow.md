@@ -30,11 +30,16 @@ fast-forward-only promotion and every production safety gate remain.
 ## Vercel: `proplane` is PropLane production
 
 The live dashboard project is **`proplane`**
-(`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) and serves `proplane.ai` (legacy hosts
-`prop-lane.space` and `axis-seattle-housing.com` 308 to it). Do not relink
-it or use a separate branch-created project for live traffic. The generic
-Preview environment shares production defaults, so staging deployments must
-retain their `staging` branch-scoped variables.
+(`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) and serves `proplane.ai`. Legacy hosts
+`prop-lane.space` and `axis-seattle-housing.com` stay attached to the same
+Production deployment and **serve content directly** (with host-aware
+`noindex`) — do **not** 308 them to `proplane.ai`. A Vercel domain 308 breaks
+already-installed Capacitor shells whose `server.url` is still the legacy
+host and whose `allowNavigation` never included `proplane.ai` (permanent
+black splash). Do not relink the project or use a separate branch-created
+project for live traffic. The generic Preview environment shares production
+defaults, so staging deployments must retain their `staging` branch-scoped
+variables.
 
 **Search indexing:** only `proplane.ai` / `www.proplane.ai` may be crawled.
 Staging (`staging-prop-lane.space`), `*.vercel.app` previews, and every other

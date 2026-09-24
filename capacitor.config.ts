@@ -91,8 +91,11 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 0,
-      launchAutoHide: false,
+      // Auto-hide so a failed / blocked first navigation can never leave the
+      // captain on a permanent #080b14 splash (domain-cutover black screen).
+      // JS still hides earlier via CAPACITOR_BOOTSTRAP_SCRIPT + NativeBridge.
+      launchShowDuration: 2500,
+      launchAutoHide: true,
       backgroundColor: "#080b14",
       showSpinner: false,
     },

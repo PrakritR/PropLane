@@ -8,16 +8,21 @@ portals — and adds real native capabilities (push notifications, camera) on to
 The shell points at the canonical PropLane origin (`https://proplane.ai`,
 `PRODUCTION_APP_ORIGIN` / `CAPACITOR_PRODUCTION_SERVER_ORIGIN`). Legacy
 `prop-lane.space` and `www.axis-seattle-housing.com` stay on
-`allowNavigation` (and still 308 to proplane.ai) so already-installed deep
-links keep working inside the WebView. **Omitting `proplane.ai` from
-`allowNavigation` while the shell still loaded `prop-lane.space` caused a
-black splash after the domain cutover** — fixed by baking `proplane.ai` as
-the server URL and allow-listing it. Repointing the WebView means changing
-`capacitor.config.ts` + `CAP_SERVER_URL` / `npm run cap:prod` — a native-shell
-rebuild. **Note:** because WebView session cookies are scoped per registrable
-domain, an installed app that updates to a build loading the new domain starts
-with no session and prompts a one-time re-login; this is inherent to the domain
-cutover, not a bug.
+`allowNavigation` and must **serve the Production app without a cross-host
+308** so already-installed shells keep working inside the WebView. **A Vercel
+domain 308 from `prop-lane.space` → `proplane.ai` while the installed binary
+still loaded prop-lane (and lacked `proplane.ai` on allowNavigation) caused
+the black splash after cutover** — fixed by baking `proplane.ai` into new
+binaries *and* clearing that Vercel redirect on legacy hosts (they stay
+`noindex` for crawlers). **Sticky 308 in WKWebView:** force-quit is not enough;
+delete the app and reinstall (App Store or TestFlight) so the WebView drops its
+cached permanent redirect. New shells also set `SplashScreen.launchAutoHide`
+so a blocked first paint cannot leave `#080b14` forever. Repointing the
+WebView means changing `capacitor.config.ts` + `CAP_SERVER_URL` /
+`npm run cap:prod` — a native-shell rebuild. **Note:** because WebView session
+cookies are scoped per registrable domain, an installed app that updates to a
+build loading the new domain starts with no session and prompts a one-time
+re-login; this is inherent to the domain cutover, not a bug.
 
 - **Web/UI changes ship instantly** via your normal Vercel deploy. No app-store
   review needed for content or UI — the WebView always loads the latest site.
