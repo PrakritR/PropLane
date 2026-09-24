@@ -505,7 +505,7 @@ space.proplane.app://auth/callback/**
 
 Android uses the HTTPS callbacks (bridge page). iOS OAuth uses the custom-scheme entries directly.
 
-Both kinds of entry are required. If the one for the platform in use is missing, Supabase drops `redirect_to`, falls back to the **Site URL**, and sign-in opens the marketing homepage in the system browser instead of returning to the app.
+Both kinds of entry are required. If the one for the platform in use is missing, Supabase drops `redirect_to`, falls back to the **Site URL**, and sign-in opens the marketing homepage in the system browser instead of returning to the app. After the domain cutover the production **Site URL** must be `https://proplane.ai` and the redirect allowlist must include `https://proplane.ai/auth/callback` (plus signup variants). Sync with `node scripts/sync-supabase-oauth-redirect-urls.mjs --project-ref qahnczmilgptcedaqype --set-site-url`.
 
 **2. Universal / app links (https fallback)** — committed in `public/.well-known/`:
 
