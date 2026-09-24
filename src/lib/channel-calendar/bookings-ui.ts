@@ -261,7 +261,7 @@ export function bookingDeleteRefusalReason(
   if (!entry.residentName?.trim()) return null;
   const inHouseToday = entry.openEnded ? entry.start <= todayKey : entry.start <= todayKey && entry.end >= todayKey;
   if (!inHouseToday) return null;
-  return `${entry.residentName.trim()} is in-house today — move them out before deleting this booking.`;
+  return `${entry.residentName.trim()} is in-house today — move them out before removing this booking.`;
 }
 
 export function bookingSourceLabel(source: PropertyBookingEntry["source"]): string {
