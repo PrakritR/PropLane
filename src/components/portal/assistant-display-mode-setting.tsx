@@ -20,8 +20,9 @@ const OPTIONS: { mode: AssistantDisplayMode; label: string; description: string 
 
 /**
  * Settings entry point for the assistant display mode. It writes the SAME
- * persisted preference as the popup's pin button and the dock's unpin button
- * (`useAxisAssistantDock`), so all three stay in sync.
+ * persisted preference as the popup's pin button (`useAxisAssistantDock`), so
+ * both stay in sync. The dock's ✕ only closes the rail, so this is the way back
+ * to the popup.
  *
  * Renders nothing where the rail cannot be shown — other portals, the /demo
  * sandbox, or before the session resolves — rather than offering a setting that

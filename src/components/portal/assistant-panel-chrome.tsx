@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AppWindow, ChevronsRight, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -32,11 +32,9 @@ const ICON_BTN =
 
 export function AssistantPanelHeader({
   titleId,
-  onCollapse,
   onClose,
   closeDataAttr = "axis-assistant-close",
   onPinToRail,
-  onUndockToPopup,
   showHistory,
   onOpenHistory,
   showNew,
@@ -44,15 +42,11 @@ export function AssistantPanelHeader({
   className,
 }: {
   titleId?: string;
-  /** Docked rail: fold the rail to a strip. Rendered at the left edge. */
-  onCollapse?: () => void;
-  /** Popup and modal strips: dismiss the assistant. Rendered at the right edge. */
+  /** Dismiss the assistant (popup, desktop rail, modal strip). Rendered at the right edge. */
   onClose?: () => void;
   closeDataAttr?: string;
   /** Popup on a desktop: pin into the right rail. */
   onPinToRail?: () => void;
-  /** Rail: back to the floating popup. */
-  onUndockToPopup?: () => void;
   showHistory: boolean;
   onOpenHistory: () => void;
   showNew: boolean;
@@ -61,18 +55,6 @@ export function AssistantPanelHeader({
 }) {
   return (
     <div className={cn("relative flex shrink-0 items-center gap-0.5 border-b border-border/70 px-2 py-2", className)}>
-      {onCollapse ? (
-        <button
-          type="button"
-          onClick={onCollapse}
-          aria-label="Collapse PropLane Assistant"
-          aria-expanded
-          className={ICON_BTN}
-          data-attr="portal-assistant-dock-collapse"
-        >
-          <ChevronsRight className="h-4 w-4" aria-hidden />
-        </button>
-      ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-0.5">
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
           <AxisAssistantSparkleIcon className="h-3.5 w-3.5" />
@@ -118,18 +100,6 @@ export function AssistantPanelHeader({
           className={cn(ICON_BTN, "hidden lg:grid")}
         >
           <AssistantPinIcon className="h-4 w-4" />
-        </button>
-      ) : null}
-      {onUndockToPopup ? (
-        <button
-          type="button"
-          onClick={onUndockToPopup}
-          aria-label="Unpin PropLane Assistant, use the floating popup instead"
-          title="Unpin — back to the floating popup"
-          data-attr="assistant-undock-to-popup"
-          className={ICON_BTN}
-        >
-          <AppWindow className="h-4 w-4" aria-hidden />
         </button>
       ) : null}
       {onClose ? (

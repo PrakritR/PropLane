@@ -17,13 +17,13 @@ vi.mock("@/lib/axis-assistant/assistant-conversation-context", () => ({
 }));
 
 vi.mock("@/components/portal/assistant-dock-panel", () => ({
-  AssistantDockPanel: ({ endpoint, contextHint, onCollapse }: {
+  AssistantDockPanel: ({ endpoint, contextHint, onClose }: {
     endpoint: string;
     contextHint?: string | null;
-    onCollapse: () => void;
+    onClose: () => void;
   }) => (
     <div data-testid="assistant" data-endpoint={endpoint} data-context={contextHint ?? ""}>
-      <button type="button" aria-label="Close assistant" onClick={onCollapse}>×</button>
+      <button type="button" aria-label="Close assistant" onClick={onClose}>×</button>
       <input aria-label="Assistant message" />
     </div>
   ),

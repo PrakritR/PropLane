@@ -82,10 +82,12 @@ describe("assistant display mode", () => {
     vi.unstubAllGlobals();
   });
 
-  it("defaults to the popup with a bottom-right FAB and no rail", async () => {
+  it("defaults to the popup with a phone-only FAB and no rail", async () => {
     renderPortal();
     expect(askPropLane()).toBeInTheDocument();
     await waitFor(() => expect(fab()).not.toBeNull());
+    // Desktop's one entry point is the top bar's Ask PropLane.
+    expect(fab()!.className).toContain("lg:hidden");
     expect(rail()).toBeNull();
     expect(dock()).toBeNull();
     expect(screen.queryByLabelText("Expand PropLane Assistant")).toBeNull();
@@ -163,29 +165,57 @@ describe("assistant display mode", () => {
     expect(panel!.className).not.toContain("relative");
   });
 
-  it("closes from the dock header, back to the popup default", async () => {
-    // The rail's header used to offer only an "Unpin" (AppWindow) icon; it now
-    // gets a real ✕ close alongside the collapse-to-strip control
-    // (PLAN-0920-1058 area 1d), which does the same underlying unpin-to-popup.
+  it("closes the rail from its ✕ without switching to the popup", async () => {
     renderPortal();
     fireEvent.click(askPropLane());
     fireEvent.click(await screen.findByLabelText("Pin PropLane Assistant to the right side"));
     await waitFor(() => expect(rail()).not.toBeNull());
+    expect(screen.queryByLabelText("Collapse PropLane Assistant")).toBeNull();
 
     fireEvent.click(screen.getByLabelText("Close PropLane Assistant"));
 
     await waitFor(() => expect(rail()).toBeNull());
-    await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).not.toBeNull());
-    expect(readAssistantDisplayMode(USER)).toBe("popup");
+    expect(document.querySelector(".axis-assistant-panel")).toBeNull();
+    expect(readAssistantDisplayMode(USER)).toBe("docked");
+    // The ✕ unmounted with the rail; focus lands on the control that reopens it.
+    await waitFor(() => expect(askPropLane()).toHaveFocus());
   });
 
-  it("collapses the dock rail without reserving a white strip", async () => {
+  it("closes the rail from Ask PropLane and reopens it there", async () => {
+    // A desktop viewport: only min-width queries match.
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query.includes("min-width"),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    renderPortalWithTopBar();
+    const ask = () => screen.getByRole("button", { name: "Ask PropLane" });
+
+    fireEvent.click(ask());
+    await waitFor(() => expect(rail()).not.toBeNull());
+    // jsdom has no layout, so `offsetParent` is null; stand in for "on screen".
+    const input = document.getElementById("assistant-dock-input")!;
+    Object.defineProperty(input, "offsetParent", { configurable: true, get: () => document.body });
+
+    fireEvent.click(ask());
+    await waitFor(() => expect(rail()).toBeNull());
+    expect(document.querySelector(".axis-assistant-panel")).toBeNull();
+    expect(readAssistantDisplayMode(USER)).toBe("docked");
+
+    fireEvent.click(ask());
+    await waitFor(() => expect(rail()).not.toBeNull());
+  });
+
+  it("closes the dock rail without reserving a white strip", async () => {
     renderPortal();
     fireEvent.click(askPropLane());
     fireEvent.click(await screen.findByLabelText("Pin PropLane Assistant to the right side"));
     await waitFor(() => expect(dock()).not.toBeNull());
 
-    fireEvent.click(screen.getByLabelText("Collapse PropLane Assistant"));
+    fireEvent.click(screen.getByLabelText("Close PropLane Assistant"));
     await waitFor(() => expect(dock()).toBeNull());
     expect(rail()).toBeNull();
     expect(screen.getByLabelText("Expand PropLane Assistant")).toBeTruthy();

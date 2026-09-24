@@ -117,8 +117,11 @@ Cancelled/expired proposals stay in
 #### Portal chat archive
 
 The portal-wide popup and dock share one `AssistantConversationProvider`, so
-opening, pinning, or unpinning the assistant never starts a second transport or
-strands a pending confirmation. Their archive is server-backed and follows the
+opening, pinning, closing, or switching the display mode in Settings never
+starts a second transport or strands a pending confirmation. Desktop (`lg`+)
+opens the assistant only from the top bar's Ask PropLane (⌘K); the floating
+button is phone and tablet only. The dock's ✕ closes the rail and keeps the
+docked preference. Their archive is server-backed and follows the
 signed-in person across devices:
 
 - Pressing **New chat** immediately creates a main portal

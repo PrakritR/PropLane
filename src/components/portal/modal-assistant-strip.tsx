@@ -169,8 +169,7 @@ export function ModalAssistantStrip({
         endpoint={config.endpoint}
         contextHint={contextHint}
         pinnedComposer
-        onCollapse={() => toggle(false)}
-        collapseVariant="close"
+        onClose={() => toggle(false)}
         composerHint={editHint?.trim()}
         className="min-h-0 flex-1"
       />

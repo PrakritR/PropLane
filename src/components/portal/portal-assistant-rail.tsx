@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { useIsSmallPortalViewport } from "@/hooks/use-is-native-app";
-import { openAxisAssistant } from "@/lib/axis-assistant/open-store";
 import {
+  focusAskPropLane,
   getAssistantDockCollapsed,
   getAssistantDocked,
   initAssistantDockState,
   subscribeAssistantDockCollapsed,
   subscribeAssistantDocked,
-  toggleAssistantDock,
   undockAssistantFromRail,
 } from "@/lib/axis-assistant/dock-store";
 
@@ -23,9 +22,10 @@ function useAssistantDockState(initial: { collapsed: boolean; docked: boolean })
   );
   const docked = useSyncExternalStore(subscribeAssistantDocked, getAssistantDocked, () => initial.docked);
 
+  const { collapsed: initialCollapsed, docked: initialDocked } = initial;
   useEffect(() => {
-    initAssistantDockState(initial);
-  }, [initial.collapsed, initial.docked]);
+    initAssistantDockState({ collapsed: initialCollapsed, docked: initialDocked });
+  }, [initialCollapsed, initialDocked]);
 
   return { collapsed, docked };
 }
@@ -33,7 +33,9 @@ function useAssistantDockState(initial: { collapsed: boolean; docked: boolean })
 /**
  * Desktop right rail — shown only after the user docks the popup assistant.
  * Collapsing returns the full content width; the expand control lives in the
- * portal top bar instead of a leftover strip.
+ * portal top bar instead of a leftover strip. These portals (admin, vendor)
+ * have no Settings display toggle, so the header ✕ leaves rail mode entirely
+ * rather than only folding it; it never opens the popup in its place.
  */
 export function PortalAssistantRail({
   managerName,
@@ -52,12 +54,12 @@ export function PortalAssistantRail({
     docked: initialDocked,
   });
 
-  const undockToPopup = useCallback(() => {
-    undockAssistantFromRail();
-    openAxisAssistant();
-  }, []);
-
   if (isSmall || !docked || collapsed) return null;
+
+  function closeRail() {
+    undockAssistantFromRail();
+    focusAskPropLane();
+  }
 
   return (
     <aside
@@ -69,8 +71,7 @@ export function PortalAssistantRail({
         <AssistantDockPanel
           managerName={managerName}
           endpoint={endpoint}
-          onCollapse={toggleAssistantDock}
-          onClose={undockToPopup}
+          onClose={closeRail}
           className="h-full"
         />
       </div>

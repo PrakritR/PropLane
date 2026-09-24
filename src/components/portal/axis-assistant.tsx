@@ -120,15 +120,15 @@ function handleOpenAssistant() {
 }
 
 /**
- * Assistant FAB — floats above the bottom nav bar in the native app (clearing it
- * via the same measured `--portal-native-bottom-nav-inset` the bar itself uses),
- * bottom-right on web. Always rendered: the assistant is no longer a bar slot.
+ * Assistant FAB — phones and tablets only. It floats above the bottom nav bar
+ * in the native app (clearing it via the same measured
+ * `--portal-native-bottom-nav-inset` the bar itself uses).
  *
- * In docked mode the rail already puts the assistant on screen at `lg`+, so the
- * FAB hides there (`lg:hidden`) and stays the assistant below `lg`, where the
- * rail never renders.
+ * At `lg`+ the top bar's Ask PropLane (and ⌘K) is the one entry point, so the
+ * FAB never renders there (`lg:hidden`); below `lg` that bar is hidden and the
+ * FAB is the assistant.
  */
-function AxisAssistantFixedTrigger({ docked }: { docked: boolean }) {
+function AxisAssistantFixedTrigger() {
   const open = useAxisAssistantOpen();
   const hideFab = useSyncExternalStore(subscribeAssistantFabVisibility, shouldHideAssistantFab, () => false);
   if (open || hideFab) return null;
@@ -140,13 +140,10 @@ function AxisAssistantFixedTrigger({ docked }: { docked: boolean }) {
       aria-label="Open PropLane Assistant"
       aria-expanded={open}
       data-attr="axis-assistant-fab"
-      className={cn(
-        "axis-assistant-fab group fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-[55] flex h-12 w-12 items-center justify-center rounded-full text-white shadow-[0_12px_28px_-12px_rgba(47,107,255,0.75)] outline-none transition-[transform,filter] duration-200 hover:scale-105 hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95 lg:bottom-6 lg:right-6 max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)] max-lg:h-11 max-lg:w-11 [html[data-native]_&]:bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)] [html[data-native]_&]:h-11 [html[data-native]_&]:w-11",
-        docked && "lg:hidden",
-      )}
+      className="axis-assistant-fab group fixed bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)] right-[max(1.25rem,env(safe-area-inset-right))] z-[55] flex h-11 w-11 items-center justify-center rounded-full text-white shadow-[0_12px_28px_-12px_rgba(47,107,255,0.75)] outline-none transition-[transform,filter] duration-200 hover:scale-105 hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95 lg:hidden"
       style={{ background: "var(--btn-primary)" }}
     >
-      <AxisAssistantSparkleIcon className="h-5 w-5 max-lg:h-[18px] max-lg:w-[18px] [html[data-native]_&]:h-[18px] [html[data-native]_&]:w-[18px]" />
+      <AxisAssistantSparkleIcon className="h-[18px] w-[18px]" />
     </button>
   );
 }
@@ -161,7 +158,7 @@ const MemoizedLayoutSlot = memo(function MemoizedLayoutSlot({ children }: { chil
  */
 function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOINT }: { managerName?: string | null; endpoint?: string }) {
   const isClient = useIsClient();
-  const { dockable, mode, setMode } = useAxisAssistantDock();
+  const { dockable, setMode } = useAxisAssistantDock();
   const showNativeChrome = useNativeChrome();
   const open = useAxisAssistantOpen();
   const hideFab = useSyncExternalStore(subscribeAssistantFabVisibility, shouldHideAssistantFab, () => false);
@@ -303,7 +300,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
 
   return (
     <>
-      <AxisAssistantFixedTrigger docked={dockable && mode === "docked"} />
+      <AxisAssistantFixedTrigger />
       {isClient && open ? (
         <ModalShell
           open={open}

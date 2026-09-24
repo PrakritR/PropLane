@@ -473,7 +473,7 @@ the real preview gate and come out with a title, a confirm label and readable fi
 RIGHT tool for a sentence a person would actually type, and that the card renders legibly at the
 width it is read on. A green harness with the wrong tool chosen is still a failed action.
 
-Open the floating assistant (or dock if pinned). Each prompt must end with a **confirm card**
+Open the assistant: Ask PropLane (⌘K) on desktop, the floating button on a phone. Each prompt must end with a **confirm card**
 (`ActionPreview`: title, fields, Confirm) — not a dead-end apology.
 
 | Portal | Login | Prompt | Expected tool / preview |
