@@ -12,7 +12,7 @@ import { AscClient } from "./ios-testflight-distribute.mjs";
 
 export const STANDARD_APPLE_EULA_URL =
   "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
-export const PROPLANE_PRIVACY_URL = "https://prop-lane.space/privacy";
+export const PROPLANE_PRIVACY_URL = "https://proplane.ai/privacy";
 
 const DEFAULT_APP_ID = "6795707576";
 const DEFAULT_BUNDLE_ID = "space.proplane.app";

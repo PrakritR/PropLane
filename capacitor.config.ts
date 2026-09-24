@@ -1,9 +1,38 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PRODUCTION_APP_ORIGIN } from "./src/lib/app-url";
 import { nativeShellEntryPath } from "./src/lib/auth/native-shell-entry";
 
 const CAP_DEV_SERVER_MARKER = join(process.cwd(), ".cap-dev-server");
+
+/** Production WebView origin — must match PRODUCTION_APP_ORIGIN (proplane.ai). */
+export const CAPACITOR_PRODUCTION_SERVER_ORIGIN = PRODUCTION_APP_ORIGIN;
+
+/**
+ * Hosts that stay inside the Capacitor WebView.
+ * Canonical + redirect sources (prop-lane 308s to proplane.ai) + legacy Axis.
+ * Omitted hosts open in the system browser — and a cross-host 308 to an omitted
+ * host leaves the splash stuck (black screen).
+ */
+export const CAPACITOR_ALLOW_NAVIGATION_HOSTS = [
+  "proplane.ai",
+  "www.proplane.ai",
+  "prop-lane.space",
+  "www.prop-lane.space",
+  // Legacy hosts kept so already-installed shells (and their deep links) keep working.
+  "www.axis-seattle-housing.com",
+  "axis-seattle-housing.com",
+  "localhost",
+  "*.supabase.co",
+  "*.supabase.in",
+  "accounts.google.com",
+  "*.google.com",
+  "js.stripe.com",
+  "checkout.stripe.com",
+  "connect.stripe.com",
+  "*.stripe.com",
+] as const;
 
 function readServerBase(): string {
   const fromEnv = process.env.CAP_SERVER_URL?.trim();
@@ -16,7 +45,7 @@ function readServerBase(): string {
   } catch {
     /* ignore */
   }
-  return "https://prop-lane.space";
+  return CAPACITOR_PRODUCTION_SERVER_ORIGIN;
 }
 
 /**
@@ -30,22 +59,7 @@ const nativeEntryPath = nativeShellEntryPath();
 const nativeAppUrl = `${serverBase}${nativeEntryPath}`;
 
 function allowNavigationHosts(): string[] {
-  const hosts = [
-    "prop-lane.space",
-    "www.prop-lane.space",
-    // Legacy hosts kept so already-installed shells (and their deep links) keep working.
-    "www.axis-seattle-housing.com",
-    "axis-seattle-housing.com",
-    "localhost",
-    "*.supabase.co",
-    "*.supabase.in",
-    "accounts.google.com",
-    "*.google.com",
-    "js.stripe.com",
-    "checkout.stripe.com",
-    "connect.stripe.com",
-    "*.stripe.com",
-  ];
+  const hosts = [...CAPACITOR_ALLOW_NAVIGATION_HOSTS];
   try {
     const devHost = new URL(serverBase).hostname;
     if (devHost && !hosts.includes(devHost)) hosts.unshift(devHost);

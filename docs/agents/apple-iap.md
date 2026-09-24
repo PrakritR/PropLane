@@ -122,8 +122,8 @@ price/subscribe copy or web purchase link on native.
 each paid card carries the subscription title (`PropLane Pro`/`Business`), the
 length ("1-month subscription · renews monthly until canceled"), and the store's
 localized price per period; a footer carries the plain auto-renew statement plus
-**Terms of Use (EULA)** → `https://prop-lane.space/tos` and **Privacy Policy** →
-`https://prop-lane.space/privacy`. Both links are BUTTONS driving `openAppUrl`
+**Terms of Use (EULA)** → `https://proplane.ai/tos` and **Privacy Policy** →
+`https://proplane.ai/privacy`. Both links are BUTTONS driving `openAppUrl`
 (in-app Capacitor Browser) — never `<a href>` anchors, which
 `tests/unit/manager-plan-native-no-external-purchase.test.tsx` forbids on this
 surface and which would bounce the manager out of the WebView. The screen also

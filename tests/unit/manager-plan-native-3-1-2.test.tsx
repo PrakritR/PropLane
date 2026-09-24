@@ -144,8 +144,8 @@ describe("native purchase screen — Guideline 3.1.2 required elements", () => {
     fireEvent.click(privacy);
     await waitFor(() => expect(openAppUrl).toHaveBeenCalledWith(NATIVE_PLAN_PRIVACY_URL));
 
-    expect(NATIVE_PLAN_TERMS_URL).toBe("https://prop-lane.space/tos");
-    expect(NATIVE_PLAN_PRIVACY_URL).toBe("https://prop-lane.space/privacy");
+    expect(NATIVE_PLAN_TERMS_URL).toBe("https://proplane.ai/tos");
+    expect(NATIVE_PLAN_PRIVACY_URL).toBe("https://proplane.ai/privacy");
 
     // The 3.1.1 companion test's rule, restated here: no anchors at all.
     expect(container.querySelectorAll("a[href]").length).toBe(0);

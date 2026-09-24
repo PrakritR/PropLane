@@ -2,7 +2,7 @@
 
 The privacy policy is maintained in one place: the live `/privacy` page,
 rendered from [`src/app/(public)/privacy/page.tsx`](../src/app/(public)/privacy/page.tsx)
-(canonical production URL: https://prop-lane.space/privacy — the URL to give
+(canonical production URL: https://proplane.ai/privacy — the URL to give
 external services such as App Store Connect and Twilio A2P registration; the
 legacy https://www.axis-seattle-housing.com/privacy still serves the same page,
 so registrations already filed against it keep working). The

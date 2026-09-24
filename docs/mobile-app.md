@@ -5,15 +5,19 @@ loads the live, server-rendered site (`https://proplane.ai`).
 The app reuses 100% of the web app — auth, Stripe, the manager/resident/admin
 portals — and adds real native capabilities (push notifications, camera) on top.
 
-The shell now points at the canonical PropLane origin (`https://proplane.ai`,
-`PRODUCTION_APP_ORIGIN` in `src/lib/app-url.ts`); the legacy
-`www.axis-seattle-housing.com` host stays live and is still recognized as
-production, and its deep links remain declared so already-installed builds keep
-working. Repointing the WebView means changing `capacitor.config.ts` +
-`CAP_SERVER_URL` — a native-shell rebuild. **Note:** because WebView session
-cookies are scoped per registrable domain, an installed app that updates to a
-build loading the new domain starts with no session and prompts a one-time
-re-login; this is inherent to the domain cutover, not a bug.
+The shell points at the canonical PropLane origin (`https://proplane.ai`,
+`PRODUCTION_APP_ORIGIN` / `CAPACITOR_PRODUCTION_SERVER_ORIGIN`). Legacy
+`prop-lane.space` and `www.axis-seattle-housing.com` stay on
+`allowNavigation` (and still 308 to proplane.ai) so already-installed deep
+links keep working inside the WebView. **Omitting `proplane.ai` from
+`allowNavigation` while the shell still loaded `prop-lane.space` caused a
+black splash after the domain cutover** — fixed by baking `proplane.ai` as
+the server URL and allow-listing it. Repointing the WebView means changing
+`capacitor.config.ts` + `CAP_SERVER_URL` / `npm run cap:prod` — a native-shell
+rebuild. **Note:** because WebView session cookies are scoped per registrable
+domain, an installed app that updates to a build loading the new domain starts
+with no session and prompts a one-time re-login; this is inherent to the domain
+cutover, not a bug.
 
 - **Web/UI changes ship instantly** via your normal Vercel deploy. No app-store
   review needed for content or UI — the WebView always loads the latest site.
@@ -42,7 +46,10 @@ The **iOS** bundle identifier is `space.proplane.app` (Team `8FH3GVHCZ9`, App St
 Connect **App ID 6795707576**) — rebranded from the legacy
 `com.axisseattlehousing.app`. The old App Store Connect record is abandoned
 deliberately (the app is TestFlight-only, never publicly launched), so there
-are no compatibility shims.
+are no compatibility shims. **SKU and Bundle ID are immutable on that ASC
+record** — they stay `space.proplane.app` (reverse-DNS). The public site is
+`proplane.ai`; do not create a second ASC app just to make SKU match the
+hostname. Store display name should read **PropLane** (not “ProPlane”).
 
 ⚠️ **The legacy record is still live and still installable, and its build numbers
 are HIGHER** (49 vs the canonical record's 37) because it kept shipping until the
@@ -86,7 +93,7 @@ pending that console work.
 
 | Path | Purpose |
 | --- | --- |
-| `capacitor.config.ts` | App id `space.proplane.app`, name **PropLane**, points the WebView at production. |
+| `capacitor.config.ts` | App id `space.proplane.app`, name **PropLane**, points the WebView at `https://proplane.ai`. |
 | `native-shell/index.html` | Branded "you're offline" fallback (Capacitor's required `webDir`). |
 | `src/components/native/native-bridge.tsx` | Mounted in the root layout. On native only: hides splash, styles the status bar, registers push, opens deep links. No-ops on the web. |
 | `src/app/api/native/register-push-token/route.ts` | Stores a device token for the signed-in user. |

@@ -12,7 +12,7 @@ const result = spawnSync(
   ["cap", "sync"],
   {
     stdio: "inherit",
-    env: { ...process.env, CAP_SERVER_URL: "https://prop-lane.space" },
+    env: { ...process.env, CAP_SERVER_URL: "https://proplane.ai" },
   },
 );
 
