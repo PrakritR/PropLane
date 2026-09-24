@@ -158,6 +158,7 @@ describe("durable prospect ingress publication retry", () => {
       body: "Is Jain Home available?",
     })).resolves.toEqual({ ok: true, burstId: "burst-1", revision: 4, duplicate: false });
     expect(db.rpc).toHaveBeenCalledTimes(1);
+    expect(db.rpc).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ p_quiet_seconds: 10 }));
     expect(publish).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledTimes(1);
   });

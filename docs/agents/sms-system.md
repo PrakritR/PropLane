@@ -373,6 +373,11 @@ is not yet attached to `TWILIO_MESSAGING_SERVICE_SID`.
 
 ## Prospect SMS scheduling and follow-up
 
+Prospect texts are merged into one reply after a 10 second quiet window
+(`QUIET_SECONDS` in `src/lib/sms/prospect-sms-burst.server.ts`); each new text
+restarts it. QStash holds the delay, so it never counts against Twilio's 15 second
+inbound webhook timeout.
+
 The durable prospect burst publisher must use the exact callback URL
 `https://proplane.ai/api/internal/prospect-sms-burst` in Vercel Production.
 The production guard compares both origin and path before recording ingress or

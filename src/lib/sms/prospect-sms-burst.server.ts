@@ -5,7 +5,7 @@ import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { traceProspectShadowComparison } from "@/lib/observability/langfuse";
 import { isProductionRuntime } from "@/lib/server-env";
 
-const QUIET_SECONDS = 20;
+const QUIET_SECONDS = 10;
 const PROSPECT_SMS_BURST_CALLBACK_PATH = "/api/internal/prospect-sms-burst";
 
 export type ProspectSmsChannel = "twilio" | "claw";
