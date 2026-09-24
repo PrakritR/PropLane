@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Settings } from "lucide-react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useSyncExternalStore } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
@@ -61,6 +61,7 @@ export function PortalTopBar({
   name: string | null;
   email: string | null;
 }) {
+  const router = useRouter();
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   const assistantOpen = useSyncExternalStore(
     subscribeAxisAssistantOpen,
@@ -169,11 +170,15 @@ export function PortalTopBar({
             {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}
           </div>
 
-          <DropdownMenuItem asChild>
-            <Link href={`${basePath}/profile`}>
-              <Settings aria-hidden />
-              Settings
-            </Link>
+          <DropdownMenuItem
+            data-attr="portal-top-bar-settings"
+            onSelect={(event) => {
+              event.preventDefault();
+              router.push(`${basePath}/profile`);
+            }}
+          >
+            <Settings aria-hidden />
+            Settings
           </DropdownMenuItem>
 
           <div className="flex items-center justify-between gap-3 px-3 py-2">

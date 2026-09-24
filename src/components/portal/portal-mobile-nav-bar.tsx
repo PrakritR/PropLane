@@ -4,7 +4,6 @@ import { User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
-import { useNativeChrome } from "@/hooks/use-is-native-app";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
@@ -51,7 +50,8 @@ function initials(name: string | null, email: string | null): string {
  * (resolvePortalMobileBackTarget; null on Dashboard, where a plain "Dashboard"
  * label shows instead) plus a top-right profile menu (Settings, Sign out).
  * Manager/resident/vendor native bottom bars no longer carry Dashboard or
- * Settings tabs directly, so this is their only path to both.
+ * Settings as primary tabs — Settings opens from this menu (onSelect push) and
+ * from the More sheet (PLAN-0923-1805).
  */
 export function PortalMobileNavBar({
   definition,
@@ -78,7 +78,6 @@ export function PortalMobileNavBar({
     if (dashboardLabel) return dashboardLabel;
     return portalMobileActiveSectionLabel(pathname, definition);
   }, [showBack, pathname, definition]);
-  const nativeChrome = useNativeChrome();
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -148,11 +147,17 @@ export function PortalMobileNavBar({
               {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}
             </div>
 
-            <DropdownMenuItem asChild>
-              <Link href={`${definition.basePath}/profile`} data-attr="portal-mobile-profile-settings">
-                <User aria-hidden />
-                Settings
-              </Link>
+            <DropdownMenuItem
+              data-attr="portal-mobile-profile-settings"
+              onSelect={(event) => {
+                // Radix closes the menu before a nested <Link> click fires in
+                // iOS WebView — push explicitly so Settings always opens in-app.
+                event.preventDefault();
+                router.push(`${definition.basePath}/profile`);
+              }}
+            >
+              <User aria-hidden />
+              Settings
             </DropdownMenuItem>
 
             <div className="px-1">
