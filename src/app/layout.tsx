@@ -6,7 +6,12 @@ import { NativeAppGate } from "@/components/native/native-app-gate";
 import { NativeBridge } from "@/components/native/native-bridge";
 import { CAPACITOR_BOOTSTRAP_SCRIPT, THEME_BOOTSTRAP_SCRIPT } from "@/lib/bootstrap-scripts";
 import { brandSans } from "./fonts";
+import {
+  isCanonicalPublicCrawlHost,
+  requestHostFromHeaders,
+} from "@/lib/seo/public-crawl-host";
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import Script from "next/script";
 import "./globals.css";
 
@@ -18,7 +23,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export const metadata: Metadata = {
+const baseMetadata: Metadata = {
   metadataBase: new URL("https://proplane.ai"),
   title: {
     default: "PropLane",
@@ -44,6 +49,18 @@ export const metadata: Metadata = {
       "PropLane: AI-powered property management for applications, screening, leases, and rent collection.",
   },
 };
+
+/** HTML meta backup: staging / preview / localhost must not index. */
+export async function generateMetadata(): Promise<Metadata> {
+  const host = requestHostFromHeaders(await headers());
+  if (!isCanonicalPublicCrawlHost(host)) {
+    return {
+      ...baseMetadata,
+      robots: { index: false, follow: false },
+    };
+  }
+  return baseMetadata;
+}
 
 export default function RootLayout({
   children,

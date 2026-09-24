@@ -36,6 +36,13 @@ it or use a separate branch-created project for live traffic. The generic
 Preview environment shares production defaults, so staging deployments must
 retain their `staging` branch-scoped variables.
 
+**Search indexing:** only `proplane.ai` / `www.proplane.ai` may be crawled.
+Staging (`staging-prop-lane.space`), `*.vercel.app` previews, and every other
+host serve `Disallow: /` plus `X-Robots-Tag: noindex, nofollow`
+(`src/lib/seo/public-crawl-host.ts`). After a domain cutover, clear stale SERP
+rows in Google Search Console → Removals for the old hosts (robots alone can
+lag for days).
+
 If Production deployments stay on an old commit:
 
 1. **GitHub `Vercel Deploy` may be skipping** - without `VERCEL_TOKEN`,

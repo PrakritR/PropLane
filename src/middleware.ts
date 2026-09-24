@@ -1,33 +1,46 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { legacyPaidPortalToPortal } from "@/lib/legacy-portal-redirect";
+import {
+  isCanonicalPublicCrawlHost,
+  NOINDEX_ROBOTS_TAG,
+  requestHostFromHeaders,
+} from "@/lib/seo/public-crawl-host";
 import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
 
 const PROTECTED_PREFIXES = ["/portal", "/pro", "/manager", "/owner", "/resident", "/admin", "/vendor"];
+
+function stampCrawlPolicy(request: NextRequest, response: NextResponse): NextResponse {
+  const host = requestHostFromHeaders(request.headers);
+  if (!isCanonicalPublicCrawlHost(host)) {
+    response.headers.set("X-Robots-Tag", NOINDEX_ROBOTS_TAG);
+  }
+  return response;
+}
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   if (path === "/demo" || path.startsWith("/demo/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
-    return NextResponse.redirect(url);
+    return stampCrawlPolicy(request, NextResponse.redirect(url));
   }
   if (path === "/dashboard" || path === "/dashboard/") {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/continue";
-    return NextResponse.redirect(url);
+    return stampCrawlPolicy(request, NextResponse.redirect(url));
   }
   if (path === "/portal/resident" || path === "/portal/resident/") {
     const url = request.nextUrl.clone();
     url.pathname = "/resident";
-    return NextResponse.redirect(url);
+    return stampCrawlPolicy(request, NextResponse.redirect(url));
   }
 
   const canonical = legacyPaidPortalToPortal(path);
   if (canonical && canonical !== path) {
     const url = request.nextUrl.clone();
     url.pathname = canonical;
-    return NextResponse.redirect(url);
+    return stampCrawlPolicy(request, NextResponse.redirect(url));
   }
 
   // `x-pathname` must travel on the REQUEST, because that is where a server
@@ -53,6 +66,15 @@ export async function middleware(request: NextRequest) {
     return { request: { headers } };
   };
 
+  const needsAuth = PROTECTED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+
+  // Public marketing pages: stamp noindex off-canonical and skip session work.
+  if (!needsAuth) {
+    const response = NextResponse.next(forwarded());
+    response.headers.set("x-pathname", path);
+    return stampCrawlPolicy(request, response);
+  }
+
   let supabaseResponse = NextResponse.next(forwarded());
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -60,7 +82,7 @@ export async function middleware(request: NextRequest) {
   if (!url || !anon) {
     const response = NextResponse.next(forwarded());
     response.headers.set("x-pathname", path);
-    return response;
+    return stampCrawlPolicy(request, response);
   }
 
   const supabase = createServerClient(url, anon, {
@@ -87,30 +109,20 @@ export async function middleware(request: NextRequest) {
     await supabase.auth.signOut();
   }
 
-  const needsAuth = PROTECTED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
-
   if (needsAuth && !user) {
     const redirectUrl = new URL("/auth/sign-in", request.url);
     redirectUrl.searchParams.set("next", path);
-    return NextResponse.redirect(redirectUrl);
+    return stampCrawlPolicy(request, NextResponse.redirect(redirectUrl));
   }
 
   supabaseResponse.headers.set("x-pathname", path);
-  return supabaseResponse;
+  return stampCrawlPolicy(request, supabaseResponse);
 }
 
 export const config = {
+  // Include public marketing so staging gets X-Robots-Tag. Skip Next internals
+  // and common static extensions (robots.txt / sitemap are handled by app routes).
   matcher: [
-    "/demo",
-    "/demo/:path*",
-    "/dashboard",
-    "/dashboard/",
-    "/portal/:path*",
-    "/pro/:path*",
-    "/manager/:path*",
-    "/owner/:path*",
-    "/resident/:path*",
-    "/admin/:path*",
-    "/vendor/:path*",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff2?)$).*)",
   ],
 };
