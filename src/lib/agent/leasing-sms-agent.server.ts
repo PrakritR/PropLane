@@ -205,7 +205,10 @@ export async function findOrCreateLeasingSmsSession(
 ): Promise<LeasingSmsSessionRow | null> {
   const landlordId = args.landlordId.trim();
   const phone = normalizeE164(args.prospectPhoneE164) ?? args.prospectPhoneE164.trim();
-  if (!landlordId || !phone) return null;
+  if (!landlordId || !phone) {
+    console.warn("leasing-sms session skipped: missing manager or phone", { hasLandlord: Boolean(landlordId) });
+    return null;
+  }
 
   const { data: existing } = await db
     .from("agent_sessions")
@@ -248,6 +251,7 @@ export async function findOrCreateLeasingSmsSession(
         .eq("landlord_id", landlordId)
         .eq("vendor_phone_e164", phone)
         .maybeSingle();
+      if (!raced) console.warn("leasing-sms session create raced but re-read found nothing", { landlordId });
       return (raced as LeasingSmsSessionRow | null) ?? null;
     }
     console.error("leasing-sms session create failed", error.message);
@@ -322,10 +326,16 @@ export async function runLeasingSmsAgentTurn(
     testTarget?: { listingId: string; title: string };
   },
 ): Promise<LeasingSmsTurn | null> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) return null;
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    console.warn("leasing-sms turn skipped: ANTHROPIC_API_KEY missing");
+    return null;
+  }
 
   const text = args.inboundText.trim().slice(0, 2000);
-  if (!text) return null;
+  if (!text) {
+    console.warn("leasing-sms turn skipped: empty inbound text", { landlordId: args.landlordId });
+    return null;
+  }
 
   const session = args.testActor
     ? await findOrCreateLeasingSmsTestSession(db, {
@@ -339,7 +349,10 @@ export async function runLeasingSmsAgentTurn(
         landlordId: args.landlordId,
         prospectPhoneE164: args.prospectPhoneE164 ?? "",
       });
-  if (!session) return null;
+  if (!session) {
+    console.warn("leasing-sms turn skipped: no session", { landlordId: args.landlordId });
+    return null;
+  }
 
   const channel = args.channel ?? "sms";
   const maxReplyChars = args.maxReplyChars ?? (channel === "voice" ? 900 : 1500);
@@ -384,7 +397,10 @@ export async function runLeasingSmsAgentTurn(
     channel,
   });
 
-  if (!inboundMessageId) return null;
+  if (!inboundMessageId) {
+    console.warn("leasing-sms turn skipped: inbound message id unavailable", session.id);
+    return null;
+  }
   const execute = async (): Promise<LeasingSmsTurn | null> => {
   let history: Anthropic.MessageParam[];
   if (args.prospectBurst && !args.testActor) {
@@ -625,7 +641,10 @@ export async function runLeasingSmsAgentTurn(
     };
   }
   const reply = quietHandoff ? "" : result!.reply.trim().slice(0, maxReplyChars);
-  if (!reply && !quietHandoff) return null;
+  if (!reply && !quietHandoff) {
+    console.warn("leasing-sms turn produced no reply", session.id, result?.terminationReason);
+    return null;
+  }
   const toolTrace = result?.toolTrace ?? observedToolTrace;
 
   if (args.prospectBurst) {
@@ -738,7 +757,10 @@ export async function runLeasingSmsAgentTurn(
   const creditKey = `ai_turn:${channel}:${session.id}:${inboundMessageId}`;
   const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
     idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
-  if (!credit.allowed) return null;
+  if (!credit.allowed) {
+    console.warn("leasing-sms turn skipped: comms credit not reserved", { sessionId: session.id, managerUserId: session.landlord_id, reason: credit.reason });
+    return null;
+  }
   if (credit.duplicate) return readCommsTurnResult<LeasingSmsTurn>(db, session.landlord_id, creditKey, {
     reply: INTERRUPTED_COMMS_REPLY,
     suppressed: false,

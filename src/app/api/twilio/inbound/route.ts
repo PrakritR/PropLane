@@ -75,6 +75,24 @@ function twimlOk(reply?: string): NextResponse {
  * (must match TWILIO_WEBHOOK_URL when set, for signature validation).
  */
 export async function POST(req: Request) {
+  const started = Date.now();
+  const marks: string[] = [];
+  const mark = (step: string) => { marks.push(`${step}:${Date.now() - started}`); };
+  let status = 500;
+  let error: string | undefined;
+  try {
+    const res = await handleInbound(req, mark);
+    status = res.status;
+    if (status >= 500) error = (await res.clone().text()).slice(0, 200).replace(/\+?\d{7,}/g, "[redacted]");
+    return res;
+  } finally {
+    const ms = Date.now() - started;
+    // ponytail: log only slow or failed requests; Twilio abandons the webhook at 15s.
+    if (ms > 5000 || status >= 500) console.warn("twilio inbound timing", { status, ms, error, marks: marks.join(" ") });
+  }
+}
+
+async function handleInbound(req: Request, mark: (step: string) => void): Promise<NextResponse> {
   const authToken = twilioWebhookAuthToken();
   if (!authToken) return NextResponse.json({ error: "SMS not configured." }, { status: 503 });
 
@@ -96,6 +114,7 @@ export async function POST(req: Request) {
   const body = String(params.Body ?? "").trim();
   const messageSid = String(params.MessageSid ?? "").trim() || null;
   if (!fromPhone || !toPhone) return twimlOk();
+  mark("signed");
 
   // Real-customer shield: outside production, a text from (or to) a protected
   // account is acknowledged and dropped. Processing it would file rows and can
@@ -110,8 +129,10 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
+  mark("shield");
   const db = createSupabaseServiceRoleClient();
   const ownedNumber = await resolveOwnedWorkNumber(db, toPhone);
+  mark("owned-number");
 
   // Compliance controls run before traffic shedding so a legitimate STOP can
   // never be discarded by the ordinary inbound rate limiter.
@@ -178,6 +199,7 @@ export async function POST(req: Request) {
     }
   }
 
+  mark("controls");
   // Pooled proxy lines are retired. Only owned work numbers route replies.
   const numberOwnerId = ownedNumber?.managerId ?? "";
   if (!numberOwnerId) {
@@ -217,6 +239,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Workspace unavailable." }, { status: 503 });
   }
 
+  mark("workspace");
   if (!messageSid) {
     return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });
   }
@@ -238,6 +261,7 @@ export async function POST(req: Request) {
     if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
     if (!limit.ok) return twimlOk();
   }
+  mark("rate-limit");
   const inboundWorkerId = `inbound-${randomUUID()}`;
   const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {
     p_message_sid: messageSid,
@@ -264,6 +288,7 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
+  mark("claimed");
   // Preserve the incoming body before any billing read. An unavailable wallet
   // must not erase incoming communication while delivery retries are pending.
   const { error: inboundBodyError } = await db.from("inbound_sms_log").insert({
@@ -285,7 +310,9 @@ export async function POST(req: Request) {
     });
   }
 
+  mark("logged");
   const replay = await loadInboundReplay(db, messageSid);
+  mark("replay");
   if (!replay.ok) {
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
@@ -404,7 +431,9 @@ export async function POST(req: Request) {
   // or an assigned co-manager); the context resolver only fills in roles. On any
   // failure stay silent rather than texting an error to a phone we could not
   // attribute.
+  mark("identity");
   if (managerInbound) {
+    mark("route:manager");
     const managerIdentity = await resolveManagerSmsAgentContext(db, {
       managerUserId: managerInbound.workNumberOwnerId,
       actorUserId: managerInbound.actorUserId,
@@ -503,6 +532,7 @@ export async function POST(req: Request) {
   // The destination work number scopes vendor sessions before a prospect fallback.
   const { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } = await import("@/lib/agent/vendor-agent.server");
   const vendor = await resolveVendorAgentSessionForInbound(db, normalizeE164(fromPhone) ?? fromPhone, body, managerId);
+  mark(`vendor:${vendor.kind}`);
   if (vendor.kind !== "unknown_phone") {
     await db.from("inbound_sms_log").update({ matched_sender_user_id: vendor.session.vendor_user_id,
       ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "vendor", counterpartyUserId: vendor.session.vendor_user_id, fromPhone })
@@ -524,6 +554,7 @@ export async function POST(req: Request) {
     fromPhone,
     ownerManagerUserId: managerId,
   });
+  mark(residentIdentity.ok ? "route:resident" : "route:leasing");
   if (residentIdentity.ok) {
     await upsertManagerSmsContact(db, {
       managerUserId: managerId,
@@ -661,6 +692,7 @@ export async function POST(req: Request) {
       throwOnError: true,
       workspaceId: ownedNumber?.workspaceId ?? null,
     });
+    mark("leasing-start");
     handled = await handleClawLeasingInbound({
       from: fromPhone,
       text: body,
@@ -686,6 +718,7 @@ export async function POST(req: Request) {
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Inbound processing failed." }, { status: 503 });
   }
+  mark("leasing-done");
   if (!handled.ok) {
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: handled.error ?? "Inbound processing failed." }, { status: 503 });

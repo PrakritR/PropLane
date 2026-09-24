@@ -117,6 +117,70 @@ describe("durable prospect ingress publication retry", () => {
     },
   );
 
+  it.each([
+    "https://prop-lane.space/api/internal/prospect-sms-burst",
+    "https://proplane.ai/api/internal/wrong-worker",
+  ])(
+    "fails closed before database or queue work when production uses a non-canonical callback %s",
+    async (callback) => {
+      vi.stubEnv("VERCEL_ENV", "production");
+      vi.stubEnv("PROSPECT_SMS_BURST_CALLBACK_URL", callback);
+      const publish = vi.fn();
+      vi.stubGlobal("fetch", publish);
+      const { db } = durableDb();
+      const { enqueueProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+      await expect(enqueueProspectSmsBurst(db, {
+        sourceMessageId: "source-production-wrong-callback",
+        managerUserId: "00000000-0000-0000-0000-000000000001",
+        counterpartyPhoneE164: "+15550001111",
+        channel: "twilio",
+        body: "Is Jain Home available?",
+      })).resolves.toEqual({ ok: false, error: "durable_bursts_misconfigured" });
+      expect(db.rpc).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows the exact canonical callback path in production", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PROSPECT_SMS_BURST_CALLBACK_URL", "https://proplane.ai/api/internal/prospect-sms-burst");
+    const publish = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messageId: "queue-production" }), { status: 200 }));
+    vi.stubGlobal("fetch", publish);
+    const { db, update } = durableDb();
+    const { enqueueProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(enqueueProspectSmsBurst(db, {
+      sourceMessageId: "source-production-canonical",
+      managerUserId: "00000000-0000-0000-0000-000000000001",
+      counterpartyPhoneE164: "+15550001111",
+      channel: "twilio",
+      body: "Is Jain Home available?",
+    })).resolves.toEqual({ ok: true, burstId: "burst-1", revision: 4, duplicate: false });
+    expect(db.rpc).toHaveBeenCalledTimes(1);
+    expect(db.rpc).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ p_quiet_seconds: 10 }));
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a valid non-production callback destination", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("PROSPECT_SMS_BURST_CALLBACK_URL", "https://preview.example.test/api/internal/prospect-sms-burst");
+    const publish = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messageId: "queue-preview" }), { status: 200 }));
+    vi.stubGlobal("fetch", publish);
+    const { db } = durableDb();
+    const { enqueueProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(enqueueProspectSmsBurst(db, {
+      sourceMessageId: "source-preview-callback",
+      managerUserId: "00000000-0000-0000-0000-000000000001",
+      counterpartyPhoneE164: "+15550001111",
+      channel: "twilio",
+      body: "Is Jain Home available?",
+    })).resolves.toMatchObject({ ok: true, burstId: "burst-1", revision: 4 });
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
   it("uses a fresh colon-free deduplication id for each recovery publication", async () => {
     const publish = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messageId: "queue-recovery" }), { status: 200 }));
     vi.stubGlobal("fetch", publish);
