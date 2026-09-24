@@ -31,7 +31,7 @@ describe("resolveSmsTestAppOrigin", () => {
       VERCEL_ENV: "preview",
       VERCEL_BRANCH_URL: "proplane-git-staging.example.vercel.app",
       VERCEL_URL: "untrusted-request-host.example",
-      NEXT_PUBLIC_APP_URL: "https://prop-lane.space",
+      NEXT_PUBLIC_APP_URL: "https://proplane.ai",
     } as NodeJS.ProcessEnv)).toBe("https://proplane-git-staging.example.vercel.app");
   });
 
@@ -43,7 +43,7 @@ describe("resolveSmsTestAppOrigin", () => {
     expect(resolveSmsTestAppOrigin({
       VERCEL_ENV: "production",
       NEXT_PUBLIC_APP_URL: "https://attacker.example",
-    } as NodeJS.ProcessEnv)).toBe("https://prop-lane.space");
+    } as NodeJS.ProcessEnv)).toBe("https://proplane.ai");
   });
 });
 
@@ -106,19 +106,19 @@ describe("resolveEmailLinkBaseUrl", () => {
   it("never returns a vercel.app host", () => {
     delete process.env.NEXT_PUBLIC_CANONICAL_APP_URL;
     process.env.NEXT_PUBLIC_APP_URL = "https://axis-2.vercel.app";
-    expect(resolveEmailLinkBaseUrl()).toBe("https://prop-lane.space");
+    expect(resolveEmailLinkBaseUrl()).toBe("https://proplane.ai");
   });
 
   it("never returns the legacy axis-seattle-housing.com host", () => {
     process.env.NEXT_PUBLIC_CANONICAL_APP_URL = "https://www.axis-seattle-housing.com";
     process.env.NEXT_PUBLIC_APP_URL = "https://www.axis-seattle-housing.com";
-    expect(resolveEmailLinkBaseUrl()).toBe("https://prop-lane.space");
+    expect(resolveEmailLinkBaseUrl()).toBe("https://proplane.ai");
   });
 
   it("prefers a configured PropLane host over legacy env values", () => {
-    process.env.NEXT_PUBLIC_CANONICAL_APP_URL = "https://prop-lane.space";
+    process.env.NEXT_PUBLIC_CANONICAL_APP_URL = "https://proplane.ai";
     process.env.NEXT_PUBLIC_APP_URL = "https://www.axis-seattle-housing.com";
-    expect(resolveEmailLinkBaseUrl()).toBe("https://prop-lane.space");
+    expect(resolveEmailLinkBaseUrl()).toBe("https://proplane.ai");
   });
 });
 
@@ -134,7 +134,7 @@ describe("leadInviteAppOrigin", () => {
   it("uses the same canonical base as outbound emails", () => {
     delete process.env.NEXT_PUBLIC_CANONICAL_APP_URL;
     process.env.NEXT_PUBLIC_APP_URL = "https://www.axis-seattle-housing.com";
-    expect(leadInviteAppOrigin("https://preview.vercel.app")).toBe("https://prop-lane.space");
+    expect(leadInviteAppOrigin("https://preview.vercel.app")).toBe("https://proplane.ai");
   });
 });
 

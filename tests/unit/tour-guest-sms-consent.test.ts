@@ -148,7 +148,7 @@ describe("tour guest SMS consent gate", () => {
           { ...baseInquiry, smsConsent: true },
         );
         const { text } = sendResidentOutboundSms.mock.calls[0]![0] as { text: string };
-        expect(text).toContain("https://prop-lane.space/rent/listings/maple-house");
+        expect(text).toContain("https://proplane.ai/rent/listings/maple-house");
         expect(text).not.toContain("axis-seattle-housing.com");
       } finally {
         if (previousCanonical === undefined) delete process.env.NEXT_PUBLIC_CANONICAL_APP_URL;

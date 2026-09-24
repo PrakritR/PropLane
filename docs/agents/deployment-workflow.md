@@ -30,7 +30,8 @@ fast-forward-only promotion and every production safety gate remain.
 ## Vercel: `proplane` is PropLane production
 
 The live dashboard project is **`proplane`**
-(`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) and serves `prop-lane.space`. Do not relink
+(`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) and serves `proplane.ai` (legacy hosts
+`prop-lane.space` and `axis-seattle-housing.com` 308 to it). Do not relink
 it or use a separate branch-created project for live traffic. The generic
 Preview environment shares production defaults, so staging deployments must
 retain their `staging` branch-scoped variables.

@@ -19,12 +19,30 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://proplane.ai"),
   title: {
     default: "PropLane",
     template: "%s · PropLane",
   },
   description:
     "PropLane: AI-powered property management for applications, screening, leases, and rent collection.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: "https://proplane.ai",
+    siteName: "PropLane",
+    title: "PropLane",
+    description:
+      "PropLane: AI-powered property management for applications, screening, leases, and rent collection.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PropLane",
+    description:
+      "PropLane: AI-powered property management for applications, screening, leases, and rent collection.",
+  },
 };
 
 export default function RootLayout({

@@ -1,11 +1,11 @@
 # Axis native apps (iOS + Android)
 
 Axis ships to the App Store and Google Play as a **Capacitor** native shell that
-loads the live, server-rendered site (`https://prop-lane.space`).
+loads the live, server-rendered site (`https://proplane.ai`).
 The app reuses 100% of the web app — auth, Stripe, the manager/resident/admin
 portals — and adds real native capabilities (push notifications, camera) on top.
 
-The shell now points at the canonical PropLane origin (`https://prop-lane.space`,
+The shell now points at the canonical PropLane origin (`https://proplane.ai`,
 `PRODUCTION_APP_ORIGIN` in `src/lib/app-url.ts`); the legacy
 `www.axis-seattle-housing.com` host stays live and is still recognized as
 production, and its deep links remain declared so already-installed builds keep
@@ -250,7 +250,7 @@ The WebView loads whatever URL is in `ios/App/App/capacitor.config.json`:
 
 | `server.url` | What you see |
 | --- | --- |
-| `https://prop-lane.space/...` | Production website (old UI until deployed) |
+| `https://proplane.ai/...` | Production website (old UI until deployed) |
 | `http://127.0.0.1:3000/auth/welcome` | Local mobile welcome (Resident / Manager) |
 
 Run `npm run cap:dev` with `npm run dev` running, then rebuild in Xcode.
@@ -481,9 +481,9 @@ After you pick an account, Supabase must redirect back into the Axis app — not
 **1. Supabase redirect URLs** (Authentication → URL configuration → Redirect URLs). **Required:**
 
 ```
-https://prop-lane.space/auth/callback
-https://prop-lane.space/auth/callback/partner-pricing
-https://prop-lane.space/auth/callback/resident-signup
+https://proplane.ai/auth/callback
+https://proplane.ai/auth/callback/partner-pricing
+https://proplane.ai/auth/callback/resident-signup
 https://www.axis-seattle-housing.com/auth/callback
 https://www.axis-seattle-housing.com/auth/callback/partner-pricing
 https://www.axis-seattle-housing.com/auth/callback/resident-signup

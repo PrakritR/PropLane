@@ -22,7 +22,7 @@ function isUsableEmailLinkHost(hostname: string): boolean {
 }
 
 /** Canonical, user-facing production domain — the only host outbound emails link to. */
-export const PRODUCTION_APP_ORIGIN = "https://prop-lane.space";
+export const PRODUCTION_APP_ORIGIN = "https://proplane.ai";
 
 function configuredOrigin(raw: string | undefined, allowBareVercelHost = false): string | null {
   const value = raw?.trim();
@@ -75,6 +75,8 @@ export function resolveSmsTestAppOrigin(env: NodeJS.ProcessEnv = process.env): s
 /** Live web origins that serve the same Vercel deployment (multi-domain production). */
 const DEFAULT_PRODUCTION_WEB_ORIGINS = [
   PRODUCTION_APP_ORIGIN,
+  "https://www.proplane.ai",
+  "https://prop-lane.space",
   "https://www.prop-lane.space",
   "https://axis-seattle-housing.com",
   "https://www.axis-seattle-housing.com",

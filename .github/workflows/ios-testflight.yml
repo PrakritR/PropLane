@@ -200,7 +200,7 @@ jobs:
           rm -f .cap-dev-server
           npx cap sync ios
         env:
-          CAP_SERVER_URL: https://prop-lane.space
+          CAP_SERVER_URL: https://proplane.ai
 
       - name: Verify SPM lockfile matches CapApp-SPM
         run: |
