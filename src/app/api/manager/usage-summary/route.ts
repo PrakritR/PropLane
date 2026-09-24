@@ -14,6 +14,10 @@ export type ManagerUsageSummary = {
   tierLabel: string;
   tierUnknown: boolean;
   communication: {
+    /** The workspace whose wallet these figures describe. */
+    workspaceId: string;
+    /** Only the owner's default workspace carries the plan's included credit. */
+    isDefaultWorkspace: boolean;
     /** Included + purchased credit still unspent. */
     remainingCents: number;
     /** Spent against the included monthly allowance only (never negative). */
@@ -35,7 +39,17 @@ export type ManagerUsageSummary = {
   ratesCents: Record<string, number>;
 };
 
-export async function GET() {
+/**
+ * `?workspaceId=` names which wallet the communication block describes. A
+ * selection never widens access: `loadCommsWallet` only answers for a workspace
+ * this owner owns, so an unowned id fails rather than reading another wallet.
+ */
+function workspaceIdFromQuery(req: Request): string | undefined {
+  const value = new URL(req.url).searchParams.get("workspaceId")?.trim();
+  return value || undefined;
+}
+
+export async function GET(req: Request) {
   const auth = await requireManagerRouteUser();
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
 
@@ -43,7 +57,7 @@ export async function GET() {
     const [tierResult, workspaces, wallet, workNumbers, accountResult] = await Promise.all([
       getEffectiveManagerSkuTier(auth.userId),
       loadWorkspaces(auth.db, auth.userId),
-      loadCommsWallet(auth.db, auth.userId),
+      loadCommsWallet(auth.db, auth.userId, workspaceIdFromQuery(req)),
       resolveWorkspaceWorkNumbers(auth.db, auth.userId),
       auth.db
         .from("manager_comms_billing_accounts")
@@ -62,6 +76,8 @@ export async function GET() {
       tierLabel: managerTierDisplayLabel(tier),
       tierUnknown: !tierResult.ok,
       communication: {
+        workspaceId: wallet.workspaceId,
+        isDefaultWorkspace: wallet.isDefaultWorkspace,
         remainingCents: wallet.remainingCents,
         includedUsedCents,
         includedAllowanceCents: wallet.allowanceCents,

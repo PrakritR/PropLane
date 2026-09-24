@@ -47,7 +47,7 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendFromManagerWorkNumber: mocks.send,
 }));
 vi.mock("@/lib/app-url", () => ({
-  resolveEmailLinkBaseUrl: () => "https://proplane.test",
+  resolveAppOrigin: () => "https://proplane.test",
 }));
 
 const { POST } = await import("@/app/api/pro/invite-links/send-sms/route");

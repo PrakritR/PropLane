@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 
   const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
   if (!resolved.ok) return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
-  const gather = (prompt: string) => fundedVoiceGather(db, { owner: resolved.managerId, callSid, turnId, phase: "agent", prompt });
+  const gather = (prompt: string) => fundedVoiceGather(db, { owner: resolved.managerId, workspaceId: resolved.workspaceId, callSid, turnId, phase: "agent", prompt });
 
   if (phase === "consent") {
     if (!spokenConsentGranted(speech)) {

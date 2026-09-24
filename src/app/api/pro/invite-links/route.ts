@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { resolveAppOrigin } from "@/lib/app-url";
 import { inviteLinkUnusableReason, inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import {
   listInviteLinksForActor,
@@ -98,7 +98,9 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     link: result.link,
-    url: inviteLinkUrl(resolveEmailLinkBaseUrl(), result.token),
+    // Sandbox panes each bind a different port — use the request Host, not
+    // NEXT_PUBLIC_APP_URL, so a link minted on :3004 is not stamped :3005.
+    url: inviteLinkUrl(resolveAppOrigin(req), result.token),
   });
 }
 

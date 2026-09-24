@@ -11,7 +11,9 @@ import {
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { EmbeddedCheckoutMount } from "@/components/stripe/embedded-checkout";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { formatUsdFromCents, COMMS_BILLING_METER_LABELS, type CommsBillingMeter } from "@/lib/comms-billing/rates";
@@ -309,12 +311,15 @@ export function ManagerUsagePanel({
 
 /**
  * Settings → Billing & plan → Extra usage. A typed whole-dollar credit
- * purchase (not a fixed pack), the included-credit alert threshold as a
- * percent, and the usage-rates disclosure. "Update usage" always opens
- * Stripe Checkout to confirm payment — a saved card never charges silently
- * (comms-billing compliance). Reads the same `summary` the Usage panel
+ * purchase (not a fixed pack) for ONE workspace's wallet, the included-credit
+ * alert threshold as a percent, and the usage-rates disclosure. "Update usage"
+ * always opens Stripe Checkout to confirm payment — a saved card never charges
+ * silently (comms-billing compliance). Reads the same `summary` the Usage panel
  * above already fetched, and refetches it once the webhook-written wallet
  * catches up with a purchase.
+ *
+ * Only workspaces this manager OWNS are offered: a co-manager invitation is
+ * not permission to spend the owner's money, and the route refuses it anyway.
  */
 export function ManagerExtraUsagePanel({
   summary,
@@ -324,6 +329,9 @@ export function ManagerExtraUsagePanel({
   load: () => Promise<ManagerUsageSummary | null>;
 }) {
   const { isNative } = useIsNativeApp();
+  const workspaceContext = useWorkspaces();
+  const ownedWorkspaces = (workspaceContext?.workspaces ?? []).filter((w) => w.owned);
+  const [workspaceOverride, setWorkspaceOverride] = useState<string | null>(null);
   const { clientSecret, loading, error, checkout, reset } = useCreditCheckout();
   const [amountInput, setAmountInput] = useState(String(COMMS_CREDIT_DEFAULT_CENTS / 100));
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -346,24 +354,53 @@ export function ManagerExtraUsagePanel({
   })();
   const alertPercent = alertOverride ?? serverAlertPercent;
 
-  // Return from Stripe embedded checkout: poll the wallet (≤20s) until the
-  // webhook-written purchase shows up, rather than assuming it landed.
+  // Return from Stripe embedded checkout: poll the wallet the purchase named
+  // (≤20s) until the webhook-written credit shows up, rather than assuming it
+  // landed. `comms_workspace` is the wallet that was bought for; without it the
+  // purchase predates per-workspace credit and reads the default wallet.
   useEffect(() => {
     if (typeof window === "undefined" || returnHandled.current) return;
     const params = new URLSearchParams(window.location.search);
     const purchaseId = params.get("comms_purchase");
     if (!purchaseId || !summary) return;
     returnHandled.current = true;
-    const previous = summary.communication.purchasedRemainingCents;
+    const purchaseWorkspaceId = params.get("comms_workspace")?.trim() || null;
+    const otherWorkspace =
+      purchaseWorkspaceId && purchaseWorkspaceId !== summary.communication.workspaceId
+        ? purchaseWorkspaceId
+        : null;
+    if (otherWorkspace) setWorkspaceOverride(otherWorkspace);
+    const readWallet = async (): Promise<{ purchasedRemainingCents: number } | null> => {
+      if (!otherWorkspace) {
+        const next = await load();
+        return next ? { purchasedRemainingCents: next.communication.purchasedRemainingCents } : null;
+      }
+      try {
+        const res = await fetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(otherWorkspace)}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const body = (await res.json()) as ManagerUsageSummary & { error?: string };
+        if (!res.ok) return null;
+        return { purchasedRemainingCents: body.communication.purchasedRemainingCents };
+      } catch {
+        return null;
+      }
+    };
     const id = window.setTimeout(() => {
       setPurchasePolling(true);
-      void pollUntilCreditPurchaseLands({
-        previousPurchasedRemainingCents: previous,
-        load: async () => {
-          const next = await load();
-          return next ? { purchasedRemainingCents: next.communication.purchasedRemainingCents } : null;
-        },
-      }).then((landed) => {
+      void (async () => {
+        // The pre-purchase figure for the wallet actually bought for. A read
+        // that fails leaves the baseline honest rather than guessing zero.
+        const baseline = otherWorkspace
+          ? (await readWallet())?.purchasedRemainingCents ?? null
+          : summary.communication.purchasedRemainingCents;
+        if (baseline === null) return false;
+        return pollUntilCreditPurchaseLands({
+          previousPurchasedRemainingCents: baseline,
+          load: readWallet,
+        });
+      })().then((landed) => {
         setPurchasePolling(false);
         setPurchaseNotice(
           landed
@@ -374,6 +411,47 @@ export function ManagerExtraUsagePanel({
     }, 0);
     return () => window.clearTimeout(id);
   }, [summary, load]);
+
+  // The wallet the purchase lands in: the manager's pick, else whichever
+  // workspace the loaded summary describes, else their only owned workspace.
+  const creditWorkspaceId =
+    workspaceOverride ??
+    summary?.communication.workspaceId ??
+    ownedWorkspaces.find((w) => w.isDefault)?.id ??
+    ownedWorkspaces[0]?.id ??
+    null;
+
+  // The Usage section above reads the default workspace. When the manager is
+  // buying for a different one, read that wallet so the figure beside the
+  // picker is that workspace's own credit, never another's.
+  const [pickedRemainingCents, setPickedRemainingCents] = useState<number | null>(null);
+  useEffect(() => {
+    setPickedRemainingCents(null);
+    if (!creditWorkspaceId || !summary) return;
+    if (creditWorkspaceId === summary.communication.workspaceId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(creditWorkspaceId)}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const body = (await res.json()) as ManagerUsageSummary & { error?: string };
+        if (!res.ok || cancelled) return;
+        setPickedRemainingCents(body.communication.remainingCents);
+      } catch {
+        // The picker still names the workspace; only its figure is withheld.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [creditWorkspaceId, summary]);
+
+  const creditWorkspaceRemainingCents =
+    creditWorkspaceId && summary && creditWorkspaceId === summary.communication.workspaceId
+      ? summary.communication.remainingCents
+      : pickedRemainingCents;
 
   const amountCents = (() => {
     const dollars = Number(amountInput);
@@ -387,8 +465,12 @@ export function ManagerExtraUsagePanel({
       setAmountError("Enter a whole-dollar amount from $5 to $500.");
       return;
     }
+    if (!creditWorkspaceId) {
+      setAmountError("Choose the workspace this credit is for.");
+      return;
+    }
     setBuyOpen(true);
-    await checkout(amountCents);
+    await checkout(amountCents, creditWorkspaceId);
   };
 
   const closeBuy = () => {
@@ -468,6 +550,32 @@ export function ManagerExtraUsagePanel({
             <span className="text-sm text-muted">Managed on the web</span>
           )}
         </div>
+        {ownedWorkspaces.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+            <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-foreground">
+              Credit applies to
+              {creditWorkspaceRemainingCents === null ? null : (
+                <span className="text-[12.5px] font-normal tabular-nums text-muted">
+                  {formatUsdFromCents(creditWorkspaceRemainingCents)} left
+                </span>
+              )}
+            </span>
+            <FieldSingleSelect
+              label="Credit applies to"
+              hideLabel
+              variant="cell"
+              wrapperClassName="w-48"
+              value={creditWorkspaceId ?? ""}
+              onChange={(next) => setWorkspaceOverride(next)}
+              disabled={!canBuy}
+              options={ownedWorkspaces.map((workspace) => ({
+                value: workspace.id,
+                label: workspace.name,
+              }))}
+              dataAttr="extra-usage-credit-workspace"
+            />
+          </div>
+        ) : null}
         {amountError ? (
           <p role="alert" className="border-b border-border px-4 py-2 text-xs text-danger">
             {amountError}

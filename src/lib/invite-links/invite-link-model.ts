@@ -8,6 +8,9 @@
 
 export type InviteLinkKind = "manager" | "vendor" | "resident";
 
+/** Typed refusal when a share-link opener has no manager portal role yet. */
+export const MANAGER_ROLE_REQUIRED_CODE = "manager_role_required";
+
 /**
  * `kind` arrives from a request body — only the real kinds are honoured.
  *

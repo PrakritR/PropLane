@@ -300,6 +300,14 @@ and silently revokes C while the co-manager card still lists the property —
 already-accepted forged link is not re-checked at use, so the invite table must
 be audited per environment before release.
 
+**Shareable invite links (`/invite/[token]`) Join in one click.** Redeem creates
+an **accepted** workspace membership, returns `workspaceId`, and the client
+selects that workspace so it appears in the top-left switcher. Only the
+**workspace owner** needs Pro/Business; a Free manager invitee may join and uses
+the owner's plan/credits inside that workspace. An opener without a manager
+portal role gets `manager_role_required` and is prompted to create a manager
+account (then returned to the same invite URL).
+
 **Direct PropLane-ID linking is a PAID capability on both sides.**
 `POST /api/pro/account-links` refuses with 403 unless the inviter AND the invitee
 are each on Pro or Business (`managerPlanAllowsCoManagerInvites`, which counts the
@@ -308,6 +316,8 @@ gets "upgrade" rather than "at your limit".
 
 Open-link invitees may stay Free: the server stamps `invitee_plan_inherited`
 on the row, retaining that provenance after the one-time token hash is cleared.
+Shareable `/invite/[token]` links likewise only gate the **owner** on Pro/Business;
+redeem accepts in one step so the workspace appears in the invitee's switcher.
 Redemption rechecks the owner's paid eligibility and compares both the current
 token hash and assigned-property snapshot when claiming the row; a rotation or
 scope edit during redemption requires a fresh attempt.

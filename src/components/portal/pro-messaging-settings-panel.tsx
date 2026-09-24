@@ -11,8 +11,7 @@ import {
   PortalSettingsGroup,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
-import { ChannelRow, ChannelAddRow, ChannelRowMenu, type ChannelRowMenuItem } from "@/components/portal/portal-channel-row";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ChannelRow, ChannelRowMenu, type ChannelRowMenuItem } from "@/components/portal/portal-channel-row";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
@@ -815,37 +814,27 @@ export function ManagerMessagingSettingsPanel({
     <PortalSettingsSection
       title="Channels"
       action={
-        <>
-          {ownedWorkspaces.length > 1 ? (
-            <FieldSingleSelect
-              label="Workspace"
-              hideLabel
-              variant="pill"
-              value={channelFilter}
-              options={[
-                { value: "all", label: "All workspaces" },
-                ...ownedWorkspaces.map((w) => ({ value: w.workspaceId, label: w.workspaceName })),
-              ]}
-              onChange={setChannelFilter}
-              dataAttr="channels-workspace-filter"
-            />
-          ) : null}
-          <PortalPrimaryIconAction
-            label="Add number"
-            onClick={() =>
-              openAddNumberSheet(
-                channelFilter !== "all" ? channelFilter : status.workspace?.id ?? ownedWorkspaces[0]?.workspaceId ?? "",
-              )
-            }
-            data-attr="channels-add-number"
+        ownedWorkspaces.length > 1 ? (
+          <FieldSingleSelect
+            label="Workspace"
+            hideLabel
+            variant="pill"
+            value={channelFilter}
+            options={[
+              { value: "all", label: "All workspaces" },
+              ...ownedWorkspaces.map((w) => ({ value: w.workspaceId, label: w.workspaceName })),
+            ]}
+            onChange={setChannelFilter}
+            dataAttr="channels-workspace-filter"
           />
-        </>
+        ) : undefined
       }
     >
       <PortalSettingsGroup>
         {visibleWorkspaces.map((workspace) => {
           const numbers = workspace.numbers ?? [];
           const otherOwnedWorkspaces = ownedWorkspaces.filter((w) => w.workspaceId !== workspace.workspaceId);
+          const canRequest = canAddNumberTo(workspace);
           return (
             <div key={workspace.workspaceId}>
               {numbers.map((entry) => {
@@ -904,12 +893,28 @@ export function ManagerMessagingSettingsPanel({
                   />
                 );
               })}
-              {canAddNumberTo(workspace) ? (
-                <ChannelAddRow
-                  label="Add number"
-                  meta={numbers.length === 0 ? "included · or $5/mo" : "$5/mo"}
-                  onClick={() => openAddNumberSheet(workspace.workspaceId)}
-                  dataAttr="channel-add-number-row"
+              {/* One number per workspace: empty → placeholder row; Request only in ⋯ (no header + / dashed Add). */}
+              {canRequest ? (
+                <ChannelRow
+                  key={`${workspace.workspaceId}-request`}
+                  icon={Phone}
+                  channel={<>Work number</>}
+                  workspace={workspace.workspaceName}
+                  status="Not set up"
+                  menu={
+                    <ChannelRowMenu
+                      label={`Request work number for ${workspace.workspaceName}`}
+                      items={[
+                        {
+                          key: "request",
+                          label: "Request work number",
+                          onClick: () => openAddNumberSheet(workspace.workspaceId),
+                        },
+                      ]}
+                      dataAttr="channel-number-request-menu"
+                    />
+                  }
+                  dataAttr="channel-row-number-empty"
                 />
               ) : null}
             </div>

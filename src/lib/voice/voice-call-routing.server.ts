@@ -17,7 +17,14 @@ export type VoiceCallRoute =
 
 export type ResolvedVoiceCall =
   | { ok: false; reason: "unconfigured" }
-  | { ok: true; managerId: string; workNumber: string; route: VoiceCallRoute };
+  | {
+      ok: true;
+      managerId: string;
+      /** Workspace that owns the dialed work number — its wallet pays for the call. */
+      workspaceId: string | null;
+      workNumber: string;
+      route: VoiceCallRoute;
+    };
 
 /** Same fork order as `/api/twilio/inbound` SMS: manager → resident → prospect. */
 export async function resolveVoiceCallRoute(
@@ -37,6 +44,7 @@ export async function resolveVoiceCallRoute(
     return {
       ok: true,
       managerId: owned.managerId,
+      workspaceId: owned.workspaceId,
       workNumber,
       route: { kind: "manager", identity: managerInbound },
     };
@@ -50,6 +58,7 @@ export async function resolveVoiceCallRoute(
     return {
       ok: true,
       managerId: owned.managerId,
+      workspaceId: owned.workspaceId,
       workNumber,
       route: {
         kind: "resident",
@@ -62,6 +71,7 @@ export async function resolveVoiceCallRoute(
   return {
     ok: true,
     managerId: owned.managerId,
+    workspaceId: owned.workspaceId,
     workNumber,
     route: { kind: "prospect" },
   };

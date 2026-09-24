@@ -6,7 +6,7 @@ import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { inviteLinkUnusableMessage, type InviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
+import { inviteLinkUnusableMessage, type InviteLinkUnusableReason, MANAGER_ROLE_REQUIRED_CODE } from "@/lib/invite-links/invite-link-model";
 import { firstNameFromDisplay, inviteAcceptSubtitle, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
 import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 
@@ -31,6 +31,10 @@ type Preview = {
  * URL in a group chat could quietly change your account. Signing in first is
  * required for the same reason — there has to be an account for the grant to
  * land on, and it has to be the one the person meant.
+ *
+ * Manager share links Join in one step (accepted membership + workspace select).
+ * Without a manager portal role the opener is sent to create a manager account
+ * and brought back here.
  */
 export default function InviteLinkClient({ token }: { token: string }) {
   const router = useRouter();
@@ -40,6 +44,10 @@ export default function InviteLinkClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [claimed, setClaimed] = useState(false);
+  const [needManagerAccount, setNeedManagerAccount] = useState(false);
+
+  const invitePath = `/invite/${token}`;
+  const createManagerHref = `/auth/create-account?mode=create&role=manager&tier=free&next=${encodeURIComponent(invitePath)}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -79,9 +87,25 @@ export default function InviteLinkClient({ token }: { token: string }) {
     };
   }, [token]);
 
+  const selectJoinedWorkspace = useCallback(async (workspaceId: string | null | undefined) => {
+    const id = workspaceId?.trim();
+    if (!id) return;
+    try {
+      await fetch("/api/workspaces", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "select", id }),
+      });
+    } catch {
+      /* Selection is best-effort — membership already landed. */
+    }
+  }, []);
+
   const accept = useCallback(async () => {
     setBusy(true);
     setError(null);
+    setNeedManagerAccount(false);
     try {
       const res = await fetch("/api/pro/invite-links/redeem", {
         method: "POST",
@@ -94,9 +118,16 @@ export default function InviteLinkClient({ token }: { token: string }) {
         inviteId?: string;
         claimId?: string;
         vendorDirectoryId?: string;
+        workspaceId?: string | null;
         error?: string;
+        code?: string;
       };
       if (!res.ok) {
+        if (body.code === MANAGER_ROLE_REQUIRED_CODE || /manager account/i.test(body.error ?? "")) {
+          setNeedManagerAccount(true);
+          setError(body.error ?? "Create a manager account to join this workspace.");
+          return;
+        }
         setError(body.error ?? "Could not accept this invite.");
         return;
       }
@@ -124,15 +155,14 @@ export default function InviteLinkClient({ token }: { token: string }) {
         setError(body.error ?? "Could not accept this invite.");
         return;
       }
-      // Hand off to the existing accept screen, which is what actually links the
-      // accounts — one implementation of "become a co-manager", not a second.
-      router.replace(`/portal/profile?tab=workspaces`);
+      await selectJoinedWorkspace(body.workspaceId);
+      router.replace("/portal/dashboard");
     } catch {
       setError("Could not accept this invite.");
     } finally {
       setBusy(false);
     }
-  }, [router, token]);
+  }, [router, selectJoinedWorkspace, token]);
 
   if (notFound) {
     return (
@@ -164,9 +194,11 @@ export default function InviteLinkClient({ token }: { token: string }) {
 
   const isVendor = preview.kind === "vendor";
   const isResident = preview.kind === "resident";
+  const isManager = preview.kind === "manager";
+  const workspaceLabel = preview.workspaceName?.trim() || "workspace";
   const messageHref = preview.ownerUserId
     ? `/portal/communication?composeToUserId=${encodeURIComponent(preview.ownerUserId)}`
-    : `/auth/sign-in?next=${encodeURIComponent(`/invite/${token}`)}`;
+    : `/auth/sign-in?next=${encodeURIComponent(invitePath)}`;
 
   // A resident's claim is filed, not granted. Ending on "we sent your request"
   // is the truthful screen: nothing about their account has changed yet.
@@ -185,6 +217,37 @@ export default function InviteLinkClient({ token }: { token: string }) {
             onClick={() => router.push("/")}
           >
             Done
+          </Button>
+        </div>
+      </AuthCard>
+    );
+  }
+
+  if (needManagerAccount && isManager) {
+    return (
+      <AuthCard variant="blend">
+        <AuthPageHeader
+          showLogo
+          title="Create a manager account"
+          subtitle={`You need a manager account to join ${workspaceLabel}. After you create one, we will bring you back to this invite.`}
+        />
+        {error ? <p className="mt-4 text-center text-sm text-rose-600">{error}</p> : null}
+        <div className="mt-6 grid gap-3">
+          <Button
+            type="button"
+            className="w-full rounded-full py-2.5 text-[15px] font-semibold"
+            data-attr="invite-link-create-manager"
+            onClick={() => router.push(createManagerHref)}
+          >
+            Create manager account
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full rounded-full py-2.5 text-[15px] font-semibold"
+            onClick={() => router.push(`/auth/sign-in?next=${encodeURIComponent(invitePath)}`)}
+          >
+            Sign in with another account
           </Button>
         </div>
       </AuthCard>
@@ -257,10 +320,14 @@ export default function InviteLinkClient({ token }: { token: string }) {
             type="button"
             className="w-full rounded-full py-2.5 text-[15px] font-semibold"
             onClick={() =>
-              router.push(`/auth/sign-in?next=${encodeURIComponent(`/invite/${token}`)}`)
+              router.push(`/auth/sign-in?next=${encodeURIComponent(invitePath)}`)
             }
           >
-            {isResident ? "Sign in or create an account" : isVendor ? "Sign in or create an account" : "Sign in to accept"}
+            {isResident
+              ? "Sign in or create an account"
+              : isVendor
+                ? "Sign in or create an account"
+                : "Sign in to join"}
           </Button>
         ) : (
           <Button
@@ -270,7 +337,11 @@ export default function InviteLinkClient({ token }: { token: string }) {
             loading={busy}
             onClick={() => accept()}
           >
-            {isResident ? "This is my home" : isVendor ? "Join as vendor" : "Continue"}
+            {isResident
+              ? "This is my home"
+              : isVendor
+                ? "Join as vendor"
+                : `Join ${workspaceLabel}`}
           </Button>
         )}
         {!isResident ? (
@@ -291,7 +362,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
           ? "This sends a request to your property manager. Nothing on your account changes until they confirm it."
           : isVendor
             ? "Accepting adds you to their vendor directory so they can send you services."
-            : "You will see exactly what you are being given access to before anything is linked."}
+            : "Joining adds this workspace to your portal. Communication credits for work inside it follow the owner’s plan."}
       </p>
     </AuthCard>
   );

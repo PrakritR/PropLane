@@ -59,6 +59,8 @@ const nativeEntryPath = nativeShellEntryPath();
 const nativeAppUrl = `${serverBase}${nativeEntryPath}`;
 
 function allowNavigationHosts(): string[] {
+  // Widen off the `as const` tuple so a LAN/dev hostname (plain string) can be
+  // compared and prepended — Array.prototype.includes otherwise rejects it.
   const hosts: string[] = [...CAPACITOR_ALLOW_NAVIGATION_HOSTS];
   try {
     const devHost = new URL(serverBase).hostname;

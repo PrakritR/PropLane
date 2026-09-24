@@ -91,7 +91,14 @@ export type OwnerSmsEnqueueInput = {
 };
 
 type SendPolicy =
-  | { allowed: true; fromNumber: string; segmentCount: number; messagingServiceSid: string }
+  | {
+      allowed: true;
+      fromNumber: string;
+      segmentCount: number;
+      messagingServiceSid: string;
+      /** The workspace that holds the sending line — its wallet pays. */
+      workspaceId: string | null;
+    }
   | { allowed: false; reason: string; deferUntil?: string };
 
 async function loadSendPolicy(
@@ -176,8 +183,12 @@ async function loadSendPolicy(
     return { allowed: false, reason: "provider_identity_mismatch" };
   }
 
+  // Credit is per workspace: the message spends from the wallet of the
+  // workspace that holds the line it leaves on, not an account-wide balance.
+  const sendWorkspaceId = String(numberRow.workspace_id ?? "").trim() || null;
   const billing = await evaluateManagerCommsBillingGate(db, ownerId,
-    segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"));
+    segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"),
+    sendWorkspaceId);
   if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };
 
   const suppression = await readSmsSuppressionState(db, recipient, { userId: input.recipientUserId });
@@ -268,6 +279,7 @@ async function loadSendPolicy(
     fromNumber: String(numberRow.phone_number),
     segmentCount: segmentEstimate.segmentCount,
     messagingServiceSid: expectedServiceSid,
+    workspaceId: sendWorkspaceId,
   };
 }
 
@@ -1000,7 +1012,8 @@ export async function dispatchOwnerSmsOutbox(
     const credit = submissionCostsReserved
       ? { allowed: true as const, duplicate: false, state: "reserved" as const }
       : await reserveCommsCredit(db, {
-          managerUserId: row.manager_user_id, meter: "sms_outbound_segment",
+          managerUserId: row.manager_user_id, workspaceId: policy.workspaceId,
+          meter: "sms_outbound_segment",
           quantity: policy.segmentCount, idempotencyKey: creditKey, metadata: { outboxId: row.id },
         }).catch(() => ({ allowed: false as const, reason: CREDIT_UNAVAILABLE_REASON }));
     if (!credit.allowed && credit.reason === CREDIT_UNAVAILABLE_REASON) {

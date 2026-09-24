@@ -7,6 +7,11 @@ import { createCommsCreditCheckout } from "@/lib/comms-billing/credit-purchase.s
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+/** Both the operation id and every workspace id are v4 (`gen_random_uuid`). */
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function POST(req: Request) {
   const auth = await requireManagerRouteUser();
   if (!auth)
@@ -39,11 +44,11 @@ export async function POST(req: Request) {
     !body ||
     !isValidCommsCreditAmountCents(body.creditCents) ||
     typeof body.purchaseId !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      body.purchaseId,
-    ) ||
+    !UUID.test(body.purchaseId) ||
+    typeof body.workspaceId !== "string" ||
+    !UUID.test(body.workspaceId) ||
     Object.keys(body).some(
-      (key) => !["creditCents", "purchaseId"].includes(key),
+      (key) => !["creditCents", "purchaseId", "workspaceId"].includes(key),
     )
   ) {
     return NextResponse.json(
@@ -52,9 +57,26 @@ export async function POST(req: Request) {
     );
   }
   try {
-    // This endpoint buys credit for the authenticated manager's OWN account.
-    // A co-manager invitation is not permission to spend the owner's money.
-    const wallet = await loadCommsWallet(auth.db, auth.userId);
+    // Credit is per workspace, and only the workspace's OWNER may buy it. A
+    // co-manager invitation is not permission to spend the owner's money, and
+    // a workspace id in the body is not authorization: re-derive ownership.
+    const { data: workspace, error: workspaceError } = await auth.db
+      .from("portal_workspaces")
+      .select("id")
+      .eq("id", body.workspaceId)
+      .eq("owner_user_id", auth.userId)
+      .maybeSingle();
+    if (workspaceError)
+      return NextResponse.json(
+        { error: "We could not verify that workspace. Try again." },
+        { status: 503 },
+      );
+    if (!workspace)
+      return NextResponse.json(
+        { error: "Only the workspace owner can buy communication credit." },
+        { status: 403 },
+      );
+    const wallet = await loadCommsWallet(auth.db, auth.userId, body.workspaceId);
     if (wallet.paused)
       return NextResponse.json(
         {
@@ -68,6 +90,7 @@ export async function POST(req: Request) {
       auth.userId,
       body.purchaseId,
       body.creditCents,
+      body.workspaceId,
       req,
     );
     return NextResponse.json(checkout, {

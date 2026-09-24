@@ -15,6 +15,7 @@ import {
 describe("co-manager invite accept link", () => {
   it("builds a Settings → Workspaces deep link for team invites", () => {
     expect(coManagerInviteAcceptUrl("invite-abc")).toContain("/portal/profile?tab=workspaces");
+    expect(coManagerInviteAcceptUrl("invite-abc")).toContain("acceptInvite=invite-abc");
   });
 
   it("includes the accept link in invite email copy when inviteId is provided", () => {
@@ -25,6 +26,7 @@ describe("co-manager invite accept link", () => {
     });
     expect(body).toContain("Accept the invite:");
     expect(body).toContain("/portal/profile?tab=workspaces");
+    expect(body).toContain("acceptInvite=invite-abc");
   });
 });
 

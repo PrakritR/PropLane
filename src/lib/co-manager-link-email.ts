@@ -12,8 +12,9 @@ function portalTeamSettingsUrl(): string {
 
 /** Deep link after invite: Settings → Workspaces (pending invites live there). */
 export function coManagerInviteAcceptUrl(inviteId: string): string {
-  void inviteId;
-  return portalTeamSettingsUrl();
+  const id = inviteId.trim();
+  if (!id) return portalTeamSettingsUrl();
+  return `${portalTeamSettingsUrl()}&acceptInvite=${encodeURIComponent(id)}`;
 }
 
 export function coManagerInviteSubject(inviterName: string): string {
