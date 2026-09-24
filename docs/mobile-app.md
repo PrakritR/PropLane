@@ -14,12 +14,15 @@ domain 308 from `prop-lane.space` → `proplane.ai` while the installed binary
 still loaded prop-lane (and lacked `proplane.ai` on allowNavigation) caused
 the black splash after cutover** — fixed by baking `proplane.ai` into new
 binaries *and* clearing that Vercel redirect on legacy hosts (they stay
-`noindex` for crawlers). Repointing the WebView means changing
-`capacitor.config.ts` + `CAP_SERVER_URL` / `npm run cap:prod` — a native-shell
-rebuild. **Note:** because WebView session cookies are scoped per registrable
-domain, an installed app that updates to a build loading the new domain starts
-with no session and prompts a one-time re-login; this is inherent to the domain
-cutover, not a bug.
+`noindex` for crawlers). **Sticky 308 in WKWebView:** force-quit is not enough;
+delete the app and reinstall (App Store or TestFlight) so the WebView drops its
+cached permanent redirect. New shells also set `SplashScreen.launchAutoHide`
+so a blocked first paint cannot leave `#080b14` forever. Repointing the
+WebView means changing `capacitor.config.ts` + `CAP_SERVER_URL` /
+`npm run cap:prod` — a native-shell rebuild. **Note:** because WebView session
+cookies are scoped per registrable domain, an installed app that updates to a
+build loading the new domain starts with no session and prompts a one-time
+re-login; this is inherent to the domain cutover, not a bug.
 
 - **Web/UI changes ship instantly** via your normal Vercel deploy. No app-store
   review needed for content or UI — the WebView always loads the latest site.
