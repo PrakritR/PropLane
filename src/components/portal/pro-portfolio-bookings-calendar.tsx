@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { BookingsKpiStrip } from "@/components/portal/bookings-kpi-strip";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
@@ -15,7 +14,6 @@ import {
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import {
-  bookingOccupancyStats,
   bookingSourceDotClass,
   filterBookingsBySearch,
   formatBookingStayRange,
@@ -28,7 +26,6 @@ import {
   occupancyHeatBucket,
   occupancyHeatBucketClass,
   occupancyPercent,
-  rangeOccupancyPercent,
   OCCUPANCY_HEAT_BUCKETS,
   type OccupancyDayLookup,
 } from "@/lib/channel-calendar/bookings-occupancy";
@@ -100,36 +97,6 @@ function formatNavTitle(anchor: Date, view: BookingsCalendarView): string {
 
 function padDateSegment(n: number): string {
   return String(n).padStart(2, "0");
-}
-
-/** Every day key the current view spans — what the KPI strip's occupancy percent is computed over. */
-function dayKeysForView(anchor: Date, view: BookingsCalendarView): string[] {
-  if (view === "day") return [dateKey(anchor)];
-  if (view === "week") {
-    const start = startOfWeekSunday(anchor);
-    return Array.from({ length: 7 }, (_, index) => dateKey(addDays(start, index)));
-  }
-  const year = anchor.getFullYear();
-  if (view === "month") {
-    const month = anchor.getMonth();
-    const days = new Date(year, month + 1, 0).getDate();
-    return Array.from({ length: days }, (_, index) => `${year}-${padDateSegment(month + 1)}-${padDateSegment(index + 1)}`);
-  }
-  const keys: string[] = [];
-  for (let month = 0; month < 12; month += 1) {
-    const days = new Date(year, month + 1, 0).getDate();
-    for (let day = 1; day <= days; day += 1) {
-      keys.push(`${year}-${padDateSegment(month + 1)}-${padDateSegment(day)}`);
-    }
-  }
-  return keys;
-}
-
-function kpiPeriodLabel(view: BookingsCalendarView): string {
-  if (view === "day") return "Today";
-  if (view === "week") return "This week";
-  if (view === "month") return "This month";
-  return "This year";
 }
 
 function bookedDayKeyCountInRange(
@@ -431,41 +398,6 @@ export function ManagerBookingsHub({
     [extraEntries, roomFilterId, searchQuery],
   );
 
-  /**
-   * The KPI strip reads the SAME room-based occupancy math as the grid
-   * (PLAN-0920-1058, area 1e) — the mobile QA sweep caught a strip and a grid
-   * disagreeing ("Tours 0" above six tour blocks) and this is the fix for
-   * Bookings' version of that bug. `checkInsThisWeek` keeps its existing,
-   * week-scoped meaning regardless of the current view.
-   */
-  const stats = useMemo(() => {
-    const legacy = bookingOccupancyStats(entries, anchorDate, view);
-    const dayKeys = dayKeysForView(anchorDate, view);
-    const bookedNights = dayKeys.reduce(
-      (total, key) =>
-        total +
-        dayOccupancyFromLookup(occupancyDays, key, propertyIds, () =>
-          dayOccupancy(entries, key, propertyIds, bookingOccupancyCapacities),
-        ).occupied,
-      0,
-    );
-    const occupancy = occupancyDays
-      ? (() => {
-          let occupied = 0;
-          let rooms = 0;
-          for (const key of dayKeys) {
-            const cell = dayOccupancyFromLookup(occupancyDays, key, propertyIds, () =>
-              dayOccupancy(entries, key, propertyIds, bookingOccupancyCapacities),
-            );
-            occupied += cell.occupied;
-            rooms += cell.rooms;
-          }
-          return rooms > 0 ? Math.round((occupied / rooms) * 100) : 0;
-        })()
-      : rangeOccupancyPercent(entries, dayKeys, propertyIds, bookingOccupancyCapacities);
-    return { bookedNights, checkInsThisWeek: legacy.checkInsThisWeek, occupancyPercent: occupancy };
-  }, [entries, occupancyDays, anchorDate, view, propertyIds]);
-
   const navSubtitle = useMemo(() => {
     if (view === "day") {
       const count = bookingEntriesForDayKey(entries, dateKey(anchorDate)).length;
@@ -563,9 +495,7 @@ export function ManagerBookingsHub({
                     Add property
                   </Link>
                 </div>
-              ) : (
-                <BookingsKpiStrip stats={stats} periodLabel={kpiPeriodLabel(view)} />
-              )}
+              ) : null}
 
               <PortalSegmentedControl
                 options={CALENDAR_VIEW_OPTIONS}

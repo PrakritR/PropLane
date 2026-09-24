@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   const workspaceId = searchParams.get("workspaceId")?.trim();
 
   if (workspaceId) {
-    // Saved invite links for this workspace (Active + Off), newest first.
+    // Live invite links for this workspace only (revoked rows are omitted).
     const result = await listInviteLinksForWorkspace(
       createSupabaseServiceRoleClient(),
       { actorUserId: userId, workspaceId },

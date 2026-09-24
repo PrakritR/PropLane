@@ -73,7 +73,7 @@ describe("BookingsDayPage", () => {
     expect(document.body.textContent).not.toContain("Ask PropLane");
   });
 
-  it("names the weekday and shows the bookings / check-ins / occupancy summary line", () => {
+  it("names the weekday and leads the summary with beds occupied (matches month cell)", () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-01"
@@ -89,9 +89,9 @@ describe("BookingsDayPage", () => {
     );
     expect(screen.getByText("Tuesday, September 1")).toBeTruthy();
     const summary = document.querySelector('[data-attr="bookings-day-summary"]');
-    expect(summary?.textContent).toContain("2 bookings");
+    expect(summary?.textContent).toMatch(/\d+ of \d+ beds occupied/);
     expect(summary?.textContent).toContain("2 check-ins");
-    expect(summary?.textContent).toContain("beds occupied");
+    expect(summary?.textContent).not.toContain("bookings");
   });
 
   it("groups rows by property, each with its own occupied/rooms line", () => {
@@ -111,6 +111,8 @@ describe("BookingsDayPage", () => {
     const brooklynGroup = document.querySelector('[data-attr="bookings-day-group-p1"]') as HTMLElement;
     expect(within(brooklynGroup).getByText("5257 Brooklyn Ave")).toBeTruthy();
     expect(brooklynGroup.textContent).toContain("Ada Lovelace");
+    // Place line carries property · room on each stay row (PLAN-0923-1737).
+    expect(brooklynGroup.textContent).toContain("Room 1");
     const ashGroup = document.querySelector('[data-attr="bookings-day-group-p2"]') as HTMLElement;
     expect(within(ashGroup).getByText("Ash Flats 6")).toBeTruthy();
     expect(ashGroup.textContent).toContain("Prakrit");

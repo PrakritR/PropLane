@@ -467,8 +467,9 @@ export async function listInviteLinksForActor(db: SupabaseClient, actorUserId: s
 }
 
 /**
- * Saved invite links for a workspace (newest first), including deactivated
- * rows so Members can show Active / Off. Requires members rights.
+ * Saved invite links for a workspace (newest first). Only live links —
+ * revoked / expired / exhausted rows are omitted so Members never shows Off.
+ * Requires members rights.
  */
 export async function listInviteLinksForWorkspace(
   db: SupabaseClient,
@@ -491,9 +492,12 @@ export async function listInviteLinksForWorkspace(
     .order("created_at", { ascending: false })
     .limit(50);
 
+  const now = input.now ?? new Date();
   return {
     ok: true,
-    links: (data ?? []).map((row) => toInviteLinkRow(row as DbRow)),
+    links: (data ?? [])
+      .map((row) => toInviteLinkRow(row as DbRow))
+      .filter((link) => !inviteLinkUnusableReason(link, now)),
   };
 }
 
