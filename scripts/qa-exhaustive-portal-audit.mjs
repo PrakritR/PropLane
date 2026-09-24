@@ -189,8 +189,8 @@ async function managerFlows(page, account) {
     ["/portal/calendar", "Calendar"],
     ["/portal/bookings", "Bookings"],
     ["/portal/communication/active", "Communication"],
-    ["/portal/teams/managers", "Teams managers"],
-    ["/portal/teams/vendors", "Teams vendors"],
+    ["/portal/profile?tab=workspaces", "Workspaces"],
+    ["/portal/vendors", "Vendors"],
     ["/portal/promotion", "Promotion"],
     ["/portal/financials/income", "Finances income"],
     ["/portal/financials/expenses", "Finances expenses"],
@@ -225,12 +225,12 @@ async function managerFlows(page, account) {
   }
 
   // Invite vendor
-  await page.goto(`${BASE}/portal/teams/vendors`);
+  await page.goto(`${BASE}/portal/vendors`);
   await page.waitForTimeout(1500);
   const inviteVendor = page.getByRole("button", { name: /invite|add vendor/i });
   if ((await inviteVendor.count()) === 0) {
-    const shot = await screenshot(page, "manager", "teams-vendors-no-invite");
-    addFinding({ portal: "manager", path: "/portal/teams/vendors", category: "ux", severity: "low", title: "Teams vendors: no Invite/Add vendor CTA visible", detail: "", screenshot: shot });
+    const shot = await screenshot(page, "manager", "vendors-no-invite");
+    addFinding({ portal: "manager", path: "/portal/vendors", category: "ux", severity: "low", title: "Vendors: no Invite/Add vendor CTA visible", detail: "", screenshot: shot });
   }
 
   // Residents add

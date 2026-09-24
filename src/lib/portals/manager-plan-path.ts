@@ -6,6 +6,12 @@ export const MANAGER_PLAN_PORTAL_PATH = "/portal/profile";
 export const MANAGER_PLAN_PORTAL_HASH = `#${MANAGER_PLAN_PORTAL_SECTION_ID}`;
 
 /**
+ * Co-managers / invite links live under Settings → Workspaces (not a Teams nav).
+ * Old `/portal/teams/*` URLs redirect here.
+ */
+export const MANAGER_TEAM_SETTINGS_PATH = `${MANAGER_PLAN_PORTAL_PATH}?tab=workspaces` as const;
+
+/**
  * Canonical upgrade / View plans deep-link. Must use `?tab=billing` so Settings
  * opens the Billing pane even when the manager is already on another profile
  * tab (e.g. Workspaces). The hash alone used to no-op on a mounted Profile

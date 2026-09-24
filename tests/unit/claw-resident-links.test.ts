@@ -38,9 +38,9 @@ describe("claw-resident-links", () => {
   it("uses the canonical PropLane host when legacy overrides remain configured", () => {
     process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
     process.env.CLAW_MESSENGER_LINK_ORIGIN = "https://www.axis-seattle-housing.com";
-    expect(residentSmsLinkOrigin()).toBe("https://prop-lane.space");
+    expect(residentSmsLinkOrigin()).toBe("https://proplane.ai");
     expect(residentPortalUrl("payments")).toBe(
-      "https://prop-lane.space/resident/payments/pending",
+      "https://proplane.ai/resident/payments/pending",
     );
   });
 

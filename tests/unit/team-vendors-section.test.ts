@@ -1,7 +1,8 @@
 /**
  * Vendors is its own section under Operations. It used to live under Services,
  * then as a Teams tab; both retired paths must still resolve so bookmarks and
- * sent links keep working. Teams keeps Managers (co-managers) only.
+ * sent links keep working. The Teams page itself is gone — co-managers live
+ * under Settings → Workspaces (PLAN-0923-1934).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 
-describe("Vendors section + Teams (Managers)", () => {
+describe("Vendors section (Teams page removed)", () => {
   it("Vendors is a section of its own, next to Services, with no sub-tabs", () => {
     const vendors = proPortal.sections.find((s) => s.section === "vendors");
     expect(vendors?.label).toBe("Vendors");
@@ -21,13 +22,11 @@ describe("Vendors section + Teams (Managers)", () => {
     expect(ops?.sections[0]).toBe("vendors");
   });
 
-  it("Teams keeps Managers only", () => {
-    const teams = proPortal.sections.find((s) => s.section === "teams");
-    expect(teams?.label).toBe("Teams");
-    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers"]);
+  it("Teams is not a manager nav section — team is Settings → Workspaces", () => {
+    expect(proPortal.sections.find((s) => s.section === "teams")).toBeUndefined();
   });
 
-  it("renders the vendors section and redirects the retired Teams tab to it", () => {
+  it("renders the vendors section and redirects the retired Teams vendors tab to it", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
     expect(src).toContain('section === "vendors"');
     expect(src).toContain("redirect(`${def.basePath}/vendors${vendorId}`)");
@@ -40,8 +39,6 @@ describe("Vendors section + Teams (Managers)", () => {
   });
 
   it("keeps Teams out of the sidebar — team management lives in Settings", () => {
-    // Property Studio slice 9: managers and vendors are managed from
-    // Settings → Team / Vendors; the /teams routes stay for deep links.
     expect(PORTAL_NAV_GROUPS.pro.find((g) => g.id === "team")).toBeUndefined();
     expect(PORTAL_NAV_GROUPS.pro.some((g) => g.sections.includes("teams"))).toBe(false);
   });
@@ -100,13 +97,13 @@ describe("vendor links", () => {
   it("still resolves the retired /services/vendors and /teams/vendors paths", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
     expect(src).toContain('if (servicesTab === "vendors")');
-    expect(src).toContain('if (teamTab === "vendors")');
+    expect(src).toContain('tabParts?.[0] === "vendors"');
     expect(src).not.toContain('!["requests", "work-orders", "vendors"].includes(servicesTab)');
   });
 
-  it("redirects the legacy /relationships path", () => {
+  it("redirects legacy /relationships and /teams to Settings → Workspaces", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
     expect(src).toContain('section === "relationships"');
-    expect(src).toContain("/teams/managers");
+    expect(src).toContain("/profile?tab=workspaces");
   });
 });

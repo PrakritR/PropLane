@@ -136,26 +136,6 @@ function buildPortalNavItems(
           },
         ];
       }
-      if (
-        section.section === "teams" &&
-        section.tabs.some((tab) => tab.id === "managers" || tab.id === "vendors")
-      ) {
-        const tabs = section.tabs.filter((tab) => tab.id === "managers" || tab.id === "vendors");
-        return [
-          {
-            section: section.section,
-            label: section.label,
-            href: `${definition.basePath}/teams/managers`,
-            prefetchHrefs: tabs.map((tab) => `${definition.basePath}/teams/${tab.id}`),
-            subItems: tabs.map((tab) => ({
-              sectionTabId: tab.id,
-              label: tab.label,
-              href: `${definition.basePath}/teams/${tab.id}`,
-              prefetchHrefs: [`${definition.basePath}/teams/${tab.id}`],
-            })),
-          },
-        ];
-      }
       if (section.section === "applications") {
         // Screening nests inside the application record's own Screening tab now
         // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — no second
@@ -280,16 +260,11 @@ export function PortalSidebar({
       const tab = parts[paymentsIdx + 1];
       return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
     }
-    if (activeSection === "teams") {
-      const teamsIdx = parts.indexOf("teams");
-      const tab = parts[teamsIdx + 1];
-      return tab === "managers" || tab === "vendors" ? tab : "managers";
-    }
     return null;
   }, [activeSection, pathname]);
 
   useEffect(() => {
-    if (activeSection === "payments" || activeSection === "teams" || activeSection === "applications") {
+    if (activeSection === "payments" || activeSection === "applications") {
       setExpandableNavOpen((prev) => ({ ...prev, [activeSection]: true }));
     }
   }, [activeSection]);

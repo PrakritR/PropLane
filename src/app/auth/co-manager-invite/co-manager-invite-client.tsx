@@ -135,7 +135,7 @@ export function CoManagerInviteClient() {
       } catch {
         /* ignore */
       }
-      router.replace("/portal/teams/managers");
+      router.replace("/portal/profile?tab=workspaces");
     } catch {
       setJoinError("Network error.");
     } finally {

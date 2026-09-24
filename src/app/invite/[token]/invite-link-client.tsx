@@ -126,7 +126,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
       }
       // Hand off to the existing accept screen, which is what actually links the
       // accounts — one implementation of "become a co-manager", not a second.
-      router.replace(`/portal/teams/managers/${encodeURIComponent(body.inviteId)}`);
+      router.replace(`/portal/profile?tab=workspaces`);
     } catch {
       setError("Could not accept this invite.");
     } finally {

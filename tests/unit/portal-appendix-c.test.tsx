@@ -128,8 +128,8 @@ describe("portal-detail-routes", () => {
     expect(calendarViewHref("/portal", "services")).toBe("/portal/calendar/services");
     expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/calendar");
     expect(bookingsHref("/portal")).toBe("/portal/bookings/calendar");
-    expect(teamLinkHref("/portal", "linked")).toBe("/portal/teams/managers");
-    expect(teamMemberDetailHref("/portal", "invite-abc")).toBe("/portal/teams/managers/invite-abc");
+    expect(teamLinkHref("/portal", "linked")).toBe("/portal/profile?tab=workspaces");
+    expect(teamMemberDetailHref("/portal", "invite-abc")).toBe("/portal/profile?tab=workspaces");
   });
 
   it("parses calendar and team routed tabs", () => {

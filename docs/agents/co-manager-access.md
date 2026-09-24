@@ -52,10 +52,11 @@ own, and any where they are Admin): the owner, each membership row of that
 workspace with Role · Houses ("All houses" / "3 of 10 houses") · Joined, that
 card's pending invites, and that card's Invite. Row actions are **Edit** (the
 member sheet: role, house scope, houses, Custom grid, "Also in") and **Remove
-from <workspace>**. `ProAccountLinksPanel`'s `renderWorkspaces` owns this; the
-same panel still serves `/portal/teams/managers/<id>`. Moving a house asks the
-server (`move-preview`) who loses, keeps and gains it and says so before the
-click; an Admin may move between workspaces they administer.
+from <workspace>**. `ProAccountLinksPanel`'s `renderWorkspaces` owns this on
+Settings → Workspaces (`/portal/profile?tab=workspaces`); there is no standalone
+Teams page. Moving a house asks the server (`move-preview`) who loses, keeps and
+gains it and says so before the click; an Admin may move between workspaces they
+administer.
 
 **A co-manager link grants nothing until a module is granted.** Assignment is
 NOT the grant: an accepted `account_link_invites` row whose per-property

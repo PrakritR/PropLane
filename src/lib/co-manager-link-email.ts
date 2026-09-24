@@ -4,18 +4,16 @@
  */
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { MANAGER_TEAM_SETTINGS_PATH } from "@/lib/portals/manager-plan-path";
 
-const MANAGER_TEAM_PATH = "/portal/teams/managers";
-
-function portalRelationshipsUrl(): string {
-  return `${resolveEmailLinkBaseUrl()}${MANAGER_TEAM_PATH}`;
+function portalTeamSettingsUrl(): string {
+  return `${resolveEmailLinkBaseUrl()}${MANAGER_TEAM_SETTINGS_PATH}`;
 }
 
-/** Deep link the invitee opens to review and accept a pending co-manager invite. */
+/** Deep link after invite: Settings → Workspaces (pending invites live there). */
 export function coManagerInviteAcceptUrl(inviteId: string): string {
-  const id = inviteId.trim();
-  if (!id) return portalRelationshipsUrl();
-  return `${resolveEmailLinkBaseUrl()}${MANAGER_TEAM_PATH}/${encodeURIComponent(id)}`;
+  void inviteId;
+  return portalTeamSettingsUrl();
 }
 
 export function coManagerInviteSubject(inviterName: string): string {
@@ -33,7 +31,7 @@ export function buildCoManagerInviteBody(params: {
     params.propertyLabels.length > 0 ? params.propertyLabels.join(", ") : "assigned properties";
   const acceptUrl = params.inviteId?.trim()
     ? coManagerInviteAcceptUrl(params.inviteId)
-    : portalRelationshipsUrl();
+    : portalTeamSettingsUrl();
   return [
     `${inviterName} invited you to co-manage properties on PropLane.`,
     "",
@@ -65,7 +63,7 @@ export function buildCoManagerLinkRemovedBody(params: {
     "",
     propertyLine,
     "",
-    `Open your portal: ${portalRelationshipsUrl()}`,
+    `Open your portal: ${portalTeamSettingsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");
@@ -99,7 +97,7 @@ export function buildCoManagerInviteDeclinedBody(params: { inviteeName: string }
     "",
     "You can send a new invite from Co-managers when you are ready.",
     "",
-    `Open your portal: ${portalRelationshipsUrl()}`,
+    `Open your portal: ${portalTeamSettingsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");
@@ -125,7 +123,7 @@ export function buildCoManagerLinkLeftBody(params: {
     "",
     propertyLine,
     "",
-    `Manage your team: ${portalRelationshipsUrl()}`,
+    `Manage your team: ${portalTeamSettingsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");

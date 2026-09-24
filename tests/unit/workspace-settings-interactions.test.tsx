@@ -56,9 +56,9 @@ it("moves houses and deletes through one request to the selected owned destinati
   const select = await screen.findByRole("button", { name: "Destination workspace" });
   fireEvent.click(select);
   const options = await screen.findAllByRole("option");
-  expect(options.map(o => o.textContent?.replace(/^✓/, ""))).toEqual(["Second · 0 / 10", "Third · 0 / 10"]);
-  fireEvent.pointerDown(screen.getByRole("option", { name: "Third · 0 / 10" }), { button: 0, pointerType: "mouse", pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(screen.getByRole("option", { name: "Third · 0 / 10" }), { button: 0, pointerType: "mouse", pointerId: 1, clientX: 10, clientY: 10 });
+  expect(options.map(o => o.textContent?.replace(/^✓/, ""))).toEqual(["Second · 0 houses", "Third · 0 houses"]);
+  fireEvent.pointerDown(screen.getByRole("option", { name: "Third · 0 houses" }), { button: 0, pointerType: "mouse", pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(screen.getByRole("option", { name: "Third · 0 houses" }), { button: 0, pointerType: "mouse", pointerId: 1, clientX: 10, clientY: 10 });
   evidence("02-move-and-delete");
   fireEvent.click(screen.getByRole("button", { name: "Move and delete" }));
   await waitFor(() => expect(mocks.context.mutate).toHaveBeenCalledWith({ action: "delete", id: "Original", moveTo: "Third" }));

@@ -51,7 +51,6 @@ const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/pro-al
 const ManagerFinancesPanel = dynamic(() => import("@/components/portal/pro-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
 const ManagerDocumentsPanel = dynamic(() => import("@/components/portal/pro-documents-panel").then((m) => m.ManagerDocumentsPanel), { ssr: false, loading });
 const PortalCalendar = dynamic(() => import("@/components/portal/portal-calendar").then((m) => m.PortalCalendar), { ssr: false, loading });
-const ProAccountLinksPanel = dynamic(() => import("@/components/portal/pro-account-links-panel").then((m) => m.ProAccountLinksPanel), { ssr: false, loading });
 const ManagerPromotion = dynamic(() => import("@/components/portal/pro-promotion").then((m) => m.ManagerPromotion), { ssr: false, loading });
 const ManagerMobileAppPanel = dynamic(
   () => import("@/components/portal/pro-mobile-app-panel").then((m) => m.ManagerMobileAppPanel),
@@ -174,17 +173,19 @@ export function DemoSectionRenderer({
       case "documents":
         return <ManagerDocumentsPanel tabId={tabId} basePath={basePath} />;
       case "teams":
-        if (tabId === "vendors") {
-          return (
-            <Placeholder
-              title="Vendors"
-              message="Vendor management is not available in the demo sandbox."
-            />
-          );
-        }
-        return <ProAccountLinksPanel userId={managerUserId} />;
       case "relationships":
-        return <ProAccountLinksPanel userId={managerUserId} />;
+        // Demo mirrors production: team lives under Settings → Workspaces.
+        return (
+          <PortalProfileClient
+            variant="manager"
+            portalKind="pro"
+            initialFullName={managerDisplayName}
+            initialEmail={managerEmail}
+            initialPhone="(206) 555-0101"
+            idLabel="PropLane ID"
+            idValue="PROPLANE-DEMO4821"
+          />
+        );
       case "promotion":
         return <ManagerPromotion />;
       case "bugs-feedback":

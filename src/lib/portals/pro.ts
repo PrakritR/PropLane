@@ -70,13 +70,8 @@ export const proPortal: PortalDefinition = {
       label: "Communication",
       tabs: [],
     },
-    {
-      // Co-managers. Vendors used to be a second tab here; they are a section now
-      // and /teams/vendors redirects there.
-      section: "teams",
-      label: "Teams",
-      tabs: [{ id: "managers", label: "Managers" }],
-    },
+    // Co-managers live under Settings → Workspaces. `/portal/teams/*` redirects
+    // there (render-portal-section); do not re-add a Teams nav section.
     { section: "promotion", label: "Promotion", tabs: [] },
     {
       section: "financials",
@@ -118,7 +113,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
   { label: "Bookings", path: "/portal/bookings/calendar" },
-  { label: "Teams (managers)", path: "/portal/teams/managers" },
+  { label: "Workspaces (team)", path: "/portal/profile?tab=workspaces" },
   { label: "Promotion", path: "/portal/promotion" },
   { label: "Finances", path: "/portal/financials/overview" },
   { label: "Documents", path: "/portal/documents/applications" },

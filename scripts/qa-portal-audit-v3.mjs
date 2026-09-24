@@ -21,8 +21,8 @@ const ROLES = {
       "/portal/dashboard", "/portal/properties/listed", "/portal/applications/pending",
       "/portal/leases", "/portal/residents/current", "/portal/payments/incoming/pending",
       "/portal/services/requests", "/portal/communication/active", "/portal/calendar/tours",
-      "/portal/teams/vendors", "/portal/financials/income", "/portal/documents/library",
-      "/portal/profile",
+      "/portal/vendors", "/portal/financials/income", "/portal/documents/library",
+      "/portal/profile?tab=workspaces", "/portal/profile",
     ],
   },
   admin: {

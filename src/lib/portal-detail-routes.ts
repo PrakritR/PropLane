@@ -757,12 +757,14 @@ export function parseTeamLinkTab(raw: string | undefined | null): TeamLinkTabId 
   return "pending";
 }
 
+/** Settings → Workspaces — the only manager team surface (PLAN-0923-1934). */
 export function teamLinkHref(basePath: string, _tab?: TeamLinkTabId): string {
-  return `${basePath}/teams/managers`;
+  return `${basePath}/profile?tab=workspaces`;
 }
 
-export function teamMemberDetailHref(basePath: string, linkId: string): string {
-  return `${basePath}/teams/managers/${encodeURIComponent(linkId)}`;
+/** Member deep-links collapse to the Workspaces list (no standalone Teams detail). */
+export function teamMemberDetailHref(basePath: string, _linkId: string): string {
+  return teamLinkHref(basePath);
 }
 
 /** Manager applications list buckets (Appendix D5). */

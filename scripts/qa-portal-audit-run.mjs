@@ -23,8 +23,8 @@ const MANAGER_PATHS = [
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar/tours" },
   { label: "Bookings", path: "/portal/bookings" },
-  { label: "Teams managers", path: "/portal/teams/managers" },
-  { label: "Teams vendors", path: "/portal/teams/vendors" },
+  { label: "Workspaces", path: "/portal/profile?tab=workspaces" },
+  { label: "Vendors", path: "/portal/vendors" },
   { label: "Promotion", path: "/portal/promotion" },
   { label: "Finances income", path: "/portal/financials/income" },
   { label: "Finances expenses", path: "/portal/financials/expenses" },
@@ -265,7 +265,7 @@ async function auditRole(browser, role, paths, viewport) {
       await page.keyboard.press("Escape");
     }
 
-    await page.goto("/portal/teams/vendors", { waitUntil: "domcontentloaded" });
+    await page.goto("/portal/vendors", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1500);
     const addVendor = page.getByRole("button", { name: /add vendor|invite/i }).first();
     if (await addVendor.isVisible().catch(() => false)) {
@@ -278,7 +278,7 @@ async function auditRole(browser, role, paths, viewport) {
         findings.push({
           role: "manager",
           label: "Add vendor",
-          path: "/portal/teams/vendors",
+          path: "/portal/vendors",
           kind: "ux",
           severity: "medium",
           summary: "Add vendor CTA did not surface invite form",

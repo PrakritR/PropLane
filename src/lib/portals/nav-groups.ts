@@ -28,6 +28,8 @@ export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
   "bugs-feedback",
   /** App download lives under Settings; the redesign dropped it from every nav. */
   "app",
+  /** Co-managers live under Settings → Workspaces (PLAN-0923-1934). */
+  "teams",
 ]);
 
 /**
@@ -61,8 +63,7 @@ const PRO_GROUPS: NavGroupConfig[] = [
   { id: "tenancy", label: "Tenancy", sections: ["residents", "inspections", "payments", "services"] },
   { id: "operations", label: "Operations", sections: ["vendors", "tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },
-  // Team (co-managers) is managed under Settings → Workspaces / Team; the /teams
-  // routes stay reachable for deep links and detail pages. Vendors is a section.
+  // Team (co-managers) is Settings → Workspaces only; `/portal/teams` redirects.
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 

@@ -23,11 +23,11 @@ function expectContiguousBlock(sections: string[], block: string[], anchorAfter:
 }
 
 describe("portal nav order contracts", () => {
-  it("pro native order matches web registry through feedback after co-managers", () => {
+  it("pro native order matches web registry with settings last", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
     expect(ordered).toEqual(sectionIds(proPortal.sections));
-    expect(ordered.indexOf("teams")).toBeLessThan(ordered.indexOf("bugs-feedback"));
+    expect(ordered).not.toContain("teams");
     expect(ordered.at(-1)).toBe("profile");
   });
 
@@ -73,7 +73,7 @@ describe("portal nav order contracts", () => {
   });
 });
 
-describe("pro portal nav grouping (leasing → tenancy → operations → marketing → team → finances → account)", () => {
+describe("pro portal nav grouping (leasing → tenancy → operations → marketing → finances → account)", () => {
   const sections = sectionIds(proPortal.sections);
   // Screening nests inside the application record's own rail now
   // (docs/agents/record-page.md) — no separate "background-checks" nav row.
@@ -91,10 +91,10 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("groups operations before marketing", () => {
-    expectContiguousBlock(sections, operationsBlock, "services", "teams");
+    expectContiguousBlock(sections, operationsBlock, "services", "promotion");
   });
 
-  it("groups finances after team sections", () => {
+  it("groups finances after marketing", () => {
     expectContiguousBlock(sections, financesBlock, "promotion", "bugs-feedback");
   });
 
@@ -102,12 +102,13 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
     expect(sections.slice(-4)).toEqual(["documents", "bugs-feedback", "app", "profile"]);
   });
 
-  it("does not expose plan as a top-level nav section", () => {
+  it("does not expose plan or teams as top-level nav sections", () => {
     expect(sections).not.toContain("plan");
+    expect(sections).not.toContain("teams");
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 16)).toEqual([
+    expect(sections.slice(0, 15)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -122,7 +123,6 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "calendar",
       "bookings",
       "communication",
-      "teams",
       "promotion",
     ]);
   });
@@ -183,8 +183,7 @@ describe("pro portal documents section", () => {
 
     const vendors = proPortal.sections.find((s) => s.section === "vendors");
     expect(vendors?.label).toBe("Vendors");
-    const teams = proPortal.sections.find((s) => s.section === "teams");
-    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers"]);
+    expect(proPortal.sections.find((s) => s.section === "teams")).toBeUndefined();
   });
 
   it("locks documents and financials for free tier", () => {

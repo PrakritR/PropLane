@@ -104,7 +104,7 @@ describe("opening a link never changes an account on its own", () => {
 
   it("hands off to the one existing accept path", () => {
     // Not a second implementation of "become a co-manager".
-    expect(PAGE).toContain("/portal/teams/managers/");
+    expect(PAGE).toContain("/portal/profile?tab=workspaces");
   });
 });
 

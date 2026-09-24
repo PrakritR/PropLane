@@ -19,7 +19,7 @@ const PAID_MANAGER_NAV = [
   { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Feedback", path: "/portal/bugs-feedback" },
-  { label: "Team", path: "/portal/teams/managers" },
+  { label: "Workspaces", path: "/portal/profile?tab=workspaces" },
   { label: "Settings", path: "/portal/profile" },
 ] as const;
 
@@ -152,9 +152,17 @@ test.describe("Manager portal", () => {
     await expect(page).toHaveURL(/\/portal\/profile/, { timeout: 15_000 });
   });
 
-  test("team (managers) tab loads", async ({ page }) => {
-    await page.goto("/portal/teams/managers");
-    await expect(page.getByRole("heading").first()).toBeVisible();
+  test("Settings → Workspaces loads (legacy /teams redirects)", async ({ page }) => {
+    try {
+      await page.goto("/portal/teams/managers", { waitUntil: "domcontentloaded", timeout: 45_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("ERR_ABORTED")) throw error;
+    }
+    await expect(page).toHaveURL(/\/portal\/profile\?tab=workspaces/, { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: /workspaces/i }).first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test("calendar tab loads and a house week view exposes navigation", async ({ page }) => {

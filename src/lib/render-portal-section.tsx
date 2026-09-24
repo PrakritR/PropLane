@@ -51,7 +51,6 @@ import {
   loadManagerResidents,
   loadManagerVendorsPanel,
   loadPortalCalendar,
-  loadProAccountLinksPanel,
   loadResidentServicesPanel,
 } from "@/lib/portal-panel-imports";
 import type { Crumb } from "@/components/layout/breadcrumbs";
@@ -362,6 +361,18 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/profile`);
   }
 
+  // Teams page retired (PLAN-0923-1934) — co-managers live under Settings →
+  // Workspaces. Must run BEFORE findSection: `teams` is no longer in the
+  // manager registry. Vendors that used to be a Teams tab still resolve.
+  if ((kind === "manager" || kind === "pro") && (section === "teams" || section === "relationships")) {
+    if (section === "teams" && tabParts?.[0] === "vendors") {
+      const vendorId =
+        tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
+      redirect(`${def.basePath}/vendors${vendorId}`);
+    }
+    redirect(`${def.basePath}/profile?tab=workspaces`);
+  }
+
   // Legacy task-list paths → `/tasks` (bookmarks, emailed links).
   if (section === "task-list") {
     const { legacyTaskListSectionRedirectPath } = await import("@/lib/portal-detail-routes");
@@ -635,39 +646,6 @@ export async function renderPortalSection(
         "vendors",
         managerOwnerSubscriptionTier,
       );
-    }
-
-    if ((kind === "manager" || kind === "pro") && section === "relationships") {
-      const tail =
-        tabParts?.map((part) => `/${encodeURIComponent(decodeURIComponent(part))}`).join("") ?? "";
-      redirect(`${def.basePath}/teams/managers${tail}`);
-    }
-
-    if ((kind === "manager" || kind === "pro") && section === "teams") {
-      if (!tabParts?.length) {
-        redirect(`${def.basePath}/teams/managers`);
-      }
-      const teamTab = tabParts[0]!;
-      if (teamTab === "managers") {
-        const linkId =
-          tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-        if (tabParts.length > 2) notFound();
-        const ProAccountLinksPanel = await loadProAccountLinksPanel();
-        return subscriptionGated(
-          <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} linkId={linkId} />,
-          kind,
-          "relationships",
-          managerOwnerSubscriptionTier,
-        );
-      }
-      if (teamTab === "vendors") {
-        // Vendors were a Teams tab for a while; the path still resolves so bookmarks
-        // and links in sent messages keep working, carrying the vendor id through.
-        const vendorId =
-          tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
-        redirect(`${def.basePath}/vendors${vendorId}`);
-      }
-      notFound();
     }
 
     if (kind === "pro") {

@@ -2,7 +2,7 @@
 
 /**
  * Members and pending invites, rendered inside each workspace card on
- * Settings → Workspaces (under "Managers & permissions") and on the Teams page.
+ * Settings → Workspaces (under "Managers & permissions").
  *
  * Per-record actions live in a far-right ⋯ (Edit permissions, Disconnect),
  * matching Properties. Edit permissions opens a sheet on this page — not a

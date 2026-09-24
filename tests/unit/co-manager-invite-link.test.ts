@@ -13,8 +13,8 @@ import {
 } from "@/lib/co-manager-invite-token.server";
 
 describe("co-manager invite accept link", () => {
-  it("builds a manager team deep link for an invite id", () => {
-    expect(coManagerInviteAcceptUrl("invite-abc")).toContain("/portal/teams/managers/invite-abc");
+  it("builds a Settings → Workspaces deep link for team invites", () => {
+    expect(coManagerInviteAcceptUrl("invite-abc")).toContain("/portal/profile?tab=workspaces");
   });
 
   it("includes the accept link in invite email copy when inviteId is provided", () => {
@@ -24,7 +24,7 @@ describe("co-manager invite accept link", () => {
       inviteId: "invite-abc",
     });
     expect(body).toContain("Accept the invite:");
-    expect(body).toContain("/portal/teams/managers/invite-abc");
+    expect(body).toContain("/portal/profile?tab=workspaces");
   });
 });
 
@@ -32,7 +32,7 @@ describe("co-manager open invite token", () => {
   it("builds the public accept path from a token", () => {
     expect(coManagerOpenInvitePath("tok-1")).toBe("/auth/co-manager-invite?token=tok-1");
     expect(isCoManagerInvitePath("/auth/co-manager-invite?token=tok-1")).toBe(true);
-    expect(isCoManagerInvitePath("/portal/teams/managers")).toBe(false);
+    expect(isCoManagerInvitePath("/portal/profile?tab=workspaces")).toBe(false);
   });
 
   it("hashes the token so the raw value is not recoverable", () => {
