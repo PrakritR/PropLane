@@ -30,6 +30,18 @@ import {
 } from "@/lib/comms-billing/credit-purchase.server";
 import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
 const id = "12345678-1234-4123-8123-123456789abc";
+const workspaceId = "abcdef01-2345-4678-89ab-cdef01234567";
+// Credit belongs to one workspace, and only its owner may buy for it.
+const workspaceDb = (owned = true) => ({
+  from: () => {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => ({ data: owned ? { id: workspaceId } : null, error: null }),
+    };
+    return chain;
+  },
+});
 const request = (body: unknown) =>
   new Request("http://localhost/api/manager/comms-billing/checkout", {
     method: "POST",
@@ -63,7 +75,7 @@ const withStoredOwner = <T extends object>(db: T) => {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("COMMS_PAYG_BILLING_ENABLED", "1");
-  mocks.auth.mockResolvedValue({ userId: "owner", db: {} });
+  mocks.auth.mockResolvedValue({ userId: "owner", db: workspaceDb() });
   mocks.wallet.mockResolvedValue({ paused: false });
   mocks.limit.mockResolvedValue({ ok: true });
 });
@@ -71,29 +83,39 @@ describe("communication credit purchase authorization", () => {
   it("rejects unauthenticated purchases before creating a session", async () => {
     mocks.auth.mockResolvedValue(null);
     expect(
-      (await POST(request({ creditCents: 500, purchaseId: id }))).status,
+      (await POST(request({ creditCents: 500, purchaseId: id, workspaceId }))).status,
     ).toBe(401);
     expect(mocks.checkout).not.toHaveBeenCalled();
   });
   it.each([
-    { creditCents: 1, purchaseId: id },
-    { creditCents: 500, purchaseId: id, managerUserId: "victim" },
-    { creditCents: 500, purchaseId: "invalid" },
-  ])("rejects client price/owner overrides: %j", async (body) => {
+    { creditCents: 1, purchaseId: id, workspaceId },
+    { creditCents: 500, purchaseId: id, workspaceId, managerUserId: "victim" },
+    { creditCents: 500, purchaseId: "invalid", workspaceId },
+    { creditCents: 500, purchaseId: id },
+    { creditCents: 500, purchaseId: id, workspaceId: "not-a-workspace" },
+  ])("rejects client price/owner/workspace overrides: %j", async (body) => {
     expect((await POST(request(body))).status).toBe(400);
+    expect(mocks.checkout).not.toHaveBeenCalled();
+  });
+  it("refuses to spend on a workspace the caller does not own", async () => {
+    mocks.auth.mockResolvedValue({ userId: "co-manager", db: workspaceDb(false) });
+    expect(
+      (await POST(request({ creditCents: 500, purchaseId: id, workspaceId }))).status,
+    ).toBe(403);
+    expect(mocks.wallet).not.toHaveBeenCalled();
     expect(mocks.checkout).not.toHaveBeenCalled();
   });
   it("refuses purchase when credit cannot be verified", async () => {
     mocks.wallet.mockRejectedValue(new Error("offline"));
     expect(
-      (await POST(request({ creditCents: 500, purchaseId: id }))).status,
+      (await POST(request({ creditCents: 500, purchaseId: id, workspaceId }))).status,
     ).toBe(503);
     expect(mocks.checkout).not.toHaveBeenCalled();
   });
   it("does not let a top-up bypass a dispute pause", async () => {
     mocks.wallet.mockResolvedValue({ paused: true });
     expect(
-      (await POST(request({ creditCents: 500, purchaseId: id }))).status,
+      (await POST(request({ creditCents: 500, purchaseId: id, workspaceId }))).status,
     ).toBe(409);
   });
   it("rechecks the persisted purchase owner before Stripe", async () => {
@@ -109,6 +131,7 @@ describe("communication credit purchase authorization", () => {
         "attacker",
         id,
         500,
+        workspaceId,
         request({}),
       ),
     ).rejects.toThrow("does not match");

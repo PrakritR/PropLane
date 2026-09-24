@@ -7,7 +7,7 @@ import { revealInviteLinkToken } from "@/lib/invite-links/invite-links.server";
 import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import { formatInviteMessageBody } from "@/lib/invite-message-body";
 import { TEAM_ROLE_LABELS } from "@/lib/co-manager-team-roles";
-import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { resolveAppOrigin } from "@/lib/app-url";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
     inviterName,
     workspaceName: standing.workspaceName,
     propertyLabels,
-    inviteUrl: inviteLinkUrl(resolveEmailLinkBaseUrl(), reveal.token),
+    inviteUrl: inviteLinkUrl(resolveAppOrigin(req), reveal.token),
     roleLabel,
     reach,
   });

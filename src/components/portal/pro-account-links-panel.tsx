@@ -4,6 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { Users, UserPlus, UserMinus, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
@@ -402,6 +403,8 @@ export function ProAccountLinksPanel({
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
   const routeLinkId = linkIdProp?.trim() || null;
+  const searchParams = useSearchParams();
+  const acceptInviteFromUrl = searchParams.get("acceptInvite")?.trim() || null;
 
   const [localTick, setLocalTick] = useState(0);
   const refreshLocal = useCallback(() => setLocalTick((n) => n + 1), []);
@@ -1199,6 +1202,29 @@ export function ProAccountLinksPanel({
     if (ok) syncWorkspaceRollup();
     if (ok && routeLinkId === id) navigateToList();
   };
+
+  // Email deep-links (`?acceptInvite=`) land on Settings → Workspaces with the
+  // pending invite id — accept once when the row is loaded, then clear the query.
+  const autoAcceptDone = useRef<string | null>(null);
+  useEffect(() => {
+    if (!acceptInviteFromUrl || !remoteLoaded) return;
+    if (autoAcceptDone.current === acceptInviteFromUrl) return;
+    const pending = remoteInvites.find(
+      (inv) => inv.id === acceptInviteFromUrl && inv.status === "pending" && inv.direction === "incoming",
+    );
+    if (!pending) return;
+    autoAcceptDone.current = acceptInviteFromUrl;
+    void (async () => {
+      await respondInvite(pending.id, "accept");
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("acceptInvite");
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+    })();
+    // respondInvite closes over patchInvite; run once per invite id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot from URL
+  }, [acceptInviteFromUrl, remoteLoaded, remoteInvites]);
 
   const cancelInvite = async (id: string) => {
     const ok = await patchInvite(id, { action: "cancel" }, "Invite withdrawn.");

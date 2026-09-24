@@ -434,6 +434,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "manager_comms_workspace_wallets",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "manager_document_templates",
     phase: 2,
     manager: { ids: ["manager_user_id"] },

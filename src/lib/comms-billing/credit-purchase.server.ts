@@ -10,11 +10,17 @@ import {
   captureTestWorkspaceEffectForUser,
 } from "@/lib/test-workspaces/effects.server";
 
+/**
+ * `workspaceId` is the wallet the credit lands in. The caller has already
+ * verified this owner owns that workspace; it is stored on the purchase so the
+ * webhook credits the chosen wallet without trusting provider metadata.
+ */
 export async function createCommsCreditCheckout(
   db: SupabaseClient,
   owner: string,
   purchaseId: string,
   creditCents: number,
+  workspaceId: string,
   req: Request,
 ) {
   // This precedes the pending-purchase insert so a refused test account leaves
@@ -27,11 +33,14 @@ export async function createCommsCreditCheckout(
   });
   if (!isValidCommsCreditAmountCents(creditCents))
     throw new Error("Enter a whole-dollar amount from $5 to $500.");
+  if (!workspaceId.trim())
+    throw new Error("Choose the workspace this credit is for.");
   const { error: insertError } = await db
     .from("manager_comms_credit_purchases")
     .insert({
       id: purchaseId,
       manager_user_id: owner,
+      workspace_id: workspaceId,
       credit_cents: creditCents,
     });
   if (insertError && insertError.code !== "23505")
@@ -39,13 +48,17 @@ export async function createCommsCreditCheckout(
   const { data: purchase, error } = await db
     .from("manager_comms_credit_purchases")
     .select(
-      "manager_user_id, credit_cents, stripe_session_id, status, created_at",
+      "manager_user_id, workspace_id, credit_cents, stripe_session_id, status, created_at",
     )
     .eq("id", purchaseId)
     .eq("manager_user_id", owner)
     .single();
   if (error || !purchase || purchase.credit_cents !== creditCents)
     throw new Error("Credit purchase does not match this account.");
+  // A resumed operation id keeps the workspace it was created with. Retrying
+  // the same id against a different workspace is a different purchase.
+  if (purchase.workspace_id && purchase.workspace_id !== workspaceId)
+    throw new Error("Credit purchase does not match this workspace.");
   if (purchase.status !== "pending")
     throw new Error(
       "This purchase has already been processed. Refresh your balance.",
@@ -72,6 +85,9 @@ export async function createCommsCreditCheckout(
     manager_user_id: owner,
     purchase_id: purchaseId,
     credit_cents: String(creditCents),
+    // Diagnostic only. Fulfillment reads the workspace off the stored purchase
+    // row, never from this metadata.
+    workspace_id: workspaceId,
   };
   const session = await stripe.checkout.sessions.create(
     {
@@ -99,7 +115,7 @@ export async function createCommsCreditCheckout(
           },
         },
       ],
-      return_url: `${resolveAppOrigin(req)}/portal/profile?tab=billing&comms_purchase=${purchaseId}`,
+      return_url: `${resolveAppOrigin(req)}/portal/profile?tab=billing&comms_purchase=${purchaseId}&comms_workspace=${workspaceId}`,
     },
     { idempotencyKey: `comms-credit:${owner}:${purchaseId}` },
   );

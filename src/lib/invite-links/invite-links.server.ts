@@ -17,6 +17,7 @@ import {
   inviteLinkUnusableMessage,
   inviteLinkUnusableReason,
   maxUsesForOption,
+  MANAGER_ROLE_REQUIRED_CODE,
   normalizeInviteLinkKind,
   type InviteLinkKind,
   type InviteLinkUnusableReason,
@@ -787,20 +788,73 @@ export async function previewInviteLink(
 }
 
 export type RedeemInviteLinkResult =
-  | { ok: true; kind: "manager"; inviteId: string; alreadyRedeemed: boolean }
+  | {
+      ok: true;
+      kind: "manager";
+      inviteId: string;
+      alreadyRedeemed: boolean;
+      /** Workspace the membership is pinned to — client selects it after Join. */
+      workspaceId: string | null;
+    }
   | { ok: true; kind: "resident"; claimId: string; alreadyRedeemed: boolean }
   | { ok: true; kind: "vendor"; vendorDirectoryId: string; alreadyRedeemed: boolean }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; code?: string };
+
+/** Typed refusal when the opener has no manager portal role yet. */
+export { MANAGER_ROLE_REQUIRED_CODE } from "@/lib/invite-links/invite-link-model";
 
 /**
  * Spend a use and honour the invite for the signed-in opener.
  *
- * - **manager** — mints a pending `account_link_invites` row; the existing
- *   accept path is what actually links the accounts.
+ * - **manager** — creates an **accepted** workspace membership in one step
+ *   (share-link Join). Only the workspace owner needs Pro/Business; a Free
+ *   manager invitee may join and uses the owner's plan inside that workspace.
  * - **resident** — files a pending claim the manager must approve (grants nothing).
  * - **vendor** — upserts the opener into `manager_vendor_records` and ensures
  *   the vendor role (immediate directory join).
  */
+
+async function userHasManagerPortalRole(db: SupabaseClient, userId: string): Promise<boolean> {
+  const { data: roleRow } = await db
+    .from("profile_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("role", "manager")
+    .maybeSingle();
+  if (roleRow) return true;
+  const { data: profile } = await db.from("profiles").select("role").eq("id", userId).maybeSingle();
+  const legacy = String(profile?.role ?? "").trim().toLowerCase();
+  return legacy === "manager" || legacy === "owner";
+}
+
+async function acceptPendingMembership(
+  db: SupabaseClient,
+  inviteId: string,
+): Promise<{ ok: true; workspaceId: string | null } | { ok: false; status: number; error: string }> {
+  const nowIso = new Date().toISOString();
+  const { data: updated, error } = await db
+    .from("account_link_invites")
+    .update({ status: "accepted", responded_at: nowIso })
+    .eq("id", inviteId)
+    .eq("status", "pending")
+    .select("id, workspace_id")
+    .maybeSingle();
+  if (error) {
+    return { ok: false, status: 500, error: error.message || "Could not accept this invite." };
+  }
+  if (updated) {
+    return { ok: true, workspaceId: String(updated.workspace_id ?? "").trim() || null };
+  }
+  const { data: existing } = await db
+    .from("account_link_invites")
+    .select("id, workspace_id, status")
+    .eq("id", inviteId)
+    .maybeSingle();
+  if (existing && String(existing.status) === "accepted") {
+    return { ok: true, workspaceId: String(existing.workspace_id ?? "").trim() || null };
+  }
+  return { ok: false, status: 409, error: "This invite is no longer pending." };
+}
 export async function redeemInviteLink(
   db: SupabaseClient,
   input: { token: string; redeemerUserId: string; now?: Date },
@@ -934,7 +988,7 @@ export async function redeemInviteLink(
   // back the row that exists; a link for another workspace makes a new one.
   const existingInviteQuery = db
     .from("account_link_invites")
-    .select("id")
+    .select("id, workspace_id, status")
     .eq("inviter_user_id", link.owner_user_id)
     .eq("invitee_user_id", redeemerUserId)
     .in("status", ["pending", "accepted"]);
@@ -943,26 +997,48 @@ export async function redeemInviteLink(
     : existingInviteQuery.is("workspace_id", null)
   ).maybeSingle();
 
+  // Share-link Join needs a manager portal. Resident-only accounts are told to
+  // create one (client routes to create-account) rather than silently stamped.
+  if (!(await userHasManagerPortalRole(db, redeemerUserId))) {
+    return {
+      ok: false,
+      status: 403,
+      code: MANAGER_ROLE_REQUIRED_CODE,
+      error: "Create a manager account to join this workspace.",
+    };
+  }
+
   if (existingRedemption && existingInvite) {
-    return { ok: true, kind: "manager", inviteId: String(existingInvite.id), alreadyRedeemed: true };
+    const accepted = await acceptPendingMembership(db, String(existingInvite.id));
+    if (!accepted.ok) return accepted;
+    const workspaceId =
+      accepted.workspaceId ||
+      String(existingInvite.workspace_id ?? link.workspace_id ?? "").trim() ||
+      null;
+    return {
+      ok: true,
+      kind: "manager",
+      inviteId: String(existingInvite.id),
+      alreadyRedeemed: true,
+      workspaceId,
+    };
   }
 
   const ownershipOk = await verifyOwnershipStillHolds();
   if (!ownershipOk.ok) return ownershipOk;
 
-  for (const [userId, who] of [
-    [String(link.owner_user_id), "The manager who shared this link"],
-    [redeemerUserId, "You"],
-  ] as const) {
-    const tier = await getEffectiveManagerSkuTier(userId);
-    if (!tier.ok) {
+  // Owner pays for co-manager seats. A Free invitee may join a Pro owner's
+  // workspace; their own owned workspaces stay on their own SKU.
+  {
+    const ownerTier = await getEffectiveManagerSkuTier(String(link.owner_user_id));
+    if (!ownerTier.ok) {
       return { ok: false, status: 500, error: "We could not verify plan eligibility. Try again in a moment." };
     }
-    if (!managerPlanAllowsCoManagerInvites({ tier: tier.tier })) {
+    if (!managerPlanAllowsCoManagerInvites({ tier: ownerTier.tier })) {
       return {
         ok: false,
         status: 403,
-        error: `${who} need${who === "You" ? "" : "s"} a Pro or Business plan for co-manager access.`,
+        error: "The manager who shared this link needs a Pro or Business plan for co-manager access.",
       };
     }
   }
@@ -984,7 +1060,29 @@ export async function redeemInviteLink(
   const recordedRedemption = !existingRedemption && !redemptionError;
 
   if (existingInvite) {
-    return { ok: true, kind: "manager", inviteId: String(existingInvite.id), alreadyRedeemed: false };
+    const accepted = await acceptPendingMembership(db, String(existingInvite.id));
+    if (!accepted.ok) {
+      if (recordedRedemption) {
+        await db
+          .from("manager_invite_link_redemptions")
+          .delete()
+          .eq("link_id", link.id)
+          .eq("redeemed_by_user_id", redeemerUserId);
+      }
+      await releaseSpentUse();
+      return accepted;
+    }
+    const workspaceId =
+      accepted.workspaceId ||
+      String(existingInvite.workspace_id ?? link.workspace_id ?? "").trim() ||
+      null;
+    return {
+      ok: true,
+      kind: "manager",
+      inviteId: String(existingInvite.id),
+      alreadyRedeemed: false,
+      workspaceId,
+    };
   }
 
   const [{ data: inviterProfile }, { data: inviteeProfile }] = await Promise.all([
@@ -997,6 +1095,8 @@ export async function redeemInviteLink(
     link.assigned_property_ids ?? [],
   );
   const redeemedRole = storedTeamRole(link.team_role);
+  const nowIso = new Date().toISOString();
+  const workspaceId = String(link.workspace_id ?? "").trim() || null;
   const { data: invite, error: inviteError } = await db
     .from("account_link_invites")
     .insert({
@@ -1009,7 +1109,10 @@ export async function redeemInviteLink(
       // `not null` with no default, and the CHECK admits only this value. Omitting
       // it made every first redemption a 23502 that still spent a use.
       tab_kind: "manager",
-      status: "pending",
+      // One-click Join: share-link redeem is the accept, so the workspace appears
+      // in the invitee's switcher immediately.
+      status: "accepted",
+      responded_at: nowIso,
       assigned_property_ids: link.assigned_property_ids ?? [],
       property_co_manager_permissions: normalizedPropertyMap,
       // The flat grant an "all houses" row falls back to for a house that
@@ -1018,13 +1121,13 @@ export async function redeemInviteLink(
       co_manager_permissions:
         (redeemedRole ? stampTeamRolePermissions(redeemedRole) : null) ??
         flatCoManagerPermissionsFromProperty(normalizedPropertyMap),
-      workspace_id: link.workspace_id ?? null,
+      workspace_id: workspaceId,
       // Workspace rights follow the role now; nothing is switched on by default.
       workspace_permissions: {},
       team_role: redeemedRole,
       house_scope: parseHouseScope(link.house_scope),
     })
-    .select("id")
+    .select("id, workspace_id")
     .maybeSingle();
 
   if (inviteError || !invite) {
@@ -1038,7 +1141,13 @@ export async function redeemInviteLink(
     await releaseSpentUse();
     return { ok: false, status: 500, error: inviteError?.message ?? "Could not create the invite." };
   }
-  return { ok: true, kind: "manager", inviteId: String(invite.id), alreadyRedeemed: false };
+  return {
+    ok: true,
+    kind: "manager",
+    inviteId: String(invite.id),
+    alreadyRedeemed: false,
+    workspaceId: String(invite.workspace_id ?? "").trim() || workspaceId,
+  };
 }
 
 export type ResidentInviteClaim = {

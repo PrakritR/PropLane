@@ -7,7 +7,9 @@ import { reserveCommsCredit, loadCommsWallet, loadCommsWalletTotals } from "@/li
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 const snapshot = {allowance_cents:200,included_remaining_cents:200,purchased_remaining_cents:0,next_allowance_cents:200,period_start:"2026-09-01T00:00:00Z",period_end:"2026-10-01T00:00:00Z",paused:false};
 beforeEach(()=>{vi.unstubAllEnvs();plan.mockResolvedValue({ok:true,tier:"free"});});
-function database(data: unknown = snapshot) {return {rpc:vi.fn().mockResolvedValue({data,error:null})};}
+const WORKSPACE="11111111-1111-4111-8111-111111111111";
+// Credit is per-workspace, so every wallet read first resolves the owner's default workspace.
+function database(data: unknown = snapshot) {return {rpc:vi.fn().mockImplementation(async(fn:string)=>fn==="ensure_default_portal_workspace"?{data:WORKSPACE,error:null}:{data,error:null})};}
 describe("prepaid communication boundary",()=>{
  it("verifies the exact required amount and never uses saved-card eligibility",async()=>{
   const db=database({...snapshot,included_remaining_cents:2});
@@ -29,7 +31,15 @@ describe("prepaid communication boundary",()=>{
  it("GET explicitly requests a read-only snapshot",async()=>{
   const db=database();await loadCommsWallet(db as never,"owner");
   // PLAN-0920-1400: the migration-month grace ended — legacy now equals the plan's own allowance, so greatest() is a no-op.
-  expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshot",{p_owner:"owner",p_allowance:0,p_legacy_allowance:0,p_apply:false});
+  expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshot",{p_owner:"owner",p_workspace:WORKSPACE,p_allowance:0,p_legacy_allowance:0,p_apply:false});
+ });
+ it("spends the named workspace's wallet, not the owner's default one",async()=>{
+  const db=database();const other="22222222-2222-4222-8222-222222222222";
+  await loadCommsWallet(db as never,"owner",other);
+  expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshot",expect.objectContaining({p_workspace:other}));
+  expect(db.rpc).not.toHaveBeenCalledWith("ensure_default_portal_workspace",expect.anything());
+  await reserveCommsCredit(db as never,{managerUserId:"owner",meter:"sms_outbound_segment",quantity:1,idempotencyKey:"m-1",workspaceId:other});
+  expect(db.rpc).toHaveBeenCalledWith("reserve_comms_credit",expect.objectContaining({p_workspace:other}));
  });
  it("staff bulk totals read every owner in one read-only round trip and omit unreadable wallets",async()=>{
   const db={rpc:vi.fn().mockResolvedValue({data:[

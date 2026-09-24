@@ -26,8 +26,9 @@ export async function reserveBoundedVoiceCall(
   db: SupabaseClient,
   owner: string,
   callSid: string,
+  workspaceId?: string | null,
 ): Promise<boolean> {
-  const wallet = await loadCommsWallet(db, owner);
+  const wallet = await loadCommsWallet(db, owner, workspaceId ?? undefined);
   if (wallet.paused) return false;
   const recording = isVoiceRecordingEnabled();
   // Priced from the rate table, never from copied constants: a rate change must
@@ -83,6 +84,7 @@ export async function reserveBoundedVoiceCall(
   if (minutes < 1) return false;
   const voice = await reserveCommsCredit(db, {
     managerUserId: owner,
+    workspaceId,
     meter: "voice_minute",
     quantity: minutes,
     idempotencyKey: key,
@@ -92,6 +94,7 @@ export async function reserveBoundedVoiceCall(
   if (recording) {
     const hold = await reserveCommsCredit(db, {
       managerUserId: owner,
+      workspaceId,
       meter: "voice_recording_minute",
       quantity: minutes,
       idempotencyKey: recordingKey,
@@ -121,11 +124,13 @@ export async function fundedVoiceGather(
     turnId: string;
     phase: "consent" | "agent";
     prompt: string;
+    workspaceId?: string | null;
   },
 ): Promise<string> {
   const key = `voice_gather:${args.callSid}:${args.turnId}`;
   const credit = await reserveCommsCredit(db, {
     managerUserId: args.owner,
+    workspaceId: args.workspaceId,
     meter: "voice_speech_gather",
     idempotencyKey: key,
   });

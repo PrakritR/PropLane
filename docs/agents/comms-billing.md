@@ -66,6 +66,29 @@ for backward compatibility. Caps: `extra_work_number` total is capped at 2 per w
 together set the workspace count); `extra_workspace` is capped by the product limit on
 Pro and by `WORKSPACE_LIMIT` on Business (`maxExtraWorkspaceQuantity`).
 
+## The wallet is per workspace, not per account
+
+Credit lives in `manager_comms_workspace_wallets`, keyed `(manager_user_id, workspace_id)`.
+`manager_comms_billing_accounts` keeps the Stripe customer, the pause and the alert
+state — one row per owner — and its balance columns are zeroed and unused. Every
+purchase and usage event carries `workspace_id`, so the wallet that paid for a text is
+the wallet that gets the refund when it is released or settled short.
+
+**The included monthly allowance belongs to the owner's default workspace alone.**
+Every other workspace starts each period at $0 included and spends only purchased
+credit. Otherwise buying a second workspace would silently multiply the plan's
+included credit. `comms_wallet_snapshot(p_owner, p_workspace, …)` is the one place that
+decision lives.
+
+The sending workspace comes from the work number: `manager_sms_numbers.workspace_id`
+for the line the message goes out on (`comms_send_workspace_for_number` in SQL,
+`loadSendPolicy` in `owner-sms-dispatcher.server.ts`). A co-manager messaging from a
+workspace spends that workspace's wallet; only its **owner** may buy credit for it, and
+the checkout route re-derives ownership from `portal_workspaces.owner_user_id` rather
+than trusting the body. `finish_comms_credit` and `settle_comms_credit_quantity` take
+no workspace argument on purpose — they read it off the usage event, so a refund can
+never land in a different wallet than the one debited.
+
 Annual subscriptions receive the same monthly credit. Credit resets on the first of
 each month at 00:00 UTC. The one-month migration grace that let an existing manager
 keep a higher legacy allowance has ended (PLAN-0920-1400): `wallet.server.ts`'s
@@ -82,7 +105,7 @@ used only for that meter; Free spends only purchased packs. Incoming messages, v
 ## Purchases and stops
 
 Credit is bought from **Settings → Billing & plan → Extra usage**: a typed whole-dollar
-amount from **$5 to $500** (default $20), not a fixed pack — `isValidCommsCreditAmountCents`
+amount from **$5 to $500** (default $20) for **one chosen workspace**, not a fixed pack — `isValidCommsCreditAmountCents`
 in `credit-packs.ts` is the one bound the checkout route, `credit-purchase.server.ts`, and
 the webhook fulfillment all enforce. Purchased credit carries forward without expiry and
 is spent after included credit. A saved card never authorizes automatic recharge or

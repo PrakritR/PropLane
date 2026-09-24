@@ -69,7 +69,10 @@ function makeDb(): SupabaseClient {
         return link.assigned_property_ids.map((id) => ({ id, manager_user_id: link.owner_user_id }));
       }
       if (name === "profiles") {
-        return [{ id: "peer-1", email: "vendor@example.com", full_name: "Someone", role: "resident", axis_id: "AX-1" }];
+        return [{ id: "peer-1", email: "vendor@example.com", full_name: "Someone", role: "manager", axis_id: "AX-1" }];
+      }
+      if (name === "profile_roles") {
+        return [{ user_id: "peer-1", role: "manager" }];
       }
       if (name === "manager_vendor_records") {
         return existingVendorDirectoryId
@@ -159,10 +162,17 @@ describe("redeeming a manager invite link", () => {
   it("creates the addressed invite with the tab_kind the column requires", async () => {
     const result = await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
 
-    expect(result).toEqual({ ok: true, kind: "manager", inviteId: "invite-1", alreadyRedeemed: false });
+    expect(result).toEqual({
+      ok: true,
+      kind: "manager",
+      inviteId: "invite-1",
+      alreadyRedeemed: false,
+      workspaceId: null,
+    });
     const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
     expect(invite.tab_kind).toBe("manager");
-    expect(invite.status).toBe("pending");
+    expect(invite.status).toBe("accepted");
+    expect(invite.responded_at).toBeTruthy();
     // The scope comes off the stored link, never the redeemer.
     expect(invite.assigned_property_ids).toEqual(["prop-1"]);
     expect(link.used_count).toBe(1);
@@ -199,6 +209,40 @@ describe("redeeming a manager invite link", () => {
     expect(result.ok).toBe(false);
     expect(link.used_count).toBe(0);
     expect(deletes).toContain("manager_invite_link_redemptions");
+  });
+
+  it("refuses when the opener has no manager portal role", async () => {
+    const db = makeDb();
+    // Force resident-only by stubbing profile_roles empty and profiles.role resident.
+    const originalFrom = db.from.bind(db);
+    (db as { from: (name: string) => unknown }).from = (name: string) => {
+      if (name === "profile_roles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({ data: null, error: null }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (name === "profiles") {
+        const q: Record<string, unknown> = {};
+        q.select = () => q;
+        q.eq = () => q;
+        q.maybeSingle = async () => ({
+          data: { id: "peer-1", email: "r@example.com", full_name: "R", role: "resident", axis_id: "AX-1" },
+          error: null,
+        });
+        return q;
+      }
+      return originalFrom(name);
+    };
+
+    const result = await redeemInviteLink(db, { token: "t", redeemerUserId: "peer-1" });
+    expect(result).toMatchObject({ ok: false, status: 403, code: "manager_role_required" });
+    expect(link.used_count).toBe(0);
   });
 });
 

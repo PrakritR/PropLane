@@ -18,6 +18,8 @@ export function ChannelRow({
   status,
   menu,
   dataAttr,
+  /** When true, the channel cell wraps instead of truncating — rename inputs must stay fully visible. */
+  channelWrap = false,
 }: {
   icon: LucideIcon;
   channel: ReactNode;
@@ -25,15 +27,23 @@ export function ChannelRow({
   status: ReactNode;
   menu?: ReactNode;
   dataAttr?: string;
+  channelWrap?: boolean;
 }) {
   return (
     <div
       data-attr={dataAttr}
       className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-4 py-3 last:border-0 sm:flex-nowrap"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2 sm:basis-[38%]">
+      <div className={cn("flex min-w-0 flex-1 items-center gap-2", channelWrap ? "basis-full sm:basis-[55%]" : "sm:basis-[38%]")}>
         <Icon className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-        <span className="min-w-0 truncate text-[13.5px] font-semibold text-foreground">{channel}</span>
+        <span
+          className={cn(
+            "min-w-0 text-[13.5px] font-semibold text-foreground",
+            channelWrap ? "flex flex-wrap items-center gap-1.5" : "truncate",
+          )}
+        >
+          {channel}
+        </span>
       </div>
       <div className="min-w-0 shrink-0 basis-full text-[12.5px] text-muted sm:basis-[26%] sm:truncate sm:pl-6">
         {workspace}

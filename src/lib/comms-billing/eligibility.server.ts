@@ -12,12 +12,16 @@ export type CommsBillingGateResult =
   | { allowed: true; billingOwnerId: string }
   | { allowed: false; reason: CommsBillingBlockReason };
 
+/**
+ * `workspaceId` is the workspace the message leaves from — its wallet pays.
+ * Omitted, the owner's default workspace answers.
+ */
 export async function evaluateManagerCommsBillingGate(
-  db: SupabaseClient, managerUserId: string, requiredCents = 1,
+  db: SupabaseClient, managerUserId: string, requiredCents = 1, workspaceId?: string | null,
 ): Promise<CommsBillingGateResult> {
   if (!managerUserId.trim()) return { allowed: false, reason: "plan_unreadable" };
   try {
-    const wallet = await loadCommsWallet(db, managerUserId);
+    const wallet = await loadCommsWallet(db, managerUserId, workspaceId ?? undefined);
     if (wallet.paused) return { allowed: false, reason: "billing_paused" };
     if (wallet.remainingCents < requiredCents) return { allowed: false, reason: "allowance_exhausted" };
     return { allowed: true, billingOwnerId: managerUserId };

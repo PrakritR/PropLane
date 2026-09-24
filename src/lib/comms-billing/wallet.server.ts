@@ -10,6 +10,10 @@ import { unitPriceCentsForMeter, type CommsBillingMeter } from "./rates";
 
 export type CommsWallet = {
   tier: CommsPlanTier;
+  /** The workspace this balance belongs to. Credit is never account-wide. */
+  workspaceId: string;
+  /** Included monthly credit lands on the owner's default workspace only. */
+  isDefaultWorkspace: boolean;
   allowanceCents: number;
   includedRemainingCents: number;
   purchasedRemainingCents: number;
@@ -76,8 +80,10 @@ function walletTotalsFromSnapshot(data: unknown): CommsWalletTotals | null {
 
 /**
  * Staff-only bulk read of many owners' wallets in one round trip. Read-only:
- * no account is created and no period is applied. An owner whose snapshot
- * could not be computed is absent from the result rather than shown as zero.
+ * no account or workspace is created and no period is applied. Each owner is
+ * read on their DEFAULT workspace, the one that carries the plan's included
+ * credit. An owner whose snapshot could not be computed is absent from the
+ * result rather than shown as zero.
  */
 export async function loadCommsWalletTotals(
   db: SupabaseClient,
@@ -109,13 +115,35 @@ export async function loadCommsWalletTotals(
   return totals;
 }
 
+/**
+ * The workspace whose wallet a caller means when it named none. Owner-scoped:
+ * `ensure_default_portal_workspace` creates or finds this owner's default
+ * workspace, never another account's.
+ */
+export async function resolveDefaultCommsWorkspace(
+  db: SupabaseClient,
+  owner: string,
+): Promise<string> {
+  const { data, error } = await db.rpc("ensure_default_portal_workspace", {
+    p_owner: owner,
+  });
+  const workspaceId = String(data ?? "").trim();
+  if (error || !workspaceId)
+    throw new Error("We could not load your communication credit. Try again.");
+  return workspaceId;
+}
+
 export async function loadCommsWallet(
   db: SupabaseClient,
   owner: string,
+  workspaceId?: string,
 ): Promise<CommsWallet> {
   const budget = await commsPlanBudget(owner);
+  const workspace =
+    workspaceId?.trim() || (await resolveDefaultCommsWorkspace(db, owner));
   const { data, error } = await db.rpc("comms_wallet_snapshot", {
     p_owner: owner,
+    p_workspace: workspace,
     p_allowance: budget.allowance,
     p_legacy_allowance: budget.legacy,
     p_apply: false,
@@ -132,6 +160,8 @@ export async function loadCommsWallet(
   const purchased = cents("purchased_remaining_cents");
   return {
     tier: budget.tier,
+    workspaceId: String(data.workspace_id ?? workspace),
+    isDefaultWorkspace: data.is_default_workspace === true,
     allowanceCents: cents("allowance_cents"),
     includedRemainingCents: included,
     purchasedRemainingCents: purchased,
@@ -145,6 +175,11 @@ export async function loadCommsWallet(
 
 export type CommsReservationInput = {
   managerUserId: string;
+  /**
+   * The workspace whose wallet pays. Omit only where the sending workspace is
+   * genuinely unknown; the owner's default workspace then pays.
+   */
+  workspaceId?: string | null;
   meter: CommsBillingMeter;
   quantity?: number;
   idempotencyKey: string;
@@ -170,8 +205,12 @@ export async function reserveCommsCredit(
   ) {
     throw new Error("Invalid communication usage.");
   }
+  const workspace =
+    input.workspaceId?.trim() ||
+    (await resolveDefaultCommsWorkspace(db, input.managerUserId));
   const { data, error } = await db.rpc("reserve_comms_credit", {
     p_owner: input.managerUserId,
+    p_workspace: workspace,
     p_allowance: budget.allowance,
     p_legacy_allowance: budget.legacy,
     p_key: input.idempotencyKey,
@@ -195,6 +234,11 @@ export async function reserveCommsCredit(
   };
 }
 
+/**
+ * Settle or release a reservation. No workspace argument by design: the RPC
+ * reads the workspace off the usage event, so credit always returns to the
+ * wallet that was debited even if the sender's workspace changed since.
+ */
 export async function finishCommsCredit(
   db: SupabaseClient,
   owner: string,

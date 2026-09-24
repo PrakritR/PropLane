@@ -468,7 +468,7 @@ export function ManagerAssistantEmailChannelRow() {
   }
 
   const channel = renaming ? (
-    <span className="flex min-w-0 flex-wrap items-center gap-1.5" data-attr="assistant-email-rename-row">
+    <span className="contents" data-attr="assistant-email-rename-row">
       <Input
         aria-label="Work email address"
         data-attr="assistant-email-local"
@@ -479,13 +479,13 @@ export function ManagerAssistantEmailChannelRow() {
         autoComplete="off"
         autoCapitalize="off"
         maxLength={32}
-        className="w-32 min-w-0 py-1.5 text-[13px] font-semibold"
+        className="w-36 min-w-[7rem] shrink-0 py-1.5 text-[13px] font-semibold"
       />
       <span className="shrink-0 text-[13.5px] font-semibold text-muted">@{addressDomain}</span>
       <Button
         type="button"
         variant="ghost"
-        className="min-h-9 px-2.5 text-xs"
+        className="min-h-9 shrink-0 px-2.5 text-xs"
         disabled={savingAddress}
         onClick={() => {
           setRenaming(false);
@@ -498,7 +498,7 @@ export function ManagerAssistantEmailChannelRow() {
       </Button>
       <Button
         type="button"
-        className="min-h-9 px-2.5 text-xs"
+        className="min-h-9 shrink-0 px-2.5 text-xs"
         disabled={!canSaveAddress}
         loading={savingAddress}
         onClick={() => saveAddress()}
@@ -516,7 +516,8 @@ export function ManagerAssistantEmailChannelRow() {
       <ChannelRow
         icon={Mail}
         channel={channel}
-        workspace={workspaceName ?? "All workspaces"}
+        channelWrap={renaming}
+        workspace={workspaceName ?? "This workspace"}
         status={renaming ? addressAvailabilityLabel(addressCheck, checkingAddress) : workEmailStatusLabel(status)}
         menu={renaming ? undefined : <ChannelRowMenu label="Work email actions" items={menuItems} dataAttr="channel-email-menu" />}
         dataAttr="channel-row-email"

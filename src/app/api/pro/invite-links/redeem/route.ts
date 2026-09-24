@@ -26,7 +26,12 @@ export async function POST(req: Request) {
     token,
     redeemerUserId: user.id,
   });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error, ...(result.code ? { code: result.code } : {}) },
+      { status: result.status },
+    );
+  }
 
   // The two kinds land in different places and the client routes on that, so
   // `kind` is returned rather than inferred from which id came back.
@@ -48,5 +53,6 @@ export async function POST(req: Request) {
     kind: "manager",
     inviteId: result.inviteId,
     alreadyRedeemed: result.alreadyRedeemed,
+    workspaceId: result.workspaceId,
   });
 }

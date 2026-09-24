@@ -50,10 +50,10 @@ export async function POST(req: Request) {
     return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
   }
 
-  const funded = await reserveBoundedVoiceCall(db, resolved.managerId, callSid).catch(() => false);
+  const funded = await reserveBoundedVoiceCall(db, resolved.managerId, callSid, resolved.workspaceId).catch(() => false);
   if (!funded) return twimlResponse(twimlSay(VOICE_CREDIT_UNAVAILABLE) + twimlHangup());
   if (isVoiceRecordingEnabled()) {
-    return twimlResponse(await fundedVoiceGather(db, { owner: resolved.managerId, callSid, turnId: "start", phase: "consent", prompt: CONSENT_PROMPT }));
+    return twimlResponse(await fundedVoiceGather(db, { owner: resolved.managerId, workspaceId: resolved.workspaceId, callSid, turnId: "start", phase: "consent", prompt: CONSENT_PROMPT }));
   }
 
   const logIdentity = voiceCallLogIdentity({
@@ -64,5 +64,5 @@ export async function POST(req: Request) {
   });
   await logVoiceCallStarted(db, { ...logIdentity, callSid });
 
-  return twimlResponse(await fundedVoiceGather(db, { owner: resolved.managerId, callSid, turnId: "start", phase: "agent", prompt: voiceGreetingForRoute(resolved.route) }));
+  return twimlResponse(await fundedVoiceGather(db, { owner: resolved.managerId, workspaceId: resolved.workspaceId, callSid, turnId: "start", phase: "agent", prompt: voiceGreetingForRoute(resolved.route) }));
 }

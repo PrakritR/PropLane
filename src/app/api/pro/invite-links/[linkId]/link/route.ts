@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { resolveAppOrigin } from "@/lib/app-url";
 import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import { revealInviteLinkToken, rotateInviteLinkToken } from "@/lib/invite-links/invite-links.server";
 
@@ -34,6 +34,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ linkId: string
     ok: true,
     rotated: rotate,
     link: result.link,
-    url: inviteLinkUrl(resolveEmailLinkBaseUrl(), result.token),
+    url: inviteLinkUrl(resolveAppOrigin(req), result.token),
   });
 }

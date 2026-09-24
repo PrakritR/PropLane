@@ -177,7 +177,9 @@ describe("Channels renders one row per number per workspace and one email row", 
 
     await waitFor(() => expect(screen.getAllByText(/Work number ·/).length).toBe(1));
     expect(screen.getByText(/\+1 \(206\) 555-0001/)).toBeTruthy();
-    expect(screen.getByText("Add number")).toBeTruthy(); // dashed row for Ballard houses
+    // Empty workspace: placeholder row + Request in ⋯ (no dashed "Add number").
+    expect(screen.getByText("Not set up")).toBeTruthy();
+    expect(screen.queryByText("Add number")).toBeNull();
     expect(await screen.findByText("assist-test-manager@prop-lane.space")).toBeTruthy();
 
     // The email address appears exactly once on the page.
@@ -342,14 +344,15 @@ describe("Channels workspace filter", () => {
     render(<ManagerMessagingSettingsPanel />);
 
     await screen.findByText(/\+1 \(206\) 555-0001/);
-    expect(screen.getByText("Add number")).toBeTruthy();
+    expect(screen.getByText("Not set up")).toBeTruthy();
+    expect(screen.queryByText("Add number")).toBeNull();
 
     const filterTrigger = await screen.findByRole("button", { name: "Workspace" });
     fireEvent.click(filterTrigger);
     const listbox = screen.getByRole("listbox");
     tapOption(within(listbox).getByText("My workspace"));
 
-    await waitFor(() => expect(screen.queryByText("Add number")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Not set up")).toBeNull());
     expect(screen.getByText(/\+1 \(206\) 555-0001/)).toBeTruthy();
   });
 });
