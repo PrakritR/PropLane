@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { RecordActionContext } from "@/components/ui/record-action-context";
+import { RecordActionMenu } from "@/components/ui/record-action-menu";
 import {
   deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
@@ -21,6 +23,8 @@ import {
   parseRoomChoiceValue,
 } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { Copy } from "lucide-react";
 
 const FIELD_LABEL = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
 
@@ -45,15 +49,87 @@ function formatSyncedAt(iso: string | null): string {
   }
 }
 
-export type ChannelCalendarLinkFooterState = {
-  canSave: boolean;
-  busy: boolean;
+type LinkedRow = {
+  propertyLabel: string;
+  roomLabel: string;
+  provider: ChannelCalendarProvider;
+  connectionId: string;
+  hasImportUrl: boolean;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  importedRangeCount: number;
 };
 
-export type ChannelCalendarLinkActions = {
-  save: () => Promise<void>;
-  flushChanged: () => void;
-};
+function LinkedCalendarRow({
+  row,
+  busy,
+  onSync,
+  onUnlink,
+}: {
+  row: LinkedRow;
+  busy: boolean;
+  onSync: (connectionId: string) => void;
+  onUnlink: (connectionId: string) => void;
+}) {
+  const label = `${row.propertyLabel} · ${row.roomLabel}`;
+  return (
+    <RecordActionContext.Provider
+      value={{
+        scope: row.connectionId,
+        clear: () => {},
+        actions: (
+          <>
+            {row.hasImportUrl ? (
+              <Button
+                type="button"
+                variant="outline"
+                data-attr="channel-calendar-retry-sync"
+                data-record-action-id="sync"
+                disabled={busy}
+                onClick={() => onSync(row.connectionId)}
+              >
+                Sync now
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="danger"
+              data-attr="channel-calendar-unlink"
+              data-record-action-id="delete"
+              disabled={busy}
+              onClick={() => onUnlink(row.connectionId)}
+            >
+              Unlink
+            </Button>
+          </>
+        ),
+      }}
+    >
+      <div
+        className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5"
+        data-attr={`channel-calendar-linked-row-${row.connectionId}`}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">
+            {label} · {channelCalendarProviderLabel(row.provider)}
+          </p>
+          <p className="truncate text-[12px] text-muted">
+            {formatSyncedAt(row.lastSyncedAt)}
+            {row.importedRangeCount > 0
+              ? ` · ${row.importedRangeCount} block${row.importedRangeCount === 1 ? "" : "s"}`
+              : ""}
+          </p>
+          {row.lastError ? (
+            <p className="mt-0.5 text-[11px] text-danger" data-attr="channel-calendar-last-error">
+              {row.lastError}
+            </p>
+          ) : null}
+        </div>
+        <RecordActionMenu label={label} activate={() => {}} />
+      </div>
+    </RecordActionContext.Provider>
+  );
+}
 
 export function ChannelCalendarLinkFields({
   active,
@@ -62,8 +138,6 @@ export function ChannelCalendarLinkFields({
   initialPropertyId,
   showToast,
   onChanged,
-  onFooterState,
-  actionsRef,
 }: {
   active: boolean;
   propertyIds: string[];
@@ -71,8 +145,6 @@ export function ChannelCalendarLinkFields({
   initialPropertyId?: string;
   showToast: (message: string) => void;
   onChanged?: () => void;
-  onFooterState?: (state: ChannelCalendarLinkFooterState) => void;
-  actionsRef?: MutableRefObject<ChannelCalendarLinkActions | null>;
 }) {
   const [channel, setChannel] = useState<ChannelLinkKind>("airbnb");
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? "");
@@ -85,9 +157,7 @@ export function ChannelCalendarLinkFields({
   const [exportError, setExportError] = useState<string | null>(null);
   const [linked, setLinked] = useState<ManagerChannelBookingProperty[]>([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
-  const [confirmingUnlinkId, setConfirmingUnlinkId] = useState<string | null>(null);
   const hasLinkedRef = useRef(false);
-  const dirtyRef = useRef(false);
 
   const reloadLinked = useCallback(async () => {
     if (propertyIds.length === 0) {
@@ -112,7 +182,6 @@ export function ChannelCalendarLinkFields({
     setPropertyId(initialPropertyId ?? propertyOptions[0]?.id ?? "");
     setRoomChoice("");
     setImportUrl("");
-    setConfirmingUnlinkId(null);
     void reloadLinked();
   }, [active, initialPropertyId, propertyOptions, reloadLinked]);
 
@@ -139,7 +208,6 @@ export function ChannelCalendarLinkFields({
           provider: room.provider,
           connectionId: room.connectionId,
           hasImportUrl: room.hasImportUrl,
-          exportUrl: room.exportUrl,
           lastSyncedAt: room.lastSyncedAt,
           lastError: room.lastError,
           importedRangeCount: room.ranges.length,
@@ -212,8 +280,8 @@ export function ChannelCalendarLinkFields({
         showToast("Calendar saved. Sync will retry automatically.");
       }
       setImportUrl("");
-      dirtyRef.current = true;
       await reloadLinked();
+      onChanged?.();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not link calendar.";
       setSaveError(message);
@@ -221,16 +289,16 @@ export function ChannelCalendarLinkFields({
     } finally {
       setBusy(false);
     }
-  }, [canSave, channel, importUrl, propertyId, reloadLinked, roomChoice, roomOptions, showToast]);
+  }, [canSave, channel, importUrl, onChanged, propertyId, reloadLinked, roomChoice, roomOptions, showToast]);
 
   const retrySync = useCallback(
     async (connectionId: string) => {
       setBusy(true);
       try {
         await syncChannelCalendarConnection(connectionId);
-        dirtyRef.current = true;
         await reloadLinked();
         showToast("Calendar synced.");
+        onChanged?.();
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Sync failed.");
         await reloadLinked();
@@ -238,43 +306,25 @@ export function ChannelCalendarLinkFields({
         setBusy(false);
       }
     },
-    [reloadLinked, showToast],
+    [onChanged, reloadLinked, showToast],
   );
 
-  const unlink = async (connectionId: string) => {
-    setBusy(true);
-    try {
-      await deleteChannelCalendarConnection(connectionId);
-      setConfirmingUnlinkId(null);
-      dirtyRef.current = true;
-      await reloadLinked();
-      showToast("Calendar unlinked.");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not remove connection.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onFooterStateRef = useRef(onFooterState);
-  useEffect(() => {
-    onFooterStateRef.current = onFooterState;
-  }, [onFooterState]);
-  useEffect(() => {
-    onFooterStateRef.current?.({ canSave, busy });
-  }, [canSave, busy]);
-
-  useEffect(() => {
-    if (!actionsRef) return;
-    actionsRef.current = {
-      save: handleSave,
-      flushChanged: () => {
-        if (!dirtyRef.current) return;
-        dirtyRef.current = false;
+  const unlink = useCallback(
+    async (connectionId: string) => {
+      setBusy(true);
+      try {
+        await deleteChannelCalendarConnection(connectionId);
+        await reloadLinked();
+        showToast("Calendar unlinked.");
         onChanged?.();
-      },
-    };
-  }, [actionsRef, handleSave, onChanged]);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not remove connection.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onChanged, reloadLinked, showToast],
+  );
 
   const importPlaceholder =
     channel === "booking_com"
@@ -288,6 +338,8 @@ export function ChannelCalendarLinkFields({
       .then(() => showToast("PropLane calendar link copied."))
       .catch(() => showToast(url));
   };
+
+  const showLinkCard = Boolean(propertyId && roomChoice);
 
   return (
     <div className="space-y-4">
@@ -327,34 +379,8 @@ export function ChannelCalendarLinkFields({
         </Select>
       </label>
 
-      {selectedListingRoomId ? (
-        <div className="space-y-1.5">
-          <span className={FIELD_LABEL}>PropLane calendar</span>
-          {exportLoading ? (
-            <p className="text-xs text-muted">Loading export link…</p>
-          ) : exportError ? (
-            <p className="text-xs text-danger" role="alert">{exportError}</p>
-          ) : proplaneExportUrl ? (
-            <div
-              className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2.5"
-              data-attr="channel-calendar-proplane-export"
-            >
-              <code className="min-w-0 flex-1 truncate text-[12px] text-foreground">{proplaneExportUrl}</code>
-              <Button
-                type="button"
-                className="h-8 min-h-0 shrink-0 px-3 text-[12px]"
-                data-attr="channel-calendar-copy-proplane-export"
-                onClick={copyProplaneExport}
-              >
-                Copy
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
       <label className="block">
-        <span className={FIELD_LABEL}>Import channel</span>
+        <span className={FIELD_LABEL}>Channel</span>
         <Select
           value={channel}
           onChange={(e) => {
@@ -374,104 +400,87 @@ export function ChannelCalendarLinkFields({
         </Select>
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>
-          {channel === "booking_com" ? "Booking.com" : "Airbnb"} import URL
-        </span>
-        <Input
-          type="url"
-          placeholder={importPlaceholder}
-          value={importUrl}
-          onChange={(e) => {
-            setImportUrl(e.target.value);
-            if (saveError) setSaveError(null);
-          }}
-          disabled={busyAny}
-          aria-invalid={saveError ? true : undefined}
-          data-attr="channel-calendar-link-import-url"
-        />
-        {saveError ? (
-          <p className="mt-1.5 text-xs text-danger" role="alert" data-attr="channel-calendar-link-error">
-            {saveError}
-          </p>
-        ) : null}
-      </label>
+      {showLinkCard ? (
+        <div
+          className="space-y-3 rounded-2xl border border-border bg-accent/15 p-3.5"
+          data-attr="channel-calendar-link-card"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Link this room</p>
+
+          <div className="space-y-1.5">
+            <span className={FIELD_LABEL}>PropLane export</span>
+            {exportLoading ? (
+              <p className="text-xs text-muted">Loading export link…</p>
+            ) : exportError ? (
+              <p className="text-xs text-danger" role="alert">
+                {exportError}
+              </p>
+            ) : proplaneExportUrl ? (
+              <div
+                className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5"
+                data-attr="channel-calendar-proplane-export"
+              >
+                <code className="min-w-0 flex-1 truncate text-[12px] text-foreground">{proplaneExportUrl}</code>
+                <PortalIconAction
+                  icon={Copy}
+                  label="Copy PropLane calendar link"
+                  data-attr="channel-calendar-copy-proplane-export"
+                  onClick={copyProplaneExport}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <label className="block">
+            <span className={FIELD_LABEL}>
+              {channel === "booking_com" ? "Booking.com" : "Airbnb"} import URL
+            </span>
+            <Input
+              type="url"
+              placeholder={importPlaceholder}
+              value={importUrl}
+              onChange={(e) => {
+                setImportUrl(e.target.value);
+                if (saveError) setSaveError(null);
+              }}
+              disabled={busyAny}
+              aria-invalid={saveError ? true : undefined}
+              data-attr="channel-calendar-link-import-url"
+            />
+            {saveError ? (
+              <p className="mt-1.5 text-xs text-danger" role="alert" data-attr="channel-calendar-link-error">
+                {saveError}
+              </p>
+            ) : null}
+          </label>
+
+          <Button
+            type="button"
+            className="w-full"
+            disabled={!canSave || busyAny}
+            loading={busyAny && canSave}
+            data-attr="channel-calendar-save-link"
+            onClick={() => void handleSave()}
+          >
+            {busyAny && canSave ? "Linking…" : "Link & sync"}
+          </Button>
+        </div>
+      ) : null}
 
       {linkedLoading ? (
         <p className="text-xs text-muted">Loading linked rooms…</p>
       ) : linkedRows.length > 0 ? (
-        <div className="rounded-lg border border-border bg-accent/20 px-3 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Imported</p>
-          <ul className="mt-2 space-y-2.5 text-xs text-foreground">
-            {linkedRows.map((row) => (
-              <li key={row.connectionId} className="space-y-1.5">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                  <span>
-                    {row.propertyLabel} · {row.roomLabel} · {channelCalendarProviderLabel(row.provider)}
-                  </span>
-                  <span className="text-muted">
-                    {formatSyncedAt(row.lastSyncedAt)}
-                    {row.importedRangeCount > 0 ? ` · ${row.importedRangeCount} block${row.importedRangeCount === 1 ? "" : "s"}` : ""}
-                  </span>
-                </div>
-                {row.lastError ? (
-                  <p className="text-[11px] text-danger" data-attr="channel-calendar-last-error">
-                    {row.lastError}
-                  </p>
-                ) : null}
-                {confirmingUnlinkId === row.connectionId ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 min-h-0 border-rose-200 px-3 text-[12px] text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline"
-                      disabled={busyAny}
-                      data-attr="channel-calendar-unlink-confirm"
-                      onClick={() => unlink(row.connectionId)}
-                    >
-                      Confirm unlink
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 min-h-0 px-3 text-[12px]"
-                      disabled={busyAny}
-                      data-attr="channel-calendar-unlink-cancel"
-                      onClick={() => setConfirmingUnlinkId(null)}
-                    >
-                      Keep
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {row.lastError && row.hasImportUrl ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-8 min-h-0 px-3 text-[12px]"
-                        disabled={busyAny}
-                        data-attr="channel-calendar-retry-sync"
-                        onClick={() => void retrySync(row.connectionId)}
-                      >
-                        Retry
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 min-h-0 px-3 text-[12px]"
-                      disabled={busyAny}
-                      data-attr="channel-calendar-unlink"
-                      aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
-                      onClick={() => setConfirmingUnlinkId(row.connectionId)}
-                    >
-                      Unlink
-                    </Button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+        <div className="space-y-2" data-attr="channel-calendar-linked-list">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Linked</p>
+          {linkedRows.map((row) => (
+            <LinkedCalendarRow
+              key={row.connectionId}
+              row={row}
+              busy={busyAny}
+              onSync={(id) => void retrySync(id)}
+              onUnlink={(id) => void unlink(id)}
+            />
+          ))}
         </div>
       ) : null}
     </div>
@@ -495,28 +504,18 @@ export function ChannelCalendarLinkModal({
   showToast: (message: string) => void;
   onChanged?: () => void;
 }) {
-  const [footerState, setFooterState] = useState<ChannelCalendarLinkFooterState>({
-    canSave: false,
-    busy: false,
-  });
-  const actionsRef = useRef<ChannelCalendarLinkActions | null>(null);
-
   return (
     <PortalDialog
       open={open}
-      onClose={() => {
-        actionsRef.current?.flushChanged();
-        onClose();
-      }}
+      onClose={onClose}
       title="Link calendars"
       dataAttr="channel-calendar-link-modal"
       primaryAction={{
-        label: footerState.busy ? "Saving…" : "Save & sync",
-        onClick: () => void actionsRef.current?.save(),
-        disabled: !footerState.canSave || footerState.busy,
-        loading: footerState.busy,
-        dataAttr: "channel-calendar-save-link",
+        label: "Done",
+        onClick: onClose,
+        dataAttr: "channel-calendar-link-done",
       }}
+      secondaryAction={null}
     >
       <ChannelCalendarLinkFields
         active={open}
@@ -525,8 +524,6 @@ export function ChannelCalendarLinkModal({
         initialPropertyId={initialPropertyId}
         showToast={showToast}
         onChanged={onChanged}
-        onFooterState={setFooterState}
-        actionsRef={actionsRef}
       />
     </PortalDialog>
   );

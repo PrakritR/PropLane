@@ -33,6 +33,15 @@ import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submi
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
+/** Calendar / day sheet sources: residents + channel + manager Add booking blocks. */
+const BOOKING_CALENDAR_SOURCES = new Set<PropertyBookingEntry["source"]>([
+  "proplane",
+  "hold",
+  "airbnb",
+  "booking_com",
+  "block",
+]);
+
 export function useManagerBookingEntries({
   userId,
   propertyIds,
@@ -50,17 +59,26 @@ export function useManagerBookingEntries({
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [occupancyDays, setOccupancyDays] = useState<OccupancyDayLookup>({ overall: {}, houses: {} });
-  const [loaded, setLoaded] = useState(false);
-  const [refreshing, setRefreshing] = useState(true);
+  const [channelReady, setChannelReady] = useState(false);
   const [applicationRows, setApplicationRows] = useState<DemoApplicantRow[]>([]);
+  const [applicationsReady, setApplicationsReady] = useState(false);
   const [blocks, setBlocks] = useState<RoomDateBlock[]>([]);
+  const [blocksReady, setBlocksReady] = useState(false);
 
-  const leaseRows = useLeasePipelineRows(userId, { enabled: Boolean(userId) });
+  const { rows: leaseRows, ready: leasesReady } = useLeasePipelineRows(userId, {
+    enabled: Boolean(userId),
+  });
+
+  useEffect(() => {
+    setApplicationsReady(false);
+    setBlocksReady(false);
+  }, [userId]);
 
   // Approved applications hold a room before the lease is signed.
   useEffect(() => {
     if (!userId) {
       setApplicationRows([]);
+      setApplicationsReady(true);
       return;
     }
     let cancelled = false;
@@ -68,7 +86,12 @@ export function useManagerBookingEntries({
       if (!cancelled) setApplicationRows(readManagerApplicationRows());
     };
     sync();
-    void syncManagerApplicationsFromServer({ managerUserId: userId }).then(sync);
+    void syncManagerApplicationsFromServer({ managerUserId: userId })
+      .then(sync)
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setApplicationsReady(true);
+      });
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, sync);
     return () => {
       cancelled = true;
@@ -80,6 +103,7 @@ export function useManagerBookingEntries({
   useEffect(() => {
     if (!userId) {
       setBlocks([]);
+      setBlocksReady(true);
       return;
     }
     let cancelled = false;
@@ -90,6 +114,9 @@ export function useManagerBookingEntries({
         })
         .catch(() => {
           if (!cancelled) setBlocks([]);
+        })
+        .finally(() => {
+          if (!cancelled) setBlocksReady(true);
         });
     void load();
     const onChange = () => void load();
@@ -216,11 +243,9 @@ export function useManagerBookingEntries({
     if (ids.length === 0) {
       setAirbnbEntries([]);
       setOccupancyDays({ overall: {}, houses: {} });
-      setLoaded(true);
-      setRefreshing(false);
+      setChannelReady(true);
       return;
     }
-    setRefreshing(true);
     try {
       const [bookingsResult, snapshotResult] = await Promise.allSettled([
         fetchManagerChannelBookings(ids),
@@ -256,8 +281,7 @@ export function useManagerBookingEntries({
         setOccupancyDays({ overall, houses });
       }
     } finally {
-      setLoaded(true);
-      setRefreshing(false);
+      setChannelReady(true);
     }
   }, [propertyIdsKey, occupancyWindow, showToast]);
 
@@ -266,11 +290,11 @@ export function useManagerBookingEntries({
   }, [reloadAirbnb, refreshSignal]);
 
   /**
-   * Only the FIRST load draws skeletons. A later refresh keeps the stays that
-   * are already on screen — replacing a list the manager is reading with grey
-   * placeholders reads as the page reloading under them.
+   * Wait until leases, applications, blocks, and channel syncs have each
+   * settled once. Later refreshes keep the stays already on screen — only the
+   * first coordinated load draws skeletons.
    */
-  const loading = !loaded && refreshing;
+  const loading = !channelReady || !leasesReady || !applicationsReady || !blocksReady;
 
   const importedAirbnbEntries = useMemo<PropertyBookingEntry[]>(() => {
     const scoped = new Set(propertyIds);
@@ -285,7 +309,10 @@ export function useManagerBookingEntries({
   }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels]);
 
   const entries = useMemo(
-    () => [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries],
+    () =>
+      [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
+        (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+      ),
     [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries],
   );
 

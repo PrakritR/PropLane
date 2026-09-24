@@ -90,6 +90,10 @@ export { FILTER_SHEET_DISMISS_GUARD_MS, FILTER_SHEET_OPEN_SUPPRESS_MS };
 /** Menu roots portaled into open modal shells or `document.body` — modal outside-click handlers must ignore these. */
 export const FIELD_SELECT_MENU_DATA_ATTR = "data-field-select-menu";
 
+/**
+ * Portaled menus (field-select, row ⋯) sit outside Radix/Vaul modal trees.
+ * Modal outside-click handlers must ignore them so a pick does not dismiss the sheet.
+ */
 export function isPortaledFieldSelectMenuTarget(target: EventTarget | null): boolean {
   const element = fieldSelectEventTargetElement(target);
   if (!element) return false;
@@ -97,6 +101,10 @@ export function isPortaledFieldSelectMenuTarget(target: EventTarget | null): boo
     element.closest(`[${FIELD_SELECT_MENU_DATA_ATTR}]`) ||
       element.closest('[role="listbox"]') ||
       element.closest('[data-slot="portal-filter-dropdown-panel"]') ||
-      element.closest('[data-attr="portal-filter-dropdown-panel"]'),
+      element.closest('[data-attr="portal-filter-dropdown-panel"]') ||
+      element.closest('[data-attr="record-actions-menu"]') ||
+      element.closest('[data-attr="record-actions-trigger"]') ||
+      element.closest("[data-radix-dropdown-menu-content]") ||
+      element.closest("[data-radix-dropdown-menu-trigger]"),
   );
 }

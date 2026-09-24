@@ -34,7 +34,7 @@ export function BookingsRowOverflow({
   onCopyLink?: () => void;
   /** Present only for a block-sourced booking (deletes the hold) — a lease or channel import cannot be cancelled here. */
   onCancel?: () => void;
-  /** "Delete booking" in the day pop-up; every other caller keeps the default. */
+  /** "Remove booking" in the day pop-up; every other caller keeps the default. */
   cancelLabel?: string;
   /** When set, this provides the ⋯ context for a list row (one menu). Otherwise it draws its own ⋯. */
   children?: ReactNode;

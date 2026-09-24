@@ -5,7 +5,7 @@
  * PortalDialog over the month calendar. `/portal/bookings/<yyyy-mm-dd>` still
  * opens this dialog; closing it returns to `/portal/bookings/calendar`.
  *
- * Add booking lives on the calendar command-bar +, not here. Edit / Delete
+ * Add booking lives on the calendar command-bar +, not here. Edit / Remove
  * stay siblings of this dialog so the workspace is not painted under the card.
  */
 
@@ -132,10 +132,10 @@ export function BookingsDayPage({
     setDeleting(true);
     try {
       await onRemoveBlock(deletingEntry.blockId);
-      showToast("Booking deleted.");
+      showToast("Booking removed.");
       setDeletingEntry(null);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete that booking.");
+      showToast(e instanceof Error ? e.message : "Could not remove that booking.");
     } finally {
       setDeleting(false);
     }
@@ -231,7 +231,7 @@ export function BookingsDayPage({
                         onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
                         onCopyLink={() => void copyLink(entry)}
                         onCancel={isBlock ? () => requestDelete(entry) : undefined}
-                        cancelLabel="Delete booking"
+                        cancelLabel="Remove booking"
                       >
                         <PortalApplicantRecordRow
                           name={name}
@@ -243,10 +243,8 @@ export function BookingsDayPage({
                               </PortalRowFact>
                               <PortalRowFact icon={Tag} srLabel="Source">
                                 {bookingSourceLabel(entry.source)}
+                                {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
                               </PortalRowFact>
-                              {entry.statusLabel ? (
-                                <span data-attr="booking-row-status">{entry.statusLabel}</span>
-                              ) : null}
                             </>
                           }
                           onOpen={() => navigate(bookingRecordHref(basePath, key))}
@@ -280,13 +278,13 @@ export function BookingsDayPage({
       <PortalDialog
         open={Boolean(deletingEntry)}
         onClose={() => (deleting ? undefined : setDeletingEntry(null))}
-        title="Delete booking"
+        title="Remove booking"
         tone="danger"
         dismissBlocked={deleting}
         dataAttr="bookings-day-delete-confirm"
         secondaryAction={{ label: "Keep", onClick: () => setDeletingEntry(null), disabled: deleting }}
         primaryAction={{
-          label: deleting ? "Deleting…" : "Delete",
+          label: deleting ? "Removing…" : "Remove",
           onClick: () => void confirmDelete(),
           disabled: deleting,
           loading: deleting,
@@ -295,7 +293,7 @@ export function BookingsDayPage({
       >
         <p className="text-sm text-muted">
           {deletingEntry
-            ? `Delete ${dayStayDisplayName(deletingEntry)}’s booking at ${deletingEntry.roomLabel}? This cannot be undone.`
+            ? `Remove ${dayStayDisplayName(deletingEntry)}’s booking at ${deletingEntry.roomLabel}? This cannot be undone.`
             : ""}
         </p>
       </PortalDialog>

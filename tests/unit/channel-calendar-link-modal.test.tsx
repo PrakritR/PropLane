@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/rental-application/data", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/rental-application/data")>();
@@ -23,15 +23,10 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { fetchRoomExportCalendarUrl } from "@/lib/channel-calendar/client";
 
-function tapOption(target: Element | Node) {
-  fireEvent.pointerDown(target, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
-}
-
 afterEach(() => cleanup());
 
 describe("ChannelCalendarLinkModal", () => {
-  it("lists Airbnb and Booking.com only and shows PropLane copy after a room is picked", async () => {
+  it("lists Airbnb and Booking.com only and shows Link & sync in the Link card", async () => {
     render(
       <ChannelCalendarLinkModal
         open
@@ -53,7 +48,9 @@ describe("ChannelCalendarLinkModal", () => {
       expect(fetchRoomExportCalendarUrl).toHaveBeenCalled();
       expect(document.querySelector('[data-attr="channel-calendar-proplane-export"]')).toBeTruthy();
     });
-    expect(screen.getByText("Save & sync")).toBeTruthy();
+    expect(screen.getByText("Link & sync")).toBeTruthy();
+    expect(screen.getByText("Done")).toBeTruthy();
+    expect(screen.queryByText("Save & sync")).toBeNull();
     expect(document.querySelector('[data-attr="channel-calendar-sync-all"]')).toBeNull();
   });
 
