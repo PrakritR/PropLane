@@ -20,9 +20,16 @@ export async function runProspectSmsBurstJob(
     // A duplicate callback may be genuinely obsolete. A live lease or any
     // persistence error is retryable: acknowledging it would strand the turn.
     const { data: state, error } = await db.from("prospect_sms_bursts")
-      .select("revision,status,handled_revision").eq("id", burstId).maybeSingle();
+      .select("revision,status,handled_revision,due_at").eq("id", burstId).maybeSingle();
     if (!error && state && (Number(state.revision) !== revision || Number(state.handled_revision) >= revision || ["suppressed", "dispatched"].includes(String(state.status)))) {
       return NextResponse.json({ ok: true, stale: true });
+    }
+    // A revision that exhausted its retries stays failed until a new text; one
+    // backing off after a failure is republished by the recovery sweep when due.
+    // Neither is contention, so a queue retry would only burn delivery quota.
+    if (!error && state?.status === "failed") return NextResponse.json({ ok: false, failed: true });
+    if (!error && state?.status === "queued" && Date.parse(String(state.due_at)) > Date.now()) {
+      return NextResponse.json({ ok: true, deferred: true });
     }
     return NextResponse.json({ error: "Burst claim is busy or unavailable." }, { status: 503 });
   }
@@ -151,7 +158,8 @@ export async function runProspectSmsBurstJob(
   return NextResponse.json({ error: "Burst produced no durable delivery outcome." }, { status: 503 });
 }
 
-const MAX_INLINE_WAIT_MS = 30_000;
+// ponytail: quiet window is 10s; the bound keeps wait + turn inside the route's maxDuration.
+const MAX_INLINE_WAIT_MS = 15_000;
 
 /** QStash-outage fallback: wait out the burst's quiet window, then run it here.
  * Safe alongside a late queue delivery or the cron: whoever claims the revision
