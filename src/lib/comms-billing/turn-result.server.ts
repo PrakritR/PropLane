@@ -23,7 +23,9 @@ export async function commsTurnKey(
     .order("created_at", { ascending: false });
   if (error) throw new Error("Communication credit could not be read. Retry delivery.");
   const family = (data ?? []).filter(
-    (row) => row.idempotency_key === base || /^:r\d+$/.test(String(row.idempotency_key).slice(base.length)),
+    // LIKE treats `_` and `%` as wildcards, so re-check the exact prefix.
+    (row) => String(row.idempotency_key).startsWith(base) &&
+      (row.idempotency_key === base || /^:r\d+$/.test(String(row.idempotency_key).slice(base.length))),
   );
   const latest = family[0];
   if (!latest) return base;

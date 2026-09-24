@@ -181,6 +181,11 @@ describe("a failed model turn is retried under a fresh credit key, never replaye
     await expect(commsTurnKey(interrupted, "owner", base)).resolves.toBe(base);
   });
 
+  it("ignores keys that only match through LIKE wildcards", async () => {
+    const db = keyFamilyDb([{ idempotency_key: "aiXturn:sms:sess-1:msg-1", credit_state: "released" }]);
+    await expect(commsTurnKey(db, "owner", base)).resolves.toBe(base);
+  });
+
   it("ignores unrelated keys that merely share the prefix", async () => {
     const db = keyFamilyDb([{ idempotency_key: `${base}0`, credit_state: "released" }]);
     await expect(commsTurnKey(db, "owner", base)).resolves.toBe(base);
