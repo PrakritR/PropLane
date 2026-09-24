@@ -196,20 +196,12 @@ export function ManagerMessagingSettingsPanel({
   const { channelsFor } = useManagerCommunicationDeliverVia();
 
   // Channels list: which owned workspace's rows are visible, the Add-number
-  // sheet's target + busy state, per-row share/remove busy keys, and the
-  // "Use in another workspace" picker sheet.
+  // sheet's target + busy state, and per-row remove busy keys.
   const [channelFilter, setChannelFilter] = useState(scope.workspaceId || "all");
   const [addNumberOpen, setAddNumberOpen] = useState(false);
   const [addNumberWorkspaceId, setAddNumberWorkspaceId] = useState("");
   const [addNumberBusy, setAddNumberBusy] = useState(false);
   const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
-  const [shareTarget, setShareTarget] = useState<{
-    numberId: string;
-    fromWorkspaceId: string;
-    phoneLabel: string;
-    targets: { workspaceId: string; workspaceName: string }[];
-  } | null>(null);
-  const [shareChoice, setShareChoice] = useState("");
 
   useEffect(() => {
     setChannelFilter(scope.workspaceId || "all");
@@ -557,37 +549,6 @@ export function ManagerMessagingSettingsPanel({
     [load, showToast],
   );
 
-  const shareNumber = useCallback(
-    async (numberId: string, fromWorkspaceId: string, toWorkspaceId: string) => {
-      if (!toWorkspaceId) return;
-      setRowBusyKey(`${fromWorkspaceId}:${numberId}:share`);
-      setError(null);
-      try {
-        const res = await fetch(ENDPOINT, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "assign", numberId, workspaceId: toWorkspaceId }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          const message = body.error ?? "Could not share this number.";
-          setError(message);
-          showToast(message);
-          return;
-        }
-        showToast("Number shared into that workspace.");
-        setShareTarget(null);
-        void load();
-      } catch {
-        setError("Network error. Check your connection and try again.");
-      } finally {
-        setRowBusyKey(null);
-      }
-    },
-    [load, showToast],
-  );
-
   /**
    * The Work email card's "Tell residents about this address" opens THIS
    * composer rather than growing a second one, so a resident is told once and
@@ -833,42 +794,40 @@ export function ManagerMessagingSettingsPanel({
       <PortalSettingsGroup>
         {visibleWorkspaces.map((workspace) => {
           const numbers = workspace.numbers ?? [];
-          const otherOwnedWorkspaces = ownedWorkspaces.filter((w) => w.workspaceId !== workspace.workspaceId);
           const canRequest = canAddNumberTo(workspace);
           return (
             <div key={workspace.workspaceId}>
               {numbers.map((entry) => {
-                const shareTargets = entry.isPrimary
-                  ? otherOwnedWorkspaces.filter(
-                      (w) =>
-                        !entry.sharedWithWorkspaceIds.includes(w.workspaceId) &&
-                        (w.numbers ?? []).length < WORKSPACE_NUMBER_LIMIT,
-                    )
-                  : [];
-                const menuItems: ChannelRowMenuItem[] = [];
-                if (shareTargets.length > 0) {
-                  menuItems.push({
-                    key: "share",
-                    label: "Use in another workspace",
-                    disabled: rowBusyKey === `${workspace.workspaceId}:${entry.numberId}:share`,
-                    onClick: () => {
-                      setShareChoice("");
-                      setShareTarget({
-                        numberId: entry.numberId,
-                        fromWorkspaceId: workspace.workspaceId,
-                        phoneLabel: entry.phoneNumber ? formatManagerMessagingPhone(entry.phoneNumber) : "this number",
-                        targets: shareTargets.map((w) => ({ workspaceId: w.workspaceId, workspaceName: w.workspaceName })),
-                      });
-                    },
-                  });
-                }
-                menuItems.push({
-                  key: "remove",
-                  label: "Remove",
-                  tone: "danger",
-                  disabled: rowBusyKey === `${workspace.workspaceId}:${entry.numberId}:remove`,
-                  onClick: () => void removeNumber(workspace.workspaceId, entry.numberId),
-                });
+                // One work number per workspace. Set-up (primary) → Share /
+                // Copy only — never Remove. Legacy shared-in rows keep Remove
+                // so the list can shed retired cross-workspace shares.
+                const menuItems: ChannelRowMenuItem[] = entry.isPrimary
+                  ? [
+                      {
+                        key: "share",
+                        label: "Share with residents",
+                        onClick: () =>
+                          window.dispatchEvent(new CustomEvent(WORK_CONTACT_ANNOUNCE_EVENT)),
+                      },
+                      ...(entry.phoneNumber
+                        ? [
+                            {
+                              key: "copy",
+                              label: "Copy number",
+                              onClick: () => void copyNumber(entry.phoneNumber ?? undefined),
+                            } satisfies ChannelRowMenuItem,
+                          ]
+                        : []),
+                    ]
+                  : [
+                      {
+                        key: "remove",
+                        label: "Remove",
+                        tone: "danger" as const,
+                        disabled: rowBusyKey === `${workspace.workspaceId}:${entry.numberId}:remove`,
+                        onClick: () => void removeNumber(workspace.workspaceId, entry.numberId),
+                      },
+                    ];
                 return (
                   <ChannelRow
                     key={entry.numberId}
@@ -893,7 +852,7 @@ export function ManagerMessagingSettingsPanel({
                   />
                 );
               })}
-              {/* One number per workspace: empty → placeholder row; Request only in ⋯ (no header + / dashed Add). */}
+              {/* One number per workspace: empty → placeholder row; Setup only in ⋯ (no header + / dashed Add). */}
               {canRequest ? (
                 <ChannelRow
                   key={`${workspace.workspaceId}-request`}
@@ -903,11 +862,11 @@ export function ManagerMessagingSettingsPanel({
                   status="Not set up"
                   menu={
                     <ChannelRowMenu
-                      label={`Request work number for ${workspace.workspaceName}`}
+                      label={`Set up work number for ${workspace.workspaceName}`}
                       items={[
                         {
-                          key: "request",
-                          label: "Request work number",
+                          key: "setup",
+                          label: "Setup",
                           onClick: () => openAddNumberSheet(workspace.workspaceId),
                         },
                       ]}
@@ -933,7 +892,7 @@ export function ManagerMessagingSettingsPanel({
     <Modal
       open={addNumberOpen}
       onClose={() => setAddNumberOpen(false)}
-      title="Add a work number"
+      title="Set up a work number"
       panelClassName="max-w-md"
       dataAttr="add-work-number-modal"
       footer={
@@ -1015,41 +974,6 @@ export function ManagerMessagingSettingsPanel({
           </div>
         )}
       </div>
-    </Modal>
-
-    <Modal
-      open={shareTarget !== null}
-      onClose={() => setShareTarget(null)}
-      title="Use this number in another workspace"
-      panelClassName="max-w-md"
-      dataAttr="share-work-number-modal"
-      footer={
-        <ModalFooter>
-          <Button type="button" variant="ghost" onClick={() => setShareTarget(null)} data-attr="share-work-number-cancel">
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={!shareChoice || rowBusyKey === `${shareTarget?.fromWorkspaceId}:${shareTarget?.numberId}:share`}
-            aria-busy={rowBusyKey === `${shareTarget?.fromWorkspaceId}:${shareTarget?.numberId}:share`}
-            onClick={() => shareTarget && shareNumber(shareTarget.numberId, shareTarget.fromWorkspaceId, shareChoice)}
-            data-attr="share-work-number-submit"
-          >
-            Share
-          </Button>
-        </ModalFooter>
-      }
-    >
-      {shareTarget ? (
-        <FieldSingleSelect
-          label={`Use ${shareTarget.phoneLabel} in`}
-          value={shareChoice}
-          options={shareTarget.targets.map((w) => ({ value: w.workspaceId, label: w.workspaceName }))}
-          onChange={setShareChoice}
-          dataAttr="share-work-number-target"
-        />
-      ) : null}
     </Modal>
 
     <Modal

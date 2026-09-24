@@ -111,7 +111,7 @@ describe("the bug: an empty owned workspace never shows another workspace's line
     const { emails } = await resolveWorkspaceWorkEmails(db as never, prakrit);
     expect(emails.map((e) => [e.workspaceId, e.address])).toEqual([
       [PRAKRIT_WS, null],
-      [AMBIKA_WS, "assist-ambika-mago@prop-lane.space"],
+      [AMBIKA_WS, "assist-ambika-mago@proplane.ai"],
     ]);
   });
 });
@@ -275,7 +275,7 @@ describe("a conversation about no house shows in the workspace whose line carrie
     workspaceByLine: new Map([
       ["2065550001", new Set([PRAKRIT_WS])],
       ["2065550002", new Set([PRAKRIT_WS2])],
-      ["assist-seattle@prop-lane.space", new Set([PRAKRIT_WS2])],
+      ["assist-seattle@proplane.ai", new Set([PRAKRIT_WS2])],
     ]),
   });
 
@@ -286,7 +286,7 @@ describe("a conversation about no house shows in the workspace whose line carrie
   });
 
   it("an email to the second workspace's address does the same", () => {
-    const input = { ownerId: prakrit, houseIds: [], lines: ["Assist-Seattle@prop-lane.space"] };
+    const input = { ownerId: prakrit, houseIds: [], lines: ["Assist-Seattle@proplane.ai"] };
     expect(conversationVisible(scope(PRAKRIT_WS2), input)).toBe(true);
     expect(conversationVisible(scope(PRAKRIT_WS), input)).toBe(false);
   });
@@ -298,8 +298,8 @@ describe("a conversation about no house shows in the workspace whose line carrie
   });
 });
 
-describe("a real join-table read: a shared number's thread shows in both holders", () => {
-  it("resolveCommunicationScope maps a shared line to every holding workspace, from the real table", async () => {
+describe("a real join-table read: legacy shared-in holds do not place the thread in the borrower workspace", () => {
+  it("resolveCommunicationScope places the line only on the home workspace", async () => {
     const db = seed({
       portal_workspaces: [
         { id: PRAKRIT_WS, owner_user_id: prakrit, name: "My workspace", is_default: true, created_at: "2026-02-01" },
@@ -317,6 +317,8 @@ describe("a real join-table read: a shared number's thread shows in both holders
     const sharedScope = await resolveCommunicationScope(db as never, prakrit, "read", { selectedWorkspaceId: PRAKRIT_WS2 });
     const input = { ownerId: prakrit, houseIds: [], lines: ["+1 (206) 555-0001"] };
     expect(conversationVisible(homeScope, input)).toBe(true);
-    expect(conversationVisible(sharedScope, input)).toBe(true);
+    // Cross-workspace number sharing is retired — the borrower workspace does
+    // not inherit the home line for Communication placement.
+    expect(conversationVisible(sharedScope, input)).toBe(false);
   });
 });

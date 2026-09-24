@@ -15,9 +15,11 @@ the flow by text. Tools, prompts, and the origin rule:
 Settings → Communication → Channels (`ManagerMessagingSettingsPanel` in
 `src/components/portal/pro-messaging-settings-panel.tsx`) is the one list: a
 row per work number per workspace plus the work email row, each with a ⋯ menu
-for its actions (PLAN-0920-1530). Every number's status word comes from
-`src/lib/sms/work-number-status.ts`; the email row's inline rename and its
-actions live in `src/components/portal/pro-assistant-email-settings-panel.tsx`
+for its actions (PLAN-0920-1530). Each workspace holds at most **one** work
+number and **one** work email — cross-workspace "Use in another workspace"
+sharing is refused (`assignNumberToWorkspace`). Every number's status word
+comes from `src/lib/sms/work-number-status.ts`; the email row's inline rename
+and its actions live in `src/components/portal/pro-assistant-email-settings-panel.tsx`
 (`ManagerAssistantEmailChannelRow`), composed into the same list.
 
 ## Work-order reference routing
@@ -51,10 +53,13 @@ A work number belongs to a **workspace** — a `portal_workspaces` row — and
 every workspace the switcher can land on has its own: `manager_sms_numbers`
 is keyed on `workspace_id` (unique), `manager_user_id` is the workspace's
 owner, and an owner with three workspaces may hold three lines
-(`20260916000000_work_identity_per_workspace.sql`). "Workspace" here is never
-"owner plus co-manager links": an account that owns no houses but still
-carries an accepted link somewhere is the owner of its own, empty workspace
-and sees NO number there — never the inviter's (that was the Sep 15 2026 bug).
+(`20260916000000_work_identity_per_workspace.sql`). **Once a workspace has
+set up its number, that number cannot be removed** (UI + `unassignNumber`
+refuse with `setup_locked`); only legacy shared-in join rows may be cleared.
+"Workspace" here is never "owner plus co-manager links": an account that owns
+no houses but still carries an accepted link somewhere is the owner of its
+own, empty workspace and sees NO number there — never the inviter's (that was
+the Sep 15 2026 bug).
 
 `resolveActiveWorkspace` (`src/lib/workspaces/active.server.ts`) is the one
 answer to "which workspace does this request mean": the cookie's selection if
@@ -94,12 +99,11 @@ through it or through the workspace-keyed helpers in
 The work EMAIL follows the identical rule — one address per workspace, held by
 its owner. See `docs/agents/inbound-email-inbox.md` "One work email per WORKSPACE".
 
-**A workspace may hold up to 2 numbers (part 3, Sep 2026).** `workspace_work_numbers`
-is the many-to-many join table and the only truth for "which numbers does this
-workspace hold" — `manager_sms_numbers.workspace_id` stays each number's fixed
-HOME placement, untouched. A shared number's thread is ONE thread, visible and
-sendable from every holding workspace (`conversation-visibility.server.ts`,
-`resolveOwnerSendNumberRow`). Manage assignment only through
+**A workspace holds at most 1 work number.** `workspace_work_numbers` is the
+join table and the only truth for "which numbers does this workspace hold" —
+`manager_sms_numbers.workspace_id` stays each number's fixed HOME placement.
+Cross-workspace "Use in another workspace" sharing is refused
+(`assignNumberToWorkspace`). Manage assignment only through
 `src/lib/sms/work-numbers.server.ts` and `PATCH /api/manager/messaging-number`,
 never by writing the join table directly.
 
