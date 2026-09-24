@@ -1,5 +1,8 @@
 /** User-facing copy when Google Calendar OAuth fails (Testing mode, blocked app, etc.). */
-export function formatGoogleCalendarConnectError(reason: string | null): string {
+export function formatGoogleCalendarConnectError(
+  reason: string | null,
+  opts?: { oauthRedirectUri?: string | null },
+): string {
   if (!reason?.trim()) {
     return "Could not connect Google Calendar. Check redirect URI in Google Cloud.";
   }
@@ -16,7 +19,26 @@ export function formatGoogleCalendarConnectError(reason: string | null): string 
       "Use the same Google account you signed into PropLane with."
     );
   }
+  if (isGoogleCalendarRedirectUriMismatch(decoded)) {
+    const uri = opts?.oauthRedirectUri?.trim();
+    return uri
+      ? `Google rejected the redirect URI. In Google Cloud → Credentials → your OAuth client → Authorized redirect URIs, add exactly: ${uri}`
+      : "Google rejected the redirect URI (redirect_uri_mismatch). Add this app’s /api/portal/google-calendar/callback URL for the port you are on under Authorized redirect URIs.";
+  }
   return `Could not connect Google Calendar: ${decoded}`;
+}
+
+/** True when Google refused the OAuth redirect URI (Cloud Console allowlist). */
+export function isGoogleCalendarRedirectUriMismatch(reason: string | null): boolean {
+  if (!reason?.trim()) return false;
+  let decoded = reason.trim();
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    /* keep raw */
+  }
+  const lower = decoded.toLowerCase();
+  return lower.includes("redirect_uri_mismatch") || lower.includes("redirect uri mismatch");
 }
 
 export function isGoogleCalendarOAuthBlocked(reason: string | null): boolean {

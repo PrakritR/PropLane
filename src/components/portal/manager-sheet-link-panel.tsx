@@ -17,6 +17,7 @@ import {
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { formatGoogleCalendarConnectError } from "@/lib/google-calendar/connect-errors";
 import { ALL_SHEET_PROPERTIES } from "@/lib/manager-sheet-link";
 
 type PublicSheetBinding = {
@@ -78,7 +79,16 @@ export function ManagerSheetLinkPanel() {
     const gsheet = params.get("gsheet");
     if (!gsheet) return;
     if (gsheet === "connected") showToast("Google Sheets connected.");
-    if (gsheet === "error") showToast(params.get("reason") || "Google Sheets connect failed.");
+    if (gsheet === "error") {
+      const reason = params.get("reason");
+      const redirectGuess = `${window.location.origin}/api/portal/google-calendar/callback`;
+      showToast(
+        formatGoogleCalendarConnectError(reason, { oauthRedirectUri: redirectGuess }).replace(
+          "Google Calendar",
+          "Google Sheets",
+        ),
+      );
+    }
     params.delete("gsheet");
     params.delete("reason");
     const next = `${window.location.pathname}${params.size ? `?${params}` : ""}`;

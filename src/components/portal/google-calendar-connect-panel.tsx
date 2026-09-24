@@ -100,7 +100,11 @@ export function GoogleCalendarConnectPanel({
     }
     if (gcal === "error") {
       const reason = params.get("reason");
-      const message = formatGoogleCalendarConnectError(reason);
+      const redirectGuess =
+        status?.oauthRedirectUri ?? `${window.location.origin}/api/portal/google-calendar/callback`;
+      const message = formatGoogleCalendarConnectError(reason, {
+        oauthRedirectUri: redirectGuess,
+      });
       setConnectError(message);
       setConnectBlocked(isGoogleCalendarOAuthBlocked(reason));
       showToast(message);

@@ -27,6 +27,7 @@ const PRODUCTION_ORIGINS = [
 
 const LOCAL_ORIGINS = [
   "http://localhost:3000",
+  "http://localhost:3004",
   "http://localhost:3009",
   "http://localhost:3010",
   "http://localhost:3011",
