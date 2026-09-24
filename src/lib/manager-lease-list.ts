@@ -11,8 +11,9 @@ import {
   type ResidentCluster,
 } from "@/lib/resident-row-clustering";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { formatRoomPriceAmount, roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pricing";
+import { roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { sharedRoomApplicationFact } from "@/lib/shared-room-display";
 
 export type ManagerLeaseListCluster = ResidentCluster<LeasePipelineRow>;
 
@@ -95,13 +96,9 @@ export function leaseStageFact(row: LeasePipelineRow): string | undefined {
 }
 
 /**
- * "Resident 2 of 2 · $800/mo" — which rent a lease's application holds when
- * its room prices per resident (PLAN-0920-0631). `undefined` for every other
- * lease, so an ordinary single-rent room's row is unaffected.
+ * Shared-room fact on a lease list row (PLAN-0924-0718): same rent each resident pays.
  */
 export function leaseResidentSlotFact(row: LeasePipelineRow): string | undefined {
-  const slot = row.application?.residentSlot;
-  if (!Number.isInteger(slot) || (slot as number) < 1) return undefined;
   const roomChoice = (row.roomChoice || row.application?.roomChoice1 || "").trim();
   if (!roomChoice) return undefined;
   const { propertyId, listingRoomId } = parseRoomChoiceValue(roomChoice);
@@ -110,10 +107,15 @@ export function leaseResidentSlotFact(row: LeasePipelineRow): string | undefined
   if (!property?.listingSubmission || property.listingSubmission.v !== 1) return undefined;
   const submission = normalizeManagerListingSubmissionV1(property.listingSubmission);
   const room = submission.rooms.find((r) => r.id === listingRoomId);
-  if (!room || !roomPricesPerResident(room)) return undefined;
+  if (!room) return undefined;
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
-  const rent = roomResidentPriceForSlot(room, slot as number)?.monthlyRent;
-  return rent ? `Resident ${slot} of ${capacity} · ${formatRoomPriceAmount(rent)}/mo` : `Resident ${slot} of ${capacity}`;
+  const rent =
+    room.monthlyRent > 0
+      ? room.monthlyRent
+      : roomPricesPerResident(room)
+        ? roomResidentPriceForSlot(room, (row.application?.residentSlot as number) || 1)?.monthlyRent
+        : undefined;
+  return sharedRoomApplicationFact(capacity, rent) ?? undefined;
 }
 
 /** " · Renewal requested" / " · Signed off-platform" — what the update stamp carries after the date. */

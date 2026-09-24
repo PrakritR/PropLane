@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The "Rent for this resident" picker (PLAN-0920-0631): one radio row per
- * slot, disabled and labelled "who + since" when taken, selectable and
- * labelled "Open" otherwise, and defaulting to the lowest open slot.
+ * Bed pick for a shared room (PLAN-0924-0718): same rent on every slot.
  */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -28,12 +26,13 @@ function slots(): OpenResidentSlot[] {
 }
 
 describe("ApplicationResidentSlotPicker", () => {
-  it("renders every slot's rent, marks a taken row disabled with who holds it, and an open row selectable", () => {
+  it("renders every bed with the same rent, marks a taken row disabled, and an open row selectable", () => {
     const onChange = vi.fn();
     render(<ApplicationResidentSlotPicker slots={slots()} value={2} onChange={onChange} />);
 
     expect(screen.getByText(/Resident 1 · \$900\/mo/)).toBeTruthy();
-    expect(screen.getByText(/Resident 2 · \$800\/mo/)).toBeTruthy();
+    expect(screen.getByText(/Resident 2 · \$900\/mo/)).toBeTruthy();
+    expect(screen.queryByText(/Resident 2 · \$800\/mo/)).toBeNull();
     expect(screen.getByText(/Aaron · since Sep 1/)).toBeTruthy();
     expect(screen.getByText("Open")).toBeTruthy();
 
@@ -43,19 +42,14 @@ describe("ApplicationResidentSlotPicker", () => {
     expect(radios[1]!.checked).toBe(true);
   });
 
-  it("renders nothing when there are no slots (the room does not price per resident)", () => {
+  it("renders nothing when there are no slots (single-resident room)", () => {
     const { container } = render(
       <ApplicationResidentSlotPicker slots={[]} value={null} onChange={() => {}} />,
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it("defaults to the lowest OPEN slot, not merely the lowest slot", () => {
+  it("defaults to the lowest open slot", () => {
     expect(defaultOpenResidentSlot(slots())).toBe(2);
-    // Every slot taken: fall back to the first slot rather than null, so the
-    // manager still sees a pick even though approval will refuse it.
-    const allTaken = slots().map((s) => ({ ...s, holder: { name: "Someone", since: new Date() } }));
-    expect(defaultOpenResidentSlot(allTaken)).toBe(1);
-    expect(defaultOpenResidentSlot([])).toBeNull();
   });
 });

@@ -20,7 +20,7 @@ import {
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
-import { roomPricesPerResident } from "@/lib/room-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import {
   propertyAllowsShortTermRental,
   listingAllowedLeaseTerms,
@@ -240,7 +240,7 @@ export function validateStandardWizardStep(
         ? listingSub.rooms.find((row) => row.id === parsed.listingRoomId)
         : undefined;
       const slot = f.residentSlot ?? parsed.residentSlot;
-      if (room && roomPricesPerResident(room, f.leaseTerm) && !slot) {
+      if (room && normalizeRoomOccupancyCapacity(room.occupancyCapacity) >= 2 && !slot) {
         e.roomChoice1 = "Choose which resident you are applying as.";
       } else if (
         slot &&

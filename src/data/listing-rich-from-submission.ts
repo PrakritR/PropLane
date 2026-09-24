@@ -130,16 +130,15 @@ import type {
 } from "@/data/listing-rich-content";
 import {
   roomHeadlineAmount,
-  roomHeadlinePriceIsFrom,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
   roomIsWeeklyPriced,
   roomMonthlyEquivalent,
   roomPricePeriod,
   roomPricesPerResident,
-  roomResidentRentLines,
   roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 
 function splitAmenities(text: string): AmenityItem[] {
   const parts = text
@@ -295,9 +294,8 @@ function buildListingFloorCard(
         roomIsDailyPriced(r) || roomIsWeeklyPriced(r) || roomPricesPerResident(r) ? roomMonthlyEquivalent(r) : undefined,
       shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
       priceHeadlineAmount: roomHeadlineAmount(r) ?? undefined,
-      ...(roomHeadlinePriceIsFrom(r) && !entireHome
-        ? { priceFrom: true, residentRentLines: roomResidentRentLines(r) }
-        : {}),
+      // Shared rooms: same rent per resident — never project unequal slot lines (PLAN-0924-0718).
+      occupancyCapacity: normalizeRoomOccupancyCapacity(r.occupancyCapacity),
       availability: "Available now",
       bathroomShareCount: bathroomShareCountForRoom(r.id, sub),
       modal: {

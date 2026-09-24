@@ -29,9 +29,14 @@ function holder(over: Partial<RoomResidentSlotPlacement> & { id: string; start: 
 }
 
 describe("openResidentSlots", () => {
-  it("is empty when the room does not price per resident — nothing to pick", () => {
-    expect(openResidentSlots({ room: sharedRoom({ residentPricing: undefined }), placements: [] })).toEqual([]);
+  it("is empty only for a one-resident room; capacity ≥ 2 always expands beds", () => {
     expect(openResidentSlots({ room: sharedRoom({ occupancyCapacity: 1 }), placements: [] })).toEqual([]);
+    const withoutFlag = openResidentSlots({
+      room: sharedRoom({ residentPricing: undefined, residentPrices: undefined }),
+      placements: [],
+    });
+    expect(withoutFlag).toHaveLength(2);
+    expect(withoutFlag.map((s) => s.price.monthlyRent)).toEqual([1000, 1000]);
   });
 
   it("every slot is open, with its price, when no one holds the room yet", () => {

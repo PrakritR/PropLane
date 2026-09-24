@@ -30,8 +30,9 @@ import { useProspectListingHrefs } from "@/hooks/use-prospect-listing-hrefs";
 import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-cta-labels";
 import { getRoomUnavailabilityWindows, LISTING_ROOM_CHOICE_SEP, type RoomUnavailabilityWindow } from "@/lib/rental-application/data";
 import { roomAvailabilityPillClasses, roomAvailabilityTone } from "@/lib/room-availability-style";
-import { formatRoomPriceAmount } from "@/lib/room-pricing";
-import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
+import { ColumnHelp } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-room-display";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 
 const LISTING_TABLE_HEAD =
   "text-[10px] font-semibold uppercase tracking-wide text-muted sm:text-[11px]";
@@ -172,7 +173,13 @@ function truncateModalText(text: string | undefined, max = 100): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
-function ListingModalStatGrid({ items, columns }: { items: { label: string; value: React.ReactNode }[]; columns?: 2 }) {
+function ListingModalStatGrid({
+  items,
+  columns,
+}: {
+  items: { key?: string; label: React.ReactNode; value: React.ReactNode }[];
+  columns?: 2;
+}) {
   const colClass =
     columns === 2
       ? "grid-cols-2"
@@ -183,8 +190,8 @@ function ListingModalStatGrid({ items, columns }: { items: { label: string; valu
           : "sm:grid-cols-2";
   return (
     <div className={`grid gap-3 ${colClass}`}>
-      {items.map((item) => (
-        <div key={item.label} className={LISTING_MODAL_CARD}>
+      {items.map((item, index) => (
+        <div key={item.key ?? (typeof item.label === "string" ? item.label : `stat-${index}`)} className={LISTING_MODAL_CARD}>
           <p className={LISTING_MODAL_LABEL}>{item.label}</p>
           <div className="mt-2 text-xs font-medium leading-snug text-foreground sm:text-sm [&_*]:break-words">{item.value}</div>
         </div>
@@ -204,15 +211,13 @@ function ListingModalStatGrid({ items, columns }: { items: { label: string; valu
 function roomRentLabel(room: ListingRoomRow): string | null {
   const amount = room.priceHeadlineAmount;
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) return null;
-  // A shared room priced per resident carries its LOWEST slot as the headline.
-  const prefix = room.priceFrom ? "from " : "";
-  return `${prefix}${formatRoomPriceAmount(amount)}${room.pricePeriod === "day" ? "/day" : room.pricePeriod === "week" ? "/week" : "/mo"}`;
+  // Shared rooms charge the same amount per resident — never a "from" range here.
+  return `${formatRoomPriceAmount(amount)}${room.pricePeriod === "day" ? "/day" : room.pricePeriod === "week" ? "/week" : "/mo"}`;
 }
 
-/** "Resident 1 · $900/mo · Resident 2 · $800/mo" — each slot's rent, or null. */
-function roomResidentRentsLine(room: ListingRoomRow): string | null {
-  const lines = room.residentRentLines ?? [];
-  return lines.length > 0 ? lines.join(" · ") : null;
+/** Occupancy capacity when the room holds more than one resident. */
+function roomOccupancyCapacity(room: ListingRoomRow): number {
+  return normalizeRoomOccupancyCapacity(room.occupancyCapacity);
 }
 
 /**
@@ -475,27 +480,30 @@ export function ListingDetailModal({
                     columns={2}
                     items={[
                       {
-                        // Rent leads the grid, and is the one stat rendered at
-                        // headline size: it is the number a renter came for, and
-                        // the utilities estimate sitting beside it reads as the
-                        // price of the room when nothing outranks it.
-                        label: "Rent",
+                        key: "rent",
+                        label:
+                          roomOccupancyCapacity(state.room) >= 2 ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              Rent
+                              <ColumnHelp
+                                title={RENT_PER_RESIDENT_HELP.title}
+                                text={RENT_PER_RESIDENT_HELP.text}
+                                dataAttr="listing-room-rent-per-resident-help"
+                              />
+                            </span>
+                          ) : (
+                            "Rent"
+                          ),
                         value: (() => {
                           const rent = roomRentLabel(state.room);
                           if (rent) {
-                            const residents = roomResidentRentsLine(state.room);
                             return (
-                              <span className="block">
+                              <span className="block" data-attr="listing-room-rent">
                                 <span className="text-base font-bold tabular-nums text-foreground sm:text-lg">
                                   {rent}
                                 </span>
-                                {residents ? (
-                                  <span
-                                    data-attr="listing-room-resident-rents"
-                                    className="mt-1 block text-sm font-semibold tabular-nums text-foreground"
-                                  >
-                                    {residents}
-                                  </span>
+                                {roomOccupancyCapacity(state.room) >= 2 ? (
+                                  <span className="sr-only">{rentPerResidentSubLabel(roomOccupancyCapacity(state.room))}</span>
                                 ) : null}
                               </span>
                             );
@@ -508,10 +516,12 @@ export function ListingDetailModal({
                         })(),
                       },
                       {
+                        key: "floor",
                         label: "Floor",
                         value: state.room.modal.floorLine?.trim() || state.floorLabel || "—",
                       },
                       {
+                        key: "bathroom",
                         label: "Bathroom",
                         value:
                           (state.room.modal.bathroomAccessLines?.length ?? 0) > 0 ? (
@@ -527,15 +537,30 @@ export function ListingDetailModal({
                           ),
                       },
                       ...(state.room.utilitiesEstimate
-                        ? [{ label: "Utilities", value: state.room.utilitiesEstimate }]
+                        ? [{ key: "utilities", label: "Utilities", value: state.room.utilitiesEstimate }]
+                        : []),
+                      ...(roomOccupancyCapacity(state.room) >= 2
+                        ? [
+                            {
+                              key: "occupancy",
+                              label: "Occupancy",
+                              value: (
+                                <span data-attr="listing-room-occupancy" className="font-semibold text-foreground">
+                                  Up to {roomOccupancyCapacity(state.room)} residents
+                                </span>
+                              ),
+                            },
+                          ]
                         : []),
                       {
+                        key: "status",
                         label: "Status",
                         value: <AvailabilityPill text={state.room.availability} variant="room" />,
                       },
                       ...(state.room.modal.roomNotes?.trim()
                         ? [
                             {
+                              key: "details",
                               label: "Details",
                               value: (
                                 <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed">
@@ -1290,12 +1315,9 @@ export function SpacesInteractive({
                     </td>
                     <td className={`${SPACE_TD} font-bold text-foreground`}>
                       {room.name}
-                      {roomResidentRentsLine(room) ? (
-                        <span
-                          data-attr="listing-room-resident-rents"
-                          className="block text-xs font-semibold tabular-nums text-foreground"
-                        >
-                          {roomResidentRentsLine(room)}
+                      {roomOccupancyCapacity(room) >= 2 ? (
+                        <span data-attr="listing-room-occupancy" className="block text-xs font-semibold text-muted">
+                          Up to {roomOccupancyCapacity(room)} residents
                         </span>
                       ) : null}
                     </td>
@@ -1336,15 +1358,8 @@ export function SpacesInteractive({
                   <span className="block truncate text-sm font-bold text-foreground">{room.name}</span>
                   <span className="block truncate text-xs text-muted">
                     {floorLabel} · {roomBathLabel(room)}
+                    {roomOccupancyCapacity(room) >= 2 ? ` · Up to ${roomOccupancyCapacity(room)} residents` : ""}
                   </span>
-                  {roomResidentRentsLine(room) ? (
-                    <span
-                      data-attr="listing-room-resident-rents"
-                      className="block truncate text-xs font-semibold tabular-nums text-foreground"
-                    >
-                      {roomResidentRentsLine(room)}
-                    </span>
-                  ) : null}
                 </span>
                 <span className="shrink-0 text-right">
                   <span className="block text-sm font-bold tabular-nums text-foreground">{roomRentCell(room)}</span>

@@ -63,9 +63,9 @@ describe("property row summary", () => {
       neighborhood: "Green Lake",
       submission: sub({ listingPlaceCategoryId: "shared_home", rooms: [room("A", 1000), room("B", 1100)] }),
     };
-    expect(propertyRowSummary(shared)).toBe("From $1,000/mo · 2 rooms · 2 bd / 1 ba · Green Lake");
+    expect(propertyRowSummary(shared)).toBe("From $1,000/mo · 2 rooms · 1 ba · Green Lake");
     const whole = { ...shared, submission: sub({ listingPlaceCategoryId: "entire_home", rooms: [room("A", 2400)] }) };
-    expect(propertyRowSummary(whole)).toBe("$2,400/mo · 2 bd / 1 ba · Green Lake");
+    expect(propertyRowSummary(whole)).toBe("$2,400/mo · 1 ba · Green Lake");
   });
 
   it("shows the first real photo and nothing when there is none", () => {
@@ -125,15 +125,25 @@ describe("property row title and address lines (PLAN-0914-1345)", () => {
     expect(propertyRowLocality({ address: "142 Ash St", zip: "98166", submission: undefined })).toBe("98166");
   });
 
-  it("reads bed, bath and room counts for the glyph line; entire homes carry no room count", () => {
+  it("reads bath, room and resident counts for the glyph line; omits beds; entire homes carry no room count", () => {
     expect(propertyRowMeta({ beds: 2, baths: 1, submission: sub({ rooms: [room("A", 900), room("B", 900)] }) })).toEqual({
-      beds: 2,
       baths: 1,
       rooms: 2,
+      residents: null,
     });
     expect(
       propertyRowMeta({ beds: 3, baths: 2, submission: sub({ listingPlaceCategoryId: "entire_home", rooms: [room("A", 2400)] }) }),
-    ).toEqual({ beds: 3, baths: 2, rooms: null });
+    ).toEqual({ baths: 2, rooms: null, residents: null });
+  });
+
+  it("shows Σ residents when any room holds 2+", () => {
+    const shared = { ...room("A", 900), occupancyCapacity: 2 };
+    const solo = { ...room("B", 900), occupancyCapacity: 1 };
+    expect(propertyRowMeta({ beds: 2, baths: 1, submission: sub({ rooms: [shared, solo] }) })).toEqual({
+      baths: 1,
+      rooms: 2,
+      residents: 3,
+    });
   });
 
   it("shows the Basics bathroom count when saved baths is still the default 1", () => {
@@ -143,13 +153,13 @@ describe("property row title and address lines (PLAN-0914-1345)", () => {
         baths: 1,
         submission: sub({ listingTotalBathroomsId: "3", rooms: Array.from({ length: 9 }, (_, i) => room(`R${i + 1}`, 900)) }),
       }),
-    ).toEqual({ beds: 9, baths: 3, rooms: 9 });
+    ).toEqual({ baths: 3, rooms: 9, residents: null });
     expect(
       propertyRowMeta({
         beds: 2,
         baths: 1,
         submission: sub({ listingTotalBathroomsId: "1.5", rooms: [room("A", 900), room("B", 900)] }),
       }),
-    ).toEqual({ beds: 2, baths: 1.5, rooms: 2 });
+    ).toEqual({ baths: 1.5, rooms: 2, residents: null });
   });
 });

@@ -35,16 +35,15 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { resolveBackgroundCheckStatus } from "@/lib/application-background-check";
 import { describeGroupBadge } from "@/lib/rental-application/application-groups";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { formatRoomPriceAmount, roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pricing";
+import { roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { sharedRoomApplicationFact } from "@/lib/shared-room-display";
 
 /**
- * "Resident 2 of 2 · $800/mo" — which rent this application holds when its
- * room prices per resident (PLAN-0920-0631). Undefined for every other row.
+ * "Shared · 2 residents · $1,000/mo each" when the room holds more than one
+ * resident (PLAN-0924-0718). Same rent for every resident — never unequal slots.
  */
 export function applicationResidentSlotFact(row: DemoApplicantRow): string | undefined {
-  const slot = row.application?.residentSlot;
-  if (!Number.isInteger(slot) || (slot as number) < 1) return undefined;
   const choice = (row.assignedRoomChoice || row.application?.roomChoice1 || "").trim();
   if (!choice) return undefined;
   const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
@@ -53,10 +52,15 @@ export function applicationResidentSlotFact(row: DemoApplicantRow): string | und
   if (!property?.listingSubmission || property.listingSubmission.v !== 1) return undefined;
   const submission = normalizeManagerListingSubmissionV1(property.listingSubmission);
   const room = submission.rooms.find((r) => r.id === listingRoomId);
-  if (!room || !roomPricesPerResident(room)) return undefined;
+  if (!room) return undefined;
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
-  const rent = roomResidentPriceForSlot(room, slot as number)?.monthlyRent;
-  return rent ? `Resident ${slot} of ${capacity} · ${formatRoomPriceAmount(rent)}/mo` : `Resident ${slot} of ${capacity}`;
+  const rent =
+    room.monthlyRent > 0
+      ? room.monthlyRent
+      : roomPricesPerResident(room)
+        ? roomResidentPriceForSlot(room, (row.application?.residentSlot as number) || 1)?.monthlyRent
+        : undefined;
+  return sharedRoomApplicationFact(capacity, rent) ?? undefined;
 }
 
 /** The screening fact — only when the check has answered. Pending, or no check at all, is silent. */

@@ -27,7 +27,7 @@ describe("room choice slot encoding", () => {
 });
 
 describe("expandFirstChoiceRoomOptions", () => {
-  it("lists one row per bed and marks a taken slot", () => {
+  it("lists one row per bed with the same rent on every slot", () => {
     const room = {
       name: "Room 9",
       monthlyRent: 1200,
@@ -49,7 +49,7 @@ describe("expandFirstChoiceRoomOptions", () => {
     expect(options).toEqual([
       {
         value: "listing-a::room-9::r1",
-        label: "Room 9 · Resident 1 · $1,050/mo · Taken",
+        label: "Room 9 · Resident 1 · $1,200/mo · Taken",
         disabled: true,
       },
       {

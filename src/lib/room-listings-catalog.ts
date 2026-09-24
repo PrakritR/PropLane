@@ -11,7 +11,6 @@ import {
 import { isRoomChoiceAvailable, LISTING_ROOM_CHOICE_SEP, roomBedAvailability } from "@/lib/rental-application/data";
 import {
   roomHeadlineAmount,
-  roomHeadlinePriceIsFrom,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
   roomIsWeeklyPriced,
@@ -21,9 +20,9 @@ import {
   roomPricingIsFlexible,
   roomAdvertisedPriceLabel,
   roomFlexibleSortAmount,
-  roomResidentRentLines,
   roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 
 export type RoomListingSlide = {
   roomName: string;
@@ -382,7 +381,8 @@ function browseRoomEntries(
           priceHeadlineAmount: roomPricingIsFlexible(r)
             ? roomFlexibleSortAmount(r)
             : (roomHeadlineAmount(r) ?? undefined),
-          ...(roomHeadlinePriceIsFrom(r) ? { priceFrom: true, residentRentLines: roomResidentRentLines(r) } : {}),
+          // Shared rooms: same rent per resident — never project unequal slot lines (PLAN-0924-0718).
+          occupancyCapacity: normalizeRoomOccupancyCapacity(r.occupancyCapacity),
           shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
           availability: "Available now",
           modal: BROWSE_ROOM_MODAL_STUB,

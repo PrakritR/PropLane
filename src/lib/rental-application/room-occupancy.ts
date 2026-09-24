@@ -21,7 +21,6 @@
  */
 
 import {
-  roomPricesPerResident,
   roomResidentPriceForSlot,
   type RoomPricingLike,
   type RoomResidentPrice,
@@ -270,7 +269,7 @@ export type OpenResidentSlot = {
  * slot when neither stored one.
  *
  * Returns one entry per slot 1..capacity, ordered by slot; an empty array
- * when the room does not price per resident (nothing to pick).
+ * when the room holds only one resident (nothing to pick).
  */
 export function openResidentSlots(params: {
   room: RoomPricingLike;
@@ -281,7 +280,9 @@ export function openResidentSlots(params: {
   term?: string | null;
 }): OpenResidentSlot[] {
   const { room, placements, at = new Date(), term } = params;
-  if (!roomPricesPerResident(room, term)) return [];
+  // Capacity ≥ 2 always expands slots for bed arbitration (PLAN-0924-0718).
+  // Unequal per-resident pricing is no longer required to pick a bed.
+  if (normalizeRoomOccupancyCapacity(room.occupancyCapacity) < 2) return [];
 
   const atIdx = dayIndex(at);
   const isCurrentOrUpcomingHolder = (placement: RoomResidentSlotPlacement): boolean => {

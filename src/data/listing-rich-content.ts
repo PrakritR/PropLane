@@ -46,12 +46,15 @@ export type ListingRoomRow = {
   /** Exact headline number behind `price` (daily rate for daily rooms, monthly rent otherwise) — never re-parse `price`. */
   priceHeadlineAmount?: number;
   /**
-   * `priceHeadlineAmount` is the LOWEST of several resident rents (a shared room
-   * priced per resident), so a label rebuilt from it must read "from $800/mo".
+   * `priceHeadlineAmount` is the LOWEST of several resident rents (legacy
+   * unequal slots). Shared rooms now charge the same amount per resident
+   * (PLAN-0924-0718) — prefer `occupancyCapacity` + plain rent.
    */
   priceFrom?: boolean;
-  /** "Resident 1 · $900/mo", one per slot, when the room prices per resident. */
+  /** @deprecated Unequal slot lines — omitted for same-price shared rooms. */
   residentRentLines?: string[];
+  /** Maximum simultaneous residents for this room (1–20). */
+  occupancyCapacity?: number;
   availability: string;
   modal: ListingRoomModal;
   /**

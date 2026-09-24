@@ -257,13 +257,16 @@ export function formatRoomPriceAmount(amount: number): string {
 }
 
 /**
- * Whether the headline is a "from" figure — the lowest of several resident rents
- * rather than the one rent every resident pays. Surfaces that rebuild the label
- * from `roomHeadlineAmount` (a stored row's `priceHeadlineAmount`) use this to
- * put the prefix back.
+ * Whether the headline is a "from" figure — the lowest of several *unequal*
+ * resident rents. Same-price shared rooms (PLAN-0924-0718) never use "from".
  */
 export function roomHeadlinePriceIsFrom(room: RoomPricingLike | null | undefined): boolean {
-  return roomPricesPerResident(room);
+  if (!roomPricesPerResident(room)) return false;
+  const rents = roomResidentPrices(room)
+    .map((row) => row.monthlyRent)
+    .filter((n) => n > 0);
+  if (rents.length < 2) return false;
+  return Math.min(...rents) !== Math.max(...rents);
 }
 
 /**
@@ -435,16 +438,19 @@ export function roomLowestResidentRent(
 }
 
 /**
- * "Resident 1 · $900/mo", "Resident 2 · $800/mo" — one line per slot for the
- * public room detail and the browse card. Empty when the room does not price per
- * resident, so a caller renders nothing rather than a list of identical rents.
+ * Legacy unequal slot lines for public detail. Empty when the room charges the
+ * same amount per resident (PLAN-0924-0718) — callers render nothing rather
+ * than a list of identical rents.
  */
 export function roomResidentRentLines(
   room: RoomPricingLike | null | undefined,
   term?: string | null,
 ): string[] {
   if (!roomPricesPerResident(room, term)) return [];
-  return roomResidentPrices(room, term).map(
+  const rows = roomResidentPrices(room, term);
+  const rents = rows.map((row) => row.monthlyRent).filter((n) => n > 0);
+  if (rents.length < 2 || Math.min(...rents) === Math.max(...rents)) return [];
+  return rows.map(
     (row) => `Resident ${row.slot} · ${formatRoomPriceAmount(row.monthlyRent)}/mo`,
   );
 }
