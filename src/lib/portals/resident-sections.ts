@@ -3,6 +3,14 @@ import {
   RESIDENT_MOVE_IN_TAB_LABELS,
   RESIDENT_MOVE_IN_TABS,
 } from "@/lib/portal-detail-routes";
+import {
+  RESIDENT_INSPECTION_TAB_LABELS,
+  RESIDENT_INSPECTION_TAB_ORDER,
+} from "@/lib/resident-inspections-tabs";
+import {
+  RESIDENT_DOCUMENT_TAB_LABELS,
+  RESIDENT_DOCUMENT_TAB_ORDER,
+} from "@/lib/resident-documents-tabs";
 
 /** Base path for resident portal — shared by web and Capacitor WebView. */
 export const RESIDENT_PORTAL_BASE_PATH = "/resident";
@@ -25,26 +33,33 @@ export const RESIDENT_FREE_TIER_SECTION_IDS = [
 
 export type ResidentFreeTierSectionId = (typeof RESIDENT_FREE_TIER_SECTION_IDS)[number];
 
-const DOCUMENTS_TABS = [
-  { id: "application", label: "Application" },
-  { id: "lease", label: "Lease" },
-  { id: "receipts", label: "Rent receipts" },
-  // "Shared with you" was merged into "Other documents" — the merged table
-  // shows both own uploads and manager-shared docs, tagged by a Source column.
-  // The legacy /documents/shared route redirects here (render-portal-section).
-  { id: "other", label: "Other documents" },
-] as const;
+/**
+ * Documents' top destinations (captain, 2026-09-25): To sign / Signed /
+ * Archived, replacing the four real category tabs — Application, Lease, Rent
+ * receipts, Other documents move into the header's Filter popover as a
+ * "Kind" field instead (every one stays reachable — C142 "keep every real
+ * tab, invent nothing"). See `src/lib/resident-documents-tabs.ts`.
+ */
+const DOCUMENTS_TABS = RESIDENT_DOCUMENT_TAB_ORDER.map((id) => ({
+  id,
+  label: RESIDENT_DOCUMENT_TAB_LABELS[id],
+}));
 
 /**
  * Move-in and move-out condition reports are the resident's own section since
  * the portal redesign (they used to be a My home sub-tab, which still redirects
  * here). A resident has no general Tasks list — these two obligations ARE the
  * tasks, and they live on the dashboard as required next steps.
+ *
+ * Top destinations (captain, 2026-09-25): Upcoming / In progress / Done,
+ * derived from each report's own status — Move-in / Move-out moved into the
+ * header's Filter popover as a "Type" field. See
+ * `src/lib/resident-inspections-tabs.ts`.
  */
-const INSPECTIONS_TABS = [
-  { id: "move-in", label: "Move-in" },
-  { id: "move-out", label: "Move-out" },
-] as const;
+const INSPECTIONS_TABS = RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
+  id,
+  label: RESIDENT_INSPECTION_TAB_LABELS[id],
+}));
 
 const MOVE_IN_TABS = RESIDENT_MOVE_IN_TABS.map((id) => ({
   id,

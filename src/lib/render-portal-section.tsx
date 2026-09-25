@@ -1,4 +1,14 @@
 import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
+import {
+  parseResidentInspectionTypeFilter,
+  RESIDENT_INSPECTION_TAB_ORDER,
+  type ResidentInspectionTab,
+} from "@/lib/resident-inspections-tabs";
+import {
+  parseResidentDocumentKindFilter,
+  RESIDENT_DOCUMENT_KIND_DEFAULT_TAB,
+  type ResidentDocumentTab,
+} from "@/lib/resident-documents-tabs";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { AdminDashboard } from "@/components/portal/admin-dashboard";
 import { ManagerDashboard } from "@/components/portal/pro-dashboard";
@@ -1375,38 +1385,55 @@ export async function renderPortalSection(
   }
 
   if (kind === "resident" && section === "documents") {
-    const allowedTabs = meta.tabs.map((t) => t.id);
+    const allowedTabs = meta.tabs.map((t) => t.id); // bucket ids: to-sign, signed, archived
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/${section}/${allowedTabs[0] ?? "application"}`);
+      redirect(`${def.basePath}/${section}/${allowedTabs[0] ?? "to-sign"}`);
     }
     if (tabParts.length > 2) notFound();
-    const docTab = tabParts[0]!;
-    // "Shared with you" was merged into "Other documents" — keep old deep links alive.
-    if (docTab === "shared") redirect(`${def.basePath}/${section}/other`);
-    if (!allowedTabs.includes(docTab)) notFound();
-    const detailId =
-      tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-    if (
-      tabParts.length === 2 &&
-      docTab !== "application" &&
-      docTab !== "lease" &&
-      docTab !== "receipts"
-    ) {
-      notFound();
+    const seg = tabParts[0]!;
+    // "Shared with you" was merged into "Other documents" long ago — keep old deep links alive.
+    if (seg === "shared") redirect(`${def.basePath}/${section}/archived?kind=other`);
+
+    // Legacy category LIST url (no detail id) — captain, 2026-09-25: the top
+    // destinations are now To sign / Signed / Archived, and Application /
+    // Lease / Rent receipts / Other documents moved into the Filter
+    // popover's "Kind" field. Land on that kind's default bucket with the
+    // kind preselected rather than 404ing.
+    const legacyKind = parseResidentDocumentKindFilter(seg);
+    if (legacyKind && !tabParts[1]) {
+      redirect(`${def.basePath}/${section}/${RESIDENT_DOCUMENT_KIND_DEFAULT_TAB[legacyKind]}?kind=${legacyKind}`);
     }
-    const applicationId = docTab === "application" ? detailId : undefined;
-    const leaseId = docTab === "lease" ? detailId : undefined;
-    const receiptId = docTab === "receipts" ? detailId : undefined;
+
+    // Detail via the legacy kind segment (`/documents/{kind}/{id}`) is
+    // unchanged — a document always opens under its own real kind, whichever
+    // bucket/kind filter the resident found it from.
+    if (legacyKind === "application" || legacyKind === "lease" || legacyKind === "receipts") {
+      const detailId = decodeURIComponent(tabParts[1]!);
+      const tierGate = residentManagerTierGate("documents", residentManagerTier, meta.label);
+      if (tierGate) return tierGate;
+      return (
+        <ResidentDocumentsPanel
+          tabId={legacyKind}
+          basePath={def.basePath}
+          applicationId={legacyKind === "application" ? detailId : undefined}
+          leaseId={legacyKind === "lease" ? detailId : undefined}
+          receiptId={legacyKind === "receipts" ? detailId : undefined}
+        />
+      );
+    }
+    // "Other documents" never had a detail-id route.
+    if (legacyKind === "other") notFound();
+
+    // New bucket LIST route: `/documents/{to-sign|signed|archived}`.
+    if (!allowedTabs.includes(seg)) notFound();
     const tierGate = residentManagerTierGate("documents", residentManagerTier, meta.label);
     if (tierGate) return tierGate;
     return (
       <ResidentDocumentsPanel
-        tabId={docTab}
+        tabId={seg}
         basePath={def.basePath}
-        tabs={meta.tabs}
-        applicationId={applicationId}
-        leaseId={leaseId}
-        receiptId={receiptId}
+        bucket={seg as ResidentDocumentTab}
+        kindFilter={parseResidentDocumentKindFilter(firstSearchParam(searchParams, "kind"))}
       />
     );
   }
@@ -1444,11 +1471,32 @@ export async function renderPortalSection(
   if (kind === "resident" && section === "inspections") {
     // Locked until the lease is signed, like My home — there is no room to inspect before then.
     if (!residentAccess?.leaseAccessUnlocked) redirect(`${def.basePath}/dashboard`);
-    if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
-    const inspectionKind = tabParts[0];
-    if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 2) notFound();
-    if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
-    return <ResidentInspectionsPage kind={inspectionKind} reportId={tabParts[1]} basePath={def.basePath} />;
+    if (!tabParts?.length) redirect(`${def.basePath}/inspections/upcoming`);
+    const seg = tabParts[0]!;
+    // Legacy Move-in / Move-out LIST url (no report id) — captain, 2026-09-25:
+    // the top destinations are now the Upcoming / In progress / Done buckets,
+    // and Move-in / Move-out moved into the Filter popover's "Type" field.
+    // Land on Upcoming with that type preselected rather than 404ing.
+    if ((seg === "move-in" || seg === "move-out") && !tabParts[1]) {
+      redirect(`${def.basePath}/inspections/upcoming?type=${seg}`);
+    }
+    // Detail via the kind segment (`/inspections/{move-in|move-out}/{id}`) is
+    // unchanged — a filed report always opens under its own real kind,
+    // whichever bucket/type filter the resident found it from.
+    if (seg === "move-in" || seg === "move-out") {
+      if (tabParts.length > 2) notFound();
+      if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
+      return <ResidentInspectionsPage kind={seg} reportId={tabParts[1]} basePath={def.basePath} />;
+    }
+    // New bucket LIST route: `/inspections/{upcoming|in-progress|done}`.
+    if (!(RESIDENT_INSPECTION_TAB_ORDER as readonly string[]).includes(seg) || tabParts.length > 1) notFound();
+    return (
+      <ResidentInspectionsPage
+        bucket={seg as ResidentInspectionTab}
+        basePath={def.basePath}
+        typeFilter={parseResidentInspectionTypeFilter(firstSearchParam(searchParams, "type"))}
+      />
+    );
   }
 
   if (kind === "resident" && section === "move-in") {
