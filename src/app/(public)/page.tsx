@@ -18,18 +18,27 @@ import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";
  * Sections carry a heading and nothing else unless the lede says something the
  * heading cannot: a second sentence restating the first is what made this page
  * read as machine-written.
+ *
+ * Everything below the Codex-style hero keeps its exact real copy and order,
+ * restyled to the dark look (captain 2026-09-25): a `data-theme="dark"`
+ * scope flips every section's own tokens (`--foreground`, `--card`,
+ * `--border`, `--primary`, `--pl-surface-muted`, …) to their existing dark
+ * values — the product's own dark theme, not a duplicated set of styles —
+ * without touching the page-wide light theme lock the top nav still sits on.
  */
 export default function HomePage() {
   return (
     <div className="relative min-h-0 flex-1">
       <SiteHero />
-      <SiteReplacesStrip />
-      <SiteStory />
-      <SiteAudienceSwitch />
-      <SiteSwitchSteps />
-      <SitePricingTeaser />
-      <SiteFaq items={HOME_FAQ_ITEMS} />
-      <SiteFinalCta primaryAttr="home-closing-get-started" secondaryAttr="home-closing-book-demo" />
+      <div data-theme="dark" className="bg-black">
+        <SiteReplacesStrip />
+        <SiteStory />
+        <SiteAudienceSwitch />
+        <SiteSwitchSteps />
+        <SitePricingTeaser />
+        <SiteFaq items={HOME_FAQ_ITEMS} />
+        <SiteFinalCta primaryAttr="home-closing-get-started" secondaryAttr="home-closing-book-demo" />
+      </div>
     </div>
   );
 }
