@@ -69,7 +69,16 @@ export function VendorOnboardingFlow() {
       .then((r) => r.json())
       .then((data: { profile?: OnboardingProfile }) => {
         if (data.profile) {
-          setProfile({ ...EMPTY, ...data.profile, directoryListed: data.profile.directoryListed ?? true });
+          // The DB column (and the EMPTY shape a brand-new profile reads back
+          // as) defaults directory_listed to FALSE for safety — a vendor must
+          // never be listed without having seen the toggle. But that means a
+          // real self-serve signup always starts here with `directoryListed:
+          // false`, not null/undefined, so `?? true` never applies. Show the
+          // toggle ON for as long as onboarding isn't complete (the vendor
+          // hasn't made a real choice yet); once onboarding_completed_at is
+          // set, respect whatever was actually saved.
+          const directoryListed = data.profile.onboardingCompletedAt ? data.profile.directoryListed : true;
+          setProfile({ ...EMPTY, ...data.profile, directoryListed });
           setZipsDraft((data.profile.serviceAreaZips ?? []).join(", "));
         }
       })

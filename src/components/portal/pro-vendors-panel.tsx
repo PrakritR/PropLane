@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, Phone, Settings, ShieldCheck, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Settings, ShieldCheck, SlidersHorizontal, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
@@ -62,7 +62,7 @@ import {
   personRecordNeedsYouItems,
 } from "@/lib/person-record-actions";
 import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
-import { listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
+import { catalogVendorMatchesTradeArea, listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { findRosterCatalogMatch } from "@/lib/manager-vendor-typical-rates";
@@ -730,7 +730,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     );
   }
 
-  const catalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors];
+  // The trade/area Filter must narrow BOTH sources — the curated catalog and
+  // the self-serve directory rows — not just the directory rows the server
+  // already pre-filtered by `trade`/`area` query params (proof-bug #2).
+  const catalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors].filter((row) =>
+    catalogVendorMatchesTradeArea(row, directoryTradeFilter, directoryAreaFilter),
+  );
   const visibleCatalogRows = catalogRows.filter((row) =>
     matchesPortalListSearch(vendorSearch, row.name, row.trade, ...(row.trades ?? []), row.city, row.description),
   );
@@ -1136,7 +1141,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       {directoryTab === "catalog" ? (
         <PortalIconAction
           label="Filter"
-          icon={Filter}
+          icon={SlidersHorizontal}
           active={directoryFilterOpen || directoryFilterActive}
           onClick={() => setDirectoryFilterOpen((v) => !v)}
           data-attr="vendor-directory-filter-toggle"

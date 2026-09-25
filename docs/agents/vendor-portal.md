@@ -34,9 +34,16 @@ shared `PortalMobileNavBar` (back arrow + top-right profile menu), which every
 portal's mobile/native layout renders now.
 
 **Invite → signup linking.** A manager's "Send invite" (Vendors — reachable at
-`/portal/relationships/vendors`, the `ManagerVendorsPanel` component under the
-Team section's Vendors tab; no longer a Services sub-tab — that was
-removed as redundant with the Services sub-tab)
+`/portal/vendors` (`vendorListHref` in `portal-detail-routes.ts`; `?tab=catalog`
+for the PropLane vendors tab), the `ManagerVendorsPanel` component under the
+Operations section's Vendors item; no longer a Services sub-tab — that was
+removed as redundant with the Services sub-tab. **`/portal/relationships/vendors`
+is a STALE URL** — this doc said so until night/vendor-signup's proof-bug fix
+pass hit it directly: `render-portal-section.tsx`'s Teams-retirement redirect
+(PLAN-0923-1934) sends `section === "relationships"` unconditionally to
+`/portal/profile?tab=workspaces`, so that old path never reaches the vendors
+panel at all, even though the page still 200s on first load. Always use
+`vendorListHref`/`/portal/vendors`, never hand-type the old path.)
 writes a `vendor_invites` row (`manager_user_id`, `vendor_directory_id`,
 `vendor_email`, status) — the invitee has no account yet, so this can't use the
 `account_link_invites` Axis-ID-lookup shape; it's matched by lowercased email at

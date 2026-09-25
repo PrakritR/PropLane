@@ -340,3 +340,27 @@ describe("vendor directory routes — authorization is multi-role-safe, never pr
     expect((await POST(postRequest())).status).toBe(401);
   });
 });
+
+describe("catalogVendorMatchesTradeArea — the Filter must narrow the curated catalog too, not only directory rows (proof-bug #2)", () => {
+  const hvacCatalogRow = { trade: "HVAC", trades: undefined, city: "Seattle, WA", zip: "98104" };
+  const plumbingDirectoryRow = { trade: "Plumbing", trades: ["Plumbing"], city: "Seattle, WA", zip: "98101" };
+
+  it("a curated catalog row with a non-matching trade is filtered out, same as a directory row would be", async () => {
+    const { catalogVendorMatchesTradeArea } = await import("@/lib/vendor-catalog-list");
+    expect(catalogVendorMatchesTradeArea(hvacCatalogRow, "Plumbing", "")).toBe(false);
+    expect(catalogVendorMatchesTradeArea(plumbingDirectoryRow, "Plumbing", "")).toBe(true);
+  });
+
+  it("no trade selected keeps every row", async () => {
+    const { catalogVendorMatchesTradeArea } = await import("@/lib/vendor-catalog-list");
+    expect(catalogVendorMatchesTradeArea(hvacCatalogRow, "", "")).toBe(true);
+    expect(catalogVendorMatchesTradeArea(plumbingDirectoryRow, "", "")).toBe(true);
+  });
+
+  it("area filters by city or zip substring, on catalog rows too", async () => {
+    const { catalogVendorMatchesTradeArea } = await import("@/lib/vendor-catalog-list");
+    expect(catalogVendorMatchesTradeArea(hvacCatalogRow, "", "98104")).toBe(true);
+    expect(catalogVendorMatchesTradeArea(hvacCatalogRow, "", "98101")).toBe(false);
+    expect(catalogVendorMatchesTradeArea(hvacCatalogRow, "", "seattle")).toBe(true);
+  });
+});
