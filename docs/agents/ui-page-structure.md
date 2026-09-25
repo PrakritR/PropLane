@@ -72,6 +72,24 @@ White card, title plus ✕, a hairline, UPPERCASE field labels, pill inputs and 
 a hairline, then a text secondary on the left and a filled primary on the right, labelled
 with the outcome. Phone: a bottom sheet with a grab handle. Every button has a label.
 
+## 4b. Create and edit flows (full-screen editor)
+
+Every multi-field create or edit (Add property / listing editor, Schedule tour, Add resident,
+Add applicant, Add lease, …) is the same **full-screen editor**, never a small modal:
+- **Header:** title (+ status chip and address for an existing record), save state ("Not saved
+  yet" / "Saved"), "✦ Ask PropLane", ✕.
+- **Left column:** a drop card ("Add documents" / "Contact and tour") or cover photo; a "● N
+  things to finish ›" card; the step list (title + one-line summary, red dot while
+  required info is missing, the active step as a white card with a blue outline).
+- **Centre:** a big step title, section cards with two-column fields (required *), and tile
+  grids, radio cards, stepper rows or a "Start from a file" strip where the step needs them.
+- **Right column:** "<THING> PREVIEW" (facts, with "Not set" for anything unset) and "THIS WILL
+  CREATE" (✓ will happen · ! needs attention · – won't happen), and it must be true to what the
+  commit really does.
+- **Footer:** Back · "Step n of N" · a primary button naming the next step ("Continue to Home"),
+  and on the last step the commit ("Add resident & send notice").
+Small confirmations and single-field actions stay `PortalDialog` pop-ups (§4).
+
 ## 5. Settings
 
 Opens inside the portal shell. On the left, a nav card headed by avatar, name and email,
