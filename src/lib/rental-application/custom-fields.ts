@@ -106,6 +106,25 @@ export function customFieldAnswerValue(
 }
 
 /**
+ * True when `field.showIf` names another custom question whose current
+ * answer does not match — the applicant wizard skips rendering it and
+ * {@link validateCustomFieldAnswers} never requires it. Absent `showIf` (or a
+ * `fieldKey` with no matching sibling answer yet) is never hidden by this
+ * check alone — an unanswered condition reads as "" against `equals`, which
+ * simply does not match a non-empty `equals`, so the question stays hidden
+ * until its condition is actually satisfied (the common case: "show only
+ * after the gating question is answered Yes").
+ */
+export function isCustomFieldHiddenByCondition(
+  field: ManagerCustomApplicationField,
+  answers: RentalCustomFieldAnswer[] | undefined,
+): boolean {
+  const condition = field.showIf;
+  if (!condition || !condition.fieldKey) return false;
+  return customFieldAnswerValue(answers, condition.fieldKey) !== condition.equals;
+}
+
+/**
  * Set one answer, snapshotting the question's label/type/section alongside the
  * value. Keeps answer order aligned with the question order the applicant saw.
  */
@@ -133,6 +152,7 @@ export function validateCustomFieldAnswers(
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const field of fields) {
+    if (isCustomFieldHiddenByCondition(field, answers)) continue;
     const value = customFieldAnswerValue(answers, field.key).trim();
     if (field.type === "checkbox") {
       if (field.required && value !== "yes") {

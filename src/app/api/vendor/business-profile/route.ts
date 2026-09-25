@@ -44,6 +44,12 @@ export async function PATCH(req: Request) {
     if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     const str = (key: string) => (typeof body[key] === "string" ? (body[key] as string) : undefined);
     const bool = (key: string) => (typeof body[key] === "boolean" ? (body[key] as boolean) : undefined);
+    const strArray = (key: string) =>
+      Array.isArray(body[key]) ? (body[key] as unknown[]).filter((v): v is string => typeof v === "string") : undefined;
+    const num = (key: string) => {
+      if (body[key] === null) return null;
+      return typeof body[key] === "number" ? (body[key] as number) : undefined;
+    };
     const result = await saveVendorBusinessProfile(auth.db, auth.userId, {
       businessName: str("businessName"),
       contactName: str("contactName"),
@@ -53,6 +59,14 @@ export async function PATCH(req: Request) {
       notifyNewOffers: bool("notifyNewOffers"),
       notifyScheduleChanges: bool("notifyScheduleChanges"),
       notifyPayments: bool("notifyPayments"),
+      trades: strArray("trades"),
+      serviceAreaZips: strArray("serviceAreaZips"),
+      serviceRadiusMiles: num("serviceRadiusMiles"),
+      licenseNumber: str("licenseNumber"),
+      insuranceProvider: str("insuranceProvider"),
+      insurancePolicyNumber: str("insurancePolicyNumber"),
+      insuranceExpiresAt: "insuranceExpiresAt" in body ? (str("insuranceExpiresAt") ?? "") : undefined,
+      directoryListed: bool("directoryListed"),
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json({ profile: result.profile });

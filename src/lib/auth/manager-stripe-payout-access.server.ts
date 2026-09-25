@@ -10,6 +10,15 @@ export type StripePayoutContext = {
   /** Profile whose `stripe_connect_account_id` receives resident payouts. Empty when unresolved. */
   payoutOwnerUserId: string;
   canEditBankAccount: boolean;
+  /**
+   * Whether a co-manager holds the `bankAccount` grant at `read` on any
+   * assigned property under this owner. Always `true` for a primary owner
+   * viewing their own account. A co-manager with NEITHER read nor edit must
+   * never see the owner's Stripe status, balance, or identity state at all —
+   * "empty permissions = no access" (docs/agents/co-manager-access.md)
+   * applies to `bankAccount` the same as every other module.
+   */
+  canViewBankAccount: boolean;
   isCoManagerForPayout: boolean;
   /** Set when the payout owner could not be decided; routes must refuse rather than guess. */
   unresolvedReason?: "lookup_failed" | "ambiguous_owner";
@@ -32,11 +41,17 @@ async function userOwnsManagerProperties(db: ServiceClient, userId: string): Pro
   return (count ?? 0) > 0;
 }
 
-/** Whether a co-manager may change the owner's Stripe payout bank for any assigned property. */
-export async function coManagerCanEditOwnerBankAccount(
+/**
+ * Whether a co-manager may READ or edit the owner's Stripe payout bank/payout
+ * state for any assigned property, at the given level — the one answer every
+ * bank/payout route's gate (`assertCoManagerBankAccountAccess`) checks
+ * against, `edit`/`delete` implying `read` per the standard level model.
+ */
+export async function coManagerHasOwnerBankAccountAccess(
   db: ServiceClient,
   coManagerUserId: string,
   ownerUserId: string,
+  level: "read" | "edit" = "edit",
 ): Promise<boolean> {
   const { data: links } = await db
     .from("account_link_invites")
@@ -47,7 +62,7 @@ export async function coManagerCanEditOwnerBankAccount(
   for (const link of links ?? []) {
     const assigned = Array.isArray(link.assigned_property_ids) ? link.assigned_property_ids.map(String) : [];
     const perms = readPropertyPermissionsFromRow(link as Parameters<typeof readPropertyPermissionsFromRow>[0]);
-    if (assigned.some((propertyId) => coManagerModuleAllowed(perms, propertyId, "bankAccount", "edit"))) {
+    if (assigned.some((propertyId) => coManagerModuleAllowed(perms, propertyId, "bankAccount", level))) {
       return true;
     }
   }
@@ -55,8 +70,11 @@ export async function coManagerCanEditOwnerBankAccount(
 }
 
 /**
- * Resident payouts always land in the property owner's Connect account. Co-managers
- * may view that account's readiness; editing it requires the `bankAccount` grant.
+ * Resident payouts always land in the property owner's Connect account. A
+ * co-manager may view that account's readiness ONLY with the `bankAccount`
+ * grant at `read`; editing it requires `edit`. Neither is a standing
+ * privilege of being an accepted co-manager on ANY module — see
+ * `docs/agents/co-manager-access.md` "Empty permissions = no access".
  */
 export async function resolveStripePayoutContext(
   db: ServiceClient,
@@ -64,7 +82,7 @@ export async function resolveStripePayoutContext(
 ): Promise<StripePayoutContext> {
   const uid = sessionUserId.trim();
   if (!uid) {
-    return { payoutOwnerUserId: "", canEditBankAccount: false, isCoManagerForPayout: false };
+    return { payoutOwnerUserId: "", canEditBankAccount: false, canViewBankAccount: false, isCoManagerForPayout: false };
   }
 
   const owns = await userOwnsManagerProperties(db, uid);
@@ -72,12 +90,13 @@ export async function resolveStripePayoutContext(
     return {
       payoutOwnerUserId: "",
       canEditBankAccount: false,
+      canViewBankAccount: false,
       isCoManagerForPayout: false,
       unresolvedReason: "lookup_failed",
     };
   }
   if (owns) {
-    return { payoutOwnerUserId: uid, canEditBankAccount: true, isCoManagerForPayout: false };
+    return { payoutOwnerUserId: uid, canEditBankAccount: true, canViewBankAccount: true, isCoManagerForPayout: false };
   }
 
   const { data: links, error: linkError } = await db
@@ -89,6 +108,7 @@ export async function resolveStripePayoutContext(
     return {
       payoutOwnerUserId: "",
       canEditBankAccount: false,
+      canViewBankAccount: false,
       isCoManagerForPayout: false,
       unresolvedReason: "lookup_failed",
     };
@@ -100,7 +120,7 @@ export async function resolveStripePayoutContext(
   // No accepted link at all: this is the caller's own payout account. A brand-new
   // manager with no listings yet still onboards their OWN Connect account here.
   if (inviters.length === 0) {
-    return { payoutOwnerUserId: uid, canEditBankAccount: true, isCoManagerForPayout: false };
+    return { payoutOwnerUserId: uid, canEditBankAccount: true, canViewBankAccount: true, isCoManagerForPayout: false };
   }
 
   // Two owners have two different Connect accounts and nothing in this request
@@ -110,14 +130,26 @@ export async function resolveStripePayoutContext(
     return {
       payoutOwnerUserId: "",
       canEditBankAccount: false,
+      canViewBankAccount: false,
       isCoManagerForPayout: true,
       unresolvedReason: "ambiguous_owner",
     };
   }
 
   const ownerId = inviters[0]!;
-  const canEdit = await coManagerCanEditOwnerBankAccount(db, uid, ownerId);
-  return { payoutOwnerUserId: ownerId, canEditBankAccount: canEdit, isCoManagerForPayout: true };
+  const [canEdit, canView] = await Promise.all([
+    coManagerHasOwnerBankAccountAccess(db, uid, ownerId, "edit"),
+    coManagerHasOwnerBankAccountAccess(db, uid, ownerId, "read"),
+  ]);
+  return {
+    payoutOwnerUserId: ownerId,
+    canEditBankAccount: canEdit,
+    // `edit` already implies `read` in the standard level model, but a
+    // grant lookup failure must never silently upgrade a refused view into
+    // an allowed one — take both results rather than assuming.
+    canViewBankAccount: canView || canEdit,
+    isCoManagerForPayout: true,
+  };
 }
 
 /** The message a route shows when {@link resolveStripePayoutContext} could not decide an owner. */

@@ -338,41 +338,45 @@ export function AdminDashboard({ displayName = "there" }: { displayName?: string
       hideTitleOnNative
     >
       <div className={PORTAL_DASHBOARD_STACK}>
-        {/* Command center — restrained KPI stat row (scrolls horizontally on narrow screens). */}
-        <div className="-mx-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex gap-2.5 [html[data-native]_&]:gap-2">
-            <KpiTile
-              label="Live properties"
-              value={listedProps}
-              sub={unlistedProps > 0 ? `${unlistedProps} unlisted · ${totalProps} total` : `${totalProps} total`}
-              href="/admin/properties?tab=listed"
-              dataAttr="admin-dashboard-kpi-properties"
-            />
-            <KpiTile
-              label="Meetings"
-              value={totalMeetings}
-              sub={
-                pendingMeetingCount > 0
-                  ? `${pendingMeetingCount} pending`
-                  : "None pending"
-              }
-              href="/admin/events"
-              dataAttr="admin-dashboard-kpi-meetings"
-            />
-            <KpiTile
-              label="Unread inbox"
-              value={inboxUnread}
-              href="/admin/communication"
-              dataAttr="admin-dashboard-kpi-inbox"
-            />
-            <KpiTile
-              label="Open feedback"
-              value={openFeedbackTotal}
-              sub={`${feedbackTotal} on file`}
-              href="/admin/bugs-feedback"
-              dataAttr="admin-dashboard-kpi-feedback"
-            />
-          </div>
+        {/*
+          Command center — restrained KPI stat row. A 2-up grid on phone
+          (matching `DashboardSkeleton`'s own shape-matched placeholder)
+          instead of a 4-wide horizontal-scroll row, whose third tile used to
+          crop at the 390px edge with no visible scroll affordance to hint
+          more sat off-screen (AXI night sweep area 2f).
+        */}
+        <div className="grid grid-cols-2 gap-2.5 sm:flex sm:gap-2.5 [html[data-native]_&]:gap-2">
+          <KpiTile
+            label="Live properties"
+            value={listedProps}
+            sub={unlistedProps > 0 ? `${unlistedProps} unlisted · ${totalProps} total` : `${totalProps} total`}
+            href="/admin/properties?tab=listed"
+            dataAttr="admin-dashboard-kpi-properties"
+          />
+          <KpiTile
+            label="Meetings"
+            value={totalMeetings}
+            sub={
+              pendingMeetingCount > 0
+                ? `${pendingMeetingCount} pending`
+                : "None pending"
+            }
+            href="/admin/events"
+            dataAttr="admin-dashboard-kpi-meetings"
+          />
+          <KpiTile
+            label="Unread inbox"
+            value={inboxUnread}
+            href="/admin/communication"
+            dataAttr="admin-dashboard-kpi-inbox"
+          />
+          <KpiTile
+            label="Open feedback"
+            value={openFeedbackTotal}
+            sub={`${feedbackTotal} on file`}
+            href="/admin/bugs-feedback"
+            dataAttr="admin-dashboard-kpi-feedback"
+          />
         </div>
 
         {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}

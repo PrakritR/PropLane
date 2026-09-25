@@ -1,6 +1,7 @@
 "use client";
 
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -235,7 +236,13 @@ export function InspectionsPanel({ role, applicationId, initialKind = "move-in",
 }) {
   const { userId, ready } = usePortalSession();
   // Remount state on an account/portal/residency change so another viewer never sees old evidence.
-  if (!ready) return <p role="status" className="p-4 text-sm text-muted">Loading inspections…</p>;
+  // A bare "Loading…" paragraph here (instead of the same shimmering
+  // skeleton every other list content area uses) read, on a slow session
+  // read, as the whole page having failed to mount its shell — the caller
+  // (`ResidentInspectionsPage` / `ManagerInspectionsPage`) already keeps the
+  // portal shell mounted around this content slot, so only this content
+  // area needs a loading shape.
+  if (!ready) return <ListSkeleton rows={4} showLeading={false} className="p-1" />;
   if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view your inspections.</p>;
   return <InspectionWorkspace key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}`} userId={userId ?? "demo"} role={role} applicationId={applicationId} initialKind={initialKind} reportId={reportId} recordTab={recordTab} routeBase={routeBase} embeddedInResident={embeddedInResident} />;
 }

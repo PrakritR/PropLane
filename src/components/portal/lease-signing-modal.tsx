@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
@@ -8,6 +8,90 @@ import { DEMO_LEASE_SIGN_PREPARE_EVENT } from "@/lib/demo/demo-playback";
 import { LEASE_ESIGN_CONSENT_TEXT, LEASE_ESIGN_CONSENT_VERSION } from "@/lib/lease-execution-evidence";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { rasterizeLeasePdfPages, type RasterPage } from "@/lib/pdf-page-raster.client";
+import { leaseDocumentFieldLabel, type LeaseDocumentField } from "@/lib/lease-document-library";
+import { cn } from "@/lib/utils";
+
+const FIELD_TONE: Record<LeaseDocumentField["role"], string> = {
+  resident: "border-blue-500 bg-blue-500/20",
+  manager: "border-amber-500 bg-amber-500/20",
+};
+
+/**
+ * "Where you're signing" (night/custom-lease, item 3) — only rendered when
+ * the uploaded lease carries placed signature fields
+ * (`row.managerUploadedPdf.fields`). Read-only page thumbnails with each
+ * placed field highlighted, so a signer sees where their signature/initials/
+ * date will land before they type their name below. Absent fields (today's
+ * default upload) render nothing extra here — unchanged behavior.
+ */
+function LeaseSigningFieldPreview({ dataUrl, fields }: { dataUrl: string; fields: LeaseDocumentField[] }) {
+  const [pages, setPages] = useState<RasterPage[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const revoke = useRef<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const collected: RasterPage[] = [];
+    setLoaded(false);
+    void rasterizeLeasePdfPages(
+      dataUrl,
+      (page, index) => {
+        if (cancelled) return;
+        collected[index] = page;
+        revoke.current.push(page.url);
+        setPages([...collected]);
+      },
+      () => cancelled,
+    ).finally(() => {
+      if (!cancelled) setLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+      for (const url of revoke.current) URL.revokeObjectURL(url);
+      revoke.current = [];
+    };
+  }, [dataUrl]);
+
+  const pagesWithFields = useMemo(() => {
+    const pageIndexes = new Set(fields.map((f) => f.page));
+    return pages.map((page, index) => ({ page, index })).filter((p) => pageIndexes.has(p.index));
+  }, [pages, fields]);
+
+  return (
+    <div className="rounded-xl border border-border bg-accent/20 p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Where you&apos;re signing</p>
+      {!loaded && pages.length === 0 ? (
+        <p className="text-xs text-muted">Loading document…</p>
+      ) : (
+        <div className="flex flex-wrap gap-3">
+          {(pagesWithFields.length > 0 ? pagesWithFields : pages.map((page, index) => ({ page, index }))).map(({ page, index }) => (
+            <div key={index} className="relative w-28 shrink-0 overflow-hidden rounded border border-border bg-white shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={page.url} alt={`Page ${index + 1}`} className="block w-full" />
+              {fields
+                .filter((f) => f.page === index)
+                .map((field) => (
+                  <div
+                    key={field.id}
+                    className={cn("absolute rounded-sm border-2", FIELD_TONE[field.role])}
+                    style={{
+                      left: `${field.x * 100}%`,
+                      top: `${field.y * 100}%`,
+                      width: `${field.w * 100}%`,
+                      height: `${field.h * 100}%`,
+                    }}
+                    title={leaseDocumentFieldLabel(field)}
+                  />
+                ))}
+              <span className="absolute bottom-0.5 right-1 text-[9px] font-semibold text-muted">{index + 1}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Which document the signer is agreeing to, so consent cannot outlive it.
@@ -119,6 +203,9 @@ export function LeaseSigningModal({
         </div>
       ) : (
         <div className="space-y-4">
+          {row.managerUploadedPdf?.fields?.length && row.managerUploadedPdf.originalDataUrl ? (
+            <LeaseSigningFieldPreview dataUrl={row.managerUploadedPdf.originalDataUrl} fields={row.managerUploadedPdf.fields} />
+          ) : null}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-muted">{signerRoleLabel}</label>
             <p className="mt-0.5 text-xs text-muted">Type exactly as it should appear on the signed document.</p>

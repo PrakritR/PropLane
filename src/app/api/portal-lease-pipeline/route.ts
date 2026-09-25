@@ -14,6 +14,7 @@ import { autoFileLeaseDocument, type AutoFileLeaseRow } from "@/lib/documents/do
 import {
   introducesUntrustedLeaseDocument,
   leaseAllowsManagerDocumentEdits,
+  leaseClaimsExecution,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
   leaseExecutionStripRefusal,
@@ -378,19 +379,42 @@ export async function POST(req: Request) {
       if (ctx.user.role === "resident") {
         return NextResponse.json({ error: "Residents cannot delete lease records." }, { status: 403 });
       }
+      const executedIds: string[] = [];
       for (const id of ids) {
         const { data: existing } = await ctx.db
           .from("portal_lease_pipeline_records")
-          .select("id, manager_user_id, property_id")
+          .select("id, manager_user_id, property_id, row_data")
           .eq("id", id)
           .limit(1);
-        const record = (existing ?? [])[0] as LeaseScopeRecord | undefined;
+        const record = (existing ?? [])[0] as (LeaseScopeRecord & { row_data?: Record<string, unknown> }) | undefined;
         if (!record) continue;
         if (ctx.user.role !== "admin") {
           const allowed = await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record, "delete");
           if (!allowed) continue;
         }
+        // A fully executed lease is legal evidence: permanently deleting the row
+        // destroys the signed document and both signatures with no way to recover
+        // them, and unlike a routine save (guarded above by
+        // `wipesExecutedLeaseWithoutSupersedeIntent`) a DELETE has no "supersede"
+        // shape to exempt. Refuse rather than archive-by-accident; the manager
+        // still has void/renew for a lease they no longer want active.
+        const storedRow = (record.row_data ?? {}) as LeasePipelineRow;
+        if (leaseClaimsExecution(storedRow)) {
+          executedIds.push(id);
+          continue;
+        }
         await ctx.db.from("portal_lease_pipeline_records").delete().eq("id", id);
+      }
+      // Bulk (`deleteIds`) callers today are fire-and-forget local-cache cleanup
+      // (e.g. purging an application's draft leases) and do not inspect this
+      // body, so a single executed id never blocks the rest of the batch — but
+      // the refusal is still real: `refused` lists every id whose row survives.
+      if (executedIds.length > 0) {
+        return NextResponse.json({
+          ok: true,
+          refused: executedIds,
+          error: "This lease is executed and cannot be deleted. Void or renew it instead.",
+        });
       }
       return NextResponse.json({ ok: true });
     }

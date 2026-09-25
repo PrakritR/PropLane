@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
@@ -365,8 +366,13 @@ export function VendorDocumentsPanel({
         }
         primary={
           source !== "managers" ? (
+            // Same upload-cloud glyph as manager Documents' primary action
+            // (`pro-documents-panel.tsx`) — this used to fall back to the
+            // default plain "+", a different icon language for the identical
+            // "add a document" action (AXI night sweep area 2h).
             <PortalPrimaryIconAction
-              label="Upload"
+              icon={Upload}
+              label={portalListAddPrimaryLabel("document")}
               data-attr="vendor-documents-add"
               onClick={() => setUploadOpen(true)}
             />
@@ -381,7 +387,7 @@ export function VendorDocumentsPanel({
           dataAttr="vendor-documents-access-denied-banner"
         />
       ) : loading || sharedLoading ? (
-        <p className="text-sm font-semibold text-foreground">Loading documents…</p>
+        <ListSkeleton rows={4} showLeading={false} />
       ) : (
         <PortalRecordListSurface
           isEmpty={visibleRowCount === 0}
@@ -391,7 +397,7 @@ export function VendorDocumentsPanel({
             tone: listSearch.trim() ? "muted" : "default",
             actions: listSearch.trim() || !includesMine
               ? []
-              : [{ label: "Upload", onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
+              : [{ label: portalListAddPrimaryLabel("document"), onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
             clear: listSearch.trim()
               ? {
                   label: "Clear search",
@@ -401,7 +407,7 @@ export function VendorDocumentsPanel({
               : undefined,
           }}
           add={includesMine ? {
-            ariaLabel: "Upload document",
+            ariaLabel: portalListAddPrimaryLabel("document"),
             onClick: () => setUploadOpen(true),
             dataAttr: "vendor-documents-list-add",
           } : undefined}

@@ -11,6 +11,12 @@ export type AxisCatalogVendor = {
   hourlyCents: number | null;
   serviceCents: number | null;
   notes?: string;
+  /** Present only for a self-serve vendor pulled from the directory (never a curated/shared catalog row). */
+  directoryVendorUserId?: string;
+  /** Full multi-trade list for a directory row; `trade` stays the first one for backward-compat filtering/display. */
+  trades?: string[];
+  insured?: boolean;
+  licensed?: boolean;
 };
 
 export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [

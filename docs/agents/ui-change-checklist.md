@@ -72,6 +72,14 @@ Reference: manager **Properties** tab.
 - Chevron **inline after label** — `PortalTableInlineExpand`, never trailing expand column
 - Collapsed → `ChevronRight`; expanded → `ChevronDown`
 - Admin tabs: sort/filter pills above divider, table below (`ManagerPortalPageShell` + `portal-data-table.tsx`)
+- Those "pills" are the routed category/status **destination tabs**
+  (`PortalListControlStack`'s `destinations`, e.g. Admin Accounts'
+  Management/Vendors/Residents). A *secondary* filter (Admin Accounts' status
+  and plan-tier) is not a destination and still goes behind the shared Filter
+  icon (`PortalFilterSortSheet` + `FilterFieldsAccordion`), same as every
+  other portal list — raw labelled `<button>`s reaching the list band's
+  `actions` still trip the `[portal-list-control-stack]` dev guard on Admin
+  surfaces exactly like anywhere else.
 
 ## No subtext
 

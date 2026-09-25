@@ -53,6 +53,18 @@ import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
 import { ArrowRight, BriefcaseBusiness, CircleDollarSign, Contact, Star } from "lucide-react";
+import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
+import { formatVendorReviewAggregate, type VendorReviewAggregate } from "@/lib/vendor-reviews";
+
+type ManagerFacingVendorReview = {
+  id: string;
+  stars: number;
+  body: string;
+  reviewerLabel: string;
+  isOwnWorkspace: boolean;
+  vendorReply: string | null;
+  createdAt: string;
+};
 
 // PLAN-0921-1029, area 2: the manager's OWN vendor kind trims its picker to
 // Overview · Services · Invoices · Communication · Documents. "profile",
@@ -377,6 +389,43 @@ export function ManagerVendorDetail({
   const openJobs = jobs.filter((job) => job.status !== "completed" && job.status !== "paid");
   const ratings = jobs.filter((job) => job.residentRating != null).map((job) => ({ id: job.id, rating: job.residentRating!, title: job.title }));
 
+  // Manager-authored reviews (stars + notes + a vendor reply) — separate from
+  // the resident "was this fixed?" ratings above. Aggregated across every
+  // workspace that hired this vendor; another workspace's own review is
+  // redacted to "A PropLane manager" server-side (docs/agents/vendor-portal.md).
+  const [managerReviews, setManagerReviews] = useState<ManagerFacingVendorReview[] | null>(null);
+  const [managerReviewAggregate, setManagerReviewAggregate] = useState<VendorReviewAggregate>({ average: null, count: 0 });
+  const [managerReviewsState, setManagerReviewsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  useEffect(() => {
+    if (tab !== "reviews" && tab !== "overview") return;
+    if (!row.vendorUserId) {
+      setManagerReviews([]);
+      setManagerReviewAggregate({ average: null, count: 0 });
+      setManagerReviewsState("ready");
+      return;
+    }
+    let cancelled = false;
+    setManagerReviewsState("loading");
+    fetch(`/api/portal/vendor-reviews?vendorUserId=${encodeURIComponent(row.vendorUserId)}`)
+      .then((res) => res.json())
+      .then((data: { reviews?: ManagerFacingVendorReview[]; aggregate?: VendorReviewAggregate; error?: string }) => {
+        if (cancelled) return;
+        if (data.error) {
+          setManagerReviewsState("error");
+          return;
+        }
+        setManagerReviews(data.reviews ?? []);
+        setManagerReviewAggregate(data.aggregate ?? { average: null, count: 0 });
+        setManagerReviewsState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setManagerReviewsState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, row.vendorUserId]);
+
   const callName = draft.preferredName.trim() || draft.name.trim().split(" ")[0] || "there";
   const reach = resolveVendorChannel({
     preferred: draft.preferredChannel,
@@ -452,7 +501,7 @@ export function ManagerVendorDetail({
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Contact className="size-4" aria-hidden />Profile</h2>{overviewLink("Profile", "profile")}</div>{fact("Trade", draft.trades.join(", "))}{fact("Work contact", draft.email || draft.phone)}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><CircleDollarSign className="size-4" aria-hidden />Pricing</h2>{overviewLink("Pricing", "pricing")}</div>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Services</h2>{overviewLink("Services", "services")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}</section>
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}{fact("Manager reviews", managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—")}</section>
           </div>
           {summaryState === "error" ? <p role="alert" className="text-sm text-destructive">Could not load vendor history.</p> : null}
           {extraNeedsYou.length ? (
@@ -476,12 +525,48 @@ export function ManagerVendorDetail({
       ) : null}
 
       {tab === "reviews" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-detail-reviews">
-          {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading ratings…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load ratings.</p> : ratings.length === 0 ? <p className="py-8 text-center text-sm">No completed-service ratings from your portfolio yet.</p> : (
-            <ul className="divide-y divide-border rounded-xl border border-border">
-              {ratings.map((rating) => <li key={rating.id} className="flex items-center justify-between px-3 py-2.5 text-sm"><span>{rating.title}</span><strong>{rating.rating} / 5</strong></li>)}
-            </ul>
-          )}
+        <div className="space-y-5 px-3 pb-4 sm:px-4" data-attr="vendor-detail-reviews">
+          <section data-attr="vendor-detail-manager-reviews">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Manager reviews</h2>
+              <span className="text-[13px] text-muted">
+                {managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—"}
+              </span>
+            </div>
+            {managerReviewsState === "loading" ? (
+              <p className="py-6 text-center text-sm">Loading reviews…</p>
+            ) : managerReviewsState === "error" ? (
+              <p className="py-6 text-center text-sm">Could not load reviews.</p>
+            ) : !managerReviews || managerReviews.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted">No reviews from PropLane managers yet.</p>
+            ) : (
+              <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
+                {managerReviews.map((review) => (
+                  <li key={review.id} className="space-y-1 px-3 py-2.5 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <VendorReviewStarDisplay stars={review.stars} />
+                      <span className="text-[13px] text-muted">{review.reviewerLabel}</span>
+                    </div>
+                    {review.body ? <p className="text-[13.5px]">{review.body}</p> : null}
+                    {review.vendorReply ? (
+                      <p className="rounded-lg bg-muted/10 px-2.5 py-1.5 text-[13px] text-muted">
+                        <span className="font-medium text-foreground">Vendor reply: </span>
+                        {review.vendorReply}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section data-attr="vendor-detail-resident-ratings">
+            <h2 className="text-sm font-semibold">Resident ratings</h2>
+            {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading ratings…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load ratings.</p> : ratings.length === 0 ? <p className="py-8 text-center text-sm">No completed-service ratings from your portfolio yet.</p> : (
+              <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
+                {ratings.map((rating) => <li key={rating.id} className="flex items-center justify-between px-3 py-2.5 text-sm"><span>{rating.title}</span><strong>{rating.rating} / 5</strong></li>)}
+              </ul>
+            )}
+          </section>
         </div>
       ) : null}
 

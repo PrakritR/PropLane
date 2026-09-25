@@ -51,6 +51,7 @@ describe("resolveStripePayoutContext", () => {
     expect(context).toEqual({
       payoutOwnerUserId: "owner-1",
       canEditBankAccount: true,
+      canViewBankAccount: true,
       isCoManagerForPayout: false,
     });
   });
@@ -86,6 +87,39 @@ describe("resolveStripePayoutContext", () => {
     expect(context.payoutOwnerUserId).toBe("owner-a");
     expect(context.isCoManagerForPayout).toBe(true);
     expect(context.canEditBankAccount).toBe(true);
+  });
+
+  it("refuses BOTH view and edit for a co-manager with no bankAccount grant at all (e.g. the Leasing role)", async () => {
+    const db: ServiceClient = {
+      from: (table: string) => {
+        if (table === "manager_property_records") {
+          return { select: () => ({ eq: async () => ({ count: 0, error: null }) }) };
+        }
+        const rows = [
+          {
+            inviter_user_id: "owner-a",
+            assigned_property_ids: ["prop-1"],
+            // Leasing stamp: applications/promotion/inbox/calendar/properties/
+            // residents/leases only — never bankAccount.
+            property_co_manager_permissions: {
+              "prop-1": { applications: { edit: true }, leases: { read: true } },
+            },
+            co_manager_permissions: null,
+          },
+        ];
+        const q: Record<string, unknown> = {
+          select: () => q,
+          eq: () => q,
+          then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(resolve),
+        };
+        return q;
+      },
+    } as unknown as ServiceClient;
+    const context = await resolveStripePayoutContext(db, "co-1");
+    expect(context.payoutOwnerUserId).toBe("owner-a");
+    expect(context.isCoManagerForPayout).toBe(true);
+    expect(context.canEditBankAccount).toBe(false);
+    expect(context.canViewBankAccount).toBe(false);
   });
 
   it("fails closed when the co-manager link read fails", async () => {

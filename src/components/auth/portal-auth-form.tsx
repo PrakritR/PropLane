@@ -32,10 +32,20 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { EXISTING_ACCOUNT_PASSWORD_MISMATCH } from "@/lib/auth/verify-auth-password";
 
 const LOGIN_TIMEOUT_MS = 6000;
 /** Hub signup can lag GoTrue propagation; retries need a longer ceiling than sign-in. */
 const SIGNUP_SIGNIN_TIMEOUT_MS = 15_000;
+/**
+ * `/api/auth/signup` itself has no ceiling — unlike the sign-in retry after
+ * it, which was already wrapped in `withTimeout`. An email that already has
+ * an account routes this call through a live Supabase password check
+ * (`assertPasswordMatchesExistingAuthUser`); if that ever stalls, the button
+ * hung on "Creating…" forever with no error and no way forward (Night flow
+ * F-signup). Same ceiling as the sign-in retry that follows it.
+ */
+const SIGNUP_CREATE_TIMEOUT_MS = 15_000;
 
 type SignInResult = {
   data: { user: { id: string } | null; session: unknown | null };
@@ -265,17 +275,21 @@ export function PortalAuthForm() {
         return;
       }
 
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: normalizeAuthEmail(email),
-          password,
-          fullName: fullName.trim() || undefined,
-          // Was collected into state and then dropped on the floor here.
-          phone: phone.trim() || undefined,
+      const res = await withTimeout(
+        fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: normalizeAuthEmail(email),
+            password,
+            fullName: fullName.trim() || undefined,
+            // Was collected into state and then dropped on the floor here.
+            phone: phone.trim() || undefined,
+          }),
         }),
-      });
+        SIGNUP_CREATE_TIMEOUT_MS,
+        "This is taking too long. Please check your connection and try again.",
+      );
       const body = (await res.json()) as { error?: string; existingAccount?: boolean };
       if (!res.ok) {
         setErrorText(body.error ?? "Could not create your account.");
@@ -419,7 +433,20 @@ export function PortalAuthForm() {
                 }
               />
               {fields}
-              {errorText ? <p className="text-center text-xs text-rose-600">{errorText}</p> : null}
+              {errorText ? (
+                <p className="text-center text-xs text-rose-600">
+                  {errorText}
+                  {errorText === EXISTING_ACCOUNT_PASSWORD_MISMATCH ? (
+                    <>
+                      {" "}
+                      <Link href={prospectSignInHref} className="font-semibold underline" data-attr="portal-auth-existing-account-sign-in">
+                        Sign in
+                      </Link>
+                      {" instead."}
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
               <Button
                 type="button"
                 data-attr="portal-auth-create-submit"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Bell,
@@ -603,7 +604,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
               variant="primary"
               data-attr="vendor-availability-save-weekly"
               className="h-9 rounded-full px-4 text-sm"
-              disabled={saving}
+              disabled={saving || !loaded}
               onClick={() => addWeeklyWindow()}
             >
               {weeklyEditingId ? "Save changes" : "Save"}
@@ -752,7 +753,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
               variant="primary"
               data-attr="vendor-availability-save-open-date"
               className="h-9 rounded-full px-4 text-sm"
-              disabled={saving}
+              disabled={saving || !loaded}
               onClick={() => addOpenDate()}
             >
               {openEditingId ? "Save changes" : "Save"}
@@ -882,7 +883,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
               variant="primary"
               data-attr="vendor-availability-save-block"
               className="h-9 rounded-full px-4 text-sm"
-              disabled={saving}
+              disabled={saving || !loaded}
               onClick={() => addBlock()}
             >
               {blockEditingId ? "Save changes" : "Save"}
@@ -1219,7 +1220,9 @@ export function VendorSettingsPanel() {
     <PortalSettingsSection title="Business profile">
       <PortalSettingsGroup>
       {profileLoading ? (
-        <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+        <div className="px-4 py-4">
+          <ListSkeleton rows={2} showLeading={false} />
+        </div>
       ) : (
         <PortalSettingsFormBody>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1300,7 +1303,9 @@ export function VendorSettingsPanel() {
     >
       <PortalSettingsGroup>
       {profileLoading ? (
-        <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+        <div className="px-4 py-4">
+          <ListSkeleton rows={2} showLeading={false} />
+        </div>
       ) : (
         <PortalSettingsFormBody>
         <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3">

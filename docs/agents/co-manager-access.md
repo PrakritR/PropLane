@@ -234,7 +234,21 @@ Linking the bank account itself was already owner-scoped: Stripe Connect
 onboarding refuses a co-manager without `bankAccount` at edit and always
 onboards the OWNER's account
 (`src/lib/auth/co-manager-bank-account-access.ts`,
-`manager-stripe-payout-access.server.ts`).
+`manager-stripe-payout-access.server.ts`). **READ used to be exempt from
+that grant entirely** — `assertCoManagerBankAccountAccess` passed any `read`
+request unconditionally for ANY accepted co-manager, so a "Leasing"-role
+co-manager (whose stamp never touches `bankAccount`) could see the owner's
+full Stripe Connect readiness/balance/identity state via `GET
+/api/stripe/connect/status` (which called nothing here at all before this
+fix) and `GET /api/stripe/payouts/balance`. Both levels now check the real
+grant through `coManagerHasOwnerBankAccountAccess`
+(`manager-stripe-payout-access.server.ts`), `edit`/`delete` implying `read`
+as usual. `resolveStripePayoutContext`'s `canViewBankAccount` carries this to
+the client (`pro-payment-setup-modal.tsx` hides the Payouts row entirely,
+rather than only disabling its edit controls, when a co-manager lacks even
+`read`). Coverage: `tests/unit/co-manager-bank-account-access-gate.test.ts`,
+`tests/unit/stripe-connect-status-readonly.test.ts`,
+`tests/unit/manager-stripe-payout-context.test.ts`.
 
 **Communication is granted per HOUSE, not per owner.** A Communication grant
 on one house shows the conversations about that house — never the owner's

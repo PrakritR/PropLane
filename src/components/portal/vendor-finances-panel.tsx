@@ -1,15 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CreditCard, Download } from "lucide-react";
+import { Download, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
-import {
-  ManagerPortalPageShell,
-  ManagerPortalStatusPills,
-} from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -680,19 +679,29 @@ function VendorInvoicesView({
       }
       primary={
         <PortalPrimaryIconAction
-          label="Request payment"
+          label={portalListAddPrimaryLabel("invoice")}
           data-attr="vendor-invoice-new"
           onClick={() => setWizardOpen(true)}
         />
       }
     >
-      <ManagerPortalStatusPills
-        tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
+      {/*
+        The same underline tabs every other status filter in the product uses
+        (manager Payments/Leases/Tours/Applications, resident Payments) —
+        this used to be a rounded pill segmented control, a visually
+        different control doing the identical job (AXI night sweep area 2i).
+      */}
+      <LocalDestinationNav
+        items={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
         activeId={statusFilter}
         onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
+        ariaLabel="Invoice status"
+        appearance="command"
       />
       {loading ? (
-        <div className="h-40 animate-pulse rounded-2xl bg-muted" data-attr="vendor-invoices-loading" aria-hidden />
+        <div data-attr="vendor-invoices-loading">
+          <ListSkeleton rows={4} showLeading={false} />
+        </div>
       ) : filtered.length === 0 ? (
         <PortalListEmptyCard
           title={invoices.length === 0 ? portalEmptyCopy("finances.invoices").title : "No invoices match this filter"}
@@ -702,7 +711,7 @@ function VendorInvoicesView({
             invoices.length === 0
               ? [
                   {
-                    label: "Request payment",
+                    label: portalListAddPrimaryLabel("invoice"),
                     onClick: () => setWizardOpen(true),
                     dataAttr: "vendor-invoice-empty-add",
                   },
@@ -970,7 +979,7 @@ export function VendorFinancesPanel({
 
   const requestPayment = (
     <PortalPrimaryIconAction
-      label="Request payment"
+      label={portalListAddPrimaryLabel("payment")}
       data-attr="vendor-finances-request-payment"
       onClick={() => setRequestOpen(true)}
     />
@@ -1032,7 +1041,7 @@ export function VendorFinancesPanel({
         dataAttr: "vendor-income-search",
       }}
       activeFilterChips={<PortalActiveFilterChips chips={filterChips} />}
-      actions={<PortalIconAction icon={CreditCard} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
+      actions={<PortalIconAction icon={Wrench} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
       primary={requestPayment}
     >
       {filteredRows.length === 0 ? (
@@ -1043,7 +1052,7 @@ export function VendorFinancesPanel({
           actions={
             filtersHideRows
               ? []
-              : [{ label: "Request payment", onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
+              : [{ label: portalListAddPrimaryLabel("payment"), onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
           }
           clear={
             filtersHideRows

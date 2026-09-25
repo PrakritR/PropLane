@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SlidersHorizontal } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
+import { DashboardSkeleton } from "@/components/portal/dashboard-skeleton";
 import {
   ManagerPortalPageShell,
   PORTAL_DASHBOARD_STACK,
@@ -438,6 +439,11 @@ export function ResidentDashboard({
   const bump = () => setTick((n) => n + 1);
   const [clientReady, setClientReady] = useState(false);
   const [tours, setTours] = useState<ResidentTourView[]>([]);
+  // The body below is almost entirely `condition ? <Card/> : null` — with no
+  // loading gate at all it used to render a fully blank page (no skeleton,
+  // no cards) until the client mount tick and the portal session both
+  // resolved, which was visibly slower than the header/nav on a phone.
+  const dashboardReady = clientReady && session.ready;
 
   useEffect(() => {
     queueMicrotask(() => setClientReady(true));
@@ -691,6 +697,10 @@ export function ResidentDashboard({
       hideTitleOnMobileNav
     >
       <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
+        {!dashboardReady ? (
+          <DashboardSkeleton />
+        ) : (
+        <>
         {leaseSigned && showHouseDetails ? (
           <Link
             href={houseDetailsHref}
@@ -1013,6 +1023,8 @@ export function ResidentDashboard({
           />
           ) : null}
         </div>
+        </>
+        )}
       </div>
 
       <DashboardCustomizeModal
