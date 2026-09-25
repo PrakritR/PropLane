@@ -60,12 +60,31 @@ vi.mock("@/lib/supabase/service", () => ({
           onboarding_completed_at: "2026-09-25T00:00:00.000Z",
         };
         const builder: Record<string, unknown> = {};
-        for (const name of ["select", "eq", "not", "order", "limit", "contains"]) {
+        for (const name of ["select", "eq", "not", "order", "limit", "contains", "in"]) {
           builder[name] = () => builder;
         }
         builder.maybeSingle = async () => ({ data: row, error: null });
         builder.then = (resolve: (v: unknown) => unknown) =>
-          Promise.resolve({ data: [{ user_id: "vendor-1", service_area: "Seattle, WA", service_area_zips: [], insurance_expires_at: null, insurance_doc_path: null, license_number: "", ...row }], error: null }).then(resolve);
+          Promise.resolve({
+            data: [
+              {
+                user_id: "vendor-1",
+                service_area: "Seattle, WA",
+                service_area_zips: [],
+                insurance_expires_at: "2099-01-01",
+                insurance_doc_path: "vendor-documents/vendor-1/onboarding-insurance-1.pdf",
+                license_number: "WA-12345",
+                ...row,
+              },
+            ],
+            error: null,
+          }).then(resolve);
+        return builder;
+      }
+      if (table === "vendor_reviews") {
+        const builder: Record<string, unknown> = {};
+        for (const name of ["select", "in"]) builder[name] = () => builder;
+        builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve);
         return builder;
       }
       throw new Error(`unexpected table ${table}`);
@@ -78,9 +97,18 @@ type ListHandler = () => { data: unknown[]; error: null };
 
 function fakeListDb(list: ListHandler) {
   return {
-    from: () => {
+    from: (table: string) => {
+      // The rating aggregate reads a SECOND table (vendor_reviews) after the
+      // directory rows resolve — an empty result here is fine for every test
+      // in this file, none of which assert on rating.
+      if (table === "vendor_reviews") {
+        const builder: Record<string, unknown> = {};
+        for (const name of ["select", "in"]) builder[name] = () => builder;
+        builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve);
+        return builder;
+      }
       const builder: Record<string, unknown> = {};
-      for (const name of ["select", "eq", "not", "order", "limit", "contains"]) {
+      for (const name of ["select", "eq", "not", "order", "limit", "contains", "in"]) {
         builder[name] = () => builder;
       }
       builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(list()).then(resolve);
@@ -129,7 +157,10 @@ describe("vendor directory projection — never leaks private fields", () => {
     expect(projected).not.toHaveProperty("licenseDocPath");
   });
 
-  it("marks a vendor un-insured once their certificate has expired", async () => {
+  // Item 1 (C083/C198): the manager-facing directory is VERIFIED-ONLY — a
+  // vendor whose insurance has expired (or who never uploaded a license) is
+  // excluded from the results entirely, not merely flagged uninsured.
+  it("excludes a vendor from the directory once their insurance certificate has expired", async () => {
     const { loadDirectoryListedVendors } = await import("@/lib/vendor-directory.server");
     const row = {
       user_id: "vendor-2",
@@ -137,14 +168,69 @@ describe("vendor directory projection — never leaks private fields", () => {
       service_area: "Tacoma, WA",
       service_area_zips: [],
       trades: ["Electrical"],
-      license_number: "",
+      license_number: "WA-99999",
       insurance_expires_at: "2000-01-01",
       insurance_doc_path: "vendor-documents/vendor-2/onboarding-insurance-1.pdf",
     };
     const db = fakeListDb(() => ({ data: [row], error: null }));
     const rows = await loadDirectoryListedVendors(db);
-    expect(rows[0]!.insured).toBe(false);
-    expect(rows[0]!.licensed).toBe(false);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("excludes a vendor from the directory when they never uploaded a license, even if insured", async () => {
+    const { loadDirectoryListedVendors } = await import("@/lib/vendor-directory.server");
+    const row = {
+      user_id: "vendor-3",
+      business_name: "No License Co",
+      service_area: "Tacoma, WA",
+      service_area_zips: [],
+      trades: ["Electrical"],
+      license_number: "",
+      insurance_expires_at: "2099-01-01",
+      insurance_doc_path: "vendor-documents/vendor-3/onboarding-insurance-1.pdf",
+    };
+    const db = fakeListDb(() => ({ data: [row], error: null }));
+    const rows = await loadDirectoryListedVendors(db);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("includes a vendor with a current license and non-expired insurance, with a rating computed from vendor_reviews", async () => {
+    const { loadDirectoryListedVendors } = await import("@/lib/vendor-directory.server");
+    const row = {
+      user_id: "vendor-4",
+      business_name: "Verified Vendor Co",
+      service_area: "Seattle, WA",
+      service_area_zips: [],
+      trades: ["Plumbing"],
+      license_number: "WA-1",
+      insurance_expires_at: "2099-01-01",
+      insurance_doc_path: "vendor-documents/vendor-4/onboarding-insurance-1.pdf",
+    };
+    const db = {
+      from: (table: string) => {
+        if (table === "vendor_reviews") {
+          const builder: Record<string, unknown> = {};
+          for (const name of ["select", "in"]) builder[name] = () => builder;
+          builder.then = (resolve: (v: unknown) => unknown) =>
+            Promise.resolve({
+              data: [
+                { vendor_user_id: "vendor-4", stars: 5 },
+                { vendor_user_id: "vendor-4", stars: 4 },
+              ],
+              error: null,
+            }).then(resolve);
+          return builder;
+        }
+        const builder: Record<string, unknown> = {};
+        for (const name of ["select", "eq", "not", "order", "limit", "contains"]) builder[name] = () => builder;
+        builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [row], error: null }).then(resolve);
+        return builder;
+      },
+    } as never;
+    const rows = await loadDirectoryListedVendors(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.rating).toBe(4.5);
+    expect(rows[0]!.reviewCount).toBe(2);
   });
 });
 

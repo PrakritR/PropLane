@@ -17,6 +17,10 @@ export type AxisCatalogVendor = {
   trades?: string[];
   insured?: boolean;
   licensed?: boolean;
+  /** Average rating (rounded to 1 decimal) from `vendor_reviews` — public-safe aggregate only, never raw review text. Present only where computed (self-serve directory rows). */
+  rating?: number | null;
+  /** Number of reviews behind `rating`. 0 when unrated. */
+  reviewCount?: number;
 };
 
 export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
