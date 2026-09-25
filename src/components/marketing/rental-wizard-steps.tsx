@@ -359,7 +359,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         error={errors[customFieldErrorKey(field.key)]}
         onChange={(next) => patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })}
         getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired}
-        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} />
+        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly || field.filledBy === "manager"} />
     </div>
   );
 
@@ -407,7 +407,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             getApplicationId={getApplicationId}
             setupTokenRequired={p.photoSetupTokenRequired}
             getSetupToken={p.getPhotoSetupToken}
-            readOnly={photosReadOnly}
+            readOnly={photosReadOnly || field.filledBy === "manager"}
           />
         ))}
       </div>
@@ -1175,7 +1175,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               getApplicationId={getApplicationId}
               setupTokenRequired={p.photoSetupTokenRequired}
               getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
+              readOnly={photosReadOnly || field.filledBy === "manager"}
             />
           </div>
         );
@@ -1684,7 +1684,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               getApplicationId={getApplicationId}
               setupTokenRequired={p.photoSetupTokenRequired}
               getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
+              readOnly={photosReadOnly || field.filledBy === "manager"}
             />
           </div>
         );
