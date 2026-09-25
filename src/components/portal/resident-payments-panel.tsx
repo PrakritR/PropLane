@@ -94,6 +94,7 @@ import {
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
+import { RESIDENT_PAYMENTS_TAB_LABELS } from "@/lib/resident-payments-tabs";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -725,20 +726,20 @@ export function ResidentPaymentsPanel({
       [
         {
           id: "pending" as const,
-          label: "Pending",
+          label: RESIDENT_PAYMENTS_TAB_LABELS.pending,
           count: bucketCounts.pending,
           dataAttr: "resident-payments-tab-pending",
         },
         {
           id: "overdue" as const,
-          label: "Overdue",
+          label: RESIDENT_PAYMENTS_TAB_LABELS.overdue,
           count: bucketCounts.overdue,
           alert: bucketCounts.overdue > 0,
           dataAttr: "resident-payments-tab-overdue",
         },
         {
           id: "paid" as const,
-          label: "Paid",
+          label: RESIDENT_PAYMENTS_TAB_LABELS.paid,
           count: bucketCounts.paid,
           dataAttr: "resident-payments-tab-paid",
         },

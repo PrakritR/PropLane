@@ -1995,7 +1995,7 @@ export const ResidentInboxPanel = forwardRef<
 
   return (
     <ManagerPortalPageShell
-      title="Inbox"
+      title="Communication"
       titleAside={
         <>
           <Button type="button" variant="primary" className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`} onClick={() => setComposeOpen(true)}>

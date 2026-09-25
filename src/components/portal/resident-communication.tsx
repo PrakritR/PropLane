@@ -628,7 +628,7 @@ export function ResidentCommunication({
 
   return (
     <PortalCommunicationShell
-      title="Inbox"
+      title="Communication"
       hideTitleOnMobileNav
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
