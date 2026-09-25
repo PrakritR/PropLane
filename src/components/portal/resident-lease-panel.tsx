@@ -14,6 +14,7 @@ import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-lease-report-issue-modal";
 import { ResidentLeaseSigningFeeCard } from "@/components/portal/resident-lease-signing-fee-card";
 import { ResidentLeaseIntakeSection } from "@/components/portal/resident-lease-intake-section";
+import { ResidentLeaseFirstSigningWizard, leaseFirstSigningPhase } from "@/components/portal/resident-lease-first-signing-wizard";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -439,6 +440,8 @@ export function ResidentLeasePanel({
       />
     ) : null;
 
+  const leaseFirstPhase = pipelineRow ? leaseFirstSigningPhase(pipelineRow) : null;
+
   const leaseDetailBody = documentView || pipelineRow ? (
     <div className="px-3 pb-6 pt-2 sm:px-4 text-left">
       {pipelineRow ? (
@@ -449,8 +452,17 @@ export function ResidentLeasePanel({
           }}
         />
       ) : null}
+      {pipelineRow && leaseFirstPhase ? (
+        <ResidentLeaseFirstSigningWizard
+          row={pipelineRow}
+          onSaved={() => {
+            void syncLeasePipelineFromServer(undefined, { force: true });
+          }}
+          onReachedSign={() => onSignLease()}
+        />
+      ) : null}
       {signingFeeCard ? <div className="mb-3">{signingFeeCard}</div> : null}
-      {documentView ? (
+      {documentView && leaseFirstPhase !== "in-progress" ? (
         <ResidentLeaseBareDocumentPreview
           pdfSrc={documentView.pdfSrc}
           leaseHtml={documentView.leaseHtml}

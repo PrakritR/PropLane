@@ -40,7 +40,11 @@ import { assertSafePdfForImport, parsePdfForImport } from "@/lib/pdf-import/pdf-
 import { leaseBodyMatchesManagerFiledLease, managerFiledLeaseScopeForNewRow } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
 import { LEASE_TEMPLATE_BUCKET, leaseTemplateObjectPath } from "@/lib/lease-template-storage";
-import { hasBothLeaseSignatures, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { hasBothLeaseSignatures, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { loadLeasingPipelineState, resolveLeasingPipelineForProperty } from "@/lib/leasing-pipeline-preferences";
+import { buildLeaseFirstSigningHtml, resolveManagerFilledSigningAnswers, type LeaseFirstFeeContext } from "@/lib/leasing/lease-first-signing-document";
 import {
   projectLeasePipelineListRow,
   restoreOmittedLeaseDocument,
@@ -416,7 +420,7 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review" | "begin_lease_first_signing";
       id?: string;
       leaseId?: string;
       acknowledgeTermsRiderConflicts?: boolean;
@@ -634,6 +638,108 @@ export async function POST(req: Request) {
       if (updateError) return NextResponse.json({ error: "Could not save the lease review." }, { status: 500 });
       if (!updatedRows?.length) return NextResponse.json({ error: "The lease changed during review. Reopen it and compare the current version." }, { status: 409 });
       return NextResponse.json({ ok: true, row: nextRow });
+    }
+
+    if (body.action === "begin_lease_first_signing") {
+      // Ida Cares lease-first (PLAN-0925, C274-C287): the resident-triggered
+      // transition from a `createLeaseFirstDraft` marker row (`bucket:
+      // "manager", status: "Draft", leaseFirst: true`, no document yet) into
+      // the same `bucket: "resident", status: "Resident Signature Pending"`
+      // state every other lease type already reaches before a resident can
+      // sign — see `residentSignLease` in `lease-pipeline-storage.ts`. Only a
+      // resident may call this, only on their OWN draft, and the document is
+      // generated entirely server-side from the property's PUBLISHED (never
+      // draft) lease template — nothing in the request body becomes document
+      // content, so this cannot be used to smuggle arbitrary lease text the
+      // way `introducesUntrustedLeaseDocument` guards the generic upsert path.
+      if (ctx.user.role !== "resident") return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const leaseId = body.leaseId?.trim() ?? "";
+      if (!leaseId) return NextResponse.json({ error: "Lease id required." }, { status: 400 });
+      const { data, error } = await ctx.db
+        .from("portal_lease_pipeline_records")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data, updated_at")
+        .eq("id", leaseId)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: "Could not load your lease." }, { status: 500 });
+      const record = data as (StoredLeaseScopeColumns & { id: string; row_data?: Record<string, unknown>; updated_at?: string | null }) | null;
+      const ownsRecord =
+        record &&
+        ((record.resident_user_id && record.resident_user_id === ctx.user.id) ||
+          (record.resident_email && record.resident_email.trim().toLowerCase() === ctx.user.email));
+      if (!record || !ownsRecord) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const row = normalizeLeasePipelineRow(record.row_data ?? {});
+      if (row.leaseFirst !== true || row.bucket !== "manager" || row.status !== "Draft" || row.generatedHtml || hasBothLeaseSignatures(row) || row.residentSignature || row.managerSignature) {
+        return NextResponse.json({ error: "This lease is not ready to begin signing." }, { status: 409 });
+      }
+      const managerUserId = record.manager_user_id ?? row.managerUserId ?? "";
+      const propertyId = record.property_id ?? row.propertyId ?? "";
+      if (!managerUserId || !propertyId) return NextResponse.json({ error: "This lease has no property on file." }, { status: 409 });
+      const { data: propertyRecord, error: propertyError } = await ctx.db
+        .from("manager_property_records")
+        .select("property_data")
+        .eq("id", propertyId)
+        .eq("manager_user_id", managerUserId)
+        .maybeSingle();
+      if (propertyError || !propertyRecord) return NextResponse.json({ error: "This property is no longer available." }, { status: 404 });
+      const propertyData = propertyRecord.property_data as { listingSubmission?: unknown; buildingName?: string; title?: string } | null;
+      const rawSubmission = propertyData?.listingSubmission;
+      if (!rawSubmission || typeof rawSubmission !== "object") {
+        return NextResponse.json({ error: "This property has no lease template configured." }, { status: 409 });
+      }
+      // Trusted, already-shaped JSON at rest (same trust level `ownedTemplate` in
+      // `lease-template-import/route.ts` uses for its own `submission` read) —
+      // not raw/unknown user input, so a direct cast rather than the
+      // caller-shape `normalizeManagerListingSubmissionV1` (which expects an
+      // already-typed `ManagerListingSubmissionV1`, not `unknown`).
+      const sub = rawSubmission as ManagerListingSubmissionV1;
+      const pipelineState = await loadLeasingPipelineState(ctx.db, managerUserId);
+      const pipelinePrefs = resolveLeasingPipelineForProperty(pipelineState, propertyId);
+      const templateId = pipelinePrefs.defaultLeaseTemplateId;
+      const templates = readPropertyLeaseTemplates(sub);
+      const template = templateId ? templates.find((t) => t.id === templateId) : undefined;
+      const publishedConfig = template?.publishedQuestionConfig;
+      if (!template || !publishedConfig) {
+        return NextResponse.json({ error: "This property has no published lease-first template configured." }, { status: 409 });
+      }
+      const roomChoice = (row.roomChoice ?? "").trim();
+      const listingRoomId = roomChoice.includes("::") ? roomChoice.split("::")[1] : undefined;
+      const room = listingRoomId ? sub.rooms.find((r) => r.id === listingRoomId) : undefined;
+      const fees: LeaseFirstFeeContext = {
+        monthlyRent: room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : null,
+        dailyRent: room?.dailyRentPrice && room.dailyRentPrice > 0 ? room.dailyRentPrice : null,
+        moveInFeeLabel: null,
+      };
+      const propertyLabel = propertyData?.buildingName ?? propertyData?.title ?? sub.buildingName ?? "";
+      const generatedHtml = buildLeaseFirstSigningHtml(publishedConfig, {
+        propertyLabel,
+        fees,
+        documentTitle: template.label,
+      });
+      const managerAnswers = resolveManagerFilledSigningAnswers(publishedConfig, fees);
+      const iso = new Date().toISOString();
+      const nextRow: LeasePipelineRow = {
+        ...row,
+        leaseTemplateId: template.id,
+        signingTemplateSnapshot: publishedConfig,
+        signingAnswers: { ...(row.signingAnswers ?? {}), ...managerAnswers },
+        generatedHtml,
+        generatedAtIso: iso,
+        documentMode: "proplane-generated",
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        updatedAtIso: iso,
+        updated: iso,
+      };
+      let updateBegin = ctx.db
+        .from("portal_lease_pipeline_records")
+        .update({ row_data: nextRow, updated_at: iso })
+        .eq("id", leaseId)
+        .eq("manager_user_id", managerUserId);
+      updateBegin = record.updated_at ? updateBegin.eq("updated_at", record.updated_at) : updateBegin.is("updated_at", null);
+      const { data: beganRows, error: beginError } = await updateBegin.select("id");
+      if (beginError) return NextResponse.json({ error: "Could not start signing." }, { status: 500 });
+      if (!beganRows?.length) return NextResponse.json({ error: "This lease changed. Reload and try again." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: normalizeRow(nextRow) });
     }
 
     if (body.action === "delete" || body.action === "deleteIds") {

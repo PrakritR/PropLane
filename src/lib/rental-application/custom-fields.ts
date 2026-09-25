@@ -222,6 +222,11 @@ export function validateCustomFieldAnswers(
     if (field.type === "phone" && !isCompletePhoneNumber(value)) {
       errors[customFieldErrorKey(field.key)] = "Enter a valid phone number.";
     }
+    // Like `text`, required-ness is covered by the generic `if (!value)` check
+    // above — this only adds the length cap: initials are a mark, not a name.
+    if (field.type === "initials" && value.length > 6) {
+      errors[customFieldErrorKey(field.key)] = "Keep initials short (6 characters or fewer).";
+    }
     if (field.type === "select" && field.options.length > 0 && !field.options.includes(value)) {
       errors[customFieldErrorKey(field.key)] = "Choose one of the listed options.";
     }

@@ -336,6 +336,18 @@ function CustomQuestions({
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
       {questions.map((q) => {
         const value = form.customAnswers[q.key] ?? "";
+        // A manager-filled question (e.g. an imported lease initials line) is
+        // never an editable control here — it renders its stored value as
+        // plain text, matching CustomQuestionField's readOnly wrapper style.
+        if (q.filledBy === "manager") {
+          return (
+            <WizardField key={q.id} label={q.label}>
+              <div className="rounded-lg border border-border bg-accent/20 px-3 py-2 text-sm text-foreground">
+                {value || "—"}
+              </div>
+            </WizardField>
+          );
+        }
         if (q.type === "select" || q.type === "multi_select") {
           return (
             <WizardSelect

@@ -3,6 +3,7 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   clusterManagerLeaseListRows,
   leaseGroupedRowPrimary,
+  leaseInitialsProgressFact,
   leaseRowPlaceLine,
   leaseRowSortMs,
   leaseStageFact,
@@ -138,5 +139,29 @@ describe("manager-lease-list", () => {
     );
     expect(clusters.map((cluster) => cluster.rows[0]?.id)).toEqual(["lease-old", "lease-new"]);
     expect(leaseRowSortMs(newer)).toBeGreaterThan(leaseRowSortMs(older));
+  });
+
+  it("shows an imported lease-first template's initials progress as a plain fact (C280)", () => {
+    const withTemplate = row({
+      id: "lease-idacares",
+      residentName: "Jordan Reyes",
+      residentEmail: "jordan@example.com",
+      signingTemplateSnapshot: {
+        disabledStandardApplicationKeys: [],
+        applicationConfigMode: "custom",
+        version: 1,
+        customApplicationFields: [
+          { id: "f1", key: "a1", label: "Ack 1", type: "initials", required: true, options: [], section: "Acknowledgements" },
+          { id: "f2", key: "a2", label: "Ack 2", type: "initials", required: true, options: [], section: "Acknowledgements" },
+        ],
+      },
+      signingAnswers: { a1: "JR" },
+    });
+    expect(leaseInitialsProgressFact(withTemplate)).toBe("1 of 2 initials");
+  });
+
+  it("shows no initials fact for an ordinary lease (no imported template)", () => {
+    const ordinary = row({ id: "lease-ordinary", residentName: "Alex Kim", residentEmail: "alex@example.com" });
+    expect(leaseInitialsProgressFact(ordinary)).toBeUndefined();
   });
 });
