@@ -122,7 +122,11 @@ type RoomAvailabilityOptions = {
 export function parseRoomChoiceValue(value: string): ParsedRoomChoice {
   const raw = value.trim();
   if (!raw) return { propertyId: "" };
-  const slotMatch = raw.match(LISTING_ROOM_SLOT_SUFFIX);
+  // `roomChoiceValue` writes a slot only after `property::room`, so `prop::r1`
+  // is room "r1" (an imported or legacy id), never property + slot 1.
+  const suffix = raw.match(LISTING_ROOM_SLOT_SUFFIX);
+  const slotMatch =
+    suffix && raw.slice(0, raw.length - suffix[0].length).includes(LISTING_ROOM_CHOICE_SEP) ? suffix : null;
   const parsedSlot = slotMatch ? Number(slotMatch[1]) : undefined;
   const residentSlot =
     Number.isInteger(parsedSlot) && (parsedSlot as number) >= 1 ? parsedSlot : undefined;
