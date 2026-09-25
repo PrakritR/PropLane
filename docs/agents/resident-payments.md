@@ -661,3 +661,12 @@ wherever the resident already receives payment notices per their preferences.
 
 Coverage: `tests/unit/resident-autopay.test.ts`,
 `tests/unit/resident-payments-autopay.test.tsx`.
+
+**A resident's `manager_id` is not guaranteed to be a valid UUID** (a legacy or
+corrupt fixture row is a real case, not just theoretical — it 500'd every
+`/resident/move-in` load until fixed). `resolveResidentAutopayHousehold`
+treats Postgres's `22P02 invalid input syntax for type uuid` the same as an
+empty result — no valid manager link means no autopay household — rather than
+letting the raw DB error bubble up as a 500. Any new query keyed on a
+resident's `manager_id`/`resident_user_id` should do the same rather than
+assume the column always holds a well-formed id.
