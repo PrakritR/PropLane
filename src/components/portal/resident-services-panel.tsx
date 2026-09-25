@@ -83,6 +83,12 @@ import {
   type ServiceRowState,
   type UnifiedServiceRow,
 } from "@/lib/unified-service-rows";
+import {
+  RESIDENT_SERVICE_TAB_LABELS,
+  RESIDENT_SERVICE_TAB_ORDER,
+  residentServiceTab,
+  type ResidentServiceTab,
+} from "@/lib/resident-services-tabs";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -95,12 +101,10 @@ import {
 
 const EMPTY_SERVICE_OPTIONS: ManagerListingServiceOption[] = [];
 
-const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
-  { id: "open", label: "Open" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "done", label: "Done" },
-  { id: "declined", label: "Declined" },
-];
+const SERVICE_STATE_TABS: { id: ResidentServiceTab; label: string }[] = RESIDENT_SERVICE_TAB_ORDER.map((id) => ({
+  id,
+  label: RESIDENT_SERVICE_TAB_LABELS[id],
+}));
 
 function unifiedServiceRowKey(row: Pick<UnifiedServiceRow, "kind" | "id">): string {
   return `${row.kind}::${row.id}`;
@@ -556,7 +560,7 @@ export function ResidentServicesPanel({
   const session = usePortalSession();
   const catalogScopeKey = useSyncExternalStore(subscribePropertyCatalogScope, propertyCatalogScopeKey, () => "server");
 
-  const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
+  const [serviceStateFilter, setServiceStateFilter] = useState<ResidentServiceTab>("open");
   const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
   const { selectedIds, toggleSelected, clearSelection, setSelectedIds } = usePortalRowSelection(serviceStateFilter);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -787,13 +791,17 @@ export function ResidentServicesPanel({
     [sortedRequests, myRows],
   );
 
-  const serviceStateCounts = useMemo(
-    () => countServiceRowsByState(unifiedServiceRows),
-    [unifiedServiceRows],
-  );
+  const serviceStateCounts = useMemo(() => {
+    const byState = countServiceRowsByState(unifiedServiceRows);
+    const counts: Record<ResidentServiceTab, number> = { open: 0, scheduled: 0, done: 0 };
+    for (const id of Object.keys(byState) as ServiceRowState[]) {
+      counts[residentServiceTab(id)] += byState[id];
+    }
+    return counts;
+  }, [unifiedServiceRows]);
 
   const filteredUnifiedRows = useMemo(
-    () => unifiedServiceRows.filter((row) => row.state === serviceStateFilter),
+    () => unifiedServiceRows.filter((row) => residentServiceTab(row.state) === serviceStateFilter),
     [unifiedServiceRows, serviceStateFilter],
   );
 
@@ -1572,7 +1580,7 @@ export function ResidentServicesPanel({
               dataAttr: `resident-services-status-${id}`,
             }))}
             activeId={serviceStateFilter}
-            onChange={(id) => setServiceStateFilter(id as ServiceRowState)}
+            onChange={(id) => setServiceStateFilter(id as ResidentServiceTab)}
             ariaLabel="Service status"
             appearance="command"
             className="w-full"
