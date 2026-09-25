@@ -43,6 +43,11 @@ export async function GET(req: Request) {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    // `user` is narrowed to non-null above, but that narrowing does not cross
+    // into the nested `loadOwnRows`/`loadLinkedOwnerRows`/`loadSharedRows`
+    // function declarations below — capture the id in its own const so they
+    // close over an already-non-null value instead of re-reading `user.id`.
+    const userId = user.id;
 
     const url = new URL(req.url);
     const catalogMode = url.searchParams.get("catalog") === "1";
@@ -95,14 +100,14 @@ export async function GET(req: Request) {
         .select("row_data, manager_user_id, updated_at")
         .order("updated_at", { ascending: false })
         .limit(500);
-      if (!admin) query = query.eq("manager_user_id", user.id);
+      if (!admin) query = query.eq("manager_user_id", userId);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       return (data ?? [])
         .map((record) => {
           const row = record.row_data as ManagerVendorRow | null;
           if (!row?.id || isVendorCategorySettingsRow(row)) return null;
-          return normalizeRow(row, String(record.manager_user_id ?? user.id));
+          return normalizeRow(row, String(record.manager_user_id ?? userId));
         })
         .filter((row): row is ManagerVendorRow => row !== null);
     }
@@ -117,8 +122,8 @@ export async function GET(req: Request) {
     // sentinel the vendor form uses) is what narrows it to that house.
     async function loadLinkedOwnerRows(): Promise<ManagerVendorRow[]> {
       if (admin) return [];
-      const { ownerIds, propertyIdsByOwner } = await linkedOwnerScopeForModule(db, user.id, "services");
-      ownerIds.delete(user.id);
+      const { ownerIds, propertyIdsByOwner } = await linkedOwnerScopeForModule(db, userId, "services");
+      ownerIds.delete(userId);
       if (ownerIds.size === 0) return [];
       const { data: linkedData, error: linkedError } = await db
         .from("manager_vendor_records")
@@ -147,7 +152,7 @@ export async function GET(req: Request) {
       const { data: sharedData, error: sharedError } = await db
         .from("manager_vendor_records")
         .select("row_data, manager_user_id")
-        .neq("manager_user_id", user.id)
+        .neq("manager_user_id", userId)
         .eq("row_data->>sharedWithManagers", "true")
         .order("updated_at", { ascending: false })
         .limit(200);
