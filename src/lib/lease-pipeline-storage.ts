@@ -815,6 +815,15 @@ export type LeasePipelineRow = {
   residentUserId?: string | null;
   roomChoice?: string | null;
   signedRentLabel?: string | null;
+  /**
+   * Set by `createLeaseFirstDraft` (Part 3 hotfix, defect 4): a Draft row
+   * created from "Send lease to sign" before any application exists, so the
+   * resident's Lease tab has a real record to unlock onto instead of the
+   * request going nowhere. Distinguishes an intentionally-shared lease-first
+   * draft from an ordinary early-stage draft the manager has not sent yet —
+   * only the former is visible to the resident before a document exists.
+   */
+  leaseFirst?: boolean;
   application?: Partial<RentalWizardFormState>;
   /**
    * Lease-first intake answers (PLAN-0924-1421). Allowlisted fields only —
@@ -1243,6 +1252,7 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     residentUserId: typeof r.residentUserId === "string" ? r.residentUserId : null,
     roomChoice: typeof r.roomChoice === "string" ? r.roomChoice : null,
     signedRentLabel: typeof r.signedRentLabel === "string" ? r.signedRentLabel : null,
+    leaseFirst: r.leaseFirst === true,
     application: r.application,
     leaseIntake: normalizeLeaseIntakeAnswers(r.leaseIntake),
     // Do not alter persisted historical bytes on read. Section overrides stay
@@ -2429,8 +2439,13 @@ export function leasePipelineBucketCounts(): [number, number, number] {
 
 export function residentCanViewLeaseRow(row: LeasePipelineRow | null | undefined): boolean {
   if (!row) return false;
-  const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
-  if (!hasDocument) return false;
+  // The lease list is served SLIM (no document bytes) to every reader,
+  // including the resident's own GET (lease-pipeline-list-projection.ts).
+  // `leaseRowHasDocument` understands that a `documentOmitted: true` row
+  // still carries a document; requiring actual bytes here (the prior check)
+  // made every lease invisible the instant it left the manager's browser,
+  // because the resident's local copy never had bytes to begin with.
+  if (!leaseRowHasDocument(row)) return false;
   return (
     row.status === "Resident Signature Pending" ||
     row.status === "Manager Signature Pending" ||
@@ -3671,17 +3686,56 @@ export function residentUploadLeasePdf(email: string, file: File): Promise<{ ok:
   });
 }
 
-/** Resident electronically signs; row always moves to **signed** (awaiting manager countersign unless already fully executed). */
+const LEASE_SIGN_NOT_AWAITING_RESIDENT: LeasePipelineActionResult = {
+  ok: false,
+  error: "This lease is not awaiting your signature.",
+};
+const LEASE_SIGN_NOT_AWAITING_MANAGER: LeasePipelineActionResult = {
+  ok: false,
+  error: "This lease is not awaiting a manager signature.",
+};
+
+/**
+ * Resident electronically signs; row always moves to **signed** (awaiting
+ * manager countersign unless already fully executed).
+ *
+ * Two hotfix invariants (a lease sent before Sep 19 could be signed with
+ * neither held):
+ * 1. The signature hash is taken from the FULLY loaded document, never the
+ *    slim list copy every resident's local store actually holds — signing
+ *    loads the full row first, via `ensureLeaseDocumentLoaded`, exactly like
+ *    the manager's own preview already did.
+ * 2. The write WAITS for the server. A lease is never shown as signed until
+ *    `persistLeaseRowToServerAwait` confirms it, and a refusal is returned to
+ *    the caller as a real message rather than silently ignored in the
+ *    background.
+ */
 export async function residentSignLease(
   email: string,
   signatureName?: string,
   consentVersion?: string | null,
-): Promise<boolean> {
-  const rows = [...(readRaw() ?? readLeasePipeline())];
-  const idx = findActiveResidentLeaseRawIndex(email);
-  if (idx === -1) return false;
-  const row = rows[idx]!;
-  if (row.status !== "Resident Signature Pending" || row.bucket !== "resident" || row.residentSignature) return false;
+): Promise<LeasePipelineActionResult> {
+  const locate = (): LeasePipelineRow | null => {
+    const rows = readRaw() ?? readLeasePipeline();
+    const idx = findActiveResidentLeaseRawIndex(email);
+    return idx === -1 ? null : (rows[idx] ?? null);
+  };
+  let row = locate();
+  if (!row) return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+  if (row.status !== "Resident Signature Pending" || row.bucket !== "resident" || row.residentSignature) {
+    return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+  }
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    await ensureLeaseDocumentLoaded(row.id, undefined, row);
+    row = locate();
+    if (!row) return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+    if (row.status !== "Resident Signature Pending" || row.bucket !== "resident" || row.residentSignature) {
+      return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+    }
+  }
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    return { ok: false, error: "Your lease document could not be loaded. Reload the page and try again." };
+  }
   const iso = new Date().toISOString();
   const trimmedSignature = signatureName?.trim() || row.residentName || "Resident";
   // Hash the bytes the resident was actually shown, BEFORE the signature (and
@@ -3707,7 +3761,7 @@ export async function residentSignLease(
   });
   const bothSigned = hasBothLeaseSignatures(nextRowBase);
   const mergedPdf = await refreshUploadedPdfSignatures(nextRowBase);
-  rows[idx] = {
+  const updatedRow: LeasePipelineRow = {
     ...nextRowBase,
     managerUploadedPdf: mergedPdf ?? nextRowBase.managerUploadedPdf,
     bucket: "signed",
@@ -3721,25 +3775,48 @@ export async function residentSignLease(
     sentToResidentAt: row.sentToResidentAt ?? row.updatedAtIso,
     fullySignedAt: bothSigned ? iso : null,
   };
-  write(rows);
-  return true;
+  const persisted = await persistLeaseRowToServerAwait(updatedRow);
+  if (!persisted.ok) return persisted;
+  const freshRows = [...(readRaw() ?? readLeasePipeline())];
+  const freshIdx = freshRows.findIndex((r) => r.id === updatedRow.id);
+  if (freshIdx === -1) freshRows.push(updatedRow);
+  else freshRows[freshIdx] = updatedRow;
+  write(freshRows, undefined, { persist: false });
+  return { ok: true };
 }
 
-/** Manager / authorized agent electronically countersigns (only after the resident has signed). */
+/**
+ * Manager / authorized agent electronically countersigns (only after the
+ * resident has signed). Same two hotfix invariants as `residentSignLease`:
+ * hash the fully loaded document, and wait for the server before reporting
+ * success.
+ */
 export async function managerSignLease(
   rowId: string,
   signatureName: string,
   managerUserId?: string | null,
   consentVersion?: string | null,
-): Promise<boolean> {
-  const rows = readLeasePipeline(managerUserId);
-  const idx = rows.findIndex((r) => r.id === rowId);
-  if (idx === -1) return false;
-  const row = rows[idx]!;
-  if (!leaseAccessibleToManager(row, managerUserId)) return false;
-  if (!leaseAwaitingManagerCountersign(row)) return false;
+): Promise<LeasePipelineActionResult> {
+  const locate = (): LeasePipelineRow | null => {
+    const rows = readLeasePipeline(managerUserId);
+    return rows.find((r) => r.id === rowId) ?? null;
+  };
+  let row = locate();
+  if (!row || !leaseAccessibleToManager(row, managerUserId) || !leaseAwaitingManagerCountersign(row)) {
+    return LEASE_SIGN_NOT_AWAITING_MANAGER;
+  }
   const trimmedSignature = signatureName.trim();
-  if (!trimmedSignature) return false;
+  if (!trimmedSignature) return { ok: false, error: "Enter your name to sign." };
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    await ensureLeaseDocumentLoaded(row.id, managerUserId, row);
+    row = locate();
+    if (!row || !leaseAccessibleToManager(row, managerUserId) || !leaseAwaitingManagerCountersign(row)) {
+      return LEASE_SIGN_NOT_AWAITING_MANAGER;
+    }
+  }
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    return { ok: false, error: "The lease document could not be loaded. Reload the page and try again." };
+  }
   const iso = new Date().toISOString();
   // Hash the agreement bytes, not the copy carrying the resident's certificate
   // page (see lease-execution-evidence.ts). Equal to the resident's hash unless
@@ -3759,10 +3836,7 @@ export async function managerSignLease(
   const bothSigned = hasBothLeaseSignatures(nextRowBase);
   const mergedPdf = await refreshUploadedPdfSignatures(nextRowBase);
   const thread = [...(row.thread ?? []), makeMsg("manager", `Manager signed electronically — ${trimmedSignature}.`)];
-  const raw = [...(readRaw(managerUserId) ?? [])];
-  const rawIdx = raw.findIndex((r) => r.id === rowId);
-  if (rawIdx === -1) return false;
-  raw[rawIdx] = {
+  const updatedRow: LeasePipelineRow = {
     ...nextRowBase,
     managerUploadedPdf: mergedPdf ?? nextRowBase.managerUploadedPdf,
     bucket: "signed",
@@ -3774,8 +3848,14 @@ export async function managerSignLease(
     managerSignedAt: iso,
     fullySignedAt: bothSigned ? iso : null,
   };
-  write(raw, managerUserId);
-  return true;
+  const persisted = await persistLeaseRowToServerAwait(updatedRow);
+  if (!persisted.ok) return persisted;
+  const raw = [...(readRaw(managerUserId) ?? [])];
+  const rawIdx = raw.findIndex((r) => r.id === rowId);
+  if (rawIdx === -1) raw.push(updatedRow);
+  else raw[rawIdx] = updatedRow;
+  write(raw, managerUserId, { persist: false });
+  return { ok: true };
 }
 
 export function residentRequestEdits(email: string, message: string): boolean {

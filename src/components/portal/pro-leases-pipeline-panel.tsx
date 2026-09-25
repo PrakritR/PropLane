@@ -174,6 +174,7 @@ export function ManagerLeasesPipelinePanel({
   const [pendingRowId, setPendingRowId] = useState<string | null>(null);
   const [generatingRowId, setGeneratingRowId] = useState<string | null>(null);
   const [signingRow, setSigningRow] = useState<LeasePipelineRow | null>(null);
+  const [signingRowError, setSigningRowError] = useState<string | null>(null);
   const [reminderBusyForRow, setReminderBusyForRow] = useState<string | null>(null);
   const [sendingToResidentRowId, setSendingToResidentRowId] = useState<string | null>(null);
   const [leaseSentPreview, setLeaseSentPreview] = useState<{
@@ -689,8 +690,9 @@ export function ManagerLeasesPipelinePanel({
 
   const handleManagerModalSign = async (signatureName: string, consentVersion: string) => {
     if (!signingRow) return false;
-    const ok = await managerSignLease(signingRow.id, signatureName.trim(), managerUserId, consentVersion);
-    if (ok) {
+    setSigningRowError(null);
+    const result = await managerSignLease(signingRow.id, signatureName.trim(), managerUserId, consentVersion);
+    if (result.ok) {
       const fullySigned = hasBothLeaseSignatures({
         ...signingRow,
         managerSignature: { role: "manager", name: signatureName.trim(), signedAtIso: new Date().toISOString() },
@@ -712,7 +714,8 @@ export function ManagerLeasesPipelinePanel({
       setSigningRow(null);
       return true;
     } else {
-      showToast("Could not sign lease.");
+      // Signing waits for the server: the modal stays open and shows why.
+      setSigningRowError(result.error);
       return false;
     }
   };
@@ -1008,7 +1011,11 @@ export function ManagerLeasesPipelinePanel({
           signerName=""
           signerRoleLabel="Manager / authorized agent name"
           onSign={handleManagerModalSign}
-          onClose={() => setSigningRow(null)}
+          onClose={() => {
+            setSigningRow(null);
+            setSigningRowError(null);
+          }}
+          error={signingRowError}
         />
       ) : null}
       <PortalNotificationPreviewModal
