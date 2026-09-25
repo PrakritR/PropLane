@@ -6,10 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
-import {
-  ManagerPortalPageShell,
-  ManagerPortalStatusPills,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
@@ -687,10 +685,18 @@ function VendorInvoicesView({
         />
       }
     >
-      <ManagerPortalStatusPills
-        tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
+      {/*
+        The same underline tabs every other status filter in the product uses
+        (manager Payments/Leases/Tours/Applications, resident Payments) —
+        this used to be a rounded pill segmented control, a visually
+        different control doing the identical job (AXI night sweep area 2i).
+      */}
+      <LocalDestinationNav
+        items={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
         activeId={statusFilter}
         onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
+        ariaLabel="Invoice status"
+        appearance="command"
       />
       {loading ? (
         <div data-attr="vendor-invoices-loading">
