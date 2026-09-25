@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader, AuthRoleStack } from "@/components/auth/auth-mobile-primitives";
 import { PortalAuthForm } from "@/components/auth/portal-auth-form";
+import { VendorSignupForm } from "@/components/auth/vendor-signup-form";
 import { ManagerTrialSignupForm } from "@/components/auth/manager-trial-signup-form";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import type { PlanTierId } from "@/data/manager-plan-tiers";
@@ -98,6 +99,21 @@ export function CreateAccountRoleGateway() {
           googleReturn={googleSignedIn}
           accountReadyReturn={accountReady}
         />
+      </CreateAccountHubShell>
+    );
+  }
+
+  if (role === "vendor") {
+    // The public "Vendor" picker option and the vendors marketing page's
+    // `VENDOR_GET_STARTED_HREF` both land here with `?role=vendor` — this used
+    // to fall through to the generic `PortalAuthForm` (built for the
+    // resident/tour apply funnel), which never creates a vendor account at
+    // all. `VendorSignupForm` is the real vendor account-creation surface
+    // (email/password + Google/Apple), same as the direct `/auth/vendor-register`
+    // no-invite route (night/vendor-signup).
+    return (
+      <CreateAccountHubShell>
+        <VendorSignupForm variant="compact" initialEmail={emailFromUrl} />
       </CreateAccountHubShell>
     );
   }

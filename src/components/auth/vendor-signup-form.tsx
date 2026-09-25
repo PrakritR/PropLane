@@ -36,7 +36,7 @@ export function VendorSignupForm({
   inviteToken,
   initialEmail = "",
   initialFullName = "",
-  nextPath = "/vendor/dashboard",
+  nextPath = "/vendor/onboarding",
   variant = "default",
   disabled = false,
   hideLegalFooter = false,
@@ -73,7 +73,7 @@ export function VendorSignupForm({
 
   const compact = variant === "compact";
   const locked = disabled || busy;
-  const resolvedNext = nextPath.startsWith("/") ? nextPath : "/vendor/dashboard";
+  const resolvedNext = nextPath.startsWith("/") ? nextPath : "/vendor/onboarding";
 
   const submit = async () => {
     setError(null);

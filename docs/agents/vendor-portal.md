@@ -67,31 +67,63 @@ route stamps. Never reintroduce an expiry-optional path — a NULL expiry
 previously skipped the TTL check entirely. Coverage:
 `tests/unit/vendor-invite-redemption-ttl.test.ts`.
 
-**Unlinked-signup notice — DELIVERY-driven today, should become STATE-driven
-(follow-up, not done).** A signup that finishes with no linked manager reports
-why: `provisionVendorAccountByEmail` returns `unlinkedReason`
-(`"invite_expired"` | `"invite_revoked"` | `null`), the vendor-register routes
-turn it into copy via `vendorUnlinkedNotice(reason, { confirmed })`, and the
-message is handed across the post-signup `window.location.replace` through
-`src/lib/pending-notice.ts` (sessionStorage, TTL + `/vendor` destination guard,
-atomic read-and-clear) for `vendor-dashboard.tsx` to render as a dismissible
-banner. That banner is driven by DELIVERY — it appears only when a notice was
-queued during this signup — and it should instead be driven by STATE: rendered
-whenever the vendor's `linkedManagerId` is null, with the queued message merely
-supplying the specific reason when one exists. Two concrete gaps remain until
-then:
+**Unlinked-signup notice — now STATE-driven (night/vendor-signup).** The
+Dashboard banner no longer depends on a notice having been queued during this
+particular signup: `vendor-dashboard.tsx` fetches `/api/vendor/profile` on
+every load and shows the banner whenever `linked === false`, regardless of
+entry path (password, Google/Apple, invite, or the email-confirmation link
+that previously left `registerSelfServe`'s `confirmed === false` branch
+queuing nothing). `pending-notice.ts` — the sessionStorage queue, its TTL and
+destination guard — is now supplementary only: when a specific reason
+(`"invite_expired"` | `"invite_revoked"`) was queued, it supplies that reason's
+copy; otherwise the banner falls back to a generic "waiting on a manager"
+message. A destructive read or a reload no longer loses the banner, because
+state, not delivery, is what renders it.
 
-- The brand-new self-serve path never queues. `registerSelfServe`'s
-  `confirmed === false` branch returns early after setting the inline notice on
-  the "check your email" screen, so a vendor who clicks the emailed link and
-  lands in the portal gets no banner — that journey still ends silently
-  unlinked.
-- The sessionStorage read is destructive, so a reload or a navigation before
-  the vendor clicks Dismiss consumes the notice permanently. "Stays until
-  acknowledged" only holds within one uninterrupted page view.
+**Self-serve onboarding (night/vendor-signup).** A vendor who signs up with no
+invite now lands at `/vendor/onboarding` (every signup path's default
+`redirectTo`/`nextPath` changed from `/vendor/dashboard`) — Business name,
+Trades (`VENDOR_TRADE_OPTIONS`), service area (city + ZIPs + radius), optional
+license number/document, optional insurance provider/policy/expiry/certificate,
+and a directory-listing toggle. These live on `vendor_business_profiles`
+(additive columns: `trades`, `service_area_zips`, `service_radius_miles`,
+`license_number`, `license_doc_path`, `insurance_*`, `directory_listed`,
+`onboarding_completed_at`) — the vendor's OWN record, so none of it requires a
+manager link, unlike `/api/vendor/profile` and `/api/vendor/documents/*`
+(both still gated on `resolveOwnVendorRecords` returning a row). License/
+insurance uploads go through `/api/vendor/onboarding/documents` (upload) and
+`/api/vendor/onboarding/documents/signed-url` (read), same private
+`vendor-documents` bucket and path convention as the existing manager-linked
+uploads, but keyed off `vendor_business_profiles` instead of
+`manager_vendor_records.row_data.vendorDocuments`.
+`onboarding_completed_at` is server-derived (`vendorOnboardingRequiredFieldsFilled`
+in `vendor-business-profile.server.ts`) from business name + at least one trade
++ a service area, and — once set — never un-sets, even if a field is later
+cleared. The vendor Dashboard shows a "Finish setting up" checklist (Business,
+Trades & area, License & insurance, Payout bank — the last linking to the
+existing `/vendor/financials/payouts` Connect flow) until all four are done.
 
-Going state-driven would make `pending-notice.ts` — the queue, its TTL and its
-destination guard — redundant.
+**Manager-facing vendor directory (night/vendor-signup).** A directory-listed,
+onboarding-complete self-serve vendor (`directory_listed = true`) is now
+discoverable in the manager "PropLane vendors" tab
+(`pro-vendors-panel.tsx`), merged alongside the curated `AXIS_VENDOR_CATALOG`
+and shared-roster rows via `GET /api/manager/vendor-directory`
+(`src/lib/vendor-directory.server.ts`'s `loadDirectoryListedVendors`), public-safe
+fields only — business name, trades, area, and derived `insured`/`licensed`
+flags (a current, non-expired certificate; never the policy number or a doc
+path). Filterable by trade/area through a Filter toggle on that tab. Row
+"Add to your vendors" for a directory row calls `POST
+/api/manager/vendor-directory/add` rather than the generic
+`ensureCatalogVendorOnRoster` path (which never touches `vendor_user_id`):
+it sets the manager_vendor_records `vendor_user_id` DB column directly, the
+same real link invite redemption creates, so the vendor's unlinked banner
+clears immediately. Idempotent per manager+vendor pair (`catalogId:
+"self-serve-<vendorUserId>"` lets the existing `findRosterCatalogMatch` detect
+an already-added row). Known gap: the catalog detail page's header "Add"
+action and its communication-tab auto-ensure both still route a directory
+row's initial add through this linked path (patched), but a future third add
+entry point must do the same or it will silently fall back to the
+non-linking `ensureCatalogVendorOnRoster`.
 
 **Directory privacy.** Linked vendors cannot directly SELECT `manager_vendor_records`; `20260912230000_vendor_directory_private_fields.sql` removes that policy. Vendor portal readers use authorized service-role routes, and catalog responses use `vendorCatalogProjection`.
 
