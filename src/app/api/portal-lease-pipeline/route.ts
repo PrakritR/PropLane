@@ -16,7 +16,6 @@ import {
   introducesUntrustedLeaseDocument,
   leaseClaimsExecution,
   leaseAllowsManagerDocumentEdits,
-  leaseClaimsExecution,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
   leaseExecutionStripRefusal,
