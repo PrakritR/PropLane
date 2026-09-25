@@ -95,10 +95,22 @@ export function AdminPropertiesClient() {
     void tick;
     return adminKpiCounts();
   }, [tick]);
-  const rows = useMemo(() => {
+  const [query, setQuery] = useState("");
+  const allRows = useMemo(() => {
     void tick;
     return readAdminPropertyRows(activeKpi);
   }, [tick, activeKpi]);
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return allRows;
+    return allRows.filter(
+      (row) =>
+        row.buildingName.toLowerCase().includes(needle) ||
+        row.unitLabel.toLowerCase().includes(needle) ||
+        row.address.toLowerCase().includes(needle) ||
+        row.neighborhood.toLowerCase().includes(needle),
+    );
+  }, [allRows, query]);
   // Real query-param destinations, not local-state pills: the manager
   // Properties tabs this copies are linkable, and a staff member sharing
   // "the unlisted ones" should be able to send the URL.
@@ -201,6 +213,13 @@ export function AdminPropertiesClient() {
         destinations={kpiTabs}
         activeDestinationId={String(activeKpi)}
         destinationAriaLabel="Property catalog status"
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: "Search properties",
+          dataAttr: "admin-properties-search",
+          ariaLabel: "Search properties",
+        }}
       />
       {/*
         The shared list surface, not a bespoke table. Admin does not create
@@ -209,7 +228,16 @@ export function AdminPropertiesClient() {
       */}
       <PortalRecordListSurface
         isEmpty={rows.length === 0}
-        empty={<PortalDataTableEmpty icon="data" message={EMPTY_COPY[activeKpi] ?? "No properties."} />}
+        empty={
+          <PortalDataTableEmpty
+            icon="data"
+            message={
+              query.trim() && allRows.length > 0
+                ? "No properties match your search."
+                : (EMPTY_COPY[activeKpi] ?? "No properties.")
+            }
+          />
+        }
         onBulkClear={clearSelection}
         bulkCount={selectedRows.length}
         bulkActions={bulkActions}
