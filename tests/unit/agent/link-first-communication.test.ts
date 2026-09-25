@@ -41,7 +41,7 @@ import type { VendorAgentContext } from "@/lib/tools/vendor-context";
 import { routeResolves } from "../../helpers/route-resolves";
 import { runWithSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
-const PROD = "https://prop-lane.space";
+const PROD = "https://proplane.ai";
 
 function residentCtx(channel?: ResidentAgentContext["channel"], phase: "application" | "approved" = "approved"): ResidentAgentContext {
   return {
