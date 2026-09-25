@@ -61,7 +61,7 @@ import { useSearchParams } from "next/navigation";
 import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
-import { Upload } from "lucide-react";
+import { Upload, FileText } from "lucide-react";
 
 const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All scopes" },
@@ -722,7 +722,14 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         }}
       />
 
-      <PreviewModal doc={previewTarget} onClose={() => setPreviewTarget(null)} />
+      <PreviewModal
+        doc={previewTarget}
+        onClose={() => setPreviewTarget(null)}
+        onEdit={(doc) => {
+          setPreviewTarget(null);
+          setRenameTarget(doc);
+        }}
+      />
     </>
   );
 
@@ -883,7 +890,9 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
                 scopeSummary(doc),
                 formatBytes(doc.sizeBytes),
               ].join(" · ")}
-              onOpen={() => navigate(documentRecordHref(basePath, doc.id))}
+              // C062/C063 (captain, BUILD-WAVE2 §4, resolved): one modal — no
+              // 4-tab document record page.
+              onOpen={() => setPreviewTarget(doc)}
               dataAttr={`document-row-${doc.id}`}
             />
           ))}
@@ -1344,7 +1353,7 @@ function DocumentPreviewPane({ doc }: { doc: ManagerDocumentDTO }) {
   );
 }
 
-function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClose: () => void }) {
+function PreviewModal({ doc, onClose, onEdit }: { doc: ManagerDocumentDTO | null; onClose: () => void; onEdit: (doc: ManagerDocumentDTO) => void }) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const [url, setUrl] = useState<string | null>(null);
@@ -1413,6 +1422,15 @@ function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClos
               type="button"
               variant="outline"
               className={PORTAL_DETAIL_BTN}
+              onClick={() => onEdit(doc)}
+              data-attr="document-preview-edit"
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
               onClick={() => handleDownload()}
               disabled={downloading}
               data-attr="document-download"
@@ -1429,9 +1447,20 @@ function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClos
         ) : !url ? (
           <p className="py-12 text-center text-sm text-muted">Preview unavailable.</p>
         ) : !canInline ? (
-          <p className="py-12 text-center text-sm text-muted">
-            This file type can’t be previewed inline. Use Download to open it.
-          </p>
+          doc ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-attr="document-preview-file-fallback">
+              <FileText className="size-10 text-muted" aria-hidden />
+              <dl className="grid grid-cols-[auto_auto] gap-x-2 gap-y-1 text-xs text-muted">
+                <dt className="text-right font-medium text-foreground/70">Type</dt>
+                <dd className="text-left">{doc.mimeType}</dd>
+                <dt className="text-right font-medium text-foreground/70">Size</dt>
+                <dd className="text-left">{formatBytes(doc.sizeBytes)}</dd>
+                <dt className="text-right font-medium text-foreground/70">Uploaded</dt>
+                <dd className="text-left">{formatDate(doc.createdAt)}</dd>
+              </dl>
+              <p className="text-sm text-muted">This file type can’t be previewed inline. Use Download to open it.</p>
+            </div>
+          ) : null
         ) : doc && isImageMime(doc.mimeType) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={url} alt={doc.displayName} className="mx-auto max-h-[70vh] max-w-full rounded-lg" />
