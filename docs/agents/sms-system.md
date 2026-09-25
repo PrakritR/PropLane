@@ -386,8 +386,7 @@ error 11200, receipt stuck `processing`). Now:
   calls `runClaimedInbound`
   (`src/lib/sms/inbound-pipeline.server.ts`). That boundary turns any throw
   into a `retryable` receipt; nothing after the claim may escape as a bare 500.
-- `/api/cron/sms-inbound-recovery` (every minute via `vercel.json`; inert
-  until that entry exists) reruns `retryable` receipts,
+- `/api/cron/sms-inbound-recovery` (every minute, `vercel.json`) reruns `retryable` receipts,
   and `processing` receipts whose lease expired more than 60s ago (the lease
   equals the webhook's `maxDuration`), through the same pipeline: max 5 attempts
   (`attempt_count`, counted by `claim_sms_inbound`), 24h window. Prepared
