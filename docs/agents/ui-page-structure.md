@@ -9,6 +9,26 @@ admin, public). It is the anatomy; the detailed rules live in the tier-1 docs it
 clearer and working. Anything new that wasn't asked for goes to the captain as a question
 with "Keep as today" as an option.
 
+## 0. One UI for every portal
+
+**The manager portal is the reference design.** Resident, vendor and admin pages use the same
+anatomy: the same list header, rows, ⋯ menus, record pages, pop-ups and Communication layout.
+They show fewer sections, never a different layout.
+- **Communication** is called "Communication" in every portal (not "Inbox") and uses the manager
+  layout: a left list card (Active | Archived tabs with counts, search, filter, gear, round
+  compose), conversation rows with ⋯, and the thread with the real composer on the right.
+- **Every list page has status tabs on the left and icon buttons on the right**, like manager
+  Residents' Potential · Current · Past, using the buckets that fit the section (Services: Open ·
+  Scheduled · Done; Payments: Due · Paid; Inspections: Move-in · Move-out; Jobs: New · Scheduled ·
+  Done; Invoices: Draft · Sent · Paid).
+- **No summary cards on top of a list.** Balances, totals and explanations don't sit above
+  the header card (e.g. no "Balance / Due now / Paid to date" block on resident Payments). The
+  tabs and rows say it; account-level options like autopay live in Settings.
+- Resident "My home" and inspection reports are **record pages** (header, grouped rail,
+  label/value cards), not stacks of loose cards.
+- ⋯ menus and pop-ups are never clipped: they render above the page and flip or shift to stay on
+  screen.
+
 ## 1. Shell
 
 - **Desktop:** left sidebar with the workspace switcher on top (the PropLane house mark on a
