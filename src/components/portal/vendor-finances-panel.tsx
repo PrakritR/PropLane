@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CreditCard, Download } from "lucide-react";
+import { Download, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import {
   ManagerPortalPageShell,
   ManagerPortalStatusPills,
 } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -680,7 +680,7 @@ function VendorInvoicesView({
       }
       primary={
         <PortalPrimaryIconAction
-          label="Request payment"
+          label={portalListAddPrimaryLabel("invoice")}
           data-attr="vendor-invoice-new"
           onClick={() => setWizardOpen(true)}
         />
@@ -702,7 +702,7 @@ function VendorInvoicesView({
             invoices.length === 0
               ? [
                   {
-                    label: "Request payment",
+                    label: portalListAddPrimaryLabel("invoice"),
                     onClick: () => setWizardOpen(true),
                     dataAttr: "vendor-invoice-empty-add",
                   },
@@ -970,7 +970,7 @@ export function VendorFinancesPanel({
 
   const requestPayment = (
     <PortalPrimaryIconAction
-      label="Request payment"
+      label={portalListAddPrimaryLabel("payment")}
       data-attr="vendor-finances-request-payment"
       onClick={() => setRequestOpen(true)}
     />
@@ -1032,7 +1032,7 @@ export function VendorFinancesPanel({
         dataAttr: "vendor-income-search",
       }}
       activeFilterChips={<PortalActiveFilterChips chips={filterChips} />}
-      actions={<PortalIconAction icon={CreditCard} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
+      actions={<PortalIconAction icon={Wrench} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
       primary={requestPayment}
     >
       {filteredRows.length === 0 ? (
@@ -1043,7 +1043,7 @@ export function VendorFinancesPanel({
           actions={
             filtersHideRows
               ? []
-              : [{ label: "Request payment", onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
+              : [{ label: portalListAddPrimaryLabel("payment"), onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
           }
           clear={
             filtersHideRows

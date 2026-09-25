@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  ManagerPortalPageShell,
-  PORTAL_TOOLBAR_GROUP,
-  PORTAL_TOOLBAR_PILL_BUTTON,
-  PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import {
+  FilterCollapsibleSection,
+  FilterFieldsAccordion,
+  FilterSingleSelectList,
+  filterSingleSelectSummary,
+  useFilterAccordionClose,
+} from "@/components/portal/filter-field-lists";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -213,6 +216,79 @@ function ExpandedContent({
   );
 }
 
+/**
+ * Status is a single-select filter field inside the shared Filter sheet — same
+ * shape as `PortalListGroupModeField` (`portal-list-group-filter-fields.tsx`):
+ * a real component rendered as a `FilterFieldsAccordion` child, so
+ * `useFilterAccordionClose` resolves the enclosing accordion's context.
+ */
+function AccountStatusFilterField({
+  value,
+  options,
+  onChange,
+}: {
+  value: StatusTab;
+  options: { id: StatusTab; label: string; dataAttr: string }[];
+  onChange: (next: StatusTab) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const selectOptions = options.map((opt) => ({ value: opt.id, label: opt.label }));
+  const summary = filterSingleSelectSummary(value, selectOptions, "Active");
+
+  return (
+    <FilterCollapsibleSection
+      sectionId="account-status"
+      label="Status"
+      summary={summary}
+      empty={value === "active"}
+      menuOptionCount={selectOptions.length}
+      dataAttr="admin-accounts-status-trigger"
+    >
+      <FilterSingleSelectList
+        options={selectOptions}
+        value={value}
+        onChange={(next) => onChange(next as StatusTab)}
+        onPick={closeFieldMenu}
+        dataAttr="admin-accounts-status"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
+/** Plan tier — same shape as {@link AccountStatusFilterField}, shown only for the Management category. */
+function AccountTierFilterField({
+  value,
+  options,
+  onChange,
+}: {
+  value: TierFilter;
+  options: { id: TierFilter; label: string; dataAttr: string }[];
+  onChange: (next: TierFilter) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const selectOptions = options.map((opt) => ({ value: opt.id, label: opt.label }));
+  const summary = filterSingleSelectSummary(value, selectOptions, "All tiers");
+
+  return (
+    <FilterCollapsibleSection
+      sectionId="account-tier"
+      label="Plan tier"
+      summary={summary}
+      empty={value === "all"}
+      menuOptionCount={selectOptions.length}
+      dataAttr="admin-accounts-tier-trigger"
+    >
+      <FilterSingleSelectList
+        options={selectOptions}
+        value={value}
+        onChange={(next) => onChange(next as TierFilter)}
+        onPick={closeFieldMenu}
+        dataAttr="admin-accounts-tier"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
 export function AdminAxisUsersClient() {
   const { showToast } = useAppUi();
   const [managers, setManagers] = useState<ManagerRow[]>([]);
@@ -338,9 +414,9 @@ export function AdminAxisUsersClient() {
 
   const showTierFilter = category === "management";
 
-  const STATUS_TABS: { id: StatusTab; label: string; count: number }[] = [
-    { id: "active", label: "Active", count: activeCount },
-    { id: "disabled", label: "Disabled", count: disabledCount },
+  const STATUS_TABS: { id: StatusTab; label: string; count: number; dataAttr: string }[] = [
+    { id: "active", label: "Active", count: activeCount, dataAttr: "admin-accounts-status-active" },
+    { id: "disabled", label: "Disabled", count: disabledCount, dataAttr: "admin-accounts-status-disabled" },
   ];
 
   const ROLE_TABS = [
@@ -353,11 +429,11 @@ export function AdminAxisUsersClient() {
     dataAttr: `admin-accounts-tab-${tab.id}`,
   }));
 
-  const TIER_OPTIONS: { id: TierFilter; label: string }[] = [
-    { id: "all", label: "All tiers" },
-    { id: "free", label: "Free" },
-    { id: "pro", label: "Pro" },
-    { id: "business", label: "Business" },
+  const TIER_OPTIONS: { id: TierFilter; label: string; dataAttr: string }[] = [
+    { id: "all", label: "All tiers", dataAttr: "admin-accounts-tier-all" },
+    { id: "free", label: "Free", dataAttr: "admin-accounts-tier-free" },
+    { id: "pro", label: "Pro", dataAttr: "admin-accounts-tier-pro" },
+    { id: "business", label: "Business", dataAttr: "admin-accounts-tier-business" },
   ];
 
   const selectedRows = visible.filter((row) => selectedIds.has(`${row.kind}-${row.id}`));
@@ -390,9 +466,12 @@ export function AdminAxisUsersClient() {
       compactFilterRow
     >
       {/*
-        One command header — counted category tabs in a card, with the status
-        and plan filters beside them — instead of three separately labelled
-        pill groups stacked above the list. Same shape as every other portal.
+        One command header — counted category tabs in a card, with status and
+        plan tier behind the shared Filter sheet instead of labelled pills
+        reaching the list band: utilities there are icon-only
+        (docs/portal-list-section-layout.md; the dev-mode guard flagged this
+        as `[portal-list-control-stack] a labeled pill ("Active") reached the
+        list band`).
       */}
       <PortalListControlStack
         className="mb-2"
@@ -402,42 +481,44 @@ export function AdminAxisUsersClient() {
         activeDestinationId={category}
         destinationAriaLabel="Account category"
         actions={
-          <>
-            <div className={PORTAL_TOOLBAR_GROUP}>
-              {STATUS_TABS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => {
-                    setStatusTab(opt.id);
+          <PortalFilterSortSheet
+            activeCount={portalFilterActiveCount([
+              statusTab !== "active" ? statusTab : "",
+              showTierFilter && tierFilter !== "all" ? tierFilter : "",
+            ])}
+            compactPanel
+            commandStripTrigger
+            filterFieldCount={showTierFilter ? 2 : 1}
+            constrainDropdownToTitleBand={false}
+            mobileFlushBody
+            onReset={() => {
+              setStatusTab("active");
+              setTierFilter("all");
+              setExpandedKey(null);
+            }}
+            dataAttr="admin-accounts-filter-sheet-open"
+          >
+            <FilterFieldsAccordion>
+              <AccountStatusFilterField
+                value={statusTab}
+                options={STATUS_TABS}
+                onChange={(next) => {
+                  setStatusTab(next);
+                  setExpandedKey(null);
+                }}
+              />
+              {showTierFilter ? (
+                <AccountTierFilterField
+                  value={tierFilter}
+                  options={TIER_OPTIONS}
+                  onChange={(next) => {
+                    setTierFilter(next);
                     setExpandedKey(null);
                   }}
-                  data-attr={`admin-accounts-status-${opt.id}`}
-                  className={`${PORTAL_TOOLBAR_PILL_BUTTON} ${statusTab === opt.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : ""}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            {showTierFilter ? (
-              <div className={PORTAL_TOOLBAR_GROUP}>
-                {TIER_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => {
-                      setTierFilter(opt.id);
-                      setExpandedKey(null);
-                    }}
-                    data-attr={`admin-accounts-tier-${opt.id}`}
-                    className={`${PORTAL_TOOLBAR_PILL_BUTTON} ${tierFilter === opt.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : ""}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </>
+                />
+              ) : null}
+            </FilterFieldsAccordion>
+          </PortalFilterSortSheet>
         }
       />
 

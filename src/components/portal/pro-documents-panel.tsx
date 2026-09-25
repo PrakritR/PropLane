@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Button } from "@/components/ui/button";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
@@ -531,7 +531,7 @@ export function ManagerDocumentsPanel({
   ) : isLeasingDocumentsTab || isOtherDocumentsTab ? (
     <PortalPrimaryIconAction
       icon={Upload}
-      label="Upload document"
+      label={portalListAddPrimaryLabel("document")}
       onClick={openDocumentUpload}
       data-attr="documents-upload-top"
     />
