@@ -11,7 +11,7 @@ import "@/components/marketing/site/site.css";
  * captain 2026-09-25, third pass). A soft white/lavender gradient washing
  * into periwinkle and violet, centered: the PropLane mark in a rounded white
  * tile, a big "PropLane" title, a one-line caption carrying today's exact
- * tagline ("Property management that runs itself."), today's exact CTAs
+ * tagline ("Property management for room rentals."), today's exact CTAs
  * (Start free — no card / Book a demo / the App Store badge) and fine print,
  * then — lower on the page, large and centered, overlapping the bottom of
  * the wash — the real manager portal, live and clickable, with the same
@@ -47,7 +47,7 @@ export function SiteHero() {
             PropLane
           </h1>
           <p className="mt-4 max-w-[32rem] text-[22px] font-normal leading-snug text-[#4a4e56]">
-            Property management that runs itself.
+            Property management for room rentals.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started" className={SITE_BTN_PRIMARY}>
@@ -60,12 +60,15 @@ export function SiteHero() {
           </div>
           <p className="mt-4 text-[13px] text-muted">Free for one home · No card · Web and iPhone</p>
         </div>
+      </div>
 
-        {/* The product itself, lower on the page, large and centered, its
-            shadow bleeding past the hero's own bottom edge. */}
-        <div className="relative z-[1] mt-14 sm:mt-16">
-          <CodexHeroWindow />
-        </div>
+      {/* The product itself, lower on the page, large and centered, its
+          shadow bleeding past the hero's own bottom edge. Deliberately
+          OUTSIDE the text column's SITE_MEASURE: the captain asked for it
+          "edge to edge" — nearly the full viewport width, not capped to the
+          1100px reading measure above it — with its own ~24px gutters. */}
+      <div className="relative z-[1] mt-14 w-full px-6 sm:mt-16">
+        <CodexHeroWindow />
       </div>
     </section>
   );
