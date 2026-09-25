@@ -11,7 +11,7 @@
  *    knobs (fee is set under Settings → Application system, not here), then
  *    one card per room with a tab per lease type. There is no Default room
  *    card. Each room prices itself.
- *    Rooms still Duplicate via `copyRoomPricingFrom`. Month-to-month and
+ *    Rooms still Duplicate via `duplicateRoomEntry`. Month-to-month and
  *    custom dates are "same as long-term" until the box is unticked or a room
  *    writes its own `termPricing`. Short-term is rent per night, rent per week.
  * 3. **Other fees live on the cards.** Every room card, on every tab, lists

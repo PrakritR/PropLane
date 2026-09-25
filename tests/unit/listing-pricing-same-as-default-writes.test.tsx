@@ -21,7 +21,6 @@ vi.mock("@/lib/manager-subscription-client", () => ({ loadManagerPaymentWaiverGr
 import { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
-  copyRoomPricingFrom,
   emptyListingHouseDefaults,
   fillRoomsFollowingDefaults,
   resetRoomFieldToDefault,
@@ -29,6 +28,7 @@ import {
 } from "@/lib/listing-house-defaults";
 import {
   createDefaultListingSubmission,
+  duplicateRoomEntry,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
@@ -50,29 +50,30 @@ function seeded(rooms: Partial<ManagerRoomSubmission>[]): ManagerListingSubmissi
   } as ManagerListingSubmissionV1;
 }
 
-// Pricing no longer shows a Same-as picker (PLAN-0922-1904); Duplicate copies
-// a room's price card with copyRoomPricingFrom. The guarantees are the same:
-// real numbers, never a blank, and no live link back to the source.
-describe("copying another room's price card writes that room's numbers once", () => {
+// Pricing no longer shows a Same-as picker (PLAN-0922-1904); a room's price is
+// copied with Duplicate (duplicateRoomEntry). The guarantees are the same:
+// real numbers on the record, never a blank, and no live link to the source.
+describe("Duplicate writes the source room's numbers onto the new room", () => {
   const room = (over: Partial<ManagerRoomSubmission>): ManagerRoomSubmission =>
     ({ ...createDefaultListingSubmission().rooms[0]!, ...over }) as ManagerRoomSubmission;
 
-  it("writes $1,050 / $0 / $250 from Room 2 into Room 1, never a blank, and keeps Room 1's identity", () => {
+  it("copies $1,050 / $0 / $250 as a new room with its own id and name, never a blank", () => {
     const source = room({ id: "r2", name: "Room 2", monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250" });
-    const target = room({ id: "r1", name: "Room 1", monthlyRent: 1200, utilitiesEstimate: "", securityDeposit: "" });
-    const copied = copyRoomPricingFrom(source, target);
-    expect(copied).toMatchObject({ id: "r1", name: "Room 1", monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250" });
+    const copy = duplicateRoomEntry(source);
+    expect(copy).toMatchObject({ monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250" });
+    expect(copy.id).not.toBe("r2");
+    expect(copy.name).not.toBe("Room 2");
   });
 
-  it("editing the copy afterwards leaves the source alone", () => {
+  it("editing the duplicate's per-resident prices leaves the source alone", () => {
     const source = room({
       id: "r2",
       monthlyRent: 1050,
       residentPricing: "per_resident",
       residentPrices: [{ monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250", pricingMode: "fixed" }],
     });
-    const copied = copyRoomPricingFrom(source, room({ id: "r1" }));
-    copied.residentPrices![0]!.monthlyRent = 1300;
+    const copy = duplicateRoomEntry(source);
+    copy.residentPrices![0]!.monthlyRent = 1300;
     expect(source.residentPrices![0]!.monthlyRent).toBe(1050);
   });
 });
