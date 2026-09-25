@@ -450,21 +450,6 @@ export function ManagerProperties({
       onAddProperty={tryOpenAdd}
       searchQuery={listSearch}
       onClearSearch={() => setListSearch("")}
-      /*
-        Disabled only while the PLAN is still unknown — never because the cap is
-        spent. A manager at the Free limit gets a live button that refuses and
-        says why, with the upgrade path in the message. Disabling it instead
-        makes it a dead click: the one moment the product has to explain the
-        limit and offer the upgrade passes in silence. Same rule, same reason as
-        the sidebar's `upsell` nav lock in AGENTS.md.
-
-        The same logic applies to the plan tier still loading: `tryOpenAdd`
-        already calls `canOpenAdd()`, which shows a toast and queues a retry
-        when `skuLoaded` is not yet true (PLAN-0920-1058 area 5, night UX
-        sweep — the button used to sit at 50% opacity, reading as disabled,
-        for the whole in-between).
-      */
-      addPropertyDisabled={false}
     />
   );
 

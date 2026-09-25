@@ -1456,7 +1456,6 @@ type ManagerHousePropertiesPanelProps = {
   propertyTourBucket?: ManagerTourBucketId;
   propertyTourId?: string;
   onAddProperty?: () => void;
-  addPropertyDisabled?: boolean;
   /** Free-text match against the row title, address, and neighborhood (list view only). */
   searchQuery?: string;
   /** Clears the parent-owned search box from the no-match card. */
@@ -1561,7 +1560,6 @@ function ManagerHousePropertiesPanelBody({
   propertyTourBucket = "pending",
   propertyTourId,
   onAddProperty,
-  addPropertyDisabled = false,
   searchQuery = "",
   onClearSearch,
   onPublishedListing,
@@ -2191,21 +2189,17 @@ function ManagerHousePropertiesPanelBody({
         actions={
           onAddProperty
             ? [
-                // Create opens the editor, whose Basics step also takes a
-                // single-property file; a whole rent roll of several
-                // properties and their current residents goes through the
-                // portfolio import instead (docs/agents/portfolio-import.md).
-                {
-                  label: "Create",
-                  onClick: onAddProperty,
-                  disabled: addPropertyDisabled,
-                  reason: addPropertyDisabled ? "Loading your plan…" : undefined,
-                  dataAttr: "manager-properties-create",
-                },
+                // The header's own round "+" is Create (it opens the same
+                // menu as this used to: Add property / Import your
+                // portfolio) — the empty state no longer repeats it as a
+                // second, differently-styled Create action. One secondary
+                // way in stays here for the file-import path that isn't a
+                // single-property flow (AXI night sweep area 2g).
                 {
                   label: "Import your portfolio",
                   onClick: () => router.push("/portal/properties/import"),
                   dataAttr: "manager-properties-import-portfolio",
+                  secondary: true,
                 },
               ]
             : []
