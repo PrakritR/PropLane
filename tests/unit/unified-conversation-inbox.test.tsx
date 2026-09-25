@@ -341,11 +341,14 @@ describe("unified conversation inbox (no folder tabs)", () => {
   });
 
   it("shows archived SMS conversations in the archived segment", async () => {
-    window.localStorage.setItem(
-      "axis_manager_sms_archived_v1",
-      JSON.stringify(["owner:resident:res-1"]),
-    );
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(SMS_PAYLOAD), { status: 200 })));
+    // The server's archive flag is authoritative; loadSms mirrors it locally.
+    const archivedPayload = {
+      ...SMS_PAYLOAD,
+      residents: SMS_PAYLOAD.residents.map((r) =>
+        r.conversationKey === "owner:resident:res-1" ? { ...r, archived: true } : r,
+      ),
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(archivedPayload), { status: 200 })));
     render(
       <ManagerUnifiedInbox
         tabId="unopened"
