@@ -74,7 +74,9 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import { attachLibraryLeaseDocumentAndParse, retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
+import { LeaseAttachFromLibraryModal } from "@/components/portal/lease-attach-from-library-modal";
 import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
 import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
@@ -178,6 +180,7 @@ export function ManagerLeasesPipelinePanel({
   } | null>(null);
   const [amendLeaseRow, setAmendLeaseRow] = useState<LeasePipelineRow | null>(null);
   const [editLeaseRowId, setEditLeaseRowId] = useState<string | null>(null);
+  const [attachLibraryOpen, setAttachLibraryOpen] = useState(false);
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
   const [generateTemplateId, setGenerateTemplateId] = useState<string | null>(null);
   const [importReviewRowId, setImportReviewRowId] = useState<string | null>(null);
@@ -724,6 +727,34 @@ export function ManagerLeasesPipelinePanel({
     if (uploadRef.current) uploadRef.current.value = "";
   };
 
+  const handleAttachFromLibrary = useCallback(
+    async (rowId: string, entry: LeaseDocumentLibraryEntry) => {
+      setPendingRowId(rowId);
+      const res = await attachLibraryLeaseDocumentAndParse(rowId, entry, managerUserId);
+      setPendingRowId(null);
+      if (!res.ok) throw new Error(res.error ?? "Attach failed.");
+      if (res.saveError) {
+        showToast(`Document attached, but its PropLane reading was not stored: ${res.saveError}`);
+      } else if (!res.parse) {
+        showToast("Lease document attached from your library.");
+      } else {
+        showToast(
+          res.parse.status === "parsed"
+            ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
+            : `Lease document attached, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
+        );
+      }
+      setAttachLibraryOpen(false);
+      const attached = rows.find((r) => r.id === rowId) ?? null;
+      if (attached && leaseCanBeMarkedSignedOffPlatform(attached)) {
+        setMarkSignedRowId(rowId);
+      } else if (res.parse) {
+        setImportReviewRowId(rowId);
+      }
+    },
+    [managerUserId, rows, showToast],
+  );
+
   const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
     const generation = leaseGenerationSupportedForRow(row);
     return (
@@ -1071,6 +1102,8 @@ export function ManagerLeasesPipelinePanel({
                 : "Upload PDF"
           }
           uploadDisabled={pendingRowId === editLeaseRow.id}
+          showAttachFromLibrary={leaseAllowsSignedPdfUpload(editLeaseRow)}
+          onAttachFromLibrary={() => setAttachLibraryOpen(true)}
           showDelete={editLeaseRow.status !== "Fully Signed"}
           onDelete={() => {
             onDeleteLease(editLeaseRow);
@@ -1086,6 +1119,14 @@ export function ManagerLeasesPipelinePanel({
             hasLeaseDocument(editLeaseRow) ? () => openSendLeasePreview(editLeaseRow) : undefined
           }
           sendToResidentBusy={sendingToResidentRowId === editLeaseRow.id}
+        />
+      ) : null}
+
+      {editLeaseRow ? (
+        <LeaseAttachFromLibraryModal
+          open={attachLibraryOpen}
+          onClose={() => setAttachLibraryOpen(false)}
+          onAttach={(entry: LeaseDocumentLibraryEntry) => handleAttachFromLibrary(editLeaseRow.id, entry)}
         />
       ) : null}
 

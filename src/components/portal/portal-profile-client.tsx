@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   CreditCard,
   FileText,
+  Folder,
   Home,
   KeyRound,
   Landmark,
@@ -36,6 +37,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
+import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -130,7 +132,7 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
  * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
  * `workspace-only` variant — no properties picker.
  */
-export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications"]);
+export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications", "leaseDocuments"]);
 
 /** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -165,6 +167,7 @@ export type SettingsGroupId =
   | "properties"
   | "applications"
   | "lease"
+  | "leaseDocuments"
   | "tours"
   | "resident"
   | "payments"
@@ -463,6 +466,7 @@ export function PortalProfileClient({
       list.push(
         { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
         { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
+        { id: "leaseDocuments", label: "Lease documents", description: "Uploaded lease PDFs a property or lease can reuse.", icon: Folder, group: "Portfolio" },
         { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
         { id: "resident", label: "Residents", description: "Resident settings for this workspace.", icon: Home, group: "Portfolio" },
       );
@@ -720,6 +724,8 @@ export function PortalProfileClient({
         );
       case "spreadsheets":
         return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
+      case "leaseDocuments":
+        return <LeaseDocumentLibraryPanel />;
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
     }

@@ -946,6 +946,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
   workspace_work_numbers:
     "Workspace <-> work-number assignment join table; keyed on workspace_id/number_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged.",
+  lease_document_library:
+    "Workspace-scoped lease PDF library (night/custom-lease); keyed on workspace_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged. The uploader's manager_user_id is provenance, not an ownership key the purge follows.",
 };
 
 /**
