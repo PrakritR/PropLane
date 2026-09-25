@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Settings, ShieldCheck, SlidersHorizontal, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
@@ -256,6 +256,29 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       (row) => assignedIdsInWorkspace(row.propertyIds ?? [], workspacePropertyIds).length > 0,
     );
   }, [tick, userId, bare, workspacePropertyIds]);
+
+  // Review aggregates (★ average · count) for the vendors on screen, one batched
+  // request rather than one per row (see /api/portal/vendor-reviews/aggregates).
+  const [reviewAggregatesByVendorUserId, setReviewAggregatesByVendorUserId] = useState<
+    Record<string, { average: number | null; count: number }>
+  >({});
+  useEffect(() => {
+    const vendorUserIds = [...new Set(vendors.map((v) => v.vendorUserId).filter((id): id is string => Boolean(id)))];
+    if (vendorUserIds.length === 0) {
+      setReviewAggregatesByVendorUserId({});
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/portal/vendor-reviews/aggregates?vendorUserIds=${encodeURIComponent(vendorUserIds.join(","))}`)
+      .then((res) => res.json())
+      .then((data: { aggregates?: Record<string, { average: number | null; count: number }> }) => {
+        if (!cancelled) setReviewAggregatesByVendorUserId(data.aggregates ?? {});
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [vendors]);
 
   // The search box narrows the current tab only; the tab counts stay the totals.
   const visibleVendors = useMemo(
@@ -983,13 +1006,18 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           const phone = row.phone.trim();
           const email = row.email.trim();
           const meta = vendorRowMeta(row);
+          const reviewAggregate = row.vendorUserId ? reviewAggregatesByVendorUserId[row.vendorUserId] : undefined;
+          const reviewFact =
+            reviewAggregate && reviewAggregate.count > 0
+              ? `${reviewAggregate.average?.toFixed(1)} · ${reviewAggregate.count}`
+              : undefined;
           return (
             <PortalApplicantRecordRow
               key={row.id}
               name={row.name}
               address={row.trade.trim() || "—"}
               facts={
-                phone || email || meta ? (
+                phone || email || meta || reviewFact ? (
                   <>
                     {phone ? (
                       <PortalRowFact icon={Phone} srLabel="Phone">
@@ -999,6 +1027,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                     {email ? (
                       <PortalRowFact icon={Mail} srLabel="Email">
                         {email}
+                      </PortalRowFact>
+                    ) : null}
+                    {reviewFact ? (
+                      <PortalRowFact icon={Star} srLabel="Review rating">
+                        {reviewFact}
                       </PortalRowFact>
                     ) : null}
                     {meta ? <span data-attr="vendor-row-meta">{meta}</span> : null}
