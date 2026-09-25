@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Receipt, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
@@ -51,6 +51,9 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { ManagerVendorDetail, type VendorDetailTab } from "@/components/portal/pro-vendor-detail";
+import { ManagerVendorPayoutsModal } from "@/components/portal/manager-vendor-payouts-panel";
+import type { ManagerVendorSummary } from "@/lib/manager-vendor-summary.server";
+import { loadManagerVendorSummary } from "@/lib/manager-vendor-summary-client";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -161,7 +164,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [directoryFilterOpen, setDirectoryFilterOpen] = useState(false);
   const [directoryTradeFilter, setDirectoryTradeFilter] = useState("");
   const [directoryAreaFilter, setDirectoryAreaFilter] = useState("");
+  const [directoryMinRatingFilter, setDirectoryMinRatingFilter] = useState("");
   const [addingDirectoryId, setAddingDirectoryId] = useState<string | null>(null);
+  const [payoutsOpen, setPayoutsOpen] = useState(false);
 
   const directoryTab = parseVendorDirectoryTab(searchParams?.get("tab"));
   const catalogDetailId = searchParams?.get("catalog")?.trim() || null;
@@ -207,6 +212,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     const params = new URLSearchParams();
     if (directoryTradeFilter) params.set("trade", directoryTradeFilter);
     if (directoryAreaFilter.trim()) params.set("area", directoryAreaFilter.trim());
+    if (directoryMinRatingFilter) params.set("minRating", directoryMinRatingFilter);
     void fetch(`/api/manager/vendor-directory?${params.toString()}`, { credentials: "include" })
       .then((r) => r.json())
       .then((data: { rows?: AxisCatalogVendor[] }) => {
@@ -218,7 +224,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     return () => {
       cancelled = true;
     };
-  }, [authReady, directoryTradeFilter, directoryAreaFilter, tick]);
+  }, [authReady, directoryTradeFilter, directoryAreaFilter, directoryMinRatingFilter, tick]);
 
   const addDirectoryVendorToRoster = useCallback(
     async (row: AxisCatalogVendor) => {
@@ -302,6 +308,36 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     if (!routeVendorId) return null;
     return vendors.find((row) => row.id === routeVendorId) ?? null;
   }, [routeVendorId, vendors]);
+
+  // C080/PLAN item 3a: live counts for the open vendor's Services/Invoices/Reviews
+  // tabs, so an empty tab can be hidden from the record chrome below. The
+  // summary fetch is coalesced+cached (manager-vendor-summary-client.ts), so
+  // this doesn't duplicate the network call ManagerVendorDetail makes for the
+  // same vendor — both resolve the same in-flight/cached request.
+  const [routeVendorSummary, setRouteVendorSummary] = useState<ManagerVendorSummary | null>(null);
+  const [routeVendorSummaryState, setRouteVendorSummaryState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  useEffect(() => {
+    if (!routeVendor || !userId) {
+      setRouteVendorSummary(null);
+      setRouteVendorSummaryState("idle");
+      return;
+    }
+    let cancelled = false;
+    setRouteVendorSummaryState("loading");
+    loadManagerVendorSummary(userId, routeVendor.id)
+      .then((next) => {
+        if (cancelled) return;
+        setRouteVendorSummary(next);
+        setRouteVendorSummaryState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setRouteVendorSummaryState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeVendor?.id, userId]);
 
 
   const openDefaultsForm = useCallback((trade?: string) => {
@@ -542,6 +578,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const modals = (
     <>
+      <ManagerVendorPayoutsModal open={payoutsOpen} onClose={() => setPayoutsOpen(false)} />
       <ManagerVendorFormModal
         open={vendorFormOpen}
         mode={vendorFormMode}
@@ -680,7 +717,31 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       vendorTab === "check-ins"
         ? vendorTab
         : "overview";
-    const sections = recordSections("manager", "vendor", { basePath });
+    const baseSections = recordSections("manager", "vendor", { basePath });
+    // Item 3a: hide the Services/Invoices/Reviews tabs when this vendor has
+    // zero rows for them — never hide "overview", and never filter before the
+    // counts have actually loaded (avoids a flash of a tab disappearing).
+    const routeVendorJobs = routeVendorSummary?.jobs ?? [];
+    const servicesCount = routeVendorJobs.length;
+    const invoicesCount = routeVendorJobs.filter((job) => job.finalInvoiceCents != null).length;
+    const reviewsCount =
+      (routeVendor.vendorUserId ? (reviewAggregatesByVendorUserId[routeVendor.vendorUserId]?.count ?? 0) : 0) +
+      routeVendorJobs.filter((job) => job.residentRating != null).length;
+    const sections =
+      routeVendorSummaryState === "ready"
+        ? {
+            ...baseSections,
+            groups: baseSections.groups.map((group) => ({
+              ...group,
+              items: group.items.filter((item) => {
+                if (item.id === "services") return servicesCount > 0;
+                if (item.id === "invoices") return invoicesCount > 0;
+                if (item.id === "reviews") return reviewsCount > 0;
+                return true;
+              }),
+            })),
+          }
+        : baseSections;
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
         navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
@@ -760,9 +821,16 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   // The trade/area Filter must narrow BOTH sources — the curated catalog and
   // the self-serve directory rows — not just the directory rows the server
-  // already pre-filtered by `trade`/`area` query params (proof-bug #2).
-  const catalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors].filter((row) =>
-    catalogVendorMatchesTradeArea(row, directoryTradeFilter, directoryAreaFilter),
+  // already pre-filtered by `trade`/`area` query params (proof-bug #2). A
+  // rating-floor filter narrows the same way: the server already applied it
+  // to the directory rows, but a curated catalog / shared-roster row has no
+  // rating at all, so it fails a minimum-rating filter too rather than
+  // silently staying visible.
+  const minRatingFloor = directoryMinRatingFilter ? Number(directoryMinRatingFilter) : 0;
+  const catalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors].filter(
+    (row) =>
+      catalogVendorMatchesTradeArea(row, directoryTradeFilter, directoryAreaFilter) &&
+      (minRatingFloor <= 0 || (row.rating ?? 0) >= minRatingFloor),
   );
   const visibleCatalogRows = catalogRows.filter((row) =>
     matchesPortalListSearch(vendorSearch, row.name, row.trade, ...(row.trades ?? []), row.city, row.description),
@@ -966,6 +1034,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                       {row.city ? <PortalRowFact icon={MapPin} srLabel="Area">{row.city}</PortalRowFact> : null}
                       {row.insured ? <PortalRowFact icon={ShieldCheck} srLabel="Insured">Insured</PortalRowFact> : null}
                       {row.licensed ? <PortalRowFact icon={FileCheck2} srLabel="Licensed">Licensed</PortalRowFact> : null}
+                      {row.reviewCount ? (
+                        <PortalRowFact icon={Star} srLabel="Review rating">
+                          {`${row.rating?.toFixed(1)} · ${row.reviewCount}`}
+                        </PortalRowFact>
+                      ) : null}
                     </>
                   ) : (
                     <span>{[row.trade, row.city].filter(Boolean).join(" · ")}</span>
@@ -1107,7 +1180,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     });
   }
 
-  const directoryFilterActive = Boolean(directoryTradeFilter || directoryAreaFilter.trim());
+  const directoryFilterActive = Boolean(directoryTradeFilter || directoryAreaFilter.trim() || directoryMinRatingFilter);
   const directoryFilterPanel =
     directoryTab === "catalog" && directoryFilterOpen ? (
       <div
@@ -1135,6 +1208,20 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             data-attr="vendor-directory-filter-area"
           />
         </div>
+        <div className="min-w-[10rem]">
+          <FieldSingleSelect
+            label="Rating"
+            value={directoryMinRatingFilter}
+            onChange={setDirectoryMinRatingFilter}
+            options={[
+              { value: "", label: "Any rating" },
+              { value: "3", label: "3+ stars" },
+              { value: "4", label: "4+ stars" },
+              { value: "4.5", label: "4.5+ stars" },
+            ]}
+            dataAttr="vendor-directory-filter-rating"
+          />
+        </div>
         {directoryFilterActive ? (
           <Button
             type="button"
@@ -1142,6 +1229,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             onClick={() => {
               setDirectoryTradeFilter("");
               setDirectoryAreaFilter("");
+              setDirectoryMinRatingFilter("");
             }}
             data-attr="vendor-directory-filter-reset"
           >
@@ -1185,6 +1273,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           data-attr="vendor-directory-filter-toggle"
         />
       ) : null}
+      <PortalIconAction
+        label="Payouts"
+        icon={Receipt}
+        onClick={() => setPayoutsOpen(true)}
+        data-attr="vendor-payouts-open"
+      />
       <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
     </>
   );

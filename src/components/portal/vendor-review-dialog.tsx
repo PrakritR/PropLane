@@ -60,25 +60,26 @@ export function VendorReviewDialog({
 
   if (!row) return null;
 
-  const editWindowClosed = Boolean(existing && !canEditVendorReview(existing.createdAt));
-  const readOnly = editWindowClosed;
+  // C158: a posted review can never be edited, so an existing review always
+  // renders read-only — `canEditVendorReview` is the single source of that
+  // "never" decision (also enforced server-side by the PATCH route).
+  const readOnly = Boolean(existing) && !canEditVendorReview(existing?.createdAt ?? "");
 
   const submit = async () => {
-    if (!row || stars < 1) return;
+    if (!row || stars < 1 || existing) return;
     setSaving(true);
     try {
-      const url = existing ? `/api/portal/vendor-reviews/${existing.id}` : "/api/portal/vendor-reviews";
-      const res = await fetch(url, {
-        method: existing ? "PATCH" : "POST",
+      const res = await fetch("/api/portal/vendor-reviews", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(existing ? { stars, body: notes } : { workOrderId: row.id, stars, body: notes }),
+        body: JSON.stringify({ workOrderId: row.id, stars, body: notes }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
         showToast?.(data.error || "Could not save the review.");
         return;
       }
-      showToast?.(existing ? "Review updated." : "Review saved.");
+      showToast?.("Review saved.");
       onSaved?.();
       onClose();
     } finally {
@@ -90,13 +91,13 @@ export function VendorReviewDialog({
     <PortalDialog
       open={open}
       onClose={onClose}
-      title={existing ? "Edit review" : "Leave a review"}
+      title={existing ? "Review" : "Leave a review"}
       dataAttr="vendor-review-dialog"
       primaryAction={
         readOnly
           ? null
           : {
-              label: existing ? "Save review" : "Leave review",
+              label: "Leave review",
               onClick: submit,
               disabled: loading || saving || stars < 1,
               loading: saving,
@@ -107,9 +108,7 @@ export function VendorReviewDialog({
       <div className="space-y-4">
         {row.vendorName ? <p className="text-sm text-muted">{row.vendorName} · {row.title}</p> : null}
         {readOnly ? (
-          <p className="text-sm text-muted">
-            The 14-day edit window for this review has passed. It can no longer be changed.
-          </p>
+          <p className="text-sm text-muted">Reviews cannot be edited once posted.</p>
         ) : null}
         <div className="space-y-1.5">
           <span className="text-sm font-medium text-foreground">Rating</span>

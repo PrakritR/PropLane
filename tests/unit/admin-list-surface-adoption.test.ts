@@ -25,7 +25,13 @@ const FILES = {
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-describe.each(Object.entries(FILES))("admin %s list", (_name, path) => {
+// Billing is no longer a list — it merged into Accounts (captain: "combine
+// Billing and Accounts") and is now a one-line redirect card. It is excluded
+// from every describe.each below that assumes list/header shape; its own
+// assertions are the "admin Billing redirect" block further down.
+const LIST_FILES = Object.entries(FILES).filter(([name]) => name !== "billing");
+
+describe.each(LIST_FILES)("admin %s list", (_name, path) => {
   const src = read(path);
 
   it("renders the shared list surface", () => {
@@ -133,7 +139,6 @@ describe.each([
   ["properties", "src/components/portal/admin-properties-client.tsx"],
   ["feedback", "src/components/portal/admin-bug-feedback-client.tsx"],
   ["accounts", "src/components/portal/admin-axis-users-client.tsx"],
-  ["billing", "src/components/portal/admin-billing-client.tsx"],
   ["meetings", "src/components/portal/admin-events-client.tsx"],
 ])("admin %s header", (_name, path) => {
   const src = read(path);
@@ -172,23 +177,23 @@ describe("admin Accounts", () => {
   });
 });
 
-describe("admin Billing", () => {
+describe("admin Billing redirect", () => {
   const src = read(FILES.billing);
 
-  it("opens the SAME account editor Accounts opens, rather than a second one", () => {
-    // Billing is a different LIST over the same accounts. Two editors for one account is two sets
-    // of rules for the same write, which is exactly the drift this file exists to catch.
-    expect(src).toContain("ManagerAccountDetail");
-    expect(read(FILES.accounts)).toContain("ManagerAccountDetail");
+  it("is a redirect card into Accounts, not a second account list", () => {
+    // Billing used to be a different LIST over the same accounts Accounts already lists — two
+    // editors for one account is two sets of rules for the same write. It is a static redirect now.
+    expect(src).toContain("Billing is now part of Accounts");
+    expect(src).not.toContain("PortalRecordListSurface");
+    expect(src).not.toContain("ManagerAccountDetail");
   });
 
-  it("never renders an unreadable plan as a plan", () => {
-    // "Free" for a plan the server could not read is the one wrong answer that matters here.
-    expect(src).toContain("planUnknown");
-    expect(src).not.toMatch(/planLabel\s*\?\?\s*"Free"/);
+  it("sends staff to the real Accounts route", () => {
+    expect(src).toContain("/admin/axis-users");
   });
 
-  it("offers no ADD row — staff do not create manager accounts from a billing list", () => {
-    expect(src).not.toContain("PortalListAddRow");
+  it("has no separate admin nav row any more", () => {
+    const nav = read("src/lib/portals/admin.ts");
+    expect(nav).not.toMatch(/section:\s*"billing"/);
   });
 });

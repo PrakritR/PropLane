@@ -506,6 +506,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "manager_vendor_preferences",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "manager_sms_contacts",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
@@ -969,6 +974,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Workspace-scoped lease PDF library (night/custom-lease); keyed on workspace_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged. The uploader's manager_user_id is provenance, not an ownership key the purge follows.",
   proplane_balance_entries:
     "Child of proplane_balance_accounts (on delete cascade), no account column of its own; the ledger is preserved financial history like ledger_entries, so its parent account row is retained (preserveFinancial) and this child is never reached anyway.",
+  workspace_debit_consents:
+    "Signed debit authorization; a financial record retained like the ledger and cascaded by workspace deletion.",
 };
 
 /**

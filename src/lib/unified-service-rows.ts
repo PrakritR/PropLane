@@ -40,6 +40,9 @@ export type UnifiedServiceRow = {
    * whether it was auto-booked (then `scheduledIso` above is also set) or is
    * still only a proposal awaiting manager confirmation. */
   proposedVisit?: { iso: string; source: "availability" | "proplane-pick"; suggestedAtIso?: string };
+  /** ISO the request was approved, when it was — shown as a plain "Approved" fact
+   * (never as a scheduled-visit date) whenever the row is NOT genuinely scheduled. */
+  approvedIso: string;
 };
 
 /**
@@ -48,11 +51,20 @@ export type UnifiedServiceRow = {
  * `returned` counts as done: the item came back, the request is finished. `denied` is its own
  * state rather than done, because a manager filtering for finished work should not be shown
  * things that never happened.
+ *
+ * `approved` is genuinely "scheduled" ONLY when the request both has someone assigned to
+ * handle it AND an actual confirmed visit time — never merely because it was approved
+ * (C246: an approval date is not a scheduled-visit date). An add-on's `proposedVisit` is
+ * always a tentative suggestion awaiting manager confirmation, never a booking, so it does
+ * not count as a confirmed visit either.
  */
-export function addOnState(status: string | undefined | null): ServiceRowState {
+export function addOnState(
+  status: string | undefined | null,
+  hasConfirmedVisit = false,
+): ServiceRowState {
   switch ((status ?? "").toLowerCase()) {
     case "approved":
-      return "scheduled";
+      return hasConfirmedVisit ? "scheduled" : "open";
     case "returned":
       return "done";
     case "denied":
@@ -126,20 +138,26 @@ export function buildUnifiedServiceRows(input: {
 
   for (const req of input.addOns) {
     if (!req.id) continue;
+    // An add-on has no visit record to book into — `proposedVisit` is always only a
+    // suggestion the manager has not confirmed (see the field's own doc comment), so an
+    // add-on never has a genuinely confirmed visit today. Kept as a real condition (rather
+    // than a hardcoded false) so a future confirmed-visit field wires in without another pass.
+    const hasConfirmedVisit = false;
     rows.push({
       id: req.id,
       kind: "add-on",
       title: req.offerName?.trim() || "Add-on service",
       statusLabel: titleCase(req.status) || "Pending",
-      state: addOnState(req.status),
+      state: addOnState(req.status, hasConfirmedVisit),
       residentName: req.residentName?.trim() ?? "",
       residentEmail: req.residentEmail?.trim() ?? "",
       propertyId: req.propertyId?.trim() ?? "",
       propertyLabel: input.propertyLabelForRequest?.(req.propertyId ?? "")?.trim() ?? "",
       unitLabel: "",
-      scheduledIso: req.approvedAt?.trim() ?? "",
+      scheduledIso: hasConfirmedVisit ? req.approvedAt?.trim() ?? "" : "",
       createdIso: req.requestedAt?.trim() ?? "",
       proposedVisit: req.proposedVisit,
+      approvedIso: (req.status ?? "").toLowerCase() === "approved" ? req.approvedAt?.trim() ?? "" : "",
     });
   }
 
@@ -159,6 +177,9 @@ export function buildUnifiedServiceRows(input: {
       scheduledIso: wo.scheduledAtIso?.trim() ?? "",
       createdIso: wo.createdAtIso?.trim() ?? "",
       proposedVisit: wo.proposedVisit,
+      // "Approved" is an add-on-request concept; a maintenance work order's bucket already
+      // reads "scheduled" only once a real visit is booked (schedule-service-visit.ts).
+      approvedIso: "",
     });
   }
 

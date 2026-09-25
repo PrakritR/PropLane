@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
 import { useMemo, useSyncExternalStore } from "react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { parseResidentDocumentTab } from "@/lib/resident-documents-tabs";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { ManagerInspectionsPage } from "@/components/portal/inspections-panel";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
@@ -243,7 +244,10 @@ export function DemoSectionRenderer({
     case "communication":
       return <ResidentInboxPanel tabId={tabId} />;
     case "documents":
-      return <ResidentDocumentsPanel tabId={tabId} basePath={basePath} tabs={meta?.tabs ?? []} />;
+      // `tabId` here already comes from the same section metadata
+      // (`resident-sections.ts`'s `DOCUMENTS_TABS`, now bucket ids), so
+      // `parseResidentDocumentTab` maps it straight through.
+      return <ResidentDocumentsPanel tabId={tabId} basePath={basePath} bucket={parseResidentDocumentTab(tabId)} />;
     case "bugs-feedback":
       return <ResidentProfilePanel />;
     case "profile":

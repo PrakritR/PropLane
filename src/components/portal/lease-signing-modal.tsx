@@ -124,6 +124,7 @@ export function LeaseSigningModal({
   signerRoleLabel,
   onSign,
   onClose,
+  error,
 }: {
   row: LeasePipelineRow;
   signerName: string;
@@ -131,6 +132,13 @@ export function LeaseSigningModal({
   /** `consentVersion` is the affirmation the signer accepted to reach this call. */
   onSign: (signatureName: string, consentVersion: string) => boolean | Promise<boolean>;
   onClose: () => void;
+  /**
+   * The server's own refusal message from the last failed sign attempt, or
+   * `null`/omitted when there is none. Signing waits for the server, so a
+   * refused write must show up HERE — inside the still-open window — rather
+   * than only as a toast the resident may have missed.
+   */
+  error?: string | null;
 }) {
   const [sigName, setSigName] = useState(signerName);
   const [agreed, setAgreed] = useState(false);
@@ -204,6 +212,14 @@ export function LeaseSigningModal({
         </div>
       ) : (
         <div className="space-y-4">
+          {error ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+            >
+              {error}
+            </div>
+          ) : null}
           {row.managerUploadedPdf?.fields?.length && row.managerUploadedPdf.originalDataUrl ? (
             <LeaseSigningFieldPreview dataUrl={row.managerUploadedPdf.originalDataUrl} fields={row.managerUploadedPdf.fields} />
           ) : null}

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
+import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import {
@@ -487,7 +488,7 @@ export function ManagerBookingsHub({
         ) : (
           <div className={PORTAL_CALENDAR_FRAME}>
             <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
-              {emptyPortfolio ? (
+              {emptyPortfolio && !calendarOnly ? (
                 <div
                   className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
                   data-attr="bookings-empty-houses-banner"
@@ -505,165 +506,182 @@ export function ManagerBookingsHub({
                 </div>
               ) : null}
 
-              <PortalSegmentedControl
-                options={CALENDAR_VIEW_OPTIONS}
-                value={view}
-                onChange={setView}
-                size="sm"
-                ariaLabel="Calendar period"
-              />
+              {calendarOnly ? (
+                // All-properties Timeline replaces the Day/Week/Month/Year grid for
+                // the portfolio Calendar tab (BUILD-WAVE2 C257). The old grid below
+                // stays intact for `calendarOnly === false`, which nothing in the
+                // shipped product uses today but a unit test still exercises.
+                <BookingsPortfolioTimeline
+                  propertyIds={propertyIds}
+                  entries={entries}
+                  today={today}
+                  onOpenDay={openDay}
+                  occupancyDays={occupancyDays}
+                  emptyMessage={emptyMessage}
+                />
+              ) : (
+                <>
+                  <PortalSegmentedControl
+                    options={CALENDAR_VIEW_OPTIONS}
+                    value={view}
+                    onChange={setView}
+                    size="sm"
+                    ariaLabel="Calendar period"
+                  />
 
-              <div className="flex shrink-0 items-center justify-between gap-2">
-                <button
-                  type="button"
-                  aria-label={prevLabel}
-                  data-attr="bookings-calendar-prev"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
-                  onClick={() => setAnchorDate((current) => shiftAnchor(current, view, -1))}
-                >
-                  <ChevronLeft className="h-4 w-4" aria-hidden />
-                </button>
-                <div className="min-w-0 flex-1 text-center">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {formatNavTitle(anchorDate, view)}
-                  </p>
-                  <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-                    {navSubtitle}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={nextLabel}
-                  data-attr="bookings-calendar-next"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
-                  onClick={() => setAnchorDate((current) => shiftAnchor(current, view, 1))}
-                >
-                  <ChevronRight className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-
-              {view === "day" ? (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card/80 p-4">
-                  {dayViewBookings.length === 0 ? (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
-                      <CalendarDays className="h-10 w-10 text-muted" aria-hidden />
-                      <p className="text-sm font-medium text-foreground">No bookings on this day</p>
-                      <p className="max-w-xs text-xs text-muted">
-                        Stays from PropLane leases and linked Airbnb calendars appear here when a
-                        room is occupied.
+                  <div className="flex shrink-0 items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      aria-label={prevLabel}
+                      data-attr="bookings-calendar-prev"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
+                      onClick={() => setAnchorDate((current) => shiftAnchor(current, view, -1))}
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden />
+                    </button>
+                    <div className="min-w-0 flex-1 text-center">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {formatNavTitle(anchorDate, view)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+                        {navSubtitle}
                       </p>
                     </div>
-                  ) : (
-                    <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-                      {dayViewBookings.map((booking, index) => (
-                        <DayViewStayCard
-                          key={`${booking.start}-${booking.roomId}-${index}`}
-                          booking={booking}
-                        />
+                    <button
+                      type="button"
+                      aria-label={nextLabel}
+                      data-attr="bookings-calendar-next"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
+                      onClick={() => setAnchorDate((current) => shiftAnchor(current, view, 1))}
+                    >
+                      <ChevronRight className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
+
+                  {view === "day" ? (
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card/80 p-4">
+                      {dayViewBookings.length === 0 ? (
+                        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
+                          <CalendarDays className="h-10 w-10 text-muted" aria-hidden />
+                          <p className="text-sm font-medium text-foreground">No bookings on this day</p>
+                          <p className="max-w-xs text-xs text-muted">
+                            Stays from PropLane leases and linked Airbnb calendars appear here when a
+                            room is occupied.
+                          </p>
+                        </div>
+                      ) : (
+                        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+                          {dayViewBookings.map((booking, index) => (
+                            <DayViewStayCard
+                              key={`${booking.start}-${booking.roomId}-${index}`}
+                              booking={booking}
+                            />
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {view === "week" ? (
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                      <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
+                        {WEEKDAY_LABELS.map((label) => (
+                          <div
+                            key={label}
+                            className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted"
+                          >
+                            {label}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid min-h-0 flex-1 grid-cols-7 gap-1">
+                        {weekDays.map((cell) => (
+                          <DayBookingCell
+                            key={dateKey(cell)}
+                            cell={cell}
+                            entries={entries}
+                            today={today}
+                            onOpenDay={openDay}
+                            propertyIds={propertyIds}
+                            occupancyDays={occupancyDays}
+                            selected={selectedDayKey === dateKey(cell)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {view === "month" ? (
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                      <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
+                        {WEEKDAY_LABELS.map((label) => (
+                          <div
+                            key={label}
+                            className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted"
+                          >
+                            {label}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 gap-1">
+                        {monthCells.map((cell, index) => {
+                          if (!cell) {
+                            return <div key={`pad-${index}`} className="min-h-0" aria-hidden />;
+                          }
+                          return (
+                            <DayBookingCell
+                              key={dateKey(cell)}
+                              cell={cell}
+                              entries={entries}
+                              today={today}
+                              onOpenDay={openDay}
+                              propertyIds={propertyIds}
+                              occupancyDays={occupancyDays}
+                              selected={selectedDayKey === dateKey(cell)}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {view === "year" ? (
+                    <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
+                      {Array.from({ length: 12 }, (_, month) => {
+                        const year = anchorDate.getFullYear();
+                        const isCurrentMonth =
+                          year === today.getFullYear() && month === today.getMonth();
+                        return (
+                          <YearMonthMiniGrid
+                            key={month}
+                            year={year}
+                            month={month}
+                            entries={entries}
+                            isCurrentMonth={isCurrentMonth}
+                            onSelect={() => goToMonth(year, month)}
+                            propertyIds={propertyIds}
+                            occupancyDays={occupancyDays}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {view === "year" ? (
+                    <div
+                      className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted"
+                      aria-label="Calendar key"
+                    >
+                      {OCCUPANCY_HEAT_BUCKETS.map((step) => (
+                        <span key={step.id} className="inline-flex items-center gap-1.5">
+                          <span className={`h-2 w-2 rounded-sm border ${occupancyHeatBucketClass(step.id)}`} aria-hidden />
+                          {step.label}
+                        </span>
                       ))}
-                    </ul>
-                  )}
-                </div>
-              ) : null}
-
-              {view === "week" ? (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                  <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
-                    {WEEKDAY_LABELS.map((label) => (
-                      <div
-                        key={label}
-                        className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted"
-                      >
-                        {label}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid min-h-0 flex-1 grid-cols-7 gap-1">
-                    {weekDays.map((cell) => (
-                      <DayBookingCell
-                        key={dateKey(cell)}
-                        cell={cell}
-                        entries={entries}
-                        today={today}
-                        onOpenDay={openDay}
-                        propertyIds={propertyIds}
-                        occupancyDays={occupancyDays}
-                        selected={selectedDayKey === dateKey(cell)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {view === "month" ? (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                  <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
-                    {WEEKDAY_LABELS.map((label) => (
-                      <div
-                        key={label}
-                        className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted"
-                      >
-                        {label}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 gap-1">
-                    {monthCells.map((cell, index) => {
-                      if (!cell) {
-                        return <div key={`pad-${index}`} className="min-h-0" aria-hidden />;
-                      }
-                      return (
-                        <DayBookingCell
-                          key={dateKey(cell)}
-                          cell={cell}
-                          entries={entries}
-                          today={today}
-                          onOpenDay={openDay}
-                          propertyIds={propertyIds}
-                          occupancyDays={occupancyDays}
-                          selected={selectedDayKey === dateKey(cell)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
-              {view === "year" ? (
-                <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
-                  {Array.from({ length: 12 }, (_, month) => {
-                    const year = anchorDate.getFullYear();
-                    const isCurrentMonth =
-                      year === today.getFullYear() && month === today.getMonth();
-                    return (
-                      <YearMonthMiniGrid
-                        key={month}
-                        year={year}
-                        month={month}
-                        entries={entries}
-                        isCurrentMonth={isCurrentMonth}
-                        onSelect={() => goToMonth(year, month)}
-                        propertyIds={propertyIds}
-                        occupancyDays={occupancyDays}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
-
-              {view === "year" ? (
-                <div
-                  className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted"
-                  aria-label="Calendar key"
-                >
-                  {OCCUPANCY_HEAT_BUCKETS.map((step) => (
-                    <span key={step.id} className="inline-flex items-center gap-1.5">
-                      <span className={`h-2 w-2 rounded-sm border ${occupancyHeatBucketClass(step.id)}`} aria-hidden />
-                      {step.label}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         )}

@@ -447,10 +447,6 @@ export const SettingsModulePage = forwardRef<
     saveRegistryRef,
     "lease-reminder",
   );
-  const tourManagerReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
-    saveRegistryRef,
-    "tour-manager-reminder",
-  );
   const taskReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
     saveRegistryRef,
     "task-reminder",
@@ -586,8 +582,7 @@ export const SettingsModulePage = forwardRef<
           onFooterReady={setPanelFooter}
           onSaved={onCalendarSettingsSaved}
           formRef={toursFormRef}
-          teamMembers={teamMembers}
-          managerReminderFormRef={tourManagerReminderFormRef}
+          propertyOptions={scopedPropertyOptions}
         />
       ) : null}
 

@@ -34,6 +34,7 @@ import {
   uploadedLeaseNeedsManagerConfirmation,
 } from "@/lib/uploaded-lease-extraction";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { newSignatureHashMismatch } from "@/lib/lease-signature-hash-guard";
 import { parseUploadedLeasePdfBytes } from "@/lib/uploaded-lease-parse.server";
 import { assertSafePdfForImport, parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
 import { leaseBodyMatchesManagerFiledLease, managerFiledLeaseScopeForNewRow } from "@/lib/lease-manager-filed-document.server";
@@ -1104,6 +1105,21 @@ export async function POST(req: Request) {
           return NextResponse.json(
             { error: `Only the ${forgedRole} can add the ${forgedRole}'s signature.` },
             { status: 403 },
+          );
+        }
+
+        // Part 3 hotfix (defect 3): a NEW signature's reported hash must match
+        // what the SERVER actually has stored — the document the signer was
+        // shown when they opened it — not merely be present. Without this, a
+        // client that hashed a stale or slim local copy (the resident's list
+        // row carries no bytes at all) could record a signature over a
+        // document that was never what the party actually saw.
+        if (
+          newSignatureHashMismatch(storedRow, normalized as unknown as LeasePipelineRow, sha256Hex)
+        ) {
+          return NextResponse.json(
+            { error: "This lease changed after you opened it. Reload it and sign again." },
+            { status: 409 },
           );
         }
       }

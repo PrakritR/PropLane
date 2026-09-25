@@ -8,10 +8,10 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatVendorReviewAggregate, VENDOR_REVIEW_BODY_MAX_LENGTH, type PublicVendorReview, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 
+/** The vendor reply is one-shot: once sent it renders read-only, no edit affordance (C157). */
 function ReviewReplyForm({ review, onReplied }: { review: PublicVendorReview; onReplied: (next: PublicVendorReview) => void }) {
   const { showToast } = useAppUi();
-  const [reply, setReply] = useState(review.vendorReply ?? "");
-  const [editing, setEditing] = useState(!review.vendorReply);
+  const [reply, setReply] = useState("");
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -29,28 +29,19 @@ function ReviewReplyForm({ review, onReplied }: { review: PublicVendorReview; on
         return;
       }
       onReplied(data.review);
-      setEditing(false);
       showToast?.("Reply sent.");
     } finally {
       setSaving(false);
     }
   };
 
-  if (!editing) {
+  if (review.vendorReply) {
     return (
       <div className="rounded-lg bg-muted/10 px-2.5 py-1.5 text-[13px]">
         <p className="text-muted">
           <span className="font-medium text-foreground">Your reply: </span>
           {review.vendorReply}
         </p>
-        <button
-          type="button"
-          className="mt-1 text-[12.5px] font-medium text-primary"
-          onClick={() => setEditing(true)}
-          data-attr="vendor-review-reply-edit"
-        >
-          Edit reply
-        </button>
       </div>
     );
   }
