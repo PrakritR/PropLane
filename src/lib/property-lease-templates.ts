@@ -4,6 +4,14 @@ import {
   resolvePropertyLeaseSource,
   type PropertyLeaseSource,
 } from "@/lib/property-lease-source";
+import type { ApplicationConfigSlice } from "@/lib/rental-application/application-field-catalog";
+// Type-only: `property-application-templates.ts` imports VALUES from this
+// module, so a value-level import back would be circular. `import type` is
+// erased at build time and carries no runtime dependency either way — this
+// reuses that module's question-config shape exactly (see its own doc
+// comment) rather than inventing a second one, since the lease and
+// application editors are meant to share one question-editor UI.
+import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 
 /** Standard PropLane lease formats — plus custom builder. */
 export type PropertyLeaseTemplateKind = "short-term" | "long-term" | "time-based" | "custom";
@@ -61,6 +69,18 @@ export type PropertyLeaseTemplate = {
   };
   createdAt: string;
   updatedAt: string;
+  /**
+   * Manager-only lease-document question configuration, imported from a lease
+   * PDF and reviewed through the same draft/publish machinery as
+   * `PropertyApplicationTemplate` (see `property-application-templates.ts`).
+   * Draft edits never reach a resident; `publishedQuestionConfig` is the
+   * snapshot a signable lease would pin. Out of scope for this change: no
+   * resident-facing signing wizard reads these yet.
+   */
+  draftQuestionConfig?: ApplicationTemplateQuestionConfig;
+  publishedQuestionConfig?: ApplicationTemplateQuestionConfig;
+  /** Immutable prior published snapshots, mirroring the application template's history list. */
+  publishedQuestionConfigVersions?: ApplicationTemplateQuestionConfig[];
 };
 
 export const PROPERTY_LEASE_TYPE_OPTIONS: readonly {
@@ -314,4 +334,121 @@ export function removePropertyLeaseTemplate(
   templateId: string,
 ): PropertyLeaseTemplate[] {
   return templates.filter((row) => row.id !== templateId);
+}
+
+// --- Lease-document question config: draft/publish, mirroring
+// property-application-templates.ts's ApplicationTemplateQuestionConfig
+// machinery so both editors share one question-editor UI and one publish
+// contract. Kept local (not re-exported functions from that module) because
+// this module cannot import VALUES from it without a circular dependency —
+// see the `import type` note above.
+
+export type LeaseTemplatePublishGate = { ok: true } | { ok: false; reason: string };
+
+function copyLeaseQuestionConfig(config: ApplicationTemplateQuestionConfig): ApplicationTemplateQuestionConfig {
+  return {
+    ...config,
+    disabledStandardApplicationKeys: [...config.disabledStandardApplicationKeys],
+    customApplicationFields: config.customApplicationFields.map((field) => ({ ...field, options: [...field.options] })),
+    questionDisplayOrder: config.questionDisplayOrder ? [...config.questionDisplayOrder] : undefined,
+    importProvenance: config.importProvenance ? { ...config.importProvenance } : undefined,
+  };
+}
+
+/** The version a signable lease may pin. Legacy templates with no publish resolve to null. */
+export function publishedLeaseQuestionConfigForTemplate(
+  template: PropertyLeaseTemplate,
+): ApplicationTemplateQuestionConfig | null {
+  return template.publishedQuestionConfig ? copyLeaseQuestionConfig(template.publishedQuestionConfig) : null;
+}
+
+/** The manager's editable configuration, falling back to the published snapshot. */
+export function draftLeaseQuestionConfigForTemplate(
+  template: PropertyLeaseTemplate,
+): ApplicationTemplateQuestionConfig | null {
+  return template.draftQuestionConfig
+    ? copyLeaseQuestionConfig(template.draftQuestionConfig)
+    : publishedLeaseQuestionConfigForTemplate(template);
+}
+
+export function leaseTemplateQuestionConfigFromSlice(
+  slice: ApplicationConfigSlice,
+  previous?: ApplicationTemplateQuestionConfig | null,
+): ApplicationTemplateQuestionConfig {
+  return {
+    ...slice,
+    disabledStandardApplicationKeys: [...slice.disabledStandardApplicationKeys],
+    customApplicationFields: slice.customApplicationFields.map((field) => ({ ...field, options: [...field.options] })),
+    questionDisplayOrder: slice.questionDisplayOrder ? [...slice.questionDisplayOrder] : undefined,
+    version: previous?.version ?? 1,
+    importProvenance: previous?.importProvenance ? { ...previous.importProvenance } : undefined,
+  };
+}
+
+/** Exact editable-question snapshot acknowledged with the private original. */
+export function leaseDraftReviewFingerprint(config: ApplicationTemplateQuestionConfig): string {
+  const ordered = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(ordered);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, ordered(entry)]));
+    }
+    return value;
+  };
+  return JSON.stringify(ordered({
+    disabledStandardApplicationKeys: config.disabledStandardApplicationKeys,
+    customApplicationFields: config.customApplicationFields,
+    applicationConfigMode: config.applicationConfigMode,
+    questionDisplayOrder: config.questionDisplayOrder ?? [],
+  }));
+}
+
+/**
+ * Unlike the application template's gate, there is no required-identity set
+ * to enforce here (a lease has no standard question catalog) — only that a
+ * draft exists and, when it was imported, that its exact PDF reading was
+ * reviewed and every reported issue resolved.
+ */
+export function leaseTemplateQuestionPublishGate(template: PropertyLeaseTemplate): LeaseTemplatePublishGate {
+  const draft = draftLeaseQuestionConfigForTemplate(template);
+  if (!draft) return { ok: false, reason: "Save a question draft before publishing." };
+  if ((draft.importProvenance?.unresolvedCount ?? 0) > 0) {
+    return { ok: false, reason: "Resolve every imported PDF issue before publishing." };
+  }
+  if (draft.importProvenance?.sourcePath && (
+    !draft.importProvenance.reviewedByUserId ||
+    draft.importProvenance.reviewedDraftFingerprint !== leaseDraftReviewFingerprint(draft)
+  )) {
+    return { ok: false, reason: "Compare and confirm the imported PDF before publishing." };
+  }
+  return { ok: true };
+}
+
+/** Creates the immutable published snapshot and advances its version. */
+export function publishLeaseTemplateQuestionDraft(template: PropertyLeaseTemplate): PropertyLeaseTemplate {
+  const gate = leaseTemplateQuestionPublishGate(template);
+  if (!gate.ok) throw new Error(gate.reason);
+  const draft = draftLeaseQuestionConfigForTemplate(template);
+  if (!draft) return template;
+  const published: ApplicationTemplateQuestionConfig = { ...copyLeaseQuestionConfig(draft), version: (template.publishedQuestionConfig?.version ?? 0) + 1 };
+  const history = [
+    ...(template.publishedQuestionConfigVersions ?? []),
+    ...(template.publishedQuestionConfig ? [copyLeaseQuestionConfig(template.publishedQuestionConfig)] : []),
+  ].filter((item, index, all) => all.findIndex((candidate) => candidate.version === item.version) === index);
+  return {
+    ...template,
+    draftQuestionConfig: copyLeaseQuestionConfig(published),
+    publishedQuestionConfig: published,
+    publishedQuestionConfigVersions: history,
+    updatedAt: nowIso(),
+  };
+}
+
+export function publishedLeaseQuestionConfigVersionForTemplate(
+  template: PropertyLeaseTemplate,
+  version?: number | null,
+): ApplicationTemplateQuestionConfig | null {
+  if (version == null) return publishedLeaseQuestionConfigForTemplate(template);
+  const candidates = [template.publishedQuestionConfig, ...(template.publishedQuestionConfigVersions ?? [])];
+  const found = candidates.find((config) => config?.version === version);
+  return found ? copyLeaseQuestionConfig(found) : null;
 }
