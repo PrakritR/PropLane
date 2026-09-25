@@ -521,6 +521,19 @@ export function leaseLandlordNameWarning(row: LeasePipelineRow): string | null {
 }
 
 export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {
+  // The document check itself, taught to recognize an uploaded/library-attached
+  // PDF: `leasePipelineRowHasDocument` (-> `leaseRowHasDocument`) already
+  // tolerates a LIST-shaped row whose bytes were omitted for bandwidth
+  // (`documentOmitted`/`managerUploadedPdf.omitted`) as long as a filename is
+  // present — a naive `row.generatedHtml || row.managerUploadedPdf?.dataUrl`
+  // check reads that as "no document" and wrongly refuses a lease that
+  // genuinely has one server-side. Every send surface (`sendLeaseToResident`,
+  // the assistant's `send_lease_for_signature`, and `leaseCanBeSentForSignature`
+  // via `leaseSendGateBlocker`) reads this one check now, so none of them can
+  // drift back to the narrower, buggier version.
+  if (!leasePipelineRowHasDocument(row)) {
+    return "Generate or upload a lease document first.";
+  }
   const requireApproved = leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences());
   const approval = leaseApplicationApprovalBlockerAmong(row, apps, {
     requireApprovedApplication: requireApproved,
@@ -3574,9 +3587,11 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
   if (!logical || !leaseAccessibleToManager(logical, managerUserId)) {
     return { ok: false, error: "Lease not found." };
   }
-  if (!logical.generatedHtml && !logical.managerUploadedPdf?.dataUrl) {
-    return { ok: false, error: "Generate or upload a lease document first." };
-  }
+  // Document presence is now checked inside `leaseSendGateBlocker` below (see
+  // its comment) — `logical` is read from the LIST-shaped client cache, whose
+  // bytes are intentionally omitted for bandwidth, so a bare
+  // `managerUploadedPdf?.dataUrl` check here would wrongly refuse an uploaded
+  // or library-attached PDF lease that genuinely has a document server-side.
   if (logical.status === "Fully Signed" || logical.status === "Voided") {
     return { ok: false, error: "This lease is already finalized." };
   }
