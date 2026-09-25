@@ -269,10 +269,17 @@ type VariantConfigSource = {
 };
 
 function asStringArray(value: unknown): string[] {
+  // Only the identity trio (name/phone/email) is force-kept here — a
+  // pre-existing defense-in-depth against a forged disabled-keys list, not
+  // where C195's SSN/ID/income lock lives. That lock is enforced once, at
+  // the manager-facing mutation (`removeListingApplicationField`'s
+  // editor-remove action); filtering the wider NEVER_DISABLED set here too
+  // also reverses PropLane's own short-term curated default, which
+  // legitimately disables SSN/ID/income by design.
   return Array.isArray(value)
     ? value.filter(
         (k): k is string =>
-          typeof k === "string" && k.trim().length > 0 && !NEVER_DISABLED_STANDARD_KEY_SET.has(k),
+          typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k),
       )
     : [];
 }
@@ -514,7 +521,7 @@ export function resolveListingApplicationFields(
 ): ResolvedApplicationField[] {
   const disabled = new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !NEVER_DISABLED_STANDARD_KEY_SET.has(k))
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
       : [],
   );
   const saved = normalizeSaved(sub?.customApplicationFields);
@@ -699,9 +706,14 @@ export function removeListingApplicationField(
   customApplicationFields: ManagerCustomApplicationField[];
   applicationConfigMode: "standard" | "custom";
 } {
-  // These fields establish the applicant record and must remain available to
-  // the same server-side validator regardless of editor state or import input.
-  if (field.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey)) {
+  // Identity (name/phone/email) establishes the applicant record; SSN, ID,
+  // and income are read directly by screening and billing — C195 locks a
+  // manager out of removing any of them via the editor, on every variant
+  // that reaches this function (long-term and co-signer editors both do;
+  // the short-term form's own curated default is set directly in
+  // `applicationConfigForVariant` and never goes through this function, so
+  // it is unaffected and keeps hiding SSN/income exactly as before).
+  if (field.standardKey && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey)) {
     return {
       disabledStandardApplicationKeys: [...(sub.disabledStandardApplicationKeys ?? [])],
       customApplicationFields: [...(sub.customApplicationFields ?? [])],
@@ -768,7 +780,7 @@ function disabledStandardKeysSet(
 ): Set<string> {
   return new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !NEVER_DISABLED_STANDARD_KEY_SET.has(k))
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
       : [],
   );
 }

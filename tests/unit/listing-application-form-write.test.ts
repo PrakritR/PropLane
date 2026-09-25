@@ -153,6 +153,29 @@ describe("reconcileListingApplicationFormOnWrite (N037)", () => {
     const submission = (result.propertyData as { listingSubmission: { customApplicationFields: unknown[] } }).listingSubmission;
     expect(submission.customApplicationFields).toEqual([]);
   });
+
+  it("is best-effort: a database that throws on the workspace lookup still returns the original, unreconciled data", async () => {
+    // A property save must never fail because this copy failed (integration
+    // finding: three property-records tests' db doubles didn't stub
+    // `portal_workspaces` and the unconditional lookup threw, 500ing the
+    // route). Any consumer whose `.from()` doesn't recognize the new query —
+    // an outdated test double, a real transient database error — must still
+    // let the save proceed with the caller's original data.
+    const throwingDb = {
+      from: () => {
+        throw new Error("boom: unexpected table");
+      },
+    } as unknown as SupabaseClient;
+    const originalRowData = { submission: { applicationFormSource: "workspace", customApplicationFields: [] } };
+    const originalPropertyData = { listingSubmission: { applicationFormSource: "workspace", customApplicationFields: [] } };
+    const result = await reconcileListingApplicationFormOnWrite(throwingDb, {
+      ownerUserId: OWNER,
+      rowData: originalRowData,
+      propertyData: originalPropertyData,
+    });
+    expect(result.rowData).toBe(originalRowData);
+    expect(result.propertyData).toBe(originalPropertyData);
+  });
 });
 
 describe("recopyWorkspaceApplicationFormOntoFollowingListings (N037)", () => {

@@ -43,16 +43,24 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: existing, error: null }) }),
-      }),
-      update,
-      upsert: async (row: Record<string, unknown>) => {
-        upserts.push(row);
-        return { error: null };
-      },
-    }),
+    from: (table: string) => {
+      // N037's reconcile reads this to find the owner's default workspace
+      // before copying its application form onto the listing — none exists
+      // in this fixture set, so the reconcile cleanly no-ops.
+      if (table === "portal_workspaces") {
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+      }
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: existing, error: null }) }),
+        }),
+        update,
+        upsert: async (row: Record<string, unknown>) => {
+          upserts.push(row);
+          return { error: null };
+        },
+      };
+    },
   }),
 }));
 
