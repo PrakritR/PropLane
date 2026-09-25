@@ -108,6 +108,8 @@ export const DELETE_ORDER = [
   "work_order_reference_counters",
   "vendor_invoices",
   "vendor_payouts",
+  // Platform-held funds awaiting a Connect destination; financial like vendor_payouts.
+  "platform_payment_holds",
   "vendor_tax_profiles",
   "vendor_business_profiles",
   "vendor_availability_rules",
@@ -155,6 +157,9 @@ export const DELETE_ORDER = [
   "manager_comms_credit_purchases",
   "manager_comms_billing_accounts",
   "manager_comms_usage_events",
+  // Per-workspace credit balance; references `portal_workspaces` (cascade), so it
+  // clears before the workspace delete at the end of this list.
+  "manager_comms_workspace_wallets",
   "manager_document_templates",
   "manager_promotion_records",
   "manager_reserve_policies",
