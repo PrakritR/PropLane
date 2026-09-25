@@ -28,6 +28,7 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
+import { VendorReviewDialog } from "@/components/portal/vendor-review-dialog";
 import {
   MANAGER_VENDORS_EVENT,
   readActiveManagerVendorRows,
@@ -238,6 +239,8 @@ export function ManagerWorkOrdersPanel({
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  /** "Leave a review" dialog launched from the record header, completed services only. */
+  const [reviewRow, setReviewRow] = useState<DemoManagerWorkOrderRow | null>(null);
 
   useEffect(() => {
     void syncManagerVendorsFromServer();
@@ -1296,6 +1299,11 @@ export function ManagerWorkOrdersPanel({
     const headerActions = sections.headerActions.filter((action) => {
       if (action.id === "schedule") return routeWorkOrder.bucket !== "completed";
       if (action.id === "close") return routeWorkOrder.bucket === "scheduled";
+      // Only a completed service with an assigned vendor can be reviewed — the
+      // server re-derives the same eligibility, this just avoids a dead click.
+      if (action.id === "review") {
+        return routeWorkOrder.bucket === "completed" && Boolean(routeWorkOrder.vendorUserId);
+      }
       return true;
     });
     const onHeaderAction = (actionId: string) => {
@@ -1310,6 +1318,10 @@ export function ManagerWorkOrdersPanel({
       if (actionId === "close") {
         if (routeWorkOrder.automationStatus === "vendor_marked_done") approvePay(routeWorkOrder);
         else markComplete(routeWorkOrder);
+        return;
+      }
+      if (actionId === "review") {
+        setReviewRow(routeWorkOrder);
         return;
       }
       if (actionId === "delete") {
@@ -1449,6 +1461,11 @@ export function ManagerWorkOrdersPanel({
             />
           ) : null}
         </Modal>
+        <VendorReviewDialog
+          open={reviewRow !== null}
+          row={reviewRow ? { id: reviewRow.id, title: reviewRow.title, vendorName: reviewRow.vendorName } : null}
+          onClose={() => setReviewRow(null)}
+        />
       </>
     );
   }

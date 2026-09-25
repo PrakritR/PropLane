@@ -292,3 +292,23 @@ sends the money with no one re-approving the job. Only failures whose reason
 matches `RETRYABLE_VENDOR_PAYOUT_FAILURE` are re-driven.
 
 Coverage: `tests/unit/stripe-vendor-payout.test.ts`.
+
+# Vendor portal (Phase 5: reviews)
+
+A manager (or a co-manager with `services` granted at `edit`) leaves one
+star-rated review per **completed** service, editable for 14 days; the vendor
+may reply once. `vendor_reviews`
+(`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
+`work_order_id`, keyed by `vendor_user_id` rather than
+`manager_vendor_records.id` — same reason as `vendor_invoices`/`vendor_payouts`
+/`work_order_bids`: a manager's own directory row isn't stable across the
+several managers one vendor may work for. Eligibility, the edit window, the
+aggregate, and the cross-workspace redaction (a vendor's reviews are shown to
+every workspace that hired them, but another workspace's own review reads as
+`"A PropLane manager"`) are all pure functions in `src/lib/vendor-reviews.ts` —
+re-derived server-side from fetched rows, never the request body. Surfaces:
+the vendor record's Reviews tab (`pro-vendor-detail.tsx`, alongside the
+pre-existing, unrelated resident "was this fixed?" rating block — don't merge
+them), a `★ 4.6 · 12` glyph fact on the Vendors list row (never a pill), a
+"Leave a review" record-header action on a completed service, and the
+vendor's own `/vendor/reviews`.

@@ -250,6 +250,15 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "vendor_reviews",
+    phase: 1,
+    // reviewer_user_id may be a co-manager distinct from the owning manager_user_id —
+    // deleting the co-manager's own account detaches the byline but the workspace
+    // keeps the review it wrote, same as gl_journal_lines' actor-reference columns.
+    manager: { ids: ["manager_user_id"], detachIds: ["reviewer_user_id"] },
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
     table: "vendor_invoices",
     phase: 1,
     manager: { ids: ["manager_user_id"], preserveFinancial: true },

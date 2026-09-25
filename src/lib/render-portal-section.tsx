@@ -34,6 +34,7 @@ import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-pa
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
+import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
@@ -500,6 +501,10 @@ export async function renderPortalSection(
   if (kind === "vendor" && section === "profile") {
     if (tabParts?.length) notFound();
     return <VendorSettingsPanel />;
+  }
+  if (kind === "vendor" && section === "reviews") {
+    if (tabParts?.length) notFound();
+    return <VendorReviewsPanel />;
   }
 
   const meta = findSection(def, section);

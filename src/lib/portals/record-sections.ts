@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Send,
   Share2,
+  Star,
   Trash2,
   Upload,
   UserMinus,
@@ -425,6 +426,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
       { id: "schedule", label: "Schedule", icon: Calendar },
       { id: "close", label: "Close", icon: CheckCircle2 },
+      // Only rendered once the service is completed and a vendor is assigned
+      // (gated in pro-work-orders-panel.tsx's headerActions filter).
+      { id: "review", label: "Leave a review", icon: Star },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
@@ -492,6 +496,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "overview", label: "Overview" },
         { id: "services", label: "Services" },
         { id: "invoices", label: "Invoices" },
+        { id: "reviews", label: "Reviews" },
       ] },
     ],
     headerActions: [
