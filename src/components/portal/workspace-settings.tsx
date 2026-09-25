@@ -25,6 +25,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
@@ -372,7 +373,13 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
         <PortalPrimaryIconAction
           label="Add workspace"
           icon={Plus}
-          disabled={atWorkspaceCap || ctx.loading}
+          // The workspace list still loading is not a reason to disable
+          // creating one: the modal below (`editing === "new"`) only needs
+          // a name, and pre-disabling on `ctx.loading` — rather than the
+          // real plan-limit reason — read as a permanently broken button for
+          // that brief window (night UX sweep; matches the modal's own
+          // "+" at line ~516 below, which never gated on it either).
+          disabled={atWorkspaceCap}
           title={atWorkspaceCap ? "Your plan's workspace limit is reached" : "Add workspace"}
           data-attr="workspace-add"
           onClick={() => {
@@ -388,9 +395,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
       ) : null}
       {plan ? <PlanCard plan={plan} /> : null}
       {ctx.loading ? (
-        <p role="status" className="text-sm text-muted">
-          Loading workspaces…
-        </p>
+        <ListSkeleton rows={3} showLeading={false} />
       ) : ctx.workspaces.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-4">
           <p className="mb-2 text-sm">Create your first workspace to organize properties and access.</p>

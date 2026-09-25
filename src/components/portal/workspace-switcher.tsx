@@ -92,7 +92,14 @@ export function WorkspaceSwitcher({
         disabled={ctx.loading}
         data-attr="workspace-switcher"
       >
-        <span className="min-w-0 truncate">{name}</span>
+        {ctx.loading ? (
+          <span
+            className="inline-block h-[1.1em] w-28 animate-pulse rounded-full bg-accent/60 motion-reduce:animate-none"
+            aria-hidden
+          />
+        ) : (
+          <span className="min-w-0 truncate">{name}</span>
+        )}
         <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden />
       </button>
     ) : compact ? (
@@ -119,7 +126,14 @@ export function WorkspaceSwitcher({
       >
         {avatar}
         <span className="min-w-0 flex-1 leading-tight">
-          <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">{name}</span>
+          {ctx.loading ? (
+            <span
+              className="block h-[0.9em] w-20 animate-pulse rounded-full bg-accent/60 motion-reduce:animate-none"
+              aria-hidden
+            />
+          ) : (
+            <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">{name}</span>
+          )}
           {meta ? <span className="block truncate text-[10.5px] text-muted">{meta}</span> : null}
         </span>
         <ChevronDown className="size-3.5 shrink-0 text-muted" aria-hidden />
