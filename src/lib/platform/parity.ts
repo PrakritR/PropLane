@@ -102,6 +102,7 @@ export const PLATFORM_CHANGE_CHECKLIST = [
   "New in-app route: add prefix to IN_APP_PATH_PREFIXES if outside existing portals",
   "Push notification: use assertInAppPushPath and add path to REGISTERED_PUSH_DEEP_LINKS",
   "File upload / camera: use useNativeCamera() (web falls back to file input)",
+  "PDF lease/application import: use the shared in-app file picker and server routes in both web and native WebView",
   "Native-only layout: use html[data-native] / portal-layout-classes.ts safe-area tokens",
   "In-app purchase (iOS): manager subscription buys via StoreKit/RevenueCat in the native plan surface (manager-plan-native.tsx); web keeps Stripe checkout. Never present a web purchase link on native (App Store 3.1.1). RevenueCat webhook (/api/revenuecat/webhook) writes billing='apple' grants — see docs/agents/apple-iap.md",
   "Communication credit: shared balance and usage on web/native. Stripe top-ups are web-only; native consumable products are not configured, so the app shows balance without a checkout or external-purchase link.",

@@ -43,6 +43,38 @@ Monthly rent is due on the first.`;
     expect(html).toContain("Electronic signature");
   });
 
+  it("emits only converted source clauses for a reviewed imported-template base", () => {
+    const html = buildProplaneLeaseHtmlFromSections({
+      sections: [{ title: "Rent", body: "Monthly rent is $2,000." }],
+      docName: "source.pdf",
+      docUrl: "/api/portal/lease-template?path=private/source.pdf",
+      sourceOnly: true,
+    });
+    expect(html).toContain("Monthly rent is $2,000.");
+    expect(html).not.toContain("private/source.pdf");
+    expect(html).not.toContain("Placement summary");
+    expect(html).not.toContain("Imported from your uploaded lease");
+  });
+
+  it("preserves numbered source clauses that have no separate body", () => {
+    const html = buildProplaneLeaseHtmlFromSections({
+      sections: [
+        { title: "1. Use. The premises may be used only as a residence.", body: "" },
+        { title: "2. Repairs. The resident reports needed repairs promptly.", body: "" },
+        { title: "3. Entry. The manager will arrange entry with the resident.", body: "" },
+        { title: "4. Entire document. This QA sample contains no legal disclosures.", body: "" },
+      ],
+      docName: "qa-source.pdf",
+      sourceOnly: true,
+    });
+
+    expect(html).toContain("1. Use. The premises may be used only as a residence.");
+    expect(html).toContain("2. Repairs. The resident reports needed repairs promptly.");
+    expect(html).toContain("3. Entry. The manager will arrange entry with the resident.");
+    expect(html).toContain("4. Entire document. This QA sample contains no legal disclosures.");
+    expect(html).not.toContain("5. 4. Entire document");
+  });
+
   it("builds a custom builder shell", () => {
     const html = buildCustomBuilderLeaseHtml("My custom lease");
     expect(html).toContain("Parties and premises");

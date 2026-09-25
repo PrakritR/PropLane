@@ -112,6 +112,17 @@ const EXTRA_CSS = `
   .verbatim-note { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.75rem; color: #555; margin: 0 0 0.8rem; }
 `;
 
+/** Source-only body for signature: no generated placement fields or review labels. */
+export function buildUploadedLeaseSignableHtml(parse: UploadedLeaseParse): string {
+  const sections = parse.sections.map((section, index) => sectionHtml(section, index + 1)).join("\n\n");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${escapeHtml(parse.sourceFileName)}</title><style>${leaseCss()}${EXTRA_CSS}</style></head><body>
+<p class="verbatim-note">Converted from ${escapeHtml(parse.sourceFileName)} · ${parse.pageCount} page${parse.pageCount === 1 ? "" : "s"}</p>
+${sections}
+</body></html>`;
+}
+
 /**
  * PropLane-format HTML for a parsed upload.
  *
@@ -123,19 +134,21 @@ const EXTRA_CSS = `
 export function buildUploadedLeaseProplaneHtml(args: {
   parse: UploadedLeaseParse;
   placement?: UploadedLeasePlacement;
+  signableMode?: "original-pdf" | "imported-converted";
 }): string {
   const { parse } = args;
   const p = args.placement ?? {};
   const confirmed = uploadedLeaseReviewIsConfirmed(parse);
+  const convertedIsSignable = args.signableMode === "imported-converted";
   const title = `Lease Agreement — ${(p.residentName ?? "Resident").trim() || "Resident"}`;
 
   const banner = confirmed
     ? `<div class="banner"><strong>Reviewed and confirmed by the property manager${
         parse.review.confirmedByName ? ` (${escapeHtml(parse.review.confirmedByName)})` : ""
-      }.</strong>Reformatted by PropLane from <em>${escapeHtml(parse.sourceFileName)}</em>. The uploaded PDF remains the document that is signed and is retained unchanged.</div>`
+      }.</strong>Reformatted by PropLane from <em>${escapeHtml(parse.sourceFileName)}</em>. ${convertedIsSignable ? "This converted HTML is the document offered for signature. The original PDF is retained unchanged for comparison." : "The uploaded PDF remains the document that is signed and is retained unchanged."}</div>`
     : `<div class="banner"><strong>Awaiting manager review — not yet available for signature.</strong>Reformatted by PropLane from <em>${escapeHtml(
         parse.sourceFileName,
-      )}</em>. Values below were read by machine and have not been confirmed by a person. The uploaded PDF remains the document that is signed and is retained unchanged.</div>`;
+      )}</em>. Values below were read by machine and have not been confirmed by a person. ${convertedIsSignable ? "The converted HTML may be selected for signature only after this review." : "The uploaded PDF remains the document that is signed and is retained unchanged."}</div>`;
 
   const placementRows = `
   <tr><th width="32%">Resident / Tenant</th><td>${dash(p.residentName)}${

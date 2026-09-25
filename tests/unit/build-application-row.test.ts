@@ -1,6 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ParsedResidentDocument, ResidentDocumentImportReview } from "@/lib/resident-document-import/types";
 import { buildApplicationRow, buildImportedResidentRow } from "@/lib/resident-document-import/build-application-row";
+
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/manager-applications-storage")>(),
+  readManagerApplicationRows: () => [{
+    id: "AXIS-AKHILRES",
+    name: "Akhil Resident",
+    email: "akhil-resident@prop-lane.space",
+    bucket: "approved",
+    property: "Oak House",
+    manualResidentDetails: { signedLeaseFileName: "executed.pdf", externallySignedLease: true },
+  }],
+}));
 
 /**
  * Pins the extracted `buildApplicationRow` to its pre-extraction behavior
@@ -9,6 +21,25 @@ import { buildApplicationRow, buildImportedResidentRow } from "@/lib/resident-do
  */
 
 describe("buildApplicationRow", () => {
+  it("keeps a new resident separate when an obsolete parse match ID is present", () => {
+    const parse: ParsedResidentDocument = {
+      kind: "lease", fileName: "qa-lease.pdf", extractedCharacterCount: 100,
+      fields: [], propertyMatch: null, suggestedApplicationBucket: "approved",
+      suggestedLeaseBucket: "manager", warnings: [],
+      residentMatch: { kind: "existing", applicationId: "AXIS-AKHILRES", residentName: "Akhil Resident", residentEmail: "akhil-resident@prop-lane.space" },
+    };
+    const review: ResidentDocumentImportReview = {
+      kind: "lease", fileName: "qa-lease.pdf", dataUrl: "data:application/pdf;base64,AAAA",
+      fields: { tenantName: "Akhil Resident", tenantEmail: "pdf-lease-qa-20260924@example.test" },
+      propertyId: "prop-1", roomId: "room-a", residentMode: "new",
+      existingApplicationId: "AXIS-AKHILRES", sendAccountSetup: false, leaseFullyExecuted: false,
+    };
+    const row = buildApplicationRow({ parse, review, managerUserId: "mgr-1", propertyLabel: "Oak House" });
+    expect(row.id).not.toBe("AXIS-AKHILRES");
+    expect(row.email).toBe("pdf-lease-qa-20260924@example.test");
+    expect(row.manualResidentDetails?.signedLeaseFileName).toBeUndefined();
+  });
+
   it("builds a new manually-added application row from parsed lease fields", () => {
     const parse: ParsedResidentDocument = {
       kind: "lease",

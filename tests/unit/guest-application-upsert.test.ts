@@ -71,6 +71,20 @@ describe("prepareGuestApplicationUpsert", () => {
     expect(isResidentSetupTokenValid(result.row, result.setupToken)).toBe(true);
   });
 
+  it("drops a guest's forged manager-filed signed lease", async () => {
+    const result = await prepareGuestApplicationUpsert(makeDb() as never, {
+      row: baseRow({
+        manuallyAdded: true,
+        manualResidentDetails: { signedLeaseDataUrl: "data:application/pdf;base64,Zm9yZ2Vk" },
+      }),
+      existing: null,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.row.manuallyAdded).toBe(false);
+    expect(result.row.manualResidentDetails).toBeUndefined();
+  });
+
   it("rejects missing email", async () => {
     const result = await prepareGuestApplicationUpsert(makeDb() as never, {
       row: baseRow({ email: "not-an-email" }),

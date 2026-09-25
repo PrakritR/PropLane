@@ -375,6 +375,34 @@ after that still returns `ok: true` so Twilio does not drop the receipt.
 `resolveOwnedWorkNumber` also falls back to a unique phone match when the row
 is not yet attached to `TWILIO_MESSAGING_SERVICE_SID`.
 
+⚠️ **Twilio does not retry our 5xx. PropLane recovers claimed inbound itself.**
+Twilio's default webhook retry policy is connect/TLS failure only (`rp=ct`), and
+provisioned URLs carry no `#rp=` fragment, so a 503 "retry later" after
+`claim_sms_inbound` used to be permanent silence (Sep 25 2026, 408 line:
+error 11200, receipt stuck `processing`). Now:
+
+- `/api/twilio/inbound` does pre-claim checks only, passes `inbound_payload`
+  to `claim_sms_inbound` (written in the same statement as the claim), then
+  calls `runClaimedInbound`
+  (`src/lib/sms/inbound-pipeline.server.ts`). That boundary turns any throw
+  into a `retryable` receipt; nothing after the claim may escape as a bare 500.
+- `/api/cron/sms-inbound-recovery` (every minute, `vercel.json`) reruns `retryable` receipts,
+  and `processing` receipts whose lease expired more than 60s ago (the lease
+  equals the webhook's `maxDuration`), through the same pipeline: max 5 attempts
+  (`attempt_count`, counted by `claim_sms_inbound`), 24h window. Prepared
+  replies are resent rather than regenerated, and agent turns are keyed on the MessageSid.
+- The sweeper replays only payloads stamped with its own `VERCEL_ENV` (staging
+  runs on a production clone), honours the protected-account shield, retries
+  when the work number cannot be resolved, and drops only when the line now
+  belongs to another workspace.
+- A trigger clears `inbound_payload` once the receipt completes. Receipts
+  without a payload (before this change) are never replayed.
+- Failures before the claim (workspace, rate-limit store, receipt read) rely
+  on Twilio's own retry. Inbound webhooks carry `#rp=ct,5xx&rc=2`
+  (`withInboundRetryPolicy`, set at provisioning; existing numbers via
+  `scripts/twilio-apply-inbound-retry-policy.mjs`). The fragment is unsigned,
+  so signature validation strips it. Twilio retries share a 15s budget.
+
 ## Prospect SMS scheduling and follow-up
 
 Prospect texts are merged into one reply after a 10 second quiet window

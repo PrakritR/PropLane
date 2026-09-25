@@ -57,8 +57,40 @@ export async function leaseBodyMatchesManagerFiledLease(
   }
 
   const applicationRow = (data?.[0]?.row_data ?? null) as DemoApplicantRow | null;
-  if (!applicationRow) return false;
+  if (!applicationRow || applicationRow.bucket !== "approved" || applicationRow.manuallyAdded !== true) return false;
   const filed = manualResidentSignedLeasePdf(applicationRow);
   const filedPdf = String(filed?.originalDataUrl ?? filed?.dataUrl ?? "").trim();
   return Boolean(filedPdf) && filedPdf === candidate;
+}
+
+/** Resolve a first-write onboarding lease from the stored application. */
+export async function managerFiledLeaseScopeForNewRow(
+  db: SupabaseClient,
+  axisId: string | null | undefined,
+  actor: { role: "manager" | "resident"; id: string; email: string | null | undefined },
+  body: { html: string | null; pdf: string | null },
+): Promise<{ managerUserId: string; residentEmail: string; propertyId: string | null } | null> {
+  if (body.html || !body.pdf || !axisId) return null;
+  const { data, error } = await db
+    .from("manager_application_records")
+    .select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data")
+    .eq("id", axisId)
+    .limit(1);
+  if (error || !data?.[0]) return null;
+  const application = data[0];
+  const owner = String(application.manager_user_id ?? "").trim();
+  const applicantEmail = String(application.resident_email ?? "").trim().toLowerCase();
+  if (!owner || !applicantEmail) return null;
+  if (actor.role === "manager" && owner !== actor.id) return null;
+  if (actor.role === "resident" && applicantEmail !== actor.email?.trim().toLowerCase()) return null;
+  const applicationRow = application.row_data as DemoApplicantRow;
+  if (applicationRow.bucket !== "approved" || applicationRow.manuallyAdded !== true) return null;
+  const filed = manualResidentSignedLeasePdf(applicationRow);
+  const filedPdf = String(filed?.originalDataUrl ?? filed?.dataUrl ?? "").trim();
+  if (!filedPdf || filedPdf !== body.pdf.trim()) return null;
+  return {
+    managerUserId: owner,
+    residentEmail: applicantEmail,
+    propertyId: String(application.assigned_property_id ?? application.property_id ?? "").trim() || null,
+  };
 }

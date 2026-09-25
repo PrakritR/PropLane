@@ -39,6 +39,7 @@ import type { LeaseBillingSnapshot } from "@/lib/lease-billing-snapshot";
 import { formatRoomPriceAmount, resolveStayPricing, type StayKind } from "@/lib/room-pricing";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
+import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 
 type LeaseApplicationWithRentSnapshot = Partial<RentalWizardFormState> & {
   __signedRentLabel?: string;
@@ -174,20 +175,50 @@ export function gatherLeaseGenerationContext(): LeaseGenerationContext {
   return leaseContextFromApplication(application);
 }
 
-type LeaseTemplateDocument = { url: string; name: string };
+type LeaseTemplateDocument = {
+  url: string;
+  name: string;
+  importedHtml?: string;
+  importReview?: {
+    sourceSha256: string;
+    convertedHtmlSha256: string;
+    reviewedAtIso: string;
+    issueCodes: string[];
+    resolvedIssueCodes?: string[];
+    extractedCharacters: number;
+    representedCharacters: number;
+    templateVersion: string;
+  };
+};
 
 function templateDocumentForFields(fields: {
   leaseConfigMode?: unknown;
   leaseCustomKind?: unknown;
   leaseTemplateDocUrl?: unknown;
   leaseTemplateDocName?: unknown;
+  leaseTemplateHtmlOverride?: unknown;
+  leaseTemplateImportReview?: unknown;
 }): LeaseTemplateDocument | null {
   const doc = activeLeaseTemplateDoc(fields);
   if (!doc) return null;
   // Persisted templates must resolve to a private object, or to a legacy public
   // listing-media object. Demo is memory-only and deliberately never persists
   // its temporary data URL to a manager property record.
-  if (leaseTemplateObjectPath(doc.url) || legacyLeaseTemplateObjectPath(doc.url)) return doc;
+  const review = fields.leaseTemplateImportReview as LeaseTemplateDocument["importReview"] | undefined;
+  const importedHtml = typeof fields.leaseTemplateHtmlOverride === "string" ? fields.leaseTemplateHtmlOverride : "";
+  const importReview =
+    review &&
+    /^[0-9a-f]{64}$/i.test(review.sourceSha256) &&
+    /^[0-9a-f]{64}$/i.test(review.convertedHtmlSha256) &&
+    typeof review.reviewedAtIso === "string" &&
+    typeof review.templateVersion === "string" &&
+    Number.isFinite(review.extractedCharacters) &&
+    Number.isFinite(review.representedCharacters)
+      ? review
+      : undefined;
+  if (leaseTemplateObjectPath(doc.url) || legacyLeaseTemplateObjectPath(doc.url)) {
+    return { ...doc, ...(importReview && importedHtml.trim() ? { importedHtml, importReview } : {}) };
+  }
   if (isDemoModeActive() && doc.url.startsWith("data:application/pdf;base64,")) return doc;
   return null;
 }
@@ -311,6 +342,19 @@ function leaseTermsRiderHtml(ctx: LeaseGenerationContext): string {
  * an attached Terms Rider followed by the manager's unmodified PDF.
  */
 function buildManagerTemplateLeaseHtml(ctx: LeaseGenerationContext, doc: { url: string; name: string }): string {
+  const importedHtml = (doc as LeaseTemplateDocument).importedHtml;
+  if (importedHtml?.trim()) {
+    const base = sanitizeLeaseDocumentHtml(importedHtml);
+    if (!base) return "";
+    const rider = leaseTermsRiderHtml(ctx)
+      .replace("<h1>TERMS RIDER</h1>", "<h1>PropLane Terms Rider</h1>")
+      .replace(
+        "This Terms Rider is attached to the manager's lease document. If this Terms Rider conflicts with the base document, this Terms Rider controls for that conflict.",
+        "This PropLane Terms Rider is a separate addition to the converted source lease. If it conflicts with the source lease, the manager must review and acknowledge that difference before sending.",
+      );
+    if (/<\/body\s*>/i.test(base)) return base.replace(/<\/body\s*>/i, `${rider}</body>`);
+    return `${base}${rider}`;
+  }
   const tenantName = dash(ctx.application.fullLegalName || "Resident");
   const generatedDate = escapeHtml(
     new Date(ctx.generatedAtIso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }),

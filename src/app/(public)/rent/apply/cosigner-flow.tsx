@@ -21,6 +21,11 @@ import {
 import { ApplyFieldRow } from "./apply-field-row";
 import { submitCosignerToServerAwait } from "@/lib/cosigner-submissions-storage";
 import { fetchCosignerSignerLinkPreview } from "@/lib/rental-application/cosigner-signer-link-client";
+import type { ApplicationConfigSlice } from "@/lib/rental-application/application-field-catalog";
+import { isWizardFormFieldEnabled, isWizardFormFieldRequired, resolveListingApplicationFields } from "@/lib/rental-application/application-field-catalog";
+import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
+import { encodeMultiSelectAnswer, isFileCustomFieldType, parseMultiSelectAnswer, upsertCustomFieldAnswer, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
+import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 import { nextWizardMaxReached, activeWizardProgressPct } from "@/lib/wizard-step-nav";
 import {
   COSIGNER_STEP_FIELD_ORDER,
@@ -28,6 +33,16 @@ import {
 } from "@/lib/wizard-field-errors";
 
 const COSIGNER_ACTIVE_STEPS = [1, 2, 3, 4, 5] as const;
+
+function cosignerQuestionStep(section: string | undefined): number {
+  switch (section) {
+    case "household": case "property": return 1;
+    case "personal": return 2;
+    case "employment": case "current_address": case "previous_address": return 3;
+    case "references": case "review": return 5;
+    default: return 4;
+  }
+}
 
 export type CosignerApplicationKind = "long-term" | "short-term";
 
@@ -71,6 +86,9 @@ type CosignerFields = {
   consentCredit: boolean;
   signature: string;
   dateSigned: string;
+  applicationTemplateId?: string;
+  applicationTemplateVersion?: number;
+  customFieldAnswers: RentalCustomFieldAnswer[];
 };
 
 function emptyCosigner(): CosignerFields {
@@ -102,6 +120,7 @@ function emptyCosigner(): CosignerFields {
     consentCredit: false,
     signature: "",
     dateSigned: todayISO(),
+    customFieldAnswers: [],
   };
 }
 
@@ -120,6 +139,7 @@ export function CosignerApplyFlow({
   applicationKind = "long-term",
   initialSignerAppId = "",
   initialSignerFullName = "",
+  previewConfig,
 }: {
   onBack: () => void;
   /** Called from the success screen when the user finishes (e.g. navigate back to the main application). */
@@ -132,6 +152,7 @@ export function CosignerApplyFlow({
   /** Prefill from a resident-portal invite link (`?signerAppId=`). */
   initialSignerAppId?: string;
   initialSignerFullName?: string;
+  previewConfig?: ApplicationConfigSlice;
 }) {
   const [step, setStep] = useState(1);
   const [maxStepReached, setMaxStepReached] = useState(1);
@@ -148,6 +169,25 @@ export function CosignerApplyFlow({
     };
   });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [applicationConfig, setApplicationConfig] = useState<ApplicationConfigSlice | null>(previewConfig ?? null);
+  useEffect(() => {
+    if (previewMode) queueMicrotask(() => setApplicationConfig(previewConfig ?? null));
+  }, [previewConfig, previewMode]);
+  const publishedQuestions = useMemo(() => resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields), [applicationConfig]);
+  const builtIn = (key: string) => publishedQuestions.find((question) => question.isStandard && question.standardKey === key);
+  const shown = (key: string) => isWizardFormFieldEnabled(applicationConfig, key);
+  const required = (key: string) => isWizardFormFieldRequired(applicationConfig, key);
+  const customAtStep = (targetStep: number) => publishedQuestions.filter((question) => !question.isStandard && cosignerQuestionStep(question.section) === targetStep);
+  const validateCustomAtStep = (targetStep: number) => {
+    const questions = customAtStep(targetStep);
+    const errors = validateCustomFieldAnswers(questions, f.customFieldAnswers);
+    for (const question of questions) {
+      if (isFileCustomFieldType(question.type)) {
+        errors[`custom:${question.key}`] = "File upload questions are not available on co-signer forms yet. Contact the property manager.";
+      }
+    }
+    return errors;
+  };
   const [draftReady] = useState(true);
   const [signerPreviewLoading, setSignerPreviewLoading] = useState(Boolean(initialSignerAppId.trim()));
   const [signerLinkError, setSignerLinkError] = useState<string | null>(null);
@@ -174,7 +214,7 @@ export function CosignerApplyFlow({
     }
     let cancelled = false;
     setSignerPreviewLoading(true);
-    void fetchCosignerSignerLinkPreview(signerAppId).then((preview) => {
+    void fetchCosignerSignerLinkPreview(signerAppId, f.applicationTemplateId, f.applicationTemplateVersion).then((preview) => {
       if (cancelled) return;
       setSignerPreviewLoading(false);
       if (!preview.ok) {
@@ -182,6 +222,7 @@ export function CosignerApplyFlow({
         return;
       }
       setSignerLinkError(null);
+      setApplicationConfig(preview.applicationConfig ?? null);
       setF((prev) => {
         const nextSignerAppId = prev.signerAppId.trim() || preview.signerAppId;
         const nextSignerName = prev.signerFullName.trim() || preview.signerFullName?.trim() || "";
@@ -190,13 +231,15 @@ export function CosignerApplyFlow({
           ...prev,
           signerAppId: nextSignerAppId,
           signerFullName: nextSignerName,
+          applicationTemplateId: prev.applicationTemplateId || preview.applicationTemplateId,
+          applicationTemplateVersion: prev.applicationTemplateVersion || preview.applicationTemplateVersion,
         };
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [draftReady, f.signerAppId, initialSignerAppId, previewMode]);
+  }, [draftReady, f.signerAppId, f.applicationTemplateId, f.applicationTemplateVersion, initialSignerAppId, previewMode]);
 
   const clearError = (key: string) => {
     setFieldErrors((prev) => {
@@ -217,6 +260,11 @@ export function CosignerApplyFlow({
 
   const validateStep1 = (): Record<string, string> => {
     const errs: Record<string, string> = {};
+    Object.assign(errs, validateCustomAtStep(1));
+    if (previewMode) {
+      setFieldErrors(errs);
+      return errs;
+    }
     if (signerLinkError) {
       errs.signerAppId = signerLinkError;
     }
@@ -239,22 +287,28 @@ export function CosignerApplyFlow({
 
   const validateStep2 = (): Record<string, string> => {
     const errs: Record<string, string> = {};
+    Object.assign(errs, validateCustomAtStep(2));
     const n = validateFullName(f.fullName);
     if (!n.ok) errs.fullName = n.message;
     const e = validateEmail(f.email);
     if (!e.ok) errs.email = e.message;
     const ph = validatePhone10(f.phone);
     if (!ph.ok) errs.phone = ph.message;
-    const dob = validateDateRequired(f.dob, "Date of birth");
-    if (!dob.ok) errs.dob = dob.message;
-    const ssn = validateSsn(f.ssn);
-    if (!ssn.ok) errs.ssn = ssn.message;
+    if (shown("dateOfBirth") && (required("dateOfBirth") || f.dob.trim())) {
+      const dob = validateDateRequired(f.dob, "Date of birth");
+      if (!dob.ok) errs.dob = dob.message;
+    }
+    if (shown("ssn") && (required("ssn") || f.ssn.trim())) {
+      const ssn = validateSsn(f.ssn);
+      if (!ssn.ok) errs.ssn = ssn.message;
+    }
     setFieldErrors(errs);
     return errs;
   };
 
   const validateStep3 = (): Record<string, string> => {
     const errs: Record<string, string> = {};
+    Object.assign(errs, validateCustomAtStep(3));
     if (f.notEmployed) {
       const o = validateMoney(f.otherIncome, "Other / non-employment income");
       if (!o.ok) errs.otherIncome = o.message;
@@ -273,6 +327,7 @@ export function CosignerApplyFlow({
 
   const validateStep4 = (): Record<string, string> => {
     const errs: Record<string, string> = {};
+    Object.assign(errs, validateCustomAtStep(4));
     if (!f.bankruptcy) errs.bankruptcy = "Select a bankruptcy history option.";
     if (!f.criminal) errs.criminal = "Select a criminal convictions option.";
     if (!f.consentCredit) errs.consentCredit = "Consent for credit and background check is required.";
@@ -282,6 +337,7 @@ export function CosignerApplyFlow({
 
   const validateStep5 = (): Record<string, string> => {
     const errs: Record<string, string> = {};
+    Object.assign(errs, validateCustomAtStep(5));
     const sig = validateFullName(f.signature);
     if (!sig.ok) {
       errs.signature = sig.message === "Name is required." ? "Co-signer signature is required." : sig.message;
@@ -305,8 +361,8 @@ export function CosignerApplyFlow({
         return;
       }
       const signerAppId = f.signerAppId.trim();
-      if (signerAppId.length >= 4) {
-        const preview = await fetchCosignerSignerLinkPreview(signerAppId);
+      if (!previewMode && signerAppId.length >= 4) {
+        const preview = await fetchCosignerSignerLinkPreview(signerAppId, f.applicationTemplateId, f.applicationTemplateVersion);
         if (!preview.ok) {
           setSignerLinkError(preview.message);
           setFieldErrors({ signerAppId: preview.message });
@@ -316,6 +372,8 @@ export function CosignerApplyFlow({
           return;
         }
         setSignerLinkError(null);
+        setApplicationConfig(preview.applicationConfig ?? null);
+        setF((prev) => ({ ...prev, applicationTemplateId: prev.applicationTemplateId || preview.applicationTemplateId, applicationTemplateVersion: prev.applicationTemplateVersion || preview.applicationTemplateVersion }));
       }
     }
     if (step === 2) {
@@ -353,7 +411,7 @@ export function CosignerApplyFlow({
         return;
       }
       if (linkedAxisId.length >= 4) {
-        const preview = await fetchCosignerSignerLinkPreview(linkedAxisId);
+        const preview = await fetchCosignerSignerLinkPreview(linkedAxisId, f.applicationTemplateId, f.applicationTemplateVersion);
         if (!preview.ok) {
           setSignerLinkError(preview.message);
           setFieldErrors({ submit: preview.message });
@@ -532,7 +590,7 @@ export function CosignerApplyFlow({
         {step === 2 ? (
           <>
             <div className="divide-y divide-slate-100">
-              <Field fieldKey="fullName" label="Full name" hint="First and last name required." error={fieldErrors.fullName}>
+              <Field fieldKey="fullName" label={builtIn("personal-full-legal-name")?.label ?? "Full name"} error={fieldErrors.fullName}>
                 <Input
                   value={f.fullName}
                   onChange={(e) => {
@@ -542,7 +600,7 @@ export function CosignerApplyFlow({
                   className={err("fullName")}
                 />
               </Field>
-              <Field fieldKey="email" label="Email" error={fieldErrors.email}>
+              <Field fieldKey="email" label={builtIn("personal-email")?.label ?? "Email"} error={fieldErrors.email}>
                 <Input
                   type="email"
                   value={f.email}
@@ -553,7 +611,7 @@ export function CosignerApplyFlow({
                   className={err("email")}
                 />
               </Field>
-              <Field fieldKey="phone" label="Phone number" error={fieldErrors.phone}>
+              <Field fieldKey="phone" label={builtIn("personal-phone")?.label ?? "Phone number"} error={fieldErrors.phone}>
                 <PhoneNumberField
                   value={f.phone}
                   onChange={(phone) => {
@@ -564,7 +622,7 @@ export function CosignerApplyFlow({
                   dataAttr="cosigner-phone"
                 />
               </Field>
-              <Field fieldKey="dob" label="Date of birth" error={fieldErrors.dob}>
+              {shown("dateOfBirth") ? <Field fieldKey="dob" label={builtIn("personal-date-of-birth")?.label ?? "Date of birth"} optional={!required("dateOfBirth")} error={fieldErrors.dob}>
                 <Input
                   type="date"
                   value={f.dob}
@@ -574,8 +632,8 @@ export function CosignerApplyFlow({
                   }}
                   className={err("dob")}
                 />
-              </Field>
-              <Field fieldKey="ssn" label="Social Security #" hint="9 digits: ###-##-####" error={fieldErrors.ssn}>
+              </Field> : null}
+              {shown("ssn") ? <Field fieldKey="ssn" label={builtIn("personal-social-security-number")?.label ?? "Social Security #"} optional={!required("ssn")} error={fieldErrors.ssn}>
                 <Input
                   value={f.ssn}
                   onChange={(e) => {
@@ -585,7 +643,7 @@ export function CosignerApplyFlow({
                   placeholder="123-45-6789"
                   className={err("ssn")}
                 />
-              </Field>
+              </Field> : null}
             </div>
           </>
         ) : null}
@@ -747,6 +805,24 @@ export function CosignerApplyFlow({
             </div>
           </>
         ) : null}
+        {applicationConfig ? customAtStep(step).map((question) => {
+          const value = f.customFieldAnswers.find((answer) => answer.key === question.key)?.value ?? "";
+          const update = (next: string) => {
+            setF((previous) => ({ ...previous, customFieldAnswers: upsertCustomFieldAnswer(previous.customFieldAnswers, question, next) }));
+            clearError(`custom:${question.key}`);
+          };
+          return <Field key={question.key} fieldKey={`custom:${question.key}`} label={question.label} optional={!question.required} error={fieldErrors[`custom:${question.key}`]}>
+            {isFileCustomFieldType(question.type) ? <p role="status" className="text-sm text-muted">File upload questions are not available on co-signer forms yet. Contact the property manager.</p>
+              : question.type === "multi_select" ? <fieldset className="space-y-2" aria-label={question.label}>{question.options.map((option) => {
+                const selected = parseMultiSelectAnswer(value);
+                return <label key={option} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(option)} onChange={(event) => update(encodeMultiSelectAnswer(event.target.checked ? [...selected, option] : selected.filter((item) => item !== option)))} />{option}</label>;
+              })}</fieldset>
+              : question.type === "checkbox" ? <input type="checkbox" checked={value === "yes"} onChange={(event) => update(event.target.checked ? "yes" : "")} />
+              : question.type === "select" || question.type === "yes_no" ? <Select value={value} onChange={(event) => update(event.target.value)}><option value="">Select…</option>{(question.type === "yes_no" ? ["yes", "no"] : question.options).map((option) => <option key={option} value={option}>{option}</option>)}</Select>
+              : question.type === "long_text" ? <textarea value={value} onChange={(event) => update(event.target.value)} rows={4} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              : <Input type={question.type === "date" ? "date" : question.type === "email" ? "email" : question.type === "phone" ? "tel" : question.type === "number" || question.type === "currency" ? "number" : "text"} value={value} onChange={(event) => update(event.target.value)} />}
+          </Field>;
+        }) : null}
       </div>
 
       <div className="mt-10 flex flex-col-reverse gap-3 border-t border-border pt-8 sm:flex-row sm:items-center sm:justify-between">

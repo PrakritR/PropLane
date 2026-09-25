@@ -70,6 +70,8 @@ function makeDb() {
           return builder;
         },
         ilike: () => builder,
+        or: () => builder,
+        neq: () => builder,
         in(column: string, values: string[]) {
           if (column === "id") state.ids = values;
           return builder;
@@ -219,7 +221,7 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     };
     const res = await upsert(approvingRow);
 
-    expect(res.status).toBe(200);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(UPSERTS).toHaveLength(1);
     const written = UPSERTS[0]!.row_data.application!;
     expect(written.residentSlot).toBe(2);
@@ -263,7 +265,7 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     expect(written.managerUtilitiesOverride).toBe("90");
   });
 
-  it("leaves the client's figures alone when the application's term says resident pricing is the same for everyone", async () => {
+  it("assigns a capacity slot at the common price when the application's term prices everyone the same", async () => {
     PROPERTY_RECORDS = {
       [LISTING]: {
         row_data: { listingSubmission: sharedRoomListing({ "Month-to-Month": { residentPricing: "same" } }) },
@@ -280,9 +282,9 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
 
     expect(res.status).toBe(200);
     const written = UPSERTS[0]!.row_data.application!;
-    // Not a per-resident room on THIS term: no slot is invented and the
-    // long-term slot price is never forced onto the row.
-    expect(written.residentSlot).toBeUndefined();
+    // Shared-room capacity still needs a slot even when each slot has the
+    // same price. The long-term per-resident price must not be used.
+    expect(written.residentSlot).toBe(1);
     expect(written.managerRentOverride).toBe("1000");
   });
 

@@ -7,6 +7,11 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { notifyManagerCosignerSubmitted } from "@/lib/cosigner-notification.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/cosigner-template.server";
+import { listingCustomApplicationFields, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
+import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
+import { validateDateRequired, validateEmail, validateFullName, validatePhone10, validateSsn } from "@/app/(public)/rent/apply/apply-validation";
+import { isWizardFormFieldEnabled, isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
 
 export const runtime = "nodejs";
 
@@ -32,9 +37,12 @@ export async function POST(req: Request) {
     if (!signerAppId) {
       return NextResponse.json({ error: "Application ID is required." }, { status: 400 });
     }
-    if (!body.fullName?.trim() || !body.email?.trim()) {
-      return NextResponse.json({ error: "Co-signer name and email are required." }, { status: 400 });
-    }
+    const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
+    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    const email = typeof body.email === "string" ? body.email.trim() : "";
+    const identityError = [validateFullName(fullName), validatePhone10(phone), validateEmail(email)]
+      .find((result) => !result.ok);
+    if (identityError && !identityError.ok) return NextResponse.json({ error: identityError.message }, { status: 400 });
     if (!body.consentCredit) {
       return NextResponse.json({ error: "Credit check consent is required." }, { status: 400 });
     }
@@ -43,7 +51,7 @@ export async function POST(req: Request) {
     const variants = [signerAppId, signerAppId.toUpperCase(), body.signerAppId?.trim()].filter(Boolean);
     const { data: appRow } = await db
       .from("manager_application_records")
-      .select("id, manager_user_id, row_data")
+      .select("id, manager_user_id, property_id, row_data")
       .in("id", variants)
       .maybeSingle();
 
@@ -55,18 +63,46 @@ export async function POST(req: Request) {
     if (blocked) {
       return NextResponse.json({ error: blocked.message }, { status: 403 });
     }
+    const managerUserId = appRow.manager_user_id as string | null;
+    if (!managerUserId) return NextResponse.json({ error: "Application has no assigned manager." }, { status: 400 });
+
+    const requestedTemplateId = typeof body.applicationTemplateId === "string" ? body.applicationTemplateId : undefined;
+    const requestedVersion = Number.isSafeInteger(body.applicationTemplateVersion) ? body.applicationTemplateVersion : undefined;
+    const template = await resolveCosignerTemplateForApplication(db, appRow, requestedTemplateId, requestedVersion);
+    if (!template || template.pinMissing || (requestedTemplateId && template.templateId !== requestedTemplateId)) {
+      return NextResponse.json({ error: "This co-signer form version is unavailable. Reload the link." }, { status: 409 });
+    }
+    const dob = typeof body.dob === "string" ? body.dob.trim() : "";
+    const ssn = typeof body.ssn === "string" ? body.ssn.trim() : "";
+    const dobEnabled = isWizardFormFieldEnabled(template.config, "dateOfBirth");
+    const ssnEnabled = isWizardFormFieldEnabled(template.config, "ssn");
+    const dobCheck = dobEnabled && (isWizardFormFieldRequired(template.config, "dateOfBirth") || dob)
+      ? validateDateRequired(dob, "Date of birth") : { ok: true as const };
+    const ssnCheck = ssnEnabled && (isWizardFormFieldRequired(template.config, "ssn") || ssn)
+      ? validateSsn(ssn) : { ok: true as const };
+    const builtInError = [dobCheck, ssnCheck].find((result) => !result.ok);
+    if (builtInError && !builtInError.ok) return NextResponse.json({ error: builtInError.message }, { status: 400 });
+    const questions = listingCustomApplicationFields(template.config);
+    if (questions.some((question) => question.type === "file" || question.type === "photos")) {
+      return NextResponse.json({ error: "This co-signer form includes an unavailable upload question. Ask the property manager to update the form." }, { status: 409 });
+    }
+    const submittedAnswers = Array.isArray(body.customFieldAnswers) ? body.customFieldAnswers as RentalCustomFieldAnswer[] : [];
+    const answerByKey = new Map(submittedAnswers.filter((answer) => answer && typeof answer.key === "string" && typeof answer.value === "string").map((answer) => [answer.key, answer.value]));
+    const answers = questions.map((question) => ({ key: question.key, label: question.label, type: question.type, section: question.section, value: answerByKey.get(question.key) ?? "" }));
+    const questionErrors = validateCustomFieldAnswers(questions, answers);
+    if (Object.keys(questionErrors).length) return NextResponse.json({ error: "Complete the co-signer form questions.", fields: questionErrors }, { status: 422 });
 
     // Alias lookup must link to the actual persisted parent primary key.
     const resolvedSignerAppId = String(appRow.id);
     const submission: CosignerSubmission = {
       signerAppId: resolvedSignerAppId,
       signerFullName: String(body.signerFullName ?? "").trim(),
-      fullName: String(body.fullName).trim(),
-      email: String(body.email).trim().toLowerCase(),
-      phone: String(body.phone ?? "").trim(),
-      dob: String(body.dob ?? "").trim(),
+      fullName,
+      email: email.toLowerCase(),
+      phone,
+      dob: dobEnabled ? dob : "",
       dlNumber: String(body.dlNumber ?? "").trim(),
-      ssn: String(body.ssn ?? "").trim(),
+      ssn: ssnEnabled ? ssn : "",
       address: String(body.address ?? "").trim(),
       city: String(body.city ?? "").trim(),
       state: String(body.state ?? "").trim(),
@@ -87,11 +123,12 @@ export async function POST(req: Request) {
       signature: String(body.signature ?? "").trim(),
       dateSigned: String(body.dateSigned ?? "").trim(),
       submittedAt: new Date().toISOString(),
+      applicationTemplateId: template.templateId,
+      applicationTemplateVersion: template.templateVersion,
+      customFieldAnswers: answers,
     };
 
     const id = makeCosignerId();
-    const managerUserId = appRow.manager_user_id as string | null;
-    if (!managerUserId) return NextResponse.json({ error: "Application has no assigned manager." }, { status: 400 });
     const stored = sealCosignerIdentity(stripSensitiveForStorage(submission), id, managerUserId);
 
     const { error } = await db.from("cosigner_submission_records").insert({

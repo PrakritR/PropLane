@@ -326,7 +326,9 @@ describe("POST /api/portal-lease-pipeline/mark-signed", () => {
         }),
       }),
     );
-    expect(forged.status).toBe(409);
+    // The forged PDF fixture is deliberately only a header, so PDF safety
+    // rejects it before the executed-document conflict check runs.
+    expect(forged.status).toBe(400);
     expect((stored().managerUploadedPdf as Row).originalDataUrl).toBe(STORED_PDF);
   });
 });

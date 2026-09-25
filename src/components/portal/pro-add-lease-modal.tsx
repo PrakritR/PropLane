@@ -9,6 +9,7 @@ import { PreviewPanel, WizardSelect } from "@/components/portal/add-workspace/pa
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { track } from "@/lib/analytics/track-client";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import {
@@ -22,7 +23,7 @@ import {
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
 import {
-  confirmUploadedLeaseParse,
+  confirmUploadedLeaseParseOnServer,
   ensureManagerReviewLeaseForApplication,
   leaseAllowsManagerDocumentEdits,
   leaseGenerationSupportedForRow,
@@ -551,20 +552,24 @@ export function ManagerAddLeaseModal({
             onOpenLease?.(reviewRow.id);
             onClose();
           }}
-          onConfirm={({ overrides, note }) => {
-            const result = confirmUploadedLeaseParse(reviewRow.id, {
+          onConfirm={async ({ overrides, note, useConverted, convertedHtml, convertedHtmlSha256, resolvedSourceIssueCodes }) => {
+            const result = await confirmUploadedLeaseParseOnServer(reviewRow.id, {
               managerUserId,
               overrides: overrides as Partial<Record<UploadedLeaseFieldKey, string>>,
               note,
+              useConverted,
+              convertedHtml,
+              convertedHtmlSha256,
+              resolvedSourceIssueCodes,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not confirm the imported lease.");
               return;
             }
+            track("lease_import_reviewed", { lease_id: reviewRow.id, import_kind: "uploaded_pdf", artifact_mode: useConverted ? "converted" : "original_pdf" });
             onSubmitted();
             setImportReviewLeaseId(null);
-            void syncLeasePipelineFromServer(managerUserId, { force: true });
-            showToast("Imported lease confirmed. It can now be sent for signature.");
+            showToast(`Imported lease confirmed. ${useConverted ? "The converted version" : "The original PDF"} can now be sent for signature.`);
             onOpenLease?.(reviewRow.id);
             onClose();
           }}

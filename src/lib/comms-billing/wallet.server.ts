@@ -221,7 +221,11 @@ export async function reserveCommsCredit(
     p_allow_unfunded: allowUnfunded,
   });
   if (error || !data)
-    throw new Error("Communication credit could not be reserved.");
+    throw new Error("Communication credit could not be reserved.", {
+      cause: error
+        ? { code: error.code, message: error.message, details: error.details, hint: error.hint }
+        : "empty_result",
+    });
   if (data.allowed !== true)
     return {
       allowed: false,

@@ -9,6 +9,7 @@ import {
 import { isLegitimateEmail } from "@/lib/email-address";
 import { isCompletePhoneNumber } from "@/lib/phone-number-field";
 import { applicationWizardStepForSection, RENTAL_APPLICATION_SECTIONS } from "./application-sections";
+import { resolveListingApplicationFields } from "./application-field-catalog";
 import type { ApplicationPhotoAttachment, RentalCustomFieldAnswer } from "./types";
 
 /** Error-map key for a custom question (RentalWizardErrors is a flat string map). */
@@ -21,10 +22,22 @@ export function customFieldErrorKey(fieldKey: string): string {
  * and for properties set to the standard Axis application.
  */
 export function listingCustomApplicationFields(
-  sub: { customApplicationFields?: unknown; applicationConfigMode?: unknown } | null | undefined,
+  sub: { customApplicationFields?: unknown; applicationConfigMode?: unknown; questionDisplayOrder?: string[] } | null | undefined,
 ): ManagerCustomApplicationField[] {
   if (listingUsesStandardApplication(sub)) return [];
-  return normalizeCustomApplicationFields(sub?.customApplicationFields).filter((f) => !f.standardKey);
+  return resolveListingApplicationFields(sub, normalizeCustomApplicationFields)
+    .filter((field) => !field.isStandard)
+    .map((field) => ({
+      id: field.id,
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      options: [...field.options],
+      section: field.section,
+      description: field.description,
+      standardKey: field.standardKey,
+    }));
 }
 
 /** Custom questions asked on a given applicant wizard step (section-tagged; untagged → Additional details). */
@@ -170,8 +183,11 @@ export function validateCustomFieldAnswers(
       // The raw string value is JSON (often "[]"), never blank for a "nothing
       // picked" answer, so required-ness has to check the decoded selections
       // rather than the generic `if (!value)` below.
-      if (field.required && parseMultiSelectAnswer(customFieldAnswerValue(answers, field.key)).length === 0) {
+      const selections = parseMultiSelectAnswer(customFieldAnswerValue(answers, field.key));
+      if (field.required && selections.length === 0) {
         errors[customFieldErrorKey(field.key)] = `${field.label} is required.`;
+      } else if (selections.some((selection) => !field.options.includes(selection))) {
+        errors[customFieldErrorKey(field.key)] = "Choose only the listed options.";
       }
       continue;
     }

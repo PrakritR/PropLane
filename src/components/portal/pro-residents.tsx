@@ -1,6 +1,7 @@
 "use client";
 
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
+import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -196,7 +197,7 @@ import {
   leaseAllowsManagerGeneratedBodyEdits,
   leasePipelineRowsForManagerResident,
   LEASE_PIPELINE_EVENT,
-  confirmUploadedLeaseParse,
+  confirmUploadedLeaseParseOnServer,
   leaseNeedsUploadedLeaseReviewAction,
   leaseLandlordNameWarning,
   leaseSendGateBlocker,
@@ -3541,19 +3542,24 @@ export function ManagerResidents({
           row={importReviewLease}
           parse={importReviewLease.uploadedLeaseParse}
           onClose={() => setImportReviewLeaseId(null)}
-          onConfirm={({ overrides, note }) => {
-            const result = confirmUploadedLeaseParse(importReviewLease.id, {
+          onConfirm={async ({ overrides, note, useConverted, convertedHtml, convertedHtmlSha256, resolvedSourceIssueCodes }) => {
+            const result = await confirmUploadedLeaseParseOnServer(importReviewLease.id, {
               managerUserId: userId,
               overrides: overrides as Partial<Record<UploadedLeaseFieldKey, string>>,
               note,
+              useConverted,
+              convertedHtml,
+              convertedHtmlSha256,
+              resolvedSourceIssueCodes,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not confirm the imported lease.");
               return;
             }
+            track("lease_import_reviewed", { lease_id: importReviewLease.id, import_kind: "uploaded_pdf", artifact_mode: useConverted ? "converted" : "original_pdf" });
             setLeaseTick((n) => n + 1);
             setImportReviewLeaseId(null);
-            showToast("Imported lease confirmed. It can now be sent for signature.");
+            showToast(`Imported lease confirmed. ${useConverted ? "The converted version" : "The original PDF"} can now be sent for signature.`);
           }}
           onRetryRead={async () => {
             const result = await retryUploadedLeaseParse(importReviewLease.id, userId);

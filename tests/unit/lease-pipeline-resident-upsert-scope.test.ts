@@ -36,7 +36,9 @@ let VISIBLE_TO_RESIDENT = true;
 let RECORD_EXISTS = true;
 
 const APPLICATION_ID = "app-1";
-const MANAGER_FILED_PDF = "data:application/pdf;base64,MANAGERFILED";
+const pdfFixtureDataUrl = (name: string) => `data:application/pdf;base64,${readFileSync(join(process.cwd(), "tests/fixtures/portfolio-import", name)).toString("base64")}`;
+const MANAGER_FILED_PDF = pdfFixtureDataUrl("rent-roll.pdf");
+const OTHER_PDF = pdfFixtureDataUrl("fillable-application.pdf");
 
 const DEFAULT_STORED_ROW_DATA: Record<string, unknown> = {
   id: LEASE_ID,
@@ -45,7 +47,13 @@ const DEFAULT_STORED_ROW_DATA: Record<string, unknown> = {
   axisId: APPLICATION_ID,
 };
 
-let APPLICATION_RECORD: { id: string; row_data: Record<string, unknown> } | null = null;
+let APPLICATION_RECORD: {
+  id: string;
+  manager_user_id: string;
+  resident_email: string;
+  property_id: string;
+  row_data: Record<string, unknown>;
+} | null = null;
 
 const STORED: {
   id: string;
@@ -96,7 +104,7 @@ function storedFor(id: string) {
 
 /** The application record the manager filed the off-platform lease onto. */
 function applicationFor(id: string, owner: string) {
-  if (!APPLICATION_RECORD || id !== APPLICATION_ID || owner !== OWNER_MANAGER) return [];
+  if (!APPLICATION_RECORD || id !== APPLICATION_ID || (owner && owner !== OWNER_MANAGER)) return [];
   return [APPLICATION_RECORD];
 }
 
@@ -179,7 +187,10 @@ beforeEach(() => {
   STORED.row_data = { ...DEFAULT_STORED_ROW_DATA };
   APPLICATION_RECORD = {
     id: APPLICATION_ID,
-    row_data: { id: APPLICATION_ID, manualResidentDetails: { signedLeaseDataUrl: MANAGER_FILED_PDF } },
+    manager_user_id: OWNER_MANAGER,
+    resident_email: RESIDENT_EMAIL,
+    property_id: "prop-1",
+    row_data: { id: APPLICATION_ID, bucket: "approved", manuallyAdded: true, manualResidentDetails: { signedLeaseDataUrl: MANAGER_FILED_PDF } },
   };
   isAdminUser.mockResolvedValue(false);
   managerCanAccessLeaseRecord.mockResolvedValue(true);
@@ -288,7 +299,7 @@ describe("portal-lease-pipeline resident CREATE — cannot plant a row in anothe
         residentUserId: "99999999-9999-9999-9999-999999999999",
         managerUserId: "attacker-manager",
         propertyId: "victim-managers-property",
-        status: "Fully Signed",
+        status: "Manager Review",
       },
     });
 
@@ -675,7 +686,7 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
         id: LEASE_ID,
         residentEmail: RESIDENT_EMAIL,
         generatedHtml: null,
-        managerUploadedPdf: { dataUrl: "data:application/pdf;base64,AAA", originalDataUrl: "data:application/pdf;base64,AAA", fileName: "lease.pdf", uploadedAt: "2026-05-01T00:00:00Z" },
+        managerUploadedPdf: { dataUrl: OTHER_PDF, originalDataUrl: OTHER_PDF, fileName: "lease.pdf", uploadedAt: "2026-05-01T00:00:00Z" },
         signatureName: null,
         signedAtIso: null,
       },
@@ -694,11 +705,11 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
    * the BYTES matching the PDF the manager filed on the application record, not
    * the flag in the request.
    */
-  const seedOnboardingLease = (pdfDataUrl: string) =>
+  const seedOnboardingLease = (pdfDataUrl: string, id = LEASE_ID) =>
     post({
       action: "upsert",
       row: {
-        id: LEASE_ID,
+        id,
         residentEmail: RESIDENT_EMAIL,
         axisId: APPLICATION_ID,
         generatedHtml: null,
@@ -724,6 +735,25 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
     expect(autoFileLeaseDocument).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the resident's first load file only their manager's signed PDF", async () => {
+    RECORD_EXISTS = false;
+    const res = await seedOnboardingLease(MANAGER_FILED_PDF, `lease_app_${APPLICATION_ID}`);
+    expect(res.status).toBe(200);
+    const written = upsert.mock.calls[0]![0] as Record<string, unknown>;
+    expect(written.manager_user_id).toBe(OWNER_MANAGER);
+    expect(written.resident_email).toBe(RESIDENT_EMAIL);
+    expect(written.property_id).toBe("prop-1");
+    expect(autoFileLeaseDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a resident's first-write PDF when the application belongs to someone else", async () => {
+    RECORD_EXISTS = false;
+    APPLICATION_RECORD!.resident_email = "someone-else@example.com";
+    const res = await seedOnboardingLease(MANAGER_FILED_PDF, `lease_app_${APPLICATION_ID}`);
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   /**
    * The same payload shape carrying bytes the manager never filed. Nothing in
    * the request may grant the trust — the flag is set, the signatures are set,
@@ -731,7 +761,7 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
    */
   it("refuses the same shape when the PDF is not the one the manager filed", async () => {
     STORED.row_data = { ...DEFAULT_STORED_ROW_DATA };
-    const res = await seedOnboardingLease("data:application/pdf;base64,ATTACKER");
+    const res = await seedOnboardingLease(OTHER_PDF);
 
     expect(res.status).toBe(409);
     expect(upsert).not.toHaveBeenCalled();
@@ -796,10 +826,8 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
   });
 
   /**
-   * `externallySignedLease` reaches the stored row through `row_data`, which is
-   * persisted verbatim, so a stored flag is just an earlier client write. Setting
-   * it costs nothing on its own — the write claims no execution and replaces no
-   * body — and it must buy nothing on the next write either.
+   * The external flag itself makes the row count as executed, so the first
+   * write must be refused unless it files the manager's signed PDF.
    */
   it("refuses an arbitrary PDF on a row the resident flagged externallySignedLease first", async () => {
     STORED.row_data = { ...DEFAULT_STORED_ROW_DATA };
@@ -808,14 +836,13 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
       action: "upsert",
       row: { id: LEASE_ID, residentEmail: RESIDENT_EMAIL, externallySignedLease: true },
     });
-    expect(first.status).toBe(200);
-    STORED.row_data = (upsert.mock.calls[0]![0] as Record<string, unknown>).row_data as Record<string, unknown>;
-    expect(STORED.row_data.externallySignedLease).toBe(true);
+    expect(first.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
 
-    const second = await seedOnboardingLease("data:application/pdf;base64,ATTACKER");
+    const second = await seedOnboardingLease(OTHER_PDF);
 
     expect(second.status).toBe(409);
-    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).not.toHaveBeenCalled();
     expect(autoFileLeaseDocument).not.toHaveBeenCalled();
   });
 
@@ -945,8 +972,7 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
       row: {
         id: "lease_app_planted",
         residentEmail: "victim@example.com",
-        status: "Fully Signed",
-        fullySignedAt: "2026-05-01T00:00:00Z",
+        status: "Manager Review",
       },
     });
 

@@ -16,6 +16,19 @@
 
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 
+export type LeaseDocumentMode = "proplane-generated" | "imported-converted" | "original-pdf";
+
+/** Legacy rows resolve from their existing bytes; only new imports persist a mode. */
+export function effectiveLeaseDocumentMode(
+  row: Pick<LeasePipelineRow, "documentMode" | "generatedHtml" | "managerUploadedPdf">,
+): LeaseDocumentMode {
+  if (row.documentMode === "proplane-generated" || row.documentMode === "imported-converted" || row.documentMode === "original-pdf") {
+    return row.documentMode;
+  }
+  if (row.managerUploadedPdf?.originalDataUrl || row.managerUploadedPdf?.dataUrl) return "original-pdf";
+  return "proplane-generated";
+}
+
 /**
  * Bump when the wording changes. Signatures record the version they accepted,
  * so a certificate never quotes today's text over an older signer's consent.
@@ -28,10 +41,16 @@ export const LEASE_ESIGN_CONSENT_TEXT =
 
 /** The agreement bytes, excluding any appended signature certificate page. */
 export function leaseSignedDocumentBytes(row: LeasePipelineRow): Uint8Array | null {
-  // Matches what LeaseSigningModal renders: uploaded PDF wins over generated HTML.
-  const pdfBase = row.managerUploadedPdf?.originalDataUrl ?? row.managerUploadedPdf?.dataUrl ?? null;
-  if (pdfBase) return dataUrlToBytes(pdfBase);
+  const mode = effectiveLeaseDocumentMode(row);
+  if (mode === "original-pdf") {
+    const pdfBase = row.managerUploadedPdf?.originalDataUrl ?? row.managerUploadedPdf?.dataUrl ?? null;
+    return pdfBase ? dataUrlToBytes(pdfBase) : null;
+  }
   if (row.generatedHtml) return new TextEncoder().encode(row.generatedHtml);
+  if (row.documentMode === "imported-converted") return null;
+  if (row.managerUploadedPdf?.originalDataUrl ?? row.managerUploadedPdf?.dataUrl) {
+    return dataUrlToBytes(row.managerUploadedPdf.originalDataUrl ?? row.managerUploadedPdf.dataUrl!);
+  }
   return null;
 }
 
@@ -112,9 +131,10 @@ export function leaseAllowsManagerDocumentEdits(
  * legitimately changes as parties sign; the base document must not.
  */
 export function leaseDocumentBody(row: LeasePipelineRow): { html: string | null; pdf: string | null } {
+  const mode = effectiveLeaseDocumentMode(row);
   return {
-    html: row.generatedHtml ?? null,
-    pdf: row.managerUploadedPdf?.originalDataUrl ?? row.managerUploadedPdf?.dataUrl ?? null,
+    html: mode === "original-pdf" ? null : row.generatedHtml ?? null,
+    pdf: mode === "original-pdf" ? row.managerUploadedPdf?.originalDataUrl ?? row.managerUploadedPdf?.dataUrl ?? null : null,
   };
 }
 

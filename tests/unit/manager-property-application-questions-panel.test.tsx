@@ -5,8 +5,13 @@ import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pr
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { addApplicationTemplateFromSeed } from "@/lib/property-application-template-sync";
 
+const persistSubmission = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/manager-property-save-target", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-property-save-target")>()),
+  persistManagerListingSubmissionOnServer: persistSubmission,
+}));
 vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
-  ManagerApplicationQuestionsEditorModal: () => null,
+  ManagerApplicationQuestionsEditorModal: () => <div data-testid="application-editor-modal" />,
 }));
 vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
   ProPortalSettingsModal: ({ open }: { open: boolean }) =>
@@ -55,5 +60,23 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
 
     expect(screen.queryAllByRole("checkbox").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
+  });
+
+  it("opening a fallback application in bulk does not overwrite selected properties", async () => {
+    persistSubmission.mockClear();
+    render(
+      <ManagerPropertyApplicationQuestionsPanel
+        sub={createDefaultListingSubmission()}
+        saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
+        propertyIds={["mgr-house-1", "mgr-house-2"]}
+        managerUserId="mgr-1"
+        onUpdated={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Actions for Long-term application" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    expect(screen.getByTestId("application-editor-modal")).toBeTruthy();
+    expect(persistSubmission).not.toHaveBeenCalled();
   });
 });

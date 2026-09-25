@@ -34,7 +34,8 @@ import { LEASE_TERM_OPTIONS, acceptedLeaseTermsFromStored } from "./lease-terms"
 import type { RentalWizardErrors, RentalWizardFormState } from "./types";
 import { digitsOnly, parseMoneyInput } from "./masks";
 import { customFieldsForWizardStep, listingCustomApplicationFields, validateCustomFieldAnswers } from "./custom-fields";
-import { applicationConfigForVariant, isWizardFormFieldEnabled } from "./application-field-catalog";
+import { isWizardFormFieldEnabled, isWizardFormFieldRequired, type ApplicationConfigSlice } from "./application-field-catalog";
+import { applicationConfigForApplicant } from "./application-template-config";
 
 function startOfTodayUTC(): Date {
   const n = new Date();
@@ -45,7 +46,7 @@ function parseLocalDate(iso: string): Date | null {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  return Number.isNaN(dt.getTime()) ? null : dt;
+  return Number.isNaN(dt.getTime()) || dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d ? null : dt;
 }
 
 /** True when `iso` (yyyy-mm-dd) parses to a real date strictly after today. */
@@ -78,8 +79,13 @@ function hasIncomeValue(monthly: string, annual: string, other: string): boolean
   return (Number.isFinite(mn) && mn > 0) || (Number.isFinite(an) && an > 0) || (Number.isFinite(on) && on > 0);
 }
 
+function validEnteredMoney(value: string): boolean {
+  return /^\s*\$?\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?\s*$/.test(value);
+}
+
 export type ValidateRentalWizardStepOptions = {
   property?: Pick<MockProperty, "id" | "listingSubmission"> | null;
+  configOverride?: ApplicationConfigSlice;
 };
 
 function resolveWizardProperty(
@@ -124,9 +130,19 @@ export function validateRentalWizardStep(
   // Field visibility + custom questions are resolved for the form variant the
   // applicant is on (short-term vs long-term), so each form validates only its
   // own questions.
-  const configSlice = applicationConfigForVariant(sub, applicationRentalTypeFor(f.rentalType));
+  const templateResolution = applicationConfigForApplicant(
+    sub,
+    applicationRentalTypeFor(f.rentalType),
+    f.applicationTemplateId,
+    f.applicationTemplateVersion,
+  );
+  if (templateResolution.pinMissing) {
+    return { _general: "This application form version is unavailable. Ask the property manager to reopen it." };
+  }
+  const configSlice = opts?.configOverride ?? templateResolution.config;
+  const fieldRequired = (key: string) => isWizardFormFieldRequired(configSlice, key);
   const fieldEnabled = (key: string) => isWizardFormFieldEnabled(configSlice, key);
-  const e = validateStandardWizardStep(step, f, fieldEnabled, prop);
+  const e = validateStandardWizardStep(step, f, fieldRequired, prop, fieldEnabled);
   // Manager custom questions are asked inside their configured section's step (untagged → step 8).
   const stepCustomFields = customFieldsForWizardStep(
     listingCustomApplicationFields(configSlice),
@@ -141,19 +157,21 @@ export function validateRentalWizardStep(
 export function validateStandardWizardStep(
   step: number,
   f: RentalWizardFormState,
-  fieldEnabled: (key: string) => boolean = () => true,
+  fieldRequired: (key: string) => boolean = () => true,
   prop?: Pick<MockProperty, "id" | "listingSubmission">,
+  fieldEnabled: (key: string) => boolean = () => true,
 ): RentalWizardErrors {
   const e: RentalWizardErrors = {};
+  const present = (key: string) => String(f[key as keyof RentalWizardFormState] ?? "").trim().length > 0;
+  const active = (key: string) => fieldEnabled(key) && (fieldRequired(key) || present(key));
 
   if (step === 1) {
     if (f.applicantRole === "cosigner") return e;
-    if (fieldEnabled("hasCosigner") && f.hasCosigner === null) {
+    if (fieldRequired("hasCosigner") && f.hasCosigner === null) {
       e.hasCosigner = "Please choose whether a co-signer will be added.";
     }
-    if (!fieldEnabled("applyingAsGroup")) return e;
     if (f.applyingAsGroup === null) {
-      e.applyingAsGroup = "Please choose whether you are applying as part of a group.";
+      if (fieldRequired("applyingAsGroup")) e.applyingAsGroup = "Please choose whether you are applying as part of a group.";
       return e;
     }
     if (f.applyingAsGroup === "no") return e;
@@ -174,41 +192,44 @@ export function validateStandardWizardStep(
   }
 
   if (step === 2) {
-    if (fieldEnabled("fullLegalName")) {
+    if (active("fullLegalName")) {
       const n = validateFullName(f.fullLegalName);
       if (!n.ok) e.fullLegalName = n.message;
     }
-    if (fieldEnabled("dateOfBirth")) {
+    if (active("dateOfBirth")) {
       if (!f.dateOfBirth.trim()) e.dateOfBirth = "Date of birth is required.";
+      else if (!parseLocalDate(f.dateOfBirth)) e.dateOfBirth = "Enter a valid date of birth.";
       else if (isFutureLocalDate(f.dateOfBirth)) e.dateOfBirth = "Date of birth cannot be in the future.";
       else if (!isAtLeastAge(f.dateOfBirth, 18)) e.dateOfBirth = "You must be at least 18 years old to apply.";
     }
-    if (fieldEnabled("ssn")) {
+    if (active("ssn")) {
       const ss = validateSsn(f.ssn);
       if (!ss.ok) e.ssn = ss.message;
     }
-    if (fieldEnabled("driversLicense")) {
+    if (active("driversLicense")) {
       const dl = validateRequired(f.driversLicense, "Driver’s license or ID number");
       if (!dl.ok) e.driversLicense = dl.message;
     }
-    if (fieldEnabled("phone")) {
+    if (active("phone")) {
       const ph = validatePhone10(f.phone);
       if (!ph.ok) e.phone = ph.message;
     }
-    if (fieldEnabled("email")) {
+    if (active("email")) {
       const em = validateEmail(f.email);
       if (!em.ok) e.email = em.message;
     }
+    if (fieldRequired("idPhotoFront") && !f.idPhotoFront) e.idPhotoFront = "Front of ID is required.";
+    if (fieldRequired("idPhotoBack") && !f.idPhotoBack) e.idPhotoBack = "Back of ID is required.";
     return e;
   }
 
   if (step === 3) {
-    if (fieldEnabled("propertyId") && !f.propertyId.trim()) e.propertyId = "Property is required.";
+    if (fieldRequired("propertyId") && !f.propertyId.trim()) e.propertyId = "Property is required.";
     // A bundle application replaces ranked room choices — no first-choice room
     // needed. Entire-home listings apply for the whole place (roomChoice1 is
     // auto-filled with the property id; older drafts may predate the autofill).
     if (
-      fieldEnabled("roomChoice1") &&
+      fieldRequired("roomChoice1") &&
       !f.bundleId.trim() &&
       !f.roomChoice1.trim() &&
       !isEntireHomeProperty(f.propertyId)
@@ -253,7 +274,7 @@ export function validateStandardWizardStep(
         e.roomChoice1 = "That bed is taken. Choose another.";
       }
     }
-    if (fieldEnabled("leaseTerm") && !f.leaseTerm.trim()) e.leaseTerm = "Lease term is required.";
+    if (fieldRequired("leaseTerm") && !f.leaseTerm.trim()) e.leaseTerm = "Lease term is required.";
     if (
       fieldEnabled("leaseTerm") &&
       f.rentalType !== "short_term" &&
@@ -283,17 +304,19 @@ export function validateStandardWizardStep(
     }
     const start = f.leaseStart.trim();
     const end = f.leaseEnd.trim();
-    if (fieldEnabled("leaseStart")) {
+    if (fieldEnabled("leaseStart") && (fieldRequired("leaseStart") || start)) {
       const drs = validateDateRequired(start, "Lease start date");
       if (!drs.ok) e.leaseStart = drs.message;
     }
     const mtm = f.leaseTerm === "Month-to-Month";
-    if (fieldEnabled("leaseEnd") && !mtm) {
+    if (fieldEnabled("leaseEnd") && !mtm && (fieldRequired("leaseEnd") || end)) {
       const dre = validateDateRequired(end, "Lease end date");
       if (!dre.ok) e.leaseEnd = dre.message;
     }
     const sd = parseLocalDate(start);
     const ed = parseLocalDate(end);
+    if (fieldEnabled("leaseStart") && start && !sd) e.leaseStart = "Enter a valid lease start date.";
+    if (fieldEnabled("leaseEnd") && end && !ed) e.leaseEnd = "Enter a valid lease end date.";
     const today = startOfTodayUTC();
     if (fieldEnabled("leaseStart") && sd) {
       const sMid = Date.UTC(sd.getFullYear(), sd.getMonth(), sd.getDate());
@@ -306,19 +329,27 @@ export function validateStandardWizardStep(
   }
 
   if (step === 4) {
-    if (fieldEnabled("currentStreet")) {
+    if (fieldRequired("currentLandlordName") && !f.currentLandlordName.trim()) e.currentLandlordName = "Current landlord name is required.";
+    if (fieldRequired("currentLandlordPhone") && !f.currentLandlordPhone.trim()) e.currentLandlordPhone = "Current landlord phone is required.";
+    if (fieldRequired("currentMoveIn") && !f.currentMoveIn.trim()) e.currentMoveIn = "Move-in date is required.";
+    if (fieldRequired("currentMoveOut") && !f.currentMoveOut.trim()) e.currentMoveOut = "Move-out date is required.";
+    if (fieldRequired("currentReasonLeaving") && !f.currentReasonLeaving.trim()) e.currentReasonLeaving = "Reason for leaving is required.";
+    if (fieldEnabled("currentMoveIn") && f.currentMoveIn.trim() && !parseLocalDate(f.currentMoveIn)) e.currentMoveIn = "Enter a valid move-in date.";
+    if (fieldEnabled("currentMoveOut") && f.currentMoveOut.trim() && !parseLocalDate(f.currentMoveOut)) e.currentMoveOut = "Enter a valid move-out date.";
+    if (fieldEnabled("currentMoveOut") && parseLocalDate(f.currentMoveIn) && parseLocalDate(f.currentMoveOut) && f.currentMoveOut < f.currentMoveIn) e.currentMoveOut = "Move-out date must follow move-in date.";
+    if (active("currentStreet")) {
       const st = validateRequired(f.currentStreet, "Street address");
       if (!st.ok) e.currentStreet = st.message;
     }
-    if (fieldEnabled("currentCity")) {
+    if (active("currentCity")) {
       const ci = validateRequired(f.currentCity, "City");
       if (!ci.ok) e.currentCity = ci.message;
     }
-    if (fieldEnabled("currentState")) {
+    if (active("currentState")) {
       const sa = validateStateAbbrev(f.currentState);
       if (!sa.ok) e.currentState = sa.message;
     }
-    if (fieldEnabled("currentZip")) {
+    if (active("currentZip")) {
       const z = validateZip(f.currentZip);
       if (!z.ok) e.currentZip = z.message;
     }
@@ -330,19 +361,27 @@ export function validateStandardWizardStep(
 
   if (step === 5) {
     if (f.noPreviousAddress) return e;
-    if (fieldEnabled("prevStreet")) {
+    if (fieldRequired("prevLandlordName") && !f.prevLandlordName.trim()) e.prevLandlordName = "Previous landlord name is required.";
+    if (fieldRequired("prevLandlordPhone") && !f.prevLandlordPhone.trim()) e.prevLandlordPhone = "Previous landlord phone is required.";
+    if (fieldRequired("prevMoveIn") && !f.prevMoveIn.trim()) e.prevMoveIn = "Move-in date is required.";
+    if (fieldRequired("prevMoveOut") && !f.prevMoveOut.trim()) e.prevMoveOut = "Move-out date is required.";
+    if (fieldRequired("prevReasonLeaving") && !f.prevReasonLeaving.trim()) e.prevReasonLeaving = "Reason for leaving is required.";
+    if (fieldEnabled("prevMoveIn") && f.prevMoveIn.trim() && !parseLocalDate(f.prevMoveIn)) e.prevMoveIn = "Enter a valid move-in date.";
+    if (fieldEnabled("prevMoveOut") && f.prevMoveOut.trim() && !parseLocalDate(f.prevMoveOut)) e.prevMoveOut = "Enter a valid move-out date.";
+    if (fieldEnabled("prevMoveOut") && parseLocalDate(f.prevMoveIn) && parseLocalDate(f.prevMoveOut) && f.prevMoveOut < f.prevMoveIn) e.prevMoveOut = "Move-out date must follow move-in date.";
+    if (active("prevStreet")) {
       const st = validateRequired(f.prevStreet, "Previous street address");
       if (!st.ok) e.prevStreet = st.message;
     }
-    if (fieldEnabled("prevCity")) {
+    if (active("prevCity")) {
       const ci = validateRequired(f.prevCity, "City");
       if (!ci.ok) e.prevCity = ci.message;
     }
-    if (fieldEnabled("prevState")) {
+    if (active("prevState")) {
       const sa = validateStateAbbrev(f.prevState);
       if (!sa.ok) e.prevState = sa.message;
     }
-    if (fieldEnabled("prevZip")) {
+    if (active("prevZip")) {
       const z = validateZip(f.prevZip);
       if (!z.ok) e.prevZip = z.message;
     }
@@ -354,18 +393,25 @@ export function validateStandardWizardStep(
 
   if (step === 6) {
     if (!f.notEmployed) {
-      if (fieldEnabled("employer")) {
+      if (active("employer")) {
         const emp = validateRequired(f.employer, "Employer name");
         if (!emp.ok) e.employer = emp.message;
       }
       if (fieldEnabled("supervisorPhone") && !isBlankOrCompletePhone(f.supervisorPhone)) {
         e.supervisorPhone = "Enter a complete phone number or leave this blank.";
       }
+      if (fieldRequired("supervisorName") && !f.supervisorName.trim()) e.supervisorName = "Supervisor name is required.";
+      if (fieldRequired("supervisorPhone") && !f.supervisorPhone.trim()) e.supervisorPhone = "Supervisor phone is required.";
+      if (fieldRequired("jobTitle") && !f.jobTitle.trim()) e.jobTitle = "Job title is required.";
+      if (fieldRequired("employmentStart") && !f.employmentStart.trim()) e.employmentStart = "Employment start date is required.";
     }
+    if (fieldEnabled("employmentStart") && f.employmentStart.trim() && !parseLocalDate(f.employmentStart)) e.employmentStart = "Enter a valid employment start date.";
+    if (fieldRequired("otherIncome") && !f.otherIncome.trim()) e.otherIncome = "Other income is required.";
+    if (fieldRequired("incomeProofPhotos") && f.incomeProofPhotos.length === 0) e.incomeProofPhotos = "Proof of income is required.";
     if (
       !f.notEmployed &&
       (() => {
-        const incomeEnabled = (["monthlyIncome", "annualIncome", "otherIncome"] as const).filter(fieldEnabled);
+        const incomeEnabled = (["monthlyIncome", "annualIncome", "otherIncome"] as const).filter(fieldRequired);
         if (incomeEnabled.length === 0) return false;
         return !hasIncomeValue(
           incomeEnabled.includes("monthlyIncome") ? f.monthlyIncome : "",
@@ -379,37 +425,37 @@ export function validateStandardWizardStep(
     }
     if (fieldEnabled("monthlyIncome") && f.monthlyIncome.trim()) {
       const n = Number(parseMoneyInput(f.monthlyIncome));
-      if (!Number.isFinite(n) || n < 0) e.monthlyIncome = "Enter a valid monthly income.";
+      if (!validEnteredMoney(f.monthlyIncome) || !Number.isFinite(n) || n < 0) e.monthlyIncome = "Enter a valid monthly income.";
     }
     if (fieldEnabled("annualIncome") && f.annualIncome.trim()) {
       const n = Number(parseMoneyInput(f.annualIncome));
-      if (!Number.isFinite(n) || n < 0) e.annualIncome = "Enter a valid annual income.";
+      if (!validEnteredMoney(f.annualIncome) || !Number.isFinite(n) || n < 0) e.annualIncome = "Enter a valid annual income.";
     }
     if (fieldEnabled("otherIncome") && f.otherIncome.trim()) {
       const n = Number(parseMoneyInput(f.otherIncome));
-      if (!Number.isFinite(n) || n < 0) e.otherIncome = "Enter a valid amount for other income.";
+      if (!validEnteredMoney(f.otherIncome) || !Number.isFinite(n) || n < 0) e.otherIncome = "Enter a valid amount for other income.";
     }
     return e;
   }
 
   if (step === 7) {
-    if (fieldEnabled("ref1Name")) {
+    if (active("ref1Name")) {
       const n1 = validateRequired(f.ref1Name, "Reference 1 name");
       if (!n1.ok) e.ref1Name = n1.message;
     }
-    if (fieldEnabled("ref1Relationship")) {
+    if (active("ref1Relationship")) {
       const r1 = validateRequired(f.ref1Relationship, "Reference 1 relationship");
       if (!r1.ok) e.ref1Relationship = r1.message;
     }
-    if (fieldEnabled("ref1Phone")) {
+    if (active("ref1Phone")) {
       const p1 = validatePhone10(f.ref1Phone);
       if (!p1.ok) e.ref1Phone = p1.message;
     }
     const has2 = f.ref2Name.trim() || f.ref2Relationship.trim() || digitsOnly(f.ref2Phone).length > 0;
-    if (has2) {
-      if (fieldEnabled("ref2Name") && !f.ref2Name.trim()) e.ref2Name = "Reference 2 name is required when adding a second reference.";
-      if (fieldEnabled("ref2Relationship") && !f.ref2Relationship.trim()) e.ref2Relationship = "Reference 2 relationship is required.";
-      if (fieldEnabled("ref2Phone")) {
+    if (has2 || fieldRequired("ref2Name")) {
+      if (fieldRequired("ref2Name") && !f.ref2Name.trim()) e.ref2Name = "Reference 2 name is required when adding a second reference.";
+      if (fieldRequired("ref2Relationship") && !f.ref2Relationship.trim()) e.ref2Relationship = "Reference 2 relationship is required.";
+      if (active("ref2Phone")) {
         const p2 = validatePhone10(f.ref2Phone);
         if (!p2.ok) e.ref2Phone = p2.message;
       }
@@ -418,28 +464,26 @@ export function validateStandardWizardStep(
   }
 
   if (step === 8) {
-    if (fieldEnabled("occupancyCount")) {
+    if (fieldRequired("pets") && !f.pets.trim()) e.pets = "Pets is required.";
+    if (active("occupancyCount")) {
       if (!f.occupancyCount.trim()) e.occupancyCount = "Number of occupants is required.";
-      else {
-        const n = parseInt(f.occupancyCount, 10);
-        if (!Number.isFinite(n) || n < 1 || n > 20) e.occupancyCount = "Enter a whole number between 1 and 20.";
-      }
+      else if (!/^[1-5]$/.test(f.occupancyCount)) e.occupancyCount = "Select a number of occupants between 1 and 5.";
     }
-    if (fieldEnabled("evictionHistory")) {
+    if (fieldRequired("evictionHistory")) {
       if (f.evictionHistory === null) e.evictionHistory = "Please select Yes or No.";
-      else if (f.evictionHistory === "yes" && fieldEnabled("evictionDetails") && !f.evictionDetails.trim()) {
+      else if (f.evictionHistory === "yes" && fieldRequired("evictionDetails") && !f.evictionDetails.trim()) {
         e.evictionDetails = "Brief details are required when you answer Yes.";
       }
     }
-    if (fieldEnabled("bankruptcyHistory")) {
+    if (fieldRequired("bankruptcyHistory")) {
       if (f.bankruptcyHistory === null) e.bankruptcyHistory = "Please select Yes or No.";
-      else if (f.bankruptcyHistory === "yes" && fieldEnabled("bankruptcyDetails") && !f.bankruptcyDetails.trim()) {
+      else if (f.bankruptcyHistory === "yes" && fieldRequired("bankruptcyDetails") && !f.bankruptcyDetails.trim()) {
         e.bankruptcyDetails = "Brief details are required when you answer Yes.";
       }
     }
-    if (fieldEnabled("criminalHistory")) {
+    if (fieldRequired("criminalHistory")) {
       if (f.criminalHistory === null) e.criminalHistory = "Please select Yes or No.";
-      else if (f.criminalHistory === "yes" && fieldEnabled("criminalDetails") && !f.criminalDetails.trim()) {
+      else if (f.criminalHistory === "yes" && fieldRequired("criminalDetails") && !f.criminalDetails.trim()) {
         e.criminalDetails = "Brief details are required when you answer Yes.";
       }
     }
@@ -447,10 +491,10 @@ export function validateStandardWizardStep(
   }
 
   if (step === 9) {
-    if (fieldEnabled("consentCredit") && !f.consentCredit) e.consentCredit = "You must authorize a credit and background check to continue.";
-    if (fieldEnabled("consentTruth") && !f.consentTruth) e.consentTruth = "You must confirm your information is true and complete.";
-    if (fieldEnabled("digitalSignature") && !f.digitalSignature.trim()) e.digitalSignature = "Type your full legal name as your digital signature.";
-    if (fieldEnabled("dateSigned") && !f.dateSigned.trim()) e.dateSigned = "Date signed is required.";
+    if (fieldRequired("consentCredit") && !f.consentCredit) e.consentCredit = "You must authorize a credit and background check to continue.";
+    if (fieldRequired("consentTruth") && !f.consentTruth) e.consentTruth = "You must confirm your information is true and complete.";
+    if (fieldRequired("digitalSignature") && !f.digitalSignature.trim()) e.digitalSignature = "Type your full legal name as your digital signature.";
+    if (fieldRequired("dateSigned") && !f.dateSigned.trim()) e.dateSigned = "Date signed is required.";
     return e;
   }
 

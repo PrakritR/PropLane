@@ -46,6 +46,15 @@ describe("managed SMS service-role boundary", () => {
     }
   });
 
+  it("keeps the payload-carrying inbound claim service-role only", () => {
+    const migration = sql("20260925120000_sms_inbound_recovery.sql");
+    const signature = "claim_sms_inbound(text, uuid, text, text, integer, jsonb)";
+    expect(migration).toContain("drop function if exists public.claim_sms_inbound(text, uuid, text, text, integer)");
+    expect(migration).toContain(`revoke execute on function public.${signature} from public, anon, authenticated`);
+    expect(migration).toContain(`grant execute on function public.${signature} to service_role`);
+    expect(migration).toContain("security definer set search_path = public, pg_temp");
+  });
+
   it("keeps manager contact labels inaccessible through public PostgREST roles", () => {
     const migration = sql("20260826130000_manager_sms_contacts.sql");
     expect(migration).toContain("alter table public.manager_sms_contacts enable row level security");

@@ -306,11 +306,19 @@ export function ManagerPropertyApplicationQuestionsPanel({
     setEditorOpen(true);
   }, []);
 
-  const openEditApplication = useCallback((template: PropertyApplicationTemplate) => {
+  const openEditApplication = useCallback(async (template: PropertyApplicationTemplate) => {
+    // Older properties render their default forms from listing terms before the
+    // generated templates have been stored. The PDF import route reads the
+    // owned property row, so save the displayed template before opening it.
+    if (bulkPropertyIds.length === 0 && !readPropertyApplicationTemplates(sub).some((stored) => stored.id === template.id)) {
+      const saved = await persistSubmission(syncedSub, { message: "Application ready to edit." });
+      if (!saved) return;
+      onUpdated();
+    }
     setEditorMode("edit");
     setEditingTemplate(template);
     setEditorOpen(true);
-  }, []);
+  }, [bulkPropertyIds.length, onUpdated, persistSubmission, sub, syncedSub]);
 
   useEffect(() => {
     onRegisterAddApplication?.(openAdd);

@@ -12,16 +12,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForVariant, resolveListingApplicationFields, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
+import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
+import { applicationDraftReviewFingerprint, createPropertyApplicationTemplate } from "@/lib/property-application-templates";
 
 const persistOnServer = vi.fn<(...args: unknown[]) => Promise<boolean>>();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
 
 vi.mock("@/lib/manager-property-save-target", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/manager-property-save-target")>()),
   persistManagerListingSubmissionOnServer: (...args: unknown[]) => persistOnServer(...args),
 }));
 
-function renderEditor(sub: ManagerListingSubmissionV1 = createDefaultListingSubmission()) {
+function renderEditor(sub: ManagerListingSubmissionV1 = createDefaultListingSubmission(), initialVariant: "standard" | "short_term" | "cosigner" = "standard") {
   const onSaved = vi.fn();
   const onClose = vi.fn();
   render(
@@ -31,6 +38,7 @@ function renderEditor(sub: ManagerListingSubmissionV1 = createDefaultListingSubm
       sub={sub}
       saveTarget={{ mode: "listing", saveId: "mgr-house-1" }}
       managerUserId="mgr-1"
+      initialVariant={initialVariant}
       onClose={onClose}
       onSaved={onSaved}
       showToast={() => {}}
@@ -39,8 +47,8 @@ function renderEditor(sub: ManagerListingSubmissionV1 = createDefaultListingSubm
   return { onSaved, onClose };
 }
 
-async function waitWorkspace() {
-  await screen.findByRole("dialog", { name: "Application" });
+async function waitWorkspace(title = "Application") {
+  await screen.findByRole("dialog", { name: title });
 }
 
 function jumpRail(id: string) {
@@ -75,13 +83,28 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("in-place expanding rows", () => {
+  it("keeps the current step and unsaved question edits when the parent refreshes submission props", async () => {
+    const base = createDefaultListingSubmission();
+    const props = { open: true, title: "Application", saveTarget: { mode: "listing" as const, saveId: "mgr-house-1" }, managerUserId: "mgr-1", onClose: vi.fn(), onSaved: vi.fn(), showToast: vi.fn() };
+    const view = render(<ManagerApplicationQuestionsEditorModal {...props} sub={base} />);
+    await waitWorkspace();
+    jumpRail("personal");
+    expandFirstQuestion();
+    const labelInput = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement;
+    fireEvent.change(labelInput, { target: { value: "My custom personal label" } });
+    view.rerender(<ManagerApplicationQuestionsEditorModal {...props} sub={{ ...base }} />);
+    expect((document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement).value).toBe("My custom personal label");
+    expect(screen.getByRole("heading", { name: "Personal information", level: 2 })).toBeTruthy();
+  });
+
   it("expands a question in place with no per-question modal, and persists nothing while editing", async () => {
     renderEditor();
     await waitWorkspace();
-    expandHouseholdSection();
+    jumpRail("personal");
     expandFirstQuestion();
 
     const labelInput = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement | null;
@@ -91,8 +114,8 @@ describe("in-place expanding rows", () => {
     expect(screen.queryByRole("heading", { name: "Edit question" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Add question" })).toBeNull();
 
-    fireEvent.change(labelInput!, { target: { value: "Group application (edited)" } });
-    expect(labelInput!.value).toBe("Group application (edited)");
+    fireEvent.change(labelInput!, { target: { value: "Legal name (edited)" } });
+    expect(labelInput!.value).toBe("Legal name (edited)");
 
     // Nothing is persisted until the top-level Save — the buffered-draft contract.
     expect(persistOnServer).not.toHaveBeenCalled();
@@ -112,13 +135,10 @@ describe("⋯ reorder menu", () => {
     };
   }
 
-  it("moves a custom question with the ⋯ menu; a built-in offers no move control", async () => {
+  it("moves a custom question with the ⋯ menu", async () => {
     renderEditor(subWithTwoCustomQuestions());
     await waitWorkspace();
     jumpRail("additional");
-
-    // Built-in fields (e.g. "Number of occupants" in Additional details) never get a reorder trigger.
-    expect(screen.queryByRole("button", { name: /^Reorder Number of occupants/ })).toBeNull();
 
     const orderedIds = () =>
       Array.from(document.querySelectorAll('[data-attr^="application-question-edit-"]'))
@@ -133,6 +153,225 @@ describe("⋯ reorder menu", () => {
     fireEvent.click(moveDown);
 
     await waitFor(() => expect(orderedIds()).toEqual(["c2", "c1"]));
+  });
+
+  it("moves built-in questions within their section", async () => {
+    renderEditor(createDefaultListingSubmission());
+    await waitWorkspace();
+    jumpRail("additional");
+
+    const orderedIds = () =>
+      Array.from(document.querySelectorAll('[data-attr^="application-question-edit-"]'))
+        .map((el) => el.getAttribute("data-attr")!.replace("application-question-edit-", ""));
+    const before = orderedIds();
+    const trigger = await screen.findByRole("button", { name: /^Reorder Number of occupants/ });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move down" }));
+
+    await waitFor(() => {
+      const after = orderedIds();
+      expect(after[0]).toBe(before[1]);
+      expect(after[1]).toBe(before[0]);
+    });
+  });
+
+  it("allows a nonstructural built-in move inside a composite section", async () => {
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      disabledStandardApplicationKeys: [],
+      customApplicationFields: [],
+    };
+    renderEditor(sub);
+    await waitWorkspace();
+    jumpRail("employment");
+
+    const orderedLabels = () =>
+      Array.from(document.querySelectorAll('[data-attr^="application-question-edit-"]'))
+        .map((el) => el.textContent ?? "");
+    const employer = await screen.findByRole("button", { name: /^Reorder Employer & employer address/ });
+    const before = orderedLabels();
+    const employerIndex = before.findIndex((label) => label.includes("Employer & employer address"));
+    const nextLabel = before[employerIndex + 1];
+    const nextIndex = nextLabel ? before.indexOf(nextLabel) : -1;
+    expect(employerIndex).toBeGreaterThanOrEqual(0);
+    expect(nextIndex).toBe(employerIndex + 1);
+
+    fireEvent.keyDown(employer, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move down" }));
+    await waitFor(() => {
+      const after = orderedLabels();
+      expect(after[employerIndex]).toBe(nextLabel);
+      expect(after[employerIndex + 1]).toBe(before[employerIndex]);
+    });
+  });
+
+  it("keeps a built-in's typed control fixed while allowing its label and required setting", async () => {
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      disabledStandardApplicationKeys: [],
+      customApplicationFields: [],
+    };
+    renderEditor(sub);
+    await waitWorkspace();
+    jumpRail("employment");
+    const employerRow = Array.from(document.querySelectorAll('[data-attr^="application-question-edit-"]'))
+      .find((row) => row.textContent?.includes("Employer & employer address"));
+    expect(employerRow).toBeDefined();
+    fireEvent.click(employerRow as HTMLElement);
+
+    const typeControl = document.querySelector('[data-attr="application-question-type"]') as HTMLButtonElement | null;
+    const labelControl = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement | null;
+    const requiredControl = document.querySelector('[data-attr="application-question-required"]') as HTMLInputElement | null;
+    expect(typeControl).not.toBeNull();
+    expect(typeControl).toBeDisabled();
+    expect(labelControl).not.toBeNull();
+    expect(labelControl).not.toBeDisabled();
+    expect(requiredControl).not.toBeNull();
+    expect(requiredControl).not.toBeDisabled();
+  });
+
+  it("uses one saved order to interleave a custom question with built-ins", async () => {
+    const occupantsKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Number of occupants")!.standardKey;
+    const petsKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Pets")!.standardKey;
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG
+        .filter((field) => ![occupantsKey, petsKey].includes(field.standardKey))
+        .map((field) => field.standardKey),
+      customApplicationFields: [
+        { id: "custom-pets", key: "pet-name", label: "Pet name", type: "text", required: false, options: [], section: "additional" },
+      ],
+    };
+    renderEditor(sub);
+    await waitWorkspace();
+    jumpRail("additional");
+
+    const rowIds = () =>
+      Array.from(document.querySelectorAll('[data-attr^="application-question-edit-"]'))
+        .map((el) => el.getAttribute("data-attr")!.replace("application-question-edit-", ""))
+        .filter((id) => [`std-${occupantsKey}`, "custom-pets", `std-${petsKey}`].includes(id));
+    expect(rowIds()).toEqual([`std-${occupantsKey}`, `std-${petsKey}`, "custom-pets"]);
+    const trigger = await screen.findByRole("button", { name: "Reorder Pet name" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move up" }));
+    await waitFor(() => expect(rowIds()).toEqual([`std-${occupantsKey}`, "custom-pets", `std-${petsKey}`]));
+    expect(screen.queryByText("Your questions appear after PropLane's.")).toBeNull();
+  });
+
+  it("keeps custom questions after typed fields in structurally bound sections", async () => {
+    const propertyKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Property")!.standardKey;
+    const roomKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label.startsWith("Room choices"))!.standardKey;
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      disabledStandardApplicationKeys: [],
+      questionDisplayOrder: ["property-custom", `std-${propertyKey}`, `std-${roomKey}`],
+      customApplicationFields: [
+        { id: "property-custom", key: "move-in-note", label: "Move-in note", type: "text", required: false, options: [], section: "property" },
+      ],
+    };
+    renderEditor(sub);
+    await waitWorkspace();
+    jumpRail("property");
+    const rowIds = () =>
+      Array.from(document.querySelectorAll('[data-attr^="application-question-edit-"]'))
+        .map((el) => el.getAttribute("data-attr")!.replace("application-question-edit-", ""))
+        .filter((id) => ["property-custom", `std-${propertyKey}`, `std-${roomKey}`].includes(id));
+    expect(rowIds()).toEqual([`std-${propertyKey}`, `std-${roomKey}`, "property-custom"]);
+  });
+});
+
+describe("built-in controls that match the applicant form", () => {
+  it("keeps structural household labels and order fixed while preserving supported visibility", async () => {
+    renderEditor();
+    await waitWorkspace();
+    jumpRail("household");
+    expandFirstQuestion();
+    expect(document.querySelector('[data-attr="application-question-label"]')).toBeDisabled();
+    expect(document.querySelector('[data-attr^="application-question-option-"]')).toBeNull();
+    expect(screen.getByText("Yes", { exact: true })).toBeTruthy();
+    expect(screen.getByText("No", { exact: true })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Reorder Group application/ })).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
+  });
+
+  it("locks structural built-in choices and normalizes legacy choice overrides for the applicant control", async () => {
+    const occupants = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Number of occupants")!;
+    const group = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Group application")!;
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      customApplicationFields: [
+        { id: "override-occupants", key: occupants.standardKey, standardKey: occupants.standardKey, label: occupants.label, type: "select", required: true, options: ["6", "7"] },
+        { id: "override-group", key: group.standardKey, standardKey: group.standardKey, label: group.label, type: "select", required: true, options: ["Maybe"] },
+      ],
+    };
+
+    const config = applicationConfigForVariant(sub, "standard");
+    expect(config.customApplicationFields.find((field) => field.standardKey === occupants.standardKey)?.options).toEqual(["1", "2", "3", "4", "5"]);
+    expect(config.customApplicationFields.find((field) => field.standardKey === group.standardKey)?.options).toEqual(["Yes", "No"]);
+    const resolved = resolveListingApplicationFields(config, (raw) => raw as typeof config.customApplicationFields);
+    const resolvedOccupants = resolved.find((field) => field.standardKey === occupants.standardKey)!;
+    const resolvedGroup = resolved.find((field) => field.standardKey === group.standardKey)!;
+    expect(resolvedOccupants.options).toEqual(["1", "2", "3", "4", "5"]);
+    expect(resolvedGroup.options).toEqual(["Yes", "No"]);
+
+    const control = render(<CustomQuestionField field={resolvedOccupants} value="" onChange={() => {}} />);
+    fireEvent.click(control.getByRole("button", { name: "Select" }));
+    const listbox = screen.getByRole("listbox");
+    expect(within(listbox).queryByText("6", { exact: true })).toBeNull();
+    expect(within(listbox).getByText("5", { exact: true })).toBeTruthy();
+  });
+
+  it("freezes co-signer built-ins except identity labels and date/SSN controls", async () => {
+    const sub = { ...createDefaultListingSubmission(), cosignerApplicationConfigMode: "custom" as const, cosignerDisabledStandardApplicationKeys: [] };
+    renderEditor(sub, "cosigner");
+    await waitWorkspace();
+    jumpRail("personal");
+    const nameRow = document.querySelector('[data-attr="application-question-edit-std-personal-full-legal-name"]') as HTMLElement;
+    fireEvent.click(nameRow);
+    expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-required"]')).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).toBeNull();
+    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+    fireEvent.click(nameRow);
+    const dobRow = document.querySelector('[data-attr="application-question-edit-std-personal-date-of-birth"]') as HTMLElement;
+    fireEvent.click(dobRow);
+    expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
+    jumpRail("employment");
+    const employerRow = document.querySelector('[data-attr="application-question-edit-std-employment-employer-employer-address"]') as HTMLElement;
+    fireEvent.click(employerRow);
+    expect(document.querySelector('[data-attr="application-question-label"]')).toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-required"]')).toBeDisabled();
+    expect(employerRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+  });
+
+  it("omits file and photo types from co-signer authoring while keeping supported types editable", async () => {
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      cosignerApplicationConfigMode: "custom",
+      cosignerDisabledStandardApplicationKeys: [],
+      cosignerCustomApplicationFields: [
+        { id: "cosigner-note", key: "cosigner-note", label: "Additional note", type: "text", required: false, options: [], section: "household" },
+      ],
+    };
+    renderEditor(sub, "cosigner");
+    await waitWorkspace();
+    jumpRail("household");
+    fireEvent.click(document.querySelector('[data-attr="application-question-edit-cosigner-note"]') as HTMLElement);
+    const typeControl = document.querySelector('[data-attr="application-question-type"]') as HTMLElement;
+    expect(typeControl).not.toBeDisabled();
+    fireEvent.click(typeControl);
+    const typeListbox = screen.getByRole("listbox");
+    expect(within(typeListbox).getByText("Dropdown")).toBeTruthy();
+    expect(within(typeListbox).getByText("Multi-select")).toBeTruthy();
+    expect(within(typeListbox).queryByText("File")).toBeNull();
+    expect(within(typeListbox).queryByText("Photos")).toBeNull();
   });
 });
 
@@ -250,20 +489,20 @@ describe("Preview step", () => {
   it("reflects an UNSAVED edit — proving the pane reads the live buffered draft, not saved data", async () => {
     renderEditor();
     await waitWorkspace();
-    expandHouseholdSection();
+    jumpRail("personal");
     expandFirstQuestion();
 
     const labelInput = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement;
-    fireEvent.change(labelInput, { target: { value: "Group application (edited)" } });
+    fireEvent.change(labelInput, { target: { value: "Legal name (edited)" } });
 
     jumpRail("preview");
     const pane = previewPane()!;
-    expect(within(pane).getByText("Group application (edited)")).toBeTruthy();
-    expect(within(pane).queryByText("Group application")).toBeNull();
+    expect(within(pane).getByText("Legal name (edited)")).toBeTruthy();
+    expect(within(pane).queryByText("Full legal name")).toBeNull();
     expect(persistOnServer).not.toHaveBeenCalled();
   });
 
-  it("a section with no questions shows the empty state", async () => {
+  it("keeps required identity questions visible after optional fields are disabled", async () => {
     const sub: ManagerListingSubmissionV1 = {
       ...createDefaultListingSubmission(),
       applicationConfigMode: "custom",
@@ -275,8 +514,10 @@ describe("Preview step", () => {
 
     jumpRail("preview");
     const pane = previewPane()!;
-    expect(within(pane).getByText("No questions in this section yet.")).toBeTruthy();
-    expect(pane.querySelector("[inert]")).toBeNull();
+    expect(within(pane).getByText("Full legal name")).toBeTruthy();
+    expect(within(pane).getByText("Phone")).toBeTruthy();
+    expect(within(pane).getByText("Email")).toBeTruthy();
+    expect(pane.querySelector("[inert]")).not.toBeNull();
   });
 
   it("a question with a blank label and an empty option row renders without throwing", async () => {
@@ -295,5 +536,112 @@ describe("Preview step", () => {
     const pane = previewPane()!;
     expect(within(pane).getByText("Untitled question")).toBeTruthy();
     expect(persistOnServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("server reviewed application publishing", () => {
+  it("keeps property-specific PDF review and publishing out of bulk editing", async () => {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Application" });
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Application"
+        sub={createDefaultListingSubmission()}
+        managerUserId="manager-1"
+        propertyIds={["mgr-house-1", "mgr-house-2"]}
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="edit"
+        applicationTemplate={template}
+        templates={[template]}
+        onPersistSubmission={vi.fn().mockResolvedValue(true)}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace();
+    jumpRail("preview");
+    expect(screen.queryByRole("button", { name: "Import PDF" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish application" })).toBeNull();
+  });
+
+  it("saves the draft, records explicit source review, then publishes with a version check", async () => {
+    const sourceDraft = {
+      disabledStandardApplicationKeys: [],
+      customApplicationFields: [],
+      applicationConfigMode: "custom" as const,
+      questionDisplayOrder: STANDARD_APPLICATION_FIELD_CATALOG.map((field) => `std-${field.standardKey}`),
+      version: 1,
+      importProvenance: { sourcePath: "manager/application-import/template/original.pdf", sourceSha256: "a".repeat(64), unresolvedCount: 0 },
+    };
+    const template = {
+      id: "imported-template",
+      kind: "long-term" as const,
+      formVariant: "standard" as const,
+      label: "Imported form",
+      createdAt: "2026-09-24T00:00:00.000Z",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+      draftQuestionConfig: sourceDraft,
+    };
+    const persist = vi.fn().mockResolvedValue(true);
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1 | undefined;
+      const savedTemplate = savedSubmission?.propertyApplicationTemplates?.find((item) => item.id === template.id) ?? template;
+      const savedDraft = savedTemplate.draftQuestionConfig ?? sourceDraft;
+      const reviewedDraft = {
+        ...savedDraft,
+        importProvenance: {
+          ...savedDraft.importProvenance!,
+          reviewedByUserId: "manager-1",
+          reviewedAt: "2026-09-24T00:01:00.000Z",
+          reviewedDraftFingerprint: applicationDraftReviewFingerprint(savedDraft),
+        },
+      };
+      const responseBody = String(_input).includes("meta=1")
+        ? { draftFingerprint: applicationDraftReviewFingerprint(savedDraft), revision: "2026-09-24T00:00:00Z" }
+        : init?.method === "PUT"
+        ? { draft: reviewedDraft }
+        : { version: 1, template: { ...savedTemplate, draftQuestionConfig: reviewedDraft, publishedQuestionConfig: { ...reviewedDraft, version: 1 } } };
+      return new Response(JSON.stringify(responseBody), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Imported form"
+        sub={createDefaultListingSubmission()}
+        managerUserId="manager-1"
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="edit"
+        applicationTemplate={template}
+        templates={[template]}
+        onPersistSubmission={persist}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace("Imported form");
+    jumpRail("preview");
+    fireEvent.click(await screen.findByRole("button", { name: "Compare and confirm PDF" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
+    const reviewCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(JSON.parse(String(reviewCall?.[1]?.body))).toMatchObject({
+      propertyId: "mgr-house-1",
+      templateId: template.id,
+      sourceSha256: "a".repeat(64),
+      draftFingerprint: expect.any(String),
+      expectedRevision: "2026-09-24T00:00:00Z",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish application" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
+    const publishCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(publishCall?.[1]?.body))).toMatchObject({
+      propertyId: "mgr-house-1",
+      templateId: template.id,
+      expectedPublishedVersion: 0,
+    });
+    expect(persist).toHaveBeenCalled();
   });
 });

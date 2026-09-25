@@ -12,6 +12,8 @@ import {
   resolvePropertyLabelForId,
 } from "@/lib/manager-portfolio-access";
 import { commitResidentDocumentImport } from "@/lib/resident-document-import/commit-import.client";
+import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { matchResidentFromApplications } from "@/lib/resident-document-import/match-resident";
 import type { ParsedResidentDocument, ResidentDocumentKind } from "@/lib/resident-document-import/types";
 import {
   parsedFieldsToRecord,
@@ -188,9 +190,8 @@ export function PropertyResidentDocumentImportModal({
       const label =
         propertyOptions.find((row) => row.value === selectedPropertyId)?.label || propertyLabel || "Property";
       const forcedExistingId = forcedExistingApplicationId?.trim() || "";
-      const existingApplicationId =
-        forcedExistingId ||
-        (parse.residentMatch.kind === "existing" ? parse.residentMatch.applicationId : undefined);
+      const existingApplicationId = forcedExistingId ||
+        (finalResidentMatch.kind === "existing" ? finalResidentMatch.applicationId : undefined);
       const result = await commitResidentDocumentImport({
         parse,
         review: {
@@ -216,7 +217,7 @@ export function PropertyResidentDocumentImportModal({
       showToast(
         kind === "lease"
           ? "Lease imported and resident record updated."
-          : parse.residentMatch.kind === "existing"
+          : existingApplicationId
             ? "Application details updated for this resident."
             : "Application created for this resident.",
       );
@@ -228,9 +229,16 @@ export function PropertyResidentDocumentImportModal({
   }
 
   const title = kind === "lease" ? "Import lease PDF" : "Import application PDF";
+  const finalResidentMatch = parse
+    ? matchResidentFromApplications(
+        readManagerApplicationRows(),
+        { email: fields.tenantEmail, name: fields.tenantName },
+        managerUserId,
+      )
+    : { kind: "new" as const };
   const residentSummary =
-    parse?.residentMatch.kind === "existing"
-      ? `Matched existing resident: ${parse.residentMatch.residentName} (${parse.residentMatch.residentEmail})`
+    finalResidentMatch.kind === "existing"
+      ? `Matched existing resident: ${finalResidentMatch.residentName} (${finalResidentMatch.residentEmail})`
       : parse
         ? "New resident — an application will be created and you can send account setup instructions."
         : null;
