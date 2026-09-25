@@ -152,7 +152,7 @@ describe("one move-in payment", () => {
     expect(rows.some((t) => t.includes("Security deposit"))).toBe(false);
     expect(rows.some((t) => t.includes("Move-in cost"))).toBe(false);
     // The tab counts the total as one charge.
-    expect(screen.getByRole("link", { name: /^Pending/ }).textContent).toContain("2");
+    expect(screen.getByRole("link", { name: /^Upcoming/ }).textContent).toContain("2");
   });
 
   it("tapping the row opens the breakdown, where one Pay covers every line", async () => {
