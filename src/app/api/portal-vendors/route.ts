@@ -43,18 +43,29 @@ export async function GET(req: Request) {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    // `user` is narrowed to non-null above, but that narrowing does not cross
+    // into the nested `loadOwnRows`/`loadLinkedOwnerRows`/`loadSharedRows`
+    // function declarations below — capture the id in its own const so they
+    // close over an already-non-null value instead of re-reading `user.id`.
+    const userId = user.id;
 
     const url = new URL(req.url);
     const catalogMode = url.searchParams.get("catalog") === "1";
     const catalogQuery = url.searchParams.get("q")?.trim() ?? "";
 
     const db = createSupabaseServiceRoleClient();
-    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+    // Three independent reads (none depends on another's result) — running
+    // them one at a time was a needless round trip each (part of Night QA
+    // finding #3's 5-9s "Loading records…" on /portal/vendors).
+    const [access, admin, profileResult] = await Promise.all([
+      resolveAuthenticatedBusinessAccess(user.id, db),
+      isAdminUser(user.id),
+      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    ]);
+    if (access.kind === "denied") {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
-    const admin = await isAdminUser(user.id);
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const role = String(profileResult.data?.role ?? user.user_metadata?.role ?? "").toLowerCase();
 
     if (!admin && role !== "manager" && role !== "pro") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -83,26 +94,23 @@ export async function GET(req: Request) {
       return NextResponse.json({ rows });
     }
 
-    let query = db
-      .from("manager_vendor_records")
-      .select("row_data, manager_user_id, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(500);
-
-    if (!admin) {
-      query = query.eq("manager_user_id", user.id);
+    async function loadOwnRows(): Promise<ManagerVendorRow[]> {
+      let query = db
+        .from("manager_vendor_records")
+        .select("row_data, manager_user_id, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(500);
+      if (!admin) query = query.eq("manager_user_id", userId);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return (data ?? [])
+        .map((record) => {
+          const row = record.row_data as ManagerVendorRow | null;
+          if (!row?.id || isVendorCategorySettingsRow(row)) return null;
+          return normalizeRow(row, String(record.manager_user_id ?? userId));
+        })
+        .filter((row): row is ManagerVendorRow => row !== null);
     }
-
-    const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    const ownRows = (data ?? [])
-      .map((record) => {
-        const row = record.row_data as ManagerVendorRow | null;
-        if (!row?.id || isVendorCategorySettingsRow(row)) return null;
-        return normalizeRow(row, String(record.manager_user_id ?? user.id));
-      })
-      .filter((row): row is ManagerVendorRow => row !== null);
 
     // Co-manager access: the vendor directory is owner-keyed (no property
     // column on the record), so include every linked owner's rows — but ONLY
@@ -112,45 +120,44 @@ export async function GET(req: Request) {
     // "services" on a single house; every vendor row's own `propertyIds`
     // (empty/absent = assigned to every property, same "Every property"
     // sentinel the vendor form uses) is what narrows it to that house.
-    let linkedOwnerRows: ManagerVendorRow[] = [];
-    if (!admin) {
-      const { ownerIds, propertyIdsByOwner } = await linkedOwnerScopeForModule(db, user.id, "services");
-      ownerIds.delete(user.id);
-      if (ownerIds.size > 0) {
-        const { data: linkedData, error: linkedError } = await db
-          .from("manager_vendor_records")
-          .select("row_data, manager_user_id")
-          .in("manager_user_id", [...ownerIds])
-          .order("updated_at", { ascending: false })
-          .limit(500);
-        if (linkedError) return NextResponse.json({ error: linkedError.message }, { status: 500 });
-        linkedOwnerRows = (linkedData ?? [])
-          .map((record) => {
-            const row = record.row_data as ManagerVendorRow | null;
-            if (!row?.id || isVendorCategorySettingsRow(row)) return null;
-            const ownerId = record.manager_user_id;
-            if (!ownerId) return null;
-            const grantedPropertyIds = propertyIdsByOwner.get(ownerId) ?? new Set<string>();
-            const assigned = Array.isArray(row.propertyIds) ? row.propertyIds : [];
-            const servesGrantedHouse = assigned.length === 0 || assigned.some((id) => grantedPropertyIds.has(id));
-            if (!servesGrantedHouse) return null;
-            return normalizeRow(row, ownerId);
-          })
-          .filter((row): row is ManagerVendorRow => row !== null);
-      }
+    async function loadLinkedOwnerRows(): Promise<ManagerVendorRow[]> {
+      if (admin) return [];
+      const { ownerIds, propertyIdsByOwner } = await linkedOwnerScopeForModule(db, userId, "services");
+      ownerIds.delete(userId);
+      if (ownerIds.size === 0) return [];
+      const { data: linkedData, error: linkedError } = await db
+        .from("manager_vendor_records")
+        .select("row_data, manager_user_id")
+        .in("manager_user_id", [...ownerIds])
+        .order("updated_at", { ascending: false })
+        .limit(500);
+      if (linkedError) throw new Error(linkedError.message);
+      return (linkedData ?? [])
+        .map((record) => {
+          const row = record.row_data as ManagerVendorRow | null;
+          if (!row?.id || isVendorCategorySettingsRow(row)) return null;
+          const ownerId = record.manager_user_id;
+          if (!ownerId) return null;
+          const grantedPropertyIds = propertyIdsByOwner.get(ownerId) ?? new Set<string>();
+          const assigned = Array.isArray(row.propertyIds) ? row.propertyIds : [];
+          const servesGrantedHouse = assigned.length === 0 || assigned.some((id) => grantedPropertyIds.has(id));
+          if (!servesGrantedHouse) return null;
+          return normalizeRow(row, ownerId);
+        })
+        .filter((row): row is ManagerVendorRow => row !== null);
     }
 
-    let sharedRows: ManagerVendorRow[] = [];
-    if (!admin) {
+    async function loadSharedRows(): Promise<ManagerVendorRow[]> {
+      if (admin) return [];
       const { data: sharedData, error: sharedError } = await db
         .from("manager_vendor_records")
         .select("row_data, manager_user_id")
-        .neq("manager_user_id", user.id)
+        .neq("manager_user_id", userId)
         .eq("row_data->>sharedWithManagers", "true")
         .order("updated_at", { ascending: false })
         .limit(200);
-      if (sharedError) return NextResponse.json({ error: sharedError.message }, { status: 500 });
-      sharedRows = (sharedData ?? [])
+      if (sharedError) throw new Error(sharedError.message);
+      return (sharedData ?? [])
         .map((record) => {
           const row = record.row_data as ManagerVendorRow | null;
           if (!row?.id || row.name === "__vendor_category_settings__") return null;
@@ -160,6 +167,15 @@ export async function GET(req: Request) {
         })
         .filter((row): row is ManagerVendorRow => row !== null);
     }
+
+    // Sequential on purpose: `loadLinkedOwnerRows` does its own internal
+    // multi-step lookup (`linkedOwnerScopeForModule`, itself several
+    // sequential reads) against the same `manager_user_id`-keyed table
+    // `loadSharedRows` queries — keeping these three in program order keeps
+    // the co-manager scoping straightforward to reason about and test.
+    const ownRows = await loadOwnRows();
+    const linkedOwnerRows = await loadLinkedOwnerRows();
+    const sharedRows = await loadSharedRows();
 
     const seen = new Set<string>();
     const rows = [...ownRows, ...linkedOwnerRows, ...sharedRows].filter((row) => {

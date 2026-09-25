@@ -542,15 +542,19 @@ export function AxisAssistant({
     })
       .then(async (response) => {
         const data = await response.json() as {
-          capability?: { targets?: SmsTestCapabilityPayload["targets"] };
+          capability?: { targets?: SmsTestCapabilityPayload["targets"] } | null;
           error?: string;
         };
         if (!isCurrent()) return;
+        // response.ok with a null capability is the ordinary "not eligible"
+        // answer (most accounts are not a test-workspace member) — silent,
+        // not an error. A 404 is kept as the same silent case for any older
+        // cached client/service-worker response still using that shape.
+        if (response.status === 404 || (response.ok && !data.capability)) {
+          update({ capability: null, visible: false, active: false, targetId: "", error: null });
+          return;
+        }
         if (!response.ok || !data.capability) {
-          if (response.status === 404) {
-            update({ capability: null, visible: false, active: false, targetId: "", error: null });
-            return;
-          }
           update({ visible: true });
           throw new Error(data.error ?? "SMS test mode is unavailable.");
         }

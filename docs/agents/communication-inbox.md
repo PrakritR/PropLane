@@ -481,3 +481,14 @@ window is a no-op) and the manager notification. Rules for adding a channel:
 
 Coverage: `tests/unit/inbound-message-intent.test.ts` (the classification table
 is the spec), `tests/unit/inbound-message-workflows.test.ts`.
+
+**`loadManagerSmsConversationsClient` (`src/lib/manager-sms-conversations-client.ts`)
+now has a TTL, not just in-flight coalescing.** `createCoalescedRefresher`
+only dedupes CONCURRENT callers; it holds no cache of the settled result, so
+an unforced caller arriving after the previous fetch already resolved used to
+start a brand-new request regardless of how recently that was — the sidebar's
+60s nav-count poll plus the inbox/composer reading the same directory made
+`/api/manager/sms-conversations` one of the slowest calls on most manager
+routes. A 20s TTL now sits in front of the refresher; `force: true` (e.g.
+after a send/delete) still always starts a fresh fetch. Any new caller should
+go through this client rather than calling the route directly.

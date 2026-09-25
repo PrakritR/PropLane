@@ -27,6 +27,7 @@ import {
   MANAGER_VENDORS_EVENT,
   readOwnManagerVendorRows,
   syncManagerVendorsFromServer,
+  syncManagerVendorsFromServerDetailed,
   deleteManagerVendorRow,
   type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
@@ -165,10 +166,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     setListError(false);
     void (async () => {
       try {
-        const res = await fetch("/api/portal-vendors", { credentials: "include" });
-        if (!res.ok) throw new Error("load");
-        await syncManagerVendorsFromServer({ force: true });
-        if (!cancelled) setListError(false);
+        // One network round trip, not two: this used to fire a throwaway
+        // fetch just to check res.ok, then a second independent fetch (via
+        // syncManagerVendorsFromServer) to actually load the data — the same
+        // GET /api/portal-vendors, back to back (Night QA finding #6: 5-9s
+        // stuck on "Loading records…"). syncManagerVendorsFromServerDetailed
+        // does the one fetch this page needs and reports whether it succeeded.
+        const { ok } = await syncManagerVendorsFromServerDetailed({ force: true });
+        if (!cancelled) setListError(!ok);
       } catch {
         if (!cancelled) setListError(true);
       } finally {
