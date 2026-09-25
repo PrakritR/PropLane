@@ -847,9 +847,18 @@ export const PORTAL_TOOLBAR_GROUP =
 export const PORTAL_TOOLBAR_PILL_BUTTON =
   "min-h-9 rounded-full px-4 py-1.5 text-sm font-semibold text-muted transition hover:text-foreground [html[data-theme=dark]_&]:text-white/78";
 
-/** Active variant for toolbar pill buttons. */
+/**
+ * Active variant for toolbar pill buttons. Selected vs. unselected used to be
+ * nearly indistinguishable in the dark admin theme (a faint 16%-opacity white
+ * overlay via the `.portal-status-pill-active` class, on `text-white/78` text
+ * — both effectively "white-ish on near-black"). Fill with the same brand
+ * tokens the shared `ManagerPortalStatusPills`' `activeTone="primary"` uses
+ * (`bg-primary text-primary-foreground`) directly, as real Tailwind
+ * utilities, so the dark-theme override can't silently stop compiling the
+ * way a custom class name behind this same bracket-variant idiom did.
+ */
 export const PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE =
-  "bg-card text-foreground shadow-[var(--shadow-sm)] [html[data-theme=dark]_&]:portal-status-pill-active";
+  "bg-card text-foreground shadow-[var(--shadow-sm)] [html[data-theme=dark]_&]:bg-primary [html[data-theme=dark]_&]:text-primary-foreground";
 
 /** Label used before toolbar selects (Property/Sort/etc.). */
 export const PORTAL_TOOLBAR_LABEL = "text-xs font-semibold text-muted";
