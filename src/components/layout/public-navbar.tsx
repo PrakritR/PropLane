@@ -351,7 +351,7 @@ export function PublicNavbar() {
       className="sticky top-0 z-50 border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]"
     >
       <Navbar1
-        logoSlot={<AxisLogoLink href="/" size="compact" />}
+        logoSlot={<AxisLogoLink href="/" size="compact" showWordmark={false} />}
         menu={menu}
         auth={{
           login: { text: "Log in", url: "/auth/sign-in" },

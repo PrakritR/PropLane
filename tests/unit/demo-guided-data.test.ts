@@ -50,22 +50,25 @@ describe("demo-guided session", () => {
 });
 
 describe("demo-guided-data snapshots", () => {
-  it("idle snapshot ships empty — no fictional portfolio in the public sandbox", () => {
+  it("idle snapshot carries the Seattle Homes portfolio (captain 2026-09-25)", () => {
     const snapshot = buildDemoIdleSnapshot();
-    expect(snapshot.properties).toEqual([]);
-    expect(snapshot.applications).toEqual([]);
-    expect(snapshot.charges).toEqual([]);
-    expect(snapshot.leases).toEqual([]);
+    expect(snapshot.properties.map((p) => p.title).sort()).toEqual([
+      "Alder House",
+      "Fremont Studio",
+      "Maple Duplex",
+    ]);
+    expect(snapshot.applications.length).toBeGreaterThan(0);
+    expect(snapshot.charges.length).toBeGreaterThan(0);
+    expect(snapshot.leases.length).toBeGreaterThan(0);
+    // Buckets the portfolio deliberately leaves untouched stay empty.
     expect(snapshot.workOrders).toEqual([]);
     expect(snapshot.managerInbox).toEqual([]);
     expect(snapshot.residentInbox).toEqual([]);
     expect(snapshot.vendorInbox).toEqual([]);
-    expect(snapshot.schedule.plannedEvents).toEqual([]);
-    expect(snapshot.schedule.partnerInquiries).toEqual([]);
     expect(snapshot.residentUploads).toEqual([]);
   });
 
-  it("blank snapshot clears portfolio for guided tour", () => {
+  it("blank snapshot stays a genuinely empty slate for the guided tour", () => {
     const snapshot = buildDemoBlankSnapshot();
     expect(snapshot.properties).toEqual([]);
     expect(snapshot.applications).toEqual([]);
@@ -76,8 +79,10 @@ describe("demo-guided-data snapshots", () => {
   it("idle and blank snapshots are independent objects", () => {
     const a = buildDemoIdleSnapshot();
     const b = buildDemoIdleSnapshot();
+    const before = b.properties.length;
     a.properties.push({ id: "x" } as (typeof a.properties)[number]);
-    expect(b.properties).toEqual([]);
+    // Mutating one call's array never leaks into a separate call's array.
+    expect(b.properties.length).toBe(before);
     expect(buildDemoBlankSnapshot().properties).toEqual([]);
   });
 });

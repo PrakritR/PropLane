@@ -1,37 +1,76 @@
 /* Public site — section styles that Tailwind utilities cannot express (positioned art, keyframes). Imported by the components that use them. */
 
-/* ───────────── home hero — Codex-style (site/hero.tsx, site/codex-hero-window.tsx) ─────────────
-   The wash: three soft diagonal blue→violet radial glows behind the rounded
-   dark app window. Same palette as the studio reference (proto/home-codex.js
-   `wash`) so the built page matches the approved plan exactly. */
+/* ───────────── home hero — Codex-style, light (site/hero.tsx, site/codex-hero-window.tsx) ─────────────
+   The wash: three soft diagonal periwinkle→violet radial glows on the hero's
+   white/lavender base (captain 2026-09-25, light-mode pass) — heavily blurred
+   so they read as a soft gradient backdrop, not distinct blobs. */
 .codex-hero-wash {
   position: absolute;
   border-radius: 9999px;
   pointer-events: none;
+  filter: blur(50px);
 }
 .codex-hero-wash-a {
   left: -220px;
-  top: -320px;
+  top: -260px;
   width: 760px;
   height: 760px;
-  background: radial-gradient(circle, #2b52e0 0%, rgba(43, 82, 224, 0) 70%);
-  opacity: 0.6;
+  background: radial-gradient(circle, rgba(90, 140, 255, 0.55) 0%, rgba(90, 140, 255, 0) 70%);
 }
 .codex-hero-wash-b {
   right: -260px;
-  top: -120px;
+  top: -180px;
   width: 820px;
   height: 820px;
-  background: radial-gradient(circle, #6a4bd6 0%, rgba(106, 75, 214, 0) 70%);
-  opacity: 0.45;
+  background: radial-gradient(circle, rgba(154, 156, 245, 0.5) 0%, rgba(154, 156, 245, 0) 70%);
+}
+.codex-hero-phone {
+  position: absolute;
+  right: -56px;
+  bottom: -48px;
+  z-index: 3;
+  width: 200px;
+  height: 433px;
+  overflow: hidden;
+  border: 7px solid #111;
+  border-radius: 32px;
+  background: #fff;
+  box-shadow: 0 30px 70px -18px rgba(15, 23, 42, 0.45);
+}
+.codex-hero-activity-card {
+  position: absolute;
+  left: -20px;
+  top: 36%;
+  z-index: 3;
+  width: 250px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  box-shadow: 0 20px 45px -18px rgba(15, 23, 42, 0.28);
+}
+@media (max-width: 1023px) {
+  .codex-hero-activity-card { width: 200px; left: -12px; padding: 8px 10px; }
+}
+@media (max-width: 767px) {
+  /* Phone: the card stays, small — only the phone mockup (hidden via the
+     `lg:block` wrapper in codex-hero-window.tsx) goes away. */
+  .codex-hero-activity-card { width: 168px; left: -8px; top: 30%; padding: 7px 9px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .codex-hero-phone, .codex-hero-activity-card { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .codex-hero-activity-card { animation-delay: 0.15s; }
+}
+@keyframes codex-hero-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
 }
 .codex-hero-wash-c {
-  left: 10%;
-  top: 120px;
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, #3a6bff 0%, rgba(58, 107, 255, 0) 72%);
-  opacity: 0.35;
+  left: 12%;
+  top: 140px;
+  width: 620px;
+  height: 620px;
+  background: radial-gradient(circle, rgba(124, 127, 242, 0.35) 0%, rgba(124, 127, 242, 0) 72%);
 }
 @keyframes site-hero-rise {
   from { opacity: 0; transform: translateY(14px); }

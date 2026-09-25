@@ -10,7 +10,9 @@
 //   2. A control that disappears in the regroup. Every pre-existing setting had
 //      to survive the split: the theme toggle moved from the Account section to
 //      Preferences (row label "Theme"), so Account must still carry the portal
-//      switch / sign out / delete rows and nothing may be lost in between.
+//      switch / sign out / delete rows and nothing may be lost in between. The
+//      Theme row itself is currently hidden everywhere (DARK_MODE_ENABLED,
+//      src/lib/theme-storage.ts) — Preferences still mounts its other pane.
 //   3. Back. The category push is `history.pushState`, so the in-page chevron
 //      and the browser/gesture back have to land on the SAME root list — and a
 //      double-tap on the chevron must not pop past Settings out of the portal.
@@ -172,7 +174,7 @@ describe("manager settings categories", () => {
     ["profile", () => screen.getByText("Personal information")],
     ["billing", () => screen.getByTestId("pane-manager-plan")],
     ["messaging", () => screen.getByTestId("pane-messaging")],
-    ["preferences", () => screen.getByText("Theme")],
+    ["preferences", () => screen.getByTestId("pane-assistant-display")],
     ["security", () => screen.getByTestId("pane-change-password")],
     ["developer", () => screen.getByTestId("pane-api-keys")],
     ["feedback", () => screen.getByTestId("pane-bug-feedback")],
@@ -189,10 +191,12 @@ describe("manager settings categories", () => {
 
   it("keeps every pre-existing control after the regroup", async () => {
     // Theme moved out of Account into Preferences, renamed to avoid an
-    // "Appearance" section holding an "Appearance" row.
+    // "Appearance" section holding an "Appearance" row. Dark mode is off
+    // product-wide for now (DARK_MODE_ENABLED, src/lib/theme-storage.ts), so
+    // the Theme row itself is hidden — Preferences still mounts its other pane.
     goto("?tab=preferences");
     const prefs = renderSettings();
-    expect(screen.getByText("Theme")).toBeTruthy();
+    expect(screen.queryByText("Theme")).toBeNull();
     expect(screen.getByTestId("pane-assistant-display")).toBeTruthy();
     prefs.unmount();
 
@@ -288,9 +292,12 @@ describe("PortalSettingsExtras variants", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the legacy Appearance row for resident/vendor/admin (default variant)", () => {
+  it("drops the Appearance row everywhere while dark mode is off (default variant)", () => {
+    // DARK_MODE_ENABLED (src/lib/theme-storage.ts) is off product-wide, so the
+    // legacy `full`-variant Appearance row stays hidden even for
+    // resident/vendor/admin — not just for the manager layout below.
     render(<PortalSettingsExtras currentKind="resident" />);
-    expect(screen.getByText("Appearance")).toBeTruthy();
+    expect(screen.queryByText("Appearance")).toBeNull();
     // No sentence under the section title (AGENTS.md § No subtext).
     expect(screen.queryByText("Appearance, workspace access, and session.")).toBeNull();
   });

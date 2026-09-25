@@ -97,9 +97,12 @@ export function GeneralAssistantTrigger() {
  * Marketing pages carry no floating control (site round 2 §5): the story,
  * pricing and audience pages are read, not chatted with. The bubble stays on
  * docs, support, the auth flow and the rental browse, where a visitor has a
- * question in hand.
+ * question in hand — and, since the Codex-style redesign (captain
+ * 2026-09-25), on the home page too: the home page now leads with the real
+ * product, and a visitor who scrolls past it into the more read-y sections
+ * below can still ask a question without hunting for a contact link.
  */
-const MARKETING_PATHS = ["/", "/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
+const MARKETING_PATHS = ["/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
 /** A sheet about to be printed, and the page a door-card QR opens, carry no chat bubble either. */
 const CHROMELESS_PATHS = ["/print", "/h"];
 export function isMarketingPath(pathname: string | null): boolean {
@@ -231,23 +234,17 @@ export function GeneralAssistant() {
         aria-labelledby="general-assistant-title"
         className="glass-card fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-[71] flex h-[min(40rem,calc(100dvh-3rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-primary/15 shadow-[0_28px_70px_-28px_rgba(15,23,42,0.5)] backdrop-blur-xl lg:bottom-6 lg:right-6"
       >
-        {/* Header */}
-        <div className="relative shrink-0 overflow-hidden border-b border-border/70 px-4 py-3.5">
-          <div
-            className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_12%,transparent),transparent_55%)]"
-            aria-hidden
-          />
-          <div className="relative flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-                <ChatBubbleIcon className="h-5 w-5" />
+        {/* Header — same shape as the product's own Ask PropLane panel:
+            a sparkle mark and the plain name, not a chat-bubble icon. */}
+        <div className="relative shrink-0 border-b border-border/70 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <span className="text-[15px] leading-none">✦</span>
               </span>
-              <div className="min-w-0">
-                <p id="general-assistant-title" className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
-                  PropLane AI
-                </p>
-                <p className="truncate text-xs text-muted">Ask anything about PropLane</p>
-              </div>
+              <p id="general-assistant-title" className="min-w-0 truncate text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+                PropLane
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {hasConversation && (
@@ -279,16 +276,16 @@ export function GeneralAssistant() {
         {/* Body */}
         <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
           {!hasConversation ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+            <div className="flex flex-1 flex-col justify-center gap-5">
               <div className="flex flex-col gap-1">
                 <h3 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">
                   How can I help?
                 </h3>
-                <p className="max-w-[20rem] text-sm leading-relaxed text-muted">
+                <p className="max-w-[24rem] text-sm leading-relaxed text-muted">
                   Ask about PropLane: features, pricing, the live demo, or how to get started.
                 </p>
               </div>
-              <div className="grid w-full grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1.5">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s.label}
@@ -296,9 +293,10 @@ export function GeneralAssistant() {
                     onClick={() => void send(s.prompt)}
                     disabled={loading}
                     data-attr="general-assistant-suggestion"
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-foreground/[0.04] px-3 text-xs font-medium text-foreground outline-none transition-[border-color,background-color,transform] hover:border-primary/25 hover:bg-foreground/[0.07] focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-foreground/[0.03] px-3.5 py-2.5 text-left text-[13px] font-medium text-foreground outline-none transition-[border-color,background-color] hover:border-primary/25 hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {s.label}
+                    <span className="min-w-0 truncate">{s.label}</span>
+                    <span aria-hidden className="shrink-0 text-muted">→</span>
                   </button>
                 ))}
               </div>

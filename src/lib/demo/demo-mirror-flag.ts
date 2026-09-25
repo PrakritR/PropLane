@@ -1,23 +1,32 @@
 /**
  * The one switch that decides whether `/demo` may read the canonical
  * `@test.proplane.local` accounts' real portal rows (`GET /api/demo/portal-snapshot`)
- * or must serve the empty static snapshot from `demo-guided-data.ts`.
+ * or must serve the static snapshot from `demo-guided-data.ts`.
  *
- * **Currently OFF, deliberately and temporarily.** The fictional portfolio the
- * sandbox used to ship (Ava Nguyen, The Pioneer, Cascade Lofts, …) was deleted
- * from the code, but the same rows still sit on the canonical accounts in the
- * dev/test and production Supabase projects — and the mirror wins over the
- * static snapshot whenever those accounts hold data. Emptying the code alone
- * therefore would not empty a deployed `/demo`. Turning the mirror off is a
- * code-only guarantee that every environment renders a clean, empty sandbox
- * immediately, without touching a database.
+ * **Back ON (captain 2026-09-25).** The home page's Codex-style hero embeds
+ * `/demo` showing the real, signed-in-shaped manager portal, and the captain
+ * asked for it populated with a real "Seattle Homes" portfolio rather than an
+ * empty sandbox — that portfolio has to live on the canonical manager account
+ * for the mirror to carry it (this file's whole point). `buildDemoIdleSnapshot()`
+ * (`demo-guided-data.ts`) now returns that same portfolio as the static
+ * fallback too, so the two sources read identically whether or not the DB seed
+ * has run in a given environment.
  *
- * **This is meant to be turned back on.** The mirror is how an accurate demo
- * portfolio is supposed to get in — a manager signs into the canonical accounts
- * and enters real data. Once the leftover fictional rows are purged from those
- * accounts (a separate, supervised live-DB task), flip this back to `true`; the
- * mirror code is intact and unchanged underneath. Do not delete the mirror.
+ * **Dev/test only, so far.** `scripts/seed-demo-manager-portfolio.ts` — the
+ * committed, idempotent script that writes this portfolio onto
+ * `manager@test.proplane.local` — has only been run against the dedicated
+ * test Supabase project (ref `emstjswhotsnyksqhqyf`, the only one that script
+ * will write to). **Production's canonical account has not been re-seeded.**
+ * The mirror is a single global switch, not per-environment, so once this
+ * ships to production the mirror will surface whatever is *actually* sitting
+ * on production's `manager@test.proplane.local` right now — which, per the
+ * history below, may still be the old deleted fictional fixture (Ava Nguyen,
+ * The Pioneer, Cascade Lofts, …) rather than Seattle Homes, until the captain
+ * runs the same seed script against production by their own say-so. Do not
+ * run that script against production without the captain's explicit go-ahead
+ * (the script's own guard also refuses any project ref other than the test
+ * one on its own).
  *
  * See `docs/agents/demo-sandbox.md` for the two-source model.
  */
-export const DEMO_PORTAL_MIRROR_ENABLED = false;
+export const DEMO_PORTAL_MIRROR_ENABLED = true;

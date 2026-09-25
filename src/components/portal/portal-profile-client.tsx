@@ -78,6 +78,7 @@ import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notif
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
@@ -703,13 +704,15 @@ export function PortalProfileClient({
       case "preferences":
         return (
           <>
-            <PortalSettingsSection title="Appearance">
-              <PortalSettingsGroup>
-                <PortalSettingsRow label="Theme">
-                  <ThemeToggle className="shrink-0" />
-                </PortalSettingsRow>
-              </PortalSettingsGroup>
-            </PortalSettingsSection>
+            {DARK_MODE_ENABLED ? (
+              <PortalSettingsSection title="Appearance">
+                <PortalSettingsGroup>
+                  <PortalSettingsRow label="Theme">
+                    <ThemeToggle className="shrink-0" />
+                  </PortalSettingsRow>
+                </PortalSettingsGroup>
+              </PortalSettingsSection>
+            ) : null}
             <AssistantDisplaySetting />
             <AssistantCustomInstructionsSetting role={variant} />
           </>

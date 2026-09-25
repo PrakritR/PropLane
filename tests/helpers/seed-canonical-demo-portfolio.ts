@@ -50,7 +50,12 @@ const ctx = {
 assertCanonicalDemoPortfolioContext(ctx);
 
 async function main() {
-  await seedCanonicalDemoPortfolio(db, ctx);
+  // buildDemoIdleSnapshot() carries the Seattle Homes portfolio (captain
+  // 2026-09-25) — this pipeline runs on every `npm run test:seed` / `seed:dev`
+  // across the whole team's shared dev/test project, so it must never touch
+  // the two DEPLOYMENT-WIDE schedule singletons (which hold every OTHER
+  // account's real seeded tour data, not just this one's).
+  await seedCanonicalDemoPortfolio(db, ctx, { skipGlobalScheduleSingletons: true });
   console.log("Seeded canonical demo portfolio for manager / resident / vendor test accounts.");
 }
 

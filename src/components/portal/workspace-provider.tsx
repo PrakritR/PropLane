@@ -7,7 +7,7 @@ import type { PortalWorkspace, WorkspacePayload, WorkspacePlan } from "@/lib/wor
 import { setWorkspaceSelection } from "@/lib/workspaces/selection";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { managerPropertyRowsForStage } from "@/lib/demo-admin-property-inventory";
-import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 
 export type WorkspaceContextValue = {
@@ -32,7 +32,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const response = await fetch("/api/workspaces", { cache: "no-store" });
+      // /demo has no real session — GET /api/workspaces would 401. The demo
+      // counterpart is public and read-only, and always resolves the one
+      // canonical, deliberately-public sandbox manager's own workspace
+      // (never a caller-supplied id) — see src/app/api/demo/workspace/route.ts.
+      const url = isDemoModeActive() ? "/api/demo/workspace" : "/api/workspaces";
+      const response = await fetch(url, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load workspaces.");
       setPayload(data);
@@ -90,6 +95,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(PROPERTY_PIPELINE_EVENT, onPipeline);
   }, [refresh, scopeUserId]);
   const mutate = useCallback(async (body: Record<string, unknown>) => {
+    // /demo never writes real rows (docs/agents/demo-sandbox.md) — there is
+    // exactly one seeded demo workspace, so nothing here needs a real switch.
+    if (isDemoModeActive()) return;
     const response = await fetch("/api/workspaces", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });

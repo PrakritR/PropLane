@@ -1,42 +1,71 @@
+import Link from "next/link";
+import { AppStoreBadge } from "@/components/marketing/app-store-badge";
+import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { CodexHeroWindow } from "@/components/marketing/site/codex-hero-window";
+import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY, SITE_MEASURE } from "@/components/marketing/site/primitives";
+import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import "@/components/marketing/site/site.css";
 
 /**
- * The home hero — Codex-style (openai.com/codex reference, captain
- * 2026-09-25): a black page, a soft diagonal blue/violet gradient wash, and
- * one big rounded dark app window overlapping it. No headline, no eyebrow,
- * no CTA row here — the window IS the pitch: the real manager portal, live
- * and clickable (`CodexHeroWindow` → `/demo` in an iframe). The buttons that
- * used to live in this hero (Start free, Book a demo) still exist, just
- * lower on the page (`SiteFinalCta`) and in the untouched top nav's Portal
- * button — nothing is dropped, only moved.
+ * The home hero — Codex-style, light mode (openai.com/codex reference,
+ * captain 2026-09-25, third pass). A soft white/lavender gradient washing
+ * into periwinkle and violet, centered: the PropLane mark in a rounded white
+ * tile, a big "PropLane" title, a one-line caption carrying today's exact
+ * tagline ("Property management that runs itself."), today's exact CTAs
+ * (Start free — no card / Book a demo / the App Store badge) and fine print,
+ * then — lower on the page, large and centered, overlapping the bottom of
+ * the wash — the real manager portal, live and clickable, with the same
+ * phone mockup and floating activity card today's live home page carries
+ * (`CodexHeroWindow` → `/demo` in an iframe, opening on Dashboard).
  *
- * `h1` stays for SEO/screen readers (same copy the visible headline used to
- * carry) even though nothing shows it — a home page should still name itself
- * to an agent that can't see the window.
- *
- * Colours are explicit (not theme tokens): the public pages are locked to
- * the light theme (`PublicLightThemeLock`), and this section is deliberately
- * black either way.
+ * Nothing below the hero changes theme — the whole page stays light, same as
+ * every other public page (captain: "use light mode only — remove dark mode
+ * for the time being"). The top nav's wordmark text is hidden site-wide
+ * (`public-navbar.tsx`'s `AxisLogoLink showWordmark={false}`) — only the mark
+ * icon remains as the home link, so it doesn't compete with this hero's own
+ * big "PropLane" title right below it.
  */
 export function SiteHero() {
   return (
     <section
-      className="site-hero relative overflow-hidden bg-black px-2.5 pb-10 pt-4 sm:px-8 sm:pb-16 sm:pt-6"
+      className="site-hero relative overflow-hidden bg-[linear-gradient(180deg,#fbfcff_0%,#f3f5fc_100%)] pb-8 pt-16 sm:pb-14 sm:pt-20"
       aria-labelledby="site-hero-title"
       data-site-hero
     >
-      <h1 id="site-hero-title" className="sr-only">
-        Property management that runs itself
-      </h1>
-
-      {/* The wash: three soft radial glows, blue → violet, diagonal. */}
+      {/* The wash: three soft periwinkle/violet glows, diagonal, behind the content. */}
       <div aria-hidden className="codex-hero-wash codex-hero-wash-a" />
       <div aria-hidden className="codex-hero-wash codex-hero-wash-b" />
       <div aria-hidden className="codex-hero-wash codex-hero-wash-c" />
 
-      <div className="relative z-[1]">
-        <CodexHeroWindow />
+      <div className={`${SITE_MEASURE} relative z-[1]`}>
+        <div className="mx-auto flex max-w-[42rem] flex-col items-center text-center">
+          <AxisLogoMark className="shadow-[0_20px_45px_-18px_rgba(40,99,240,0.45)]" />
+          <h1
+            id="site-hero-title"
+            className="mt-6 text-[clamp(2.75rem,7vw,4.75rem)] font-bold leading-[1.02] tracking-[-0.04em] text-foreground"
+          >
+            PropLane
+          </h1>
+          <p className="mt-4 max-w-[32rem] text-[22px] font-normal leading-snug text-[#4a4e56]">
+            Property management that runs itself.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started" className={SITE_BTN_PRIMARY}>
+              Start free — no card
+            </Link>
+            <Link href={BOOK_DEMO_HREF} data-attr="home-hero-book-demo" className={SITE_BTN_SECONDARY}>
+              Book a demo
+            </Link>
+            <AppStoreBadge dataAttr="home-hero-app-store" />
+          </div>
+          <p className="mt-4 text-[13px] text-muted">Free for one home · No card · Web and iPhone</p>
+        </div>
+
+        {/* The product itself, lower on the page, large and centered, its
+            shadow bleeding past the hero's own bottom edge. */}
+        <div className="relative z-[1] mt-14 sm:mt-16">
+          <CodexHeroWindow />
+        </div>
       </div>
     </section>
   );
