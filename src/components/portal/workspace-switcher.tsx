@@ -47,6 +47,17 @@ export function workspaceInitials(name: string): string {
  * the viewer has in a workspace, in one line. A shared workspace only lists the
  * houses the viewer reaches, so a selected scope prints that count.
  */
+/**
+ * C207: every new workspace is server-named literally "My workspace" until
+ * its owner renames it, so two shared workspaces from two different owners
+ * otherwise render as identical rows in the switcher menu. A workspace the
+ * viewer does not own always shows its owner's name for disambiguation.
+ */
+function switcherDisplayName(workspace: PortalWorkspace): string {
+  if (workspace.owned || !workspace.ownerName) return workspace.name;
+  return `${workspace.name} (${workspace.ownerName})`;
+}
+
 function standingLabel(workspace: PortalWorkspace): string {
   // Live houses only — a workspace's record list also holds drafts and
   // unlisted rows that still drive scoping (PRP-481).
@@ -175,7 +186,7 @@ export function WorkspaceSwitcher({
               <AxisLogoGlyph size="micro" />
             </span>
             <span className="min-w-0 flex-1 truncate">
-              {workspace.name}
+              {switcherDisplayName(workspace)}
               {/* The home count is what tells a manager WHERE their portfolio
                   is: a workspace showing nothing is answered by the row that
                   holds the homes, without opening settings first. */}

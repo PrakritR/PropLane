@@ -16,6 +16,8 @@ import { ManagerLeases } from "@/components/portal/pro-leases";
 import { ManagerPayments } from "@/components/portal/pro-payments";
 import { ManagerPromotion } from "@/components/portal/pro-promotion";
 import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
+import QRCode from "qrcode";
+import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
@@ -1307,7 +1309,16 @@ export async function renderPortalSection(
       );
     }
     if (section === "app") {
-      return subscriptionGated(<ManagerMobileAppPanel />, kind, "app", managerOwnerSubscriptionTier);
+      // N068: a real QR code fills the desktop-only blank space next to the
+      // phone-dock layout with a fast desktop-to-phone handoff, generated
+      // server-side from the same canonical download URL the App Store badge
+      // uses (same pattern as the public /app page and the house print sheets).
+      const qrCodeSvg = await QRCode.toString(iosAppDownloadUrl(), {
+        type: "svg",
+        margin: 0,
+        color: { dark: "#0b1120", light: "#ffffff00" },
+      });
+      return subscriptionGated(<ManagerMobileAppPanel qrCodeSvg={qrCodeSvg} />, kind, "app", managerOwnerSubscriptionTier);
     }
     if (section === "profile") {
       return subscriptionGated(<ManagerProfile />, kind, "profile", managerOwnerSubscriptionTier);
