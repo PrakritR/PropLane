@@ -207,6 +207,49 @@ this button or from the Stripe dashboard, so it is the only place that can be
 correct for both. Writing here too would double-count every return. Coverage:
 `tests/unit/deposit-return.test.ts`, `tests/unit/deposit-return-route.test.ts`.
 
+# PropLane balance ledger (night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off)
+
+**Schema** — `supabase/migrations/20260925180000_proplane_balance_ledger.sql`:
+`proplane_balance_accounts` (`owner_kind: "workspace"|"vendor"`, `owner_key`
+— the MANAGER's `profiles.id` for `"workspace"`, not `portal_workspaces.id`;
+every existing money path here is keyed on the manager user, and a workspace
+has no Connect account of its own) and `proplane_balance_entries` (signed
+`amount_cents`, `kind`, `status: "pending"|"available"`, `available_on`,
+`stripe_object_id` — the real Stripe object this entry mirrors, null only for
+an internal `vendor_payment_out`/`vendor_payment_in` leg that moves no real
+money). Both tables are locked to `service_role` (RLS enabled, no
+anon/authenticated policy at all) — every read and write goes through
+`src/lib/proplane-balance/ledger.server.ts`, never client-side. `vendor_invoices`
+gained `paid_from: "stripe"|"balance"`.
+
+**The ledger is a strict mirror of Stripe, never a source of new money.**
+`proplane_balance_move` (the double-entry mover behind "Pay vendor from
+balance") locks both account rows in a fixed id order, raises
+`INSUFFICIENT_BALANCE: available=<n> requested=<n>` rather than moving
+anything short, and is idempotent per `idempotency_root`. Withdrawal is
+claim-before-call (`proplane_balance_withdrawal_claim_unique`, same pattern as
+`stripe_payouts_pending_claim_unique`): `withdraw.server.ts` claims the debit,
+THEN calls real `transfers.create` (platform → the owner's own Connect
+account) and `payouts.create` on it — a failed transfer reverses the ledger
+claim; a failed payout does NOT, because the money already left the platform
+balance for the recipient's own Connect account by then (real, retryable money
+there, not PropLane's to reverse).
+
+**Funding**: resident household-charge checkout is the one caller that can
+request `fundingModel: "platform_ledger"` on `createAxisAchCheckoutSession`
+(see resident-payments.md) — application fees, autopay, and vendor-invoice-pay
+checkout never do, so they are unaffected by this flag.
+
+**Compliance note (see `.lavish/night/research.md` § Recommended money
+architecture):** as long as this ledger stays a strict mirror of real Stripe
+Connect objects, PropLane stays out of unlicensed-money-transmitter territory
+(Stripe remains the licensed money transmitter for every dollar). Separate
+charges and transfers puts negative-balance/refund/dispute liability on
+PropLane, not Stripe or the connected account — a direct cost of holding funds
+this way. Once pricing is platform-controlled (Custom accounts, this
+architecture), PropLane — not Stripe — is responsible for 1099-K/1099-NEC
+filing; nothing here files one yet.
+
 # Financials Phase 5: AP bills, budgets, owner statements
 
 **Schema** — `supabase/migrations/20260712120000_manager_bills_ap.sql`: `manager_bills`, `manager_budgets`, `manager_property_owners`, `manager_reserve_policies`, `manager_owner_distributions`; `vendor_invoices.bill_id` FK to `manager_bills`.

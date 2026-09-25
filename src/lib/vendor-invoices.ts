@@ -57,6 +57,8 @@ export type VendorInvoice = {
   submittedAt: string;
   decidedAt: string | null;
   paidAt: string | null;
+  /** Which rail settled the invoice. `null`/`"stripe"` reads as the historical ACH Checkout path (night/vendor-pay). */
+  paidFrom: "stripe" | "balance" | null;
 };
 
 /** Map an invoice status onto the four shared `Badge` tones (no fifth color). */
@@ -124,6 +126,7 @@ export function mapVendorInvoiceRow(row: Record<string, unknown>): VendorInvoice
     submittedAt: String(row.submitted_at ?? row.created_at ?? ""),
     decidedAt: (row.decided_at as string | null) ?? null,
     paidAt: (row.paid_at as string | null) ?? null,
+    paidFrom: row.paid_from === "balance" ? "balance" : row.paid_from === "stripe" ? "stripe" : null,
   };
 }
 
@@ -133,4 +136,4 @@ export function formatInvoiceMoney(cents: number, currency = "usd"): string {
 
 /** Columns selected from `vendor_invoices` for client/tool reads (no internal audit ids). */
 export const VENDOR_INVOICE_SELECT =
-  "id, vendor_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, created_at";
+  "id, vendor_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at";
