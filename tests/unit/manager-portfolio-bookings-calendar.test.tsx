@@ -37,8 +37,8 @@ describe("ManagerPortfolioBookingsCalendar", () => {
       await Promise.resolve();
     });
 
+    // The Bookings KPI strip ("Booked nights") was dropped in 454c71446.
     expect(screen.getByText("September 2026")).toBeTruthy();
-    expect(screen.getByText("Booked nights")).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Next month"));
     expect(screen.getByText("October 2026")).toBeTruthy();
