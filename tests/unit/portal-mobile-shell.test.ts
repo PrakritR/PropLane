@@ -125,11 +125,16 @@ describe("portal mobile shell conventions", () => {
       /(^|;)\s*flex\s*:\s*0\s+0\s+auto\s*(;|$)/.test(rule.declarations),
     );
 
-    // Whitespace- and order-insensitive: only the page-scrolls-scoped rule may
-    // pin `.portal-main-inner > *` to `flex: 0 0 auto`.
+    // Whitespace- and order-insensitive: `.portal-main-inner > *` may be pinned
+    // to `flex: 0 0 auto` in the page-scrolls scope, or elsewhere only when the
+    // rule excludes the page shell and viewport-fill body so those still flex
+    // (Communication's leaf-sibling rule, 38e43f2b3).
     expect(pinnedRules.length).toBeGreaterThan(0);
+    expect(pinnedRules.some((rule) => rule.selector.includes(PAGE_SCROLLS_SCOPE))).toBe(true);
     for (const rule of pinnedRules) {
-      expect(rule.selector).toContain(PAGE_SCROLLS_SCOPE);
+      if (rule.selector.includes(PAGE_SCROLLS_SCOPE)) continue;
+      expect(rule.selector).toContain(':not([data-slot="portal-page-shell"])');
+      expect(rule.selector).toContain(":not([data-viewport-fill-body])");
     }
   });
 
