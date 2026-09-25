@@ -33,7 +33,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { documentRecordHref, type DocumentDetailTabId } from "@/lib/portal-detail-routes";
+import { type DocumentDetailTabId } from "@/lib/portal-detail-routes";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
