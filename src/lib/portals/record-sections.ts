@@ -352,9 +352,14 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "archive", label: "Archive", icon: Archive },
     ],
     sectionActions: {
+      // C049 (studio decision): "Request more info" had no real handler
+      // anywhere in the app — dropped rather than shipped as a dead action.
+      // (This whole `sectionActions` map is currently unread by
+      // PortalRecordSectionChrome — the application record's real header
+      // dock is `renderApplicationRowActions` in pro-applications.tsx — so
+      // this never rendered either way; removed for hygiene.)
       "application-form": [
         { id: "approve", label: "Approve", icon: CheckCircle2 },
-        { id: "request-info", label: "Request more info", icon: Mail },
         { id: "download", label: "Download", icon: Download },
         { id: "print", label: "Print", icon: Printer },
       ],

@@ -42,6 +42,7 @@ import {
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
+  NEVER_DISABLED_STANDARD_KEY_SET,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -180,6 +181,8 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose,
   onSaved,
   showToast,
+  autoImportFile = null,
+  onAutoImportConsumed,
 }: {
   open: boolean;
   title?: string;
@@ -214,6 +217,17 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose: () => void;
   onSaved: () => void;
   showToast: (m: string) => void;
+  /**
+   * "+ Add → Upload PDF" in one step: the caller already created and saved a
+   * real (empty) template — `applicationTemplate` is never null here — and
+   * hands the just-picked PDF through so this modal can run the same import
+   * `importPdf` already runs for an existing template, once, automatically,
+   * the first time it opens with a template + a pending file. The caller
+   * clears this after one render (`onAutoImportConsumed`) so re-opening the
+   * same template later never re-imports on its own.
+   */
+  autoImportFile?: File | null;
+  onAutoImportConsumed?: () => void;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -361,6 +375,12 @@ export function ManagerApplicationQuestionsEditorModal({
     }
     if (action === "order" && (field.section === "household" || field.section === "property")) return false;
     if (action === "label" && field.section === "household") return false;
+    // C195: SSN, ID and income join the identity trio in never being
+    // removable — screening/charges/leases read them directly and a manager
+    // hiding one breaks approval with no error at disable-time. Unlike the
+    // identity trio, only removal is locked here: label and required stay
+    // editable (income in particular is meant to stay optional).
+    if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
     if (action !== "order" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) {
       return action === "label";
     }
@@ -690,6 +710,28 @@ export function ManagerApplicationQuestionsEditorModal({
       if (importInputRef.current) importInputRef.current.value = "";
     }
   };
+
+  // "+ Add → Upload PDF" in one step: the caller already created and saved
+  // the (empty) template before opening this modal, so `applicationTemplate`
+  // is already real — run the same import the manual "Import PDF" button
+  // runs, once, then land on Preview where the source comparison and any
+  // flagged issues live. Guarded by a ref (not state) so this can never
+  // re-fire from an unrelated re-render while `autoImportFile` is still set.
+  const autoImportRanRef = useRef(false);
+  useEffect(() => {
+    if (!open || !autoImportFile || autoImportRanRef.current) return;
+    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
+    autoImportRanRef.current = true;
+    // The state updates below happen once the import network call settles,
+    // not synchronously in the effect body — an async completion callback,
+    // the same shape `importPdf`'s own button handler already uses.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void importPdf(autoImportFile).then(() => {
+      setStepIdx(workspaceSteps.length - 1);
+      onAutoImportConsumed?.();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, autoImportFile, applicationTemplate, applicationPreviewPropertyId, isBulkSave]);
 
   const reviewImportedSource = async () => {
     if (!applicationTemplate || !applicationPreviewPropertyId || !templates || !onPersistSubmission || isBulkSave) return;
