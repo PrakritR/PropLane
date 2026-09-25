@@ -457,8 +457,14 @@ export function ManagerProperties({
         makes it a dead click: the one moment the product has to explain the
         limit and offer the upgrade passes in silence. Same rule, same reason as
         the sidebar's `upsell` nav lock in AGENTS.md.
+
+        The same logic applies to the plan tier still loading: `tryOpenAdd`
+        already calls `canOpenAdd()`, which shows a toast and queues a retry
+        when `skuLoaded` is not yet true (PLAN-0920-1058 area 5, night UX
+        sweep — the button used to sit at 50% opacity, reading as disabled,
+        for the whole in-between).
       */
-      addPropertyDisabled={!skuLoaded}
+      addPropertyDisabled={false}
     />
   );
 
@@ -522,7 +528,12 @@ export function ManagerProperties({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                  {/* Not pre-disabled on `!skuLoaded`: `onOpenChange` below
+                      already calls `canOpenAdd()`, which toasts and queues a
+                      retry for the still-loading case — see the comment on
+                      `addPropertyDisabled` above. A washed-out disabled-
+                      looking button for that brief window was the bug. */}
+                  <PortalPrimaryIconAction label="Add property" data-attr="manager-properties-add-top" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>

@@ -1768,7 +1768,12 @@ export function ManagerTours({
               label="Add availability"
               data-attr="tours-add-availability-open"
               onClick={() => setAvailabilityOpen(true)}
-              disabled={!authReady || scopedPropertyIds.length === 0}
+              // Not gated on `!authReady`: the sibling "Share tour link"
+              // action beside it (below) never was, and pre-disabling on a
+              // transient session check — rather than the real "no listed
+              // property yet" reason — read as a permanently broken button
+              // for that brief window (night UX sweep).
+              disabled={scopedPropertyIds.length === 0}
             />
             <PortalIconAction
               icon={Settings}
@@ -1788,7 +1793,7 @@ export function ManagerTours({
         primary={
           <PortalPrimaryIconAction
             label="Add tour"
-            disabled={!authReady || scopedPropertyIds.length === 0}
+            disabled={scopedPropertyIds.length === 0}
             data-attr="tours-add-open"
             onClick={() => setAddTourOpen(true)}
           />
@@ -1828,7 +1833,7 @@ export function ManagerTours({
                         {
                           label: "Schedule tour",
                           onClick: () => setAddTourOpen(true),
-                          disabled: !authReady || scopedPropertyIds.length === 0,
+                          disabled: scopedPropertyIds.length === 0,
                           reason: scopedPropertyIds.length === 0 ? "List a property first — tours are booked against a listing." : undefined,
                           dataAttr: "tours-list-add",
                         },
