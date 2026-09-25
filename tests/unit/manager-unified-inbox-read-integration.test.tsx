@@ -231,6 +231,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Storage spies sit on Storage.prototype under jsdom; never let one outlive
+  // a test whose assertion threw before its inline mockRestore().
+  vi.restoreAllMocks();
   window.localStorage.clear();
 });
 
@@ -346,7 +349,6 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
     await waitForSmsConversations();
-    // See the matching note above: spy on the instance, not `Storage.prototype`.
     const localStorageGetItem = vi.fn(() => {
       throw new Error("storage read denied");
     });
@@ -426,7 +428,6 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
 
   it("keeps the hidden mobile thread pane from acknowledging until the user opens it", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
-    // See the matching note above: spy on the instance, not `Storage.prototype`.
     const storedSetItem = window.localStorage.setItem.bind(window.localStorage);
     const localStorageSetItem = vi.fn((key: string, value: string) => storedSetItem(key, value));
     const setItem = vi.spyOn(storageMethodOwner("setItem"), "setItem").mockImplementation(localStorageSetItem);

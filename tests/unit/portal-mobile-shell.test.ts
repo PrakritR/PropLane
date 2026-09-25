@@ -133,8 +133,12 @@ describe("portal mobile shell conventions", () => {
     expect(pinnedRules.some((rule) => rule.selector.includes(PAGE_SCROLLS_SCOPE))).toBe(true);
     for (const rule of pinnedRules) {
       if (rule.selector.includes(PAGE_SCROLLS_SCOPE)) continue;
-      expect(rule.selector).toContain(':not([data-slot="portal-page-shell"])');
-      expect(rule.selector).toContain(":not([data-viewport-fill-body])");
+      const compact = rule.selector.replace(/\s+/g, "");
+      expect(compact).toContain(':not([data-slot="portal-page-shell"])');
+      expect(compact).toContain(":not([data-viewport-fill-body])");
+      // ...and any wrapper that CONTAINS a shell must stay free to flex too.
+      expect(compact).toContain(':not(:has([data-slot="portal-page-shell"]))');
+      expect(compact).toContain(":not(:has([data-viewport-fill-body]))");
     }
   });
 

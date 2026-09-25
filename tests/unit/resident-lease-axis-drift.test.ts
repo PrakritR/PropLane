@@ -61,4 +61,16 @@ describe("resident lease axis drift", () => {
 
     expect(residentLeaseAuthorized(row, ctx)).toBe(true);
   });
+
+  it("refuses the same drifted lease when no approved application matches it", () => {
+    // Negative control: the authorization above comes from the approved row,
+    // not from the email match alone.
+    seedApplications([]);
+    const ctx = {
+      email: "resident@test.proplane.local",
+      residentAxisId: "AXIS-TESTRSID",
+      profileManagerId: "AXIS-TESTRSID",
+    };
+    expect(residentLeaseAuthorized(leaseRow(), ctx)).toBe(false);
+  });
 });
