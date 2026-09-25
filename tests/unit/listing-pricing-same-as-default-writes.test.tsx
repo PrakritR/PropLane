@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
-// Same as Room X must write the source room's numbers onto the record. The
-// old "Same as default room" tick could draw $1,050 while the record held $0;
-// Review, the applicant's room list and the signed lease read the record.
+// Copying a room's price must write the source room's numbers onto the record.
+// The old "Same as default room" tick could draw $1,050 while the record held
+// $0; Review, the applicant's room list and the signed lease read the record.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import React, { useState } from "react";
+import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
@@ -18,9 +18,10 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
 vi.mock("@/lib/native/app-review", () => ({ recordDelightMoment: vi.fn() }));
 vi.mock("@/lib/manager-subscription-client", () => ({ loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false) }));
 
-import { ListingEditorV2, listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
+  copyRoomPricingFrom,
   emptyListingHouseDefaults,
   fillRoomsFollowingDefaults,
   resetRoomFieldToDefault,
@@ -49,69 +50,30 @@ function seeded(rooms: Partial<ManagerRoomSubmission>[]): ManagerListingSubmissi
   } as ManagerListingSubmissionV1;
 }
 
-function Editor({ initial, onChange }: { initial: ManagerListingSubmissionV1; onChange?: (sub: ManagerListingSubmissionV1) => void }) {
-  const [sub, setSub] = useState(initial);
-  return (
-    <ListingEditorV2
-      title="Edit listing"
-      submission={sub}
-      onChange={(next) => {
-        setSub(next);
-        onChange?.(next);
-      }}
-      onClose={() => {}}
-      onSaveExit={() => {}}
-      onPublish={() => {}}
-    />
-  );
-}
+// Pricing no longer shows a Same-as picker (PLAN-0922-1904); Duplicate copies
+// a room's price card with copyRoomPricingFrom. The guarantees are the same:
+// real numbers, never a blank, and no live link back to the source.
+describe("copying another room's price card writes that room's numbers once", () => {
+  const room = (over: Partial<ManagerRoomSubmission>): ManagerRoomSubmission =>
+    ({ ...createDefaultListingSubmission().rooms[0]!, ...over }) as ManagerRoomSubmission;
 
-function openPricing() {
-  const nav = screen.getByRole("navigation", { name: "Listing sections" });
-  fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
-}
-const openPriceCard = (name: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${name} prices` }));
-const pickSameAs = (who: string, sourceId: string) => {
-  const trigger = screen.getByRole("button", { name: `Same as for ${who}` });
-  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-  const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector(`[data-field-select-option-value="${sourceId}"]`)!;
-  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-};
-
-describe("Same as Room X writes that room's numbers on the record", () => {
-  it("picking Same as Room 2 writes $1,050 / $0 / $250 into Room 1, never a blank", () => {
-    let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor initial={seeded([{}, {}])} onChange={(s) => (latest = s)} />);
-    openPricing();
-    expect(document.querySelector('[data-attr="listing-v2-price-defaults-card"]')).toBeNull();
-    openPriceCard("Room 1");
-
-    fireEvent.change(screen.getByLabelText(/Room 1 rent on/i), { target: { value: "1200" } });
-    expect(latest!.rooms[0]!.monthlyRent).toBe(1200);
-    expect(latest!.rooms[1]!.monthlyRent).toBe(1050);
-
-    pickSameAs("Room 1", "r2");
-    const room1 = latest!.rooms[0]!;
-    expect(room1.monthlyRent).toBe(1050);
-    expect(room1.utilitiesEstimate).toBe("0");
-    expect(room1.securityDeposit).toBe("250");
-    expect(screen.getAllByText("$1,050 · +$0 utilities · $250 deposit · listed $1,050 · partial months automatic")).toHaveLength(2);
-
-    // Review now agrees with the card.
-    expect(listingReadiness(latest!).find((c) => c.id === "rooms")).toMatchObject({ label: "2 rooms, all priced", state: "done" });
+  it("writes $1,050 / $0 / $250 from Room 2 into Room 1, never a blank, and keeps Room 1's identity", () => {
+    const source = room({ id: "r2", name: "Room 2", monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250" });
+    const target = room({ id: "r1", name: "Room 1", monthlyRent: 1200, utilitiesEstimate: "", securityDeposit: "" });
+    const copied = copyRoomPricingFrom(source, target);
+    expect(copied).toMatchObject({ id: "r1", name: "Room 1", monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250" });
   });
 
-  it("editing Room 1 after a copy leaves Room 2 alone", () => {
-    let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor initial={seeded([{ monthlyRent: 1200, securityDeposit: "900" }, {}])} onChange={(s) => (latest = s)} />);
-    openPricing();
-    openPriceCard("Room 1");
-    pickSameAs("Room 1", "r2");
-    fireEvent.change(screen.getByLabelText(/Room 1 rent on/i), { target: { value: "1300" } });
-
-    expect(latest!.rooms[0]!.monthlyRent).toBe(1300);
-    expect(latest!.rooms[1]!.monthlyRent).toBe(1050);
+  it("editing the copy afterwards leaves the source alone", () => {
+    const source = room({
+      id: "r2",
+      monthlyRent: 1050,
+      residentPricing: "per_resident",
+      residentPrices: [{ monthlyRent: 1050, utilitiesEstimate: "0", securityDeposit: "250", pricingMode: "fixed" }],
+    });
+    const copied = copyRoomPricingFrom(source, room({ id: "r1" }));
+    copied.residentPrices![0]!.monthlyRent = 1300;
+    expect(source.residentPrices![0]!.monthlyRent).toBe(1050);
   });
 });
 
