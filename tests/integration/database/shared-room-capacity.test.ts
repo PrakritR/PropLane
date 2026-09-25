@@ -53,7 +53,7 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
     await db.query(await readFile("supabase/migrations/20260912150000_shared_room_capacity_normalization_occupancy_start.sql", "utf8"));
     await db.query(await readFile("supabase/migrations/20260920234000_resident_slot_arbitration.sql", "utf8"));
     await db.query(await readFile("supabase/migrations/20260914120000_room_placement_name_fallback.sql", "utf8"));
-    await db.query(await readFile("supabase/migrations/20260925010000_room_placement_slot_suffix_fix.sql", "utf8"));
+    await db.query(await readFile("supabase/migrations/20260925030000_room_placement_slot_suffix_fix.sql", "utf8"));
   });
   afterAll(async () => {
     for (const client of connections) {
