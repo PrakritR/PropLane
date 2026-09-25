@@ -36,6 +36,7 @@ import {
 import type { AutomationSendMode } from "@/lib/automation-send-mode";
 import { formatMinutes } from "@/lib/reminders/timings";
 import { ReminderSentHistory } from "@/components/portal/reminder-sent-history";
+import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
 import {
   PortalSettingsGroup,
   PortalSettingsLinkRow,
@@ -270,6 +271,31 @@ export function ManagerPortalAutomationSettingsPanel({
   return (
     <div className="flex min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        {settings.messagesPaused ? (
+          <div
+            className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
+            data-attr="settings-banner-messages-paused"
+          >
+            All automated messages are paused for this workspace. Reminders and automatic notices are queued, not sent, until you turn this back on.
+          </div>
+        ) : null}
+
+        <PortalSettingsSection
+          title="Pause all messages"
+          action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
+        >
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Pause every automated message for this workspace">
+              <PortalSettingsToggle
+                checked={settings.messagesPaused}
+                onChange={(messagesPaused) => setSettings((c) => ({ ...c, messagesPaused }))}
+                label="Pause all messages"
+                dataAttr="settings-toggle-messages-paused"
+              />
+            </PortalSettingsRow>
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
+
         <PortalSettingsSection
           title="Quiet hours"
           action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
@@ -372,7 +398,9 @@ export function ManagerPortalAutomationSettingsPanel({
           </PortalSettingsGroup>
         </PortalSettingsSection>
 
-        <PortalSettingsSection title="Everything sent automatically">
+        <WhatProplaneSends />
+
+        <PortalSettingsSection title="Change a rule or a template">
           <PortalSettingsGroup>
             {AREA_INDEX.map((area) => (
               <PortalSettingsLinkRow

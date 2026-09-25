@@ -311,7 +311,8 @@ export async function PATCH(req: Request) {
     const touchedRuleKinds = Object.keys(incomingRules).filter((k): k is ReminderSubjectKind =>
       (REMINDER_SUBJECT_KINDS as readonly string[]).includes(k),
     ) as ReminderSubjectKind[];
-    const touchesQuietHours = "quietHours" in incoming || "automationSendMode" in incoming;
+    const touchesQuietHours =
+      "quietHours" in incoming || "automationSendMode" in incoming || "messagesPaused" in incoming;
     const touchedKinds: readonly ReminderSubjectKind[] = touchesQuietHours ? ALL_REMINDER_SUBJECT_KINDS : touchedRuleKinds;
 
     // A patch touching zero rule kinds and no quiet hours has nothing to
@@ -354,7 +355,13 @@ export async function PATCH(req: Request) {
       if (Object.keys(patchEntries).length > 0 || touchesQuietHours) {
         await patchWorkspaceReminderOverride(ctx.db, workspaceId, ownerUserId, {
           ...patchEntries,
-          ...(touchesQuietHours ? { quietHours: nextSettings.quietHours, automationSendMode: nextSettings.automationSendMode } : {}),
+          ...(touchesQuietHours
+            ? {
+                quietHours: nextSettings.quietHours,
+                automationSendMode: nextSettings.automationSendMode,
+                messagesPaused: nextSettings.messagesPaused,
+              }
+            : {}),
         });
         await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "workspace", ownerUserId, workspaceId });
       }
