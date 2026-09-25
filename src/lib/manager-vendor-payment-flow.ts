@@ -23,6 +23,10 @@ export const MANAGER_VENDOR_PAY_METHOD_OPTIONS: {
  * "PropLane" payout rather than as `undefined`.
  */
 export function managerVendorPayMethodLabel(method: ManagerVendorPayMethod | string): string {
+  // night/vendor-pay: paid instantly from the manager's PropLane balance —
+  // not a `VendorAcceptedPaymentMethod` (that type is what a VENDOR accepts),
+  // so it is handled here rather than added to that lookup.
+  if (method === "balance") return "PropLane balance";
   return (VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS as Record<string, string>)[method] ?? "Recorded by hand";
 }
 
