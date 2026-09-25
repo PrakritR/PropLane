@@ -29,7 +29,6 @@ import {
 import {
   formatRoomPriceAmount,
   roomDailyRentPrice,
-  roomPricesPerResident,
   roomResidentPriceForSlot,
   type RoomPricingLike,
 } from "@/lib/room-pricing";
