@@ -78,7 +78,7 @@ export async function POST(req: Request) {
       linkedManagerId: result.linkedManagerId,
       unlinkedReason: result.unlinkedReason,
       unlinkedNotice: vendorUnlinkedNotice(result.unlinkedReason, { confirmed: true }),
-      redirectTo: "/vendor/dashboard",
+      redirectTo: "/vendor/onboarding",
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Signup failed";
