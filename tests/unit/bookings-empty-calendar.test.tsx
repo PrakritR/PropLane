@@ -15,8 +15,13 @@ describe("Bookings empty calendar", () => {
     expect(calendar).not.toContain("No houses in your portfolio yet. List a property, then link rooms with Link Airbnb.");
     expect(calendar).toContain("emptyPortfolio");
     expect(calendar).toContain('data-attr="bookings-empty-houses-banner"');
-    expect(calendar).toContain("if (fetchPropertyIds.length === 0)");
-    expect(calendar).toContain("setAirbnbEntries([])");
+    // The channel fetch lives in the shared hook now; an empty portfolio clears
+    // and returns before any request.
+    const hook = src("src/hooks/use-manager-booking-entries.ts");
+    const reload = hook.slice(hook.indexOf("const reloadAirbnb"), hook.indexOf("fetchManagerChannelBookings(ids)"));
+    expect(reload).toContain("if (ids.length === 0)");
+    expect(reload).toContain("setAirbnbEntries([])");
+    expect(reload).toContain("return;");
   });
 
   it("ranks Booking.com imports with other channel stays on the year grid", () => {

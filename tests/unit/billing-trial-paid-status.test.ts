@@ -8,8 +8,9 @@ describe("Billing names trial vs paid and work number stays paid-only", () => {
     expect(plan).toContain("Free trial of");
     expect(plan).toContain("`${tierLabel(currentTier)} plan`");
     expect(plan).toContain('data-attr="billing-plan-status"');
-    expect(plan).toContain('data-attr="billing-activate-paid-plan"');
-    expect(plan).toContain("Activate paid plan");
+    // bd30fcf6c: a trial's primary action is "Choose plan", opening Adjust plan.
+    expect(plan).toContain('data-attr="billing-choose-plan-trial"');
+    expect(plan).toContain("Choose plan");
     expect(plan).not.toContain("billing-plan-promo-code");
     expect(plan).toContain('data-attr="plan-promo-code-input"');
     expect(plan).toContain('activatePaid');
