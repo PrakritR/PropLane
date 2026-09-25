@@ -300,6 +300,24 @@ normalization + plan transitions), `tests/unit/stripe-axis-ach-checkout.test.ts`
 `application_fee_amount`, `transfer_data` destination, no `on_behalf_of`), and
 `tests/unit/stripe-ledger-fees.test.ts` (fee attribution).
 
+**A third funding model exists behind a flag: the PropLane balance ledger
+(night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off).** When on,
+`createHouseholdChargeCheckout` passes `fundingModel: "platform_ledger"` to
+`createAxisAchCheckoutSession` — the ONE new branch in that builder — instead
+of resolving a destination account: no `transfer_data`, no
+`application_fee_amount`, no `platform_hold` metadata; the charge lands on the
+platform outright (separate charges and transfers). The resident-facing fee
+math (`residentServiceFeeBreakdown`) is byte-identical either way — only where
+the settled money goes changes. The `checkout.session.completed` webhook
+credits `manager_payout_cents` as a PENDING entry in the manager's PropLane
+balance (`src/lib/proplane-balance/household-charge-credit.server.ts`),
+available once Stripe's own balance-transaction `available_on` passes. Nothing
+else (application fees, vendor-invoice-pay checkout, autopay) ever requests
+this funding model, and with the flag off `createHouseholdChargeCheckout`
+resolves the SAME destination-or-hold path it always has. See
+`.lavish/night/build-vendor-pay.md` for the full architecture and the
+switch-on checklist.
+
 **The destination is per-manager when they are ready.**
 `resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
 manager's own `profiles.stripe_connect_account_id` and returns the account id

@@ -236,11 +236,36 @@ export function ManagerWorkOrdersPanel({
   const [autoSchedulingId, setAutoSchedulingId] = useState<string | null>(null);
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
+  // night/vendor-pay: an additional payment source in the confirm modal,
+  // shown only once the flag-gated balance read comes back enabled. Defaults
+  // to "ach" — unchanged behavior for everyone until they explicitly pick it.
+  const [approvePayChannel, setApprovePayChannel] = useState<"ach" | "balance">("ach");
+  const [approvePayBalance, setApprovePayBalance] = useState<{ enabled: boolean; availableCents: number } | null>(null);
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** "Leave a review" dialog launched from the record header, completed services only. */
   const [reviewRow, setReviewRow] = useState<DemoManagerWorkOrderRow | null>(null);
+
+  // Reads the manager's PropLane balance whenever the confirm modal opens —
+  // `{ enabled: false }` (the flag is off) is the common case and renders no
+  // picker at all, same as today.
+  useEffect(() => {
+    if (!approvePayRow) return;
+    setApprovePayChannel("ach");
+    let cancelled = false;
+    fetch("/api/portal/proplane-balance", { credentials: "include" })
+      .then((res) => res.json())
+      .then((body: { enabled?: boolean; availableCents?: number }) => {
+        if (!cancelled) setApprovePayBalance({ enabled: Boolean(body.enabled), availableCents: body.availableCents ?? 0 });
+      })
+      .catch(() => {
+        if (!cancelled) setApprovePayBalance(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [approvePayRow]);
 
   useEffect(() => {
     void syncManagerVendorsFromServer();
@@ -638,7 +663,7 @@ export function ManagerWorkOrdersPanel({
   /** Runs the same completion + expense-logging as "Mark complete", then marks the vendor
    * paid (bookkeeping status only — see APPROVE_PAY_CONFIRM_THRESHOLD_CENTS for the
    * one-tap vs confirm-preview gate). */
-  const submitApprovePay = async (row: DemoManagerWorkOrderRow) => {
+  const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "ach" | "balance" = "ach") => {
     setApprovePayBusy(true);
     try {
       // /demo: mark paid locally — never hits the real payout/bookkeeping route.
@@ -653,7 +678,7 @@ export function ManagerWorkOrdersPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ workOrder: row, ...approvePayDefaults(row) }),
+        body: JSON.stringify({ workOrder: row, ...approvePayDefaults(row), paymentChannel }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not approve payment.");
@@ -1686,7 +1711,7 @@ export function ManagerWorkOrdersPanel({
                 type="button"
                 variant="primary"
                 data-attr="work-order-approve-pay-confirm"
-                onClick={() => submitApprovePay(approvePayRow)}
+                onClick={() => submitApprovePay(approvePayRow, approvePayChannel)}
                 disabled={approvePayBusy}
               >
                 {approvePayBusy ? "Approving…" : "Approve & pay"}
@@ -1716,9 +1741,25 @@ export function ManagerWorkOrdersPanel({
             {approvePayRow.vendorMarkedDoneNote ? (
               <p className="text-xs text-muted">Vendor note: &ldquo;{approvePayRow.vendorMarkedDoneNote}&rdquo;</p>
             ) : null}
+            {approvePayBalance?.enabled ? (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-foreground">Pay from</span>
+                <Select
+                  value={approvePayChannel}
+                  onChange={(e) => setApprovePayChannel(e.target.value as "ach" | "balance")}
+                  data-attr="work-order-approve-pay-channel"
+                >
+                  <option value="ach">Card (Stripe)</option>
+                  <option value="balance">
+                    PropLane balance · ${(approvePayBalance.availableCents / 100).toFixed(2)} available
+                  </option>
+                </Select>
+              </label>
+            ) : null}
             <p className="text-xs text-muted">
-              This logs the expense, marks the service completed, and records the vendor as paid (bookkeeping
-              only; no funds are transferred).
+              {approvePayChannel === "balance"
+                ? "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
+                : "This logs the expense, marks the service completed, and records the vendor as paid (bookkeeping only; no funds are transferred)."}
             </p>
           </div>
         ) : null}

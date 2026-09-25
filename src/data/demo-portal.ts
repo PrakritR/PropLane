@@ -223,7 +223,7 @@ export type DemoManagerOutgoingPaymentRow = {
   amountCents?: number;
   vendorPaymentMethods?: "ach"[];
   achAvailable?: boolean;
-  paidViaChannel?: "ach";
+  paidViaChannel?: "ach" | "balance";
   paidAtLabel?: string;
 };
 
@@ -312,8 +312,12 @@ export type DemoManagerWorkOrderRow = {
   vendorMarkedDoneAt?: string;
   vendorMarkedDoneNote?: string;
   paidAt?: string;
-  /** How the manager paid the vendor (bookkeeping + payout routing). */
-  vendorPaymentChannel?: "ach";
+  /**
+   * How the manager paid the vendor (bookkeeping + payout routing). `"balance"`
+   * (night/vendor-pay, `PROPLANE_BALANCE_ENABLED`) means paid instantly from
+   * the manager's PropLane balance — no Stripe transfer.
+   */
+  vendorPaymentChannel?: "ach" | "balance";
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
   // ---- PLAN-0915 vendor loop stamps ----

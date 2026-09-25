@@ -277,6 +277,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["owner_user_id"], preserveFinancial: true },
   },
   {
+    // night/vendor-pay, PROPLANE_BALANCE_ENABLED. `owner_key` holds the
+    // manager id for owner_kind='workspace' and the vendor id for
+    // owner_kind='vendor' — see the migration header for why "workspace"
+    // resolves onto the manager identity, not portal_workspaces.id.
+    table: "proplane_balance_accounts",
+    phase: 1,
+    manager: { ids: ["owner_key"], preserveFinancial: true },
+    vendor: { ids: ["owner_key"], preserveFinancial: true },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -957,6 +967,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Workspace <-> work-number assignment join table; keyed on workspace_id/number_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged.",
   lease_document_library:
     "Workspace-scoped lease PDF library (night/custom-lease); keyed on workspace_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged. The uploader's manager_user_id is provenance, not an ownership key the purge follows.",
+  proplane_balance_entries:
+    "Child of proplane_balance_accounts (on delete cascade), no account column of its own; the ledger is preserved financial history like ledger_entries, so its parent account row is retained (preserveFinancial) and this child is never reached anyway.",
 };
 
 /**

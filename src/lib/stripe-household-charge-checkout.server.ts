@@ -25,6 +25,7 @@ import {
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 
 /**
  * The Stripe Checkout core for paying pending household charges, extracted from
@@ -286,7 +287,16 @@ export async function createHouseholdChargeCheckout(
     if (!feePayerResolved.ok) return feePayerResolved;
     const { feePayer, managerTier } = feePayerResolved;
     const stripe = getStripe();
-    const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, managerUserId);
+    // PROPLANE_BALANCE_ENABLED (night/vendor-pay): resident household-charge
+    // checkout is the ONE caller of createAxisAchCheckoutSession that ever
+    // requests the platform-ledger funding model. Every other caller
+    // (application fees, vendor-invoice-pay) never sets it, so they are
+    // unaffected whether this flag is on or off. With the flag off, this is
+    // byte-identical to the prior destination-charge-or-hold resolution.
+    const useLedgerFunding = proplaneBalanceEnabled();
+    const destinationAccountId = useLedgerFunding
+      ? null
+      : await resolveConnectDestinationIfReady(stripe, db, managerUserId);
 
     const lineItems = loaded.map(({ charge }) => {
       const amountCents = householdChargeAmountCents(charge);
@@ -323,6 +333,7 @@ export async function createHouseholdChargeCheckout(
       paymentMethod: input.paymentMethod,
       managerTier,
       feePayer,
+      fundingModel: useLedgerFunding ? "platform_ledger" : "connect_destination",
       returnUrl: `${input.appOrigin}/resident/payments?ach_checkout=return&session_id={CHECKOUT_SESSION_ID}`,
       successUrl: `${input.appOrigin}/resident/payments?ach_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${input.appOrigin}/resident/payments?ach_checkout=cancel`,
