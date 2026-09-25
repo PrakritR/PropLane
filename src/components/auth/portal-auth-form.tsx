@@ -32,7 +32,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
-import { EXISTING_ACCOUNT_PASSWORD_MISMATCH } from "@/lib/auth/verify-auth-password";
+import { EXISTING_ACCOUNT_PASSWORD_MISMATCH } from "@/lib/auth/existing-account-password-mismatch";
 
 const LOGIN_TIMEOUT_MS = 6000;
 /** Hub signup can lag GoTrue propagation; retries need a longer ceiling than sign-in. */
