@@ -461,7 +461,12 @@ export function ManagerUnifiedInbox({
     const [inbox, applications, smsOk] = await Promise.all([
       syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
       syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
-      smsUiEnabled ? loadSms({ initialGeneration: requestGeneration }) : Promise.resolve(true),
+      // force: true — this is the load that decides whether the page is
+      // "ready" or "error" (and the one an explicit Retry re-runs via
+      // retryInitialList below), so it must always be a genuine new attempt,
+      // never the shared sms-conversations TTL cache's last (possibly
+      // failed, possibly another caller's) response.
+      smsUiEnabled ? loadSms({ force: true, initialGeneration: requestGeneration }) : Promise.resolve(true),
     ]);
     if (requestGeneration !== initialLoadGeneration.current) return;
     if (inbox.stale || applications.stale) return;
@@ -499,7 +504,11 @@ export function ManagerUnifiedInbox({
     };
     const id = window.setInterval(tick, 20_000);
     const onVis = () => {
-      if (document.visibilityState === "visible") void loadSms();
+      // force: true — "fresh the moment the manager returns" (see comment
+      // above) means an actual new request, not the TTL cache's last result
+      // (which could be a stale success or, per the test this covers, a
+      // just-cached failure from moments before backgrounding).
+      if (document.visibilityState === "visible") void loadSms({ force: true });
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -539,7 +548,10 @@ export function ManagerUnifiedInbox({
           return [optimistic, ...current];
         });
       }
-      void loadSms();
+      // A contact just changed (new SMS thread created) — same "something
+      // changed, get a real answer" case onSmsDeleted and the direct-send
+      // refresh already force; this listener was the one inconsistent case.
+      void loadSms({ force: true });
     };
     window.addEventListener(MANAGER_SMS_CONTACTS_CHANGED_EVENT, refreshContacts);
     return () => window.removeEventListener(MANAGER_SMS_CONTACTS_CHANGED_EVENT, refreshContacts);
