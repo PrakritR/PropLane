@@ -71,6 +71,12 @@ function patchSubmission(container: unknown, key: string, resolvedFields: Listin
  * untouched — its own fields are authoritative and this never overwrites
  * them. A property whose owner cannot be resolved, or who has never saved a
  * workspace form, is also left untouched (today's behavior, unaffected).
+ *
+ * Best-effort: a property save must never fail because this copy failed.
+ * Any error (an unexpected schema, a database hiccup, a test double that
+ * doesn't stub `portal_workspaces`) is caught and logged, and the save
+ * proceeds with the caller's original, unreconciled data — the same
+ * defense `reconcileListingServiceFeeOnWrite` uses.
  */
 export async function reconcileListingApplicationFormOnWrite(
   db: SupabaseClient,
@@ -86,27 +92,32 @@ export async function reconcileListingApplicationFormOnWrite(
   const claimed = (propertySubmission ?? rowSubmission)! as ListingApplicationFormFields;
   if (claimed.applicationFormSource === "custom") return { rowData, propertyData };
 
-  const workspaceForm = await loadWorkspaceApplicationFormTemplate(db, ownerUserId);
-  if (!workspaceForm) return { rowData, propertyData };
+  try {
+    const workspaceForm = await loadWorkspaceApplicationFormTemplate(db, ownerUserId);
+    if (!workspaceForm) return { rowData, propertyData };
 
-  const resolved = applyEffectiveApplicationForm(claimed, workspaceForm);
-  const resolvedFields: ListingApplicationFormFields = {
-    applicationFormSource: claimed.applicationFormSource,
-    customApplicationFields: resolved.customApplicationFields,
-    disabledStandardApplicationKeys: resolved.disabledStandardApplicationKeys,
-    applicationConfigMode: resolved.applicationConfigMode,
-    shortTermCustomApplicationFields: resolved.shortTermCustomApplicationFields,
-    shortTermDisabledStandardApplicationKeys: resolved.shortTermDisabledStandardApplicationKeys,
-    shortTermApplicationConfigMode: resolved.shortTermApplicationConfigMode,
-    cosignerCustomApplicationFields: resolved.cosignerCustomApplicationFields,
-    cosignerDisabledStandardApplicationKeys: resolved.cosignerDisabledStandardApplicationKeys,
-    cosignerApplicationConfigMode: resolved.cosignerApplicationConfigMode,
-  };
+    const resolved = applyEffectiveApplicationForm(claimed, workspaceForm);
+    const resolvedFields: ListingApplicationFormFields = {
+      applicationFormSource: claimed.applicationFormSource,
+      customApplicationFields: resolved.customApplicationFields,
+      disabledStandardApplicationKeys: resolved.disabledStandardApplicationKeys,
+      applicationConfigMode: resolved.applicationConfigMode,
+      shortTermCustomApplicationFields: resolved.shortTermCustomApplicationFields,
+      shortTermDisabledStandardApplicationKeys: resolved.shortTermDisabledStandardApplicationKeys,
+      shortTermApplicationConfigMode: resolved.shortTermApplicationConfigMode,
+      cosignerCustomApplicationFields: resolved.cosignerCustomApplicationFields,
+      cosignerDisabledStandardApplicationKeys: resolved.cosignerDisabledStandardApplicationKeys,
+      cosignerApplicationConfigMode: resolved.cosignerApplicationConfigMode,
+    };
 
-  return {
-    rowData: patchSubmission(rowData, "submission", resolvedFields),
-    propertyData: patchSubmission(propertyData, "listingSubmission", resolvedFields),
-  };
+    return {
+      rowData: patchSubmission(rowData, "submission", resolvedFields),
+      propertyData: patchSubmission(propertyData, "listingSubmission", resolvedFields),
+    };
+  } catch (error) {
+    console.error("[N037] reconcileListingApplicationFormOnWrite failed; saving without the copy", error);
+    return { rowData, propertyData };
+  }
 }
 
 /**
