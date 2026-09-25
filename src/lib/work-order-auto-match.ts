@@ -37,11 +37,23 @@ export type SuggestVendorsOptions = {
   allWorkOrders?: DemoManagerWorkOrderRow[];
   /** Epoch ms used to phrase "Nd ago" in each reason. Defaults to Date.now(). */
   now?: number;
+  /**
+   * N006: this work order's property + trade preferred-vendor list
+   * (`manager_vendor_preferences`), already ordered highest-priority first —
+   * the caller resolves this from the database (see
+   * `suggestVendorsForWorkOrderTool` in `src/lib/tools/domains/work-orders.ts`).
+   * Consulted FIRST, in the given order, before the fairness ranking below.
+   * A vendor id that doesn't match an active/eligible candidate is silently
+   * skipped rather than surfaced.
+   */
+  preferredVendorIds?: readonly string[];
 };
 
 /**
- * Ranks active, trade-matched, scope-matched vendors for a work order by
- * least-recently-assigned (fairness). Returns [] when nothing matches — the
+ * Ranks active, trade-matched, scope-matched vendors for a work order.
+ * Preferred vendors configured for this property + trade (N006) come first,
+ * in their configured order; the rest are ranked by least-recently-assigned
+ * (fairness), exactly as before. Returns [] when nothing matches — the
  * manager UI falls back to the full manual picker in that case.
  */
 export function suggestVendorsForWorkOrder(
@@ -65,8 +77,22 @@ export function suggestVendorsForWorkOrder(
     }
     return true;
   });
+  const candidatesById = new Map(candidates.map((vendor) => [vendor.id, vendor]));
 
-  return candidates
+  const preferredIds = [...new Set((opts.preferredVendorIds ?? []).filter((id) => candidatesById.has(id)))];
+  const preferredVendors = preferredIds.map((id) => candidatesById.get(id)!);
+  const preferredSet = new Set(preferredIds);
+  const restCandidates = candidates.filter((vendor) => !preferredSet.has(vendor.id));
+
+  const preferredResults = preferredVendors.map((vendor, index) => ({
+    vendorId: vendor.id,
+    vendorName: vendor.name,
+    trade: vendor.trade,
+    lastAssignedAt: lastAssignedByVendorId.get(vendor.id) ?? null,
+    reason: buildPreferredReason(index),
+  }));
+
+  const restResults = restCandidates
     .map((vendor) => ({ vendor, lastAssignedAt: lastAssignedByVendorId.get(vendor.id) ?? null }))
     .sort((a, b) => compareByRecency(a.lastAssignedAt, b.lastAssignedAt) || a.vendor.name.localeCompare(b.vendor.name))
     .map(({ vendor, lastAssignedAt }) => ({
@@ -76,6 +102,14 @@ export function suggestVendorsForWorkOrder(
       lastAssignedAt,
       reason: buildReason(vendorCapabilityLabel(vendor), lastAssignedAt, now),
     }));
+
+  return [...preferredResults, ...restResults];
+}
+
+function buildPreferredReason(rankIndex: number): string {
+  return rankIndex === 0
+    ? "your top preferred vendor for this property/trade"
+    : `preferred vendor for this property/trade (#${rankIndex + 1})`;
 }
 
 function mostRecentAssignmentByVendorId(workOrders: DemoManagerWorkOrderRow[]): Map<string, string> {

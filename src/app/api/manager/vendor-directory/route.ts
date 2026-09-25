@@ -21,9 +21,12 @@ export async function GET(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const url = new URL(req.url);
+    const minRatingRaw = url.searchParams.get("minRating");
+    const minRating = minRatingRaw ? Number(minRatingRaw) : undefined;
     const rows = await loadDirectoryListedVendors(db, {
       trade: url.searchParams.get("trade") ?? undefined,
       area: url.searchParams.get("area") ?? undefined,
+      minRating: Number.isFinite(minRating) ? minRating : undefined,
     });
     return NextResponse.json({ rows });
   } catch (e) {

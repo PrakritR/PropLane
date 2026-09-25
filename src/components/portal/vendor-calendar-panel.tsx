@@ -1,16 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalCalendarPanels, MEETING_CONFIRMED_COLOR, type DemoMeeting } from "@/components/portal/portal-calendar-panels";
+import { MEETING_CONFIRMED_COLOR, type DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import {
-  VENDOR_AVAILABILITY_CHANGED_EVENT,
-  VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT,
-  VendorAvailabilityEditor,
-} from "@/components/portal/vendor-settings-panel";
+import { VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-settings-panel";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -18,17 +14,11 @@ import { CalendarClock } from "lucide-react";
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
   SLOT_DURATION_MINUTES,
-  startOfWeekMonday,
   toLocalDateStr,
-  vendorAvailabilityStorageKey,
   installAvailabilityDateSetForStorageKey,
 } from "@/lib/demo-admin-scheduling";
-import { fetchVendorAvailability, isFlexibleWeeklyRule, slotKeysFromWeeklyRules, type VendorAvailabilityRule } from "@/lib/vendor-availability";
+import { isFlexibleWeeklyRule, slotKeysFromWeeklyRules, type VendorAvailabilityRule } from "@/lib/vendor-availability";
 import { calendarMeetingMatchesQuery } from "@/lib/manager-calendar-tour-meetings";
-import {
-  vendorCalendarViewHref,
-  type VendorCalendarViewTabId,
-} from "@/lib/portal-detail-routes";
 import { portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -39,7 +29,6 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 }
 
 const VENDOR_VISIT_DEFAULT_DURATION_MINUTES = 60;
-const VENDOR_CALENDAR_BASE = "/vendor";
 
 function vendorMeetingFromRow(row: DemoManagerWorkOrderRow): DemoMeeting | null {
   if (!row.scheduledAtIso) return null;
@@ -65,7 +54,14 @@ function vendorMeetingFromRow(row: DemoManagerWorkOrderRow): DemoMeeting | null 
   };
 }
 
-/** A disposable calendar paint cache derived wholly from the canonical availability API. */
+/**
+ * A disposable calendar paint cache derived wholly from the canonical
+ * availability API. Kept as a general-purpose pure utility (covered directly
+ * by `vendor-calendar-availability-read-only.test.tsx`) even though the
+ * vendor Calendar's own agenda view (C155) no longer paints an availability
+ * grid itself — a future grid surface can still install into the same
+ * `installAvailabilityDateSetForStorageKey` cache this way.
+ */
 export function installVendorAvailabilityPaintCache(
   storageKey: string,
   rules: VendorAvailabilityRule[],
@@ -103,45 +99,44 @@ export function installVendorAvailabilityPaintCache(
   installAvailabilityDateSetForStorageKey(keys, storageKey);
 }
 
-function paintWindowForCalendar(anchorDate: Date, view: VendorCalendarViewTabId): { from: Date; dayCount: number } {
-  if (view === "month") {
-    const from = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1, 12, 0, 0, 0);
-    return { from, dayCount: new Date(from.getFullYear(), from.getMonth() + 1, 0).getDate() };
-  }
-  if (view === "day") return { from: anchorDate, dayCount: 1 };
-  return { from: startOfWeekMonday(anchorDate), dayCount: 7 };
+function agendaDateHeaderLabel(dateStr: string): string {
+  const date = new Date(`${dateStr}T00:00:00`);
+  const today = toLocalDateStr(new Date());
+  const tomorrow = toLocalDateStr(new Date(Date.now() + 86_400_000));
+  const formatted = date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  if (dateStr === today) return `Today · ${formatted}`;
+  if (dateStr === tomorrow) return `Tomorrow · ${formatted}`;
+  return formatted;
 }
 
-/** Week grid that paints availability the same way the manager calendar does. */
-export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarViewTabId }) {
+type VendorCalendarAgendaGroup = { dateStr: string; meetings: DemoMeeting[] };
+
+function groupMeetingsByDate(meetings: DemoMeeting[]): VendorCalendarAgendaGroup[] {
+  const byDate = new Map<string, DemoMeeting[]>();
+  for (const meeting of [...meetings].sort((a, b) => a.startIso.localeCompare(b.startIso))) {
+    const bucket = byDate.get(meeting.dateStr);
+    if (bucket) bucket.push(meeting);
+    else byDate.set(meeting.dateStr, [meeting]);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dateStr, meetings]) => ({ dateStr, meetings }));
+}
+
+/**
+ * Vendor Calendar (C155) — one continuous, chronological agenda of scheduled
+ * services grouped under date headers. No List/Day/Week/Month mode switcher:
+ * every scheduled visit, always in one view. `view` is still accepted (and
+ * ignored) so existing callers — `portal-calendar.tsx`'s
+ * `vendorCalendarViewHref`-driven routing, `demo-section-renderer.tsx` —
+ * don't need a matching change to keep compiling.
+ */
+export function VendorCalendarPanel(props: { view?: string } = {}) {
+  void props.view;
   const { userId, ready } = usePortalSession();
   const demo = isDemoModeActive();
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
-  const [availabilityRules, setAvailabilityRules] = useState<VendorAvailabilityRule[] | null>(null);
-  const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
-  const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
   const [listSearch, setListSearch] = useState("");
-  const [weekActionsHost, setWeekActionsHost] = useState<HTMLElement | null>(null);
-
-  const storageKey = useMemo(() => (userId ? vendorAvailabilityStorageKey(userId) : null), [userId]);
-
-  const applyCanonicalAvailability = useCallback((rules: VendorAvailabilityRule[]) => {
-    setAvailabilityRules(rules);
-  }, []);
-
-  useEffect(() => {
-    if (!storageKey || !availabilityRules) return;
-    installVendorAvailabilityPaintCache(storageKey, availabilityRules, paintWindowForCalendar(calendarAnchorDate, view));
-    setCalendarRefreshSignal((n) => n + 1);
-  }, [availabilityRules, calendarAnchorDate, storageKey, view]);
-
-  const reloadAvailability = useCallback(async () => {
-    if (demo) return;
-    // Loading is intentionally read-only. A flexible rule is still rendered
-    // by the editor, but must never be rewritten just because the calendar
-    // opened or its view changed.
-    applyCanonicalAvailability(await fetchVendorAvailability());
-  }, [applyCanonicalAvailability, demo]);
 
   useEffect(() => {
     const sync = () => setRows(readVendorWorkOrderRows());
@@ -149,20 +144,6 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
     void syncManagerWorkOrdersFromServer().then(() => sync());
     return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, sync);
   }, []);
-
-  useEffect(() => {
-    void reloadAvailability();
-  }, [reloadAvailability]);
-
-  useEffect(() => {
-    const onCanonicalAvailabilityChanged = (event: Event) => {
-      const rules = (event as CustomEvent<{ rules?: VendorAvailabilityRule[] }>).detail?.rules;
-      if (rules) applyCanonicalAvailability(rules);
-      else void reloadAvailability();
-    };
-    window.addEventListener(VENDOR_AVAILABILITY_CHANGED_EVENT, onCanonicalAvailabilityChanged);
-    return () => window.removeEventListener(VENDOR_AVAILABILITY_CHANGED_EVENT, onCanonicalAvailabilityChanged);
-  }, [applyCanonicalAvailability, reloadAvailability]);
 
   const visitMeetings = useMemo<DemoMeeting[]>(() => {
     return rows
@@ -178,36 +159,7 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
     return scoped.filter((meeting) => calendarMeetingMatchesQuery(meeting, needle));
   }, [listSearch, visitMeetings]);
 
-  const calendarTabs = useMemo(
-    () => [
-      {
-        id: "list" as const,
-        label: "List",
-        count: visitMeetings.length,
-        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "list"),
-        dataAttr: "vendor-calendar-tab-list",
-      },
-      {
-        id: "day" as const,
-        label: "Day",
-        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "day"),
-        dataAttr: "vendor-calendar-tab-day",
-      },
-      {
-        id: "week" as const,
-        label: "Week",
-        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "week"),
-        dataAttr: "vendor-calendar-tab-week",
-      },
-      {
-        id: "month" as const,
-        label: "Month",
-        href: vendorCalendarViewHref(VENDOR_CALENDAR_BASE, "month"),
-        dataAttr: "vendor-calendar-tab-month",
-      },
-    ],
-    [visitMeetings.length],
-  );
+  const agendaGroups = useMemo(() => groupMeetingsByDate(vendorMeetings), [vendorMeetings]);
 
   if (!demo && !ready) {
     return (
@@ -233,15 +185,6 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinations={calendarTabs.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          href: tab.href,
-          count: tab.count,
-          dataAttr: tab.dataAttr,
-        }))}
-        activeDestinationId={view}
-        destinationAriaLabel="Calendar views"
         search={{
           value: listSearch,
           onChange: setListSearch,
@@ -249,21 +192,18 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
           dataAttr: "vendor-calendar-search",
         }}
         actions={
-          <div className="flex items-center gap-1">
-            <PortalIconAction
-              icon={CalendarClock}
-              label="Set availability"
-              data-attr="vendor-calendar-set-availability"
-              onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, {
-                    detail: { date: toLocalDateStr(new Date()) },
-                  }),
-                );
-              }}
-            />
-            <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
-          </div>
+          <PortalIconAction
+            icon={CalendarClock}
+            label="Set availability"
+            data-attr="vendor-calendar-set-availability"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, {
+                  detail: { date: toLocalDateStr(new Date()) },
+                }),
+              );
+            }}
+          />
         }
       />
       {searchMiss ? (
@@ -278,42 +218,29 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
           }}
           dataAttr="vendor-calendar-empty-search"
         />
-      ) : view === "list" ? (
+      ) : (
         <PortalRecordListSurface
           isEmpty={vendorMeetings.length === 0}
           emptyCard={{ title: "No scheduled services", section: "calendar" }}
           dataAttr="vendor-calendar-list"
         >
-          {vendorMeetings.map((meeting) => (
-            <PortalPropertyRecordRow
-              key={meeting.id}
-              title={meeting.title}
-              address={meeting.propertyTitle ?? "—"}
-              facts={new Date(meeting.startIso).toLocaleString()}
-              dataAttr="vendor-calendar-list-row"
-            />
+          {agendaGroups.map((group) => (
+            <div key={group.dateStr} className="mb-3 last:mb-0" data-attr="vendor-calendar-agenda-day">
+              <h2 className="mb-1 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+                {agendaDateHeaderLabel(group.dateStr)}
+              </h2>
+              {group.meetings.map((meeting) => (
+                <PortalPropertyRecordRow
+                  key={meeting.id}
+                  title={meeting.title}
+                  address={meeting.propertyTitle ?? "—"}
+                  facts={new Date(meeting.startIso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  dataAttr="vendor-calendar-list-row"
+                />
+              ))}
+            </div>
           ))}
         </PortalRecordListSurface>
-      ) : (
-        <PortalCalendarPanels
-          storageKey={storageKey}
-          readOnly
-          compactAvailability={view === "week"}
-          defaultViewMode={view}
-          viewMode={view}
-          anchorDate={calendarAnchorDate}
-          onAnchorDateChange={setCalendarAnchorDate}
-          hideViewModeControl
-          onVendorAvailabilityEdit={(date, slotIdx) => {
-            window.dispatchEvent(new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, { detail: { date, slotIdx } }));
-          }}
-          availabilityHeading="Availability"
-          eventSummaryLabel="visit"
-          calendarRefreshSignal={calendarRefreshSignal}
-          externalMeetings={vendorMeetings}
-          weekActionsHost={weekActionsHost}
-          vendorViewer
-        />
       )}
       <VendorAvailabilityEditor dialog />
     </ManagerPortalPageShell>

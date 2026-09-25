@@ -11,6 +11,8 @@ import {
   resolveAuthenticatedBusinessAccess,
   resolveTestWorkspaceClassification,
 } from "@/lib/test-workspaces/index.server";
+import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
+import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 
 export const runtime = "nodejs";
 
@@ -159,6 +161,15 @@ export async function GET() {
     if (!property) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
     const serviceRequestOptions = serviceOffersFromProperty(property);
+    // C133: the workspace's repair-category toggle, resolved through the same
+    // property → workspace → account scope every other service automation setting
+    // uses, so this resident sees exactly what their manager configured.
+    const serviceAutomationSettings = await resolveServiceAutomationSettingsForRow(
+      db,
+      createSettingsScopeCache(),
+      managerUserId,
+      propertyId,
+    ).catch(() => null);
 
     // Any-publish-status access is reserved for APPROVED residents. A pending /
     // rejected self-service applicant only ever sees what the public catalog
@@ -174,7 +185,13 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { property, serviceRequestOptions, managerUserId, propertyId: property.id },
+      {
+        property,
+        serviceRequestOptions,
+        managerUserId,
+        propertyId: property.id,
+        disabledRepairCategories: serviceAutomationSettings?.disabledRepairCategories ?? [],
+      },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {

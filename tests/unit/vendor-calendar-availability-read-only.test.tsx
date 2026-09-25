@@ -23,7 +23,7 @@ import {
   VendorAvailabilityEditor,
 } from "@/components/portal/vendor-settings-panel";
 import { readAvailabilityDateSetForStorageKey } from "@/lib/demo-admin-scheduling";
-import { resetVendorAvailabilityCacheForTests } from "@/lib/vendor-availability";
+import { resetVendorAvailabilityCacheForTests, type VendorAvailabilityRule } from "@/lib/vendor-availability";
 
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
 
@@ -35,19 +35,6 @@ function dateOffset(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
-}
-
-function vendorSlot(date: string, slot: number) {
-  return document.querySelector<HTMLButtonElement>(
-    `[data-availability-date="${date}"][data-availability-slot="${slot}"]`,
-  );
-}
-
-function expectVendorSlot(date: string, slot: number, state: "open" | "empty") {
-  const control = vendorSlot(date, slot);
-  expect(control).toBeTruthy();
-  expect(control).toHaveAttribute("data-availability-state", state);
-  return control!;
 }
 
 beforeEach(() => {
@@ -151,87 +138,50 @@ describe("vendor calendar canonical availability", () => {
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
   });
 
-  it("paints fetched weekly and one-off rules in Day, Week, and Month with adjacent empty states and no legacy requests", async () => {
+  // The vendor Calendar (C155) is now a single day-grouped agenda with no
+  // List/Day/Week/Month grid to paint, so `installVendorAvailabilityPaintCache`
+  // is exercised directly as the pure utility it's kept exported to be — the
+  // underlying availability-window math it does is unchanged and still real.
+  it("derives painted slots from weekly and one-off availability rules with adjacent empty states, no legacy requests", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
     const today = new Date();
     const date = localDate(today);
-    const fetchSpy = vi.fn(async () => response({
-      rules: [
-        { id: "weekly-8", kind: "weekly", weekday: today.getDay(), startMinute: 480, endMinute: 510 },
-        { id: "open-9", kind: "open", specificDate: date, startMinute: 540, endMinute: 570 },
-      ],
-    }));
-    vi.stubGlobal("fetch", fetchSpy);
+    const storageKey = "vendor-calendar-weekly-and-open";
+    const rules: VendorAvailabilityRule[] = [
+      { id: "weekly-8", kind: "weekly", weekday: today.getDay(), startMinute: 480, endMinute: 510 },
+      { id: "open-9", kind: "open", specificDate: date, startMinute: 540, endMinute: 570 },
+    ];
 
-    for (const view of ["day", "week", "month"] as const) {
-      const rendered = render(<VendorCalendarPanel view={view} />);
-      await waitFor(() => {
-        if (view === "month") {
-          const dayControl = document.querySelector<HTMLButtonElement>(`[data-availability-date="${date}"]`);
-          expect(dayControl).toHaveAttribute("data-availability-state", "open");
-          expect(dayControl).toHaveAccessibleName(`Available on ${date}. Set availability.`);
-          expect(dayControl).toHaveTextContent("Available");
-        } else {
-          expectVendorSlot(date, 16, "open");
-          expectVendorSlot(date, 17, "empty");
-          expectVendorSlot(date, 18, "open");
-        }
-      });
-      if (view === "week") expect(screen.queryByText("Tours")).toBeNull();
-      rendered.unmount();
-    }
+    installVendorAvailabilityPaintCache(storageKey, rules, { from: today, dayCount: 7 });
 
-    expect(fetchSpy.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
-    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/portal-schedule-records"))).toBe(false);
-    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/portal-vendors"))).toBe(false);
+    const painted = readAvailabilityDateSetForStorageKey(storageKey);
+    expect(painted.has(`${date}:16`)).toBe(true);
+    expect(painted.has(`${date}:17`)).toBe(false);
+    expect(painted.has(`${date}:18`)).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("keeps weekly availability visible before today and beyond twelve weeks without legacy requests", async () => {
+  it("keeps weekly availability visible before today and beyond twelve weeks", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
     const today = new Date();
-    const fetchSpy = vi.fn(async () => response({
-      rules: [{ id: "weekly", kind: "weekly", weekday: today.getDay(), startMinute: 480, endMinute: 510 }],
-    }));
-    vi.stubGlobal("fetch", fetchSpy);
-    render(<VendorCalendarPanel view="week" />);
+    const storageKey = "vendor-calendar-weekly-multi-window";
+    const rules: VendorAvailabilityRule[] = [
+      { id: "weekly", kind: "weekly", weekday: today.getDay(), startMinute: 480, endMinute: 510 },
+    ];
 
-    await waitFor(() => expectVendorSlot(localDate(today), 16, "open"));
-    fireEvent.click(screen.getByRole("button", { name: "Previous week" }));
+    installVendorAvailabilityPaintCache(storageKey, rules, { from: today, dayCount: 7 });
+    expect(readAvailabilityDateSetForStorageKey(storageKey).has(`${localDate(today)}:16`)).toBe(true);
+
     const prior = dateOffset(today, -7);
-    await waitFor(() => expectVendorSlot(localDate(prior), 16, "open"));
+    installVendorAvailabilityPaintCache(storageKey, rules, { from: prior, dayCount: 7 });
+    expect(readAvailabilityDateSetForStorageKey(storageKey).has(`${localDate(prior)}:16`)).toBe(true);
 
-    for (let i = 0; i < 14; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next week" }));
     const distant = dateOffset(today, 13 * 7);
-    await waitFor(() => expectVendorSlot(localDate(distant), 16, "open"));
+    installVendorAvailabilityPaintCache(storageKey, rules, { from: distant, dayCount: 7 });
+    expect(readAvailabilityDateSetForStorageKey(storageKey).has(`${localDate(distant)}:16`)).toBe(true);
 
-    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/portal-schedule-records"))).toBe(false);
-    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/portal-vendors"))).toBe(false);
-  });
-
-  it("keeps a fetched rule painted after the explicit canonical Save", async () => {
-    const date = localDate();
-    const rule = { id: "open-after-save", kind: "open", specificDate: date, startMinute: 0, endMinute: 1440 };
-    let saved = false;
-    const fetchSpy = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        saved = true;
-        return response({ ok: true, rule });
-      }
-      return response({ rules: saved ? [rule] : [] });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    render(<VendorCalendarPanel view="week" />);
-
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "Set availability" }));
-    await screen.findByRole("dialog");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      const posts = fetchSpy.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
-      expect(posts).toHaveLength(1);
-      expect(posts[0]?.[0]).toBe("/api/vendor/availability");
-      expectVendorSlot(date, 16, "open");
-      expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/portal-schedule-records"))).toBe(false);
-      expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/portal-vendors"))).toBe(false);
-    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

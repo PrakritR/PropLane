@@ -35,7 +35,13 @@ import { SettingsGroupSourceTag, scopeTagLabel } from "@/components/portal/setti
 import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
 import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
 import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
-import { ServiceRequestAutomationRows, ServiceVendorAutomationRows } from "@/components/portal/service-automation-settings-section";
+import {
+  ServiceRequestAutomationRows,
+  ServiceVendorAutomationRows,
+  useServiceAutomationSettings,
+} from "@/components/portal/service-automation-settings-section";
+import { DEFAULT_SERVICE_AUTOMATION_SETTINGS } from "@/lib/service-automation-settings";
+import { RESIDENT_MAINTENANCE_CATEGORY_LABELS } from "@/lib/work-order-taxonomy";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
@@ -910,6 +916,42 @@ export function LeaseSettingsPanel({
   );
 }
 
+/**
+ * C133: which repair categories residents may request, workspace-wide. Backed by
+ * the same `serviceAutomation` settings row as every other Services knob
+ * (`disabledRepairCategories`), so it autosaves and inherits property → workspace →
+ * account exactly like the rows around it. An empty/absent value means every
+ * category stays enabled — the additive default.
+ */
+function ServiceCategoriesAutomationRow() {
+  const { settings, patch } = useServiceAutomationSettings();
+  const disabled = settings === null;
+  const value = settings ?? DEFAULT_SERVICE_AUTOMATION_SETTINGS;
+  const disabledSet = new Set(value.disabledRepairCategories);
+  const enabledCategories = RESIDENT_MAINTENANCE_CATEGORY_LABELS.filter((category) => !disabledSet.has(category));
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label="Repair categories residents can request">
+        <CheckboxMultiSelect
+          label="Repair categories"
+          hideLabel
+          variant="cell"
+          className="w-56"
+          options={RESIDENT_MAINTENANCE_CATEGORY_LABELS.map((category) => ({ value: category, label: category }))}
+          selected={enabledCategories}
+          onChange={(nextEnabled) => {
+            const nextEnabledSet = new Set(nextEnabled);
+            const nextDisabled = RESIDENT_MAINTENANCE_CATEGORY_LABELS.filter((category) => !nextEnabledSet.has(category));
+            void patch({ disabledRepairCategories: nextDisabled });
+          }}
+          disabled={disabled}
+          dataAttr="service-automation-repair-categories"
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
+  );
+}
+
 export function ServicesSettingsPanel({
   teamMembers,
   onFooterReady,
@@ -925,6 +967,9 @@ export function ServicesSettingsPanel({
 
   return (
     <PortalSettingsSections>
+      <PortalSettingsSection title="Service types" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
+        <ServiceCategoriesAutomationRow />
+      </PortalSettingsSection>
       <PortalSettingsSection title="Requests" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
         <ServiceRequestAutomationRows />
         <AutomationRuleRows

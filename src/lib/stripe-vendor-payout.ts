@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
 import { retrieveManagerConnectAccountOrNull, connectAccountTransfersActive } from "@/lib/stripe-connect";
+import { loadVendorInsuranceExpiryStatus } from "@/lib/vendor-business-profile.server";
 
 /**
  * Best-effort Stripe Connect transfer of a vendor's share to their connected account when a
@@ -95,6 +96,19 @@ export async function payoutVendorForWorkOrder(
         updated_at: new Date().toISOString(),
       })
       .eq("id", payoutId);
+
+  // N007: expired insurance blocks a NEW payout attempt — an already-scheduled
+  // or in-flight payout for a job assigned before expiry is unaffected (this
+  // check only ever gates a transfer that hasn't happened yet). Deliberately
+  // NOT added to RETRYABLE_VENDOR_PAYOUT_FAILURE below — renewal, not
+  // finishing Stripe Connect onboarding, is what clears this failure, so it
+  // must not be auto-retried.
+  const insurance = await loadVendorInsuranceExpiryStatus(db, opts.vendorUserId);
+  if (insurance.expired) {
+    const failureReason = "Vendor's insurance has expired — payout blocked until renewed.";
+    await finish({ status: "failed", failureReason });
+    return { status: "failed", amountCents, failureReason };
+  }
 
   const { data: vendorProfile } = await db
     .from("profiles")

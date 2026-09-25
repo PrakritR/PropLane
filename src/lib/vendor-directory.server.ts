@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
+import { vendorInsuranceIsCurrent } from "@/lib/vendor-business-profile.server";
+import { computeVendorReviewAggregate } from "@/lib/vendor-reviews";
 
 type DirectoryRow = {
   user_id: string;
@@ -17,9 +19,7 @@ const DIRECTORY_COLUMNS =
   "user_id, business_name, service_area, service_area_zips, trades, license_number, insurance_expires_at, insurance_doc_path";
 
 function insuranceIsCurrent(row: DirectoryRow): boolean {
-  if (!row.insurance_doc_path) return false;
-  if (!row.insurance_expires_at) return true;
-  return row.insurance_expires_at >= new Date().toISOString().slice(0, 10);
+  return vendorInsuranceIsCurrent({ insuranceDocPath: row.insurance_doc_path, insuranceExpiresAt: row.insurance_expires_at });
 }
 
 /**
@@ -54,7 +54,7 @@ function toCatalogRow(row: DirectoryRow): AxisCatalogVendor {
 
 export async function loadDirectoryListedVendors(
   db: SupabaseClient,
-  filter?: { trade?: string; area?: string },
+  filter?: { trade?: string; area?: string; minRating?: number },
 ): Promise<AxisCatalogVendor[]> {
   let query = db
     .from("vendor_business_profiles")
@@ -72,9 +72,45 @@ export async function loadDirectoryListedVendors(
 
   let rows = ((data ?? []) as DirectoryRow[]).map(toCatalogRow);
 
+  // Verified-only directory (C083/C198): only a vendor with a current license
+  // AND a current (uploaded, non-expired) insurance certificate is
+  // discoverable in the manager-facing directory — an unverified self-serve
+  // vendor never appears here, even if they toggled directory_listed on.
+  rows = rows.filter((row) => row.insured && row.licensed);
+
   const area = filter?.area?.trim().toLowerCase();
   if (area) {
     rows = rows.filter((row) => row.city.toLowerCase().includes(area) || row.zip.includes(area));
   }
+
+  // Rating (average + count only — never raw review text) for every remaining
+  // directory vendor, one batched vendor_reviews query rather than N+1.
+  const vendorUserIds = rows
+    .map((row) => row.directoryVendorUserId)
+    .filter((id): id is string => Boolean(id));
+  if (vendorUserIds.length > 0) {
+    const { data: reviewRows, error: reviewError } = await db
+      .from("vendor_reviews")
+      .select("vendor_user_id, stars")
+      .in("vendor_user_id", vendorUserIds);
+    if (reviewError) throw new Error(reviewError.message);
+    const starsByVendor = new Map<string, number[]>();
+    for (const r of (reviewRows ?? []) as { vendor_user_id: string; stars: number }[]) {
+      const list = starsByVendor.get(r.vendor_user_id) ?? [];
+      list.push(r.stars);
+      starsByVendor.set(r.vendor_user_id, list);
+    }
+    rows = rows.map((row) => {
+      const stars = row.directoryVendorUserId ? (starsByVendor.get(row.directoryVendorUserId) ?? []) : [];
+      const agg = computeVendorReviewAggregate(stars);
+      return { ...row, rating: agg.average, reviewCount: agg.count };
+    });
+  }
+
+  const minRating = filter?.minRating;
+  if (typeof minRating === "number" && Number.isFinite(minRating) && minRating > 0) {
+    rows = rows.filter((row) => (row.rating ?? 0) >= minRating);
+  }
+
   return rows;
 }
