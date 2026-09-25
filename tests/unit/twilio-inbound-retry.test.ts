@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   replyConsent: vi.fn(async () => "allowed"),
   after: vi.fn(),
   runInlineBurst: vi.fn(async () => undefined),
+  recoveryRows: [] as Record<string, unknown>[],
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
@@ -70,6 +71,8 @@ function makeDb() {
         in: () => builder,
         eq: () => builder,
         not: () => builder,
+        lt: () => builder,
+        gt: () => builder,
         order: () => builder,
         limit: () =>
           table === "manager_sms_numbers"
@@ -85,7 +88,9 @@ function makeDb() {
                 ] : [],
                 error: null,
               })
-            : Promise.resolve({ data: [], error: null }),
+            : table === "sms_inbound_receipts"
+              ? Promise.resolve({ data: mocks.recoveryRows, error: null })
+              : Promise.resolve({ data: [], error: null }),
         insert: (values: Record<string, unknown>) => { if (table === "inbound_sms_log") mocks.inboundBodies.push(values); return Promise.resolve({ data: null, error: null }); },
         delete: () => {
           if (table === "inbound_sms_log") mocks.inboundDeletes += 1;
@@ -114,6 +119,28 @@ function makeDb() {
 }
 
 import { POST } from "@/app/api/twilio/inbound/route";
+import { recoverInboundReceipts } from "@/lib/sms/inbound-pipeline.server";
+import { resolveVendorAgentSessionForInbound } from "@/lib/agent/vendor-agent.server";
+
+const OWNER = "11111111-1111-4111-8111-111111111111";
+function recoveryRow(overrides: Record<string, unknown> = {}) {
+  return {
+    message_sid: "SM11111111111111111111111111111111",
+    manager_user_id: OWNER,
+    recipient_phone_key: "12065552222",
+    status: "retryable",
+    lease_expires_at: null,
+    inbound_payload: {
+      fromPhone: "+12065552222",
+      toPhone: "+12065559999",
+      body: "Is it furnished",
+      workspaceId: null,
+      media: {},
+      runtime: "development",
+    },
+    ...overrides,
+  };
+}
 
 function inboundRequest() {
   return new Request("https://prop-lane.space/api/twilio/inbound", {
@@ -137,6 +164,7 @@ beforeEach(() => {
   mocks.inboundDeletes = 0;
   mocks.inboundLogSelects = 0;
   mocks.receiptUpdates = [];
+  mocks.recoveryRows = [];
   mocks.receipt = { status: "processing" };
   mocks.ownedNumber = true;
   mocks.rateLimit.mockReturnValue({ ok: true });
@@ -184,6 +212,99 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.handleInbound).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith("twilio inbound usage not recorded", "SM11111111111111111111111111111111", "Communication credit could not be reserved.", undefined);
     warn.mockRestore();
+  });
+
+  it("claims the receipt together with a replayable payload", async () => {
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
+
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("claim_sms_inbound", expect.objectContaining({
+      p_inbound_payload: {
+        fromPhone: "+12065552222",
+        toPhone: "+12065559999",
+        body: "Is the apartment available?",
+        workspaceId: null,
+        media: {},
+        runtime: "development",
+      },
+    }));
+  });
+
+  it("releases the claim as retryable when a route after the claim throws", async () => {
+    vi.mocked(resolveVendorAgentSessionForInbound).mockRejectedValueOnce(new Error("Vendor session lookup unavailable."));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(503);
+    expect(mocks.receiptUpdates).toContainEqual(expect.objectContaining({ status: "retryable", lease_owner: null }));
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    error.mockRestore();
+    warn.mockRestore();
+  });
+
+  it("recovers a retryable receipt through the same pipeline", async () => {
+    mocks.recoveryRows = [recoveryRow()];
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
+
+    const result = await recoverInboundReceipts(makeDb() as never, { deadline: Date.now() + 60_000 });
+
+    expect(result).toEqual({ scanned: 1, recovered: 1, failed: 0, dropped: 0 });
+    expect(mocks.rpc).toHaveBeenCalledWith("claim_sms_inbound", expect.objectContaining({
+      p_message_sid: "SM11111111111111111111111111111111",
+      p_worker_id: expect.stringMatching(/^inbound-recovery-/),
+    }));
+    expect(mocks.handleInbound).toHaveBeenCalledWith(expect.objectContaining({ text: "Is it furnished", from: "+12065552222" }));
+    expect(mocks.receiptUpdates).toContainEqual(expect.objectContaining({ status: "completed" }));
+  });
+
+  it("never replays a receipt another runtime stored, or one still leased", async () => {
+    mocks.recoveryRows = [
+      recoveryRow({ inbound_payload: { ...recoveryRow().inbound_payload, runtime: "production" } }),
+      recoveryRow({ status: "processing", lease_expires_at: new Date(Date.now() + 60_000).toISOString() }),
+    ];
+
+    const result = await recoverInboundReceipts(makeDb() as never, { deadline: Date.now() + 60_000 });
+
+    expect(result).toEqual({ scanned: 2, recovered: 0, failed: 0, dropped: 0 });
+    expect(mocks.rpc).not.toHaveBeenCalledWith("claim_sms_inbound", expect.anything());
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+  });
+
+  it("takes over a processing receipt only after its lease is past the grace window", async () => {
+    const now = Date.now();
+    mocks.recoveryRows = [
+      recoveryRow({ status: "processing", lease_expires_at: new Date(now - 30_000).toISOString() }),
+      recoveryRow({ status: "processing", lease_expires_at: new Date(now - 120_000).toISOString() }),
+    ];
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
+
+    const result = await recoverInboundReceipts(makeDb() as never, { deadline: now + 60_000, now });
+
+    expect(result).toMatchObject({ recovered: 1, failed: 0 });
+    expect(mocks.rpc.mock.calls.filter(([name]) => name === "claim_sms_inbound")).toHaveLength(1);
+  });
+
+  it("retries instead of dropping when the work number cannot be resolved", async () => {
+    mocks.recoveryRows = [recoveryRow()];
+    mocks.ownedNumber = false;
+
+    const result = await recoverInboundReceipts(makeDb() as never, { deadline: Date.now() + 60_000 });
+
+    expect(result).toEqual({ scanned: 1, recovered: 0, failed: 1, dropped: 0 });
+    expect(mocks.receiptUpdates).toContainEqual(expect.objectContaining({ status: "retryable" }));
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+  });
+
+  it("drops without replying when the line now belongs to another workspace", async () => {
+    mocks.recoveryRows = [recoveryRow({ manager_user_id: "22222222-2222-4222-8222-222222222222" })];
+
+    const result = await recoverInboundReceipts(makeDb() as never, { deadline: Date.now() + 60_000 });
+
+    expect(result).toEqual({ scanned: 1, recovered: 0, failed: 0, dropped: 1 });
+    expect(mocks.receiptUpdates).toContainEqual(expect.objectContaining({ status: "completed" }));
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
   });
 
   it("schedules nothing extra when the burst was queued normally", async () => {

@@ -160,7 +160,9 @@ describe("nobody buys a co-manager a second number for the same workspace", () =
 });
 
 describe("the inbound webhook answers for the workspace", () => {
-  const route = readFileSync("src/app/api/twilio/inbound/route.ts", "utf8");
+  // Route runs first; everything after the receipt claim lives in the pipeline.
+  const route = readFileSync("src/app/api/twilio/inbound/route.ts", "utf8")
+    + readFileSync("src/lib/sms/inbound-pipeline.server.ts", "utf8");
 
   it("the co-manager bounce is gone from the codebase", () => {
     expect(route).not.toContain("co-manager's PropLane assistant number");
