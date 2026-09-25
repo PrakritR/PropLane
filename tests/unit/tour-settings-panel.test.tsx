@@ -18,6 +18,13 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
 
+// The automation-settings read now goes through the shared cache
+// (`manager-automation-settings-client.ts`), which is keyed on the viewer id
+// this hook supplies — without it the panel's load effect no-ops forever.
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ ready: true, email: "manager@example.com", userId: "mgr-1" }),
+}));
+
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
   // and a hand-listed mock silently breaks every time the module gains an
@@ -27,12 +34,18 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 
 import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
+import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automation-settings-client";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
+  // The shared read cache (N032) is module-level and outlives a single test's
+  // render — without dropping it, the second test's mount would silently
+  // reuse the first test's cached (successful) automation-settings value
+  // instead of hitting its own 401 stub.
+  invalidateManagerAutomationSettingsCache();
 });
 
 describe("TourSettingsPanel", () => {

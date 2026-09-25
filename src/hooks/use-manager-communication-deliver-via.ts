@@ -38,8 +38,8 @@ export function useManagerCommunicationDeliverVia() {
       }
       if (!userId) return;
       try {
-        const loadedSettings = await loadManagerAutomationSettingsCached(userId, opts);
-        setSettings(loadedSettings);
+        const loaded = await loadManagerAutomationSettingsCached(userId, opts);
+        setSettings(loaded.settings);
       } catch {
         // Non-critical — fall back to defaults.
       } finally {

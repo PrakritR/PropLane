@@ -45,6 +45,13 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 
+// The automation-settings read now goes through the shared cache
+// (`manager-automation-settings-client.ts`), which is keyed on the viewer id
+// this hook supplies — without it a panel's load effect no-ops forever.
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ ready: true, email: "manager@example.com", userId: "mgr-1" }),
+}));
+
 import {
   ApplicationsSettingsPanel,
   LeaseSettingsPanel,
@@ -56,6 +63,7 @@ import {
   ResidentSettingsPanel,
   CommunicationSettingsPanel,
 } from "@/components/portal/pro-portal-settings-panels";
+import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automation-settings-client";
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
 
@@ -159,6 +167,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
+  // The shared automation-settings read cache (N032) is module-level and
+  // outlives a single test's render.
+  invalidateManagerAutomationSettingsCache();
 });
 
 describe("settings module redraws — scope tags", () => {
