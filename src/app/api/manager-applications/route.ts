@@ -1185,7 +1185,11 @@ export async function POST(req: Request) {
           { status: guest.status },
         );
       }
-      row = prepareApplicantIdentityWrite(anchorServerOwnedSmsConsent(guest.row, existing ?? null), existing, String(existingRecord?.id ?? row.id));
+      row = prepareApplicantIdentityWrite(anchorServerOwnedSmsConsent({
+        ...guest.row,
+        manuallyAdded: existing?.manuallyAdded === true,
+        manualResidentDetails: existing?.manualResidentDetails,
+      }, existing ?? null), existing, String(existingRecord?.id ?? row.id));
       row = prepareApplicantIdentityWrite(row, existing, String(records?.[0]?.id ?? row.id));
       if (!existing || isDraftShapedApplicationRow(existing)) {
         const validation = await validateResidentApplicationRowForPersistence(db, row);
@@ -1292,7 +1296,8 @@ export async function POST(req: Request) {
         managerUserId: existing?.managerUserId ?? null,
         backgroundCheckStatus: existing?.backgroundCheckStatus ?? row.backgroundCheckStatus,
         screening: existing?.screening ?? row.screening,
-        manuallyAdded: existing?.manuallyAdded ?? row.manuallyAdded,
+        manuallyAdded: existing?.manuallyAdded === true,
+        manualResidentDetails: existing?.manualResidentDetails,
         moveInInstructions: existing?.moveInInstructions ?? row.moveInInstructions,
         application:
           row.application && existing?.application

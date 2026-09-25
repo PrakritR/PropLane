@@ -44,4 +44,13 @@ describe("resident-document-import resident match", () => {
     expect(match.kind).toBe("existing");
     if (match.kind === "existing") expect(match.applicationId).toBe("PROPLANE-ABC");
   });
+
+  it("does not reuse a same-name resident when the final email differs", () => {
+    const match = matchResidentFromApplications(
+      [{ id: "AXIS-AKHILRES", name: "Akhil Resident", email: "akhil-resident@prop-lane.space", bucket: "approved", property: "Oak" }],
+      { name: "Akhil Resident", email: "pdf-lease-qa-20260924@example.test" },
+      "mgr-1",
+    );
+    expect(match).toEqual({ kind: "new" });
+  });
 });

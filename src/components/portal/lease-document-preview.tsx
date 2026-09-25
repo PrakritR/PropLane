@@ -10,6 +10,7 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
+import { effectiveLeaseDocumentMode } from "@/lib/lease-execution-evidence";
 
 type Props = {
   row: LeasePipelineRow;
@@ -162,7 +163,10 @@ export function LeaseDocumentPreview({
     };
   }, [row.id, row.documentOmitted, row.updatedAtIso, row.managerUploadedPdf?.omitted, row.managerUploadedPdf?.dataUrl]);
 
-  const pdfSrc = hydratedRow.managerUploadedPdf?.dataUrl ?? null;
+  const pdfSrc =
+    effectiveLeaseDocumentMode(hydratedRow) === "original-pdf"
+      ? hydratedRow.managerUploadedPdf?.dataUrl ?? null
+      : null;
   const html = getLeaseDocumentHtml(hydratedRow);
   const defaultEmpty =
     emptyHint ??
@@ -173,9 +177,15 @@ export function LeaseDocumentPreview({
         : "No lease document yet. Click Generate lease (from application data) or upload a PDF to preview it here.");
 
   const syntheticHtml = useMemo(() => {
-    if (suppressApplicationDraft || pdfSrc || html || hydratedRow.leaseDocumentRemovedAt) return null;
+    if (
+      suppressApplicationDraft ||
+      pdfSrc ||
+      html ||
+      hydratedRow.documentMode === "imported-converted" ||
+      hydratedRow.leaseDocumentRemovedAt
+    ) return null;
     return draftHtmlFromApplication(hydratedRow.application ?? undefined);
-  }, [pdfSrc, html, hydratedRow.application, hydratedRow.leaseDocumentRemovedAt, suppressApplicationDraft]);
+  }, [pdfSrc, html, hydratedRow.application, hydratedRow.documentMode, hydratedRow.leaseDocumentRemovedAt, suppressApplicationDraft]);
 
   const showSynthetic = Boolean(syntheticHtml);
   const previewHtml = html ?? syntheticHtml;

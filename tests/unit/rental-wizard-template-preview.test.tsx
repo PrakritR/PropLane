@@ -4,7 +4,7 @@
 // never rewrite the URL to /resident/applications/apply (that route rejects
 // managers and bounces them to sign-in).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
 import {
@@ -12,6 +12,7 @@ import {
   normalizeManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import type { MockProperty } from "@/data/types";
+import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 
 const routerReplace = vi.fn();
 const routerPush = vi.fn();
@@ -23,8 +24,8 @@ vi.mock("next/navigation", () => ({
 
 const LISTING_ID = "mgr-preview-listing";
 
-function seedListing(): void {
-  const sub = createDefaultListingSubmission();
+function seedListingWithSubmission(input: ReturnType<typeof createDefaultListingSubmission>): void {
+  const sub = input;
   const property: MockProperty = {
     id: LISTING_ID,
     title: "Preview Flat",
@@ -45,6 +46,10 @@ function seedListing(): void {
     listingSubmission: normalizeManagerListingSubmissionV1(sub),
   };
   cachePublicExtraListings([property], { silent: true });
+}
+
+function seedListing(): void {
+  seedListingWithSubmission(createDefaultListingSubmission());
 }
 
 beforeEach(() => {
@@ -74,5 +79,62 @@ describe("RentalApplicationWizard templatePreview", () => {
       expect(routerReplace).not.toHaveBeenCalled();
       expect(routerPush).not.toHaveBeenCalled();
     });
+  });
+
+  it("renders configured built-in identity labels in the applicant preview", async () => {
+    const sub = createDefaultListingSubmission();
+    const name = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Full legal name")!;
+    sub.customApplicationFields = [{
+      id: "applicant-name-override",
+      key: "full_legal_name",
+      label: "Applicant full name",
+      type: "text",
+      required: true,
+      options: [],
+      section: "personal",
+      standardKey: name.standardKey,
+    }];
+    seedListingWithSubmission(sub);
+    render(
+      <RentalApplicationWizard
+        showToast={() => {}}
+        mode="manager"
+        layout="embedded"
+        linkedPropertyId={LISTING_ID}
+        templatePreview
+        templatePreviewSubmission={sub}
+      />,
+    );
+    fireEvent.click(screen.getByRole("group", { name: "Group application" }).querySelectorAll("button")[1]);
+    fireEvent.click(screen.getByRole("group", { name: "Co-signer" }).querySelectorAll("button")[1]);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Applicant full name")).toBeTruthy();
+  });
+
+  it("uses co-signer questions for a co-signer full preview", async () => {
+    const sub = createDefaultListingSubmission();
+    sub.cosignerApplicationConfigMode = "custom";
+    sub.cosignerCustomApplicationFields = [{
+      id: "cosigner-review-question",
+      key: "cosigner_review_question",
+      label: "Co-signer-only prompt",
+      type: "text",
+      required: true,
+      options: [],
+      section: "household",
+    }];
+    seedListingWithSubmission(sub);
+    render(
+      <RentalApplicationWizard
+        showToast={() => {}}
+        mode="manager"
+        layout="embedded"
+        linkedPropertyId={LISTING_ID}
+        templatePreview
+        templatePreviewVariant="cosigner"
+        templatePreviewSubmission={sub}
+      />,
+    );
+    expect(await screen.findByText("Co-signer-only prompt")).toBeTruthy();
   });
 });

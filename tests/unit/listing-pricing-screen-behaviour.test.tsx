@@ -411,14 +411,6 @@ describe("partial months", () => {
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Parking" } });
     fireEvent.change(screen.getByLabelText("Parking amount for Room A"), { target: { value: "60" } });
   };
-  const pickSameAs = (who: string, sourceId: string) => {
-    const trigger = screen.getByRole("button", { name: `Same as for ${who}` });
-    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-    const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector(`[data-field-select-option-value="${sourceId}"]`)!;
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  };
-
   it("asks on the lease types that can start mid-month, never on Month-to-Month", () => {
     render(<DryEditor />);
     goPricing();
@@ -461,7 +453,7 @@ describe("partial months", () => {
     expect(screen.queryByLabelText("Rent per day for Room A")).toBeNull();
   });
 
-  it("Same as Room X copies partial-month settings onto the other room", () => {
+  it("keeps each room's partial-month settings independent", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<DryEditor onChange={(s) => (latest = s)} />);
     goPricing();
@@ -470,9 +462,13 @@ describe("partial months", () => {
     fireEvent.change(screen.getByLabelText("Rent per day for Room A"), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: "Close Room A prices" }));
     openPriceCard("Room B");
-    pickSameAs("Room B", "r1");
+    expect(roomTick()?.checked).toBe(true);
+    fireEvent.click(roomTick()!);
+    fireEvent.change(screen.getByLabelText("Rent per day for Room B"), { target: { value: "50" } });
+    expect(latest!.rooms.find((r) => r.id === "r1")!.prorateMethod).toBe("daily_rate");
+    expect(latest!.rooms.find((r) => r.id === "r1")!.dailyRentRate).toBe(40);
     expect(latest!.rooms.find((r) => r.id === "r2")!.prorateMethod).toBe("daily_rate");
-    expect(latest!.rooms.find((r) => r.id === "r2")!.dailyRentRate).toBe(40);
+    expect(latest!.rooms.find((r) => r.id === "r2")!.dailyRentRate).toBe(50);
   });
 
   it("the whole place asks the same way, and only while utilities are above $0", () => {

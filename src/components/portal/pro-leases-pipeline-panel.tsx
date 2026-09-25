@@ -43,6 +43,7 @@ import { listingAdvertisedRentLabelForLease } from "@/lib/lease-renewal-preview"
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { track } from "@/lib/analytics/track-client";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   appendLeaseThreadMessage,
@@ -53,7 +54,7 @@ import {
   leaseRowOpensManagerViewModal,
   leasePipelineRowHasDocument,
   managerSignLease,
-  confirmUploadedLeaseParse,
+  confirmUploadedLeaseParseOnServer,
   leaseNeedsUploadedLeaseReviewAction,
   leaseLandlordNameWarning,
   leaseSendGateBlocker,
@@ -79,14 +80,23 @@ import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@
 import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
 import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
+import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-lease-placement-review-modal";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
+import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
+import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+
+async function reviewHtmlSha256(html: string): Promise<string> {
+  if (!globalThis.crypto?.subtle) throw new Error("Secure review hashing is unavailable.");
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(html));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
   return (
     leaseAllowsManagerDocumentEdits(row) &&
     Boolean(row.generatedHtml) &&
     !row.managerUploadedPdf?.dataUrl &&
-    !row.templateDocumentUrl
+    (Boolean(row.templateImportReview) || !row.templateDocumentUrl)
   );
 }
 
@@ -181,6 +191,7 @@ export function ManagerLeasesPipelinePanel({
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
   const [generateTemplateId, setGenerateTemplateId] = useState<string | null>(null);
   const [importReviewRowId, setImportReviewRowId] = useState<string | null>(null);
+  const [templatePlacementReviewRow, setTemplatePlacementReviewRow] = useState<LeasePipelineRow | null>(null);
   const [markSignedRowId, setMarkSignedRowId] = useState<string | null>(null);
   const [bulkLeaseSendRows, setBulkLeaseSendRows] = useState<LeasePipelineRow[] | null>(null);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(tab);
@@ -433,6 +444,14 @@ export function ManagerLeasesPipelinePanel({
           ? bulkLeaseSendRows.filter((row) => row.id === singleId)
           : bulkLeaseSendRows.filter((row) => row.id in drafts);
       if (targets.length === 0) return;
+      const templateNeedsReview = targets.find(
+        (row) => row.templateImportReview && !row.templatePlacementReview?.riderConflictAcknowledged,
+      );
+      if (templateNeedsReview) {
+        setBulkLeaseSendRows(null);
+        setTemplatePlacementReviewRow(templateNeedsReview);
+        return;
+      }
 
       for (const row of targets) {
         setSendingToResidentRowId(row.id);
@@ -534,6 +553,10 @@ export function ManagerLeasesPipelinePanel({
       showToast("Generate or upload a lease document first.");
       return;
     }
+    if (row.templateImportReview && !row.templatePlacementReview?.riderConflictAcknowledged) {
+      setTemplatePlacementReviewRow(row);
+      return;
+    }
     // The same refusals `sendLeaseToResident` makes, checked BEFORE the preview
     // opens. Reaching "Send lease & notification" and only then being refused
     // reads as a broken send; being told why up front is the affordance.
@@ -555,6 +578,32 @@ export function ManagerLeasesPipelinePanel({
       subject: `Your lease for ${unit} is ready to sign`,
       body: leaseSentToResidentBody(row),
     });
+  };
+
+  const confirmTemplatePlacementReview = async () => {
+    const row = templatePlacementReviewRow;
+    if (!row) return;
+    const finalHtmlSha256 = await reviewHtmlSha256(sanitizeLeaseDocumentHtml(row.generatedHtml ?? "") ?? "");
+    const response = await fetch("/api/portal-lease-pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "confirm_template_placement_review", leaseId: row.id, acknowledgeTermsRiderConflicts: true,
+        expectedReview: { revision: row.reviewRevision, sourceSha256: row.templateImportReview?.sourceSha256, finalHtmlSha256,
+          recordFingerprint: leaseRecordFingerprint({ residentName: row.residentName, leaseStart: row.application?.leaseStart ?? null,
+            leaseEnd: row.application?.leaseEnd ?? null, rentLabel: row.signedRentLabel ?? null }) } }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      track("lease_import_failed", { lease_id: row.id, import_kind: "property_template_placement", reason_code: "review_save_failed" });
+      showToast(typeof result.error === "string" ? result.error : "Could not save the lease review.");
+      return;
+    }
+    track("lease_import_reviewed", { lease_id: row.id, import_kind: "property_template_placement", artifact_mode: "converted" });
+    setTemplatePlacementReviewRow(null);
+    const updated = await syncLeasePipelineFromServer(managerUserId, { force: true });
+    const reviewedRow = updated.find((candidate) => candidate.id === row.id);
+    if (reviewedRow) openSendLeasePreview(reviewedRow);
   };
 
   // Declared AFTER `openSendLeasePreview`, which it calls. Relying on hoisting
@@ -885,19 +934,27 @@ export function ManagerLeasesPipelinePanel({
           row={importReviewRow}
           parse={importReviewRow.uploadedLeaseParse}
           onClose={() => setImportReviewRowId(null)}
-          onConfirm={({ overrides, note }) => {
-            const result = confirmUploadedLeaseParse(importReviewRow.id, {
+          onConfirm={async ({ overrides, note, useConverted, convertedHtml, convertedHtmlSha256, resolvedSourceIssueCodes, expectedRevision, viewedSourceSha256, viewedConvertedHtmlSha256, viewedRecordFingerprint }) => {
+            const result = await confirmUploadedLeaseParseOnServer(importReviewRow.id, {
               managerUserId,
               overrides: overrides as Partial<Record<UploadedLeaseFieldKey, string>>,
               note,
+              useConverted,
+              convertedHtml,
+              convertedHtmlSha256,
+              resolvedSourceIssueCodes,
+              expectedRevision,
+              viewedSourceSha256,
+              viewedConvertedHtmlSha256,
+              viewedRecordFingerprint,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not confirm the imported lease.");
               return;
             }
+            track("lease_import_reviewed", { lease_id: importReviewRow.id, import_kind: "uploaded_pdf", artifact_mode: useConverted ? "converted" : "original_pdf" });
             setImportReviewRowId(null);
-            void syncLeasePipelineFromServer(managerUserId, { force: true });
-            showToast("Imported lease confirmed. It can now be sent for signature.");
+            showToast(`Imported lease confirmed. ${useConverted ? "The converted version" : "The original PDF"} can now be sent for signature.`);
           }}
           onRetryRead={async () => {
             const result = await retryUploadedLeaseParse(importReviewRow.id, managerUserId);
@@ -942,6 +999,11 @@ export function ManagerLeasesPipelinePanel({
         onConfirm={(skipMessage, channels, draft) => void confirmSendLeaseToResident(skipMessage, channels, draft)}
         deliverViaKind="leases"
         smsAvailable
+      />
+      <ImportedLeasePlacementReviewModal
+        row={templatePlacementReviewRow}
+        onClose={() => setTemplatePlacementReviewRow(null)}
+        onConfirm={confirmTemplatePlacementReview}
       />
       {bulkLeaseSendRows && bulkLeaseSendRows.length > 0 ? (
         <PortalBulkMessageCarouselModal

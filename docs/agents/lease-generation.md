@@ -1,5 +1,19 @@
 # Lease generation — agent notes
 
+## PDF import review and signing
+
+The private original PDF remains the source for both lease and application imports. The shared server parser records page spans, form widgets, a source SHA-256, and unresolved pages. A bounded local OCR pass handles up to four image-only pages. A manager must resolve every reported import issue before publishing an application template or confirming a converted lease. The PDF is served through the owner-scoped private document route, never a public object URL.
+
+Before any imported PDF is retained, inspect decoded PDF objects, including annotation actions, chained actions, object streams, and embedded payloads. Security rejection is fatal; it must not become an ordinary failed parse that a manager can approve as original-PDF mode. Both template upload and lease-row upload paths enforce this boundary.
+
+An already executed off-platform lease may first enter the pipeline only from an approved, manager-added application with the exact signed PDF the manager filed. Applicant writes cannot set `manuallyAdded` or `manualResidentDetails`. The first-write lease scope comes from that stored application; resident first writes also require the authenticated email to match. Once execution is recorded, the resident and property scope columns cannot change through a generic lease save.
+
+An imported property lease template may contain reviewed converted HTML. `buildPlacementLeaseHtml` uses that version as the placement document and appends a visibly separate PropLane Terms Rider. It merges placement facts only through explicit fields and keeps original source clauses in the converted body. The manager compares the source PDF with the complete final lease, acknowledges possible rider conflicts, and confirms through `confirm_template_placement_review`. That server action fetches the private source bytes and persists a receipt bound to source SHA-256, template version, and sanitized final HTML SHA-256. Sending checks the receipt and bytes again. Editing the body invalidates the receipt. Legacy original-PDF mode still attaches the rider to the original PDF and preserves its signed-byte behavior.
+
+Imported application questions are an unpublished draft until reviewed and published. The applicant resolves a pinned published version; the editor's full preview uses its current unsaved draft. Nonidentity imported prompts stay as source-ordered custom fields. Property, room, dates, term, household role, occupancy, and consent prompts stay on typed wizard fields needed by approval and lease creation; their fixed placement is reported during import. Changing a published template does not change an in-progress application's pinned version.
+
+Generic property saves can edit draft questions but cannot issue or rewrite published versions or import review metadata. The owner-scoped import route records a source and exact-draft review receipt; its publish action advances the version with a conditional row update. A later draft edit requires a fresh source comparison. Historical published snapshots stay immutable for pinned applicants.
+
 ## Visual lease review
 
 The shared document editor shows the lease directly, with no Visual/HTML tabs

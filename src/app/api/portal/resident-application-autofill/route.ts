@@ -26,10 +26,18 @@ export async function GET() {
       return NextResponse.json({ error: "Application access is unavailable for this account." }, { status: 403 });
     }
     const profile = await loadResidentApplicationAutofillProfile(db, user.email);
+    const metadata = user.user_metadata ?? {};
+    const name = typeof metadata.full_name === "string"
+      ? metadata.full_name
+      : typeof metadata.name === "string"
+        ? metadata.name
+        : "";
+    const phone = typeof user.phone === "string" ? user.phone : "";
+    const identity = { fullLegalName: name.trim(), phone: phone.trim(), email: user.email.trim() };
     if (!profile) {
-      return NextResponse.json({ profile: null });
+      return NextResponse.json({ profile: null, identity });
     }
-    return NextResponse.json({ profile });
+    return NextResponse.json({ profile, identity });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load saved application info.";
     return NextResponse.json({ error: message }, { status: 500 });

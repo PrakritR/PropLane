@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PropLane PDF import plan - leases and applications</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #192435; background: #f7f8f9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1060px; margin: 0 auto; padding: 44px 24px 80px; }
+    h1, h2, h3 { line-height: 1.22; letter-spacing: -.025em; }
+    h1 { font-size: clamp(2rem, 4vw, 3rem); margin: 8px 0 16px; }
+    h2 { font-size: 1.45rem; margin: 0 0 16px; }
+    h3 { font-size: 1.06rem; margin: 24px 0 8px; }
+    p { margin: 9px 0 15px; }
+    ul, ol { padding-left: 1.45rem; }
+    li { margin: 7px 0; }
+    .eyebrow { font-size: .76rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: #426382; }
+    .lead { font-size: 1.12rem; max-width: 780px; }
+    .meta { color: #526174; font-size: .88rem; }
+    section, .callout { background: #fff; border: 1px solid #dce3e9; border-radius: 16px; padding: 26px 30px; margin-top: 22px; }
+    .callout { background: #e9f2f5; border-color: #c9e0e8; }
+    .warning { background: #fff5e8; border-color: #efd5b3; }
+    table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+    th, td { text-align: left; vertical-align: top; padding: 11px 10px; border-bottom: 1px solid #e2e7eb; }
+    th { background: #f2f5f7; font-weight: 700; }
+    code { padding: 1px 4px; border-radius: 4px; background: #eef1f4; font-size: .86em; overflow-wrap: anywhere; }
+    .wide { overflow-x: auto; }
+    .flow { display: flex; flex-wrap: wrap; gap: 8px; margin: 15px 0 3px; }
+    .flow span { display: inline-block; background: #edf3f6; border: 1px solid #d1e0e8; border-radius: 999px; padding: 7px 11px; font-size: .9rem; }
+    .flow b { align-self: center; color: #668096; }
+    @media (max-width: 650px) { main { padding: 26px 14px 54px; } section, .callout { padding: 20px; } table { min-width: 670px; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Implementation plan · 24 September 2026</div>
+  <h1>Import a manager's lease or rental application PDF</h1>
+  <p class="lead">Managers can choose a PropLane form or import their own PDF. An imported document becomes a reviewable, editable draft. The original remains available for comparison. Only a manager-approved version becomes available to residents or applicants.</p>
+  <p class="meta">Repository: /Users/akhilvemuri/coding/AXIS-2 · Branch: <code>agent/assistant-chrome-polish</code> · Planning HEAD: <code>f814a9e8a825132f4a62108c1bc771c8b8343ff1</code> · Plan only; no product code changed or tests run.</p>
+
+  <div class="callout">
+    <strong>Recommended product decision</strong>
+    <p>An imported, manager-approved converted lease is the version offered for new signatures. The unchanged original PDF stays private and visible beside it as source evidence. A separate “Use original PDF” path remains for managers who intentionally want to sign their exact upload, and existing signed or sent PDF leases keep their current behavior. This makes “edit the converted lease before using it” meaningful without changing historical agreements.</p>
+  </div>
+
+  <section>
+    <h2>What exists today</h2>
+    <div class="wide"><table>
+      <thead><tr><th>Area</th><th>Available now</th><th>Gap against the requested experience</th></tr></thead>
+      <tbody>
+        <tr><td>Lease on a resident record</td><td><code>uploaded-lease-parse.server.ts</code> extracts pages; <code>uploaded-lease-extraction.ts</code> partitions text and flags uncertain terms; <code>uploaded-lease-review-modal.tsx</code> shows extracted terms and a formatted rendering; the send gate requires confirmation.</td><td>The converted rendering is read only. The original PDF is still the signed artifact. The original and conversion are not a single side by side editing workspace. Image-only PDFs have no OCR.</td></tr>
+        <tr><td>Reusable property lease</td><td><code>property-lease-form-modal.tsx</code> offers PropLane default, PDF upload, direct HTML editing, and preview. A private <code>lease-templates</code> bucket stores the source PDF.</td><td>A separate parser can send up to 120,000 characters to Anthropic, then accept a returned section list without verifying full source coverage. This path and resident-record upload use different conversion rules. Source PDF comparison and publish review are incomplete.</td></tr>
+        <tr><td>Application builder</td><td><code>pro-application-questions-editor-modal.tsx</code> can add, edit, remove, and reorder custom questions, change required flags, and preview one section. PropLane has standard fields and prior-application autofill.</td><td>No application PDF import. There is no imported draft or explicit publish action. Standard identity fields can currently be disabled. Built-in fields remain in fixed catalog order, and the standard wizard validator checks whether a field is enabled but does not use the editor's required override. The section preview is narrower than the full applicant journey.</td></tr>
+        <tr><td>Named application templates</td><td><code>property-application-templates.ts</code> stores names, kinds, and variants.</td><td>Question configuration lives on the listing's variant fields, rather than separately on each named template. Two named templates of one variant therefore cannot hold two independent imported questionnaires.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="meta">These findings come from the current source files, not a live browser run. The repository graph identified entry points, but its branch metadata refers to an older HEAD, so source files were checked directly.</p>
+  </section>
+
+  <section>
+    <h2>Manager experience</h2>
+    <h3>Lease</h3>
+    <div class="flow"><span>Choose PropLane or upload PDF</span><b>→</b><span>Read and convert</span><b>→</b><span>Compare and edit</span><b>→</b><span>Save reviewed version</span><b>→</b><span>Send for signature</span></div>
+    <ol>
+      <li>Offer “Use a PropLane lease” and “Import my lease” in the existing lease workspace. Import works for a reusable property template and a particular resident lease.</li>
+      <li>Store the original PDF privately and show reading progress. A failed or partial read stays a draft with a page-specific issue list and a retry action. Never label it converted when content was missed.</li>
+      <li>Open one compare workspace: original PDF on the left and the PropLane formatted, editable document on the right. On phones, use an Original / Converted switch that keeps the current page and section. Provide page references and a list of unresolved passages, tables, form fields, and images.</li>
+      <li>Allow direct edits to the converted document before save. Preserve source text in original order on initial conversion. New words from the manager are identified as edits; the source is never silently rewritten. Saving remains a draft until explicit confirmation of the whole document.</li>
+      <li>Show the exact final document before sending. Send and assistant tool paths read the same server-side gate. A converted lease sent for signature is immutable after either party signs; revisions require a new version and a new signing request.</li>
+    </ol>
+    <h3>Application</h3>
+    <div class="flow"><span>Choose PropLane or upload PDF</span><b>→</b><span>Extract questions</span><b>→</b><span>Edit draft</span><b>→</b><span>Preview full form</span><b>→</b><span>Publish</span></div>
+    <ol>
+      <li>Add PDF import to the existing application workspace. Let the manager choose the property and long-term, short-term, or co-signer form. Keep the original PDF in a private manager-owned store and offer Original / Form comparison during editing.</li>
+      <li>Map each source question to a standard field when the meaning is clear; retain its original wording as the visible label. Put unmatched questions into custom fields in source order. Preserve choice options and identify uncertain field type, grouping, or required status for the manager to resolve.</li>
+      <li>Always include full legal name, phone, and email once. Treat these as required identity fields in the editor and in server validation. Avoid duplicate imported copies when the PDF asks for them under different labels.</li>
+      <li>Let the manager add, remove, edit, move, and set required status for other questions, including imported questions mapped onto built-in fields. Use one saved display order across built-in and custom questions. Save as a draft. Show the whole applicant wizard, including branching and validation, in a write-disabled preview using the unpublished draft.</li>
+      <li>Publish only after import issues and required-field validation pass. The public applicant flow reads the published version; a manager edit creates a new draft version and never changes a form already in progress.</li>
+      <li>For signed-in applicants, fill missing identity values from the authenticated account and reusable prior answers. Let the applicant verify and edit the values. Do not copy answers between accounts or overwrite answers the applicant already typed.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Implementation decisions</h2>
+    <h3>1. One source-preserving import core</h3>
+    <p>Use server-side, bounded PDF processing for both document types: page text, AcroForm fields and options, annotations, tables where detectable, and OCR for scanned pages. Record source page and span for every imported block. Conversion may use a classifier for structure, but the final draft is assembled from source spans, never from generated paraphrases. A coverage check accounts for all extracted text; non-text content must be represented in the converted draft or explicitly marked unresolved. Limit file size, pages, OCR time, and output size. Retry from the stored source, not a browser-held data URL.</p>
+    <p>Run this as an asynchronous, resumable import job if OCR exceeds the route's bounded execution time. Keep the source and result private, scoped to the authenticated manager and property. Reject disguised PDFs and executable content. Do not send document text to an external model as an implicit side effect of upload. If a later model-assisted classifier is selected, make data handling an explicit product and security decision first.</p>
+    <h3>2. Explicit lease artifact and version</h3>
+    <p>Add an explicit document mode for <code>PropLane generated</code>, <code>imported converted</code>, and <code>original PDF</code>. Store the immutable source PDF separately from the editable converted HTML and its review record, with source hash, converted version, reviewer, and time. Route preview, export, send, hash, certificate, and resident rendering through one “effective signable document” resolver. Preserve legacy rows as original-PDF mode. The converted HTML must use the existing sanitizer and signed-document immutability rules.</p>
+    <h3>3. Per-template application configuration</h3>
+    <p>Give each named application template its own draft and published question configuration, explicit question order, version, and import provenance. Keep existing listing variant configuration as the fallback for legacy templates. The applicant route resolves one published template for the listing and stay type, and pins its version to each in-progress application. Publish makes one immutable snapshot active; changes to a draft do not leak through the public listing projection. Store the source PDF reference in manager-only metadata, not the public listing payload. Make the applicant renderer and validator read the same enabled, required, type, and order settings.</p>
+    <h3>4. Required fields and autofill</h3>
+    <p>Make identity requirements part of one shared field policy used by the builder, normalization, preview, and server-side submission validation. Match imported identity prompts into those fields while retaining source wording. Extend current account autofill to include authenticated name and phone when present; email comes from the authenticated identity. Merge only into blank answers and keep prior-application reuse account-scoped.</p>
+  </section>
+
+  <section>
+    <h2>Alternatives considered</h2>
+    <div class="wide"><table>
+      <thead><tr><th>Choice</th><th>Tradeoff</th><th>Decision</th></tr></thead>
+      <tbody>
+        <tr><td>Keep the original PDF as the only signed document</td><td>Least disruption to signing, but edits to the converted lease would never reach residents.</td><td>Keep as an explicit option and for legacy rows; new reviewed conversions can be signed.</td></tr>
+        <tr><td>Let an AI model rewrite each lease section</td><td>Easy section titles, but clauses may be changed or dropped and private text leaves the current process.</td><td>Use source spans and coverage checks. Structural suggestions cannot author lease text.</td></tr>
+        <tr><td>Attach imported questions to the existing listing-wide variant config</td><td>Smallest data change, but one named template overwrites another and unsaved changes can reach applicants.</td><td>Use versioned config per named template with an explicit publish step.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Likely code and data changes</h2>
+    <ul>
+      <li><strong>Lease conversion:</strong> consolidate <code>src/lib/uploaded-lease-*</code> and <code>src/lib/lease-pdf-parse*</code>; update <code>property-lease-form-modal.tsx</code>, <code>uploaded-lease-review-modal.tsx</code>, the manager lease surfaces, placement rendering, the lease pipeline route/store, document sanitizer, preview, signing, download, and the assistant send guard.</li>
+      <li><strong>Application import:</strong> add an authenticated parse/import route and private source storage; extend <code>pro-application-questions-editor-modal.tsx</code>, <code>application-form-builder.tsx</code>, <code>property-application-templates.ts</code>, the field catalog, applicant wizard, public listing projection, autofill, and submission validation.</li>
+      <li><strong>Persistence:</strong> add an idempotent migration for private application source objects and import/version metadata if existing JSONB cannot hold the lifecycle safely. Keep manager ownership server-derived, add account-purge classification for any new public table, and avoid exposing source paths in public responses. Existing lease and application records normalize to their present behavior.</li>
+      <li><strong>Observability:</strong> record import started, failed, reviewed, and published events with ids and reason codes only. Keep document contents, applicant answers, and source snippets out of analytics and error logs.</li>
+      <li><strong>Repository contracts:</strong> read the current Next.js guide before code, follow portal UI rules, update the lease-generation area notes and relevant application documentation, and refresh <code>.graphify/</code> after code edits.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Execution sequence</h2>
+    <ol>
+      <li><strong>Foundation:</strong> source storage, authenticated import jobs, page/block provenance, OCR path, coverage report, retries, and resource limits. Prove text PDF, fillable PDF, and scan behavior with fixtures.</li>
+      <li><strong>Lease:</strong> unify conversion; build compare/edit workspace; persist converted draft and reviewed version; choose effective signable artifact; protect legacy and already-signed records.</li>
+      <li><strong>Application:</strong> import-to-question mapping; per-template draft/published version; identity field policy; full applicant preview; account autofill; public flow version pinning.</li>
+      <li><strong>Integration:</strong> seeded dev/test browser exercise for manager and applicant flows, permission and mobile checks, required repository checks, independent code review, and localhost Review URL handoff. No production migration or release is in scope for this plan.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Acceptance criteria and validation</h2>
+    <div class="wide"><table>
+      <thead><tr><th>Criterion</th><th>Evidence to collect during implementation</th></tr></thead>
+      <tbody>
+        <tr><td>A text lease with multiple pages, tables, riders, and repeated terms imports with no silent omissions.</td><td>Unit fixtures for span partition and source coverage; integration parse test; visual compare in Chromium and WebKit.</td></tr>
+        <tr><td>A scanned or damaged lease does not falsely report complete conversion.</td><td>OCR fixture and unreadable-page fixture; unresolved pages block converted signing; retry preserves source hash.</td></tr>
+        <tr><td>Manager edits the converted lease and the resident signs exactly that version.</td><td>Browser upload/edit/send/sign path, document hash/certificate assertion, signed-version mutation rejection, download parity.</td></tr>
+        <tr><td>Original-PDF and existing signed leases keep their bytes and behavior.</td><td>Legacy normalization tests and PDF hash regression tests.</td></tr>
+        <tr><td>Imported application questions keep wording, choices, order, and required state; unknown mappings remain visible. A required toggle changes actual applicant validation, including for a mapped built-in field.</td><td>Text and fillable PDF fixtures; catalog and validation tests; manager and applicant browser editing with source comparison.</td></tr>
+        <tr><td>Full legal name, phone, and email appear once and are required even after a forged config or submit request.</td><td>Catalog, route, and submission validation tests; applicant browser errors.</td></tr>
+        <tr><td>Draft remains private; preview mirrors the applicant wizard; publish activates one version.</td><td>Manager and anonymous route tests, in-progress version pin test, real listing browser preview and publish.</td></tr>
+        <tr><td>Authenticated applicant autofill is scoped and does not overwrite entered answers.</td><td>Two-account integration test and browser path for blank, prefilled, and edited fields.</td></tr>
+        <tr><td>Manager cannot read another manager's source or publish another manager's form.</td><td>Route authorization tests and dev/test RLS or service-role ownership probe.</td></tr>
+        <tr><td>Phone layout remains usable and failures are recoverable.</td><td>390px browser pass through compare, edit, preview, retry, and publish.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Before broad checks, confirm the pinned runtime in <code>.nvmrc</code> and available laptop memory/disk. Assign one owner for whole-project validation; run focused tests while developing, then one coordinated typecheck/build/broad suite with exact exit codes. Use seeded dev/test records, not <code>/demo</code>, for the final browser evidence. Stop the task-owned localhost server after review.</p>
+  </section>
+
+  <div class="callout warning">
+    <strong>Key limitation to resolve during implementation</strong>
+    <p>PDF extraction cannot prove that handwriting, a poor scan, or a flattened graphic was transcribed correctly. The product must show those pages in the comparison, mark uncertain content, and block the converted version from publication or signing until a manager resolves it. The original remains available throughout. This is the practical meaning of “preserve all content” without making a false completeness claim.</p>
+  </div>
+</main>
+</body>
+</html>

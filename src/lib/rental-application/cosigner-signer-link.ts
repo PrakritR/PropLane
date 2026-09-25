@@ -2,12 +2,16 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { applicationLinkBlock } from "@/lib/rental-application/application-link-eligibility";
 import { validateGroupLeaderAppIdInput } from "@/lib/rental-application/group-leader-link";
+import type { ApplicationConfigSlice } from "./application-field-catalog";
 
 export type CosignerSignerLinkOk = {
   ok: true;
   signerAppId: string;
   signerFullName: string | null;
   propertyId: string | null;
+  applicationConfig?: ApplicationConfigSlice;
+  applicationTemplateId?: string;
+  applicationTemplateVersion?: number;
 };
 
 export type CosignerSignerLinkErrorCode = "invalid_id" | "not_found" | "not_submitted";

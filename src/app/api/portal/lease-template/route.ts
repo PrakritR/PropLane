@@ -13,6 +13,7 @@ import { getReportsAuthContext } from "@/lib/reports/auth";
 import { residentHasApprovedResidency, resolveResidentFilingScope } from "@/lib/resident-manager-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { assertSafePdfForImport } from "@/lib/pdf-import/pdf-source.server";
 
 export const runtime = "nodejs";
 
@@ -244,6 +245,8 @@ export async function POST(req: Request) {
     if (file.size === 0 || file.size > LEASE_TEMPLATE_MAX_BYTES) {
       return NextResponse.json({ error: "Lease template is too large. Keep it under 8 MB." }, { status: 400 });
     }
+    try { await assertSafePdfForImport(new Uint8Array(await file.arrayBuffer())); }
+    catch { return NextResponse.json({ error: "PDF contains active or unsupported content and cannot be uploaded." }, { status: 422 }); }
 
     // The folder is the AUTHENTICATED user's id, never a name from the request —
     // it is what the read path treats as ownership.

@@ -4,6 +4,7 @@ import {
   LEASE_ESIGN_CONSENT_VERSION,
   documentFingerprintLabel,
   signedDocumentHashesDiverge,
+  effectiveLeaseDocumentMode,
 } from "@/lib/lease-execution-evidence";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { formatRoomPriceAmount, resolveStayPricing } from "@/lib/room-pricing";
@@ -253,12 +254,14 @@ export async function appendSignaturePageToPdf(originalDataUrl: string, row: Lea
 }
 
 export function getLeasePdfBaseDataUrl(row: LeasePipelineRow): string | null {
+  if (effectiveLeaseDocumentMode(row) !== "original-pdf") return null;
   const pdf = row.managerUploadedPdf;
   if (!pdf?.dataUrl) return null;
   return pdf.originalDataUrl ?? pdf.dataUrl;
 }
 
 export function getLeasePdfForDisplay(row: LeasePipelineRow): string | null {
+  if (effectiveLeaseDocumentMode(row) !== "original-pdf") return null;
   return row.managerUploadedPdf?.dataUrl ?? null;
 }
 

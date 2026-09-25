@@ -2,30 +2,19 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { extractText, getDocumentProxy } from "unpdf";
+import { parsePdfForImport, pdfImportPageContent, UnsafePdfImportError } from "@/lib/pdf-import/pdf-source.server";
+import type { PdfImportSource } from "@/lib/pdf-import/pdf-source.server";
 import {
   buildUploadedLeaseParse,
   failedUploadedLeaseParse,
   type UploadedLeaseParse,
 } from "@/lib/uploaded-lease-extraction";
 
-/**
- * Text extraction for a manager-uploaded lease PDF.
- *
- * Pages are kept SEPARATE (`mergePages` off) because every extracted field and
- * section records the page it came from, and a reviewer with no page number
- * cannot check the machine's work — which would make the confirm step theatre.
- *
- * `unpdf` is already a dependency (`lease-pdf-parse.server.ts`) and this module
- * is `server-only`, so it adds nothing to the client bundle. Nothing here leaves
- * the process: field extraction is deterministic regex in
- * `uploaded-lease-extraction.ts`, and no lease text is sent to any third-party
- * service.
- */
+/** Shared page extraction for resident document classification. */
 export async function extractLeasePdfPages(bytes: Uint8Array): Promise<string[]> {
   const pdf = await getDocumentProxy(new Uint8Array(bytes));
   const { text } = await extractText(pdf);
-  if (Array.isArray(text)) return text.map((page) => String(page ?? ""));
-  return [String(text ?? "")];
+  return Array.isArray(text) ? text.map((page) => String(page ?? "")) : [String(text ?? "")];
 }
 
 export function dataUrlToPdfBytes(dataUrl: string): Uint8Array {
@@ -46,24 +35,25 @@ export async function parseUploadedLeasePdfBytes(args: {
   fileName: string;
   nowIso?: string;
 }): Promise<UploadedLeaseParse> {
-  const sourceSha256 = createHash("sha256").update(Buffer.from(args.bytes)).digest("hex");
-  let pages: string[];
+  let source: PdfImportSource;
   try {
-    pages = await extractLeasePdfPages(args.bytes);
-  } catch {
+    source = await parsePdfForImport({ bytes: args.bytes, fileName: args.fileName });
+  } catch (error) {
+    if (error instanceof UnsafePdfImportError) throw error;
     return {
       ...failedUploadedLeaseParse(
         args.fileName,
         "This file could not be opened as a PDF. Review the original document instead.",
       ),
-      sourceSha256,
+      sourceSha256: createHash("sha256").update(args.bytes).digest("hex"),
     };
   }
-  const parsed = buildUploadedLeaseParse({
-    pages,
+  return buildUploadedLeaseParse({
+    pages: source.pages.map(pdfImportPageContent),
     fileName: args.fileName,
-    sourceSha256,
+    sourceSha256: source.sourceSha256,
     extractedAtIso: args.nowIso ?? new Date().toISOString(),
+    sourceIssues: source.issues,
+    sourceCoverage: source.coverage,
   });
-  return { ...parsed, sourceSha256 };
 }

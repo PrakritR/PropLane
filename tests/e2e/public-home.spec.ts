@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
@@ -53,9 +54,9 @@ test.describe("Public home", () => {
     await page.goto("/");
     const pricing = page.locator("#pricing");
     await pricing.scrollIntoViewIfNeeded();
-    await expect(pricing.getByText("$0", { exact: true })).toBeVisible();
-    await expect(pricing.getByText("$20", { exact: true })).toBeVisible();
-    await expect(pricing.getByText("$200", { exact: true })).toBeVisible();
+    for (const tier of MANAGER_PLAN_TIERS) {
+      await expect(pricing.getByText(tier.id === "free" ? "$0" : tier.monthly.headline, { exact: true })).toBeVisible();
+    }
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 

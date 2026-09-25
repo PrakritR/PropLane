@@ -14,6 +14,8 @@ import {
 import { createDefaultListingSubmission, normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 
 const employmentKey = STANDARD_APPLICATION_FIELD_CATALOG.find((d) => d.section === "employment")!.standardKey;
+const dateOfBirthKey = STANDARD_APPLICATION_FIELD_CATALOG.find((d) => d.wizardFormKeys.includes("dateOfBirth"))!.standardKey;
+const ssnKey = STANDARD_APPLICATION_FIELD_CATALOG.find((d) => d.wizardFormKeys.includes("ssn"))!.standardKey;
 
 function catalogField(section: (typeof STANDARD_APPLICATION_FIELD_CATALOG)[number]["section"], label: string) {
   const def = STANDARD_APPLICATION_FIELD_CATALOG.find((d) => d.section === section && d.label === label);
@@ -51,12 +53,12 @@ describe("household and co-signer application questions", () => {
 describe("application form variants — short-term vs long-term are configured independently", () => {
   it("long-term reads a configured custom triplet unchanged", () => {
     const sub = {
-      disabledStandardApplicationKeys: ["personal-phone"],
+      disabledStandardApplicationKeys: [dateOfBirthKey],
       customApplicationFields: [],
       applicationConfigMode: "custom" as const,
     };
     const slice = applicationConfigForVariant(sub, "standard");
-    expect(slice.disabledStandardApplicationKeys).toEqual(["personal-phone"]);
+    expect(slice.disabledStandardApplicationKeys).toEqual([dateOfBirthKey]);
     expect(slice.applicationConfigMode).toBe("custom");
   });
 
@@ -89,12 +91,12 @@ describe("application form variants — short-term vs long-term are configured i
   it("a configured (custom) co-signer form reads its own stored slice", () => {
     const sub = {
       cosignerApplicationConfigMode: "custom" as const,
-      cosignerDisabledStandardApplicationKeys: ["personal-email"],
+      cosignerDisabledStandardApplicationKeys: [dateOfBirthKey],
       cosignerCustomApplicationFields: [],
     };
     const slice = applicationConfigForVariant(sub, "cosigner");
-    expect(slice.disabledStandardApplicationKeys).toEqual(["personal-email"]);
-    expect(isWizardFormFieldEnabled(slice, "email")).toBe(false);
+    expect(slice.disabledStandardApplicationKeys).toEqual([dateOfBirthKey]);
+    expect(isWizardFormFieldEnabled(slice, "dateOfBirth")).toBe(false);
   });
 
   it("an unconfigured short-term form resolves to the curated default question set", () => {
@@ -116,11 +118,11 @@ describe("application form variants — short-term vs long-term are configured i
   it("a configured (custom) short-term form reads its own stored slice, not the default", () => {
     const sub = {
       shortTermApplicationConfigMode: "custom" as const,
-      shortTermDisabledStandardApplicationKeys: ["personal-email"],
+      shortTermDisabledStandardApplicationKeys: [dateOfBirthKey],
       shortTermCustomApplicationFields: [],
     };
     const slice = applicationConfigForVariant(sub, "short_term");
-    expect(slice.disabledStandardApplicationKeys).toEqual(["personal-email"]);
+    expect(slice.disabledStandardApplicationKeys).toEqual([dateOfBirthKey]);
     // Employment is NOT in the stored set, so it is enabled again for this manager.
     expect(isWizardFormFieldEnabled(slice, "employer")).toBe(true);
   });
@@ -128,28 +130,28 @@ describe("application form variants — short-term vs long-term are configured i
   it("editing one form never mutates the other's stored fields", () => {
     // Turn a question off on the long-term form.
     const longMerge = mergeApplicationConfigForVariant("standard", {
-      disabledStandardApplicationKeys: ["personal-phone"],
+      disabledStandardApplicationKeys: [ssnKey],
       customApplicationFields: [],
       applicationConfigMode: "custom",
     });
-    expect(longMerge.disabledStandardApplicationKeys).toEqual(["personal-phone"]);
+    expect(longMerge.disabledStandardApplicationKeys).toEqual([ssnKey]);
     expect(longMerge.shortTermDisabledStandardApplicationKeys).toBeUndefined();
 
     // Turn a (different) question off on the short-term form.
     const shortMerge = mergeApplicationConfigForVariant("short_term", {
-      disabledStandardApplicationKeys: ["personal-email"],
+      disabledStandardApplicationKeys: [dateOfBirthKey],
       customApplicationFields: [],
       applicationConfigMode: "custom",
     });
-    expect(shortMerge.shortTermDisabledStandardApplicationKeys).toEqual(["personal-email"]);
+    expect(shortMerge.shortTermDisabledStandardApplicationKeys).toEqual([dateOfBirthKey]);
     expect(shortMerge.disabledStandardApplicationKeys).toBeUndefined();
 
     // Applied together on one submission, each form keeps its own answer.
     const sub = { ...longMerge, ...shortMerge };
-    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "standard"), "phone")).toBe(false);
-    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "standard"), "email")).toBe(true);
-    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "short_term"), "email")).toBe(false);
-    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "short_term"), "phone")).toBe(true);
+    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "standard"), "ssn")).toBe(false);
+    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "standard"), "dateOfBirth")).toBe(true);
+    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "short_term"), "dateOfBirth")).toBe(false);
+    expect(isWizardFormFieldEnabled(applicationConfigForVariant(sub, "short_term"), "ssn")).toBe(true);
   });
 });
 
@@ -162,16 +164,13 @@ describe("manager editor — disabled question visibility", () => {
   });
 
   it("shows only manager-removed questions once a variant is customized", () => {
-    const nameKey = STANDARD_APPLICATION_FIELD_CATALOG.find((d) =>
-      d.wizardFormKeys.includes("fullLegalName"),
-    )!.standardKey;
     const slice = {
       ...applicationConfigForVariant({}, "short_term"),
       applicationConfigMode: "custom" as const,
-      disabledStandardApplicationKeys: [...SHORT_TERM_DEFAULT_DISABLED_STANDARD_KEYS, nameKey],
+      disabledStandardApplicationKeys: [...SHORT_TERM_DEFAULT_DISABLED_STANDARD_KEYS, dateOfBirthKey],
     };
     const ghosts = editorVisibleDisabledApplicationFields("short_term", slice);
-    expect(ghosts.map((f) => f.standardKey)).toEqual([nameKey]);
+    expect(ghosts.map((f) => f.standardKey)).toEqual([dateOfBirthKey]);
   });
 });
 

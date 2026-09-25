@@ -24,8 +24,10 @@ export function matchResidentFromApplications(
     }
   }
 
+  // A supplied email is the final identity. A matching name with a different
+  // email must never silently select an existing resident for an import.
   const name = input.name?.trim().toLowerCase() ?? "";
-  if (name) {
+  if (!email && name) {
     const byName = rows.filter(
       (row) =>
         row.name?.trim().toLowerCase() === name &&

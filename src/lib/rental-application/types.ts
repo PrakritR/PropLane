@@ -64,6 +64,9 @@ export type RentalCustomFieldAnswer = {
 };
 
 export type RentalWizardFormState = {
+  /** Named template snapshot selected when this application begins. */
+  applicationTemplateId?: string;
+  applicationTemplateVersion?: number;
   applicantRole: ApplicantRole;
   applyingAsGroup: YesNo;
   groupRole: GroupRole;

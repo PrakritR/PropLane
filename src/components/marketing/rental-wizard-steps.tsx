@@ -1,7 +1,7 @@
 "use client";
 
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
-import { type ReactNode } from "react";
+import { Children, isValidElement, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -64,9 +64,13 @@ import { Label, FieldError, YesNoPills } from "@/components/rental-application/f
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import {
   activeApplicationWizardSteps,
-  applicationConfigForVariant,
+  applicationFieldCatalogDef,
   isWizardFormFieldEnabled,
+  resolveListingApplicationFields,
+  type ApplicationConfigSlice,
+  type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 
 /**
  * Every step a custom question's section can be asked on, taken from the section
@@ -96,6 +100,29 @@ function WizardFieldGate({
   return <>{children}</>;
 }
 
+/** Reorder complete typed controls, then insert custom questions at their saved positions. */
+function OrderedConfiguredQuestions({
+  fields,
+  children,
+  renderCustom,
+}: {
+  fields: ResolvedApplicationField[];
+  children: ReactNode;
+  renderCustom: (field: ResolvedApplicationField) => ReactNode;
+}) {
+  const controls = new Map<string, ReactNode>();
+  for (const child of Children.toArray(children)) {
+    if (!isValidElement<{ fieldKey?: string }>(child) || typeof child.props.fieldKey !== "string") continue;
+    controls.set(child.props.fieldKey, child);
+  }
+  return <>{fields.map((field) => {
+    if (!field.isStandard) return renderCustom(field);
+    const key = applicationFieldCatalogDef(field.standardKey!)?.wizardFormKeys[0];
+    const control = key ? controls.get(key) : null;
+    return control ? <div key={field.id} data-application-question-id={field.id}>{control}</div> : null;
+  })}</>;
+}
+
 function StepIntro({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <p className={`text-sm leading-relaxed text-muted ${className}`}>{children}</p>;
 }
@@ -104,6 +131,8 @@ export type WizardStepsProps = {
   step: number;
   form: RentalWizardFormState;
   errors: RentalWizardErrors;
+  /** Unsaved manager preview; live applicants always resolve their pinned published version. */
+  applicationConfigOverride?: ApplicationConfigSlice;
   /**
    * `public` and `portal` are the two live applicant surfaces; `manager` is the
    * manager-on-behalf flow. `editor` is read-only for payment purposes.
@@ -312,8 +341,26 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   // independently-configured question sets. `rentalType` is derived from the
   // step-3 lease-term dropdown (the single listing-permission gate), so the two
   // can never disagree.
-  const applicationConfig = applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType));
+  const applicationConfig = p.applicationConfigOverride ?? applicationConfigForApplicant(
+    listingSub,
+    applicationRentalTypeFor(form.rentalType),
+    form.applicationTemplateId,
+    form.applicationTemplateVersion,
+  ).config;
   const showWizardField = (key: string) => isWizardFormFieldEnabled(applicationConfig, key);
+  const resolvedQuestions = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields);
+  const sectionQuestions = (section: ResolvedApplicationField["section"]) => resolvedQuestions.filter((field) => field.section === section);
+  const standardQuestion = (section: ResolvedApplicationField["section"], firstKey: string) =>
+    sectionQuestions(section).find((field) => field.isStandard && applicationFieldCatalogDef(field.standardKey!)?.wizardFormKeys[0] === firstKey);
+  const renderCustomQuestion = (field: ResolvedApplicationField) => (
+    <div key={field.id} data-application-question-id={field.id}>
+      <CustomQuestionField field={field} value={customFieldAnswerValue(form.customFieldAnswers, field.key)}
+        error={errors[customFieldErrorKey(field.key)]}
+        onChange={(next) => patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })}
+        getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired}
+        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} />
+    </div>
+  );
 
   // Photo uploads are read-only in the portal's editor (an already-submitted
   // application is never re-uploaded). `getApplicationId` mints/returns the
@@ -601,6 +648,10 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   if (step === 3) {
     void occupancySyncEpoch;
     const selectedProperty = getPropertyById(form.propertyId);
+    const propertyQuestion = standardQuestion("property", "propertyId");
+    const termQuestion = standardQuestion("property", "leaseTerm");
+    const roomQuestion = standardQuestion("property", "roomChoice1");
+    const datesQuestion = standardQuestion("property", "leaseStart");
     // A single lease-term dropdown carries short-term too: listingAllowedLeaseTerms
     // includes "Short-Term Stay" exactly when the listing permits it, so there is no
     // separate "Application type" toggle that could contradict the term.
@@ -704,10 +755,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </div>
 
         <WizardFieldGate fieldKey="propertyId" enabled={showWizardField}>
-        <div className="space-y-2" data-wizard-field="propertyId">
-          <Label htmlFor="propertyId" required>
-            Property name
-          </Label>
+        <div className="space-y-2" data-wizard-field="propertyId" data-application-question-id={propertyQuestion?.id}>
+          <Label htmlFor="propertyId" required={propertyQuestion?.required}>{propertyQuestion?.label ?? "Property name"}</Label>
           {propertyLocked ? (
             selectedProperty ? (
             <div className="rounded-xl border border-border bg-accent/30 px-4 py-3 text-sm">
@@ -764,10 +813,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </WizardFieldGate>
 
         <WizardFieldGate fieldKey="leaseTerm" enabled={showWizardField}>
-        <div className="space-y-2" data-wizard-field="leaseTerm">
-          <Label htmlFor="leaseTerm" required>
-            Lease term
-          </Label>
+        <div className="space-y-2" data-wizard-field="leaseTerm" data-application-question-id={termQuestion?.id}>
+          <Label htmlFor="leaseTerm" required={termQuestion?.required}>{termQuestion?.label ?? "Lease term"}</Label>
           <Select
             id="leaseTerm"
             value={form.leaseTerm}
@@ -893,7 +940,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="roomChoice1" enabled={showWizardField}>
         {isByRoom && !bundleSelected ? (
         <div className="space-y-2">
-          <Label required>Room preferences</Label>
+          <Label required={roomQuestion?.required}>{roomQuestion?.label ?? "Room preferences"}</Label>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">1st choice</span>
@@ -989,9 +1036,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="leaseStart" enabled={showWizardField}>
         <div className={form.leaseTerm === "Month-to-Month" ? "space-y-2" : "grid gap-4 sm:grid-cols-2"}>
           <div className="space-y-2">
-            <Label htmlFor="leaseStart" required>
-              {form.rentalType === "short_term" ? "Check-in date" : "Lease start date"}
-            </Label>
+            <Label htmlFor="leaseStart" required={datesQuestion?.required}>{datesQuestion?.label ?? (form.rentalType === "short_term" ? "Check-in date" : "Lease start date")}</Label>
             <DateField
               id="leaseStart"
               min="2020-01-01"
@@ -1115,191 +1160,83 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   }
 
   if (step === 2) {
+    const personalFields = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields)
+      .filter((field) => field.section === "personal");
+    const renderPersonalField = (field: (typeof personalFields)[number]) => {
+      if (!field.isStandard) {
+        return (
+          <div key={field.id} data-application-question-id={field.id}>
+            <CustomQuestionField
+              field={field}
+              value={customFieldAnswerValue(form.customFieldAnswers, field.key)}
+              error={errors[customFieldErrorKey(field.key)]}
+              onChange={(next) => patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })}
+              getApplicationId={getApplicationId}
+              setupTokenRequired={p.photoSetupTokenRequired}
+              getSetupToken={p.getPhotoSetupToken}
+              readOnly={photosReadOnly}
+            />
+          </div>
+        );
+      }
+      const formKey = applicationFieldCatalogDef(field.standardKey!)?.wizardFormKeys[0];
+      const fieldKey = formKey ?? "";
+      const gate = (children: ReactNode) => (
+        <WizardFieldGate key={field.id} fieldKey={fieldKey} enabled={showWizardField}>
+          <div data-wizard-field={fieldKey} data-application-question-id={field.id} className="space-y-2">
+            {children}
+          </div>
+        </WizardFieldGate>
+      );
+      switch (fieldKey) {
+        case "fullLegalName":
+          return gate(<><Label htmlFor="fullLegalName" required={field.required}>{field.label}</Label><Input id="fullLegalName" value={form.fullLegalName} onChange={(e) => patch({ fullLegalName: e.target.value })} placeholder="First and last name" autoComplete="name" className={errors.fullLegalName ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.fullLegalName} /></>);
+        case "dateOfBirth":
+          return gate(<><Label htmlFor="dateOfBirth" required={field.required}>{field.label}</Label><DateField id="dateOfBirth" value={form.dateOfBirth} onChange={(next) => patch({ dateOfBirth: next })} className={errors.dateOfBirth ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.dateOfBirth} /></>);
+        case "ssn":
+          return gate(<><Label htmlFor="ssn" required={field.required}>{field.label}</Label><Input id="ssn" inputMode="numeric" autoComplete="off" value={form.ssn} onChange={(e) => p.setSsn(e.target.value)} placeholder="###-##-####" className={errors.ssn ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.ssn} /></>);
+        case "driversLicense":
+          return gate(<><Label htmlFor="driversLicense" required={field.required}>{field.label}</Label><Input id="driversLicense" value={form.driversLicense} onChange={(e) => patch({ driversLicense: e.target.value })} className={errors.driversLicense ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.driversLicense} /></>);
+        case "phone":
+          return gate(<><Label htmlFor="phone" required={field.required}>{field.label}</Label><PhoneNumberField id="phone" value={form.phone} onChange={p.setPhone} inputClassName={errors.phone ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.phone} /><SmsConsentCheckbox inputId="sms-consent" checked={Boolean(form.smsConsent)} onChange={(next) => patch({ smsConsent: next, smsConsentAt: next ? new Date().toISOString() : undefined })} /></>);
+        case "email":
+          return gate(<><Label htmlFor="email" required={field.required}>{field.label}</Label><Input id="email" type="email" autoComplete="email" value={form.email} onChange={(e) => patch({ email: e.target.value })} placeholder="you@example.com" readOnly={Boolean(p.emailLocked)} disabled={Boolean(p.emailLocked)} className={errors.email ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.email} /></>);
+        case "idPhotoFront":
+          return gate(<><Label>{field.label}</Label><ApplicationPhotoField slot="idFront" label="Front of ID" uploadOnly attachment={form.idPhotoFront} onChange={(next) => patch({ idPhotoFront: next })} getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired} getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} dataAttr="application-id-photo-front" /></>);
+        case "idPhotoBack":
+          return gate(<><Label>{field.label}</Label><ApplicationPhotoField slot="idBack" label="Back of ID" uploadOnly attachment={form.idPhotoBack} onChange={(next) => patch({ idPhotoBack: next })} getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired} getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} dataAttr="application-id-photo-back" /></>);
+        default:
+          return null;
+      }
+    };
     return (
       <div className="space-y-8">
         {autofillBanner}
-        <div>
-          <StepIntro>
-            Start with how we can reach you, then confirm your identity exactly as it appears on your ID. This section is
-            encrypted in transit in production environments.
-          </StepIntro>
+        <StepIntro>
+          Start with how we can reach you, then confirm your identity exactly as it appears on your ID. This section is
+          encrypted in transit in production environments.
+        </StepIntro>
+        <div className="grid gap-4 sm:grid-cols-2" data-application-section="personal">
+          {personalFields.map(renderPersonalField)}
         </div>
-
-        <div className="space-y-5">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Contact</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <WizardFieldGate fieldKey="fullLegalName" enabled={showWizardField}>
-            <div className="space-y-2 sm:col-span-2" data-wizard-field="fullLegalName">
-              <Label htmlFor="fullLegalName" required>
-                Full legal name
-              </Label>
-              <Input
-                id="fullLegalName"
-                value={form.fullLegalName}
-                onChange={(e) => patch({ fullLegalName: e.target.value })}
-                placeholder="First and last name"
-                autoComplete="name"
-                className={errors.fullLegalName ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.fullLegalName} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="phone" enabled={showWizardField}>
-            <div className="space-y-2" data-wizard-field="phone">
-              <Label htmlFor="phone" required>
-                Phone number
-              </Label>
-              <PhoneNumberField
-                id="phone"
-                value={form.phone}
-                onChange={p.setPhone}
-                inputClassName={errors.phone ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.phone} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="email" enabled={showWizardField}>
-            <div className="space-y-2" data-wizard-field="email">
-              <Label htmlFor="email" required>
-                Email address
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={form.email}
-                onChange={(e) => patch({ email: e.target.value })}
-                placeholder="you@example.com"
-                readOnly={Boolean(p.emailLocked)}
-                disabled={Boolean(p.emailLocked)}
-                className={errors.email ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.email} />
-            </div>
-            </WizardFieldGate>
-          </div>
-          {/* A2P 10DLC SMS opt-in. Optional (never required to apply); the number
-              entered above is the one that would receive texts, so the control
-              follows the Phone question's gate. Unchecked by default; consent +
-              timestamp persist on the submitted snapshot (the server re-stamps
-              the timestamp + wording version on upsert). */}
-          <WizardFieldGate fieldKey="phone" enabled={showWizardField}>
-            <SmsConsentCheckbox
-              inputId="sms-consent"
-              checked={Boolean(form.smsConsent)}
-              onChange={(next) =>
-                patch({ smsConsent: next, smsConsentAt: next ? new Date().toISOString() : undefined })
-              }
-            />
-          </WizardFieldGate>
-        </div>
-
-        <div className="space-y-5">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Identity</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <WizardFieldGate fieldKey="dateOfBirth" enabled={showWizardField}>
-            <div className="space-y-2" data-wizard-field="dateOfBirth">
-              <Label htmlFor="dateOfBirth" required>
-                Date of birth
-              </Label>
-              <DateField
-                id="dateOfBirth"
-                value={form.dateOfBirth}
-                onChange={(next) => patch({ dateOfBirth: next })}
-                className={errors.dateOfBirth ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.dateOfBirth} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="ssn" enabled={showWizardField}>
-            <div className="space-y-2" data-wizard-field="ssn">
-              <Label htmlFor="ssn" required>
-                Social Security number
-              </Label>
-              <Input
-                id="ssn"
-                inputMode="numeric"
-                autoComplete="off"
-                value={form.ssn}
-                onChange={(e) => p.setSsn(e.target.value)}
-                placeholder="###-##-####"
-                className={errors.ssn ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.ssn} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="driversLicense" enabled={showWizardField}>
-            <div className="space-y-2 sm:col-span-2" data-wizard-field="driversLicense">
-              <Label htmlFor="driversLicense" required>
-                Driver&apos;s license or ID number
-              </Label>
-              <Input
-                id="driversLicense"
-                value={form.driversLicense}
-                onChange={(e) => patch({ driversLicense: e.target.value })}
-                className={errors.driversLicense ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.driversLicense} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="idPhotoFront" enabled={showWizardField}>
-            <div className="space-y-3 sm:col-span-2">
-              <div>
-                <Label>
-                  Photo of your driver&apos;s license or ID
-                  <span className="pl-1 font-normal text-muted/70">(optional)</span>
-                </Label>
-                <p className="mt-1 text-xs text-muted">
-                  Clear front and back photos — shared only with the property manager for this application.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ApplicationPhotoField
-                  slot="idFront"
-                  label="Front of ID"
-                  uploadOnly
-                  attachment={form.idPhotoFront}
-                  onChange={(next) => patch({ idPhotoFront: next })}
-                  getApplicationId={getApplicationId}
-                  setupTokenRequired={p.photoSetupTokenRequired}
-                  getSetupToken={p.getPhotoSetupToken}
-                  readOnly={photosReadOnly}
-                  dataAttr="application-id-photo-front"
-                />
-                <ApplicationPhotoField
-                  slot="idBack"
-                  label="Back of ID"
-                  uploadOnly
-                  attachment={form.idPhotoBack}
-                  onChange={(next) => patch({ idPhotoBack: next })}
-                  getApplicationId={getApplicationId}
-                  setupTokenRequired={p.photoSetupTokenRequired}
-                  getSetupToken={p.getPhotoSetupToken}
-                  readOnly={photosReadOnly}
-                  dataAttr="application-id-photo-back"
-                />
-              </div>
-            </div>
-            </WizardFieldGate>
-          </div>
-        </div>
-
-        {stepManagerQuestions}
       </div>
     );
   }
 
   if (step === 4) {
+    const street = standardQuestion("current_address", "currentStreet");
+    const landlord = standardQuestion("current_address", "currentLandlordName");
+    const dates = standardQuestion("current_address", "currentMoveIn");
+    const reason = standardQuestion("current_address", "currentReasonLeaving");
     return (
       <div className="space-y-8">
         <div>
           <StepIntro>Where you live today. Landlord and move dates help us verify your rental history.</StepIntro>
         </div>
+        <OrderedConfiguredQuestions fields={sectionQuestions("current_address")} renderCustom={renderCustomQuestion}>
         <WizardFieldGate fieldKey="currentStreet" enabled={showWizardField}>
         <div className="space-y-2">
-          <Label htmlFor="currentStreet" required>
-            Street address
-          </Label>
+          <Label htmlFor="currentStreet" required={street?.required}>{street?.label ?? "Street address"}</Label>
           {/*
             The same address search the listing wizard uses, so an applicant
             picks a REAL address instead of typing anything at all — choosing a
@@ -1374,9 +1311,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="currentLandlordName" enabled={showWizardField}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="currentLandlordName" optional>
-              Current landlord name
-            </Label>
+            <Label htmlFor="currentLandlordName" required={landlord?.required}>{landlord?.label ?? "Current landlord name"}</Label>
             <Input
               id="currentLandlordName"
               value={form.currentLandlordName}
@@ -1400,9 +1335,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <WizardFieldGate fieldKey="currentMoveIn" enabled={showWizardField}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="currentMoveIn" optional>
-              Current move-in date
-            </Label>
+            <Label htmlFor="currentMoveIn" required={dates?.required}>{dates?.label ?? "Current move-in date"}</Label>
             <DateField id="currentMoveIn" value={form.currentMoveIn} onChange={(next) => patch({ currentMoveIn: next })} />
           </div>
           <div className="space-y-2">
@@ -1415,9 +1348,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </WizardFieldGate>
         <WizardFieldGate fieldKey="currentReasonLeaving" enabled={showWizardField}>
         <div className="space-y-2">
-          <Label htmlFor="currentReasonLeaving" optional>
-            Reason for leaving
-          </Label>
+          <Label htmlFor="currentReasonLeaving" required={reason?.required}>{reason?.label ?? "Reason for leaving"}</Label>
           <Textarea
             id="currentReasonLeaving"
             value={form.currentReasonLeaving}
@@ -1428,12 +1359,16 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </div>
         </WizardFieldGate>
 
-        {stepManagerQuestions}
+        </OrderedConfiguredQuestions>
       </div>
     );
   }
 
   if (step === 5) {
+    const street = standardQuestion("previous_address", "prevStreet");
+    const landlord = standardQuestion("previous_address", "prevLandlordName");
+    const dates = standardQuestion("previous_address", "prevMoveIn");
+    const reason = standardQuestion("previous_address", "prevReasonLeaving");
     return (
       <div className="space-y-8">
         <div>
@@ -1449,13 +1384,13 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <span className="text-sm font-medium text-foreground">I do not have a previous address to provide</span>
         </label>
 
-        {!form.noPreviousAddress ? (
-          <>
+        <OrderedConfiguredQuestions
+          fields={sectionQuestions("previous_address").filter((field) => !form.noPreviousAddress || !field.isStandard)}
+          renderCustom={renderCustomQuestion}
+        >
             <WizardFieldGate fieldKey="prevStreet" enabled={showWizardField}>
             <div className="space-y-2">
-              <Label htmlFor="prevStreet" required>
-                Street address
-              </Label>
+              <Label htmlFor="prevStreet" required={street?.required}>{street?.label ?? "Street address"}</Label>
               <Input
                 id="prevStreet"
                 value={form.prevStreet}
@@ -1508,9 +1443,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <WizardFieldGate fieldKey="prevLandlordName" enabled={showWizardField}>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="prevLandlordName" optional>
-                  Previous landlord name
-                </Label>
+                <Label htmlFor="prevLandlordName" required={landlord?.required}>{landlord?.label ?? "Previous landlord name"}</Label>
                 <Input id="prevLandlordName" value={form.prevLandlordName} onChange={(e) => patch({ prevLandlordName: e.target.value })} />
               </div>
               <div className="space-y-2">
@@ -1530,9 +1463,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <WizardFieldGate fieldKey="prevMoveIn" enabled={showWizardField}>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="prevMoveIn" optional>
-                  Move-in date
-                </Label>
+                <Label htmlFor="prevMoveIn" required={dates?.required}>{dates?.label ?? "Move-in date"}</Label>
                 <DateField id="prevMoveIn" value={form.prevMoveIn} onChange={(next) => patch({ prevMoveIn: next })} />
               </div>
               <div className="space-y-2">
@@ -1545,9 +1476,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </WizardFieldGate>
             <WizardFieldGate fieldKey="prevReasonLeaving" enabled={showWizardField}>
             <div className="space-y-2">
-              <Label htmlFor="prevReasonLeaving" optional>
-                Reason for leaving
-              </Label>
+              <Label htmlFor="prevReasonLeaving" required={reason?.required}>{reason?.label ?? "Reason for leaving"}</Label>
               <Textarea
                 id="prevReasonLeaving"
                 value={form.prevReasonLeaving}
@@ -1556,199 +1485,120 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               />
             </div>
             </WizardFieldGate>
-          </>
-        ) : null}
-
-        {stepManagerQuestions}
+        </OrderedConfiguredQuestions>
       </div>
     );
   }
 
   if (step === 6) {
+    const fields = sectionQuestions("employment");
+    const renderEmploymentField = (field: ResolvedApplicationField) => {
+      if (!field.isStandard) return renderCustomQuestion(field);
+      const fieldKey = applicationFieldCatalogDef(field.standardKey!)?.wizardFormKeys[0] ?? "";
+      const gate = (content: ReactNode) => (
+        <WizardFieldGate key={field.id} fieldKey={fieldKey} enabled={showWizardField}>
+          <div data-wizard-field={fieldKey} data-application-question-id={field.id}
+            className="space-y-3 rounded-2xl border border-border bg-card p-5 sm:p-6">
+            {content}
+          </div>
+        </WizardFieldGate>
+      );
+      switch (fieldKey) {
+        case "employer":
+          return gate(<>
+            <Label htmlFor="employer" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Input id="employer" value={form.employer} disabled={form.notEmployed}
+              onChange={(e) => patch({ employer: e.target.value })} className={errors.employer ? "border-red-400 ring-2 ring-red-100" : ""} />
+            <FieldError msg={errors.employer} />
+            <Label htmlFor="employerAddress">Employer address</Label>
+            <Input id="employerAddress" value={form.employerAddress} disabled={form.notEmployed}
+              onChange={(e) => patch({ employerAddress: e.target.value })} />
+          </>);
+        case "supervisorName":
+          return gate(<>
+            <Label htmlFor="supervisorName" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Input id="supervisorName" value={form.supervisorName} disabled={form.notEmployed}
+              onChange={(e) => patch({ supervisorName: e.target.value })} />
+            <Label htmlFor="supervisorPhone">Supervisor phone</Label>
+            <PhoneNumberField id="supervisorPhone" value={form.supervisorPhone} disabled={form.notEmployed}
+              onChange={p.setSupervisorPhone} inputClassName={errors.supervisorPhone ? "border-red-400 ring-2 ring-red-100" : ""} />
+            <FieldError msg={errors.supervisorPhone} />
+          </>);
+        case "jobTitle":
+          return gate(<>
+            <Label htmlFor="jobTitle" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Input id="jobTitle" value={form.jobTitle} disabled={form.notEmployed}
+              onChange={(e) => patch({ jobTitle: e.target.value })} />
+            <Label htmlFor="employmentStart">Employment start date</Label>
+            <DateField id="employmentStart" value={form.employmentStart} disabled={form.notEmployed}
+              onChange={(next) => patch({ employmentStart: next })} />
+          </>);
+        case "monthlyIncome":
+          return gate(<>
+            <Label htmlFor="monthlyIncome" required={field.required && !form.notEmployed}>{field.label}</Label>
+            <Input id="monthlyIncome" inputMode="decimal" value={form.monthlyIncome}
+              onChange={(e) => patch({ monthlyIncome: e.target.value })}
+              onBlur={() => patch({ monthlyIncome: formatMoneyBlur(form.monthlyIncome) })}
+              placeholder="4,200" className={errors.monthlyIncome ? "border-red-400 ring-2 ring-red-100" : ""} />
+            <FieldError msg={errors.monthlyIncome} />
+            <Label htmlFor="annualIncome">Annual gross income</Label>
+            <Input id="annualIncome" inputMode="decimal" value={form.annualIncome}
+              onChange={(e) => patch({ annualIncome: e.target.value })}
+              onBlur={() => patch({ annualIncome: formatMoneyBlur(form.annualIncome) })}
+              placeholder="52,000" className={errors.annualIncome ? "border-red-400 ring-2 ring-red-100" : ""} />
+            <FieldError msg={errors.annualIncome} />
+          </>);
+        case "incomeProofPhotos":
+          return gate(<>
+            <Label required={field.required}>{field.label}</Label>
+            <IncomeProofPhotos attachments={form.incomeProofPhotos}
+              onChange={(next) => patch({ incomeProofPhotos: next })}
+              getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired}
+              getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} />
+          </>);
+        case "otherIncome":
+          return gate(<>
+            <Label htmlFor="otherIncome" required={field.required}>{field.label}</Label>
+            <Input id="otherIncome" value={form.otherIncome}
+              onChange={(e) => patch({ otherIncome: e.target.value })}
+              onBlur={() => patch({ otherIncome: formatMoneyBlur(form.otherIncome) })}
+              placeholder="Benefits, stipends, trust distributions" className={errors.otherIncome ? "border-red-400 ring-2 ring-red-100" : ""} />
+            <FieldError msg={errors.otherIncome} />
+          </>);
+        default:
+          return null;
+      }
+    };
     return (
-      <div className="space-y-8">
-        <div>
-          <StepIntro>
-            Income helps us confirm you can meet rent obligations when you are employed. Enter at least one positive amount
-            in the income section below. If you are not employed, income is optional; use Other income for benefits or support
-            if applicable, and explain gaps on the next screens if needed.
-          </StepIntro>
-        </div>
-
+      <div className="space-y-6">
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4">
-          <input
-            type="checkbox"
-            className="mt-1 h-4 w-4 rounded border-border text-primary"
-            checked={form.notEmployed}
-            onChange={(e) => patch({ notEmployed: e.target.checked })}
-          />
+          <input type="checkbox" checked={form.notEmployed}
+            onChange={(e) => patch({ notEmployed: e.target.checked })} />
           <span className="text-sm font-medium text-foreground">I am not currently employed</span>
         </label>
-
         {errors._general ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errors._general}</p> : null}
-
-        <div className={`space-y-5 rounded-2xl border border-border p-5 sm:p-6 ${form.notEmployed ? "opacity-50" : ""}`}>
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Employment</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <WizardFieldGate fieldKey="employer" enabled={showWizardField}>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="employer" required={!form.notEmployed}>
-                Employer
-              </Label>
-              <Input
-                id="employer"
-                value={form.employer}
-                disabled={form.notEmployed}
-                onChange={(e) => patch({ employer: e.target.value })}
-                className={errors.employer ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.employer} />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="employerAddress" optional>
-                Employer address
-              </Label>
-              <Input id="employerAddress" value={form.employerAddress} disabled={form.notEmployed} onChange={(e) => patch({ employerAddress: e.target.value })} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="supervisorName" enabled={showWizardField}>
-            <div className="space-y-2">
-              <Label htmlFor="supervisorName" optional>
-                Supervisor name
-              </Label>
-              <Input id="supervisorName" value={form.supervisorName} disabled={form.notEmployed} onChange={(e) => patch({ supervisorName: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="supervisorPhone" optional>
-                Supervisor phone
-              </Label>
-              <PhoneNumberField
-                id="supervisorPhone"
-                value={form.supervisorPhone}
-                disabled={form.notEmployed}
-                onChange={p.setSupervisorPhone}
-                inputClassName={errors.supervisorPhone ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.supervisorPhone} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="jobTitle" enabled={showWizardField}>
-            <div className="space-y-2">
-              <Label htmlFor="jobTitle" optional>
-                Job title
-              </Label>
-              <Input id="jobTitle" value={form.jobTitle} disabled={form.notEmployed} onChange={(e) => patch({ jobTitle: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="employmentStart" optional>
-                Employment start date
-              </Label>
-              <DateField id="employmentStart" value={form.employmentStart} disabled={form.notEmployed} onChange={(next) => patch({ employmentStart: next })} />
-            </div>
-            </WizardFieldGate>
-          </div>
+        <div className="space-y-4" data-application-section="employment">
+          {fields.map(renderEmploymentField)}
         </div>
-
-        {(showWizardField("monthlyIncome") || showWizardField("otherIncome")) ? (
-        <div className="space-y-4 rounded-2xl border border-border p-5 sm:p-6">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Income</p>
-            <StepIntro>
-              If you are employed, provide at least one of the amounts below (you do not need to fill all three). If you
-              checked &ldquo;not currently employed,&rdquo; all income fields are optional.
-            </StepIntro>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <WizardFieldGate fieldKey="monthlyIncome" enabled={showWizardField}>
-            <div className="space-y-2">
-              <Label htmlFor="monthlyIncome">Monthly gross income</Label>
-              <Input
-                id="monthlyIncome"
-                inputMode="decimal"
-                value={form.monthlyIncome}
-                onChange={(e) => patch({ monthlyIncome: e.target.value })}
-                onBlur={() => patch({ monthlyIncome: formatMoneyBlur(form.monthlyIncome) })}
-                placeholder="e.g. 4,200"
-                className={errors.monthlyIncome ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.monthlyIncome} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="annualIncome" enabled={showWizardField}>
-            <div className="space-y-2">
-              <Label htmlFor="annualIncome">Annual gross income</Label>
-              <Input
-                id="annualIncome"
-                inputMode="decimal"
-                value={form.annualIncome}
-                onChange={(e) => patch({ annualIncome: e.target.value })}
-                onBlur={() => patch({ annualIncome: formatMoneyBlur(form.annualIncome) })}
-                placeholder="e.g. 52,000"
-                className={errors.annualIncome ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.annualIncome} />
-            </div>
-            </WizardFieldGate>
-            <WizardFieldGate fieldKey="otherIncome" enabled={showWizardField}>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="otherIncome">Other income</Label>
-              <Input
-                id="otherIncome"
-                value={form.otherIncome}
-                onChange={(e) => patch({ otherIncome: e.target.value })}
-                onBlur={() => patch({ otherIncome: formatMoneyBlur(form.otherIncome) })}
-                placeholder="Benefits, stipends, trust distributions…"
-                className={errors.otherIncome ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.otherIncome} />
-            </div>
-            </WizardFieldGate>
-          </div>
-          <WizardFieldGate fieldKey="incomeProofPhotos" enabled={showWizardField}>
-          <div className="space-y-3 border-t border-border pt-4 [html[data-theme=dark]_&]:border-white/12">
-            <div>
-              <Label>
-                Proof of income
-                <span className="pl-1 font-normal text-muted/70">(optional)</span>
-              </Label>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                Attach a recent pay stub, an offer letter, or a bank statement to back up the amounts above. Photos or
-                PDFs are fine. These are shared only with the property manager for this application and are kept with
-                your application record — stored privately, never public.
-              </p>
-            </div>
-            <IncomeProofPhotos
-              attachments={form.incomeProofPhotos}
-              onChange={(next) => patch({ incomeProofPhotos: next })}
-              getApplicationId={getApplicationId}
-              setupTokenRequired={p.photoSetupTokenRequired}
-              getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
-            />
-          </div>
-          </WizardFieldGate>
-        </div>
-        ) : null}
-
-        {stepManagerQuestions}
       </div>
     );
   }
 
   if (step === 7) {
+    const first = standardQuestion("references", "ref1Name");
+    const second = standardQuestion("references", "ref2Name");
     return (
       <div className="space-y-8">
         <div>
           <StepIntro>List people who can speak to your character or employment. Avoid family members when possible.</StepIntro>
         </div>
+        <OrderedConfiguredQuestions fields={sectionQuestions("references")} renderCustom={renderCustomQuestion}>
         <WizardFieldGate fieldKey="ref1Name" enabled={showWizardField}>
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted/70">Reference 1</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="ref1Name" required>
-                Name
-              </Label>
+              <Label htmlFor="ref1Name" required={first?.required}>{first?.label ?? "Name"}</Label>
               <Input id="ref1Name" value={form.ref1Name} onChange={(e) => patch({ ref1Name: e.target.value })} className={errors.ref1Name ? "border-red-400 ring-2 ring-red-100" : ""} />
               <FieldError msg={errors.ref1Name} />
             </div>
@@ -1786,9 +1636,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <p className="mt-1 text-xs text-muted">Optional. Leave blank if you only have one reference.</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="ref2Name" optional>
-                Name
-              </Label>
+              <Label htmlFor="ref2Name" required={second?.required}>{second?.label ?? "Name"}</Label>
               <Input id="ref2Name" value={form.ref2Name} onChange={(e) => patch({ ref2Name: e.target.value })} className={errors.ref2Name ? "border-red-400 ring-2 ring-red-100" : ""} />
               <FieldError msg={errors.ref2Name} />
             </div>
@@ -1815,136 +1663,59 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </div>
         </WizardFieldGate>
 
-        {stepManagerQuestions}
+        </OrderedConfiguredQuestions>
       </div>
     );
   }
 
   if (step === 8) {
+    const additionalFields = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields)
+      .filter((field) => field.section === "additional");
+    const renderAdditionalField = (field: (typeof additionalFields)[number]) => {
+      if (!field.isStandard) {
+        return (
+          <div key={field.id} data-application-question-id={field.id}>
+            <CustomQuestionField
+              field={field}
+              value={customFieldAnswerValue(form.customFieldAnswers, field.key)}
+              error={errors[customFieldErrorKey(field.key)]}
+              onChange={(next) => patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })}
+              getApplicationId={getApplicationId}
+              setupTokenRequired={p.photoSetupTokenRequired}
+              getSetupToken={p.getPhotoSetupToken}
+              readOnly={photosReadOnly}
+            />
+          </div>
+        );
+      }
+      const fieldKey = applicationFieldCatalogDef(field.standardKey!)?.wizardFormKeys[0] ?? "";
+      const gate = (children: ReactNode) => (
+        <WizardFieldGate key={field.id} fieldKey={fieldKey} enabled={showWizardField}>
+          <div data-wizard-field={fieldKey} data-application-question-id={field.id} className="space-y-3 rounded-xl border border-border bg-accent/30 p-4">
+            {children}
+          </div>
+        </WizardFieldGate>
+      );
+      if (fieldKey === "occupancyCount") return gate(<><Label htmlFor="occupancyCount" required={field.required}>{field.label}</Label><Select id="occupancyCount" value={form.occupancyCount} onChange={(e) => patch({ occupancyCount: e.target.value })} className={errors.occupancyCount ? "border-red-400 ring-2 ring-red-100" : ""}><option value="">Select</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={String(n)}>{n}</option>)}</Select>{Number(form.occupancyCount) > 1 ? <p className="rounded-lg border px-3 py-2 text-xs leading-relaxed portal-banner-pending"><span className="font-semibold">Note:</span> More than 1 occupant may increase the total cost. Each additional occupant must submit their own application. Set up a group in step 1 and share your invite link so all applications stay linked.</p> : null}<FieldError msg={errors.occupancyCount} /></>);
+      if (fieldKey === "pets") return gate(<><Label htmlFor="pets" optional={!field.required}>{field.label}</Label><Textarea id="pets" value={form.pets} onChange={(e) => patch({ pets: e.target.value })} placeholder="Type, breed, weight, or write “None”" rows={2} /></>);
+      const history = fieldKey === "evictionHistory" ? { value: form.evictionHistory, details: form.evictionDetails, detailsKey: "evictionDetails", title: field.label, error: errors.evictionHistory } : fieldKey === "bankruptcyHistory" ? { value: form.bankruptcyHistory, details: form.bankruptcyDetails, detailsKey: "bankruptcyDetails", title: field.label, error: errors.bankruptcyHistory } : fieldKey === "criminalHistory" ? { value: form.criminalHistory, details: form.criminalDetails, detailsKey: "criminalDetails", title: field.label, error: errors.criminalHistory } : null;
+      if (!history) return null;
+      return gate(<><Label required={field.required}>{history.title}</Label><YesNoPills value={history.value} error={history.error} name={history.title} fieldKey={fieldKey} onChange={(value) => patch(fieldKey === "evictionHistory" ? { evictionHistory: value, evictionDetails: value === "no" ? "" : form.evictionDetails } : fieldKey === "bankruptcyHistory" ? { bankruptcyHistory: value, bankruptcyDetails: value === "no" ? "" : form.bankruptcyDetails } : { criminalHistory: value, criminalDetails: value === "no" ? "" : form.criminalDetails })} />{history.value === "yes" ? <div className="space-y-2"><Label htmlFor={history.detailsKey}>Brief details</Label><Textarea id={history.detailsKey} value={history.details} onChange={(e) => patch(fieldKey === "evictionHistory" ? { evictionDetails: e.target.value } : fieldKey === "bankruptcyHistory" ? { bankruptcyDetails: e.target.value } : { criminalDetails: e.target.value })} rows={3} className={errors[history.detailsKey] ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors[history.detailsKey]} /></div> : null}</>);
+    };
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>
-            These questions are standard for rental screening. Your answers are reviewed in context; answer honestly.
-          </StepIntro>
+        <StepIntro>These questions are standard for rental screening. Your answers are reviewed in context; answer honestly.</StepIntro>
+        <div className="space-y-4" data-application-section="additional">
+          {additionalFields.map(renderAdditionalField)}
         </div>
-        <WizardFieldGate fieldKey="occupancyCount" enabled={showWizardField}>
-        <div className="space-y-2">
-          <Label htmlFor="occupancyCount" required>
-            Number of occupants
-          </Label>
-          <Select
-            id="occupancyCount"
-            value={form.occupancyCount}
-            onChange={(e) => patch({ occupancyCount: e.target.value })}
-            className={errors.occupancyCount ? "border-red-400 ring-2 ring-red-100" : ""}
-          >
-            <option value="">Select</option>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={String(n)}>
-                {n}
-              </option>
-            ))}
-          </Select>
-          {Number(form.occupancyCount) > 1 && (
-            <p className="rounded-lg border px-3 py-2 text-xs leading-relaxed portal-banner-pending">
-              <span className="font-semibold">Note:</span> More than 1 occupant may increase the total cost. Each additional occupant must submit their own application. Set up a group in step 1 and share your invite link so all applications stay linked.
-            </p>
-          )}
-          <FieldError msg={errors.occupancyCount} />
-        </div>
-        </WizardFieldGate>
-        <WizardFieldGate fieldKey="pets" enabled={showWizardField}>
-        <div className="space-y-2">
-          <Label htmlFor="pets" optional>
-            Pets
-          </Label>
-          <Textarea id="pets" value={form.pets} onChange={(e) => patch({ pets: e.target.value })} placeholder="Type, breed, weight, or write “None”" rows={2} />
-        </div>
-        </WizardFieldGate>
-
-        <WizardFieldGate fieldKey="evictionHistory" enabled={showWizardField}>
-        <div className="space-y-3 rounded-xl border border-border bg-accent/30 p-4">
-          <Label required>Eviction history</Label>
-          <YesNoPills
-            value={form.evictionHistory}
-            error={errors.evictionHistory}
-            name="Eviction history"
-            fieldKey="evictionHistory"
-            onChange={(v) => patch({ evictionHistory: v, evictionDetails: v === "no" ? "" : form.evictionDetails })}
-          />
-          {form.evictionHistory === "yes" ? (
-            <div className="space-y-2">
-              <Label htmlFor="evictionDetails">Brief details</Label>
-              <Textarea
-                id="evictionDetails"
-                value={form.evictionDetails}
-                onChange={(e) => patch({ evictionDetails: e.target.value })}
-                rows={3}
-                className={errors.evictionDetails ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.evictionDetails} />
-            </div>
-          ) : null}
-        </div>
-        </WizardFieldGate>
-        <WizardFieldGate fieldKey="bankruptcyHistory" enabled={showWizardField}>
-        <div className="space-y-3 rounded-xl border border-border bg-accent/30 p-4">
-          <Label required>Bankruptcy history</Label>
-          <YesNoPills
-            value={form.bankruptcyHistory}
-            error={errors.bankruptcyHistory}
-            name="Bankruptcy history"
-            fieldKey="bankruptcyHistory"
-            onChange={(v) => patch({ bankruptcyHistory: v, bankruptcyDetails: v === "no" ? "" : form.bankruptcyDetails })}
-          />
-          {form.bankruptcyHistory === "yes" ? (
-            <div className="space-y-2">
-              <Label htmlFor="bankruptcyDetails">Brief details</Label>
-              <Textarea
-                id="bankruptcyDetails"
-                value={form.bankruptcyDetails}
-                onChange={(e) => patch({ bankruptcyDetails: e.target.value })}
-                rows={3}
-                className={errors.bankruptcyDetails ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.bankruptcyDetails} />
-            </div>
-          ) : null}
-        </div>
-        </WizardFieldGate>
-        <WizardFieldGate fieldKey="criminalHistory" enabled={showWizardField}>
-        <div className="space-y-3 rounded-xl border border-border bg-accent/30 p-4">
-          <Label required>Criminal history</Label>
-          <YesNoPills
-            value={form.criminalHistory}
-            error={errors.criminalHistory}
-            name="Criminal history"
-            fieldKey="criminalHistory"
-            onChange={(v) => patch({ criminalHistory: v, criminalDetails: v === "no" ? "" : form.criminalDetails })}
-          />
-          {form.criminalHistory === "yes" ? (
-            <div className="space-y-2">
-              <Label htmlFor="criminalDetails">Brief details</Label>
-              <Textarea
-                id="criminalDetails"
-                value={form.criminalDetails}
-                onChange={(e) => patch({ criminalDetails: e.target.value })}
-                rows={3}
-                className={errors.criminalDetails ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.criminalDetails} />
-            </div>
-          ) : null}
-        </div>
-        </WizardFieldGate>
-
-        {stepManagerQuestions}
       </div>
     );
   }
 
   if (step === 9) {
+    const credit = standardQuestion("consent", "consentCredit");
+    const truth = standardQuestion("consent", "consentTruth");
+    const signature = standardQuestion("consent", "digitalSignature");
     return (
       <div className="space-y-8">
         <div>
@@ -1958,6 +1729,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             denial or termination of a lease.
           </p>
         </div>
+        <OrderedConfiguredQuestions fields={sectionQuestions("consent")} renderCustom={renderCustomQuestion}>
         <WizardFieldGate fieldKey="consentCredit" enabled={showWizardField}>
         <label
           data-wizard-field="consentCredit"
@@ -1969,7 +1741,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             checked={form.consentCredit}
             onChange={(e) => patch({ consentCredit: e.target.checked })}
           />
-          <span className="text-sm font-medium text-foreground">I authorize a credit and background check.</span>
+          <span className="text-sm font-medium text-foreground">{credit?.label ?? "I authorize a credit and background check."}{credit?.required ? " *" : ""}</span>
         </label>
         <FieldError msg={errors.consentCredit} />
         </WizardFieldGate>
@@ -1984,16 +1756,14 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             checked={form.consentTruth}
             onChange={(e) => patch({ consentTruth: e.target.checked })}
           />
-          <span className="text-sm font-medium text-foreground">I confirm the information provided is true and complete.</span>
+          <span className="text-sm font-medium text-foreground">{truth?.label ?? "I confirm the information provided is true and complete."}{truth?.required ? " *" : ""}</span>
         </label>
         <FieldError msg={errors.consentTruth} />
         </WizardFieldGate>
         <WizardFieldGate fieldKey="digitalSignature" enabled={showWizardField}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2" data-wizard-field="digitalSignature">
-            <Label htmlFor="digitalSignature" required>
-              Digital signature (type your full legal name)
-            </Label>
+            <Label htmlFor="digitalSignature" required={signature?.required}>{signature?.label ?? "Digital signature (type your full legal name)"}</Label>
             <Input
               id="digitalSignature"
               value={form.digitalSignature}
@@ -2012,7 +1782,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </div>
         </WizardFieldGate>
 
-        {stepManagerQuestions}
+        </OrderedConfiguredQuestions>
       </div>
     );
   }

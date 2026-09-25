@@ -2,12 +2,12 @@ import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import {
-  applicationConfigForVariant,
   isWizardFormFieldEnabled,
   listingDisabledWizardFormKeys,
   resolveListingApplicationFields,
   type ApplicationFormVariant,
 } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { listingCustomApplicationFields } from "@/lib/rental-application/custom-fields";
 import { IN_PROGRESS_APPLICATION_STAGE } from "@/lib/rental-application/in-progress-application";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
@@ -56,7 +56,7 @@ export function findDisabledApplicationFieldViolation(
   application: Partial<RentalWizardFormState>,
   sub: ManagerListingSubmissionV1 | null | undefined,
 ): string | null {
-  const disabled = listingDisabledWizardFormKeys(applicationConfigForVariant(sub, variantForForm(application)));
+  const disabled = listingDisabledWizardFormKeys(applicationConfigForApplicant(sub, variantForForm(application), application.applicationTemplateId, application.applicationTemplateVersion).config);
   for (const key of disabled) {
     const value = application[key as keyof RentalWizardFormState];
     if (hasFilledWizardValue(value)) {
@@ -70,7 +70,7 @@ export function sanitizeApplicationFormForListing(
   form: RentalWizardFormState,
   sub: ManagerListingSubmissionV1 | null | undefined,
 ): RentalWizardFormState {
-  const slice = applicationConfigForVariant(sub, variantForForm(form));
+  const slice = applicationConfigForApplicant(sub, variantForForm(form), form.applicationTemplateId, form.applicationTemplateVersion).config;
   const disabled = listingDisabledWizardFormKeys(slice);
   const askedCustomKeys = sub ? new Set(listingCustomApplicationFields(slice).map((f) => f.key)) : null;
   const answers = Array.isArray(form.customFieldAnswers) ? form.customFieldAnswers : [];
@@ -113,7 +113,7 @@ export function residentApplicationScreeningAllowed(
   form: RentalWizardFormState | null | undefined,
 ): boolean {
   return (
-    isWizardFormFieldEnabled(applicationConfigForVariant(sub, variantForForm(form)), "consentCredit") &&
+    isWizardFormFieldEnabled(applicationConfigForApplicant(sub, variantForForm(form), form?.applicationTemplateId, form?.applicationTemplateVersion).config, "consentCredit") &&
     form?.consentCredit === true
   );
 }
@@ -133,6 +133,10 @@ export function validateResidentApplicationSubmit(input: {
   if (input.inProgress) return { ok: true };
 
   const sub = listingSubmissionFromProperty(input.property);
+  if (applicationConfigForApplicant(sub, variantForForm(input.application), input.application.applicationTemplateId, input.application.applicationTemplateVersion).pinMissing) {
+    const error = "This application form version is unavailable. Ask the property manager to reopen it.";
+    return { ok: false, error, fieldErrors: { _general: error } };
+  }
   const disabledViolation = findDisabledApplicationFieldViolation(input.application, sub);
   if (disabledViolation) {
     return {

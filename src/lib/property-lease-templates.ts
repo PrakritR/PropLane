@@ -48,6 +48,17 @@ export type PropertyLeaseTemplate = {
   leaseTemplateDocName: string;
   /** Manager-edited full HTML override for this template (PropLane default or uploaded shell). */
   leaseTemplateHtmlOverride?: string;
+  /** Manager review receipt for a PDF-derived conversion, pinned to exact source and HTML bytes. */
+  leaseTemplateImportReview?: {
+    sourceSha256: string;
+    convertedHtmlSha256: string;
+    reviewedAtIso: string;
+    templateVersion: string;
+    issueCodes: string[];
+    resolvedIssueCodes?: string[];
+    extractedCharacters: number;
+    representedCharacters: number;
+  };
   createdAt: string;
   updatedAt: string;
 };
@@ -160,11 +171,34 @@ function isPropertyLeaseTemplate(raw: unknown): raw is PropertyLeaseTemplate & {
 }
 
 function normalizeTemplate(row: PropertyLeaseTemplate & { kind: string }): PropertyLeaseTemplate {
+  const review = row.leaseTemplateImportReview;
+  const leaseTemplateImportReview =
+    review &&
+    /^[0-9a-f]{64}$/i.test(review.sourceSha256) &&
+    /^[0-9a-f]{64}$/i.test(review.convertedHtmlSha256) &&
+    typeof review.reviewedAtIso === "string" &&
+    typeof review.templateVersion === "string"
+      ? {
+          sourceSha256: review.sourceSha256.toLowerCase(),
+          convertedHtmlSha256: review.convertedHtmlSha256.toLowerCase(),
+          reviewedAtIso: review.reviewedAtIso,
+          templateVersion: review.templateVersion.slice(0, 200),
+          issueCodes: Array.isArray(review.issueCodes)
+            ? review.issueCodes.filter((code) => typeof code === "string").map((code) => code.slice(0, 80)).slice(0, 120)
+            : [],
+          resolvedIssueCodes: Array.isArray(review.resolvedIssueCodes)
+            ? [...new Set(review.resolvedIssueCodes.filter((code) => typeof code === "string").map((code) => code.slice(0, 80)))].slice(0, 120)
+            : [],
+          extractedCharacters: Number.isFinite(review.extractedCharacters) ? Math.max(0, review.extractedCharacters) : 0,
+          representedCharacters: Number.isFinite(review.representedCharacters) ? Math.max(0, review.representedCharacters) : 0,
+        }
+      : undefined;
   return {
     ...row,
     kind: normalizeLeaseTemplateKind(row.kind),
     leaseTemplateHtmlOverride:
       typeof row.leaseTemplateHtmlOverride === "string" ? row.leaseTemplateHtmlOverride : "",
+    leaseTemplateImportReview,
   };
 }
 

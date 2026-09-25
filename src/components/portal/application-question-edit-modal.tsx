@@ -173,18 +173,35 @@ export function ApplicationQuestionFields({
   field,
   onPatch,
   error,
+  editableLabel = true,
+  editableRequired = true,
+  editableOptions,
+  editableType = true,
+  blockedTypes = [],
 }: {
   field: ResolvedApplicationField;
   onPatch: (patch: Partial<ManagerCustomApplicationField>) => void;
   error?: string | null;
+  editableLabel?: boolean;
+  editableRequired?: boolean;
+  editableOptions?: boolean;
+  editableType?: boolean;
+  blockedTypes?: readonly ManagerCustomApplicationFieldType[];
 }) {
+  const canEditOptions = editableOptions ?? (!field.isStandard || field.options.length === 0);
+  const canEditType = editableType;
+  const typeOptions = customApplicationFieldTypeOptionsFor(field.type).filter(
+    (option) => !blockedTypes.includes(option.id) || option.id === field.type,
+  );
   return (
     <>
       <div>
-        <p className="text-sm font-medium text-foreground">Question</p>
+        <p className="text-sm font-medium text-foreground">Question{!editableLabel ? " · Fixed" : ""}</p>
         <Input
           value={field.label}
           onChange={(e) => onPatch({ label: e.target.value })}
+          disabled={!editableLabel}
+          title={!editableLabel ? "Fixed in the applicant form" : undefined}
           placeholder="e.g. Do you smoke?"
           className="mt-1"
           data-attr="application-question-label"
@@ -192,38 +209,45 @@ export function ApplicationQuestionFields({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <p className="text-sm font-medium text-foreground">Answer type</p>
+          <p className="text-sm font-medium text-foreground">Answer type{!canEditType ? " · Fixed" : blockedTypes.includes(field.type) ? " · Unsupported" : ""}</p>
           <Select
             value={field.type}
             onChange={(e) => onPatch({ type: e.target.value as ManagerCustomApplicationFieldType })}
+            disabled={field.isStandard || !canEditType}
             className="mt-1"
             data-attr="application-question-type"
           >
-            {customApplicationFieldTypeOptionsFor(field.type).map((o) => (
+            {typeOptions.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
             ))}
           </Select>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 self-end rounded-xl border border-border bg-card px-3 py-2.5">
+        <label className={`flex items-center gap-2 self-end rounded-xl border border-border bg-card px-3 py-2.5 ${editableRequired ? "cursor-pointer" : "opacity-60"}`}>
           <input
             type="checkbox"
             className="h-4 w-4 rounded border-border text-primary"
             checked={field.required}
             onChange={(e) => onPatch({ required: e.target.checked })}
+            disabled={!editableRequired}
+            title={!editableRequired ? "Fixed in the applicant form" : undefined}
             data-attr="application-question-required"
           />
-          <span className="text-sm font-medium text-foreground">Required</span>
+          <span className="text-sm font-medium text-foreground">Required{!editableRequired ? " · Fixed" : ""}</span>
         </label>
       </div>
       {fieldTypeUsesOptions(field.type) ? (
         <div>
-          <p className="text-sm font-medium text-foreground">
-            {field.type === "multi_select" ? "Multi-select choices" : "Dropdown options"}
-          </p>
+          <p className="text-sm font-medium text-foreground">{field.type === "multi_select" ? "Multi-select choices" : "Dropdown options"}{!canEditOptions ? " · Fixed" : ""}</p>
           <div className="mt-1">
-            <OptionRowsEditor options={field.options} onChange={(options) => onPatch({ options })} />
+            {canEditOptions ? (
+              <OptionRowsEditor options={field.options} onChange={(options) => onPatch({ options })} />
+            ) : (
+              <div className="space-y-1 rounded-xl border border-border bg-muted/30 p-3" aria-label="Fixed answer choices">
+                {field.options.map((option) => <div key={option} className="text-sm text-foreground">{option}</div>)}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -313,6 +337,7 @@ export function ApplicationQuestionEditModal({
   }, [open, field, sectionId]);
 
   const patch = (patchField: Partial<ManagerCustomApplicationField>) => {
+    if (variant === "cosigner" && (patchField.type === "file" || patchField.type === "photos")) return;
     setDraft((prev) => ({ ...prev, ...patchField }));
     if (error) setError(null);
   };
@@ -424,7 +449,7 @@ export function ApplicationQuestionEditModal({
       }
     >
       <div className="space-y-3">
-        <ApplicationQuestionFields field={draft} onPatch={patch} error={error} />
+        <ApplicationQuestionFields field={draft} onPatch={patch} error={error} editableOptions={!draft.isStandard || draft.options.length === 0} blockedTypes={variant === "cosigner" ? ["file", "photos"] : []} />
       </div>
     </Modal>
   );

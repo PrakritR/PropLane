@@ -15,6 +15,7 @@ import type {
   ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
+import { publicPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import {
   houseDefaultsForSubmission,
   type ListingHouseDefaults,
@@ -398,6 +399,9 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
     : undefined;
   return {
     ...pick(charged, PUBLIC_SUBMISSION_KEYS),
+    ...(Array.isArray(charged.propertyApplicationTemplates)
+      ? { propertyApplicationTemplates: charged.propertyApplicationTemplates.map(publicPropertyApplicationTemplate) }
+      : {}),
     rooms: pickRows<ManagerRoomSubmission, (typeof PUBLIC_ROOM_KEYS)[number]>(charged.rooms, PUBLIC_ROOM_KEYS).map(
       (room) =>
         room.residentPrices === undefined

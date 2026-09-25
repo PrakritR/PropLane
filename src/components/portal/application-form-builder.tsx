@@ -105,11 +105,6 @@ export function ApplicationFormFieldPreview({ field }: { field: ResolvedApplicat
   );
 }
 
-/** Divider marking where a manager's own questions start, after PropLane's built-ins, in one section. */
-function CustomQuestionsDivider() {
-  return <p className="px-1 text-xs font-medium text-muted">Your questions appear after PropLane&apos;s.</p>;
-}
-
 /**
  * A question mid-edit is normal — the editor deliberately keeps a blank label
  * or an empty option row while the manager is still typing. Guard the display
@@ -124,9 +119,8 @@ function previewSafeField(field: ResolvedApplicationField): ResolvedApplicationF
  * Live read-only preview of ONE application section, bound to the manager's
  * UNSAVED buffered draft — the entire point of the side pane (see the editor
  * modal's Edit/Preview toggle). Renders the exact same `CustomQuestionField`
- * control the applicant wizard uses, in the section's true order (built-ins
- * first in catalogue order, then custom questions in their persisted array
- * order — already how `applicationFields` is filtered by section). Never
+ * control the applicant wizard uses, in the section's saved question order.
+ * Never
  * writes: `onChange` is a no-op and nothing here can trigger a persist call.
  */
 export function ApplicationSectionPreviewPane({
@@ -183,12 +177,14 @@ function BuilderQuestionCard({
   onMoveDown,
   availableSections,
   onMoveToSection,
+  canEditBuiltIn,
+  blockedTypes = [],
 }: {
   field: ResolvedApplicationField;
   expanded: boolean;
   onToggleExpand: () => void;
   error?: string | null;
-  onRemove: () => void;
+  onRemove?: () => void;
   onPatch: (patch: Partial<ManagerCustomApplicationField>) => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -196,12 +192,15 @@ function BuilderQuestionCard({
   onMoveDown: () => void;
   availableSections: ReadonlyArray<{ id: RentalApplicationSectionId; title: string }>;
   onMoveToSection: (sectionId: RentalApplicationSectionId) => void;
+  canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
+  blockedTypes?: readonly ManagerCustomApplicationFieldType[];
 }) {
-  // Built-ins are never reorderable — no ⋯ menu for them.
-  const showReorderMenu = !field.isStandard;
+  // Built-in and custom questions share order only where the applicant
+  // renderer places their controls in the same ordered section.
+  const showReorderMenu = canMoveUp || canMoveDown || (!field.isStandard && availableSections.length > 0);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!event.altKey || field.isStandard) return;
+    if (!event.altKey) return;
     if (event.key === "ArrowUp" && canMoveUp) {
       event.preventDefault();
       onMoveUp();
@@ -284,7 +283,15 @@ function BuilderQuestionCard({
         error={Boolean(error)}
         contentClassName="space-y-4"
       >
-        <ApplicationQuestionFields field={field} onPatch={onPatch} error={error} />
+        <ApplicationQuestionFields
+          field={field}
+          onPatch={onPatch}
+          error={error}
+          editableLabel={canEditBuiltIn?.(field, "label") ?? true}
+          editableRequired={canEditBuiltIn?.(field, "required") ?? true}
+          editableType={!field.isStandard}
+          blockedTypes={blockedTypes}
+        />
         <div className="border-t border-border/70 pt-4">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
           {/* The REAL applicant control, read-only — never a hand-drawn imitation, so the
@@ -316,6 +323,8 @@ export function ApplicationFormBuilder({
   onMoveField,
   onMoveFieldToSection,
   canMoveField,
+  canEditBuiltIn,
+  blockedCustomTypes = [],
 }: {
   applicationFields: ResolvedApplicationField[];
   disabledFields: ResolvedApplicationField[];
@@ -332,6 +341,8 @@ export function ApplicationFormBuilder({
   onMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => void;
   onMoveFieldToSection?: (field: ResolvedApplicationField, sectionId: RentalApplicationSectionId) => void;
   canMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => boolean;
+  canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
+  blockedCustomTypes?: readonly ManagerCustomApplicationFieldType[];
 }) {
   const sectionsToRender = activeSectionId
     ? RENTAL_APPLICATION_SECTIONS.filter((section) => section.id === activeSectionId)
@@ -344,7 +355,6 @@ export function ApplicationFormBuilder({
         const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === section.id);
         if (sectionQuestions.length === 0 && sectionDisabled.length === 0) return null;
 
-        const firstCustomIndex = sectionQuestions.findIndex((f) => !f.isStandard);
         const availableSections = RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== section.id).map((s) => ({
           id: s.id,
           title: s.title,
@@ -367,23 +377,24 @@ export function ApplicationFormBuilder({
               </div>
             ) : null}
 
-            <div className="space-y-2">
-              {sectionQuestions.map((field, index) => (
+              <div className="space-y-2">
+              {sectionQuestions.map((field) => (
                 <div key={field.id} className="space-y-2">
-                  {index === firstCustomIndex ? <CustomQuestionsDivider /> : null}
                   <BuilderQuestionCard
                     field={field}
                     expanded={expandedQuestionIds.has(field.id)}
                     onToggleExpand={() => onToggleExpand(field.id)}
                     error={fieldErrors?.get(field.id) ?? null}
-                    onRemove={() => onRemoveField(field)}
+                    onRemove={canEditBuiltIn?.(field, "visibility") === false ? undefined : () => onRemoveField(field)}
                     onPatch={(patch) => onPatchField(field, patch)}
                     canMoveUp={canMoveField ? canMoveField(field, "up") : false}
                     canMoveDown={canMoveField ? canMoveField(field, "down") : false}
                     onMoveUp={() => onMoveField?.(field, "up")}
                     onMoveDown={() => onMoveField?.(field, "down")}
-                    availableSections={availableSections}
+                    availableSections={field.isStandard ? [] : availableSections}
                     onMoveToSection={(sectionId) => onMoveFieldToSection?.(field, sectionId)}
+                  canEditBuiltIn={canEditBuiltIn}
+                  blockedTypes={blockedCustomTypes}
                   />
                 </div>
               ))}
@@ -404,6 +415,8 @@ export function ApplicationFormBuilder({
                     variant="outline"
                     className="h-7 shrink-0 rounded-full px-2.5 text-xs"
                     data-attr="application-question-reenable"
+                    disabled={canEditBuiltIn?.(field, "visibility") === false}
+                    title={canEditBuiltIn?.(field, "visibility") === false ? "Fixed in the applicant form" : undefined}
                     onClick={() => onReenableField(field)}
                   >
                     Add back

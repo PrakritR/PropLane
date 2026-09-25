@@ -103,27 +103,30 @@ export function buildProplaneLeaseHtmlFromSections(args: {
   docName: string;
   docUrl?: string | null;
   includeSourcePdf?: boolean;
+  /** Emit only converted source clauses for a reviewed imported-template base. */
+  sourceOnly?: boolean;
 }): string {
   const safeName = escapeHtml(args.docName.trim() || "Uploaded lease");
   const sectionHtml = args.sections
     .map((section, index) => {
       const title = section.title.trim() || `Section ${index + 1}`;
       const body = paragraphHtml(section.body);
-      if (!body) return "";
-      return `  <h2>${index + 1}. ${escapeHtml(title)}</h2>\n${body}`;
+      if (!section.title.trim() && !body) return "";
+      const heading = args.sourceOnly ? title : `${index + 1}. ${title}`;
+      return `  <h2>${escapeHtml(heading)}</h2>${body ? `\n${body}` : ""}`;
     })
     .filter(Boolean)
     .join("\n");
 
   const pdfBlock =
-    args.includeSourcePdf !== false && args.docUrl?.trim()
+    !args.sourceOnly && args.includeSourcePdf !== false && args.docUrl?.trim()
       ? `
   <h2>${args.sections.length + 1}. Original uploaded document</h2>
   <p class="note">Source PDF retained for reference. PropLane fills resident, room, rent, and dates at signing.</p>
   <iframe class="pdf-frame" title="${safeName}" src="${escapeHtml(args.docUrl)}"></iframe>`
       : "";
 
-  const placementSection = `
+  const placementSection = args.sourceOnly ? "" : `
   <h2>${args.sections.length + (pdfBlock ? 2 : 1)}. Placement summary</h2>
   <p>PropLane fills resident name, room, rent, and dates from the approved application when the lease is sent for signature.</p>
   <h2>${args.sections.length + (pdfBlock ? 3 : 2)}. Electronic signature</h2>
@@ -139,7 +142,7 @@ ${LEASE_HTML_STYLES}
   </style>
 </head>
 <body>
-  <p class="note">Imported from your uploaded lease and structured for PropLane editing and e-sign.</p>
+${args.sourceOnly ? "" : '  <p class="note">Imported from your uploaded lease and structured for PropLane editing and e-sign.</p>'}
 ${sectionHtml || "  <h2>1. Lease terms</h2>\n  <p>Review and edit the imported lease sections below.</p>"}
 ${pdfBlock}
 ${placementSection}
@@ -192,5 +195,6 @@ export function parsedLeaseToHtml(
     sections: parsed.sections,
     docName,
     docUrl,
+    sourceOnly: true,
   });
 }

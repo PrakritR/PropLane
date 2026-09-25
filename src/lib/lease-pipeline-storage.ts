@@ -24,12 +24,15 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseClaimsExecution,
   leaseDocumentSha256,
+  effectiveLeaseDocumentMode,
+  type LeaseDocumentMode,
   replacesSignedLeaseDocument,
   rowHasAnySignature,
   signedDocumentHashesDiverge,
   stripsLeaseExecutionWithoutSupersede,
 } from "@/lib/lease-execution-evidence";
 import { parseLeaseHtmlSections, rebuildLeaseHtmlFromSections } from "@/lib/lease-html-sections";
+import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 import {
   isEditableLeaseSection,
   renderLeaseSectionEdit,
@@ -72,6 +75,7 @@ import {
   pendingUploadedLeaseParse,
   unreadUploadedLeaseParse,
   uploadedLeaseNeedsManagerConfirmation,
+  uploadedLeaseConversionBlocker,
   type UploadedLeaseFieldKey,
   type UploadedLeaseParse,
 } from "@/lib/uploaded-lease-extraction";
@@ -474,6 +478,8 @@ export const LEASE_LANDLORD_NAME_NOT_CONFIGURED_MESSAGE =
 
 export const LEASE_LANDLORD_NAME_MISMATCH_MESSAGE =
   "This lease names a different landlord than your profile name. Regenerate the lease so the parties section matches.";
+export const LEASE_CONVERTED_IMPORT_REVIEW_REQUIRED_MESSAGE =
+  "Compare the converted lease with the original PDF and confirm the exact version before sending it.";
 
 /** Read the bold party name from the generated lease's Parties row. */
 export function leaseLandlordPartyNameFromHtml(html: string): string | null {
@@ -545,6 +551,27 @@ export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoAppli
   if (leaseAwaitsUploadedLeaseReview(row)) {
     const next = leaseAllowsManagerDocumentEdits(row) ? "" : ` ${LEASE_MOVE_BACK_TO_REVIEW_MESSAGE}`;
     return `${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}${next}`;
+  }
+  if (effectiveLeaseDocumentMode(row) === "imported-converted") {
+    if (row.templateImportReview) {
+      const receipt = row.templatePlacementReview;
+      if (
+        !receipt ||
+        receipt.sourceSha256 !== row.templateImportReview.sourceSha256 ||
+        receipt.templateVersion !== row.templateImportReview.templateVersion ||
+        !row.generatedHtml
+      ) return LEASE_CONVERTED_IMPORT_REVIEW_REQUIRED_MESSAGE;
+      return null;
+    }
+    const parse = row.uploadedLeaseParse;
+    if (
+      !parse ||
+      uploadedLeaseConversionBlocker(parse, parse?.review.resolvedSourceIssueCodes ?? []) ||
+      !parse.review.confirmedConvertedHtmlSha256 ||
+      !row.generatedHtml
+    ) {
+      return LEASE_CONVERTED_IMPORT_REVIEW_REQUIRED_MESSAGE;
+    }
   }
   // `leaseLandlordNameBlocker` is deliberately NOT wired in here yet.
   //
@@ -750,6 +777,8 @@ export type SignedLeaseSnapshot = {
   leaseStart?: string;
   leaseEnd?: string;
   generatedHtml?: string | null;
+  /** The selected signable artifact. Absent legacy rows resolve from their existing bytes. */
+  documentMode?: LeaseDocumentMode | null;
   managerUploadedPdf?: LeasePipelineRow["managerUploadedPdf"];
   archivedAtIso: string;
 };
@@ -806,6 +835,17 @@ export type LeasePipelineRow = {
    * already signed) that is evidence rather than a document to send.
    */
   uploadedLeaseParse?: UploadedLeaseParse | null;
+  /** Server-issued confirmation binding an uploaded lease review to its source and signable body. */
+  uploadedLeaseReviewReceipt?: {
+    sourceSha256: string;
+    documentSha256: string;
+    convertedHtmlSha256: string | null;
+    resolvedSourceIssueCodes: string[];
+    reviewedAtIso: string;
+    confirmedByUserId: string;
+  } | null;
+  /** Server revision of the exact lease snapshot shown during import review. */
+  reviewRevision?: string | null;
   thread: LeaseThreadMessage[];
   managerSignature?: LeaseSignature | null;
   residentSignature?: LeaseSignature | null;
@@ -857,9 +897,32 @@ export type LeasePipelineRow = {
   /** Template identifier plus semver, e.g. "ca-residential@1.2.0". */
   templateVersion?: string | null;
   /** PDF selection frozen when an unsigned manager-review document is generated. */
+  /** Explicit signable artifact selection for imported and legacy leases. */
+  documentMode?: "proplane-generated" | "imported-converted" | "original-pdf" | null;
   templateDocumentUrl?: string | null;
   /** Display name paired with `templateDocumentUrl`; not an authorization value. */
   templateDocumentName?: string | null;
+  /** Reviewed PDF template provenance carried onto its generated placement lease. */
+  templateImportReview?: {
+    sourceSha256: string;
+    convertedHtmlSha256: string;
+    reviewedAtIso: string;
+    issueCodes: string[];
+    resolvedIssueCodes: string[];
+    extractedCharacters: number;
+    representedCharacters: number;
+    templateVersion: string;
+  } | null;
+  /** Server-issued confirmation of the exact final placement HTML. */
+  templatePlacementReview?: {
+    sourceSha256: string;
+    sourcePath: string;
+    finalHtmlSha256: string;
+    templateVersion: string;
+    reviewedAtIso: string;
+    confirmedByUserId: string;
+    riderConflictAcknowledged: boolean;
+  } | null;
   /** SHA-256 of the document as first executed (see `LeaseSignature.documentSha256`). */
   documentSha256?: string | null;
   /**
@@ -1013,6 +1076,68 @@ function normalizeSignedLeaseSnapshots(raw: unknown): SignedLeaseSnapshot[] | un
 }
 
 /** Coerce partial rows from localStorage so UI never reads undefined thread / notes / bucket. */
+function normalizeTemplateImportReview(raw: unknown): LeasePipelineRow["templateImportReview"] {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value.sourceSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.sourceSha256) ||
+    typeof value.convertedHtmlSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.convertedHtmlSha256) ||
+    typeof value.reviewedAtIso !== "string" || typeof value.templateVersion !== "string"
+  ) return null;
+  return {
+    sourceSha256: value.sourceSha256.toLowerCase(),
+    convertedHtmlSha256: value.convertedHtmlSha256.toLowerCase(),
+    reviewedAtIso: value.reviewedAtIso,
+    issueCodes: Array.isArray(value.issueCodes) ? value.issueCodes.filter((v): v is string => typeof v === "string").map((v) => v.slice(0, 80)).slice(0, 120) : [],
+    resolvedIssueCodes: Array.isArray(value.resolvedIssueCodes) ? [...new Set(value.resolvedIssueCodes.filter((v): v is string => typeof v === "string").map((v) => v.slice(0, 80)))].slice(0, 120) : [],
+    extractedCharacters: Number.isFinite(value.extractedCharacters) ? Math.max(0, Number(value.extractedCharacters)) : 0,
+    representedCharacters: Number.isFinite(value.representedCharacters) ? Math.max(0, Number(value.representedCharacters)) : 0,
+    templateVersion: value.templateVersion.slice(0, 200),
+  };
+}
+
+function normalizeTemplatePlacementReview(raw: unknown): LeasePipelineRow["templatePlacementReview"] {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value.sourceSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.sourceSha256) ||
+    typeof value.finalHtmlSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.finalHtmlSha256) ||
+    typeof value.sourcePath !== "string" || typeof value.templateVersion !== "string" ||
+    typeof value.reviewedAtIso !== "string" || typeof value.confirmedByUserId !== "string" || value.riderConflictAcknowledged !== true
+  ) return null;
+  return {
+    sourceSha256: value.sourceSha256.toLowerCase(),
+    sourcePath: value.sourcePath,
+    finalHtmlSha256: value.finalHtmlSha256.toLowerCase(),
+    templateVersion: value.templateVersion.slice(0, 200),
+    reviewedAtIso: value.reviewedAtIso,
+    confirmedByUserId: value.confirmedByUserId,
+    riderConflictAcknowledged: true,
+  };
+}
+
+function normalizeUploadedLeaseReviewReceipt(raw: unknown): LeasePipelineRow["uploadedLeaseReviewReceipt"] {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value.sourceSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.sourceSha256) ||
+    typeof value.documentSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.documentSha256) ||
+    (value.convertedHtmlSha256 !== null && (typeof value.convertedHtmlSha256 !== "string" || !/^[0-9a-f]{64}$/i.test(value.convertedHtmlSha256))) ||
+    typeof value.reviewedAtIso !== "string" ||
+    typeof value.confirmedByUserId !== "string"
+  ) return null;
+  return {
+    sourceSha256: value.sourceSha256.toLowerCase(),
+    documentSha256: value.documentSha256.toLowerCase(),
+    convertedHtmlSha256: typeof value.convertedHtmlSha256 === "string" ? value.convertedHtmlSha256.toLowerCase() : null,
+    resolvedSourceIssueCodes: Array.isArray(value.resolvedSourceIssueCodes)
+      ? [...new Set(value.resolvedSourceIssueCodes.filter((code): code is string => typeof code === "string"))].slice(0, 120)
+      : [],
+    reviewedAtIso: value.reviewedAtIso,
+    confirmedByUserId: value.confirmedByUserId,
+  };
+}
+
 export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
   const r = (raw && typeof raw === "object" ? raw : {}) as Partial<LeasePipelineRow>;
   const b = r.bucket;
@@ -1098,6 +1223,10 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     generatedHtml: stripLeaseAiDisclaimerFromHtml(
       typeof r.generatedHtml === "string" ? r.generatedHtml : null,
     ),
+    documentMode:
+      r.documentMode === "proplane-generated" || r.documentMode === "imported-converted" || r.documentMode === "original-pdf"
+        ? r.documentMode
+        : null,
     generatedAtIso: r.generatedAtIso ?? null,
     managerSectionEdits: normalizeManagerSectionEdits(r.managerSectionEdits),
     managerUploadedPdf: r.managerUploadedPdf ?? null,
@@ -1152,6 +1281,10 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     templateVersion: optionalTrimmedString(r.templateVersion),
     templateDocumentUrl: optionalTrimmedString(r.templateDocumentUrl),
     templateDocumentName: optionalTrimmedString(r.templateDocumentName),
+    templateImportReview: normalizeTemplateImportReview(r.templateImportReview),
+    templatePlacementReview: normalizeTemplatePlacementReview(r.templatePlacementReview),
+    uploadedLeaseReviewReceipt: normalizeUploadedLeaseReviewReceipt(r.uploadedLeaseReviewReceipt),
+    reviewRevision: typeof r.reviewRevision === "string" ? r.reviewRevision : null,
     // DERIVED, never carried forward from storage: it is the hash recorded by
     // the FIRST signature currently on the row. A stored copy went stale the
     // moment a document was replaced and the row re-signed (every reset path
@@ -1492,7 +1625,44 @@ function write(
   // all, so rehydrate before comparing.
   hydrateLeasePipelineFromSession(scopeUserId ?? activeLeasePipelineScopeUserId);
   const prevBaseline = memoryRows;
-  const rows = preserveSignedLeaseDocuments(memoryRows, unguardedRows);
+  const previousById = new Map(memoryRows.map((row) => [row.id, row]));
+  const reviewBoundRows = unguardedRows.map((row) => {
+    const previous = previousById.get(row.id);
+    if (
+      !previous ||
+      !row.generatedHtml ||
+      row.generatedHtml === previous.generatedHtml ||
+      effectiveLeaseDocumentMode(row) !== "imported-converted"
+    ) return row;
+    const previousReviewAt = previous.uploadedLeaseParse?.review.confirmedAtIso ?? null;
+    const nextParse = row.uploadedLeaseParse;
+    const explicitReview = Boolean(
+      nextParse?.review.status === "confirmed" &&
+      nextParse.review.confirmedAtIso &&
+      nextParse.review.confirmedAtIso !== previousReviewAt &&
+      nextParse.review.confirmedConvertedHtmlSha256,
+    );
+    if (explicitReview || !nextParse) return row;
+    return normalizeLeasePipelineRow({
+      ...row,
+      uploadedLeaseParse: {
+        ...nextParse,
+        review: {
+          ...nextParse.review,
+          status: "needs_review",
+          confirmedDocumentSha256: null,
+          confirmedConvertedHtmlSha256: null,
+          confirmedAtIso: null,
+          resolvedSourceIssueCodes: [],
+        },
+      },
+    });
+  });
+  const rows = preserveSignedLeaseDocuments(memoryRows, reviewBoundRows).map((row) => {
+    const previous = previousById.get(row.id);
+    if (!previous || row.generatedHtml === previous.generatedHtml || !row.templateImportReview) return row;
+    return normalizeLeasePipelineRow({ ...row, templatePlacementReview: null });
+  });
   const changed = leaseRowsChanged(memoryRows, rows);
   const serverIds = leasePipelineLastServerIds;
   const hasUnpersistedApprovalDraft =
@@ -2246,8 +2416,8 @@ export function leaseAllowsManagerGeneratedBodyEdits(row: LeasePipelineRow): boo
   return (
     leaseAllowsManagerDocumentEdits(row) &&
     Boolean(row.generatedHtml) &&
-    !row.managerUploadedPdf?.dataUrl &&
-    !row.templateDocumentUrl
+    (effectiveLeaseDocumentMode(row) === "imported-converted" ||
+      (!row.managerUploadedPdf?.dataUrl && !row.templateDocumentUrl))
   );
 }
 
@@ -2644,6 +2814,7 @@ export function updateLeasePipelineRow(
 }
 
 export function getLeaseDocumentHtml(row: LeasePipelineRow): string | null {
+  if (effectiveLeaseDocumentMode(row) === "original-pdf") return null;
   const generatedHtml = stripLeaseAiDisclaimerFromHtml(row.generatedHtml ?? null);
   if (!generatedHtml) return null;
   const sections = parseLeaseHtmlSections(generatedHtml);
@@ -2843,6 +3014,7 @@ export function leaseGenerationSupportedForRow(row: LeasePipelineRow): { ok: tru
 }
 
 async function refreshUploadedPdfSignatures(row: LeasePipelineRow): Promise<LeasePipelineRow["managerUploadedPdf"]> {
+  if (effectiveLeaseDocumentMode(row) !== "original-pdf") return null;
   const pdf = row.managerUploadedPdf;
   if (!pdf?.dataUrl) return pdf ?? null;
   // Pin the agreement bytes before the first merge. Without this a legacy row
@@ -2875,6 +3047,7 @@ async function prepareManagerTemplatePdfForSignature(
   row: LeasePipelineRow,
   managerUserId?: string | null,
 ): Promise<{ row: LeasePipelineRow } | { error: string }> {
+  if (effectiveLeaseDocumentMode(row) === "imported-converted" && row.templateImportReview) return { row };
   if (row.managerUploadedPdf?.dataUrl || hasAnyLeaseSignature(row)) return { row };
   const ctx = leaseGenerationContextForRow(row, managerUserId);
   if (!ctx) return { row };
@@ -2901,6 +3074,7 @@ async function prepareManagerTemplatePdfForSignature(
       row: {
         ...row,
         generatedHtml: null,
+        documentMode: "original-pdf",
         generatedAtIso: iso,
         managerUploadedPdf: {
           dataUrl: originalDataUrl,
@@ -2949,6 +3123,7 @@ export function generateLeaseHtmlForRow(
     {
       application: app,
       generatedHtml: outcome.html,
+      documentMode: outcome.templateDocument?.importedHtml ? "imported-converted" : "proplane-generated",
       managerUploadedPdf: null,
       // The parse is derived from the upload; it goes when the upload goes.
       uploadedLeaseParse: null,
@@ -2959,9 +3134,17 @@ export function generateLeaseHtmlForRow(
       currentActorRole: "manager",
       leaseDocumentRemovedAt: null,
       executedJurisdiction: outcome.executedJurisdiction,
-      templateVersion: outcome.templateVersion,
+      templateVersion: outcome.templateDocument?.importReview?.templateVersion ?? outcome.templateVersion,
       templateDocumentUrl: outcome.templateDocument?.url ?? null,
       templateDocumentName: outcome.templateDocument?.name ?? null,
+      templateImportReview: outcome.templateDocument?.importReview
+        ? {
+            ...outcome.templateDocument.importReview,
+            issueCodes: [...outcome.templateDocument.importReview.issueCodes],
+            resolvedIssueCodes: [...(outcome.templateDocument.importReview.resolvedIssueCodes ?? [])],
+          }
+        : null,
+      templatePlacementReview: null,
       leaseGenerationTemplateId: templateId,
     },
     managerUserId,
@@ -3002,7 +3185,7 @@ export async function downloadLeaseFromRow(row: LeasePipelineRow): Promise<Porta
     leaseRowCarriesDocumentBytes(row) || !leaseRowHasDocument(row)
       ? row
       : ((await ensureLeaseDocumentLoaded(row.id, undefined, row)) ?? row);
-  if (current.managerUploadedPdf?.dataUrl) {
+  if (effectiveLeaseDocumentMode(current) === "original-pdf" && current.managerUploadedPdf?.dataUrl) {
     return downloadDataUrl(
       current.managerUploadedPdf.dataUrl,
       current.managerUploadedPdf.fileName || `PropLane-Lease-${leaseDownloadBaseName(current)}.pdf`,
@@ -3088,6 +3271,7 @@ export function managerUploadLeasePdf(
         ...row,
         bucket: "manager",
         managerUploadedPdf: payload,
+        documentMode: "original-pdf",
         // Written BEFORE any text is read, so the confirm-before-sign gate is
         // closed for the whole window in which the parse could still be running
         // or could fail. A parse that never completes leaves the lease held,
@@ -3173,6 +3357,14 @@ export function confirmUploadedLeaseParse(
     confirmedByName?: string | null;
     overrides?: Partial<Record<UploadedLeaseFieldKey, string>>;
     note?: string | null;
+    useConverted?: boolean;
+    convertedHtml?: string;
+    convertedHtmlSha256?: string | null;
+    resolvedSourceIssueCodes?: string[];
+    expectedRevision?: string | null;
+    viewedSourceSha256?: string;
+    viewedConvertedHtmlSha256?: string | null;
+    viewedRecordFingerprint?: string;
   },
 ): LeasePipelineActionResult {
   const rows = [...materializeLeasePipeline(args.managerUserId)];
@@ -3185,14 +3377,37 @@ export function confirmUploadedLeaseParse(
   if (!leaseAllowsManagerDocumentEdits(row)) {
     return { ok: false, error: "Move the lease back to manager review before confirming it." };
   }
+  if (args.useConverted) {
+    if (!parse.sourceCoverage || !parse.sourceSha256 || !args.convertedHtml?.trim()) {
+      return { ok: false, error: "This imported lease does not have a complete editable conversion. Use the original PDF." };
+    }
+    if (!args.convertedHtmlSha256 || !/^[0-9a-f]{64}$/.test(args.convertedHtmlSha256)) {
+      return { ok: false, error: "Review the converted document again before choosing it for signature." };
+    }
+    const blocker = uploadedLeaseConversionBlocker(parse, args.resolvedSourceIssueCodes ?? []);
+    if (blocker) return { ok: false, error: blocker };
+  }
   const merged = { ...(parse.review.overrides ?? {}), ...(args.overrides ?? {}) };
   const cleaned: Partial<Record<UploadedLeaseFieldKey, string>> = {};
   for (const [key, value] of Object.entries(merged)) {
     if (typeof value === "string" && value.trim()) cleaned[key as UploadedLeaseFieldKey] = value.trim();
   }
   const iso = new Date().toISOString();
+  const convertedHtml = args.useConverted
+    ? sanitizeLeaseDocumentHtml(args.convertedHtml?.trim() ?? "")
+    : row.generatedHtml ?? null;
+  const nextVersion =
+    args.useConverted && convertedHtml !== row.generatedHtml
+      ? (row.versionNumber ?? row.pdfVersion ?? 1) + 1
+      : row.versionNumber ?? row.pdfVersion;
   rows[idx] = normalizeLeasePipelineRow({
     ...row,
+    generatedHtml: convertedHtml,
+    documentMode: args.useConverted ? "imported-converted" : "original-pdf",
+    versionNumber: nextVersion,
+    pdfVersion: nextVersion,
+    generatedAtIso: args.useConverted ? iso : row.generatedAtIso,
+    managerDocumentEditedAtIso: args.useConverted ? iso : row.managerDocumentEditedAtIso,
     uploadedLeaseParse: {
       ...parse,
       review: confirmedUploadedLeaseReview(
@@ -3203,6 +3418,8 @@ export function confirmUploadedLeaseParse(
           atIso: iso,
           note: args.note,
           documentSha256: parse.sourceSha256,
+          convertedHtmlSha256: args.useConverted ? args.convertedHtmlSha256 : null,
+          resolvedSourceIssueCodes: args.useConverted ? args.resolvedSourceIssueCodes : [],
           // The record the manager was comparing against. Read from the row as
           // it is NOW, including the overrides just merged, so the acknowledgement
           // names the terms actually on screen at confirm time.
@@ -3215,6 +3432,60 @@ export function confirmUploadedLeaseParse(
   });
   write(rows, args.managerUserId);
   return { ok: true };
+}
+
+/** Persist a human review through the server-issued receipt action. */
+export async function confirmUploadedLeaseParseOnServer(
+  rowId: string,
+  args: {
+    managerUserId?: string | null;
+    confirmedByName?: string | null;
+    overrides?: Partial<Record<UploadedLeaseFieldKey, string>>;
+    note?: string | null;
+    useConverted?: boolean;
+    convertedHtml?: string;
+    convertedHtmlSha256?: string | null;
+    resolvedSourceIssueCodes?: string[];
+    expectedRevision?: string | null;
+    viewedSourceSha256?: string;
+    viewedConvertedHtmlSha256?: string | null;
+    viewedRecordFingerprint?: string;
+  },
+): Promise<LeasePipelineActionResult> {
+  if (!canUseStorage() || isDemoModeActive()) {
+    return { ok: false, error: "Imported lease review is unavailable in demo mode." };
+  }
+  try {
+    const response = await fetch("/api/portal-lease-pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        action: "confirm_uploaded_lease_review",
+        leaseId: rowId,
+        uploadedReview: {
+          overrides: args.overrides,
+          note: args.note,
+          useConverted: args.useConverted,
+          convertedHtml: args.convertedHtml,
+          resolvedSourceIssueCodes: args.resolvedSourceIssueCodes,
+          expectedRevision: args.expectedRevision,
+          viewedSourceSha256: args.viewedSourceSha256,
+          viewedConvertedHtmlSha256: args.viewedConvertedHtmlSha256,
+          viewedRecordFingerprint: args.viewedRecordFingerprint,
+        },
+      }),
+    });
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    if (!response.ok) {
+      await syncLeasePipelineFromServer(args.managerUserId, { force: true });
+      return { ok: false, error: body.error ?? "Could not confirm the imported lease." };
+    }
+    await syncLeasePipelineFromServer(args.managerUserId, { force: true });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not confirm the imported lease." };
+  }
 }
 
 export function residentUploadLeasePdf(email: string, file: File): Promise<{ ok: boolean; error?: string }> {
@@ -3258,6 +3529,7 @@ export function residentUploadLeasePdf(email: string, file: File): Promise<{ ok:
         // bytes nobody read.
         uploadedLeaseParse: null,
         generatedHtml: null,
+        documentMode: "original-pdf",
         generatedAtIso: null,
         pdfVersion: nextVersion,
         versionNumber: nextVersion,
@@ -3469,7 +3741,12 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
   if (!logical || !leaseAccessibleToManager(logical, managerUserId)) {
     return { ok: false, error: "Lease not found." };
   }
-  if (!logical.generatedHtml && !logical.managerUploadedPdf?.dataUrl) {
+  const signableMode = effectiveLeaseDocumentMode(logical);
+  if (
+    (signableMode === "original-pdf" && !logical.managerUploadedPdf?.dataUrl) ||
+    (signableMode !== "original-pdf" && !logical.generatedHtml) ||
+    (signableMode === "imported-converted" && !logical.templateImportReview && !logical.uploadedLeaseParse?.review.confirmedConvertedHtmlSha256)
+  ) {
     return { ok: false, error: "Generate or upload a lease document first." };
   }
   if (logical.status === "Fully Signed" || logical.status === "Voided") {

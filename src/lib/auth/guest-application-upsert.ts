@@ -204,7 +204,8 @@ export async function prepareGuestApplicationUpsert(
     signedMonthlyRent: params.existing?.signedMonthlyRent ?? params.row.signedMonthlyRent,
     backgroundCheckStatus: params.existing?.backgroundCheckStatus ?? params.row.backgroundCheckStatus,
     screening: params.existing?.screening ?? params.row.screening,
-    manuallyAdded: params.existing?.manuallyAdded ?? params.row.manuallyAdded,
+    manuallyAdded: params.existing?.manuallyAdded === true,
+    manualResidentDetails: params.existing?.manualResidentDetails,
     moveInInstructions: params.existing?.moveInInstructions ?? params.row.moveInInstructions,
     application:
       params.row.application && params.existing?.application

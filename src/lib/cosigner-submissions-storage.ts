@@ -1,5 +1,6 @@
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 
 export type CosignerSubmission = {
   /** Server row id (`cosigner_submission_records.id`). */
@@ -32,6 +33,9 @@ export type CosignerSubmission = {
   signature: string;
   dateSigned: string;
   submittedAt: string;
+  applicationTemplateId?: string;
+  applicationTemplateVersion?: number;
+  customFieldAnswers?: RentalCustomFieldAnswer[];
   backgroundCheck?: ApplicationBackgroundCheck;
 };
 

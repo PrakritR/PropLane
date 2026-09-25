@@ -22,7 +22,10 @@ export async function GET(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const preview = await loadCosignerSignerLinkPreview(db, signerAppId);
+    const templateId = url.searchParams.get("templateId") || undefined;
+    const versionString = url.searchParams.get("templateVersion");
+    const templateVersion = versionString && /^\d+$/.test(versionString) ? Number(versionString) : undefined;
+    const preview = await loadCosignerSignerLinkPreview(db, signerAppId, templateId, templateVersion);
     return NextResponse.json(preview, { status: preview.ok ? 200 : 404 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not verify that co-signer link.";
