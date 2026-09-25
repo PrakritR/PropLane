@@ -3,6 +3,7 @@ import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
 import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
 import { publicListingProjection } from "@/lib/public-listings.server";
+import { normalizeWorkspaceApplicationFormTemplate } from "@/lib/rental-application/workspace-application-form";
 import { resolveListingCtaEmail } from "@/lib/listing-cta-email.server";
 import { isSandboxPublicListing } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
     if (scope.kind === "denied") return NextResponse.json({ error: "Property not found." }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
     let propertyQuery = db
       .from("manager_property_records")
-      .select("id, manager_user_id, status, property_data, test_workspace_id")
+      .select("id, manager_user_id, workspace_id, status, property_data, test_workspace_id")
       .eq("id", propertyId);
     propertyQuery = scope.kind === "active"
       ? propertyQuery.eq("test_workspace_id", scope.workspaceId)
@@ -95,13 +96,31 @@ export async function GET(req: Request) {
       }
     }
 
+    // Same workspace-application-form resolution as the catalog
+    // (`getPublicListings`) — a share link for one property must not disagree
+    // with what Browse already showed for the same listing.
+    let workspaceForm = null as ReturnType<typeof normalizeWorkspaceApplicationFormTemplate>;
+    if (data.workspace_id) {
+      const { data: workspaceRow } = await db
+        .from("workspace_automation_settings")
+        .select("row_data")
+        .eq("workspace_id", data.workspace_id)
+        .maybeSingle();
+      const rowData = workspaceRow?.row_data;
+      const raw =
+        rowData && typeof rowData === "object" && !Array.isArray(rowData)
+          ? (rowData as Record<string, unknown>).applicationFormTemplate
+          : undefined;
+      workspaceForm = normalizeWorkspaceApplicationFormTemplate(raw);
+    }
+
     // Public per-property detail: CDN-cacheable, same for everyone. Same
     // allowlist as the catalog — this route reaches the SAME stored blob from
     // the SAME anonymous audience, so a projection on only one of the two is
     // trivially bypassed by asking for the property by id.
     return NextResponse.json(
       {
-        property: publicListingProjection(resolved),
+        property: publicListingProjection(resolved, workspaceForm),
         ...(scope.kind === "active" ? { testWorkspaceId: scope.workspaceId } : {}),
       },
       { headers: scope.kind === "active"

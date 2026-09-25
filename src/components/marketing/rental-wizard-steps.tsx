@@ -55,6 +55,7 @@ import {
   customFieldsForWizardStep,
   formatCustomFieldAnswerDisplay,
   groupCustomFieldAnswersBySection,
+  isCustomFieldHiddenByCondition,
   listingCustomApplicationFields,
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
@@ -337,7 +338,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const fields = customFieldsForWizardStep(
       listingCustomApplicationFields(applicationConfig),
       step,
-    );
+    ).filter((field) => !isCustomFieldHiddenByCondition(field, form.customFieldAnswers));
     if (fields.length === 0) return null;
     return (
       <div className="space-y-5 rounded-2xl border border-border bg-accent/20 p-4 sm:p-5">

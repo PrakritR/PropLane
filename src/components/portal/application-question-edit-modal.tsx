@@ -173,11 +173,22 @@ export function ApplicationQuestionFields({
   field,
   onPatch,
   error,
+  siblingFields,
 }: {
   field: ResolvedApplicationField;
   onPatch: (patch: Partial<ManagerCustomApplicationField>) => void;
   error?: string | null;
+  /**
+   * Other CUSTOM questions in this same form, for "Show only if …" — a
+   * conditional question only ever depends on a sibling custom answer, never
+   * a built-in standard field, so evaluation only needs the custom-answer
+   * list already threaded through the wizard and server validation (see
+   * `isCustomFieldHiddenByCondition`, `rental-application/custom-fields.ts`).
+   * Omitted or empty hides the control (nothing to condition on yet).
+   */
+  siblingFields?: ResolvedApplicationField[];
 }) {
+  const conditionCandidates = (siblingFields ?? []).filter((f) => !f.isStandard && f.id !== field.id);
   return (
     <>
       <div>
@@ -225,6 +236,41 @@ export function ApplicationQuestionFields({
           <div className="mt-1">
             <OptionRowsEditor options={field.options} onChange={(options) => onPatch({ options })} />
           </div>
+        </div>
+      ) : null}
+      {conditionCandidates.length > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-medium text-foreground">Show only if</p>
+            <Select
+              value={field.showIf?.fieldKey ?? ""}
+              onChange={(e) => {
+                const fieldKey = e.target.value;
+                onPatch(fieldKey ? { showIf: { fieldKey, equals: field.showIf?.equals ?? "" } } : { showIf: undefined });
+              }}
+              className="mt-1"
+              data-attr="application-question-showif-field"
+            >
+              <option value="">Always shown</option>
+              {conditionCandidates.map((f) => (
+                <option key={f.id} value={f.key}>
+                  {f.label.trim() || "Untitled question"}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {field.showIf?.fieldKey ? (
+            <div>
+              <p className="text-sm font-medium text-foreground">is answered</p>
+              <Input
+                value={field.showIf.equals}
+                onChange={(e) => onPatch({ showIf: { fieldKey: field.showIf!.fieldKey, equals: e.target.value } })}
+                placeholder="e.g. Yes"
+                className="mt-1"
+                data-attr="application-question-showif-equals"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
       {error ? <p className="text-sm text-red-600" data-attr="application-question-error">{error}</p> : null}

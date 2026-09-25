@@ -58,6 +58,11 @@ import {
   updatePropertyApplicationTemplate,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
+import {
+  applyEffectiveApplicationForm,
+  workspaceApplicationFormIsConfigured,
+  type WorkspaceApplicationFormTemplate,
+} from "@/lib/rental-application/workspace-application-form";
 
 /** Question sections start collapsed; managers expand the ones they need. */
 function collapsedApplicationSections(): Set<string> {
@@ -213,6 +218,12 @@ export function ManagerApplicationQuestionsEditorModal({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The workspace-wide application-form template (Settings → Application
+  // form), fetched once per open so this listing's "Workspace form" /
+  // "Custom for this listing" pick can show what it currently means and copy
+  // it onto the listing exactly once when the manager switches to Custom.
+  const [workspaceForm, setWorkspaceForm] = useState<WorkspaceApplicationFormTemplate | null>(null);
+  const [workspaceFormLoaded, setWorkspaceFormLoaded] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -233,6 +244,59 @@ export function ManagerApplicationQuestionsEditorModal({
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
+
+  useEffect(() => {
+    if (!open || isTemplateEditor || isBulkSave) {
+      setWorkspaceForm(null);
+      setWorkspaceFormLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    setWorkspaceFormLoaded(false);
+    fetch("/api/portal/application-form")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { template?: WorkspaceApplicationFormTemplate } | null) => {
+        if (cancelled) return;
+        const template = data?.template;
+        setWorkspaceForm(template && workspaceApplicationFormIsConfigured(template) ? template : null);
+        setWorkspaceFormLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceFormLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isTemplateEditor, isBulkSave]);
+
+  // Absent = "workspace" (follows the workspace template by default, see
+  // `resolveEffectiveApplicationForm`); "custom" keeps this listing's own
+  // triplet independent. Switching TO custom copies the workspace form onto
+  // the listing ONCE, right now — the same "one-time copy, nothing stored as
+  // a standing link" shape as "Same as Room X" (`listing-wizard-defaults.md`).
+  const applicationFormSource: "workspace" | "custom" = localSub.applicationFormSource === "custom" ? "custom" : "workspace";
+  const setApplicationFormSource = (next: "workspace" | "custom") => {
+    if (next === applicationFormSource) return;
+    setLocalSub((prev) => {
+      if (next === "custom" && workspaceForm) {
+        return {
+          ...prev,
+          applicationFormSource: "custom",
+          customApplicationFields: workspaceForm.customApplicationFields,
+          disabledStandardApplicationKeys: workspaceForm.disabledStandardApplicationKeys,
+          applicationConfigMode: workspaceForm.applicationConfigMode,
+          shortTermCustomApplicationFields: workspaceForm.shortTermCustomApplicationFields,
+          shortTermDisabledStandardApplicationKeys: workspaceForm.shortTermDisabledStandardApplicationKeys,
+          shortTermApplicationConfigMode: workspaceForm.shortTermApplicationConfigMode,
+          cosignerCustomApplicationFields: workspaceForm.cosignerCustomApplicationFields,
+          cosignerDisabledStandardApplicationKeys: workspaceForm.cosignerDisabledStandardApplicationKeys,
+          cosignerApplicationConfigMode: workspaceForm.cosignerApplicationConfigMode,
+        };
+      }
+      return { ...prev, applicationFormSource: next };
+    });
+    setDirty(true);
+  };
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
 
@@ -242,11 +306,24 @@ export function ManagerApplicationQuestionsEditorModal({
     onDelete();
   };
 
+  // While this listing follows the workspace template, DISPLAY (fields,
+  // preview) resolves from the workspace's questions, not the listing's own
+  // (currently inactive) triplet — `renderSection` below shows that resolved
+  // set read-only rather than the editable builder, so nothing here writes
+  // an edit that the next render would silently discard.
+  const effectiveSubForDisplay = useMemo(
+    () => (applicationFormSource === "workspace" ? applyEffectiveApplicationForm(localSub, workspaceForm) : localSub),
+    [localSub, workspaceForm, applicationFormSource],
+  );
+
   // The config slice for the form the manager is editing.
   // top-level triplet; short-term reads its own, defaulting to PropLane's
   // curated short-term question set until edited. Edits to one never touch the
   // other.
-  const configSlice = useMemo(() => applicationConfigForVariant(localSub, variant), [localSub, variant]);
+  const configSlice = useMemo(
+    () => applicationConfigForVariant(effectiveSubForDisplay, variant),
+    [effectiveSubForDisplay, variant],
+  );
 
   // `normalizeCustomApplicationFieldsForEditor` (not the plain normalizer) keeps
   // an in-progress row with an empty label or no options yet — it must stay
@@ -568,6 +645,25 @@ export function ManagerApplicationQuestionsEditorModal({
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
     const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
+    if (applicationFormSource === "workspace" && workspaceForm && !isTemplateEditor && !isBulkSave) {
+      return (
+        <div data-attr={`application-section-toggle-${sectionId}`} className="space-y-3">
+          <p className="text-sm text-muted">
+            Following the workspace application form. Pick &quot;Custom for this listing&quot; above to edit this
+            listing&apos;s own questions.
+          </p>
+          {sectionQuestions.length === 0 ? (
+            <p className="text-sm text-muted">No questions in this section.</p>
+          ) : (
+            <ApplicationSectionPreviewPane
+              section={RENTAL_APPLICATION_SECTIONS.find((s) => s.id === sectionId) ?? null}
+              fields={sectionQuestions}
+              applicationPreviewPropertyId={applicationPreviewPropertyId}
+            />
+          )}
+        </div>
+      );
+    }
     return (
       <div data-attr={`application-section-toggle-${sectionId}`}>
         {sectionQuestions.length === 0 && sectionDisabled.length === 0 ? (
@@ -745,6 +841,19 @@ export function ManagerApplicationQuestionsEditorModal({
                 </button>
               }
             />
+            {!isTemplateEditor && !isBulkSave && workspaceFormLoaded ? (
+              <FieldSingleSelect
+                label="Application form"
+                labelClassName={WIZARD_LABEL_CLASS}
+                value={applicationFormSource}
+                dataAttr="application-form-source"
+                options={[
+                  { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
+                  { value: "custom", label: "Custom for this listing" },
+                ]}
+                onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
+              />
+            ) : null}
             <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label="Application form">
               {APPLICATION_FORM_VARIANTS.map((v) => {
                 const active = variant === v.id;

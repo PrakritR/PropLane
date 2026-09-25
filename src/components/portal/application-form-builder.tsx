@@ -172,6 +172,7 @@ export function ApplicationSectionPreviewPane({
 
 function BuilderQuestionCard({
   field,
+  allFields,
   expanded,
   onToggleExpand,
   error,
@@ -185,6 +186,8 @@ function BuilderQuestionCard({
   onMoveToSection,
 }: {
   field: ResolvedApplicationField;
+  /** Every question in the form (all sections), for "Show only if …" candidates. */
+  allFields: ResolvedApplicationField[];
   expanded: boolean;
   onToggleExpand: () => void;
   error?: string | null;
@@ -284,7 +287,7 @@ function BuilderQuestionCard({
         error={Boolean(error)}
         contentClassName="space-y-4"
       >
-        <ApplicationQuestionFields field={field} onPatch={onPatch} error={error} />
+        <ApplicationQuestionFields field={field} onPatch={onPatch} error={error} siblingFields={allFields} />
         <div className="border-t border-border/70 pt-4">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
           {/* The REAL applicant control, read-only — never a hand-drawn imitation, so the
@@ -373,6 +376,7 @@ export function ApplicationFormBuilder({
                   {index === firstCustomIndex ? <CustomQuestionsDivider /> : null}
                   <BuilderQuestionCard
                     field={field}
+                    allFields={applicationFields}
                     expanded={expandedQuestionIds.has(field.id)}
                     onToggleExpand={() => onToggleExpand(field.id)}
                     error={fieldErrors?.get(field.id) ?? null}

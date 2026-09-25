@@ -1021,6 +1021,18 @@ export type ManagerListingSubmissionV1 = {
   quickFacts: ManagerQuickFactRow[];
   /** Resident-facing service request options for this property. */
   serviceRequestOptions?: ManagerListingServiceOption[];
+  /**
+   * Whether this listing's rental application follows the workspace-wide
+   * template or keeps its own independent question set. Absent (legacy) or
+   * "custom" = use this listing's own `customApplicationFields` /
+   * `disabledStandardApplicationKeys` / `applicationConfigMode` triplet below
+   * exactly as before this field existed. "workspace" = defer to the
+   * workspace's saved application-form template
+   * (`WorkspaceApplicationFormTemplate`, `rental-application/workspace-application-form.ts`)
+   * when one has been saved; falls back to this listing's own triplet when no
+   * workspace template exists yet. See `resolveEffectiveApplicationForm`.
+   */
+  applicationFormSource?: "workspace" | "custom";
   /** Manager-defined application questions applicants answer for this listing (array order is display order). */
   customApplicationFields?: ManagerCustomApplicationField[];
   /** Built-in application questions the manager removed for this listing. */
@@ -1359,6 +1371,16 @@ export type ManagerCustomApplicationField = {
   standardKey?: string;
   /** Manager-authored help text shown under the question label. Absent when unset. */
   description?: string;
+  /**
+   * Show this question only when another CUSTOM question in the same form
+   * (`fieldKey`, its `key`) currently holds a specific answer (`equals`).
+   * Absent = always shown. Only refers to sibling custom questions (never a
+   * built-in standard field) so evaluation only ever needs the custom-answer
+   * list already threaded through the wizard and server validation — see
+   * `isCustomFieldHiddenByCondition` in `rental-application/custom-fields.ts`.
+   * A hidden question is never required and never blocks submit.
+   */
+  showIf?: { fieldKey: string; equals: string };
 };
 
 const CUSTOM_APPLICATION_FIELD_TYPES_SET = new Set<string>(CUSTOM_APPLICATION_FIELD_TYPES);
@@ -1432,6 +1454,18 @@ export function normalizeCustomApplicationFields(
     const section =
       typeof o.section === "string" && RENTAL_APPLICATION_SECTION_IDS.has(o.section) ? o.section : undefined;
     const description = typeof o.description === "string" && o.description.trim() ? o.description.trim() : undefined;
+    const showIfRaw = o.showIf;
+    const showIf =
+      showIfRaw &&
+      typeof showIfRaw === "object" &&
+      typeof (showIfRaw as { fieldKey?: unknown }).fieldKey === "string" &&
+      (showIfRaw as { fieldKey: string }).fieldKey.trim() &&
+      typeof (showIfRaw as { equals?: unknown }).equals === "string"
+        ? {
+            fieldKey: (showIfRaw as { fieldKey: string }).fieldKey.trim(),
+            equals: (showIfRaw as { equals: string }).equals,
+          }
+        : undefined;
     out.push({
       id,
       key,
@@ -1442,6 +1476,7 @@ export function normalizeCustomApplicationFields(
       section,
       standardKey,
       description,
+      showIf,
     });
   }
   return out;
@@ -2554,6 +2589,11 @@ function normalizeManagerListingSubmissionV1Base(
     quickFacts,
     customFees,
     serviceRequestOptions,
+    applicationFormSource:
+      (sub as { applicationFormSource?: unknown }).applicationFormSource === "workspace" ||
+      (sub as { applicationFormSource?: unknown }).applicationFormSource === "custom"
+        ? ((sub as { applicationFormSource: "workspace" | "custom" }).applicationFormSource)
+        : undefined,
     customApplicationFields: normalizeCustomApplicationFields(
       (sub as { customApplicationFields?: unknown }).customApplicationFields,
     ),
