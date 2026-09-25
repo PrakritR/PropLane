@@ -97,12 +97,12 @@ export function GeneralAssistantTrigger() {
  * Marketing pages carry no floating control (site round 2 §5): the story,
  * pricing and audience pages are read, not chatted with. The bubble stays on
  * docs, support, the auth flow and the rental browse, where a visitor has a
- * question in hand — and, since the Codex-style redesign (captain
- * 2026-09-25), on the home page too: the home page now leads with the real
- * product, and a visitor who scrolls past it into the more read-y sections
- * below can still ask a question without hunting for a contact link.
+ * question in hand. The Codex-style redesign briefly added the home page
+ * (`/`) here too, then removed it again on the captain's explicit word — the
+ * home page now leads with the real embedded product and its own docked
+ * assistant, so a second floating bubble was redundant on top of it.
  */
-const MARKETING_PATHS = ["/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
+const MARKETING_PATHS = ["/", "/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
 /** A sheet about to be printed, and the page a door-card QR opens, carry no chat bubble either. */
 const CHROMELESS_PATHS = ["/print", "/h"];
 export function isMarketingPath(pathname: string | null): boolean {

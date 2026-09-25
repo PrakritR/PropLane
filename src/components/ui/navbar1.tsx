@@ -96,10 +96,12 @@ export function Navbar1({
 }: Navbar1Props) {
   return (
     <div className="mx-auto flex min-h-[56px] w-full max-w-6xl items-center px-4 sm:px-5">
-      {/* Desktop — logo left, links centered, actions right (3-col grid). */}
-      <nav className="hidden w-full grid-cols-[auto_1fr_auto] items-center gap-4 lg:grid">
+      {/* Desktop — logo and links left-justified together, actions right
+          (4-col grid: logo | menu | flexible spacer | actions). Captain
+          2026-09-25: the links sit right next to the mark, not centered. */}
+      <nav className="hidden w-full grid-cols-[auto_auto_1fr_auto] items-center gap-6 lg:grid">
         <div className="justify-self-start">{logoSlot}</div>
-        <div className="justify-self-center">
+        <div className="justify-self-start">
           <NavigationMenu>
             <NavigationMenuList>
               {menu.map((item) => (
@@ -108,6 +110,7 @@ export function Navbar1({
             </NavigationMenuList>
           </NavigationMenu>
         </div>
+        <div aria-hidden />
         <div className="flex items-center gap-2 justify-self-end whitespace-nowrap">
           {actionsSlot && <div className="hidden items-center lg:flex">{actionsSlot}</div>}
           {portalLink ? (
