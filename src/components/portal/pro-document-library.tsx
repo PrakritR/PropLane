@@ -246,7 +246,8 @@ function toFilterOptions(
 }
 
 export type ManagerDocumentLibraryHandle = {
-  openUpload: () => void;
+  /** C061: an upload triggered from a specific folder (Leases/Other) defaults to it — never always "Other". */
+  openUpload: (defaultCategory?: ManagerDocumentCategory) => void;
 };
 
 type ManagerDocumentLibraryProps = {
@@ -321,7 +322,23 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   const setExpiryFilter = onExpiryFilterChange ?? setExpiryFilterState;
 
   const [uploadOpen, setUploadOpen] = useState(false);
-  useImperativeHandle(ref, () => ({ openUpload: () => setUploadOpen(true) }), []);
+  // C061: an upload from a specific folder defaults into it — the caller
+  // (the folder tab currently open) passes its own category; the general
+  // library view falls back to whatever category filter is active there.
+  const [uploadDefaultCategory, setUploadDefaultCategory] = useState<ManagerDocumentCategory | undefined>(undefined);
+  useImperativeHandle(
+    ref,
+    () => ({
+      openUpload: (defaultCategory) => {
+        const fallback = (DOCUMENT_CATEGORIES as readonly string[]).includes(categoryFilter)
+          ? (categoryFilter as ManagerDocumentCategory)
+          : undefined;
+        setUploadDefaultCategory(defaultCategory ?? fallback);
+        setUploadOpen(true);
+      },
+    }),
+    [categoryFilter],
+  );
   const [renameTarget, setRenameTarget] = useState<ManagerDocumentDTO | null>(null);
   const [versionTarget, setVersionTarget] = useState<ManagerDocumentDTO | null>(null);
   const [previewTarget, setPreviewTarget] = useState<ManagerDocumentDTO | null>(null);
@@ -687,6 +704,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
       <UploadModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+        defaultCategory={uploadDefaultCategory}
         propertyOptions={propertyOptions}
         vendorRows={vendorRows.filter((v) => v.active !== false)}
         onUploaded={(doc) => {
@@ -913,6 +931,7 @@ function UploadModal({
   supersedeDocumentId,
   title = "Upload document",
   versionMode = false,
+  defaultCategory,
 }: {
   open: boolean;
   onClose: () => void;
@@ -922,12 +941,14 @@ function UploadModal({
   supersedeDocumentId?: string;
   title?: string;
   versionMode?: boolean;
+  /** C061: the folder the upload was opened from — never always "Other". */
+  defaultCategory?: ManagerDocumentCategory;
 }) {
   const { showToast } = useAppUi();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState("");
-  const [category, setCategory] = useState<ManagerDocumentCategory>("other");
+  const [category, setCategory] = useState<ManagerDocumentCategory>(defaultCategory ?? "other");
   const [propertyId, setPropertyId] = useState("");
   const [visibility, setVisibility] = useState<ManagerDocumentVisibility>("manager");
   const [residentEmail, setResidentEmail] = useState("");
@@ -942,7 +963,7 @@ function UploadModal({
     if (!open) {
       setFile(null);
       setDisplayName("");
-      setCategory("other");
+      setCategory(defaultCategory ?? "other");
       setPropertyId("");
       setVisibility("manager");
       setResidentEmail("");
@@ -954,6 +975,13 @@ function UploadModal({
       setStepError(null);
     }
   }, [open]);
+
+  // C061: category defaults to the folder the upload was opened from. A
+  // separate effect (not the reset-on-close one above) because it must run
+  // when `open` flips true, with that same render's `defaultCategory`.
+  useEffect(() => {
+    if (open) setCategory(defaultCategory ?? "other");
+  }, [open, defaultCategory]);
 
   useEffect(() => {
     if (!open) return;
