@@ -1101,7 +1101,13 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       dedupeKey,
     });
     if (!audit.recorded) {
-      if (audit.duplicate) return { reply: "This work order was already approved and paid." };
+      // A paid work order threw above, so a duplicate here is a run still in
+      // flight — normally an invoice checkout waiting to be paid.
+      if (audit.duplicate) {
+        return {
+          reply: "Approve and pay is already in progress for this work order. Finish the open checkout to pay it; nothing new was charged.",
+        };
+      }
       throw new Error("Could not record the action; nothing was approved or paid.");
     }
 

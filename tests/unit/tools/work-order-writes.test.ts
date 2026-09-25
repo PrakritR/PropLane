@@ -10,7 +10,11 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({
 vi.mock("@/lib/vendor-notification-delivery", () => ({
   sendVendorNotification: vi.fn().mockResolvedValue({ emailSent: true, inboxDelivered: true, skippedDemoEmail: false }),
 }));
-vi.mock("@/lib/stripe-vendor-payout", () => ({ payoutVendorForWorkOrder: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/lib/stripe-vendor-payout", () => ({
+  payoutVendorForWorkOrder: vi.fn().mockResolvedValue(undefined),
+  recordVendorPayoutSettled: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/lib/stripe-platform-hold.server", () => ({ creditHoldFromPaidSession: vi.fn().mockResolvedValue(undefined) }));
 // Approve + Pay now opens a hosted Stripe Checkout for the invoice (5c973d980).
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({}) }));
 vi.mock("@/lib/stripe-connect", () => ({ resolveConnectDestinationIfReady: vi.fn().mockResolvedValue("acct_vendor") }));
@@ -32,8 +36,9 @@ vi.mock("@/lib/vendor-availability-server", () => ({
 import type { AgentContext } from "@/lib/tools/context";
 import { buildRegistry } from "@/lib/tools/registry";
 import { assertFinancialsTier } from "@/lib/reports/auth";
-import { payoutVendorForWorkOrder } from "@/lib/stripe-vendor-payout";
-import { createAxisAchCheckoutSession } from "@/lib/stripe-axis-ach-checkout";
+import { payoutVendorForWorkOrder, recordVendorPayoutSettled } from "@/lib/stripe-vendor-payout";
+import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
+import { createAxisAchCheckoutSession, VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { executeWrite, previewWrite } from "./fake-agent-ctx";
 import {
@@ -691,9 +696,50 @@ describe("approve_and_pay_work_order", () => {
     expect(vi.mocked(payoutVendorForWorkOrder)).not.toHaveBeenCalled();
     expect(auditRows(tables)[0]!.dedupe_key).toBe("approve_and_pay_work_order:manager_a:wo1");
 
-    await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
+    const again = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
+    // Nothing is paid yet, so the retry must not claim it was.
+    expect(again.ok).toBe(true);
+    if (again.ok) {
+      expect(again.reply).toContain("already in progress");
+      expect(again.reply).not.toContain("paid.");
+    }
     expect(vi.mocked(createAxisAchCheckoutSession)).toHaveBeenCalledTimes(1);
     expect(tables.vendor_payouts).toHaveLength(1);
+  });
+
+  it("the paid checkout marks the work order paid and settles the payout once, even on replay", async () => {
+    const tables = baseTables();
+    const ctx = makeCtx(tables);
+    const res = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
+    expect(res.ok).toBe(true);
+
+    const session = {
+      id: "cs_1",
+      customer_email: "manager@example.com",
+      metadata: {
+        purpose: VENDOR_INVOICE_PAY_PURPOSE,
+        work_order_id: "wo1",
+        manager_user_id: "manager_a",
+        vendor_user_id: "vendor_user_1",
+        invoice_cents: "40000",
+      },
+    } as never;
+    await completeVendorPayFromStripeSession(ctx.db as never, session);
+
+    const row = tables.portal_work_order_records![0]!.row_data as Row;
+    expect(row.automationStatus).toBe("paid");
+    expect(vi.mocked(recordVendorPayoutSettled)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(recordVendorPayoutSettled).mock.calls[0]![1]).toMatchObject({
+      workOrderId: "wo1",
+      vendorUserId: "vendor_user_1",
+      amountCents: 40000,
+    });
+    // Checkout already moved the money; settling never starts a second transfer.
+    expect(vi.mocked(payoutVendorForWorkOrder)).not.toHaveBeenCalled();
+
+    // Stripe redelivers webhooks: a replay settles nothing twice.
+    await completeVendorPayFromStripeSession(ctx.db as never, session);
+    expect(vi.mocked(recordVendorPayoutSettled)).toHaveBeenCalledTimes(1);
   });
 
   it("execute tier-gates before anything happens", async () => {
