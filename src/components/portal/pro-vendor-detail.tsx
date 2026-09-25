@@ -435,10 +435,13 @@ export function ManagerVendorDetail({
     smsAvailable,
   });
 
+  // C254: an empty profile/contact fact reads "Not set", the word every other kv card and
+  // wizard preview in the app uses for an empty value — not "—" (unused count/rating state
+  // elsewhere in this file still uses "—" directly, unaffected by this shared helper).
   const fact = (label: string, value: string) => (
     <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
       <span className="text-[13px] font-medium">{label}</span>
-      <span className="min-w-0 break-words text-right text-[13.5px]">{value || "—"}</span>
+      <span className="min-w-0 break-words text-right text-[13.5px]">{value || "Not set"}</span>
     </div>
   );
 

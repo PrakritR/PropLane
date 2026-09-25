@@ -172,13 +172,22 @@ export function ManagerOutgoingPaymentsPanel({
           .filter(Boolean)
           .join(" · ");
         const due = formatOutgoingDue(row.dueDate);
+        // C251: an overdue vendor payment carries the same urgency cue an overdue resident
+        // charge already gets — the glyph fact itself in red, never a pill (no-pills rule).
+        const dueFact = due ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : undefined;
         return (
           <PortalApplicantRecordRow
             key={row.id}
             name={payee || row.chargeTitle}
             tileLabel={payee || undefined}
             address={place}
-            facts={due ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : undefined}
+            facts={
+              dueFact && row.bucket === "overdue" ? (
+                <span className="text-danger">{dueFact}</span>
+              ) : (
+                dueFact
+              )
+            }
             trailing={
               row.bucket === "paid" ? (
                 <span className="tabular-nums text-[var(--status-confirmed-fg)]">{row.amountLabel}</span>
