@@ -476,11 +476,19 @@ signature.
   `row`, so a colliding id could otherwise have replaced another manager's
   executed lease and re-parented it. That client-supplied `row` fallback is
   still an unscoped input and belongs to the onboarding lane to remove.
-- **`deleteLeasePipelineRow` wipes a fully executed lease behind one
-  `window.confirm`**, with no status gate. It clears the signatures in the same
-  write, so it is outside the guard by construction. Not silent, so not fixed
-  here, but "Delete lease" destroying an execution record with no archive is a
-  product decision someone should make deliberately.
+- **FIXED (night/custom-lease, Sep 2026).** The call sites never actually used
+  `window.confirm` — both already routed through the in-theme `useConfirm()` —
+  but the underlying refusal this note asked for was genuinely missing on TWO
+  paths: `deleteLeasePipelineRow` returned `true` after `write()`'s own
+  `preserveSignedLeaseDocuments` guard silently reverted the mutation on an
+  executed row (now refuses up front, `leaseClaimsExecution(row)`), and
+  `POST /api/portal-lease-pipeline` with `action: "delete"`/`"deleteIds"` ran
+  an unconditional `.delete()` with NO execution check at all — the real gap,
+  since it permanently removes the row (see `wipesExecutedLeaseWithoutSupersedeIntent`,
+  which only guards the routine-save path). Both now refuse; coverage in
+  `tests/unit/lease-delete-executed-refusal.test.ts` and
+  `tests/unit/lease-pipeline-route-delete-executed.test.ts`. Still true: no
+  archive-on-delete for the rows this refuses — a manager void/renews instead.
 - **A renewal or amendment discards the superseded executed document.**
   `amendLeaseMoveOutDate` and `renewLease` (`src/lib/lease-amendment.server.ts`,
   not this agent's files) overwrite `generatedHtml` on a fully signed row while
@@ -1049,6 +1057,62 @@ sandboxed without `allow-scripts`.
   `DELETE` scoped to the caller's own folder.
 - `tests/unit/lease-template-storage.test.ts` also asserts a foreign URL merely
   containing the route resolves to null.
+
+---
+
+## Workspace lease document library, signature-field placement, and stamping (Sep 2026, night/custom-lease)
+
+A manager can now save an uploaded lease PDF into a small, workspace-scoped
+catalog (`lease_document_library` — additive migration, metadata only) and
+pick it from a `FieldSingleSelect` instead of re-uploading: wired into the
+property listing's lease-upload modal (`property-lease-upload-modal.tsx`) and
+into the resident lease-row editor (`pro-pipeline-lease-edit-modal.tsx` →
+`lease-attach-from-library-modal.tsx` → `managerAttachLibraryLeaseDocument`,
+`lease-pipeline-storage.ts`). Bytes stay exactly where they already lived —
+the private `lease-templates` bucket — fetched only through the existing
+`/api/portal/lease-template` route, which gained a fourth authorization
+branch (`libraryReferencesTemplate`) for an entry not yet attached to any
+property or lease: workspace access, re-derived via `assertSettingsScopeOwned`
+(owner or a co-manager holding the "leases" grant), never trusted from the
+request. Row-level metadata (name, default flag, delete-if-unused) is its own
+tiny API, `/api/portal/lease-library`; the Settings tab is `Settings → Lease
+documents` (`lease-document-library-panel.tsx`).
+
+An entry can carry signature-field placements — `LeaseDocumentField` in
+`src/lib/lease-document-library.ts`, normalized coordinates 0..1 against the
+page's own size, placed in a full-screen click-to-place / drag-to-move editor
+(`lease-document-field-editor-modal.tsx`, rasterizing pages with the shared
+`pdf-page-raster.client.ts`, the same unpdf/pdf.js approach
+`uploaded-lease-pdf-preview.tsx` already used). Fields are copied onto
+`managerUploadedPdf.fields` when a lease attaches the entry, never resolved
+downstream from the library row — the lease keeps its own copy. **If no fields
+are placed, nothing about today's behavior changes**: no stamped copy, just
+the existing certificate page.
+
+When fields ARE present, each signature event (`residentSignLease` /
+`managerSignLease`) renders a SIGNED COPY with pdf-lib
+(`lease-document-field-stamping.ts`'s `stampLeaseDocumentFields`) — onto the
+ORIGINAL bytes, never the certificate-merged copy — stamping only the fields
+that already have a value (the other party's fields stay blank until they
+sign too) and stores it as `managerUploadedPdf.stampedDataUrl` plus its own,
+separate `stampedDocumentSha256`. **This must never touch what either party's
+signature hashes**: `leaseDocumentSha256` still reads `originalDataUrl` before
+any of this runs, exactly as before this change — the stamped copy is a
+convenience rendering of what was already agreed to, not a second document to
+sign, and `leaseDocumentBody()` (the immutability guard's own reference point)
+never reads `stampedDataUrl`. The resident/manager signing modal
+(`lease-signing-modal.tsx`) shows a read-only "Where you're signing" page
+preview with the placed fields highlighted, only when fields exist.
+
+Known gap: wiring into the create-listing wizard's lease editor
+(`manager-lease-editor-modal.tsx`) was not done — only the two paths above.
+Coverage: `tests/unit/lease-document-library.test.ts` (coordinate
+normalization, fails closed on garbage), `tests/unit/lease-document-field-stamping.test.ts`
+(pdf-lib inspection of stamped output, right page/position, blank-until-signed),
+`tests/unit/lease-document-field-evidence.test.ts` (stamped hash is separate
+from and never touches the execution-evidence hash),
+`tests/integration/portal/lease-library-access.test.ts` (another manager
+cannot read or write a workspace's library entries).
 
 ---
 

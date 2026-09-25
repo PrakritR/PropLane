@@ -57,6 +57,9 @@ type ManagerPipelineLeaseEditModalProps = {
   onUpload?: () => void;
   uploadLabel?: string;
   uploadDisabled?: boolean;
+  /** night/custom-lease: pick a workspace lease-library document instead of uploading a fresh file. */
+  showAttachFromLibrary?: boolean;
+  onAttachFromLibrary?: () => void;
   showDelete?: boolean;
   onDelete?: () => void;
   showShare?: boolean;
@@ -82,6 +85,8 @@ export function ManagerPipelineLeaseEditModal({
   onUpload,
   uploadLabel = "Upload",
   uploadDisabled = false,
+  showAttachFromLibrary = false,
+  onAttachFromLibrary,
   showDelete = false,
   onDelete,
   showShare = false,
@@ -350,6 +355,18 @@ export function ManagerPipelineLeaseEditModal({
                   onClick={onUpload}
                 >
                   {uploadLabel}
+                </Button>
+              ) : null}
+              {showAttachFromLibrary ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={footerBtnClass}
+                  data-attr="resident-lease-attach-library"
+                  disabled={uploadDisabled}
+                  onClick={onAttachFromLibrary}
+                >
+                  From library
                 </Button>
               ) : null}
               {showShare ? (

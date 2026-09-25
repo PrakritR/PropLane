@@ -10,10 +10,12 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
+  managerAttachLibraryLeaseDocument,
   managerUploadLeasePdf,
   readLeasePipeline,
   saveUploadedLeaseParse,
 } from "@/lib/lease-pipeline-storage";
+import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
 import {
   failedUploadedLeaseParse,
   normalizeUploadedLeaseParse,
@@ -76,6 +78,40 @@ export async function uploadAndParseLeasePdf(
     parse = await parseUploadedLeaseDataUrl({ dataUrl, fileName: file.name });
   } catch (err) {
     parse = failedUploadedLeaseParse(file.name, err instanceof Error ? err.message : "Could not read that lease PDF.");
+  }
+  const saved = saveUploadedLeaseParse(rowId, parse, managerUserId);
+  if (!saved.ok) return { ok: true, saveError: saved.error ?? "The imported reading could not be stored." };
+  return { ok: true, parse };
+}
+
+/**
+ * Attach a workspace lease-library document and structure it in one step —
+ * the library sibling of `uploadAndParseLeasePdf` (night/custom-lease, item
+ * 1). Carries over the entry's signature-field placements (item 2/3) via
+ * `managerAttachLibraryLeaseDocument`.
+ */
+export async function attachLibraryLeaseDocumentAndParse(
+  rowId: string,
+  entry: LeaseDocumentLibraryEntry,
+  managerUserId?: string | null,
+): Promise<UploadAndParseResult> {
+  const attached = await managerAttachLibraryLeaseDocument(
+    rowId,
+    { id: entry.id, url: entry.url, fileName: entry.fileName, fields: entry.fields },
+    managerUserId,
+  );
+  if (!attached.ok) return { ok: false, error: attached.error };
+  if (isDemoModeActive()) return { ok: true, parse: null };
+
+  const row = readLeasePipeline(managerUserId).find((r) => r.id === rowId);
+  const dataUrl = row?.managerUploadedPdf?.originalDataUrl ?? row?.managerUploadedPdf?.dataUrl ?? "";
+  if (!dataUrl) return { ok: true, parse: null };
+
+  let parse: UploadedLeaseParse;
+  try {
+    parse = await parseUploadedLeaseDataUrl({ dataUrl, fileName: entry.fileName });
+  } catch (err) {
+    parse = failedUploadedLeaseParse(entry.fileName, err instanceof Error ? err.message : "Could not read that lease PDF.");
   }
   const saved = saveUploadedLeaseParse(rowId, parse, managerUserId);
   if (!saved.ok) return { ok: true, saveError: saved.error ?? "The imported reading could not be stored." };
