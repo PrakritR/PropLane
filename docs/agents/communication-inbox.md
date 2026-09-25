@@ -41,6 +41,17 @@ vendor Communication components (`pro-unified-inbox.tsx`,
 clickable chip on a thread that carries a `recordRef`, using
 `recordRoutePath()` to build the record's route.
 
+`RecordCommunicationSection` (`src/components/portal/record-communication-section.tsx`,
+the record-page Communication tab) reads the SAME persisted inbox cache every
+other Communication surface does, via `loadPersistedInbox` — synchronous, and
+empty on a cold page load until `syncPersistedInboxFromServer` completes at
+least once. That gap used to render the confident "No messages about this X
+yet" empty state before the real thread had even been fetched, so reloading
+the exact same conversation intermittently "had no messages" depending on
+network timing. `initialSyncDone` distinguishes "still checking" from
+"checked, and there really is nothing" — the empty label only ever reflects
+the completed sync's own answer. See `tests/unit/record-communication-section.test.tsx`.
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized

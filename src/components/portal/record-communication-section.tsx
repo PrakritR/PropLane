@@ -161,12 +161,24 @@ export function RecordCommunicationSection({
   useEffect(() => {
     setActiveRef(recordRef);
   }, [recordRef.kind, recordRef.id, recordRef.label]);
+  // A hard reload of this record page starts with whatever `loadPersistedInbox`
+  // finds in the LOCAL cache, which is empty until `syncPersistedInboxFromServer`
+  // below completes at least once — this pane rendered the confident "No
+  // messages about this X yet" empty state during that gap, before the real
+  // thread had even been fetched, so the exact same conversation intermittently
+  // "had no messages" depending on how fast the reload happened to land versus
+  // the sync's own network latency. `initialSyncDone` distinguishes "still
+  // checking" from "checked, and there really is nothing" so the empty label
+  // only ever reflects the server's actual answer.
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
   useEffect(() => {
+    setInitialSyncDone(false);
     const sync = () => setThreads(loadPersistedInbox(scope, []));
     sync();
     void syncPersistedInboxFromServer(scope)
       .then(sync)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setInitialSyncDone(true));
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, [scope]);
@@ -434,7 +446,11 @@ export function RecordCommunicationSection({
         messages={messages}
         headerActions={headerActions}
         composer={composer}
-        emptyLabel={`No messages about this ${kindLabel} yet — write the first one below`}
+        emptyLabel={
+          initialSyncDone
+            ? `No messages about this ${kindLabel} yet — write the first one below`
+            : "Loading messages…"
+        }
         threadKey={primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`}
         scrollMode="page"
       />
