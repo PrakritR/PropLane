@@ -21,6 +21,10 @@ They show fewer sections, never a different layout.
   Residents' Potential · Current · Past, using the buckets that fit the section (Services: Open ·
   Scheduled · Done; Payments: Due · Paid; Inspections: Move-in · Move-out; Jobs: New · Scheduled ·
   Done; Invoices: Draft · Sent · Paid).
+- **No page title or subtext on list pages.** The header card is the first thing in the
+  content area: no title above it ("Test accounts"), no explanatory paragraph, no footer
+  summary ("4 total accounts across 3 workspaces"), no descriptive sentence repeated on rows.
+  Settings pages keep their page title and scope chip; record pages keep their record header.
 - **No summary cards on top of a list.** Balances, totals and explanations don't sit above
   the header card (e.g. no "Balance / Due now / Paid to date" block on resident Payments). The
   tabs and rows say it; account-level options like autopay live in Settings.
