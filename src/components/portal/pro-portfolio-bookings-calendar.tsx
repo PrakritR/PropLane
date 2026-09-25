@@ -191,9 +191,17 @@ function DayBookingCell({
       <div className="h-1 w-full overflow-hidden rounded-full bg-border/50" aria-hidden>
         <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
       </div>
-      <p className="truncate text-[10px] font-semibold tabular-nums leading-tight">
-        {stats.occupied}/{stats.rooms}
-      </p>
+      {/*
+        No bookable rooms that day (an empty workspace, or one with nothing
+        bookable) means nothing to count — a "0/0" repeated under every day
+        of an empty month reads as broken, not empty (AXI night sweep area
+        2j).
+      */}
+      {stats.rooms > 0 ? (
+        <p className="truncate text-[10px] font-semibold tabular-nums leading-tight">
+          {stats.occupied}/{stats.rooms}
+        </p>
+      ) : null}
       {inOut.length > 0 ? <p className="truncate text-[9px] opacity-80">{inOut.join(" · ")}</p> : null}
     </button>
   );
