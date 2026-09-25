@@ -163,6 +163,25 @@ export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLI
 
 const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KEYS);
 
+/**
+ * Screening, charges and leases read these built-ins directly — disabling one
+ * breaks approval or billing later with no error at disable-time (studio
+ * decision C195: "built-in questions stay locked; custom ones are free").
+ * Superset of {@link REQUIRED_IDENTITY_STANDARD_KEYS}: name/phone/email (always
+ * required, see above) plus SSN, ID and income — but unlike the identity trio
+ * these keep their own catalog `required` default (income in particular stays
+ * optional, so an unemployed applicant can still submit). This set only ever
+ * blocks REMOVING the question, never its required-ness.
+ */
+export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) =>
+    REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
+    (field.section === "personal" && (field.label === "Social Security number" || field.label === "Driver's license / ID")) ||
+    (field.section === "employment" && field.label === "Monthly / annual income"),
+).map((field) => field.standardKey);
+
+export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_KEYS);
+
 const CATALOG_BY_KEY = new Map(
   STANDARD_APPLICATION_FIELD_CATALOG.map((def) => [def.standardKey, def] as const),
 );
@@ -253,7 +272,7 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter(
         (k): k is string =>
-          typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k),
+          typeof k === "string" && k.trim().length > 0 && !NEVER_DISABLED_STANDARD_KEY_SET.has(k),
       )
     : [];
 }
@@ -495,7 +514,7 @@ export function resolveListingApplicationFields(
 ): ResolvedApplicationField[] {
   const disabled = new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !NEVER_DISABLED_STANDARD_KEY_SET.has(k))
       : [],
   );
   const saved = normalizeSaved(sub?.customApplicationFields);
@@ -749,7 +768,7 @@ function disabledStandardKeysSet(
 ): Set<string> {
   return new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !NEVER_DISABLED_STANDARD_KEY_SET.has(k))
       : [],
   );
 }

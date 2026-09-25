@@ -1671,7 +1671,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
 
   if (step === 8) {
     const additionalFields = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields)
-      .filter((field) => field.section === "additional");
+      .filter((field) => field.section === "additional")
+      .filter((field) => !isCustomFieldHiddenByCondition(field, form.customFieldAnswers));
     const renderAdditionalField = (field: (typeof additionalFields)[number]) => {
       if (!field.isStandard) {
         return (

@@ -12,6 +12,7 @@
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { Input, Textarea } from "@/components/ui/input";
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
+import { isCustomFieldHiddenByCondition } from "@/lib/rental-application/custom-fields";
 import {
   AddFoot,
   FieldMark,
@@ -24,7 +25,21 @@ import {
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
-import type { AddPersonForm, ApplicationAnswers, ManagerApplicationTextKey } from "./state";
+import { customAnswersForRow, type AddPersonForm, type ApplicationAnswers, type ManagerApplicationTextKey } from "./state";
+
+/**
+ * Custom-question yes/no answers are stored lowercase ("yes"/"no") everywhere
+ * else the same field type is rendered (the applicant wizard's
+ * `CustomQuestionField`, `custom-fields.ts` validation/display) — that's also
+ * what `field.showIf.equals` is authored against. Keep this wizard's checkbox
+ * and yes_no custom questions on the same encoding so a gating answer here
+ * actually satisfies a sibling's `showIf` and so a synced application record
+ * displays the answer correctly.
+ */
+const CUSTOM_YES_NO = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
 
 const YES_NO = [
   { value: "No", label: "No" },
@@ -81,7 +96,11 @@ export function ApplicationStep({
   );
   const employmentStatus = a.notEmployed ? "not" : "employed";
   const showPrev = !a.noPreviousAddress && Boolean(a.prevStreet || a.prevCity || a.prevLandlordName || form.application.prevMoveIn) ;
-  const custom = derived.customQuestions;
+  // Live conditional questions: a field with `showIf` (e.g. "if yes, explain")
+  // hides until its controlling sibling matches, and re-evaluates on every
+  // keystroke since `form.customAnswers` is part of the render dependency.
+  const currentCustomAnswers = customAnswersForRow(form, derived.customQuestions);
+  const custom = derived.customQuestions.filter((q) => !isCustomFieldHiddenByCondition(q, currentCustomAnswers));
   const bySection = (section: string) => custom.filter((q) => (q.section ?? "additional") === section);
   const filled = Object.values(a).some((v) => (typeof v === "string" ? v.trim() : Boolean(v)));
 
@@ -330,14 +349,14 @@ function CustomQuestions({
             />
           );
         }
-        if (q.type === "checkbox") {
+        if (q.type === "checkbox" || q.type === "yes_no") {
           return (
             <WizardSelect
               key={q.id}
               label={q.label}
               value={value}
               onChange={(next) => set(q.key, next)}
-              options={YES_NO}
+              options={CUSTOM_YES_NO}
               placeholder="Select…"
               dataAttr={`residents-wizard-custom-${q.key}`}
             />
