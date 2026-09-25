@@ -29,7 +29,7 @@ import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { importedActivity } from "@/lib/portfolio-import/activity";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import { Bell, CalendarDays, Trash2 } from "lucide-react";
+import { Bell, CalendarDays, RotateCcw, Trash2 } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -133,6 +133,14 @@ function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
  */
 function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
   return row.chargeKind === "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
+}
+
+/**
+ * A paid charge that is NOT a security deposit — everything Refund (C023) covers. Deposits keep
+ * their own dedicated Return-deposit action; this is the general counterpart for paid rent/fees.
+ */
+function isRefundableChargeRow(row: DemoManagerPaymentLedgerRow): boolean {
+  return row.chargeKind !== "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
 }
 
 function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
@@ -284,8 +292,11 @@ export function ManagerPaymentsLedgerPanel({
     (row: DemoManagerPaymentLedgerRow) => (canEditRow ? canEditRow(row.propertyId) : true),
     [canEditRow],
   );
+  // C024: once a charge is paid, Delete goes away — it used to delete the charge line without
+  // refunding anyone and orphan the real payment line. Refund / Return deposit are the only way
+  // to reverse money that already moved.
   const rowDeletable = useCallback(
-    (row: DemoManagerPaymentLedgerRow) => (canDeleteRow ? canDeleteRow(row.propertyId) : true),
+    (row: DemoManagerPaymentLedgerRow) => !isPaidRow(row) && (canDeleteRow ? canDeleteRow(row.propertyId) : true),
     [canDeleteRow],
   );
   const chargeScopeOpts = useMemo<ChargeManagerScopeOpts | undefined>(
@@ -299,6 +310,7 @@ export function ManagerPaymentsLedgerPanel({
     [scheduledMessages],
   );
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
+  const [refundingChargeId, setRefundingChargeId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editAmountDraft, setEditAmountDraft] = useState("");
@@ -1314,7 +1326,11 @@ export function ManagerPaymentsLedgerPanel({
 
   const removePayment = async (row: DemoManagerPaymentLedgerRow) => {
     if (!rowDeletable(row)) {
-      showToast("You do not have permission to remove this payment.");
+      showToast(
+        isPaidRow(row)
+          ? "A paid charge can't be deleted — use Refund or Return deposit instead."
+          : "You do not have permission to remove this payment.",
+      );
       return;
     }
     if (!(await confirm({ description: `Delete "${row.chargeTitle}" for ${row.residentName}?` }))) return;
@@ -1358,10 +1374,82 @@ export function ManagerPaymentsLedgerPanel({
     onRowsChanged?.();
   };
 
+  // C023: return a security deposit to its resident. Shared by the bulk selection bar and a
+  // paid deposit's record page — one flow, two entry points. Sends real money; Stripe will not
+  // un-refund it, so it always confirms first and re-reads everything server-side but the id.
+  const returnDepositForRow = async (row: DemoManagerPaymentLedgerRow) => {
+    if (
+      !(await confirm({
+        title: "Return deposit",
+        description: `Return the security deposit to ${row.residentName}?`,
+        confirmLabel: "Return deposit",
+      }))
+    ) {
+      return;
+    }
+    setReturningDepositId(row.householdChargeId ?? row.id);
+    try {
+      const res = await fetch("/api/portal/deposit-return", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chargeId: row.householdChargeId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
+      if (!res.ok) {
+        showToast(data.error || "Could not return the deposit.");
+        return;
+      }
+      showToast(data.remainingCents ? "Deposit partially returned." : `Deposit returned to ${row.residentName}.`);
+      setSelectedIds(new Set());
+      onRowsChanged?.();
+    } catch {
+      showToast("Could not return the deposit.");
+    } finally {
+      setReturningDepositId(null);
+    }
+  };
+
+  // C023: refund a paid rent/fee charge — the general counterpart to Return deposit, and the one
+  // way to reverse a paid charge now that Delete no longer offers itself on it (C024).
+  const refundChargeForRow = async (row: DemoManagerPaymentLedgerRow) => {
+    if (
+      !(await confirm({
+        title: "Refund",
+        description: `Refund ${row.chargeTitle} for ${row.residentName}?`,
+        confirmLabel: "Refund",
+      }))
+    ) {
+      return;
+    }
+    setRefundingChargeId(row.householdChargeId ?? row.id);
+    try {
+      const res = await fetch("/api/portal/charge-refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chargeId: row.householdChargeId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
+      if (!res.ok) {
+        showToast(data.error || "Could not refund this charge.");
+        return;
+      }
+      showToast(data.remainingCents ? "Charge partially refunded." : `Refunded ${row.residentName}.`);
+      setSelectedIds(new Set());
+      onRowsChanged?.();
+    } catch {
+      showToast("Could not refund this charge.");
+    } finally {
+      setRefundingChargeId(null);
+    }
+  };
+
   const renderDetailActions = (row: DemoManagerPaymentLedgerRow) => {
     const canEdit = Boolean(row.householdChargeId && !isPaidRow(row)) && rowEditable(row);
     const showSendReminder = !isPaidRow(row);
     const showMoveToPending = activeBucket === "paid";
+    const showDelete = rowDeletable(row);
+    const showReturnDeposit = isReturnableDepositRow(row);
+    const showRefund = isRefundableChargeRow(row);
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
 
     const markPaidButton =
@@ -1377,11 +1465,37 @@ export function ManagerPaymentsLedgerPanel({
       </Button>
     ) : null;
 
-    const deleteButton = (
+    const deleteButton = showDelete ? (
       <Button type="button" variant="outline" className={btnClass} data-attr="payments-detail-delete" onClick={() => removePayment(row)}>
         Delete
       </Button>
-    );
+    ) : null;
+
+    const returnDepositButton = showReturnDeposit ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={btnClass}
+        disabled={Boolean(returningDepositId)}
+        data-attr="payments-detail-return-deposit"
+        onClick={() => returnDepositForRow(row)}
+      >
+        {returningDepositId ? "Returning…" : "Return deposit"}
+      </Button>
+    ) : null;
+
+    const refundButton = showRefund ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={btnClass}
+        disabled={Boolean(refundingChargeId)}
+        data-attr="payments-detail-refund"
+        onClick={() => refundChargeForRow(row)}
+      >
+        {refundingChargeId ? "Refunding…" : "Refund"}
+      </Button>
+    ) : null;
 
     const sendReminderButton = showSendReminder ? (
       <Button
@@ -1436,9 +1550,29 @@ export function ManagerPaymentsLedgerPanel({
                 Move to pending
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem data-attr="payments-detail-delete" onSelect={() => removePayment(row)}>
-              Delete
-            </DropdownMenuItem>
+            {showReturnDeposit ? (
+              <DropdownMenuItem
+                data-attr="payments-detail-return-deposit"
+                disabled={Boolean(returningDepositId)}
+                onSelect={() => void returnDepositForRow(row)}
+              >
+                {returningDepositId ? "Returning…" : "Return deposit"}
+              </DropdownMenuItem>
+            ) : null}
+            {showRefund ? (
+              <DropdownMenuItem
+                data-attr="payments-detail-refund"
+                disabled={Boolean(refundingChargeId)}
+                onSelect={() => void refundChargeForRow(row)}
+              >
+                {refundingChargeId ? "Refunding…" : "Refund"}
+              </DropdownMenuItem>
+            ) : null}
+            {showDelete ? (
+              <DropdownMenuItem data-attr="payments-detail-delete" onSelect={() => removePayment(row)}>
+                Delete
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       );
@@ -1448,6 +1582,8 @@ export function ManagerPaymentsLedgerPanel({
         <div className="flex max-w-full flex-nowrap items-center gap-1 md:hidden">
           {markPaidButton}
           {editButtons}
+          {returnDepositButton}
+          {refundButton}
           {deleteButton}
           {mobileOverflowMenu}
         </div>
@@ -1456,6 +1592,8 @@ export function ManagerPaymentsLedgerPanel({
           {editButtons}
           {sendReminderButton}
           {moveToPendingButton}
+          {returnDepositButton}
+          {refundButton}
           {deleteButton}
         </div>
       </>
@@ -1534,48 +1672,11 @@ export function ManagerPaymentsLedgerPanel({
       });
     }
 
+    // One deposit/charge at a time and confirmed first: this sends real money and Stripe will
+    // not un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
     const returnableDeposits = selectedRows.filter(isReturnableDepositRow);
     if (returnableDeposits.length === 1) {
       const row = returnableDeposits[0]!;
-      const returnDeposit = async () => {
-        // One deposit at a time and confirmed first: this sends real money and Stripe will not
-        // un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
-        if (
-          !(await confirm({
-            title: "Return deposit",
-            description: `Return the security deposit to ${row.residentName}?`,
-            confirmLabel: "Return deposit",
-          }))
-        ) {
-          return;
-        }
-        setReturningDepositId(row.householdChargeId ?? row.id);
-        try {
-          const res = await fetch("/api/portal/deposit-return", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            // Only the id — the server re-reads the amount, what was already returned, and the
-            // payment to refund against, because each of those decides how much money moves.
-            body: JSON.stringify({ chargeId: row.householdChargeId }),
-          });
-          const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
-          if (!res.ok) {
-            showToast(data.error || "Could not return the deposit.");
-            return;
-          }
-          showToast(
-            data.remainingCents
-              ? "Deposit partially returned."
-              : `Deposit returned to ${row.residentName}.`,
-          );
-          setSelectedIds(new Set());
-          onRowsChanged?.();
-        } catch {
-          showToast("Could not return the deposit.");
-        } finally {
-          setReturningDepositId(null);
-        }
-      };
       actions.push({
         id: "return-deposit",
         keepPriority: 5,
@@ -1587,14 +1688,43 @@ export function ManagerPaymentsLedgerPanel({
             disabled={Boolean(returningDepositId)}
             data-attr="payments-return-deposit"
             data-record-action-id="return-deposit"
-            onClick={() => returnDeposit()}
+            onClick={() => returnDepositForRow(row)}
           >
             {returningDepositId ? "Returning…" : "Return deposit"}
           </Button>
         ),
         menuItem: (
-          <DropdownMenuItem data-attr="payments-return-deposit" onSelect={() => void returnDeposit()}>
+          <DropdownMenuItem data-attr="payments-return-deposit" onSelect={() => void returnDepositForRow(row)}>
             Return deposit
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    // C023: a general Refund next to Return deposit — the one way to reverse money on a paid
+    // rent/fee charge, now that Delete no longer offers itself on a paid row (C024).
+    const refundableRows = selectedRows.filter(isRefundableChargeRow);
+    if (refundableRows.length === 1) {
+      const row = refundableRows[0]!;
+      actions.push({
+        id: "refund-charge",
+        keepPriority: 5,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PAYMENTS_BULK_BAR_BTN}
+            disabled={Boolean(refundingChargeId)}
+            data-attr="payments-refund-charge"
+            data-record-action-id="refund-charge"
+            onClick={() => refundChargeForRow(row)}
+          >
+            {refundingChargeId ? "Refunding…" : "Refund"}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="payments-refund-charge" onSelect={() => void refundChargeForRow(row)}>
+            Refund
           </DropdownMenuItem>
         ),
       });
@@ -1746,7 +1876,9 @@ export function ManagerPaymentsLedgerPanel({
     openBulkReminderPreview,
     openChargeRemindersModal,
     openReminderPreview,
+    refundingChargeId,
     remindableSelectedRows,
+    returningDepositId,
     selectedIds.size,
     selectedRows,
     sendingReminderId,
@@ -2025,12 +2157,23 @@ export function ManagerPaymentsLedgerPanel({
           // A lock is not a dead click: a row with nothing left to pay does not
           // offer "Record payment" at all, instead of a header button that
           // silently no-ops.
-          const sections = isMarkableAsPaid(detailRow)
-            ? allSections
-            : {
-                ...allSections,
-                headerActions: allSections.headerActions.filter((action) => action.id !== "record-payment"),
-              };
+          // C024: a paid charge drops Delete — it deleted the charge line without refunding
+          // anyone and orphaned the real payment line. C023: a paid charge instead offers Refund
+          // (or Return deposit for a security deposit), added here rather than in
+          // `record-sections.ts` since only THIS record kind, in only its paid state, offers them.
+          const baseHeaderActions = isMarkableAsPaid(detailRow)
+            ? allSections.headerActions
+            : allSections.headerActions.filter((action) => action.id !== "record-payment");
+          const headerActions = [
+            ...baseHeaderActions.filter((action) => action.id !== "delete" || rowDeletable(detailRow)),
+            ...(isReturnableDepositRow(detailRow)
+              ? [{ id: "return-deposit", label: "Return deposit", icon: RotateCcw }]
+              : []),
+            ...(isRefundableChargeRow(detailRow)
+              ? [{ id: "refund", label: "Refund", icon: RotateCcw }]
+              : []),
+          ];
+          const sections = { ...allSections, headerActions };
           // Every action `record-sections.ts` still lists for this record kind
           // (record-payment, send-reminder, delete) now has a real handler,
           // reusing the same reversible paths the detail page's own buttons use
@@ -2049,6 +2192,14 @@ export function ManagerPaymentsLedgerPanel({
             }
             if (actionId === "delete") {
               void removePayment(detailRow);
+              return;
+            }
+            if (actionId === "return-deposit") {
+              void returnDepositForRow(detailRow);
+              return;
+            }
+            if (actionId === "refund") {
+              void refundChargeForRow(detailRow);
             }
           };
           return (
