@@ -39,6 +39,41 @@ export function mapVendorReviewRow(row: Record<string, unknown>): VendorReview {
   };
 }
 
+/**
+ * The vendor-safe projection: never a `*_user_id` or `work_order_id` column,
+ * even though the vendor route reads via the service-role client. RLS on
+ * `vendor_reviews` grants no direct client SELECT at all (see
+ * `20260925010000_vendor_reviews_no_client_select.sql`) — this is the belt
+ * *and* the suspenders: even a route that queries too much would still have
+ * to explicitly choose to return these fields to leak an identity.
+ */
+export const VENDOR_REVIEW_PUBLIC_SELECT = "id, stars, body, vendor_reply, vendor_replied_at, created_at, updated_at";
+
+export type PublicVendorReview = {
+  id: string;
+  stars: number;
+  body: string;
+  vendorReply: string | null;
+  vendorRepliedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Always "A PropLane manager" — a vendor never learns which manager/workspace reviewed them. */
+  reviewerLabel: string;
+};
+
+export function mapPublicVendorReviewRow(row: Record<string, unknown>): PublicVendorReview {
+  return {
+    id: String(row.id),
+    stars: Number(row.stars ?? 0),
+    body: String(row.body ?? ""),
+    vendorReply: (row.vendor_reply as string | null) ?? null,
+    vendorRepliedAt: (row.vendor_replied_at as string | null) ?? null,
+    createdAt: String(row.created_at ?? ""),
+    updatedAt: String(row.updated_at ?? ""),
+    reviewerLabel: "A PropLane manager",
+  };
+}
+
 export const VENDOR_REVIEW_BODY_MAX_LENGTH = 2000;
 export const VENDOR_REVIEW_EDIT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 

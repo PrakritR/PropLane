@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { formatVendorReviewAggregate, VENDOR_REVIEW_BODY_MAX_LENGTH, type VendorReview, type VendorReviewAggregate } from "@/lib/vendor-reviews";
+import { formatVendorReviewAggregate, VENDOR_REVIEW_BODY_MAX_LENGTH, type PublicVendorReview, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 
-function ReviewReplyForm({ review, onReplied }: { review: VendorReview; onReplied: (next: VendorReview) => void }) {
+function ReviewReplyForm({ review, onReplied }: { review: PublicVendorReview; onReplied: (next: PublicVendorReview) => void }) {
   const { showToast } = useAppUi();
   const [reply, setReply] = useState(review.vendorReply ?? "");
   const [editing, setEditing] = useState(!review.vendorReply);
@@ -23,7 +23,7 @@ function ReviewReplyForm({ review, onReplied }: { review: VendorReview; onReplie
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reply }),
       });
-      const data = (await res.json()) as { review?: VendorReview; error?: string };
+      const data = (await res.json()) as { review?: PublicVendorReview; error?: string };
       if (!res.ok || !data.review) {
         showToast?.(data.error || "Could not save the reply.");
         return;
@@ -80,7 +80,7 @@ function ReviewReplyForm({ review, onReplied }: { review: VendorReview; onReplie
 
 /** Vendor Reviews — every review left on the vendor's completed services, with one editable reply each. */
 export function VendorReviewsPanel() {
-  const [reviews, setReviews] = useState<VendorReview[] | null>(null);
+  const [reviews, setReviews] = useState<PublicVendorReview[] | null>(null);
   const [aggregate, setAggregate] = useState<VendorReviewAggregate>({ average: null, count: 0 });
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
@@ -89,7 +89,7 @@ export function VendorReviewsPanel() {
     setState("loading");
     fetch("/api/vendor/reviews")
       .then((res) => res.json())
-      .then((data: { reviews?: VendorReview[]; aggregate?: VendorReviewAggregate; error?: string }) => {
+      .then((data: { reviews?: PublicVendorReview[]; aggregate?: VendorReviewAggregate; error?: string }) => {
         if (cancelled) return;
         if (data.error) {
           setState("error");
