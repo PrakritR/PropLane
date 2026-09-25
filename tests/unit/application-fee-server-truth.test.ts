@@ -33,6 +33,7 @@ import {
   resolveApplicationFeeItemization,
   resolveApplicationFeeProperty,
 } from "@/lib/application-fee-checkout.server";
+import { LEGACY_DEFAULT_APPLICATION_FEE_CENTS } from "@/lib/manager-application-settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const MANAGER_ID = "mgr-fee-truth";
@@ -239,8 +240,11 @@ function dbWith(managerFeeCents: number | null, listingFee: string): SupabaseCli
   } as unknown as SupabaseClient;
 }
 
-describe("resolveApplicationFeeProperty — the listing's own fee is authoritative; per-listing $0 is free", () => {
-  it("resolves a NEW listing (empty per-listing fee) to the account-wide fee (a default)", async () => {
+// PLAN-0924-1254 (docs/agents/resident-payments.md): the fee is set ONCE per
+// manager in Application system settings and is authoritative for every
+// listing, including an explicit 0 (free). Listing fees are ignored.
+describe("resolveApplicationFeeProperty — the account-wide fee is authoritative for every listing", () => {
+  it("charges the account-wide fee for a listing that sets nothing", async () => {
     const res = await resolveApplicationFeeProperty(dbWith(7500, ""), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
@@ -249,18 +253,28 @@ describe("resolveApplicationFeeProperty — the listing's own fee is authoritati
     if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 
-  it("the listing's own fee WINS over a differing account-wide fee", async () => {
+  it("ignores a differing per-listing fee", async () => {
     const res = await resolveApplicationFeeProperty(dbWith(7500, "$50"), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
     });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(5000);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 
-  it("the preview answers an explicit per-listing $0 as ok/0 (free), ignoring a non-zero account-wide default", async () => {
+  it("a per-listing $0 does not make a listing free while the account charges a fee", async () => {
     const res = await resolveApplicationFeeProperty(
       dbWith(7500, "$0"),
+      { propertyId: "p1", managerUserId: MANAGER_ID },
+      { allowZeroFee: true },
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
+  });
+
+  it("the preview answers an account-wide $0 as ok/0 (free), whatever the listing says", async () => {
+    const res = await resolveApplicationFeeProperty(
+      dbWith(0, "$50"),
       { propertyId: "p1", managerUserId: MANAGER_ID },
       { allowZeroFee: true },
     );
@@ -268,8 +282,8 @@ describe("resolveApplicationFeeProperty — the listing's own fee is authoritati
     if (res.ok) expect(res.value.applicationFeeCents).toBe(0);
   });
 
-  it("the checkout mint refuses a per-listing $0 — free must NOT fall through to the account-wide fee", async () => {
-    const res = await resolveApplicationFeeProperty(dbWith(7500, "$0"), {
+  it("the checkout mint refuses an account-wide $0 — there is nothing to collect", async () => {
+    const res = await resolveApplicationFeeProperty(dbWith(0, "$50"), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
     });
@@ -277,7 +291,16 @@ describe("resolveApplicationFeeProperty — the listing's own fee is authoritati
     if (!res.ok) expect(res.code).toBe("NO_APPLICATION_FEE");
   });
 
-  it("short-term rentalType uses shortTermApplicationFee when set", async () => {
+  it("falls back to the legacy default when the manager never saved a fee", async () => {
+    const res = await resolveApplicationFeeProperty(dbWith(null, "$90"), {
+      propertyId: "p1",
+      managerUserId: MANAGER_ID,
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(LEGACY_DEFAULT_APPLICATION_FEE_CENTS);
+  });
+
+  it("ignores a per-listing short-term fee too", async () => {
     const db = {
       from: (table: string) => {
         const chain: Record<string, unknown> = {};
@@ -316,7 +339,7 @@ describe("resolveApplicationFeeProperty — the listing's own fee is authoritati
       rentalType: "short_term",
     });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(3500);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(7500);
   });
 });
 
