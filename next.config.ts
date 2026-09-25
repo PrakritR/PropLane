@@ -114,8 +114,13 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
-      { source: "/demo", destination: "/", permanent: false },
-      { source: "/demo/:path*", destination: "/", permanent: false },
+      // `/demo` is a real page again (src/app/demo/page.tsx) — the home page's
+      // Codex hero embeds it live in an iframe (site/codex-hero-window.tsx).
+      // Only unknown sub-paths (no `/demo/[section]` route exists) still bounce,
+      // now to the working sandbox itself rather than back to the marketing page.
+      // `:path+` (one or more) — NOT `:path*` — or this also matches the bare
+      // `/demo` path with an empty capture and redirects it to itself forever.
+      { source: "/demo/:path+", destination: "/demo", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a
