@@ -39,16 +39,24 @@ function parseDemoTarget(href: string): { section: string; tab: string | null } 
   return { section: section!, tab: tab ?? null };
 }
 
+/** The real "Ask PropLane" pill's own `data-attr`, from portal-top-bar.tsx. */
+const ASK_PROPLANE_PILL_SELECTOR = '[data-attr="portal-ask-proplane"]';
+
 /**
- * Always-visible docked assistant — the real `AssistantDockPanel`, not a
- * hand-rolled stand-in. `PortalAssistantDockRail` can't be reused as-is: its
- * `dockable`/`mode` gate reads `useAxisAssistantDock()`, which is hardcoded
- * off for any `/demo` path (`axis-assistant.tsx`: "never inside /demo, which
- * must not reach /api/agent/chat") — by design, since the REAL dock talks to
- * the real, auth-gated assistant. This rail skips that gate and always shows,
- * pointed at `/api/agent/demo-chat` instead.
+ * The docked assistant — the real `AssistantDockPanel`, not a hand-rolled
+ * stand-in — shown only once opened. `PortalAssistantDockRail` can't be
+ * reused as-is: its `dockable`/`mode` gate reads `useAxisAssistantDock()`,
+ * which is hardcoded off for any `/demo` path (`axis-assistant.tsx`: "never
+ * inside /demo, which must not reach /api/agent/chat") — by design, since the
+ * REAL dock talks to the real, auth-gated assistant. This rail skips that
+ * gate, but keeps the closed-by-default behavior the real one has (its
+ * `dockable`/`mode` check is `false` on first load too) — `open` here is
+ * plain React state the pill toggles (see `onFrameClickCapture` below),
+ * rather than the real dock-store/open-store globals, since those are wired
+ * to the same `dockable=false` gate this rail is deliberately bypassing.
  */
-function DemoAssistantDockRail() {
+function DemoAssistantDockRail({ open }: { open: boolean }) {
+  if (!open) return null;
   return (
     <aside
       className="relative hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border/70 bg-background p-3 lg:flex"
@@ -80,6 +88,7 @@ export function DemoManagerShell() {
   const [section, setSection] = useState("dashboard");
   const [tab, setTab] = useState<string | null>(null);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const meta: PortalSection | undefined = useMemo(
     () => proPortal.sections.find((s) => s.section === section),
     [section],
@@ -104,7 +113,23 @@ export function DemoManagerShell() {
     (e: MouseEvent<HTMLDivElement>) => {
       if (e.defaultPrevented) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-      const anchor = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      const target = e.target as HTMLElement | null;
+
+      // The real "Ask PropLane" pill: intercepted in the capture phase (before
+      // PortalTopBar's own onClick, which — since this page never provides an
+      // AxisAssistantDockContext — resolves `dockable: false` and would try to
+      // open the (unmounted here) real popup instead. Toggling our own state
+      // and stopping propagation keeps the pill genuinely functional: closed
+      // by default, opened only on click, exactly like the real dock.
+      const pill = target?.closest?.(ASK_PROPLANE_PILL_SELECTOR);
+      if (pill) {
+        e.preventDefault();
+        e.stopPropagation();
+        setAssistantOpen((open) => !open);
+        return;
+      }
+
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor) return;
       const href = anchor.getAttribute("href") ?? "";
       if (!DEMO_INTERCEPT_HREF.test(href)) return;
@@ -144,7 +169,7 @@ export function DemoManagerShell() {
                     </div>
                   </main>
                 </div>
-                <DemoAssistantDockRail />
+                <DemoAssistantDockRail open={assistantOpen} />
               </div>
             </WorkspaceProvider>
           </div>

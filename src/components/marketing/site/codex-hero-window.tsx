@@ -52,6 +52,14 @@ function CodexHeroActivityCard() {
 export function CodexHeroWindow() {
   const ref = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(false);
+  // The main window and the phone mockup are two independent mounts of the
+  // SAME /demo page in the SAME browser tab — they share sessionStorage, so
+  // both seeding on the exact same tick raced and threw (the phone mockup
+  // showed the app's error boundary, "This page could not load."). Mounting
+  // the phone iframe only once the main one has finished its own first load
+  // (falling back to a fixed delay if `onLoad` never fires) lets the main
+  // window's seed settle first.
+  const [phoneActive, setPhoneActive] = useState(false);
 
   useEffect(() => {
     if (active) return;
@@ -76,6 +84,13 @@ export function CodexHeroWindow() {
     return () => io.disconnect();
   }, [active]);
 
+  useEffect(() => {
+    if (!active || phoneActive) return;
+    // Fallback only — the main iframe's onLoad below normally sets this first.
+    const id = window.setTimeout(() => setPhoneActive(true), 3000);
+    return () => window.clearTimeout(id);
+  }, [active, phoneActive]);
+
   return (
     <div ref={ref} className="relative mx-auto w-full max-w-[1360px]">
       <div className="codex-hero-window relative h-[560px] w-full overflow-hidden rounded-[24px] border border-black/[0.06] bg-white shadow-[0_60px_140px_-40px_rgba(15,23,42,0.35)] sm:h-[760px]">
@@ -84,6 +99,7 @@ export function CodexHeroWindow() {
             src="/demo"
             title="PropLane manager portal"
             loading="lazy"
+            onLoad={() => setPhoneActive(true)}
             className="block h-full w-full border-0 bg-white"
           />
         ) : (
@@ -100,7 +116,7 @@ export function CodexHeroWindow() {
 
       {/* Phone mockup: a real, second /demo embed sized like a phone — desktop only. */}
       <div className="codex-hero-phone hidden lg:block" aria-hidden>
-        {active ? (
+        {phoneActive ? (
           <iframe src="/demo" title="PropLane manager portal — phone" loading="lazy" className="block h-full w-full border-0 bg-white" />
         ) : (
           <Image

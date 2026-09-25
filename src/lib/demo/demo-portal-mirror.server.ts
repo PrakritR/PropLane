@@ -308,9 +308,15 @@ function onlySeattleHomesProperties(properties: MockProperty[]): MockProperty[] 
   return properties.filter((p) => SEATTLE_HOMES_PROPERTY_IDS.has(p.id));
 }
 
-/** Drops any row scoped to a DIFFERENT property; keeps rows with no property id at all. */
+/**
+ * STRICT allowlist: keeps only rows explicitly scoped to a Seattle Homes
+ * property. A missing/unrecognized property id is dropped, not kept — the
+ * shared account has accumulated rows from other panes' tests with no
+ * property id at all (e.g. legacy service requests), and this mirror must
+ * never let those inflate a public-facing KPI ("Open requests 24").
+ */
 function onlySeattleHomesScoped<T extends { propertyId?: string | null }>(rows: T[]): T[] {
-  return rows.filter((row) => !row.propertyId || SEATTLE_HOMES_PROPERTY_IDS.has(row.propertyId));
+  return rows.filter((row) => !!row.propertyId && SEATTLE_HOMES_PROPERTY_IDS.has(row.propertyId));
 }
 
 /**
@@ -376,7 +382,7 @@ export async function fetchDemoPortalMirrorSnapshot(): Promise<DemoDataSnapshot 
       remapManagerScope(remapResidentScope(rentProfiles, CANONICAL_DEMO_RESIDENT_EMAIL)),
     ),
     leases: onlySeattleHomesScoped(remapManagerScope(leases)),
-    workOrders: remapWorkOrders(workOrders, primaryVendor?.name ?? CANONICAL_DEMO_VENDOR_NAME),
+    workOrders: onlySeattleHomesScoped(remapWorkOrders(workOrders, primaryVendor?.name ?? CANONICAL_DEMO_VENDOR_NAME)),
     workOrderBids: remapBids(workOrderBids, ids.vendorUserId),
     vendorPayouts,
     vendors: remapVendors(vendors, ids.vendorUserId, CANONICAL_DEMO_VENDOR_EMAIL),
