@@ -43,19 +43,18 @@ export function VendorReviewStarPicker({
   );
 }
 
-/** Small read-only star row for a review list item. */
+/** Small read-only star row for a review list item — plain text glyphs, never an icon component. */
 export function VendorReviewStarDisplay({ stars, size = "sm" }: { stars: number; size?: "sm" | "md" }) {
-  const dimension = size === "sm" ? "h-3.5 w-3.5" : "h-4.5 w-4.5";
+  const textSize = size === "sm" ? "text-[13px]" : "text-base";
+  const filled = Math.max(0, Math.min(5, Math.round(stars)));
+  const glyphs = "★".repeat(filled) + "☆".repeat(5 - filled);
   return (
-    <span className="inline-flex items-center gap-0.5" role="img" aria-label={`${stars} out of 5 stars`}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <Star
-          key={n}
-          className={cn(dimension, n <= stars ? "fill-primary text-primary" : "text-foreground/20")}
-          strokeWidth={1.5}
-          aria-hidden
-        />
-      ))}
+    <span
+      className={cn("inline-flex items-center leading-none tracking-[1px] text-primary", textSize)}
+      role="img"
+      aria-label={`${stars} out of 5 stars`}
+    >
+      {glyphs}
     </span>
   );
 }

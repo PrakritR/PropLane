@@ -26,6 +26,7 @@ import {
   VendorWorkspaceAccessPane,
 } from "@/components/portal/vendor-business-settings";
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
@@ -33,8 +34,6 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import {
   PortalSettingsFormBody,
   PortalSettingsGroup,
-  PortalSettingsLinkRow,
-  PortalSettingsNav,
   PortalSettingsProfileHeader,
   PortalSettingsSection,
   PortalSettingsSections,
@@ -89,8 +88,16 @@ type VendorSettingsGroup = {
   label: string;
   description?: string;
   icon: ComponentType<{ className?: string }>;
-  group: "Business" | "Availability" | "Account";
+  /**
+   * Three top-level cards (C159) — never a flat list of every sub-item.
+   * "Payout" stays a single always-the-vendor's-own-Stripe-Connect-account
+   * item, deliberately separate from any workspace's bank.
+   */
+  group: "Company profile" | "Payout" | "Settings";
 };
+
+/** Top-level card order for the vendor Profile accordion (C159). */
+const VENDOR_SETTINGS_TOP_GROUPS = ["Company profile", "Payout", "Settings"] as const;
 
 /** Tap target for the small chip/row "remove" glyphs — keeps the glyph small while meeting the 44px minimum. */
 const AVAILABILITY_REMOVE_BTN =
@@ -1034,103 +1041,104 @@ export function VendorSettingsPanel() {
         label: "Business profile",
         description: "Your business name, contact, and service area — yours, no manager link needed.",
         icon: Building2,
-        group: "Business",
+        group: "Company profile",
       },
       {
         id: "work-contacts",
         label: "Work contacts",
         description: "The work number and email managers and residents reach you at.",
         icon: Contact,
-        group: "Business",
+        group: "Company profile",
       },
       {
         id: "work-number",
         label: "Work number",
         icon: Smartphone,
-        group: "Business",
+        group: "Company profile",
       },
       {
         id: "work-email",
         label: "Work email",
         icon: Contact,
-        group: "Business",
-      },
-      {
-        id: "workspaces",
-        label: "Workspace access",
-        description: "Manager workspaces you are linked into and the houses assigned to you.",
-        icon: Briefcase,
-        group: "Business",
-      },
-      {
-        id: "payouts",
-        label: "Payouts",
-        description: "Balance, bank accounts, and how you withdraw what you're owed.",
-        icon: Landmark,
-        group: "Business",
+        group: "Company profile",
       },
       {
         id: "profile",
         label: "Directory listing",
         description: "Language, texting consent, and payment methods on your manager directory entry.",
         icon: Briefcase,
-        group: "Business",
+        group: "Company profile",
       },
       {
         id: "capabilities",
         label: "Work capabilities",
         description: "The trades managers can match you with.",
         icon: Wrench,
-        group: "Business",
+        group: "Company profile",
       },
       {
         id: "availability",
         label: "Hours & dates",
         description: "Weekly hours, one-off open dates, and blocked dates.",
         icon: CalendarClock,
-        group: "Availability",
+        group: "Company profile",
+      },
+      {
+        id: "payouts",
+        label: "Payouts",
+        // Always the vendor's OWN Stripe Connect account — never a workspace's bank.
+        description: "Your balance, bank accounts, and how you withdraw what you're owed.",
+        icon: Landmark,
+        group: "Payout",
+      },
+      {
+        id: "workspaces",
+        label: "Workspace access",
+        description: "Manager workspaces you are linked into and the houses assigned to you.",
+        icon: Briefcase,
+        group: "Settings",
       },
       {
         id: "notifications",
         label: "Notifications",
         description: "Which events reach your inbox and phone.",
         icon: Bell,
-        group: "Account",
+        group: "Settings",
       },
       {
         id: "messaging",
         label: "Messaging",
         description: "Verify your phone for job texts.",
         icon: Smartphone,
-        group: "Account",
+        group: "Settings",
       },
       {
         id: "preferences",
         label: "Preferences",
         description: "Assistant and device options.",
         icon: SlidersHorizontal,
-        group: "Account",
+        group: "Settings",
       },
       {
         id: "security",
         label: "Login & security",
         description: "Password and sign-in options.",
         icon: Lock,
-        group: "Account",
+        group: "Settings",
       },
       {
         id: "feedback",
         label: "Feedback",
         description: "Report issues or share product feedback.",
         icon: MessageSquareText,
-        group: "Account",
+        group: "Settings",
       },
       {
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your account.",
         icon: Settings,
-        group: "Account",
+        group: "Settings",
       },
     ],
     [],
@@ -1139,6 +1147,13 @@ export function VendorSettingsPanel() {
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
   const activeGroup = groups.find((g) => g.id === rawTab) ?? null;
   const paneGroup = activeGroup ?? groups[0];
+
+  // Exactly 3 cards visible at the top level (C159) — a card auto-opens once
+  // its own sub-item becomes the active pane, but otherwise starts closed.
+  const [openTopGroups, setOpenTopGroups] = useState<Set<string>>(() => new Set([paneGroup.group]));
+  useEffect(() => {
+    setOpenTopGroups((cur) => (cur.has(paneGroup.group) ? cur : new Set(cur).add(paneGroup.group)));
+  }, [paneGroup.group]);
 
   const pushedDepthRef = useRef(0);
   const backInFlightRef = useRef(false);
@@ -1361,55 +1376,79 @@ export function VendorSettingsPanel() {
     }
   };
 
+  // C159: exactly 3 top-level cards ("Company profile" / "Payout" / "Settings"),
+  // each an accordion disclosing its own real sub-items — never a flat list of
+  // every one of the 15 underlying items at once. Shared between the desktop
+  // sidebar and the mobile root screen so both stay in lockstep.
+  const renderTopGroupCards = () =>
+    VENDOR_SETTINGS_TOP_GROUPS.map((groupLabel) => {
+      const groupItems = groups.filter((item) => item.group === groupLabel);
+      if (groupItems.length === 0) return null;
+      const expanded = openTopGroups.has(groupLabel);
+      return (
+        <PortalCollapsibleSection
+          key={groupLabel}
+          title={groupLabel}
+          expanded={expanded}
+          onExpandedChange={(next) =>
+            setOpenTopGroups((cur) => {
+              const nextSet = new Set(cur);
+              if (next) nextSet.add(groupLabel);
+              else nextSet.delete(groupLabel);
+              return nextSet;
+            })
+          }
+          toggleDataAttr={`vendor-settings-group-${groupLabel.toLowerCase().replace(/\s+/g, "-")}`}
+        >
+          <PortalSettingsGroup className="rounded-none border-0">
+            {groupItems.map((g) => {
+              const active = g.id === paneGroup.id;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => openGroup(g.id)}
+                  aria-current={active ? "page" : undefined}
+                  data-attr={`settings-nav-${g.id}`}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 border-b border-border px-4 py-3 text-left text-sm font-medium transition-colors last:border-0",
+                    active ? "bg-primary/10 text-foreground" : "text-muted hover:bg-accent/40 hover:text-foreground",
+                  )}
+                >
+                  <g.icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "opacity-80")} />
+                  <span className="min-w-0 flex-1 truncate">{g.label}</span>
+                </button>
+              );
+            })}
+          </PortalSettingsGroup>
+        </PortalCollapsibleSection>
+      );
+    });
+
   return (
     <ManagerPortalPageShell
       title="Settings"
       hideTitleOnMobileNav
     >
       <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <PortalSettingsNav
-          className="max-lg:hidden"
-          name={profileDraft.name || DEMO_VENDOR_NAME}
-          email={profileDraft.email || DEMO_VENDOR_EMAIL}
-          items={groups.map((g) => ({
-            id: g.id,
-            label: g.label,
-            icon: <g.icon className="h-4 w-4" />,
-            group: g.group,
-          }))}
-          activeId={paneGroup.id}
-          onSelect={openGroup}
-        />
+        <aside className="hidden w-72 shrink-0 flex-col gap-3 lg:flex lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:self-stretch">
+          <PortalSettingsProfileHeader
+            name={profileDraft.name || DEMO_VENDOR_NAME}
+            email={profileDraft.email || DEMO_VENDOR_EMAIL}
+          />
+          {renderTopGroupCards()}
+        </aside>
         <div
           ref={contentColRef}
           className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
         >
           {activeGroup === null ? (
-            <div className="space-y-5 lg:hidden">
+            <div className="space-y-3 lg:hidden">
               <PortalSettingsProfileHeader
                 name={profileDraft.name || DEMO_VENDOR_NAME}
                 email={profileDraft.email || DEMO_VENDOR_EMAIL}
               />
-              {(["Business", "Availability", "Account"] as const).map((group) => {
-                const groupItems = groups.filter((item) => item.group === group);
-                if (groupItems.length === 0) return null;
-                return (
-                  <section key={group} className="space-y-2">
-                    <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
-                    <PortalSettingsGroup>
-                      {groupItems.map((g) => (
-                        <PortalSettingsLinkRow
-                          key={g.id}
-                          icon={<g.icon className="h-4 w-4" />}
-                          label={g.label}
-                          onClick={() => openGroup(g.id)}
-                          dataAttr={`settings-open-${g.id}`}
-                        />
-                      ))}
-                    </PortalSettingsGroup>
-                  </section>
-                );
-              })}
+              {renderTopGroupCards()}
             </div>
           ) : (
             <div className="mb-4 lg:hidden">

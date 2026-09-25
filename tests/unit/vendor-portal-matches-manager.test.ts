@@ -83,14 +83,23 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar exposes list, day, week, and month with the shared availability editor", () => {
+  it("vendor calendar (C155) is a day-grouped agenda with the shared availability editor, no view switcher", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
-    expect(calendar).toContain("vendorViewer");
-    expect(calendar).toContain('label: "List"');
-    expect(calendar).toContain('label: "Day"');
-    expect(calendar).toContain('label: "Week"');
-    expect(calendar).toContain('label: "Month"');
+    // The List/Day/Week/Month grid switcher is gone (C155); the panel is one
+    // continuous chronological agenda grouped under date headers.
+    expect(calendar).not.toContain('label: "List"');
+    expect(calendar).not.toContain('label: "Day"');
+    expect(calendar).not.toContain('label: "Week"');
+    expect(calendar).not.toContain('label: "Month"');
+    expect(calendar).not.toContain("vendorViewer");
+    expect(calendar).toContain("groupMeetingsByDate");
+    expect(calendar).toContain("agendaDateHeaderLabel");
+    expect(calendar).toContain('data-attr="vendor-calendar-agenda-day"');
+    // Still surfaces the shared canonical availability editor.
     expect(calendar).toContain("VendorAvailabilityEditor");
+    expect(calendar).toContain("VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT");
+    // Routing keeps the legacy view tabs alive for old links (`view` is
+    // accepted and ignored by the panel itself).
     expect(read("src/lib/portal-detail-routes.ts")).toContain('["list", "day", "week", "month"]');
     expect(calendar).not.toContain("vendorDayFlexibility");
     expect(calendar).not.toContain("Add work");
