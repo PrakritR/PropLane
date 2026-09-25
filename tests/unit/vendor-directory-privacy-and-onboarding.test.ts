@@ -3,26 +3,36 @@
 // paths), onboarding save must validate/derive server-side, and "Add to my
 // vendors" must be idempotent per manager+vendor pair.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PortalAccessContext } from "@/lib/auth/portal-access";
 
 const mocks = vi.hoisted(() => ({
   resolveOwnVendorRecords: vi.fn(async () => [] as unknown[]),
   isAdminUser: vi.fn(async () => false),
   rosterState: { existingRosterRow: null as Record<string, unknown> | null, inserted: [] as Record<string, unknown>[] },
+  // Mutable per-test "signed in as" context — default a plain manager.
+  // profiles.role is deliberately NOT "manager" here in most tests, matching
+  // the real shape of a multi-role account: `roles` (from profile_roles) is
+  // what authorizes, never the legacy singular column.
+  ctx: {
+    user: { id: "manager-1", email: "manager@example.test" },
+    profile: { id: "manager-1", email: "manager@example.test", role: "manager", manager_id: null, full_name: null, application_approved: false },
+    roles: ["manager"],
+    effectiveRole: "manager",
+  } as PortalAccessContext,
 }));
 
 vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecords: mocks.resolveOwnVendorRecords }));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: mocks.isAdminUser }));
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "manager-1" } } }) },
-  }),
+// Keep hasRole/hasAdminRole REAL (they're pure `ctx.roles.includes(...)`
+// checks) — only the context resolution itself is mocked, so the routes'
+// actual authorization logic runs unmodified in every test below.
+vi.mock("@/lib/auth/portal-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/portal-access")>()),
+  getPortalAccessContext: () => Promise.resolve(mocks.ctx),
 }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: (table: string) => {
-      if (table === "profiles") {
-        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: "manager" } }) }) }) };
-      }
       if (table === "manager_vendor_records") {
         return {
           select: () => ({
@@ -37,23 +47,26 @@ vi.mock("@/lib/supabase/service", () => ({
         };
       }
       if (table === "vendor_business_profiles") {
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: {
-                  business_name: "Apex Plumbing",
-                  work_email: "apex@example.test",
-                  work_phone: "+12065550100",
-                  trades: ["Plumbing"],
-                  directory_listed: true,
-                  onboarding_completed_at: "2026-09-25T00:00:00.000Z",
-                },
-                error: null,
-              }),
-            }),
-          }),
+        // Serves BOTH the add-route's single-row `select().eq().maybeSingle()`
+        // lookup and loadDirectoryListedVendors' list-query chain
+        // (`select().eq().not().order().limit().contains()` then awaited) —
+        // one generic chainable builder covers both shapes.
+        const row = {
+          business_name: "Apex Plumbing",
+          work_email: "apex@example.test",
+          work_phone: "+12065550100",
+          trades: ["Plumbing"],
+          directory_listed: true,
+          onboarding_completed_at: "2026-09-25T00:00:00.000Z",
         };
+        const builder: Record<string, unknown> = {};
+        for (const name of ["select", "eq", "not", "order", "limit", "contains"]) {
+          builder[name] = () => builder;
+        }
+        builder.maybeSingle = async () => ({ data: row, error: null });
+        builder.then = (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({ data: [{ user_id: "vendor-1", service_area: "Seattle, WA", service_area_zips: [], insurance_expires_at: null, insurance_doc_path: null, license_number: "", ...row }], error: null }).then(resolve);
+        return builder;
       }
       throw new Error(`unexpected table ${table}`);
     },
@@ -222,6 +235,12 @@ describe("vendor directory add-to-roster — idempotent per manager+vendor pair"
     mocks.isAdminUser.mockClear();
     mocks.rosterState.existingRosterRow = null;
     mocks.rosterState.inserted = [];
+    mocks.ctx = {
+      user: { id: "manager-1", email: "manager@example.test" },
+      profile: { id: "manager-1", email: "manager@example.test", role: "manager", manager_id: null, full_name: null, application_approved: false },
+      roles: ["manager"],
+      effectiveRole: "manager",
+    };
   });
 
   it("inserts a linked roster row on the first call, and returns it unchanged (no duplicate insert) on the second", async () => {
@@ -250,5 +269,74 @@ describe("vendor directory add-to-roster — idempotent per manager+vendor pair"
     expect(res2.status).toBe(200);
     expect(body2.existing).toBe(true);
     expect(mocks.rosterState.inserted).toHaveLength(1); // still just the one insert
+  });
+});
+
+describe("vendor directory routes — authorization is multi-role-safe, never profiles.role alone", () => {
+  beforeEach(() => {
+    mocks.isAdminUser.mockClear();
+    mocks.rosterState.existingRosterRow = null;
+    mocks.rosterState.inserted = [];
+  });
+
+  function postRequest() {
+    return new Request("http://localhost/api/manager/vendor-directory/add", {
+      method: "POST",
+      body: JSON.stringify({ vendorUserId: "vendor-1" }),
+    });
+  }
+
+  it("a multi-role account (legacy profiles.role='resident' + a manager profile_roles row) is allowed", async () => {
+    // This is the exact shape a real multi-role dogfooding account has: the
+    // singular legacy column still says "resident" (whichever portal the
+    // account was originally created as), but profile_roles also grants
+    // manager — `roles` below is what getPortalAccessContext would compute
+    // by merging the two, per normalizePortalRoles.
+    mocks.ctx = {
+      user: { id: "multi-1", email: "multi@example.test" },
+      profile: { id: "multi-1", email: "multi@example.test", role: "resident", manager_id: null, full_name: null, application_approved: false },
+      roles: ["resident", "manager"],
+      effectiveRole: null,
+    };
+
+    const { GET } = await import("@/app/api/manager/vendor-directory/route");
+    const getRes = await GET(new Request("http://localhost/api/manager/vendor-directory"));
+    expect(getRes.status).toBe(200);
+
+    const { POST } = await import("@/app/api/manager/vendor-directory/add/route");
+    const postRes = await POST(postRequest());
+    const postBody = await postRes.json();
+    expect(postRes.status).toBe(200);
+    // The new roster row is attributed to the authenticated caller's own id
+    // (ctx.user.id), matching how POST /api/portal-vendors owns a brand-new row.
+    expect(postBody.row.managerUserId).toBe("multi-1");
+  });
+
+  it("a pure resident (no manager role anywhere) is refused on both routes", async () => {
+    mocks.ctx = {
+      user: { id: "resident-1", email: "resident@example.test" },
+      profile: { id: "resident-1", email: "resident@example.test", role: "resident", manager_id: null, full_name: null, application_approved: false },
+      roles: ["resident"],
+      effectiveRole: "resident",
+    };
+
+    const { GET } = await import("@/app/api/manager/vendor-directory/route");
+    const getRes = await GET(new Request("http://localhost/api/manager/vendor-directory"));
+    expect(getRes.status).toBe(403);
+
+    const { POST } = await import("@/app/api/manager/vendor-directory/add/route");
+    const postRes = await POST(postRequest());
+    expect(postRes.status).toBe(403);
+    expect(mocks.rosterState.inserted).toHaveLength(0);
+  });
+
+  it("an unauthenticated caller is refused with 401, not 403", async () => {
+    mocks.ctx = { user: null, profile: null, roles: [], effectiveRole: null };
+
+    const { GET } = await import("@/app/api/manager/vendor-directory/route");
+    expect((await GET(new Request("http://localhost/api/manager/vendor-directory"))).status).toBe(401);
+
+    const { POST } = await import("@/app/api/manager/vendor-directory/add/route");
+    expect((await POST(postRequest())).status).toBe(401);
   });
 });

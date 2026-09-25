@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 
 export const runtime = "nodejs";
@@ -16,25 +15,27 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-
-    const db = createSupabaseServiceRoleClient();
-    const admin = await isAdminUser(user.id);
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-    if (!admin && role !== "manager" && role !== "pro") {
+    const ctx = await getPortalAccessContext();
+    if (!ctx.user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    // Same canonical multi-role-safe check as the GET route above — never
+    // `profiles.role` (legacy/singular) or `user_metadata.role` (client-writable).
+    if (!hasRole(ctx, "manager") && !hasAdminRole(ctx)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
+    const db = createSupabaseServiceRoleClient();
     const body = (await req.json().catch(() => null)) as { vendorUserId?: string } | null;
     const vendorUserId = body?.vendorUserId?.trim();
     if (!vendorUserId) return NextResponse.json({ error: "vendorUserId required." }, { status: 400 });
 
-    const managerUserId = user.id;
+    // The vendor directory is owner-keyed with no property column, so there is
+    // no per-property `linkedOwnerForProperty` to attribute this to — mirrors
+    // `POST /api/portal-vendors`'s "replace"/insert path, where a genuinely
+    // NEW roster row is always owned by the authenticated caller's own id, not
+    // a co-manager's linked owner (co-manager access to an owner's EXISTING
+    // vendor rows is a read-scope concern only, resolved client-side via
+    // `linkedOwnerScopeForModule` when listing `/api/portal-vendors`).
+    const managerUserId = ctx.user.id;
 
     const { data: existing } = await db
       .from("manager_vendor_records")
