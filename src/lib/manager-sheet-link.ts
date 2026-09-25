@@ -17,6 +17,20 @@ export type ManagerSheetHouseTab = {
   houseKey: string;
 };
 
+/**
+ * A manager-picked one-row-per-stay tab (BUILD-WAVE2 C210), additive on top
+ * of the existing occupancy-grid + house-tab binding shape. `columnMap` is
+ * the manager's own match from the preview screen (falls back to
+ * auto-detection when absent); `nameMap` remembers a house spelling the
+ * matcher could not resolve on its own, keyed by the sheet's own text.
+ */
+export type ManagerSheetStaysTab = {
+  gid: string;
+  title: string;
+  columnMap: import("@/lib/sheet-sync/parse-stays-table").StaysTableColumnMap | null;
+  nameMap: Record<string, string>;
+};
+
 export type ManagerSheetLink = {
   spreadsheetUrl: string;
   spreadsheetId: string;
@@ -34,6 +48,8 @@ export type ManagerSheetBinding = {
   spreadsheetId: string;
   occupancyGid: string;
   houseTabs: ManagerSheetHouseTab[];
+  /** Absent = this spreadsheet has no linked stays tab. */
+  staysTab: ManagerSheetStaysTab | null;
   workspaceId: string;
   propertyId: string | null;
   autoSync: boolean;
@@ -79,6 +95,24 @@ export function suggestedSpreadsheetUrlForEmail(email: string | null | undefined
 
 function asObject(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function asStaysTab(raw: unknown): ManagerSheetStaysTab | null {
+  const row = asObject(raw);
+  const gid = typeof row.gid === "string" ? row.gid.trim() : "";
+  if (!gid) return null;
+  const title = typeof row.title === "string" ? row.title.trim() : "";
+  const nameMapRaw = asObject(row.nameMap);
+  const nameMap: Record<string, string> = {};
+  for (const [key, value] of Object.entries(nameMapRaw)) {
+    if (typeof value === "string" && value.trim()) nameMap[key] = value.trim();
+  }
+  const columnMapRaw = row.columnMap;
+  const columnMap =
+    columnMapRaw && typeof columnMapRaw === "object" && !Array.isArray(columnMapRaw)
+      ? (columnMapRaw as ManagerSheetStaysTab["columnMap"])
+      : null;
+  return { gid, title, columnMap, nameMap };
 }
 
 function asHouseTabs(raw: unknown): ManagerSheetHouseTab[] {
@@ -174,6 +208,7 @@ export function normalizeManagerSheetBinding(raw: unknown): ManagerSheetBinding 
       typeof row.occupancyGid === "string" ? row.occupancyGid : "",
     ),
     houseTabs: asHouseTabs(row.houseTabs),
+    staysTab: asStaysTab(row.staysTab),
     workspaceId,
     propertyId: propertyRaw && propertyRaw !== ALL_SHEET_PROPERTIES ? propertyRaw : null,
     autoSync: row.autoSync !== false,
@@ -191,6 +226,7 @@ export function bindingFromLegacyLink(link: ManagerSheetLink): ManagerSheetBindi
     spreadsheetId: link.spreadsheetId,
     occupancyGid: occupancyGidForSpreadsheet(link.spreadsheetId, link.occupancyGid),
     houseTabs: link.houseTabs,
+    staysTab: null,
     workspaceId: "",
     propertyId: null,
     autoSync: link.autoSync,
@@ -222,6 +258,7 @@ export function publicManagerSheetBinding(link: ManagerSheetBinding) {
     lastError: link.lastError,
     lastSummary: link.lastSummary,
     linked: Boolean(link.spreadsheetId),
+    staysTab: link.staysTab ? { gid: link.staysTab.gid, title: link.staysTab.title } : null,
   };
 }
 
