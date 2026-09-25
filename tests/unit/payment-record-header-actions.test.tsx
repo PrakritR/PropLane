@@ -126,12 +126,41 @@ describe("payment record page header actions", () => {
     expect(navigate).toHaveBeenCalled();
   });
 
-  it("omits Record payment on a paid row — a lock is not a dead click", () => {
+  it("omits Record payment AND Delete on a paid row — a lock is not a dead click (C024: Refund replaces Delete)", () => {
     renderDetail(sampleRow({ bucket: "paid", statusLabel: "Paid", amountPaid: "$1,850.00", balanceDue: "$0.00" }));
     expect(document.querySelector('[data-attr="record-header-action-record-payment"]')).toBeNull();
     expect(document.querySelector('[data-attr="record-header-action-send-reminder"]')).toBeTruthy();
-    expect(document.querySelector('[data-attr="record-header-action-delete"]')).toBeTruthy();
+    // C024: once a charge is marked paid, Delete no longer offers itself — it used to delete the
+    // charge line without refunding anyone and orphan the real payment line.
+    expect(document.querySelector('[data-attr="record-header-action-delete"]')).toBeNull();
+    // C023: Refund takes its place as the one way to reverse money that already moved.
+    expect(document.querySelector('[data-attr="record-header-action-refund"]')).toBeTruthy();
     expect(markHouseholdChargePaid).not.toHaveBeenCalled();
+  });
+
+  it("wires the paid-row Refund action to charge-refund, not Delete", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("charge-refund")) {
+          return new Response(JSON.stringify({ ok: true, refundId: "re_1", remainingCents: 0 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ messages: [], settings: null, rows: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    renderDetail(sampleRow({ bucket: "paid", statusLabel: "Paid", amountPaid: "$1,850.00", balanceDue: "$0.00" }));
+    const button = document.querySelector('[data-attr="record-header-action-refund"]')!;
+    fireEvent.click(button);
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Refunded Maya Chen."));
+    expect(deleteHouseholdCharge).not.toHaveBeenCalled();
   });
 
   it("still wires Send reminder — unaffected by the record-payment/delete rewiring", () => {
