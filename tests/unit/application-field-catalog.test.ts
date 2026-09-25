@@ -4,6 +4,7 @@ import {
   applicationConfigForVariant,
   isWizardFormFieldEnabled,
   listingDisabledWizardFormKeys,
+  NEVER_DISABLED_STANDARD_KEYS,
   patchListingApplicationField,
   removeListingApplicationField,
   resolveListingApplicationFields,
@@ -172,5 +173,35 @@ describe("application-field-catalog", () => {
       type: "select",
       options: [],
     });
+  });
+
+  // C195 (studio decision): built-in questions screening/charges/leases read
+  // directly stay locked; only custom questions are free to remove.
+  it("cannot disable SSN, ID or income — screening/charges/leases read them directly", () => {
+    const ssn = catalogField("personal", "Social Security number");
+    const id = catalogField("personal", "Driver's license / ID");
+    const income = catalogField("employment", "Monthly / annual income");
+    expect(NEVER_DISABLED_STANDARD_KEYS).toEqual(
+      expect.arrayContaining([ssn.standardKey, id.standardKey, income.standardKey]),
+    );
+
+    const sub = {
+      ...createDefaultListingSubmission(),
+      disabledStandardApplicationKeys: [ssn.standardKey, id.standardKey, income.standardKey],
+    };
+    const fields = resolveListingApplicationFields(sub, normalizeCustomApplicationFields);
+    expect(fields.some((f) => f.standardKey === ssn.standardKey)).toBe(true);
+    expect(fields.some((f) => f.standardKey === id.standardKey)).toBe(true);
+    expect(fields.some((f) => f.standardKey === income.standardKey)).toBe(true);
+  });
+
+  it("keeps income optional even though it can no longer be disabled", () => {
+    // The lock only blocks REMOVAL — income's own required default (false, so
+    // an unemployed applicant can still submit) is untouched by C195.
+    const sub = createDefaultListingSubmission();
+    const income = resolveListingApplicationFields(sub, normalizeCustomApplicationFields).find(
+      (f) => f.label === "Monthly / annual income",
+    )!;
+    expect(income.required).toBe(false);
   });
 });

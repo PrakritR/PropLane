@@ -212,6 +212,73 @@ describe("configured address and reference question order", () => {
   });
 });
 
+describe("a conditional custom question on the additional-details step (N037)", () => {
+  // Step 8 (the untagged/`additional` section, DEFAULT_CUSTOM_FIELD_SECTION_ID)
+  // rendered every field with a hand-rolled loop that never applied
+  // `isCustomFieldHiddenByCondition`, unlike every other step's
+  // `stepManagerQuestions` box. A "if yes, explain" follow-up always showed,
+  // gate or no gate — the one wizard step where a manager's conditional
+  // question never actually hid.
+  const gate = {
+    id: "pet-gate",
+    key: "has_pet",
+    label: "Do you have a pet?",
+    type: "yes_no" as const,
+    required: false,
+    options: [] as string[],
+    section: "additional",
+  };
+  const detail = {
+    id: "pet-detail",
+    key: "pet_detail",
+    label: "Describe your pet",
+    type: "text" as const,
+    required: false,
+    options: [] as string[],
+    section: "additional",
+    showIf: { fieldKey: "has_pet", equals: "yes" },
+  };
+
+  function stepProps(customFieldAnswers: WizardStepsProps["form"]["customFieldAnswers"]) {
+    const config = {
+      ...applicationConfigForVariant({ applicationConfigMode: "custom", customApplicationFields: [gate, detail] }, "standard"),
+      customApplicationFields: [gate, detail],
+    };
+    const noop = () => {};
+    return {
+      step: 8,
+      form: { ...createInitialRentalWizardState(), propertyId: property.id, customFieldAnswers },
+      errors: {},
+      mode: "portal",
+      propertyOptions: [{ value: property.id, label: property.title }],
+      patch: noop,
+      applicationConfigOverride: config,
+      setPhone: noop,
+      setLandlordPhone: noop,
+      setPrevLandlordPhone: noop,
+      setSupervisorPhone: noop,
+      setRef1Phone: noop,
+      setRef2Phone: noop,
+      setSsn: noop,
+      goToStep: noop,
+      editFromReview: noop,
+    } as WizardStepsProps;
+  }
+
+  it("FAILS BEFORE THE FIX: hides the follow-up while the gate is unanswered", () => {
+    const { container } = render(<RentalWizardStepBody {...stepProps([])} />);
+    expect(container.textContent).toContain("Do you have a pet?");
+    expect(container.textContent).not.toContain("Describe your pet");
+  });
+
+  it("shows the follow-up once the gate is answered yes", () => {
+    const { container } = render(
+      <RentalWizardStepBody {...stepProps([{ key: "has_pet", label: gate.label, type: "yes_no", value: "yes" }])} />,
+    );
+    expect(container.textContent).toContain("Describe your pet");
+  });
+});
+
 describe("a background sync must not throw away the edit in progress", () => {
   it("keeps the current step when the parent hands over an equal row object", async () => {
     // `pro-residents` rebuilds this row from storage on every applications or

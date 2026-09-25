@@ -10,7 +10,7 @@ import {
   workspaceApplicationFormIsConfigured,
   type WorkspaceApplicationFormTemplate,
 } from "@/lib/rental-application/workspace-application-form";
-import { pushWorkspaceApplicationFormToFollowingListings } from "@/lib/rental-application/apply-workspace-application-form-to-listings.server";
+import { recopyWorkspaceApplicationFormOntoFollowingListings } from "@/lib/listing-application-form-write.server";
 
 export const runtime = "nodejs";
 
@@ -93,20 +93,23 @@ export async function PATCH(req: Request) {
     }) ?? emptyWorkspaceApplicationFormTemplate();
     incoming.updatedAt = new Date().toISOString();
     await saveWorkspaceNamespaceSettings(ctx.db, workspaceId, ownerUserId, NAMESPACE, incoming);
-    // Copy-on-save (docs/agents/listing-wizard-defaults.md § Workspace
-    // application form): push the just-saved template onto every listing in
-    // this workspace still following it, so a listing's application stops
-    // silently changing under an applicant mid-apply. The live-read fallback
-    // in publicListingProjection / server-side validation / the editor
-    // preview stays in place for anything this push misses.
-    await pushWorkspaceApplicationFormToFollowingListings(ctx.db, workspaceId, incoming);
     await trackSettingsScopeChanged(ctx.db, ctx.userId, {
       module: ANALYTICS_MODULE,
       rung: "workspace",
       ownerUserId,
       workspaceId,
     });
-    return NextResponse.json({ template: incoming, workspaceId, configured: workspaceApplicationFormIsConfigured(incoming) });
+    // N037: re-copy the just-published form onto every listing that follows
+    // it (never one that opted into applicationFormSource: "custom"), so
+    // both wizards keep reading one place — the listing's own
+    // listingSubmission — instead of a live resolution at request time.
+    const recopy = await recopyWorkspaceApplicationFormOntoFollowingListings(ctx.db, ownerUserId, incoming);
+    return NextResponse.json({
+      template: incoming,
+      workspaceId,
+      configured: workspaceApplicationFormIsConfigured(incoming),
+      recopiedListings: recopy.updated,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });
