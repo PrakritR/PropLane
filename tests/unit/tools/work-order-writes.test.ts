@@ -11,6 +11,19 @@ vi.mock("@/lib/vendor-notification-delivery", () => ({
   sendVendorNotification: vi.fn().mockResolvedValue({ emailSent: true, inboxDelivered: true, skippedDemoEmail: false }),
 }));
 vi.mock("@/lib/stripe-vendor-payout", () => ({ payoutVendorForWorkOrder: vi.fn().mockResolvedValue(undefined) }));
+// Approve + Pay now opens a hosted Stripe Checkout for the invoice (5c973d980).
+vi.mock("@/lib/stripe", () => ({ getStripe: () => ({}) }));
+vi.mock("@/lib/stripe-connect", () => ({ resolveConnectDestinationIfReady: vi.fn().mockResolvedValue("acct_vendor") }));
+vi.mock("@/lib/stripe-axis-ach-checkout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/stripe-axis-ach-checkout")>()),
+  createAxisAchCheckoutSession: vi.fn().mockResolvedValue({
+    mode: "hosted",
+    url: "https://checkout.stripe.test/cs_1",
+    sessionId: "cs_1",
+    totalCents: 40150,
+    processingFeeCents: 150,
+  }),
+}));
 vi.mock("@/lib/reports/auth", () => ({ assertFinancialsTier: vi.fn().mockResolvedValue({ ok: true }) }));
 vi.mock("@/lib/vendor-availability-server", () => ({
   resolveVendorNextAvailableSlot: vi.fn().mockResolvedValue({ iso: "2026-07-20T17:00:00.000Z" }),
@@ -20,6 +33,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import { buildRegistry } from "@/lib/tools/registry";
 import { assertFinancialsTier } from "@/lib/reports/auth";
 import { payoutVendorForWorkOrder } from "@/lib/stripe-vendor-payout";
+import { createAxisAchCheckoutSession } from "@/lib/stripe-axis-ach-checkout";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { executeWrite, previewWrite } from "./fake-agent-ctx";
 import {
@@ -655,27 +669,31 @@ describe("approve_and_pay_work_order", () => {
     }
   });
 
-  it("execute pays out once, marks paid, and short-circuits on retry", async () => {
+  it("execute opens one invoice checkout, holds the payment as pending, and short-circuits on retry", async () => {
     const tables = baseTables();
     const ctx = makeCtx(tables);
     const res = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.reply).toContain("Approved and paid");
+    if (res.ok) expect(res.reply).toContain("Open checkout to pay the invoice");
 
-    const row = tables.portal_work_order_records![0]!.row_data as Row;
-    expect(row.automationStatus).toBe("paid");
-    expect(row.bucket).toBe("completed");
-    expect(auditRows(tables)[0]!.dedupe_key).toBe("approve_and_pay_work_order:manager_a:wo1");
-    expect(vi.mocked(payoutVendorForWorkOrder)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(payoutVendorForWorkOrder).mock.calls[0]![1]).toMatchObject({
-      workOrderId: "wo1",
-      managerUserId: "manager_a",
-      vendorUserId: "vendor_user_1",
+    // The invoice is the accepted bid's labor, paid to the vendor's Connect account.
+    expect(vi.mocked(createAxisAchCheckoutSession)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createAxisAchCheckoutSession).mock.calls[0]![1]).toMatchObject({
+      amountCents: 40000,
+      destinationAccountId: "acct_vendor",
+      metadata: { work_order_id: "wo1", manager_user_id: "manager_a", vendor_user_id: "vendor_user_1" },
     });
+    // Nothing is paid until Checkout completes; the webhook settles it.
+    const row = tables.portal_work_order_records![0]!.row_data as Row;
+    expect(row.automationStatus).not.toBe("paid");
+    expect(row.pendingVendorPay).toMatchObject({ sessionId: "cs_1", category: "plumbing" });
+    expect(tables.vendor_payouts).toEqual([expect.objectContaining({ work_order_id: "wo1", amount_cents: 40000, status: "pending" })]);
+    expect(vi.mocked(payoutVendorForWorkOrder)).not.toHaveBeenCalled();
+    expect(auditRows(tables)[0]!.dedupe_key).toBe("approve_and_pay_work_order:manager_a:wo1");
 
-    const again = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
-    expect(again.ok).toBe(false); // re-resolved row is already paid
-    expect(vi.mocked(payoutVendorForWorkOrder)).toHaveBeenCalledTimes(1);
+    await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
+    expect(vi.mocked(createAxisAchCheckoutSession)).toHaveBeenCalledTimes(1);
+    expect(tables.vendor_payouts).toHaveLength(1);
   });
 
   it("execute tier-gates before anything happens", async () => {
