@@ -141,6 +141,13 @@ function submissionForNewCustomApplication(sub: ManagerListingSubmissionV1): Man
   return {
     ...sub,
     ...mergeApplicationConfigForVariant("standard", customApplicationConfigWithAllStandardQuestions()),
+    // A brand-new named application is always freshly authored content, so
+    // it must stay fully editable regardless of whether this listing
+    // otherwise follows the workspace form — never open ADD read-only.
+    // (`applicationFormSource` is the listing-wide flag; the "Workspace
+    // form" / "Custom for this listing" picker still lets the manager
+    // switch it back once the template exists.)
+    applicationFormSource: "custom",
   };
 }
 
@@ -245,8 +252,15 @@ export function ManagerApplicationQuestionsEditorModal({
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
 
+  // The real Applications tab (`pro-property-application-questions-panel.tsx`)
+  // always opens this modal with a `templateEditorMode` — every row is a
+  // named `PropertyApplicationTemplate` (Long-term / Short-term / Co-signer),
+  // even for the ordinary single-listing edit path. `applicationFormSource`
+  // is a LISTING-wide flag (all three variants switch together), not a
+  // per-template one, so it must stay reachable in that mode too — only a
+  // genuinely ambiguous multi-property BULK edit excludes it (`isBulkSave`).
   useEffect(() => {
-    if (!open || isTemplateEditor || isBulkSave) {
+    if (!open || isBulkSave) {
       setWorkspaceForm(null);
       setWorkspaceFormLoaded(false);
       return;
@@ -267,7 +281,7 @@ export function ManagerApplicationQuestionsEditorModal({
     return () => {
       cancelled = true;
     };
-  }, [open, isTemplateEditor, isBulkSave]);
+  }, [open, isBulkSave]);
 
   // Absent = "workspace" (follows the workspace template by default, see
   // `resolveEffectiveApplicationForm`); "custom" keeps this listing's own
@@ -645,7 +659,7 @@ export function ManagerApplicationQuestionsEditorModal({
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
     const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
-    if (applicationFormSource === "workspace" && workspaceForm && !isTemplateEditor && !isBulkSave) {
+    if (applicationFormSource === "workspace" && workspaceForm && !isBulkSave) {
       return (
         <div data-attr={`application-section-toggle-${sectionId}`} className="space-y-3">
           <p className="text-sm text-muted">
@@ -689,6 +703,25 @@ export function ManagerApplicationQuestionsEditorModal({
       </div>
     );
   };
+
+  // Rendered on whichever entry step is actually present — the real
+  // Applications tab always opens this modal in `templateEditorMode` (step
+  // "name"), never the plain "form" step; both render it so it is reachable
+  // either way. `applicationFormSource` is listing-wide, not per-template.
+  const applicationFormSourcePicker =
+    !isBulkSave && workspaceFormLoaded ? (
+      <FieldSingleSelect
+        label="Application form"
+        labelClassName={WIZARD_LABEL_CLASS}
+        value={applicationFormSource}
+        dataAttr="application-form-source"
+        options={[
+          { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
+          { value: "custom", label: "Custom for this listing" },
+        ]}
+        onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
+      />
+    ) : null;
 
   const previewBody = (
     <div className="space-y-3">
@@ -829,6 +862,7 @@ export function ManagerApplicationQuestionsEditorModal({
               data-attr="property-application-name"
             />
             {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
+            {applicationFormSourcePicker}
           </StepColumn>
         ) : null}
         {stepId === "form" ? (
@@ -841,19 +875,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 </button>
               }
             />
-            {!isTemplateEditor && !isBulkSave && workspaceFormLoaded ? (
-              <FieldSingleSelect
-                label="Application form"
-                labelClassName={WIZARD_LABEL_CLASS}
-                value={applicationFormSource}
-                dataAttr="application-form-source"
-                options={[
-                  { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
-                  { value: "custom", label: "Custom for this listing" },
-                ]}
-                onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
-              />
-            ) : null}
+            {applicationFormSourcePicker}
             <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label="Application form">
               {APPLICATION_FORM_VARIANTS.map((v) => {
                 const active = variant === v.id;
