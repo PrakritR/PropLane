@@ -7,8 +7,44 @@ import type { PortalWorkspace, WorkspacePayload, WorkspacePlan } from "@/lib/wor
 import { setWorkspaceSelection } from "@/lib/workspaces/selection";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { managerPropertyRowsForStage } from "@/lib/demo-admin-property-inventory";
-import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { DEMO_MANAGER_USER_ID, isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+
+/**
+ * The marketing embed must never show a broken/error state — GET
+ * /api/demo/workspace reads a shared, occasionally-slow dev database, and a
+ * public visitor should see the Seattle Homes portfolio (or its own local
+ * "nothing here yet" panels) every time, never an error banner. This is the
+ * SAME workspace `/api/demo/workspace` itself already returns on a good day
+ * (id kept in sync with GET /api/demo/workspace's real default workspace id
+ * where possible; a mismatched id here still resolves correctly since every
+ * consumer keys off `propertyIds`/`isDefault`, never a literal id match).
+ */
+const DEMO_WORKSPACE_FALLBACK: WorkspacePayload = {
+  workspaces: [
+    {
+      id: "demo-workspace-seattle-homes",
+      name: "Seattle Homes",
+      ownerUserId: DEMO_MANAGER_USER_ID,
+      owned: true,
+      isDefault: true,
+      propertyIds: ["demo-prop-alder", "demo-prop-maple", "demo-prop-fremont"],
+      livePropertyCount: 3,
+      propertyLabels: {
+        "demo-prop-alder": "Alder House",
+        "demo-prop-maple": "Maple Duplex",
+        "demo-prop-fremont": "Fremont Studio",
+      },
+      propertyPermissions: {},
+      members: [],
+      viewerRole: "owner",
+      viewerHouseScope: "all",
+      canAddProperties: true,
+      canManageMembers: true,
+    },
+  ],
+  activeWorkspaceId: "demo-workspace-seattle-homes",
+};
 
 export type WorkspaceContextValue = {
   workspaces: PortalWorkspace[];
@@ -40,10 +76,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const response = await fetch(url, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load workspaces.");
+      // A "successful" but empty response (the manager profile lookup or the
+      // workspace query came back empty without throwing) is the same
+      // broken-looking state as a failed fetch for a public visitor — same
+      // silent fallback, not a 200 that renders "No properties yet".
+      if (isDemoModeActive() && (!data.workspaces || data.workspaces.length === 0)) {
+        setPayload(DEMO_WORKSPACE_FALLBACK);
+        setWorkspaceSelection(DEMO_WORKSPACE_FALLBACK);
+        return;
+      }
       setPayload(data);
       setWorkspaceSelection(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load workspaces.");
+      // The marketing embed reads a shared, occasionally-slow dev database —
+      // it must never show a broken/error state to a public visitor. Fall
+      // back to the same Seattle Homes shape /api/demo/workspace itself
+      // returns on a good day, silently; never surface the error banner.
+      if (isDemoModeActive()) {
+        setPayload(DEMO_WORKSPACE_FALLBACK);
+        setWorkspaceSelection(DEMO_WORKSPACE_FALLBACK);
+      } else {
+        setError(e instanceof Error ? e.message : "Could not load workspaces.");
+      }
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void refresh(); return () => setWorkspaceSelection(null); }, [refresh]);
@@ -119,7 +173,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const active = payload.workspaces.find((w) => w.id === payload.activeWorkspaceId) ?? null;
   return (
     <WorkspaceContext.Provider value={{ workspaces: payload.workspaces, active, plan: payload.plan ?? null, error, loading, refresh, mutate, select }}>
-      {error ? <div role="alert" className="flex items-center gap-2 border-b border-border bg-card px-3 py-2 text-sm">
+      {/* Never in the marketing embed — the catch block above already keeps
+          `error` unset there, but this is a second guard so a public visitor
+          can never see an error/retry bar inside /demo no matter the cause. */}
+      {error && !isDemoModeActive() ? <div role="alert" className="flex items-center gap-2 border-b border-border bg-card px-3 py-2 text-sm">
         <span>{error}</span><Button variant="ghost" onClick={refresh}>Retry</Button>
       </div> : null}
       <Fragment key={payload.activeWorkspaceId}>{children}</Fragment>

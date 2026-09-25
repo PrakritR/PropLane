@@ -64,10 +64,11 @@ export function SiteHero() {
 
       {/* The product itself, lower on the page, large and centered, its
           shadow bleeding past the hero's own bottom edge. Deliberately
-          OUTSIDE the text column's SITE_MEASURE: the captain asked for it
-          "edge to edge" — nearly the full viewport width, not capped to the
-          1100px reading measure above it — with its own ~24px gutters. */}
-      <div className="relative z-[1] mt-14 w-full px-6 sm:mt-16">
+          OUTSIDE the text column's SITE_MEASURE — wider than the 1280px
+          reading measure above it, but not edge to edge (captain, second
+          pass): ~88-90vw on large screens, capped at 1320px, comfortable
+          side gutters rather than a bare 24px. */}
+      <div className="relative z-[1] mx-auto mt-14 w-[90vw] max-w-[1320px] sm:mt-16">
         <CodexHeroWindow />
       </div>
     </section>
