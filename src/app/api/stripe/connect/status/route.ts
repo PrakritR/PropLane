@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
 import {
   resolveStripePayoutContext,
   stripePayoutContextError,
@@ -38,6 +39,18 @@ export async function GET() {
       return NextResponse.json(
         { error: stripePayoutContextError(payout.unresolvedReason) },
         { status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500 },
+      );
+    }
+    // A co-manager with no `bankAccount` grant at all (e.g. the "Leasing"
+    // role preset, which never touches this module) must never see the
+    // owner's Stripe Connect readiness, balance figures, or identity state —
+    // this route previously had NO gate here at all, so resolving to a real
+    // owner id was enough on its own to read everything below.
+    const access = await assertCoManagerBankAccountAccess(service, user.id, payoutOwnerUserId, "read");
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error, isCoManagerForPayout: payout.isCoManagerForPayout, canViewBankAccount: false },
+        { status: access.status },
       );
     }
 
