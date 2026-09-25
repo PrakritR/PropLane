@@ -43,7 +43,7 @@ import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, filterResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
+import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, filterResidentLeaseDocumentRows, residentLeaseStatusFilterTabs, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import {
   shortToLongTermUpgradeBreakdown,
@@ -574,18 +574,12 @@ export function ResidentLeasePanel({
   );
 
   if (!leaseDetailId) {
-    const filterTabs = [
-      {
-        id: "pending" as const,
-        label: "Pending",
-        count: allLeaseRows.filter((row) => row.filterBucket === "pending").length,
-      },
-      {
-        id: "signed" as const,
-        label: "Signed",
-        count: allLeaseRows.filter((row) => row.filterBucket === "signed").length,
-      },
-    ];
+    // One computation feeds both the tab bar and every other Pending/Signed
+    // count on this page — the same helper `resident-lease-list.tsx` uses —
+    // so the two can never quietly disagree (C127).
+    const filterTabs = residentLeaseStatusFilterTabs(allLeaseRows).filter(
+      (tab): tab is typeof tab & { id: "pending" | "signed" } => tab.id === "pending" || tab.id === "signed",
+    );
 
     return (
       <>
