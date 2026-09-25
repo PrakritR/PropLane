@@ -148,14 +148,20 @@ describe("Workspace invite — permissions form defaults", () => {
   });
 });
 
+// Copy always saves a NEW link and closes the sheet; Send reuses a matching
+// held link or remints with replaceActive (workspace-invite-sheet.tsx header,
+// docs/agents/co-manager-access.md). Both must carry exactly the on-screen
+// role and houses.
 describe("Workspace invite — Copy link and Send carry the same Role/Houses", () => {
-  it("Copy link mints with the chosen role and houses, then opens a link view whose Joins-as row matches", async () => {
-    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => undefined) } });
+  it("Copy link mints a new link with the chosen role and houses, copies it, and closes", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const onClose = vi.fn();
     const { calls } = mockFetch({
       existingLink: null,
       mintResult: { url: "https://proplane.test/invite/for-admin", link: { id: "link-admin" } },
     });
-    renderSheet();
+    renderSheet({ onClose });
     await flushMicrotasks();
 
     pickRole("Admin");
@@ -169,19 +175,13 @@ describe("Workspace invite — Copy link and Send carry the same Role/Houses", (
       teamRole: "admin",
       houseScope: "all",
       assignedPropertyIds: ["prop-a", "prop-b"],
+      replaceActive: false,
     });
-
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="workspace-invite-link-access"]')?.textContent).toContain(
-        "Admin",
-      ),
-    );
-    expect(document.querySelector('[data-attr="workspace-invite-link-access"]')?.textContent).toContain(
-      "All houses",
-    );
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.test/invite/for-admin"));
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it("changing role after a link was minted mints a NEW link on the next Copy — the old one keeps what it was made with", async () => {
+  it("changing role after a link exists appends a NEW link — the old one keeps what it was made with", async () => {
     vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => undefined) } });
     const { calls } = mockFetch({
       existingLink: {
@@ -203,8 +203,8 @@ describe("Workspace invite — Copy link and Send carry the same Role/Houses", (
 
     const mintCalls = calls.filter((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
     expect(mintCalls).toHaveLength(1);
-    expect(mintCalls[0]?.body).toMatchObject({ teamRole: "leasing", replaceActive: true });
-    expect(showToast).toHaveBeenCalledWith(
+    expect(mintCalls[0]?.body).toMatchObject({ teamRole: "leasing", replaceActive: false });
+    expect(showToast).not.toHaveBeenCalledWith(
       "Link updated. Anyone with the old link will need the new one.",
     );
   });
@@ -217,7 +217,12 @@ describe("Workspace invite — Copy link and Send carry the same Role/Houses", (
     pickRole("Bookkeeper");
     await flushMicrotasks();
 
-    const input = screen.getByLabelText("Add people");
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-channel"]') as HTMLElement);
+    const channelList = screen.getAllByRole("listbox").find((lb) => within(lb).queryByText("PropLane code"));
+    tapOption(within(channelList as HTMLElement).getByText("PropLane code"));
+    await flushMicrotasks();
+
+    const input = screen.getByLabelText("PropLane code");
     fireEvent.change(input, { target: { value: "PROPLANE-9Z9Z9Z9Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
