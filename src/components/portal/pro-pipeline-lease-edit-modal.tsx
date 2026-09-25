@@ -33,6 +33,7 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseApplicationSnapshotForRow,
   leaseGenerationSupportedForRow,
+  leasePipelineRowHasDocument,
   resolveManagerLeaseGenerationRow,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
@@ -278,7 +279,12 @@ export function ManagerPipelineLeaseEditModal({
     onDone();
   };
 
-  const showSend = Boolean(onSendToResident && editableHtml);
+  // `editableHtml` is the GENERATED HTML body only — an uploaded or
+  // library-attached PDF lease never has one, so gating Send on it hid the
+  // button for every PDF-only document (night/custom-lease bug fix).
+  // `leasePipelineRowHasDocument` recognizes HTML or PDF, including a
+  // list-shaped row whose bytes were omitted for bandwidth.
+  const showSend = Boolean(onSendToResident && leasePipelineRowHasDocument(row));
   const showSave = false;
   const showGenerationFormat = canEdit && generationSupported;
   const hasFooterActions =

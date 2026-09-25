@@ -4,6 +4,7 @@ import type { AgentContext } from "../context";
 import { randomUUID } from "node:crypto";
 import {
   leaseAllowsManagerDocumentEdits,
+  leasePipelineRowHasDocument,
   leaseSendGateBlockerAmong,
   materializeManagerSectionEditsForSignature,
   normalizeLeasePipelineRow,
@@ -343,7 +344,10 @@ export const voidLeaseTool = defineWriteTool({
  * checks sendLeaseToResident applies in the Leases UI.
  */
 function sendForSignatureBlocker(row: LeasePipelineRow): string | null {
-  if (!row.generatedHtml && !row.managerUploadedPdf?.dataUrl) {
+  // Same predicate `leaseSendGateBlockerAmong` now leads with (night/custom-lease):
+  // recognizes an uploaded/library-attached PDF even when a caller only has a
+  // list-shaped, bytes-omitted row, instead of a bare `dataUrl` check.
+  if (!leasePipelineRowHasDocument(row)) {
     return "This lease has no lease document yet — generate or upload one in Leases first.";
   }
   if (row.status === "Fully Signed" || row.status === "Voided") {
