@@ -220,7 +220,12 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       propertyLabel: "Alder House",
       roomLabel: "Whole house",
       managerUserId,
-      monthlyRent: 320000,
+      // Dollars, not cents (RecurringRentProfile.monthlyRent) — 320000 here
+      // silently fed the real monthly rent-charge generator and produced two
+      // real $320,000.00 charge rows (hc_rent_resident_..._2026-07/-10) on
+      // the shared account before this was caught; that mistake is a good
+      // reason this constant has its own comment now.
+      monthlyRent: 3200,
       dueDay: 1,
       startMonth: isoDate(daysAgo(60)).slice(0, 7),
       active: true,
