@@ -14,6 +14,7 @@ re-reading solved work or "fixing" something fixed months ago.
 
 | Order | Doc | Why |
 | --- | --- | --- |
+| 0 | `docs/agents/ui-page-structure.md` | The generic page anatomy — shell, list, record, pop-up, settings — read first |
 | 1 | `docs/portal-ui-system.md` | Expand chevrons, tables, list surfaces, overflow |
 | 2 | `docs/portal-list-section-layout.md` | Title band vs split mobile actions |
 | 3 | `docs/design.md` | The visual system — colour, type, spacing, Blue Steel |
@@ -41,7 +42,9 @@ Compose with **`PortalRecordListSurface`** — not hand-rolled wrappers.
 
 1. **Header card** — status pills left, actions right (`PortalSectionActionRow variant="header"`)
 2. **Flat rows** — `PortalPropertyRecordRow` / `PortalPersonRecordRow` / `PortalServiceRecordRow` (not top-level tables)
-3. **ADD footer** — `PortalListAddRow` with unique `ariaLabel`
+3. **Create = the round blue + at the right end of the header card** (captain, Sep 2026) — no
+   ADD footer and no empty-state button in addition; filters open from the top-right Filter popover
+   ([`ui-page-structure.md`](ui-page-structure.md) § 2)
 4. **Per-record ⋯ menus** — use the shared `PortalRecordListSurface` action context. No Select strip, list checkboxes, or floating bulk bar.
 5. **No pills on rows.** A row is tile · title · place line · glyph facts ·
    figure · ⋯. Never a `Badge` or status chip on it: the tab already says the
