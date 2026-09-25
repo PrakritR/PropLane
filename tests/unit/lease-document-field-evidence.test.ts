@@ -81,7 +81,7 @@ describe("signing computes a separate, derived stamped copy", () => {
       RESIDENT_SCOPE,
     );
 
-    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toBe(true);
+    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toEqual({ ok: true });
 
     const row = readLeasePipeline().find((r) => r.id === "lease_field_evidence")!;
     // The evidence hash is over the ORIGINAL bytes — never the stamped copy.
@@ -97,7 +97,7 @@ describe("signing computes a separate, derived stamped copy", () => {
       RESIDENT_SCOPE,
     );
 
-    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toBe(true);
+    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toEqual({ ok: true });
 
     const row = readLeasePipeline().find((r) => r.id === "lease_field_evidence")!;
     expect(row.managerUploadedPdf?.stampedDataUrl).toBeTruthy();
@@ -128,7 +128,7 @@ describe("signing computes a separate, derived stamped copy", () => {
     const residentOnlyStamp = afterResident.managerUploadedPdf?.stampedDocumentSha256;
 
     seedDemoLeasePipeline([{ ...afterResident, bucket: "signed", status: "Manager Signature Pending" }], MANAGER_ID);
-    expect(await managerSignLease("lease_field_evidence", "Pat Manager", MANAGER_ID, LEASE_ESIGN_CONSENT_VERSION)).toBe(true);
+    expect(await managerSignLease("lease_field_evidence", "Pat Manager", MANAGER_ID, LEASE_ESIGN_CONSENT_VERSION)).toEqual({ ok: true });
 
     const fully = readLeasePipeline(MANAGER_ID).find((r) => r.id === "lease_field_evidence")!;
     expect(fully.status).toBe("Fully Signed");
@@ -158,7 +158,7 @@ describe("signing computes a separate, derived stamped copy", () => {
       RESIDENT_SCOPE,
     );
 
-    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toBe(true);
+    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toEqual({ ok: true });
     const row = readLeasePipeline().find((r) => r.id === "lease_field_evidence")!;
     expect(row.managerUploadedPdf?.stampedDataUrl).toBeFalsy();
     expect(row.managerUploadedPdf?.stampedDocumentSha256).toBeFalsy();
