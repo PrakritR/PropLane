@@ -15,7 +15,6 @@ import {
   type TeamNoticeModule,
 } from "@/lib/team-comms.server";
 import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
-import { loadReminderSettingsForProperty } from "@/lib/reminders/settings.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { currentSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
@@ -398,18 +397,11 @@ export async function emitActionEvent(
   // The manager's per-event switch and template, and the workspace's
   // auto-send vs draft-for-review choice. Loaded once per event; a read
   // failure means "defaults", never "silence".
-  const [automated, sendMode, reminderSettings] = await Promise.all([
+  const [automated, sendMode] = await Promise.all([
     loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null),
     resolveAutomationSendModeForEvent(db, { managerUserId: input.managerUserId, propertyId }),
-    // C193: the same workspace-wide pause switch the reminder dispatcher
-    // honours. A read failure means "not paused" — never silence a manager's
-    // messages because a settings row could not be loaded.
-    loadReminderSettingsForProperty(db, input.managerUserId, propertyId).catch(() => null),
   ]);
-  // Paused: the event itself is still recorded below (it is the audit trail,
-  // not a channel), but nobody hears about it — zero recipients on every
-  // channel, exactly like a paused reminder.
-  const recipients = reminderSettings?.messagesPaused ? [] : input.recipients.flatMap((recipient) => {
+  const recipients = input.recipients.flatMap((recipient) => {
     const applied = applyAutomatedMessageSetting(automated, {
       domain: input.domain,
       event: input.event,

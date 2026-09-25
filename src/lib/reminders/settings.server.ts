@@ -71,10 +71,6 @@ export function mergeReminderSettingsOverride(workspace: ReminderSettings, raw: 
     rules,
     quietHours: workspace.quietHours,
     automationSendMode: workspace.automationSendMode,
-    // Workspace-wide clock setting, like quietHours: a house-level partial
-    // (which only ever carries per-kind `rules`) never overrides the pause
-    // switch — it always tracks whatever the rung below held.
-    messagesPaused: workspace.messagesPaused,
   });
 }
 

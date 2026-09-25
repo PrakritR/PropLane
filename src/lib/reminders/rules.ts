@@ -175,18 +175,6 @@ export type ReminderSettings = {
   quietHours: QuietHours;
   /** WS5: auto-send vs draft-for-review for action-event automation. See `automation-send-mode.ts`. */
   automationSendMode: AutomationSendModeSettings;
-  /**
-   * WS4 (PLAN-0925 Part 5, C193): a single workspace-wide kill switch. While
-   * true, both spines that ever send an automated message — the reminder
-   * dispatcher (`dispatch.server.ts`) and action events (`emitActionEvent`)
-   * — stop producing any recipient/channel for this manager's rows, on every
-   * channel (inbox, email, SMS). It is a workspace-wide clock setting like
-   * `quietHours`, never a per-house override: `mergeReminderSettingsOverride`
-   * always carries it from the base rung rather than letting a house partial
-   * reset it, and the reminder-settings route only ever writes it at the
-   * workspace/account rung (see its `quietHours`-shaped handling there).
-   */
-  messagesPaused: boolean;
 };
 
 /** Floor: below five minutes a reminder cannot beat its own dispatch tick. */
@@ -705,7 +693,6 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   rules: DEFAULT_REMINDER_RULES,
   quietHours: DEFAULT_QUIET_HOURS,
   automationSendMode: DEFAULT_AUTOMATION_SEND_MODE_SETTINGS,
-  messagesPaused: false,
 };
 
 function normalizeBoolean(raw: unknown, fallback: boolean): boolean {
@@ -811,7 +798,6 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
     rules: migrateLegacyReminderRules(rules),
     quietHours: normalizeQuietHours(row.quietHours),
     automationSendMode: normalizeAutomationSendModeSettings(row.automationSendMode),
-    messagesPaused: normalizeBoolean(row.messagesPaused, DEFAULT_REMINDER_SETTINGS.messagesPaused),
   };
 }
 

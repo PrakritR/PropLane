@@ -45,8 +45,6 @@ export type DispatchSummary = {
   sent: number;
   failed: number;
   retried: number;
-  /** Rows released back to `scheduled`, untouched, because the manager's workspace has messages paused (C193). */
-  paused: number;
   errors: string[];
 };
 
@@ -301,7 +299,7 @@ export async function dispatchDueReminders(
   limit = 100,
 ): Promise<DispatchSummary> {
   const claimed = await claimDueReminders(db, workerId, limit);
-  const summary: DispatchSummary = { claimed: claimed.length, sent: 0, failed: 0, retried: 0, paused: 0, errors: [] };
+  const summary: DispatchSummary = { claimed: claimed.length, sent: 0, failed: 0, retried: 0, errors: [] };
   if (claimed.length === 0) return summary;
 
   const managerIds = claimed.map((row) => row.managerUserId);
@@ -312,15 +310,6 @@ export async function dispatchDueReminders(
 
   for (const row of claimed) {
     try {
-      // C193: a workspace with messages paused sends nothing on any channel.
-      // Release the row back to `scheduled` rather than sending or dropping
-      // it — the same "deferred, never discarded" contract quiet hours uses —
-      // so it resumes on its own once the manager unpauses.
-      if (settingsByManager.get(row.managerUserId)?.messagesPaused) {
-        await resolveReminder(db, row.id, workerId, "scheduled", "workspace messages paused");
-        summary.paused += 1;
-        continue;
-      }
       const rule =
         settingsByManager.get(row.managerUserId)?.rules[row.kind] ??
         DEFAULT_REMINDER_SETTINGS.rules[row.kind];
