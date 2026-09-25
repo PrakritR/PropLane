@@ -79,7 +79,11 @@
     },
     {
       "path": "/api/cron/sync-manager-sheets",
-      "schedule": "0 15 * * *"
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/bookings-today-digest",
+      "schedule": "10 15 * * *"
     },
     {
       "path": "/api/cron/sync-channel-calendars",

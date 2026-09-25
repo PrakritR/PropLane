@@ -436,7 +436,7 @@ export function ManagerSheetLinkPanel() {
             {staysPickerLinkId === link.id ? (
               <div className="flex flex-col gap-2 rounded-xl border border-border bg-card/60 p-3" data-attr="manager-sheet-stays-picker">
                 {staysTabsLoading ? (
-                  <p className="text-sm text-muted">Reading the spreadsheet's tabs…</p>
+                  <p className="text-sm text-muted">Reading the spreadsheet&apos;s tabs…</p>
                 ) : staysTabs.length === 0 ? (
                   <p className="text-sm text-muted">No tabs found on this spreadsheet.</p>
                 ) : (
