@@ -13,6 +13,15 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatUsdFromCents } from "@/lib/comms-billing/rates";
+import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
+
+/**
+ * Bounded so a slow/stuck admin API route surfaces the existing "Could not
+ * load billing" + Try again state instead of an indefinite "Loading…" — the
+ * one route this page has for a fetch that never settles (AXI night sweep
+ * area 2a).
+ */
+const ADMIN_FETCH_TIMEOUT_MS = 20_000;
 import {
   ADMIN_BILLING_TABS,
   adminBillingRowMatchesTab,
@@ -127,15 +136,15 @@ export function AdminBillingClient() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/admin/manager-billing");
+      const res = await fetchWithTimeout("/api/admin/manager-billing", {}, ADMIN_FETCH_TIMEOUT_MS);
       const json = (await res.json().catch(() => ({}))) as { rows?: AdminBillingRow[]; error?: string };
       if (!res.ok) {
         setLoadError(json.error ?? "Could not load billing.");
         return;
       }
       setRows(json.rows ?? []);
-    } catch {
-      setLoadError("Could not reach the server.");
+    } catch (error) {
+      setLoadError(error instanceof FetchTimeoutError ? "That took too long to load." : "Could not reach the server.");
     } finally {
       setLoading(false);
     }

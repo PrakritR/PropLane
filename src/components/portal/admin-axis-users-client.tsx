@@ -22,6 +22,15 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
+
+/**
+ * Bounded so a slow/stuck admin API route surfaces the existing "Could not
+ * load accounts" + Try again state instead of an indefinite "Loading…" — the
+ * one route this page has for a fetch that never settles (AXI night sweep
+ * area 2a).
+ */
+const ADMIN_FETCH_TIMEOUT_MS = 20_000;
 
 type ManagerRow = {
   id: string;
@@ -253,9 +262,9 @@ export function AdminAxisUsersClient() {
     setLoadError(null);
     try {
       const [mRes, rRes, vRes] = await Promise.all([
-        fetch("/api/admin/managers"),
-        fetch("/api/admin/residents"),
-        fetch("/api/admin/vendors"),
+        fetchWithTimeout("/api/admin/managers", {}, ADMIN_FETCH_TIMEOUT_MS),
+        fetchWithTimeout("/api/admin/residents", {}, ADMIN_FETCH_TIMEOUT_MS),
+        fetchWithTimeout("/api/admin/vendors", {}, ADMIN_FETCH_TIMEOUT_MS),
       ]);
       const mJson = (await mRes.json()) as { managers?: ManagerRow[]; error?: string };
       const rJson = (await rRes.json()) as { residents?: SimpleRow[]; error?: string };
@@ -275,8 +284,12 @@ export function AdminAxisUsersClient() {
       setManagers(mJson.managers ?? []);
       setResidents(rJson.residents ?? []);
       setVendors(vJson.vendors ?? []);
-    } catch {
-      setLoadError("Could not reach the server. Check that Supabase env vars are configured.");
+    } catch (error) {
+      setLoadError(
+        error instanceof FetchTimeoutError
+          ? "That took too long to load."
+          : "Could not reach the server. Check that Supabase env vars are configured.",
+      );
     } finally {
       setLoading(false);
     }
