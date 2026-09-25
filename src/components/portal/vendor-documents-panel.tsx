@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -366,7 +366,12 @@ export function VendorDocumentsPanel({
         }
         primary={
           source !== "managers" ? (
+            // Same upload-cloud glyph as manager Documents' primary action
+            // (`pro-documents-panel.tsx`) — this used to fall back to the
+            // default plain "+", a different icon language for the identical
+            // "add a document" action (AXI night sweep area 2h).
             <PortalPrimaryIconAction
+              icon={Upload}
               label="Upload"
               data-attr="vendor-documents-add"
               onClick={() => setUploadOpen(true)}
