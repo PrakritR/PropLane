@@ -1,13 +1,14 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
-import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
+import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import {
   buildInboxThreadAssistantContext,
@@ -1233,6 +1234,56 @@ export const ResidentInboxPanel = forwardRef<
   const activeProplaneAvailable = Boolean(activeThread);
   const showReplyChannelPicker = Boolean(activeThread);
 
+  /**
+   * C144 (WS4, PLAN-0925 Part 5): the real resident inbox had no archive
+   * concept in the embedded (production) thread view at all —
+   * `renderExtraActions` only ever rendered in the /demo-only standalone
+   * table shell, so `headerActions` was `undefined` whenever
+   * `embeddedInCommunication` was true. This mirrors the manager portal's
+   * own icon-only thread actions (`INBOX_THREAD_ICON_BTN`).
+   */
+  const embeddedThreadHeaderActions = useMemo(() => {
+    if (!activeThread || activeIsAssistantThread) return undefined;
+    if (activeThread.folder === "trash") {
+      return (
+        <>
+          <button
+            type="button"
+            className={INBOX_THREAD_ICON_BTN}
+            aria-label="Restore conversation"
+            title="Restore"
+            data-attr="inbox-thread-restore"
+            onClick={() => restoreFromTrash(activeThread.id)}
+          >
+            <ArchiveRestore className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className={INBOX_THREAD_ICON_BTN_DANGER}
+            aria-label="Delete conversation"
+            title="Delete"
+            data-attr="inbox-thread-delete"
+            onClick={() => deleteForever(activeThread.id)}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
+          </button>
+        </>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className={INBOX_THREAD_ICON_BTN}
+        aria-label="Archive conversation"
+        title="Archive"
+        data-attr="inbox-thread-archive"
+        onClick={() => moveToTrash(activeThread.id)}
+      >
+        <Archive className="h-4 w-4" aria-hidden />
+      </button>
+    );
+  }, [activeThread, activeIsAssistantThread, restoreFromTrash, deleteForever, moveToTrash]);
+
   useEffect(() => {
     if (activeIsAssistantThread) {
       const next = resolveAssistantInboxReplyChannels({
@@ -1851,7 +1902,7 @@ export const ResidentInboxPanel = forwardRef<
               onBack={() => setExpandedId(null)}
               headerActions={
                 embeddedInCommunication
-                  ? undefined
+                  ? embeddedThreadHeaderActions
                   : renderExtraActions({
                       id: activeThread.id,
                       name: activeThread.from,
@@ -1967,7 +2018,7 @@ export const ResidentInboxPanel = forwardRef<
                 onBack={() => setExpandedId(null)}
                 headerActions={
                   embeddedInCommunication
-                    ? undefined
+                    ? embeddedThreadHeaderActions
                     : renderExtraActions({
                         id: activeThread.id,
                         name: activeThread.from,

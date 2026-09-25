@@ -36,6 +36,7 @@ import {
 import type { AutomationSendMode } from "@/lib/automation-send-mode";
 import { formatMinutes } from "@/lib/reminders/timings";
 import { ReminderSentHistory } from "@/components/portal/reminder-sent-history";
+import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
 import {
   PortalSettingsGroup,
   PortalSettingsLinkRow,
@@ -372,7 +373,9 @@ export function ManagerPortalAutomationSettingsPanel({
           </PortalSettingsGroup>
         </PortalSettingsSection>
 
-        <PortalSettingsSection title="Everything sent automatically">
+        <WhatProplaneSends />
+
+        <PortalSettingsSection title="Change a rule or a template">
           <PortalSettingsGroup>
             {AREA_INDEX.map((area) => (
               <PortalSettingsLinkRow

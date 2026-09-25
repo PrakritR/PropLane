@@ -628,16 +628,25 @@ export const AdminInboxClient = forwardRef<
 
   const tableRows = useMemo(() => toAdminTableRows(rows), [rows]);
 
-  // Opening a message no longer marks it read — reading keeps it in Unopened.
-  const toggleExpand = (id: string) => {
-    setExpandedId((cur) => (cur === id ? null : id));
-  };
-
-  const markRead = (id: string) => {
+  const markRead = useCallback((id: string) => {
     if (markInboxMessageRead(id)) {
       setRetainedIds((prev) => new Set(prev).add(id));
       setTick((t) => t + 1);
     }
+  }, []);
+
+  // C170 (WS4, PLAN-0925 Part 5, resolved): opening a message now marks it
+  // read, same as every other portal's inbox. `retainedIds` (already built
+  // for the explicit "mark read" action) keeps the row listed on Unopened
+  // until the tab changes, so opening a message does not make it jump out
+  // of the list out from under the manager mid-read.
+  const toggleExpand = (id: string) => {
+    setExpandedId((cur) => {
+      if (cur === id) return null;
+      const row = all.find((m) => m.id === id);
+      if (row && row.folder === "inbox" && !row.read) markRead(id);
+      return id;
+    });
   };
 
   const emptyCopy = inboxTabEmptyCopy(effectiveTabId);

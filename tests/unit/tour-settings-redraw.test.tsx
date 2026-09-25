@@ -39,21 +39,23 @@ function stubFetch(overrides?: { tourNoticeDays?: number; proposeTourConfirmatio
       const url = String(input);
       if (url.includes("/api/portal/manager-tour-settings")) {
         if (init?.method === "PATCH") {
-          return Response.json({ settings: { ...DEFAULT_MANAGER_TOUR_SETTINGS, ...overrides } });
+          return Response.json({ settings: { ...DEFAULT_MANAGER_TOUR_SETTINGS, ...overrides }, source: "account" });
         }
         return Response.json({
           settings: { ...DEFAULT_MANAGER_TOUR_SETTINGS, tourNoticeDays: overrides?.tourNoticeDays ?? 0 },
+          source: "account",
         });
       }
       if (url.includes("/api/portal/automation-settings")) {
         if (init?.method === "PATCH") {
-          return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
+          return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS, source: "account" });
         }
         return Response.json({
           settings: {
             ...DEFAULT_MANAGER_AUTOMATION_SETTINGS,
             proposeTourConfirmations: overrides?.proposeTourConfirmations ?? false,
           },
+          source: "account",
         });
       }
       if (url.includes("/api/portal/reminder-settings")) {
@@ -142,12 +144,18 @@ describe("TourSettingsPanel redraw", () => {
     expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
-  it("tags its Reminders, Requests and follow-ups, and Messages sent automatically sections Account when no house is picked", async () => {
+  it("tags Booking Account when no house is picked, now that the property/workspace picker actually feeds the panel", async () => {
+    // WS4 (PLAN-0925 Part 5, C191): Reminders / Requests-and-follow-ups /
+    // Messages-sent-automatically are gone from this modal — reminder timing,
+    // channels and wording ship on the shipped defaults everywhere now (see
+    // `WhatProplaneSends`). The one section left, Booking, is what the scope
+    // picker above this panel actually reaches: fixing the bug where neither
+    // fetch here read `propertyId`/`workspaceId` is what makes this tag real.
     stubFetch();
     render(withScope(<TourSettingsPanel />));
     await screen.findByText("Notice required");
 
     const tags = await screen.findAllByText("Account");
-    expect(tags.length).toBeGreaterThanOrEqual(2);
+    expect(tags.length).toBeGreaterThanOrEqual(1);
   });
 });
