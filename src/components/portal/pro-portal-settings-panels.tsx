@@ -60,6 +60,8 @@ import {
   normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   MANAGER_COMMUNICATION_SEND_VIA_SECTIONS,
   deliverViaFromManagerSettings,
@@ -993,6 +995,7 @@ export function ServicesSettingsPanel({
 function AutoMessageAssigneeRow() {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const [value, setValue] = useState<boolean | null>(null);
 
@@ -1003,11 +1006,10 @@ function AutoMessageAssigneeRow() {
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS.autoMessageAssignee);
         return;
       }
+      if (!userId) return;
       try {
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
-        if (!res.ok) throw new Error("Could not load service settings.");
-        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings).autoMessageAssignee);
+        const loaded = await loadManagerAutomationSettingsCached(userId);
+        if (!cancelled) setValue(normalizeManagerAutomationSettings(loaded.settings).autoMessageAssignee);
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load service settings.");
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS.autoMessageAssignee);
@@ -1016,7 +1018,7 @@ function AutoMessageAssigneeRow() {
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, userId]);
 
   const flip = async (next: boolean) => {
     const previous = value;
@@ -1034,6 +1036,7 @@ function AutoMessageAssigneeRow() {
       const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not save service settings.");
       setValue(normalizeManagerAutomationSettings(body.settings).autoMessageAssignee);
+      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save service settings.";
@@ -1257,6 +1260,7 @@ export function TourSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1283,20 +1287,16 @@ export function TourSettingsPanel({
           }
           return;
         }
-        const [tourRes, autoRes] = await Promise.all([
+        if (!userId) return;
+        const [tourRes, loadedAuto] = await Promise.all([
           fetch("/api/portal/manager-tour-settings", { credentials: "include", cache: "no-store" }),
-          fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
+          loadManagerAutomationSettingsCached(userId),
         ]);
         const tourBody = (await tourRes.json().catch(() => ({}))) as { settings?: ManagerTourSettings; error?: string };
-        const autoBody = (await autoRes.json().catch(() => ({}))) as {
-          settings?: ManagerAutomationSettings;
-          error?: string;
-        };
         if (!tourRes.ok) throw new Error(tourBody.error ?? "Could not load tour settings.");
-        if (!autoRes.ok) throw new Error(autoBody.error ?? "Could not load automation settings.");
         if (!cancelled) {
           const nextTour = tourBody.settings ?? DEFAULT_MANAGER_TOUR_SETTINGS;
-          const nextAutomation = autoBody.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS;
+          const nextAutomation = loadedAuto.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS;
           setTourSettings(nextTour);
           setAutomation(nextAutomation);
           setSavedTourSettings(nextTour);
@@ -1311,7 +1311,7 @@ export function TourSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, userId]);
 
   const templatePreview = useMemo(
     () => fillTourReminderTemplate(automation.templates.tourReminder, TOUR_PREVIEW_CONTEXT),
@@ -1771,6 +1771,7 @@ export function CommunicationSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const scope = useSettingsPropertyScope();
   const [loading, setLoading] = useState(true);
@@ -1806,12 +1807,9 @@ export function CommunicationSettingsPanel({
           }
           return;
         }
-        const params = new URLSearchParams();
-        if (scopePropertyId) params.set("propertyId", scopePropertyId);
-        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
-        const query = params.toString() ? `?${params.toString()}` : "";
-        const [settingsRes, numberRes, emailRes] = await Promise.all([
-          fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
+        if (!userId) return;
+        const [loadedAuto, numberRes, emailRes] = await Promise.all([
+          loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, propertyId: scopePropertyId }),
           fetch(
             scopeWorkspaceId
               ? `/api/manager/messaging-number?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
@@ -1825,14 +1823,12 @@ export function CommunicationSettingsPanel({
             { credentials: "include", cache: "no-store" },
           ).catch(() => null),
         ]);
-        if (!settingsRes.ok) throw new Error("Could not load communication settings.");
-        const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings; source?: SettingsResolutionSource };
-        const nextSettings = normalizeManagerAutomationSettings(body.settings);
+        const nextSettings = normalizeManagerAutomationSettings(loadedAuto.settings);
         if (!cancelled) {
           setDraft(nextSettings);
           setSavedSnapshot(JSON.stringify(nextSettings));
-          setSource(body.source ?? null);
-          scope.reportSource("automation-settings", body.source);
+          setSource(loadedAuto.source);
+          scope.reportSource("automation-settings", loadedAuto.source);
         }
         if (!cancelled) {
           const status =
@@ -1866,7 +1862,7 @@ export function CommunicationSettingsPanel({
     // during this same effect, and its own reference is derived from `sources` state that this
     // very call updates, so listing `scope` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo, showToast, scopePropertyId, scopeWorkspaceId]);
+  }, [demo, showToast, scopePropertyId, scopeWorkspaceId, userId]);
 
   const isDirty = useMemo(() => JSON.stringify(draft) !== savedSnapshot, [draft, savedSnapshot]);
 
@@ -2180,6 +2176,7 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const [value, setValue] = useState<ManagerAutomationSettings[K] | null>(null);
 
@@ -2190,11 +2187,10 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
         return;
       }
+      if (!userId) return;
       try {
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
-        if (!res.ok) throw new Error("Could not load settings.");
-        const loaded = normalizeManagerAutomationSettings(body.settings);
+        const loadedAuto = await loadManagerAutomationSettingsCached(userId);
+        const loaded = normalizeManagerAutomationSettings(loadedAuto.settings);
         cacheShowUpcomingChargesSetting(loaded.showUpcomingCharges);
         if (!cancelled) setValue(loaded[field]);
       } catch (e) {
@@ -2205,7 +2201,7 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
     return () => {
       cancelled = true;
     };
-  }, [demo, field, showToast]);
+  }, [demo, field, showToast, userId]);
 
   const change = async (raw: string) => {
     const next = parse(raw);
