@@ -54,7 +54,9 @@ import {
   leaseContextFromApplication,
 } from "@/lib/generated-lease";
 import {
+  ensureLeaseDocumentLoaded,
   hasBothLeaseSignatures,
+  leaseRowCarriesDocumentBytes,
   runLeaseDownload,
   residentCanViewLeaseRow,
   residentLeaseAuthorized,
@@ -95,6 +97,7 @@ export function ResidentLeasePanel({
   const { email, residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const pipelineRow = useResidentLeasePipelineRow();
   const [showSigningModal, setShowSigningModal] = useState(false);
+  const [signError, setSignError] = useState<string | null>(null);
   const [showReportIssueModal, setShowReportIssueModal] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [showMoveOutModal, setShowMoveOutModal] = useState(false);
@@ -173,6 +176,17 @@ export function ResidentLeasePanel({
   const leaseVisibleToResident = residentCanViewLeaseRow(pipelineRow) && leaseAuthorized;
   const isPreparingLease = Boolean(email && (!pipelineRow || !leaseVisibleToResident));
   const showSigningWorkflowActions = !leaseFullyExecuted && pipelineRow?.status !== "Fully Signed";
+
+  // The resident's local copy of a sent lease is the slim list projection —
+  // no document bytes, by design (lease-pipeline-list-projection.ts). Opening
+  // the detail page loads the full document, and signing stays disabled until
+  // it has, so nobody signs (or has their signature hashed against) a blank
+  // page.
+  const leaseDocumentLoaded = Boolean(pipelineRow && leaseRowCarriesDocumentBytes(pipelineRow));
+  useEffect(() => {
+    if (!leaseDetailId || !pipelineRow || leaseDocumentLoaded) return;
+    void ensureLeaseDocumentLoaded(pipelineRow.id, undefined, pipelineRow);
+  }, [leaseDetailId, pipelineRow, leaseDocumentLoaded]);
 
   const residentAlreadySigned = Boolean(pipelineRow?.residentSignature);
 
@@ -276,13 +290,19 @@ export function ResidentLeasePanel({
       showToast("Signing opens when your manager sends the lease to you for resident signature.");
       return;
     }
+    if (!leaseDocumentLoaded) {
+      showToast("Your lease is still loading. Try again in a moment.");
+      return;
+    }
+    setSignError(null);
     setShowSigningModal(true);
   };
 
   const handleModalSign = async (signatureName: string, consentVersion: string) => {
     if (!email || !pipelineRow) return false;
-    const ok = await residentSignLease(email, signatureName, consentVersion);
-    if (ok) {
+    setSignError(null);
+    const result = await residentSignLease(email, signatureName, consentVersion);
+    if (result.ok) {
       const signedRow = {
         ...pipelineRow,
         residentSignature: { role: "resident" as const, name: signatureName, signedAtIso: new Date().toISOString() },
@@ -291,7 +311,9 @@ export function ResidentLeasePanel({
       setShowSigningModal(false);
       return true;
     } else {
-      showToast("Could not sign. Try again.");
+      // Signing waits for the server: nothing is marked signed until this
+      // point, so the modal stays open and shows the real reason.
+      setSignError(result.error);
       return false;
     }
   };
@@ -376,8 +398,9 @@ export function ResidentLeasePanel({
                 <PortalIconAction icon={Send} label="Send to manager" onClick={onSendToManager} />
                 <PortalIconAction
                   icon={PenLine}
-                  label="Sign lease"
+                  label={leaseDocumentLoaded ? "Sign lease" : "Loading lease…"}
                   tone="primary"
+                  disabled={!leaseDocumentLoaded}
                   data-attr="resident-sign-lease"
                   onClick={() => onSignLease()}
                 />
@@ -513,7 +536,11 @@ export function ResidentLeasePanel({
           signerName={leaseCtx.application?.fullLegalName ?? pipelineRow.residentName ?? ""}
           signerRoleLabel="Your full legal name"
           onSign={handleModalSign}
-          onClose={() => setShowSigningModal(false)}
+          onClose={() => {
+            setShowSigningModal(false);
+            setSignError(null);
+          }}
+          error={signError}
         />
       ) : null}
       <ResidentLeaseReportIssueModal
