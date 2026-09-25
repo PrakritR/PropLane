@@ -309,6 +309,13 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
       quantity: inboundSegments,
       idempotencyKey: `sms_inbound:${messageSid}`,
       metadata: { messageSid },
+    }).catch((error: unknown) => {
+      // The body is already saved and the receipt claimed. Inbound cost is
+      // unavoidable, so a wallet/RPC failure must never silence the reply:
+      // an escaped throw here becomes an empty 500 Twilio never retries.
+      // ponytail: the unbilled segment is dropped; add a reconcile sweep if it matters.
+      const cause = error instanceof Error ? error.cause : undefined;
+      console.warn("twilio inbound usage not recorded", messageSid, error instanceof Error ? error.message : String(error), cause);
     });
   }
 

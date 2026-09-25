@@ -171,6 +171,21 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.runInlineBurst).toHaveBeenCalledWith(expect.anything(), inlineBurst);
   });
 
+  it("keeps the saved text on the leasing path when inbound credit cannot be reserved", async () => {
+    const { recordManagerCommsUsage } = await import("@/lib/comms-billing/record-usage.server");
+    vi.mocked(recordManagerCommsUsage).mockRejectedValueOnce(new Error("Communication credit could not be reserved."));
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    expect(mocks.inboundBodies).toEqual([expect.objectContaining({ body: "Is the apartment available?" })]);
+    expect(mocks.handleInbound).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("twilio inbound usage not recorded", "SM11111111111111111111111111111111", "Communication credit could not be reserved.", undefined);
+    warn.mockRestore();
+  });
+
   it("schedules nothing extra when the burst was queued normally", async () => {
     mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
 
