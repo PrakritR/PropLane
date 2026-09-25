@@ -55,7 +55,7 @@ const ASK_PROPLANE_PILL_SELECTOR = '[data-attr="portal-ask-proplane"]';
  * rather than the real dock-store/open-store globals, since those are wired
  * to the same `dockable=false` gate this rail is deliberately bypassing.
  */
-function DemoAssistantDockRail({ open }: { open: boolean }) {
+function DemoAssistantDockRail({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
   return (
     <aside
@@ -64,7 +64,12 @@ function DemoAssistantDockRail({ open }: { open: boolean }) {
       data-attr="portal-assistant-dock-rail"
     >
       <div className="flex min-h-0 flex-1 flex-col" data-attr="dashboard-assistant-dock">
-        <AssistantDockPanel managerName={CANONICAL_DEMO_MANAGER_NAME} inputId={ASSISTANT_DOCK_INPUT_ID} className="h-full" />
+        <AssistantDockPanel
+          managerName={CANONICAL_DEMO_MANAGER_NAME}
+          onClose={onClose}
+          inputId={ASSISTANT_DOCK_INPUT_ID}
+          className="h-full"
+        />
       </div>
     </aside>
   );
@@ -169,7 +174,7 @@ export function DemoManagerShell() {
                     </div>
                   </main>
                 </div>
-                <DemoAssistantDockRail open={assistantOpen} />
+                <DemoAssistantDockRail open={assistantOpen} onClose={() => setAssistantOpen(false)} />
               </div>
             </WorkspaceProvider>
           </div>

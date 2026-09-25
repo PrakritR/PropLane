@@ -26,8 +26,8 @@
 }
 .codex-hero-phone {
   position: absolute;
-  right: -56px;
-  bottom: -48px;
+  right: -16px;
+  bottom: -24px;
   z-index: 3;
   width: 200px;
   height: 433px;
@@ -37,28 +37,48 @@
   background: #fff;
   box-shadow: 0 30px 70px -18px rgba(15, 23, 42, 0.45);
 }
+/* The bring-it-back chip, same spot the phone itself sits — a small round
+   pill so it never reads as another dashboard control. */
+.codex-hero-phone-chip {
+  position: absolute;
+  right: -16px;
+  bottom: -24px;
+  z-index: 3;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  border: none;
+  background: #111;
+  color: #fff;
+  box-shadow: 0 14px 30px -10px rgba(15, 23, 42, 0.5);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.codex-hero-phone-chip:hover { transform: scale(1.06); }
 .codex-hero-activity-card {
   position: absolute;
-  left: -20px;
+  left: -16px;
   top: 36%;
   z-index: 3;
   width: 250px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 12px;
   background: #fff;
-  padding: 10px 12px;
+  padding: 10px 30px 10px 12px;
   box-shadow: 0 20px 45px -18px rgba(15, 23, 42, 0.28);
 }
 @media (max-width: 1023px) {
-  .codex-hero-activity-card { width: 200px; left: -12px; padding: 8px 10px; }
+  .codex-hero-activity-card { width: 200px; left: -10px; padding: 8px 26px 8px 10px; }
 }
 @media (max-width: 767px) {
   /* Phone: the card stays, small — only the phone mockup (hidden via the
      `lg:block` wrapper in codex-hero-window.tsx) goes away. */
-  .codex-hero-activity-card { width: 168px; left: -8px; top: 30%; padding: 7px 9px; font-size: 11px; }
+  .codex-hero-activity-card { width: 168px; left: -6px; top: 30%; padding: 7px 24px 7px 9px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .codex-hero-phone, .codex-hero-activity-card { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .codex-hero-phone, .codex-hero-activity-card, .codex-hero-phone-chip { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
   .codex-hero-activity-card { animation-delay: 0.15s; }
 }
 @keyframes codex-hero-rise {
@@ -108,7 +128,7 @@
 }
 .site-story-inbox {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 190px minmax(0, 1fr);
   height: 520px;
   font-size: 12px;
 }
