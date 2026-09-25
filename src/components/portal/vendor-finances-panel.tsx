@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CreditCard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
 import {
@@ -692,7 +693,9 @@ function VendorInvoicesView({
         onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
       />
       {loading ? (
-        <div className="h-40 animate-pulse rounded-2xl bg-muted" data-attr="vendor-invoices-loading" aria-hidden />
+        <div data-attr="vendor-invoices-loading">
+          <ListSkeleton rows={4} showLeading={false} />
+        </div>
       ) : filtered.length === 0 ? (
         <PortalListEmptyCard
           title={invoices.length === 0 ? portalEmptyCopy("finances.invoices").title : "No invoices match this filter"}

@@ -1,5 +1,6 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -2097,7 +2098,7 @@ function ManagerHousePropertiesPanelBody({
       // portfolio is still arriving — or when it failed to arrive at all — say
       // that instead, so a slow first paint stops reading as a deleted listing.
       if (routePropertyStageElsewhere || portfolioLoad === "pending") {
-        return <p className="text-sm text-muted">Loading this property…</p>;
+        return <ListSkeleton rows={3} showLeading={false} className="p-1" />;
       }
       if (portfolioLoad === "failed") {
         return (

@@ -1,6 +1,7 @@
 "use client";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -612,7 +613,7 @@ export function ResidentLeasePanel({
           <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={leaseSelectionActions} />}>{!email ? (
             <p className="text-sm text-muted">Sign in to view your lease.</p>
           ) : !axisResolved ? (
-            <PortalEmptyState variant="plain" icon="lease" title="Loading your leases…" />
+            <ListSkeleton rows={3} showLeading={false} />
           ) : (
             <ResidentLeaseListTable
               basePath={basePath}

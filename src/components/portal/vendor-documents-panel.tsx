@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -381,7 +382,7 @@ export function VendorDocumentsPanel({
           dataAttr="vendor-documents-access-denied-banner"
         />
       ) : loading || sharedLoading ? (
-        <p className="text-sm font-semibold text-foreground">Loading documents…</p>
+        <ListSkeleton rows={4} showLeading={false} />
       ) : (
         <PortalRecordListSurface
           isEmpty={visibleRowCount === 0}
