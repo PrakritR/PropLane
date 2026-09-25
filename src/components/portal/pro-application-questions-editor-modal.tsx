@@ -42,6 +42,7 @@ import {
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
+  NEVER_DISABLED_STANDARD_KEY_SET,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -361,6 +362,12 @@ export function ManagerApplicationQuestionsEditorModal({
     }
     if (action === "order" && (field.section === "household" || field.section === "property")) return false;
     if (action === "label" && field.section === "household") return false;
+    // C195: SSN, ID and income join the identity trio in never being
+    // removable — screening/charges/leases read them directly and a manager
+    // hiding one breaks approval with no error at disable-time. Unlike the
+    // identity trio, only removal is locked here: label and required stay
+    // editable (income in particular is meant to stay optional).
+    if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
     if (action !== "order" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) {
       return action === "label";
     }
