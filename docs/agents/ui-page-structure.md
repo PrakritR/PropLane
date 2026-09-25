@@ -15,7 +15,8 @@ with "Keep as today" as an option.
 anatomy: the same list header, rows, ⋯ menus, record pages, pop-ups and Communication layout.
 They show fewer sections, never a different layout.
 - **Communication** is called "Communication" in every portal (not "Inbox") and uses the manager
-  layout: a left list card (Active | Archived tabs with counts, search, filter, gear, round
+  layout: the work phone number and work email cards at the very top of the left pane (one
+  compact line each), then a left list card (Active | Archived tabs with counts, search, filter, gear, round
   compose), conversation rows with ⋯, and the thread with the real composer on the right.
 - **Every list page has status tabs on the left and icon buttons on the right**, like manager
   Residents' Potential · Current · Past, using the buckets that fit the section (Services: Open ·
@@ -64,6 +65,9 @@ They show fewer sections, never a different layout.
   create action (no ADD footer as well, no empty-state button as well).
 - **Header icons** are exactly the real page's: filter, page-specific (share link,
   availability, calendar sync, …), settings gear. No download/export icon in list headers.
+- **Everything in the header is on one line.** Desktop: tabs · search · icons · + in a single row.
+  Phone: tabs on row one (scrolling sideways), search + icons + + on row two. The + never wraps onto
+  a line of its own.
 - **Filters always live in the top-right Filter popover**, never as inline dropdown rows:
   an anchored card titled "Filter" with ✕, UPPERCASE field labels, pill selects, then Reset
   (blue text) and Save (blue pill). Active filters show as a dot or count on the icon.
