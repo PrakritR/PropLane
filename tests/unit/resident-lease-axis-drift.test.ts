@@ -1,21 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
-
-const applications: DemoApplicantRow[] = [];
-
-vi.mock("@/lib/manager-applications-storage", async (importActual) => {
-  const actual = await importActual<typeof import("@/lib/manager-applications-storage")>();
-  return {
-    ...actual,
-    readManagerApplicationRows: () => applications,
-  };
-});
-
+// Seed the real store rather than vi.mock it: manager-applications-storage and
+// lease-pipeline-storage import each other, so a mock built with importActual
+// never reaches the copy lease-pipeline-storage already bound.
 import {
   resolveResidentPortalAxisId,
+  writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import { residentLeaseAuthorized } from "@/lib/lease-pipeline-storage";
+
+const seedApplications = (rows: DemoApplicantRow[]) =>
+  writeManagerApplicationRows(rows, { serverConfirmed: true, skipLeaseSeed: true });
 
 function leaseRow(overrides: Partial<LeasePipelineRow> = {}): LeasePipelineRow {
   return {
@@ -34,7 +30,7 @@ function leaseRow(overrides: Partial<LeasePipelineRow> = {}): LeasePipelineRow {
 
 describe("resident lease axis drift", () => {
   beforeEach(() => {
-    applications.length = 0;
+    seedApplications([]);
   });
 
   it("prefers the sole approved application id over a drifted profile axis id", () => {
@@ -47,12 +43,14 @@ describe("resident lease axis drift", () => {
   });
 
   it("authorizes a fully signed lease when profile axis drifted but approved app matches lease axis", () => {
-    applications.push({
-      id: "AXIS-TEDEMOAPP4",
-      email: "resident@test.proplane.local",
-      bucket: "approved",
-      managerUserId: "mgr-1",
-    } as DemoApplicantRow);
+    seedApplications([
+      {
+        id: "AXIS-TEDEMOAPP4",
+        email: "resident@test.proplane.local",
+        bucket: "approved",
+        managerUserId: "mgr-1",
+      } as DemoApplicantRow,
+    ]);
 
     const row = leaseRow();
     const ctx = {
