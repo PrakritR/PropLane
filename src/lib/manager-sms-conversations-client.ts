@@ -51,6 +51,18 @@ export function invalidateManagerSmsConversationsClient(
 
 onPortalSessionViewerChange(() => invalidateManagerSmsConversationsClient());
 
+/**
+ * Test-only reset hook: `invalidateManagerSmsConversationsClient()` with no
+ * args already clears every reader, but a test file that mounts the
+ * component fresh per `it()` (a static top-level import, so `vi.resetModules()`
+ * cannot give it a new copy of this module) needs an explicit way to drop the
+ * TTL cache between tests instead of loosening an assertion that a mount
+ * fetches fresh. Call this from `beforeEach`/`afterEach`, not app code.
+ */
+export function resetManagerSmsConversationsClientCacheForTests(): void {
+  invalidateManagerSmsConversationsClient();
+}
+
 /** The inbox and composer share a directory read; every consumer owns its body. */
 export async function loadManagerSmsConversationsClient(
   viewerId: string,
