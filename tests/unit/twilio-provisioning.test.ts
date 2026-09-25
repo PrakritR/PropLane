@@ -35,7 +35,8 @@ vi.mock("@/lib/twilio-client.server", () => ({
   },
 }));
 
-import { purchaseManagerTwilioNumber } from "@/lib/twilio-provisioning";
+import { purchaseManagerTwilioNumber, TWILIO_INBOUND_RETRY_FRAGMENT, withInboundRetryPolicy } from "@/lib/twilio-provisioning";
+import { needsRetryPolicy, RETRY_FRAGMENT } from "../../scripts/twilio-apply-inbound-retry-policy.mjs";
 
 describe("purchaseManagerTwilioNumber", () => {
   beforeEach(() => {
@@ -48,6 +49,33 @@ describe("purchaseManagerTwilioNumber", () => {
     });
     mocks.senderPoolList.mockResolvedValue([]);
     mocks.remove.mockResolvedValue(true);
+  });
+
+  it("provisions the inbound webhook with a 5xx retry policy", async () => {
+    vi.stubEnv("TWILIO_WEBHOOK_URL", "https://proplane.ai/api/twilio/inbound");
+    mocks.attach.mockResolvedValue({ sid: "PN111" });
+
+    await purchaseManagerTwilioNumber({ requestId: "req-retry" });
+
+    expect(mocks.purchase).toHaveBeenCalledWith(expect.objectContaining({
+      smsUrl: "https://proplane.ai/api/twilio/inbound#rp=ct,5xx&rc=2",
+    }));
+  });
+
+  it("replaces any existing connection-override fragment", () => {
+    expect(withInboundRetryPolicy("https://proplane.ai/api/twilio/inbound#rc=1")).toBe(
+      "https://proplane.ai/api/twilio/inbound#rp=ct,5xx&rc=2",
+    );
+  });
+
+  it("backfills only our inbound webhook, once", () => {
+    expect(RETRY_FRAGMENT).toBe(TWILIO_INBOUND_RETRY_FRAGMENT);
+    expect(needsRetryPolicy("https://proplane.ai/api/twilio/inbound")).toBe(true);
+    expect(needsRetryPolicy("https://proplane.ai/api/twilio/inbound#rc=1")).toBe(true);
+    expect(needsRetryPolicy("https://proplane.ai/api/twilio/inbound#rp=ct,5xx&rc=2")).toBe(false);
+    expect(needsRetryPolicy("https://proplane.ai/api/twilio/voice/inbound")).toBe(false);
+    expect(needsRetryPolicy("https://demo.twilio.com/welcome/sms/reply")).toBe(false);
+    expect(needsRetryPolicy("")).toBe(false);
   });
 
   it("checks the sender pool before purchasing a number", async () => {

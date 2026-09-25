@@ -69,7 +69,8 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
 
   // Signature check — reject spoofed webhook calls. Fail closed on Vercel.
   const signature = req.headers.get("x-twilio-signature") ?? "";
-  const url = process.env.TWILIO_WEBHOOK_URL?.trim() || req.url;
+  // Twilio signs the URL without its `#rp=…` connection-override fragment.
+  const url = (process.env.TWILIO_WEBHOOK_URL?.trim() || req.url).split("#")[0];
   const failClosed = Boolean(process.env.VERCEL || process.env.NODE_ENV === "production");
   if (!signature) {
     if (failClosed) return NextResponse.json({ error: "Invalid signature." }, { status: 403 });

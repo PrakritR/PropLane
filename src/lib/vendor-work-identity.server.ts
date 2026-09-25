@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { withInboundRetryPolicy } from "@/lib/twilio-provisioning";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
@@ -154,7 +155,7 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       const number = await client.incomingPhoneNumbers.create({
         phoneNumber: candidate,
         friendlyName: `proplane-vendor-${operationId}`,
-        smsUrl: webhookUrl,
+        smsUrl: withInboundRetryPolicy(webhookUrl),
         statusCallback: statusCallbackUrl,
       });
       return {

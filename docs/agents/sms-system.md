@@ -397,8 +397,11 @@ error 11200, receipt stuck `processing`). Now:
   belongs to another workspace.
 - A trigger clears `inbound_payload` once the receipt completes. Receipts
   without a payload (before this change) are never replayed.
-- Failures before the claim (signature, workspace, rate-limit store) still
-  depend on Twilio and are lost without an `#rp=5xx` URL fragment.
+- Failures before the claim (workspace, rate-limit store, receipt read) rely
+  on Twilio's own retry. Inbound webhooks carry `#rp=ct,5xx&rc=2`
+  (`withInboundRetryPolicy`, set at provisioning; existing numbers via
+  `scripts/twilio-apply-inbound-retry-policy.mjs`). The fragment is unsigned,
+  so signature validation strips it. Twilio retries share a 15s budget.
 
 ## Prospect SMS scheduling and follow-up
 

@@ -18,14 +18,29 @@ export type EnsureManagerSmsNumberResult =
 /**
  * Fully-qualified URL Twilio should POST inbound SMS to. `TWILIO_WEBHOOK_URL`
  * (when set) is the exact endpoint the inbound route validates signatures
- * against, so the purchased number's smsUrl MUST match it verbatim. Otherwise
- * we build it off the canonical (never-vercel) app origin.
+ * against, so the purchased number's smsUrl MUST match it verbatim apart from
+ * the unsigned `#rp=…` fragment (`withInboundRetryPolicy`). Otherwise we build
+ * it off the canonical (never-vercel) app origin.
  */
 export function resolveInboundWebhookUrl(): string {
   const explicit = process.env.TWILIO_WEBHOOK_URL?.trim();
   if (explicit) return explicit;
   const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
   return `${base}/api/twilio/inbound`;
+}
+
+/**
+ * Twilio retries a webhook only on connect/TLS failure by default (`rp=ct`).
+ * Our inbound route answers 503 when it wants a retry (store outage before the
+ * receipt claim), so ask Twilio to retry 5xx too. The fragment is not part of
+ * the signed URL. Read timeouts stay unretried: the first attempt may still be
+ * running and would only collide with its own claim. Retries share Twilio's
+ * 15s total budget; claimed receipts are recovered by our own sweeper.
+ */
+export const TWILIO_INBOUND_RETRY_FRAGMENT = "#rp=ct,5xx&rc=2";
+
+export function withInboundRetryPolicy(url: string): string {
+  return `${url.split("#")[0]}${TWILIO_INBOUND_RETRY_FRAGMENT}`;
 }
 
 export function resolveVoiceWebhookUrlForProvisioning(): string {
@@ -123,7 +138,7 @@ export async function purchaseManagerTwilioNumber(opts?: {
     const purchased = await client.incomingPhoneNumbers.create({
       phoneNumber: candidate,
       ...(opts?.requestId ? { friendlyName: `proplane-manager-${opts.requestId}` } : {}),
-      smsUrl: resolveInboundWebhookUrl(),
+      smsUrl: withInboundRetryPolicy(resolveInboundWebhookUrl()),
       smsMethod: "POST",
       voiceUrl: resolveVoiceWebhookUrlForProvisioning(),
       voiceMethod: "POST",

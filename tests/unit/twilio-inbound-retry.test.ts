@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
+import twilio from "twilio";
 vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()), after: mocks.after }));
 vi.mock("@/lib/sms/prospect-sms-burst-job.server", () => ({ runInlineProspectBurst: mocks.runInlineBurst }));
 vi.mock("@/lib/twilio-client.server", () => ({
@@ -305,6 +306,16 @@ describe("managed Twilio inbound retry", () => {
     expect(result).toEqual({ scanned: 1, recovered: 0, failed: 0, dropped: 1 });
     expect(mocks.receiptUpdates).toContainEqual(expect.objectContaining({ status: "completed" }));
     expect(mocks.handleInbound).not.toHaveBeenCalled();
+  });
+
+  it("validates the signature against the webhook URL without its retry-policy fragment", async () => {
+    vi.stubEnv("TWILIO_WEBHOOK_URL", "https://proplane.ai/api/twilio/inbound#rp=ct,5xx&rc=2");
+    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
+
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(vi.mocked(twilio.validateRequest)).toHaveBeenCalledWith(
+      "auth-token", "valid", "https://proplane.ai/api/twilio/inbound", expect.anything(),
+    );
   });
 
   it("schedules nothing extra when the burst was queued normally", async () => {
