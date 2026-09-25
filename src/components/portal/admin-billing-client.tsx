@@ -1,292 +1,64 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { CreditCard } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
-import { ManagerAccountDetail } from "@/components/portal/admin-manager-account-detail";
-import { useAppUi } from "@/components/providers/app-ui-provider";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
 
 /**
- * Bounded so a slow/stuck admin API route surfaces the existing "Could not
- * load billing" + Try again state instead of an indefinite "Loading…" — the
- * one route this page has for a fetch that never settles (AXI night sweep
- * area 2a).
- */
-const ADMIN_FETCH_TIMEOUT_MS = 20_000;
-import {
-  ADMIN_BILLING_TABS,
-  adminBillingRowMatchesTab,
-  adminBillingTabCounts,
-  adminBillingTabFromParam,
-  type AdminBillingRow,
-} from "@/lib/admin-billing-rows";
-
-/**
- * Admin → Billing: what each manager account is actually being held to.
+ * Admin → Billing: merged into Accounts (captain: "combine Billing and
+ * Accounts"). Plan, caps, complimentary status and comms credit all live on
+ * the account record page now — Billing was a second editor over the exact
+ * same accounts Accounts already lists, which is two sets of rules for the
+ * same write.
  *
- * The same `PortalRecordListSurface` + `PortalPersonRecordRow` every other list tab in every other
- * portal uses — Billing is a different LENS on the accounts already in admin Accounts, not a new
- * kind of screen. Opening a row opens the SAME account editor Accounts opens
- * (`ManagerAccountDetail`), so a plan or override change is one control with one set of rules
- * wherever a staff member reaches it.
- *
- * The row never guesses. A plan the server could not read prints "Plan unknown" and prints nothing
- * derived from it — a cap, a fee payer or an allowance shown for an unknown plan would be a
- * confident wrong answer about somebody's money.
+ * The `/admin/billing` route survives only as this one-line redirect card, so
+ * a bookmark or a link a staff member already sent lands somewhere real
+ * instead of a 404. There is no separate nav row any more (`admin.ts`).
  */
-
-const EMPTY_SELECTION: ReadonlySet<string> = new Set();
-
-const FEE_PAYER_LABELS: Record<string, string> = {
-  resident: "resident pays",
-  manager: "manager pays",
-  proplane: "PropLane absorbs",
-};
-
-function planBadgeClass(row: AdminBillingRow): string {
-  if (row.planUnknown) return "border-amber-300 bg-amber-50 text-amber-800";
-  if (row.tier === "pro" || row.tier === "business") return "portal-badge-info border";
-  return "border-border bg-accent/30 text-muted";
-}
-
-/** The one-line billing summary under the account's name. */
-export function adminBillingRowSummary(row: AdminBillingRow): string {
-  const parts: string[] = [];
-
-  if (row.planUnknown) {
-    // Deliberately the only thing said about a row whose plan we could not read.
-    parts.push("Plan unknown — could not read this account's plan");
-    return parts.join(" · ");
-  }
-
-  parts.push(row.planLabel);
-  if (row.onTrial) parts.push(row.trialEndsAt ? `trial ends ${row.trialEndsAt}` : "on trial");
-  else if (row.trialLapsed) parts.push("trial lapsed");
-
-  const used = row.listedCount === null ? "—" : String(row.listedCount);
-  parts.push(
-    row.propertyLimit === null
-      ? `${used} listings (no cap)`
-      : `${used} of ${row.propertyLimit} listings${row.propertyLimitIsOverride ? " (staff cap)" : ""}`,
-  );
-
-  if (row.serviceFeePayer) parts.push(FEE_PAYER_LABELS[row.serviceFeePayer] ?? row.serviceFeePayer);
-
-  if (!row.comms) {
-    // The allowance read is not available here; saying "$0.00 used" would read as a fact.
-    parts.push("comms —");
-  } else if (row.comms.allowanceCents === null) {
-    parts.push(`comms ${formatUsdFromCents(row.comms.usedCents)} used`);
-  } else {
-    const purchased = row.comms.purchasedRemainingCents ?? 0;
-    parts.push(
-      `comms ${formatUsdFromCents(row.comms.usedCents)} of ${formatUsdFromCents(row.comms.allowanceCents)}${
-        purchased > 0 ? ` + ${formatUsdFromCents(purchased)} purchased` : ""
-      }`,
-    );
-  }
-
-  return parts.join(" · ");
-}
-
 export function AdminBillingClient() {
-  const { showToast } = useAppUi();
-  const searchParams = useSearchParams();
-  // The open tab IS the URL, like every other portal list tab, so "the accounts we absorb fees for"
-  // is a link a staff member can send.
-  const tab = adminBillingTabFromParam(searchParams.get("tab"));
+  const router = useRouter();
+  const [query, setQuery] = useState("");
 
-  const [rows, setRows] = useState<AdminBillingRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selection, setSelection] = useState<{ tab: string; ids: Set<string> }>(() => ({
-    tab: "all",
-    ids: new Set(),
-  }));
-  const selectedIds = selection.tab === tab ? selection.ids : EMPTY_SELECTION;
-
-  const toggleSelected = useCallback(
-    (id: string) => {
-      setSelection((prev) => {
-        const base = prev.tab === tab ? prev.ids : EMPTY_SELECTION;
-        const next = new Set(base);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return { tab, ids: next };
-      });
-    },
-    [tab],
-  );
-
-  const load = useCallback(async () => {
-    if (isDemoModeActive()) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await fetchWithTimeout("/api/admin/manager-billing", {}, ADMIN_FETCH_TIMEOUT_MS);
-      const json = (await res.json().catch(() => ({}))) as { rows?: AdminBillingRow[]; error?: string };
-      if (!res.ok) {
-        setLoadError(json.error ?? "Could not load billing.");
-        return;
-      }
-      setRows(json.rows ?? []);
-    } catch (error) {
-      setLoadError(error instanceof FetchTimeoutError ? "That took too long to load." : "Could not reach the server.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const id = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(id);
-  }, [load]);
-
-  const counts = useMemo(() => adminBillingTabCounts(rows), [rows]);
-  const visible = useMemo(() => rows.filter((row) => adminBillingRowMatchesTab(row, tab)), [rows, tab]);
-
-  const destinations = useMemo(
-    () =>
-      ADMIN_BILLING_TABS.map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-        href: `/admin/billing?tab=${entry.id}`,
-        count: counts[entry.id],
-        dataAttr: `admin-billing-tab-${entry.id}`,
-      })),
-    [counts],
-  );
-
-  const selectedRows = visible.filter((row) => selectedIds.has(row.id));
-
-  /**
-   * One dock action: open the account. Plan, fees and the overrides all live inside that editor,
-   * beside what they change — a cap or a comp flag is not something a stray tick should reach.
-   */
-  const bulkActions =
-    selectedRows.length === 1 ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_BULK_BAR_BTN}
-        data-attr="admin-billing-open"
-        onClick={() => setExpandedId(selectedRows[0]!.id)}
-      >
-        Open account
-      </Button>
-    ) : null;
+  const openAccounts = () => {
+    const href = query.trim() ? `/admin/axis-users?q=${encodeURIComponent(query.trim())}` : "/admin/axis-users";
+    router.push(href);
+  };
 
   return (
-    <ManagerPortalPageShell
-      title="Billing"
-      hideTitleOnMobileNav
-      navigationProvidesTitle
-      titleInlineFilter={null}
-      compactFilterRow
-    >
-      <PortalListControlStack
-        className="mb-2"
-        variant="command"
-        stickyDestinations={false}
-        destinations={destinations}
-        activeDestinationId={tab}
-        destinationAriaLabel="Billing status"
-      />
-
-      {loading ? (
-        <PortalDataTableEmpty icon="data" message="Loading…" />
-      ) : loadError ? (
-        <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-danger">
-          Could not load billing: {loadError}
-          <button type="button" onClick={() => void load()} className="ml-2 font-semibold underline underline-offset-2">
-            Try again
-          </button>
+    <ManagerPortalPageShell title="Billing" hideTitleOnMobileNav navigationProvidesTitle titleInlineFilter={null}>
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-2xl border border-border bg-card px-6 py-10 text-center">
+        <CreditCard className="size-6 text-muted" aria-hidden />
+        <div className="space-y-1.5">
+          <h2 className="text-base font-semibold text-foreground">Billing is now part of Accounts</h2>
+          <p className="text-sm text-muted">
+            Plan, fees and comms credit live on each manager&apos;s account — open Accounts and pick a manager.
+          </p>
         </div>
-      ) : (
-        <PortalRecordListSurface
-          isEmpty={visible.length === 0}
-          empty={
-            <PortalDataTableEmpty
-              icon="data"
-              message={rows.length === 0 ? "No manager accounts yet" : "No accounts match this filter"}
-            />
-          }
-          bulkCount={selectedRows.length}
-          bulkActions={bulkActions}
-          dataAttr="admin-billing-list"
+        <form
+          className="flex w-full items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            openAccounts();
+          }}
         >
-          {visible.map((row) => {
-            const isOpen = expandedId === row.id;
-            return (
-              <div key={row.id}>
-                <PortalPersonRecordRow
-                  name={row.fullName || row.email}
-                  subtitle={row.email}
-                  preview={adminBillingRowSummary(row)}
-                  meta={row.managerId || undefined}
-                  selected={isOpen}
-                  checked={selectedIds.has(row.id)}
-                  onSelectedChange={() => toggleSelected(row.id)}
-                  onOpen={() => setExpandedId(isOpen ? null : row.id)}
-                  dataAttr="admin-billing-row"
-                  trailing={
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                      {row.complimentary ? (
-                        <span className="inline-flex items-center rounded-full border border-border bg-accent/30 px-2.5 py-1 text-xs font-semibold text-muted">
-                          Comp
-                        </span>
-                      ) : null}
-                      {row.atPropertyLimit ? (
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold portal-badge-warning">
-                          At cap
-                        </span>
-                      ) : null}
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${planBadgeClass(row)}`}
-                        data-attr="admin-billing-plan-badge"
-                      >
-                        {row.planLabel}
-                      </span>
-                    </div>
-                  }
-                />
-                {isOpen ? (
-                  <div className="border-b border-border/50 bg-accent/10 px-4 py-4">
-                    {/* The SAME editor admin Accounts opens — Billing is a lens, not a second
-                        account screen. */}
-                    <ManagerAccountDetail
-                      row={{
-                        id: row.id,
-                        tier: row.storedTier,
-                        active: row.active,
-                        joinedAt: row.joinedAt,
-                      }}
-                      onRefresh={() => {
-                        setExpandedId(null);
-                        void load();
-                      }}
-                      showToast={showToast}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </PortalRecordListSurface>
-      )}
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a manager by name or email"
+            className="h-10 min-w-0 flex-1 rounded-full border border-border bg-background px-4 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/30"
+            data-attr="admin-billing-redirect-search"
+          />
+          <Button type="submit" variant="outline" data-attr="admin-billing-redirect-find">
+            Find
+          </Button>
+        </form>
+        <Button type="button" onClick={openAccounts} data-attr="admin-billing-redirect-open-accounts">
+          Open Accounts
+        </Button>
+      </div>
     </ManagerPortalPageShell>
   );
 }

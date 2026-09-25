@@ -14,6 +14,13 @@ import {
   PortalTableExpandChevron,
   usePortalPreviewSlice,
 } from "@/components/portal/portal-data-table";
+import {
+  AttentionPanel,
+  KpiCard,
+  UpcomingPanel,
+  type AttentionRow,
+  type UpcomingRow,
+} from "@/components/portal/pro-dashboard-kpis";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { readInboxMessages, syncInboxMessagesFromServer } from "@/lib/demo-admin-partner-inbox";
 import { adminKpiCounts } from "@/lib/demo-admin-property-inventory";
@@ -43,45 +50,6 @@ function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode })
     >
       {children}
     </span>
-  );
-}
-
-/** Restrained KPI tile: big tabular number + small uppercase muted label. */
-function KpiTile({
-  label,
-  value,
-  sub,
-  href,
-  accent,
-  dataAttr,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  href: string;
-  accent?: boolean;
-  dataAttr?: string;
-}) {
-  return (
-    <Link
-      href={href}
-      data-attr={dataAttr}
-      className="flex min-w-[8.75rem] flex-1 flex-col rounded-lg border border-border bg-card px-4 py-3.5 transition-colors duration-150 hover:border-primary/40 [html[data-native]_&]:min-w-[7.25rem] [html[data-native]_&]:rounded-lg [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
-    >
-      <span
-        className={`text-[1.75rem] font-semibold leading-none tabular-nums tracking-[-0.02em] [html[data-native]_&]:text-[1.4rem] ${
-          accent ? "text-[var(--status-overdue-fg)]" : "text-foreground"
-        }`}
-      >
-        {value}
-      </span>
-      <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted [html[data-native]_&]:mt-1.5 [html[data-native]_&]:text-[9px]">
-        {label}
-      </span>
-      {sub ? (
-        <span className="mt-0.5 text-[11px] text-muted/80 [html[data-native]_&]:text-[10px]">{sub}</span>
-      ) : null}
-    </Link>
   );
 }
 
@@ -331,6 +299,54 @@ export function AdminDashboard({ displayName = "there" }: { displayName?: string
 
   const openCount = pendingMeetingCount + inboxUnread + openFeedbackTotal;
 
+  // Condensed top section — same shape as the manager dashboard's own
+  // "Needs attention" + "Upcoming" side-by-side panels, fed by admin's own
+  // metrics (captain: "redesign dashboard UI to match manager"). The dense
+  // per-group listing further down (now "Everything open") is unchanged.
+  const attentionRows: AttentionRow[] = [];
+  if (pendingMeetingCount > 0) {
+    const latest = upcomingMeetings.find((m) => m.kind === "pending");
+    attentionRows.push({
+      id: "meetings",
+      title: `${pendingMeetingCount} meeting${pendingMeetingCount === 1 ? "" : "s"} to confirm`,
+      detail: latest ? `${latest.label} · ${fmt(latest.start)}` : "Awaiting a time",
+      actionLabel: "Confirm",
+      href: "/admin/events",
+      tone: "pending",
+    });
+  }
+  if (inboxUnread > 0) {
+    const latest = inboxPreview[0];
+    attentionRows.push({
+      id: "unread",
+      title: `${inboxUnread} unread conversation${inboxUnread === 1 ? "" : "s"}`,
+      detail: latest ? `Latest: ${latest.name || latest.email} — ${latest.topic || latest.body.slice(0, 60)}` : "Needs a reply",
+      actionLabel: "Reply",
+      href: "/admin/communication",
+      tone: "danger",
+    });
+  }
+  if (openFeedbackTotal > 0) {
+    const latest = openFeedback[0];
+    attentionRows.push({
+      id: "feedback",
+      title: `${openFeedbackTotal} feedback item${openFeedbackTotal === 1 ? "" : "s"} open`,
+      detail: latest ? latest.title || "Untitled report" : `${feedbackTotal} on file`,
+      actionLabel: "Review",
+      href: "/admin/bugs-feedback",
+      tone: "pending",
+    });
+  }
+
+  const upcomingRows: UpcomingRow[] = upcomingMeetings.map((m) => ({
+    id: m.id,
+    kind: "Meeting",
+    title: m.label,
+    detail: m.kind === "pending" ? "Pending" : "Confirmed",
+    at: m.startMs,
+    href: "/admin/events",
+  }));
+
   return (
     <ManagerPortalPageShell
       title="Dashboard"
@@ -339,53 +355,67 @@ export function AdminDashboard({ displayName = "there" }: { displayName?: string
     >
       <div className={PORTAL_DASHBOARD_STACK}>
         {/*
-          Command center — restrained KPI stat row. A 2-up grid on phone
-          (matching `DashboardSkeleton`'s own shape-matched placeholder)
-          instead of a 4-wide horizontal-scroll row, whose third tile used to
-          crop at the 390px edge with no visible scroll affordance to hint
-          more sat off-screen (AXI night sweep area 2f).
+          Command center — restrained KPI stat row, the same `KpiCard` the
+          manager dashboard uses. A 2-up grid on phone (matching
+          `DashboardSkeleton`'s own shape-matched placeholder) instead of a
+          4-wide horizontal-scroll row, whose third tile used to crop at the
+          390px edge with no visible scroll affordance to hint more sat
+          off-screen (AXI night sweep area 2f).
         */}
-        <div className="grid grid-cols-2 gap-2.5 sm:flex sm:gap-2.5 [html[data-native]_&]:gap-2">
-          <KpiTile
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiCard
             label="Live properties"
-            value={listedProps}
-            sub={unlistedProps > 0 ? `${unlistedProps} unlisted · ${totalProps} total` : `${totalProps} total`}
+            value={String(listedProps)}
+            unit={unlistedProps > 0 ? `${unlistedProps} unlisted` : undefined}
+            detail={`${totalProps} total`}
             href="/admin/properties?tab=listed"
             dataAttr="admin-dashboard-kpi-properties"
           />
-          <KpiTile
+          <KpiCard
             label="Meetings"
-            value={totalMeetings}
-            sub={
-              pendingMeetingCount > 0
-                ? `${pendingMeetingCount} pending`
-                : "None pending"
-            }
+            value={String(totalMeetings)}
+            detail={pendingMeetingCount > 0 ? `${pendingMeetingCount} pending` : "None pending"}
             href="/admin/events"
             dataAttr="admin-dashboard-kpi-meetings"
           />
-          <KpiTile
-            label="Unread inbox"
-            value={inboxUnread}
+          <KpiCard
+            label="Unread"
+            value={String(inboxUnread)}
+            detail={inboxUnread > 0 ? "Needs a reply" : "All caught up"}
             href="/admin/communication"
             dataAttr="admin-dashboard-kpi-inbox"
           />
-          <KpiTile
+          <KpiCard
             label="Open feedback"
-            value={openFeedbackTotal}
-            sub={`${feedbackTotal} on file`}
+            value={String(openFeedbackTotal)}
+            detail={`${feedbackTotal} on file`}
             href="/admin/bugs-feedback"
             dataAttr="admin-dashboard-kpi-feedback"
           />
         </div>
 
-        {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
+        {/* What needs a decision now, and what the next couple of weeks holds. */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <AttentionPanel rows={attentionRows} emptyCopy="Nothing is waiting on you. Nice." />
+          <UpcomingPanel
+            // `cutoffMs` is `Date.now() - 30min`, set from a `useEffect` (never
+            // read `Date.now()` directly during render — react-hooks/purity).
+            rows={upcomingRows}
+            nowMs={cutoffMs + 30 * 60 * 1000}
+            calendarHref="/admin/events"
+            emptyCopy="Nothing scheduled."
+          />
+        </div>
+
+        {/* Everything open — the same dense issue-row groups as before, just relabeled to match the manager dashboard's own "Everything open" section. */}
         <div className="space-y-4 [html[data-native]_&]:space-y-3">
-          <div className="flex items-center gap-2">
-            <span aria-hidden className="text-primary">
+          <div className="flex items-center gap-2.5">
+            <span aria-hidden className="text-primary text-xl leading-none [html[data-native]_&]:text-lg">
               ✦
             </span>
-            <h2 className="text-sm font-semibold tracking-[-0.01em] text-foreground">Needs attention</h2>
+            <h2 className="text-xl font-bold leading-tight tracking-[-0.02em] text-foreground [html[data-native]_&]:text-lg">
+              Everything open
+            </h2>
             {openCount > 0 ? (
               <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-[var(--secondary)] px-2.5 py-0.5 text-[11px] font-medium text-muted">
                 <span aria-hidden className="size-1.5 rounded-full" style={{ background: DOT_CONFIRMED }} />
