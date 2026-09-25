@@ -12,7 +12,7 @@
  */
 
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { cn } from "@/lib/utils";
@@ -98,6 +98,7 @@ export function KpiCard({
   format,
   href,
   dataAttr,
+  icon: Icon,
 }: {
   label: string;
   value: string;
@@ -111,6 +112,8 @@ export function KpiCard({
   format?: (n: number) => string;
   href: string;
   dataAttr?: string;
+  /** Optional small glyph next to the label — additive, no existing caller sets it. */
+  icon?: LucideIcon;
 }) {
   const Arrow = delta?.direction === "up" ? ArrowUpRight : delta?.direction === "down" ? ArrowDownRight : Minus;
   return (
@@ -119,7 +122,10 @@ export function KpiCard({
       data-attr={dataAttr}
       className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
-      <span className="text-[12.5px] font-medium text-muted">{label}</span>
+      <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
+        {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
+        {label}
+      </span>
       {/* The number gets the full width; the history sits under it, never beside
           it — "$7,…" beside a sparkline was the tile clipping its own figure. */}
       <span className="block whitespace-nowrap text-[1.65rem] font-semibold leading-none tracking-[-0.02em] text-foreground">

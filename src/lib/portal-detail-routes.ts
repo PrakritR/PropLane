@@ -1443,8 +1443,12 @@ export function documentRecordHref(
   return tab === "preview" ? base : `${base}/${tab}`;
 }
 
-/** Resident service record rail tabs (PLAN-0920-1058, area 1c). */
-export const RESIDENT_SERVICE_DETAIL_TABS = ["overview", "updates", "photos", "communication"] as const;
+/**
+ * Resident service record rail tabs (PLAN-0920-1058, area 1c). "vendor" (C135)
+ * is rendered conditionally by the panel — only once a vendor is actually
+ * assigned — the same "tabs disappear when empty" pattern used elsewhere.
+ */
+export const RESIDENT_SERVICE_DETAIL_TABS = ["overview", "updates", "photos", "vendor", "communication"] as const;
 export type ResidentServiceDetailTabId = (typeof RESIDENT_SERVICE_DETAIL_TABS)[number];
 
 export function parseResidentServiceDetailTab(raw: string | undefined | null): ResidentServiceDetailTabId {
