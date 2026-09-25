@@ -54,6 +54,33 @@ describe("ChannelCalendarLinkModal", () => {
     expect(document.querySelector('[data-attr="channel-calendar-sync-all"]')).toBeNull();
   });
 
+  it("Escape closes only the open provider dropdown, not the whole Link calendars modal (C090/C092)", async () => {
+    const onClose = vi.fn();
+    render(
+      <ChannelCalendarLinkModal
+        open
+        onClose={onClose}
+        propertyIds={["p1"]}
+        propertyOptions={[{ id: "p1", label: "4709A" }]}
+        showToast={() => {}}
+      />,
+    );
+    const trigger = document.querySelector('[data-attr="channel-calendar-link-provider"]') as HTMLElement;
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    // The dropdown closes...
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    // ...but the modal underneath it must not have been dismissed too.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Link & sync")).toBeTruthy();
+
+    // With no dropdown open, Escape still closes the modal as normal.
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
   it("does not remount into Loading linked rooms when the parent refreshes", async () => {
     const props = {
       open: true,

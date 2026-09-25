@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { resolveGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
-import { getGoogleSheetsAccessToken, googlePickerApiKey } from "@/lib/sheet-sync/google-sheets-auth";
+import { getGoogleSheetsAccessToken, googlePickerApiKey, googlePickerAppId } from "@/lib/sheet-sync/google-sheets-auth";
 
 export const runtime = "nodejs";
 
@@ -17,5 +17,6 @@ export async function GET() {
     accessToken,
     apiKey: googlePickerApiKey(),
     clientId: resolveGoogleCalendarOAuthConfig()?.clientId ?? null,
+    appId: googlePickerAppId(),
   });
 }

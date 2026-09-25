@@ -113,6 +113,27 @@ export async function fetchSheetApiValues(
   return body.values.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : []));
 }
 
+/**
+ * One specific tab's rows, by gid — for a manager-picked stays tab
+ * (BUILD-WAVE2 C210), not the whole-workbook occupancy/house-tab sweep
+ * `loadWorkbookTabs` does below.
+ *
+ * Prefers the real Sheets API by title when an access token is available
+ * (works for a private, Picker-granted file); falls back to the public CSV
+ * export by gid otherwise, same as every other read in this module.
+ */
+export async function fetchStaysTabRows(
+  spreadsheetId: string,
+  tab: { gid: string; title: string },
+  accessToken?: string | null,
+): Promise<string[][] | null> {
+  if (accessToken && tab.title) {
+    const rows = await fetchSheetApiValues(spreadsheetId, tab.title, accessToken);
+    if (rows) return rows;
+  }
+  return fetchSheetCsv(spreadsheetId, tab.gid);
+}
+
 export async function loadWorkbookTabs(input: {
   spreadsheetId: string;
   occupancyGid: string;

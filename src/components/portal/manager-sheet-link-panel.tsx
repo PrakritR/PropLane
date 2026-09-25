@@ -31,6 +31,19 @@ type PublicSheetBinding = {
   lastError: string | null;
   lastSummary: string | null;
   linked: boolean;
+  staysTab: { gid: string; title: string } | null;
+};
+
+type StaysTabOption = { gid: string; title: string };
+
+type StaysPreview = {
+  stayCount: number;
+  houseCount: number;
+  roomCount: number;
+  skipped: number;
+  unmatchedHouses: { houseRaw: string; count: number }[];
+  readyToLink: boolean;
+  columnMap: unknown;
 };
 
 type SheetLinkResponse = {
@@ -61,6 +74,15 @@ export function ManagerSheetLinkPanel() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTargetId, setPickerTargetId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  // Stays tab picker (BUILD-WAVE2 C210/C213): which link row's picker is open,
+  // the sheet's own tab list, the chosen tab, and its preview counts.
+  const [staysPickerLinkId, setStaysPickerLinkId] = useState<string | null>(null);
+  const [staysTabs, setStaysTabs] = useState<StaysTabOption[]>([]);
+  const [staysTabsLoading, setStaysTabsLoading] = useState(false);
+  const [staysSelectedGid, setStaysSelectedGid] = useState<string>("");
+  const [staysPreview, setStaysPreview] = useState<StaysPreview | null>(null);
+  const [staysPreviewLoading, setStaysPreviewLoading] = useState(false);
+  const [staysLinking, setStaysLinking] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/portal/sheet-link", { credentials: "include", cache: "no-store" });
@@ -200,6 +222,82 @@ export function ManagerSheetLinkPanel() {
     }
   };
 
+  const openStaysPicker = async (link: PublicSheetBinding) => {
+    setStaysPickerLinkId(link.id);
+    setStaysSelectedGid(link.staysTab?.gid ?? "");
+    setStaysPreview(null);
+    setStaysTabsLoading(true);
+    try {
+      const res = await fetch("/api/portal/sheet-link/preview", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spreadsheetId: link.spreadsheetId }),
+      });
+      const data = (await res.json().catch(() => null)) as { tabs?: StaysTabOption[]; error?: string } | null;
+      if (!res.ok) {
+        showToast(data?.error || "Could not read this spreadsheet's tabs.");
+        setStaysPickerLinkId(null);
+        return;
+      }
+      setStaysTabs(data?.tabs ?? []);
+    } finally {
+      setStaysTabsLoading(false);
+    }
+  };
+
+  const closeStaysPicker = () => {
+    setStaysPickerLinkId(null);
+    setStaysTabs([]);
+    setStaysSelectedGid("");
+    setStaysPreview(null);
+  };
+
+  const previewStaysTab = async (link: PublicSheetBinding, gid: string) => {
+    setStaysSelectedGid(gid);
+    setStaysPreview(null);
+    const tab = staysTabs.find((row) => row.gid === gid);
+    if (!tab) return;
+    setStaysPreviewLoading(true);
+    try {
+      const res = await fetch("/api/portal/sheet-link/preview", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spreadsheetId: link.spreadsheetId, gid: tab.gid, title: tab.title }),
+      });
+      const data = (await res.json().catch(() => null)) as (StaysPreview & { error?: string }) | null;
+      if (!res.ok) {
+        showToast(data?.error || "Could not read that tab.");
+        return;
+      }
+      if (data) setStaysPreview(data);
+    } finally {
+      setStaysPreviewLoading(false);
+    }
+  };
+
+  const linkStaysTab = async (link: PublicSheetBinding) => {
+    const tab = staysTabs.find((row) => row.gid === staysSelectedGid);
+    if (!tab || !staysPreview) return;
+    setStaysLinking(true);
+    try {
+      await patchLink(link.id, {
+        staysTab: { gid: tab.gid, title: tab.title, columnMap: staysPreview.columnMap, nameMap: {} },
+      });
+      showToast(`${staysPreview.stayCount} stays linked from your sheet.`);
+      closeStaysPicker();
+      void load();
+    } finally {
+      setStaysLinking(false);
+    }
+  };
+
+  const unlinkStaysTab = async (link: PublicSheetBinding) => {
+    await patchLink(link.id, { staysTab: null });
+    showToast("Stays tab unlinked.");
+  };
+
   const workspaceOptions = useMemo(
     () => workspaceList.map((row) => ({ value: row.id, label: row.name })),
     [workspaceList],
@@ -310,6 +408,82 @@ export function ManagerSheetLinkPanel() {
                 Update from sheet
               </Button>
             </PortalSettingsRow>
+            <PortalSettingsRow label="Stays tab">
+              {link.staysTab ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-foreground">{link.staysTab.title}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => unlinkStaysTab(link)}
+                    data-attr="manager-sheet-stays-unlink"
+                  >
+                    Unlink
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!link.linked || !googleConnected}
+                  onClick={() => openStaysPicker(link)}
+                  data-attr="manager-sheet-stays-open"
+                >
+                  Link a Stays tab
+                </Button>
+              )}
+            </PortalSettingsRow>
+            {staysPickerLinkId === link.id ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-border bg-card/60 p-3" data-attr="manager-sheet-stays-picker">
+                {staysTabsLoading ? (
+                  <p className="text-sm text-muted">Reading the spreadsheet's tabs…</p>
+                ) : staysTabs.length === 0 ? (
+                  <p className="text-sm text-muted">No tabs found on this spreadsheet.</p>
+                ) : (
+                  <>
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Tab"
+                      value={staysSelectedGid}
+                      options={staysTabs.map((tab) => ({ value: tab.gid, label: tab.title }))}
+                      onChange={(gid) => void previewStaysTab(link, gid)}
+                      dataAttr="manager-sheet-stays-tab-select"
+                    />
+                    {staysPreviewLoading ? <p className="text-sm text-muted">Reading…</p> : null}
+                    {staysPreview && !staysPreviewLoading ? (
+                      <div className="flex flex-col gap-1.5 text-sm">
+                        <p className="text-foreground">
+                          <b>{staysPreview.stayCount}</b> stays · <b>{staysPreview.houseCount}</b> houses ·{" "}
+                          <b>{staysPreview.roomCount}</b> rooms
+                          {staysPreview.skipped > 0 ? ` · ${staysPreview.skipped} skipped (bad date)` : ""}
+                        </p>
+                        {staysPreview.unmatchedHouses.length > 0 ? (
+                          <p className="text-destructive">
+                            Not matched to a listing:{" "}
+                            {staysPreview.unmatchedHouses.map((row) => `"${row.houseRaw}" (${row.count})`).join(", ")}
+                            — rename the house on the sheet to match a listing, then reopen this tab.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        disabled={!staysPreview?.readyToLink || staysLinking}
+                        onClick={() => linkStaysTab(link)}
+                        data-attr="manager-sheet-stays-link"
+                      >
+                        Link
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={closeStaysPicker}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
           </PortalSettingsGroup>
         </PortalSettingsSection>
       ))}
