@@ -86,6 +86,14 @@ export type PortalWorkspace = {
   id: string;
   name: string;
   ownerUserId: string;
+  /**
+   * C207: the owner's display name for a workspace the viewer does NOT own
+   * (a shared workspace the viewer was invited into). Every default new
+   * workspace is server-named literally "My workspace", so two shared
+   * workspaces from two different owners otherwise look identical in the
+   * switcher — this disambiguates them. Never set on the viewer's own.
+   */
+  ownerName?: string;
   owned: boolean;
   isDefault: boolean;
   /** Every property scoped to this workspace, drafts and unlisted included — drives scoping, never a display count. */
