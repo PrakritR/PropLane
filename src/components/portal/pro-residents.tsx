@@ -477,6 +477,7 @@ export function ManagerResidents({
   } | null>(null);
   const [leaseSendBusy, setLeaseSendBusy] = useState(false);
   const [signingLease, setSigningLease] = useState<LeasePipelineRow | null>(null);
+  const [signingLeaseError, setSigningLeaseError] = useState<string | null>(null);
   const [welcomeEmailBusyForResident, setWelcomeEmailBusyForResident] = useState<string | null>(null);
   const [welcomePreviewFor, setWelcomePreviewFor] = useState<ActiveResident | null>(null);
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
@@ -2514,8 +2515,9 @@ export function ManagerResidents({
 
   async function handleManagerModalSign(signatureName: string, consentVersion: string) {
     if (!signingLease) return false;
-    const ok = await managerSignLease(signingLease.id, signatureName.trim(), userId, consentVersion);
-    if (ok) {
+    setSigningLeaseError(null);
+    const result = await managerSignLease(signingLease.id, signatureName.trim(), userId, consentVersion);
+    if (result.ok) {
       setLeaseTick((n) => n + 1);
       showToast(
         hasBothLeaseSignatures({
@@ -2528,7 +2530,8 @@ export function ManagerResidents({
       setSigningLease(null);
       return true;
     } else {
-      showToast("Could not sign lease.");
+      // Signing waits for the server: the modal stays open and shows why.
+      setSigningLeaseError(result.error);
       return false;
     }
   }
@@ -3510,7 +3513,11 @@ export function ManagerResidents({
           signerName=""
           signerRoleLabel="Manager / authorized agent name"
           onSign={handleManagerModalSign}
-          onClose={() => setSigningLease(null)}
+          onClose={() => {
+            setSigningLease(null);
+            setSigningLeaseError(null);
+          }}
+          error={signingLeaseError}
         />
       ) : null}
       {editResidentLeaseId && residentLeaseRows.find((row) => row.id === editResidentLeaseId) ? (
