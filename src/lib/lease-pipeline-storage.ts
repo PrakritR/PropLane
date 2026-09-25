@@ -5,6 +5,7 @@
  */
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
 import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
@@ -987,6 +988,35 @@ export type LeasePipelineRow = {
   bundleGroupKey?: string | null;
   /** Property lease template used for the last generation. */
   leaseGenerationTemplateId?: string | null;
+  /**
+   * Ida Cares lease-first (PLAN-0925, C274-C287): the `PropertyLeaseTemplate`
+   * whose imported question config this draft is signing against — resolved
+   * once, at `begin_lease_first_signing`, from the workspace/property's
+   * `defaultLeaseTemplateId` leasing-pipeline preference. Distinct from
+   * `leaseGenerationTemplateId` (set when a standard application-driven lease
+   * is GENERATED from an approved application) because a lease-first sign has
+   * no application yet.
+   */
+  leaseTemplateId?: string | null;
+  /**
+   * Immutable snapshot of the PUBLISHED `PropertyLeaseTemplate.publishedQuestionConfig`
+   * pinned at `begin_lease_first_signing` time — the resident's signing wizard
+   * reads clause/fee questions from HERE, never a live re-fetch of the
+   * template, so a later manager edit to the template cannot change what an
+   * in-progress signer is agreeing to (same "pinned published version"
+   * invariant `docs/agents/lease-generation.md` documents for applications).
+   */
+  signingTemplateSnapshot?: ApplicationTemplateQuestionConfig | null;
+  /**
+   * Resident's in-progress answers to `signingTemplateSnapshot`'s questions,
+   * keyed by each question's `key` (initials text, or the manager-filled fee
+   * amount baked in at `begin_lease_first_signing`). Saved incrementally
+   * through the ordinary upsert path (same mechanism `ResidentLeaseIntakeSection`
+   * already uses) so the wizard can resume. Never part of the hashed/signed
+   * document itself — `generatedHtml` is the fixed artifact that gets signed;
+   * this is supplementary evidence of engagement with each clause.
+   */
+  signingAnswers?: Record<string, string> | null;
 };
 
 function workflowStatusForRow(
@@ -1337,6 +1367,19 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     bundleGroupKey: typeof r.bundleGroupKey === "string" ? r.bundleGroupKey : null,
     leaseGenerationTemplateId:
       typeof r.leaseGenerationTemplateId === "string" ? r.leaseGenerationTemplateId : null,
+    leaseTemplateId: typeof r.leaseTemplateId === "string" ? r.leaseTemplateId : null,
+    signingTemplateSnapshot:
+      r.signingTemplateSnapshot && typeof r.signingTemplateSnapshot === "object"
+        ? (r.signingTemplateSnapshot as ApplicationTemplateQuestionConfig)
+        : null,
+    signingAnswers:
+      r.signingAnswers && typeof r.signingAnswers === "object" && !Array.isArray(r.signingAnswers)
+        ? Object.fromEntries(
+            Object.entries(r.signingAnswers as Record<string, unknown>).filter(
+              (entry): entry is [string, string] => typeof entry[1] === "string",
+            ),
+          )
+        : null,
     // Renewal / prior-term evidence must survive normalize — otherwise client
     // writes drop pendingRenewal and the server wipe-guard (PRP-385) cannot tell
     // a renew from an approval stub.
@@ -3783,6 +3826,41 @@ export async function residentSignLease(
   else freshRows[freshIdx] = updatedRow;
   write(freshRows, undefined, { persist: false });
   return { ok: true };
+}
+
+/**
+ * Ida Cares lease-first (PLAN-0925, C274-C287): resident-triggered transition
+ * of a `createLeaseFirstDraft` marker row into `bucket: "resident", status:
+ * "Resident Signature Pending"` with a real generated document, so
+ * `residentSignLease` has something to hash and sign. The document is built
+ * entirely server-side from the property's published lease-first template —
+ * this call carries no document content, only the lease id.
+ */
+export async function beginLeaseFirstSigning(leaseId: string): Promise<LeasePipelineActionResult> {
+  if (!canUseStorage()) {
+    return { ok: false, error: "Could not start signing. Check your connection and try again." };
+  }
+  try {
+    const res = await fetch("/api/portal-lease-pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "begin_lease_first_signing", leaseId }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; row?: unknown; error?: string };
+    if (!res.ok || !body.ok) {
+      return { ok: false, error: body.error?.trim() || "Could not start signing. Try again." };
+    }
+    const nextRow = normalizeLeasePipelineRow(body.row ?? {});
+    const freshRows = [...(readRaw() ?? readLeasePipeline())];
+    const freshIdx = freshRows.findIndex((r) => r.id === nextRow.id);
+    if (freshIdx === -1) freshRows.push(nextRow);
+    else freshRows[freshIdx] = nextRow;
+    write(freshRows, undefined, { persist: false });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not start signing. Check your connection and try again." };
+  }
 }
 
 /**

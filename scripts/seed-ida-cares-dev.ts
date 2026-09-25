@@ -569,7 +569,7 @@ function buildMapleHouseSubmission(managerUserId: string) {
       roomAmenitiesText: "Bed\nDesk\nCloset",
       occupancyCapacity: 1,
       monthlyRent: 900,
-      dailyRent: 40,
+      dailyRentPrice: 40,
     })),
     managerUserId,
     propertyApplicationTemplatesExplicit: true,
@@ -602,6 +602,32 @@ async function main() {
       "manager_purchases(insert)",
     );
   }
+
+  // Lease-first pipeline order (PLAN-0924-1254 `leasing-pipeline-preferences.ts`):
+  // without this, `leaseUnlocksWithoutApplicationApproval` reads the default
+  // ("application_then_lease") and neither `ResidentLeaseIntakeSection` nor the
+  // new lease-first signing wizard ever activates for Jordan/Casey, and
+  // `begin_lease_first_signing` has no `defaultLeaseTemplateId` to resolve.
+  await must(
+    supabase.from("manager_automation_settings").upsert(
+      {
+        manager_user_id: managerUserId,
+        row_data: {
+          leasingPipeline: {
+            pipelineOrder: "lease_then_application",
+            requireApplication: true,
+            requireLease: true,
+            leaseSigningFeeCents: null,
+            defaultApplicationTemplateId: "app-tpl-intake-form",
+            defaultLeaseTemplateId: "lease-tpl-license-agreement",
+          },
+        },
+        updated_at: NOW.toISOString(),
+      },
+      { onConflict: "manager_user_id" },
+    ),
+    "manager_automation_settings(leasingPipeline)",
+  );
 
   const jordanUserId = await ensureUser(JORDAN_EMAIL, "resident", { managerId: JORDAN_AXIS_ID, fullName: "Jordan Reyes" });
   const caseyUserId = await ensureUser(CASEY_EMAIL, "resident", { managerId: CASEY_AXIS_ID, fullName: "Casey Odom" });
