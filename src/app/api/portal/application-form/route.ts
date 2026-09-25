@@ -10,6 +10,7 @@ import {
   workspaceApplicationFormIsConfigured,
   type WorkspaceApplicationFormTemplate,
 } from "@/lib/rental-application/workspace-application-form";
+import { pushWorkspaceApplicationFormToFollowingListings } from "@/lib/rental-application/apply-workspace-application-form-to-listings.server";
 
 export const runtime = "nodejs";
 
@@ -92,6 +93,13 @@ export async function PATCH(req: Request) {
     }) ?? emptyWorkspaceApplicationFormTemplate();
     incoming.updatedAt = new Date().toISOString();
     await saveWorkspaceNamespaceSettings(ctx.db, workspaceId, ownerUserId, NAMESPACE, incoming);
+    // Copy-on-save (docs/agents/listing-wizard-defaults.md § Workspace
+    // application form): push the just-saved template onto every listing in
+    // this workspace still following it, so a listing's application stops
+    // silently changing under an applicant mid-apply. The live-read fallback
+    // in publicListingProjection / server-side validation / the editor
+    // preview stays in place for anything this push misses.
+    await pushWorkspaceApplicationFormToFollowingListings(ctx.db, workspaceId, incoming);
     await trackSettingsScopeChanged(ctx.db, ctx.userId, {
       module: ANALYTICS_MODULE,
       rung: "workspace",
