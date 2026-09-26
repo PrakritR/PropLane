@@ -12,7 +12,11 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 const rows: Array<{ listingId?: string; adminRefId: string }> = [];
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {}, refresh: () => {} }) }));
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "mgr-1", email: null, ready: true }) }));
-vi.mock("@/lib/demo/demo-session", () => ({ resolveManagerScopeUserId: (id: string | null) => id }));
+vi.mock("@/lib/demo/demo-session", () => ({
+  resolveManagerScopeUserId: (id: string | null) => id,
+  DEMO_MANAGER_USER_ID: "demo-manager",
+  isDemoModeActive: () => false,
+}));
 vi.mock("@/lib/demo-admin-property-inventory", () => ({ managerPropertyRowsForStage: () => rows }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ PROPERTY_PIPELINE_EVENT: "axis-property-pipeline" }));
 

@@ -4,7 +4,7 @@ import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /property management\s*that runs itself/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^propLane$/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /start free/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /book a demo/i }).first()).toBeVisible();
   });

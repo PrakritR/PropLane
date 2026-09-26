@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }));
 
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
+vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false, DEMO_MANAGER_USER_ID: "demo-manager" }));
 
 vi.mock("@/lib/manager-work-orders-storage", () => ({
   MANAGER_WORK_ORDERS_EVENT: "manager-work-orders-changed",

@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
   subscribeDemoPath: () => () => {},
+  DEMO_MANAGER_USER_ID: "demo-manager",
 }));
 
 vi.mock("next/navigation", () => ({
