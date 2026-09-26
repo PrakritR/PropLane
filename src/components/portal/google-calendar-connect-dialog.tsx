@@ -18,10 +18,13 @@ export function GoogleCalendarConnectDialog({
   /** Manager (default) reads `/api/portal/google-calendar`; a role cloning the
    * OAuth flow onto its own storage (vendor) passes its own base. */
   apiBase = "/api/portal/google-calendar",
+  /** Vendor calendar only: offer the "push my assigned visits to Google" toggle. */
+  showVendorPushToggle = false,
 }: {
   onConnectionChange?: () => void;
   className?: string;
   apiBase?: string;
+  showVendorPushToggle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -82,6 +85,7 @@ export function GoogleCalendarConnectDialog({
         <GoogleCalendarConnectPanel
           presentation="dialog"
           apiBase={apiBase}
+          showVendorPushToggle={showVendorPushToggle}
           onConnectionChange={() => {
             void readStatus();
             onConnectionChange?.();

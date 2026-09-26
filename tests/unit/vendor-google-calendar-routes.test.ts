@@ -157,4 +157,29 @@ describe("vendor Google Calendar status route", () => {
     expect(res.status).toBe(200);
     expect(mocks.saveGoogleCalendarConnection).toHaveBeenCalledWith(expect.anything(), "vendor-user-1", { syncEnabled: false });
   });
+
+  it("PATCH with only vendorPushEnabled never resets syncEnabled back to its default", async () => {
+    mocks.resolveVendorPortalUserId.mockResolvedValue({ ok: true, userId: "vendor-user-1" });
+    mocks.saveGoogleCalendarConnection.mockResolvedValue({ connected: true, syncEnabled: false, vendorPushEnabled: true });
+    const { PATCH } = await import("@/app/api/vendor/google-calendar/route");
+    const res = await PATCH(
+      jsonRequest("https://app.example.com/api/vendor/google-calendar", { method: "PATCH", body: { vendorPushEnabled: true } }),
+    );
+
+    expect(res.status).toBe(200);
+    // Only the field actually sent is touched — no `syncEnabled` key at all,
+    // so a vendor who had turned sync off can flip this toggle without it
+    // silently turning sync back on.
+    expect(mocks.saveGoogleCalendarConnection).toHaveBeenCalledWith(expect.anything(), "vendor-user-1", { vendorPushEnabled: true });
+  });
+
+  it("PATCH with an empty body touches neither field", async () => {
+    mocks.resolveVendorPortalUserId.mockResolvedValue({ ok: true, userId: "vendor-user-1" });
+    mocks.saveGoogleCalendarConnection.mockResolvedValue({ connected: true });
+    const { PATCH } = await import("@/app/api/vendor/google-calendar/route");
+    const res = await PATCH(jsonRequest("https://app.example.com/api/vendor/google-calendar", { method: "PATCH", body: {} }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.saveGoogleCalendarConnection).toHaveBeenCalledWith(expect.anything(), "vendor-user-1", {});
+  });
 });

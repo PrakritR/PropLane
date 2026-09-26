@@ -8,6 +8,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { FilterCollapsibleSection, FilterCheckboxList } from "@/components/portal/filter-field-lists";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
+import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
 import { VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, VENDOR_AVAILABILITY_CHANGED_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-settings-panel";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
@@ -322,6 +323,9 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
 
   return (
     <ManagerPortalPageShell title="Calendar" hideTitleOnMobileNav compactFilterRow>
+      {!demo && userId ? (
+        <GoogleCalendarPendingChangesBanner apiBase="/api/vendor/google-calendar" refreshSignal={refreshSignal} />
+      ) : null}
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
@@ -345,6 +349,7 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
             {filterSheet}
             <GoogleCalendarConnectDialog
               apiBase="/api/vendor/google-calendar"
+              showVendorPushToggle
               onConnectionChange={() => setRefreshSignal((n) => n + 1)}
             />
           </>
