@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { MobileAppDownloadPanel } from "@/components/marketing/ios-app-download-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 
 /**
@@ -13,10 +11,17 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
  * page blank with no faster way to actually get the app onto a phone than
  * remembering a URL later. A QR code (the same download link the App Store
  * badge points at) fills that space with a real desktop-to-phone handoff, and
- * "Text me the link" sends that same fixed URL to a phone number the viewer
- * types in (`/api/manager/app-download-sms` — signed-in only, rate-limited,
- * never a caller-controlled message body). Rendered only at `lg`+, where the
- * dock layout's own phone mockup is the primary content instead.
+ * "Email me the link" sends that same fixed URL to the signed-in manager's
+ * own account email (`/api/manager/app-download-email` — manager-only,
+ * rate-limited, takes no destination from the request at all). Rendered only
+ * at `lg`+, where the dock layout's own phone mockup is the primary content
+ * instead.
+ *
+ * This was originally an SMS "text me the link" with a phone number the
+ * viewer typed in. That let any signed-in account make the platform's own
+ * Twilio number text an arbitrary worldwide number (SMS-pumping / toll-fraud
+ * risk) and broke the "outbound from the work number only" invariant, so it
+ * was replaced with this email-to-self version.
  *
  * An Android/Play Store option is deliberately NOT added here: PropLane has
  * no shipped Android app yet (docs/mobile-app.md — "Android is not [shipped],
@@ -25,31 +30,15 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
  */
 function DesktopAppQrCard({ qrCodeSvg }: { qrCodeSvg: string }) {
   const { showToast } = useAppUi();
-  const [phone, setPhone] = useState("");
-  const [sending, setSending] = useState(false);
 
-  const sendLink = async () => {
-    if (!phone.trim()) {
-      showToast("Enter a phone number.");
+  const emailLink = async () => {
+    const res = await fetch("/api/manager/app-download-email", { method: "POST", credentials: "include" });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      showToast(data.error ?? "Could not send the email.");
       return;
     }
-    setSending(true);
-    try {
-      const res = await fetch("/api/manager/app-download-sms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ phone }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not send the text.");
-      showToast("Text sent.");
-      setPhone("");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not send the text.");
-    } finally {
-      setSending(false);
-    }
+    showToast("Email sent.");
   };
 
   return (
@@ -62,27 +51,15 @@ function DesktopAppQrCard({ qrCodeSvg }: { qrCodeSvg: string }) {
         className="h-40 w-40 [&_svg]:h-full [&_svg]:w-full"
         dangerouslySetInnerHTML={{ __html: qrCodeSvg }}
       />
-      <div className="flex w-full flex-col gap-2">
-        <Input
-          type="tel"
-          inputMode="tel"
-          placeholder="(555) 555-5555"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          aria-label="Phone number"
-          data-attr="manager-app-download-sms-phone"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          disabled={sending}
-          onClick={() => void sendLink()}
-          data-attr="manager-app-download-sms-send"
-        >
-          {sending ? "Sending…" : "Text me the link"}
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        onClick={() => emailLink()}
+        data-attr="manager-app-download-email-send"
+      >
+        Email me the link
+      </Button>
     </div>
   );
 }
