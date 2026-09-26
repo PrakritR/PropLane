@@ -20,11 +20,10 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
-    const { data: profile } = await db
-      .from("profiles")
-      .select("email, role, full_name")
-      .eq("id", user.id)
-      .maybeSingle();
+    // `full_name` is deliberately not read here: it is resident-controlled and must
+    // never reach the outgoing email — the resident's name for that comes only from
+    // the lease row itself, inside `sendLeaseSignerInvite`.
+    const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
     const isResident = await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role });
     if (!isResident) return NextResponse.json({ error: "Residents only." }, { status: 403 });
@@ -34,13 +33,12 @@ export async function POST(req: NextRequest) {
     const result = await sendLeaseSignerInvite(db, {
       residentUserId: user.id,
       residentEmail: email,
-      residentName: typeof profile?.full_name === "string" ? profile.full_name : undefined,
       leaseId: (body.leaseId ?? "").trim(),
       roleLabel: (body.roleLabel ?? "").trim(),
       inviteEmail: (body.inviteEmail ?? "").trim(),
     });
 
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 400 });
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unexpected error.";

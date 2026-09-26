@@ -63,6 +63,18 @@ through the existing `postResendEmail` transport. The invited party never
 gets portal access, an account, or a way to sign — the email exists purely to
 tell them they were named, matching "no new auth surface."
 
+A resident sends this email from PropLane's own domain, so nothing about it is
+caller-controlled: `classifySignerInviteRole` matches the wizard's raw field
+label against a FIXED allowlist (representative / legal representative /
+guarantor) and only the matched entry's canonical label ever reaches the
+email — an unrecognized label is refused (400), never sent verbatim. The
+resident's name in the email comes only from the lease row's own
+`residentName` (never `profiles.full_name`, which the resident controls) and
+is stripped of URLs/newlines and length-capped before it can reach the
+subject or body. `rateLimit` (`src/lib/rate-limit.ts`) caps it at 5 invites
+per resident per 24 hours and 1 invite per (lease, role) per 24 hours (429 on
+either).
+
 Coverage: `tests/unit/lease-signer-invite.test.ts`,
 `tests/unit/resident-lease-first-signing-wizard-invite.test.ts`.
 
