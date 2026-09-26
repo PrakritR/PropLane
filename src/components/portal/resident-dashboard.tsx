@@ -1051,7 +1051,7 @@ export function ResidentDashboard({
                   href={`${BASE}/services`}
                   dot={sectionAccentDot(sectionTone)}
                   title={item.row.title?.trim() || "Service"}
-                  subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || "Maintenance"}
+                  subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || "Service"}
                   pill={<StatusPill tone="pending">Open</StatusPill>}
                   dataAttr="resident-dashboard-attention-service"
                 />

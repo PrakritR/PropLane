@@ -2887,7 +2887,7 @@ export function ManagerResidents({
     const workOrders: ResidentOverviewServiceItem[] = residentWorkOrders.map((row) => ({
       id: `work-order-${row.id}`,
       title: row.title,
-      detail: [row.scheduled?.trim(), row.status?.trim()].filter(Boolean).join(" · ") || "Maintenance",
+      detail: [row.scheduled?.trim(), row.status?.trim()].filter(Boolean).join(" · ") || "Service",
       bucket: residentUnifiedServiceBucketForWorkOrder(row),
       href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `work-order-${row.id}`),
     }));

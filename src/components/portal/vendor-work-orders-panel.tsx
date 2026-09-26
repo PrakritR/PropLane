@@ -856,7 +856,7 @@ export function VendorWorkOrdersPanel({
               disabled={submittingId === row.id}
               onClick={() => submitBid(row)}
             >
-              {pricingPending ? "Submit price" : bid ? "Update bid" : "Submit bid"}
+              {pricingPending ? "Submit price" : bid ? "Update quote" : "Submit quote"}
             </Button>
             {bid && bid.status === "submitted" ? (
               <Button
@@ -867,7 +867,7 @@ export function VendorWorkOrdersPanel({
                 disabled={withdrawingBidId === row.id}
                 onClick={() => withdrawBid(row)}
               >
-                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw bid"}
+                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw quote"}
               </Button>
             ) : null}
           </PortalTableDetailActions>
