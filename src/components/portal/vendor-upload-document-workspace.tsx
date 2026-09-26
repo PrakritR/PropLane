@@ -60,7 +60,7 @@ export function VendorUploadDocumentWorkspace({
           {
             kind,
             fileName: file.name,
-            url: `/api/vendor/documents/file?kind=${encodeURIComponent(kind)}`,
+            url: `/api/vendor/documents/signed-url?kind=${encodeURIComponent(kind)}`,
             uploadedAt: new Date().toISOString(),
           },
         ]);
