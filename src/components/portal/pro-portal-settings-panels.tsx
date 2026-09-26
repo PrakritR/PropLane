@@ -1,5 +1,4 @@
 "use client";
-import { TourInterestSettings } from "./tour-interest-settings";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Copy, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -1564,8 +1563,6 @@ export function TourSettingsPanel({
           </PortalSettingsGroup>
         </PortalSettingsSection>
       </div>
-
-      <TourInterestSettings />
 
       <ManagerTourAvailabilityModal
         open={availabilityOpen}
