@@ -24,16 +24,19 @@
   height: 820px;
   background: radial-gradient(circle, rgba(154, 156, 245, 0.5) 0%, rgba(154, 156, 245, 0) 70%);
 }
+/* 250×541 = the 200×433 bezel × 1.25 (captain 2026-09-25: "bigger phone"
+   pass) — width/height must track codex-hero-window.tsx's PHONE_BEZEL_WIDTH
+   (and its derived height), which the iframe's scale() is computed from. */
 .codex-hero-phone {
   position: absolute;
   right: -16px;
   bottom: -24px;
   z-index: 3;
-  width: 200px;
-  height: 433px;
+  width: 250px;
+  height: 541px;
   overflow: hidden;
-  border: 7px solid #111;
-  border-radius: 32px;
+  border: 8px solid #111;
+  border-radius: 40px;
   background: #fff;
   box-shadow: 0 30px 70px -18px rgba(15, 23, 42, 0.45);
 }

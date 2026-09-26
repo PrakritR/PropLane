@@ -6,8 +6,9 @@ import { useEffect, useRef, useState } from "react";
 const PHONE_VIEWPORT_WIDTH = 390;
 const PHONE_VIEWPORT_HEIGHT = 844;
 /** Visual size of the bezel in the hero — the iframe inside is the real
- * 390×844 phone viewport, scaled down with a CSS transform to fit here. */
-const PHONE_BEZEL_WIDTH = 200;
+ * 390×844 phone viewport, scaled down with a CSS transform to fit here.
+ * 250 = 200 × 1.25 (captain 2026-09-25: "bigger phone" pass). */
+const PHONE_BEZEL_WIDTH = 250;
 const PHONE_SCALE = PHONE_BEZEL_WIDTH / PHONE_VIEWPORT_WIDTH;
 const PHONE_BEZEL_HEIGHT = Math.round(PHONE_VIEWPORT_HEIGHT * PHONE_SCALE);
 
@@ -122,7 +123,7 @@ function CodexHeroPhoneMockup({
           />
         </div>
       ) : (
-        <Image src="/marketing/product/phone-dashboard.webp" alt="" fill sizes="200px" className="object-cover object-top" />
+        <Image src="/marketing/product/phone-dashboard.webp" alt="" fill sizes="250px" className="object-cover object-top" />
       )}
     </div>
   );
