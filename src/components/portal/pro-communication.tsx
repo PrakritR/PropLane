@@ -1,5 +1,6 @@
 "use client";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 import { PenSquare, Settings } from "lucide-react";
 
@@ -143,7 +144,9 @@ export function ManagerCommunication({
   const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const [smsDirectory, setSmsDirectory] = useState<{ viewer: string | null; rows: ManagerSmsResidentConversation[] }>({ viewer: null, rows: [] });
   const smsRecipients = smsDirectory.viewer === userId ? smsDirectory.rows : [];
-  const [smsCanSend, setSmsCanSend] = useState(false);
+  // The Seattle Homes sandbox already has a work number set up — never
+  // fetch the real (auth-gated) messaging status from `/demo`.
+  const [smsCanSend, setSmsCanSend] = useState(() => isDemoModeActive());
   const smsOutboundEnabled = smsUiEnabled || smsCanSend;
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
@@ -203,7 +206,7 @@ export function ManagerCommunication({
   }, [sessionReady, smsOutboundEnabled, userId]);
 
   useEffect(() => {
-    if (!sessionReady || !userId) return;
+    if (isDemoModeActive() || !sessionReady || !userId) return;
     let cancelled = false;
     void loadManagerMessagingNumberStatusClient(userId).then((result) => {
       if (cancelled || !result.ok) return;
