@@ -1,3 +1,10 @@
+"use client";
+
+// `PortalRowFact` (portal-record-row.tsx) is a client component whose `icon`
+// prop is a lucide component reference, not a rendered element — the exact
+// pattern review-step.tsx uses it with, and the reason THAT file is also
+// "use client" — a Server Component can't pass a bare function reference
+// across the RSC boundary into a Client Component's props.
 import {
   AlertCircle,
   Calendar,
