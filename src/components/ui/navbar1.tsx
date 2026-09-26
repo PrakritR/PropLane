@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
@@ -139,12 +139,16 @@ export function Navbar1({
           {searchItems ? (
             <button
               type="button"
-              aria-label="Search PropLane (Cmd+K)"
+              aria-label={searchOpen ? "Close search" : "Search PropLane (Cmd+K)"}
               data-attr="public-nav-search"
-              onClick={() => setSearchOpen(true)}
+              onClick={() => setSearchOpen((open) => !open)}
               className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted transition hover:bg-accent/60 hover:text-foreground"
             >
-              <Search className="size-[17px]" strokeWidth={2} aria-hidden />
+              {searchOpen ? (
+                <X className="size-[17px]" strokeWidth={2} aria-hidden />
+              ) : (
+                <Search className="size-[17px]" strokeWidth={2} aria-hidden />
+              )}
             </button>
           ) : null}
           {actionsSlot && <div className="hidden items-center lg:flex">{actionsSlot}</div>}
@@ -197,12 +201,16 @@ export function Navbar1({
           {searchItems ? (
             <button
               type="button"
-              aria-label="Search PropLane"
+              aria-label={searchOpen ? "Close search" : "Search PropLane"}
               data-attr="public-nav-search-mobile"
-              onClick={() => setSearchOpen(true)}
+              onClick={() => setSearchOpen((open) => !open)}
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-foreground/85 transition hover:bg-accent/60"
             >
-              <Search className="size-[19px]" strokeWidth={2} aria-hidden />
+              {searchOpen ? (
+                <X className="size-[19px]" strokeWidth={2} aria-hidden />
+              ) : (
+                <Search className="size-[19px]" strokeWidth={2} aria-hidden />
+              )}
             </button>
           ) : null}
           <Sheet>
