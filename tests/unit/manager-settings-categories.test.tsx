@@ -79,6 +79,9 @@ vi.mock("@/components/portal/settings-module-page", () => ({
 vi.mock("@/components/portal/manager-sheet-link-panel", () => ({
   ManagerSheetLinkPanel: () => <div data-testid="pane-spreadsheets" />,
 }));
+vi.mock("@/components/portal/pro-portal-settings-forms-panel", () => ({
+  ManagerFormsSettingsPanel: () => <div data-testid="pane-forms" />,
+}));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
@@ -95,6 +98,7 @@ const CATEGORIES = [
   "account",
   "applications",
   "lease",
+  "forms",
   "tours",
   "resident",
   "messaging",
@@ -180,6 +184,7 @@ describe("manager settings categories", () => {
     ["feedback", () => screen.getByTestId("pane-bug-feedback")],
     ["account", () => screen.getByText("Sign out")],
     ["spreadsheets", () => screen.getByTestId("pane-spreadsheets")],
+    ["forms", () => screen.getByTestId("pane-forms")],
   ])("deep-links ?tab=%s straight to that pane", async (tab, expectPane) => {
     goto(`?tab=${tab}`);
     renderSettings();
