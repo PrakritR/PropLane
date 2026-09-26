@@ -13,7 +13,7 @@ const enabled = process.env.E2E_TESTS_ENABLED === "1";
 test.describe("PRP-429 properties onboarding + detail routing", () => {
   test.skip(!enabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("visiting Properties on an established portfolio lands on Listed and mints nothing", async ({
+  test("visiting Properties on an established portfolio lands on All and mints nothing", async ({
     page,
   }) => {
     const listedTab = page.locator('[data-attr="manager-properties-tab-listed"]');
@@ -23,7 +23,7 @@ test.describe("PRP-429 properties onboarding + detail routing", () => {
 
     await signInAsManager(page);
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/portal\/properties\/listed$/);
+    await expect(page).toHaveURL(/\/portal\/properties\/all$/);
     await expect(listedTab).toBeVisible({ timeout: 20_000 });
 
     // The chips render "0" until the portfolio sync lands, so wait for the real
@@ -40,7 +40,7 @@ test.describe("PRP-429 properties onboarding + detail routing", () => {
     const before = await draftsCount();
     await page.goto("/portal/dashboard", { waitUntil: "domcontentloaded" });
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/portal\/properties\/listed$/);
+    await expect(page).toHaveURL(/\/portal\/properties\/all$/);
     await expect(listedTab).toBeVisible({ timeout: 20_000 });
     await expect
       .poll(async () => Number((await listedTab.innerText()).replace(/\D/g, "") || "0"), {
@@ -72,13 +72,13 @@ test.describe("PRP-429 properties onboarding + detail routing", () => {
     expect(key.length).toBeGreaterThan(0);
     await expect(page.getByText("Property not found.")).toHaveCount(0);
 
-    // This is the post-publish URL shape: the record's id under the stage it has
-    // just left. It used to render "Property not found."
+    // A live record requested under Drafts resolves to the canonical All view
+    // with the same id and preview tab, rather than "Property not found."
     await page.goto(`/portal/properties/drafts/${key}/preview`, {
       waitUntil: "domcontentloaded",
     });
     await expect(page).toHaveURL(
-      new RegExp(`/portal/properties/listed/${key.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}/preview`),
+      new RegExp(`/portal/properties/all/${key.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}/preview`),
       { timeout: 30_000 },
     );
     await expect(page.getByText("Property not found.")).toHaveCount(0);

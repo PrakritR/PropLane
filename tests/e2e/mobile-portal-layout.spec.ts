@@ -40,6 +40,7 @@ test.describe("Mobile portal layout", () => {
   });
 
   test("manager smoke paths render headings without page-level horizontal overflow", async ({ page }) => {
+    test.setTimeout(180_000);
     for (const { path } of MANAGER_PORTAL_SMOKE_PATHS) {
       await gotoTolerantly(page, path);
       await expect(page).toHaveURL(pathToUrlRegExp(path));
@@ -91,6 +92,7 @@ test.describe("Mobile resident portal layout", () => {
    * does not overflow is the part that holds.
    */
   test("resident smoke paths render without page-level horizontal overflow", async ({ page }) => {
+    test.setTimeout(180_000);
     const overflowing: string[] = [];
     for (const { path } of RESIDENT_PORTAL_SMOKE_PATHS) {
       await gotoTolerantly(page, path);

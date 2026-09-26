@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   INBOX_TAB_DEFS,
@@ -111,6 +111,7 @@ function ComposeModal({
   const [busy, setBusy] = useState(false);
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [sendAtLocal, setSendAtLocal] = useState(defaultScheduleAtLocal());
+  const wasOpen = useRef(false);
 
   const pickPool = useMemo(() => {
     if (mode === "pick_managers") return recipients.managers;
@@ -119,7 +120,12 @@ function ComposeModal({
   }, [mode, recipients]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpen.current = false;
+      return;
+    }
+    if (wasOpen.current) return;
+    wasOpen.current = true;
     queueMicrotask(() => {
       setTopic("");
       setBody("");
@@ -130,6 +136,13 @@ function ComposeModal({
       setSendAtLocal(defaultScheduleAtLocal());
     });
   }, [open, recipients.managers, initialSchedule]);
+
+  useEffect(() => {
+    if (!open || mode !== "pick_managers") return;
+    const first = recipients.managers[0]?.id;
+    if (!first) return;
+    queueMicrotask(() => setSelectedIds((current) => current.size > 0 ? current : new Set([first])));
+  }, [open, mode, recipients.managers]);
 
   const toggleId = (id: string) => {
     setSelectedIds((prev) => {

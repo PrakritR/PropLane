@@ -15,15 +15,17 @@ test.describe("Payment detail routing", () => {
     await page.goto("/portal/payments/incoming/pending", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: /payments/i }).first()).toBeVisible({ timeout: 30_000 });
 
-    const firstRow = page.locator('[data-attr="payment-list-row"]').first();
-    await expect(firstRow).toBeVisible({ timeout: 30_000 });
-    await firstRow.click();
+    // Wait for the seeded live ledger row; the initial sample row is replaced
+    // during hydration and its detail ID is not a persisted charge.
+    const seededRow = page.locator('[data-attr="payment-list-row"]').filter({ hasText: "Ava Nguyen" }).first();
+    await expect(seededRow).toBeVisible({ timeout: 30_000 });
+    await seededRow.click();
 
     await expect(page).toHaveURL(/\/portal\/payments\/incoming\/pending\/[^/]+$/);
     expect(page.url()).not.toContain("/payments/payments/");
     expect(page.url()).not.toContain("_axis_");
 
-    await expect(page.getByRole("button", { name: /back to payments/i })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-attr="payment-detail-back"]')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator("text=Due date").first()).toBeVisible();
   });
 });

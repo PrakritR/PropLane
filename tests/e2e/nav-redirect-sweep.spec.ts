@@ -195,10 +195,10 @@ test.describe("legacy nav redirects land on a real page", () => {
     for (const r of results) {
       expect.soft(r.isNotFound, `${r.requested} must not 404`).toBe(false);
     }
-    for (const legacy of ["tax", "insurance", "licensing"]) {
+    for (const legacy of ["mine", "shared", "tax", "insurance", "licensing"]) {
       expect
-        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on Mine`)
-        .toBe("/vendor/documents/mine");
+        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on All`)
+        .toBe("/vendor/documents/all");
     }
   });
 });
