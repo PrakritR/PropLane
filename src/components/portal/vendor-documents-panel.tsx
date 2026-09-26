@@ -29,6 +29,7 @@ import {
   VENDOR_DOCUMENT_SECTIONS,
   VENDOR_DOCUMENT_TABS,
   isVendorComplianceDocumentKind,
+  readVendorDocumentDataUrl,
   type VendorDocumentKind,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
@@ -360,10 +361,13 @@ export function VendorDocumentsPanel({
     }
     setUploadingKind(kind);
     try {
-      const body = new FormData();
-      body.set("kind", kind);
-      body.set("file", file);
-      const res = await fetch("/api/vendor/documents/upload", { method: "POST", credentials: "include", body });
+      const dataUrl = await readVendorDocumentDataUrl(file);
+      const res = await fetch("/api/vendor/documents/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ kind, dataUrl, fileName: file.name }),
+      });
       const data = (await res.json()) as { documents?: VendorDocumentRecord[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Upload failed.");
       setDocuments(data.documents ?? []);

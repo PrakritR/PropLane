@@ -144,3 +144,21 @@ export function findVendorDocument(
 ): VendorDocumentRecord | undefined {
   return (existing ?? []).find((d) => d.kind === kind);
 }
+
+/**
+ * Read a picked File as a data URL for `/api/vendor/documents/upload`, which
+ * only ever parses a JSON body with a `dataUrl` string — never multipart
+ * `FormData` (that mismatch is what made "Replace" silently fail: the route
+ * throws parsing the body as JSON, which the route's own catch turns into a
+ * generic "Upload failed."). Both the Documents panel's inline Replace and
+ * the upload wizard share this so the request shape can never drift apart
+ * again.
+ */
+export function readVendorDocumentDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}

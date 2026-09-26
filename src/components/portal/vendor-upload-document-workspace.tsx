@@ -13,6 +13,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   VENDOR_DOCUMENT_KINDS,
   VENDOR_DOCUMENT_LABELS,
+  readVendorDocumentDataUrl,
   type VendorDocumentKind,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
@@ -68,10 +69,13 @@ export function VendorUploadDocumentWorkspace({
         resetAndClose();
         return;
       }
-      const body = new FormData();
-      body.set("kind", kind);
-      body.set("file", file);
-      const res = await fetch("/api/vendor/documents/upload", { method: "POST", credentials: "include", body });
+      const dataUrl = await readVendorDocumentDataUrl(file);
+      const res = await fetch("/api/vendor/documents/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ kind, dataUrl, fileName: file.name }),
+      });
       const data = (await res.json()) as { documents?: VendorDocumentRecord[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Upload failed.");
       onUploaded(data.documents ?? []);
