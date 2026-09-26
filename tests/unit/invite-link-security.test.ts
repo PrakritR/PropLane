@@ -96,15 +96,17 @@ describe("opening a link never changes an account on its own", () => {
   it("requires a click, and a session, before anything is redeemed", () => {
     // A URL in a group chat must not quietly link whoever loads it.
     expect(PAGE).toContain('data-attr="invite-link-accept"');
-    expect(PAGE).toContain("Sign in to accept");
+    expect(PAGE).toContain("Sign in to join");
     // No redeem call inside a mount effect.
     const mountEffects = PAGE.slice(0, PAGE.indexOf("const accept ="));
     expect(mountEffects).not.toContain("invite-links/redeem");
   });
 
   it("hands off to the one existing accept path", () => {
-    // Not a second implementation of "become a co-manager".
-    expect(PAGE).toContain("/portal/profile?tab=workspaces");
+    // Not a second implementation of "become a co-manager": the click posts to
+    // the redeem route whose ownership, plan and use-count checks are pinned above.
+    const acceptBody = PAGE.slice(PAGE.indexOf("const accept ="), PAGE.indexOf("}, [", PAGE.indexOf("const accept =")));
+    expect(acceptBody).toContain('fetch("/api/pro/invite-links/redeem"');
   });
 });
 

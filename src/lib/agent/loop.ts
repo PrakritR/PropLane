@@ -19,6 +19,7 @@ import {
 import { MANAGER_SYSTEM_PROMPT } from "./system-prompts";
 import { selectModel, type ModelTier, type AgentProvider, type AgentRoute, type AgentModelSelection } from "./model";
 import { completeAgentModel } from "./provider";
+import { guardLunaFailedLookupClaim, guardLunaReplyLinks } from "./luna-link-guard";
 
 const MAX_ITERATIONS = 8;
 
@@ -27,7 +28,10 @@ export { MAX_ITERATIONS };
 
 export type ToolTraceEntry = { tool: string; ok: boolean };
 export type ToolEvidenceEntry = { tool: string; input: unknown; output: unknown };
-export type TurnUsage = { inputTokens: number; outputTokens: number };
+function failedBusinessRead(output: unknown): boolean {
+  return Boolean(output && typeof output === "object" && "ok" in output && output.ok === false);
+}
+export type TurnUsage = { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number; reasoningOutputTokens?: number; raw?: unknown };
 
 /** A write tool the model proposed; the turn halted awaiting user confirmation. */
 export type PendingActionProposal = {
@@ -47,6 +51,7 @@ export type AgentTurnResult = {
   tier: ModelTier;
   provider: AgentProvider;
   route: AgentRoute;
+  reasoningEffort?: "low" | "medium" | "high";
   fallbackReason?: string;
   latencyMs: number;
   usage: TurnUsage;
@@ -76,8 +81,11 @@ export type LlmCallEvent = {
   toolsChosen: string[];
   provider: AgentProvider;
   route: AgentRoute;
+  reasoningEffort?: "low" | "medium" | "high";
   latencyMs: number;
   fallbackReason?: string;
+  responseId?: string;
+  rawOutput?: unknown;
   input: Anthropic.MessageParam[]; // messages sent for this call
   assistantContent: Anthropic.ContentBlock[]; // the response blocks
 };
@@ -96,7 +104,7 @@ export type PendingActionEvent = {
   error?: string;
 };
 export type AgentObserver = {
-  onStart?(info: { system: string; toolsAvailable: string[]; model: string; tier: ModelTier; provider: AgentProvider; route: AgentRoute }): void;
+  onStart?(info: { system: string; toolsAvailable: string[]; model: string; tier: ModelTier; provider: AgentProvider; route: AgentRoute; reasoningEffort?: "low" | "medium" | "high" }): void;
   onLlmCall?(e: LlmCallEvent): void;
   onToolCall?(e: ToolCallEvent): void;
   onPendingAction?(e: PendingActionEvent): void;
@@ -119,6 +127,8 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
   /** Portal-specific system prompt; defaults to the manager prompt. */
   system?: string;
   observer?: AgentObserver;
+  /** Optional admission control before each provider call (for bounded evaluations). */
+  beforeModelCall?: (call: { iteration: number; system: string; tools: ReturnType<typeof toAnthropicTools>; messages: Anthropic.MessageParam[]; model: string }) => Promise<void> | void;
   /** Pin the model instead of routing by complexity (the SMS agents do this). */
   model?: Partial<AgentModelSelection> & { model: string; tier: ModelTier };
   /** Explicit tool shortlist for a read-only fast lane. */
@@ -162,6 +172,10 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
     provider: selected.provider ?? "anthropic",
     route: selected.route ?? "anthropic",
     ...(selected.fallbackModel ? { fallbackModel: selected.fallbackModel } : {}),
+    ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
+    ...(selected.maxOutputTokens ? { maxOutputTokens: selected.maxOutputTokens } : {}),
+    ...(selected.timeoutMs ? { timeoutMs: selected.timeoutMs } : {}),
+    ...(selected.disableBillingFallback ? { disableBillingFallback: true } : {}),
   };
   const { model, tier } = selection;
   let effectiveModel = model;
@@ -169,32 +183,46 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
   let fallbackReason: string | undefined;
   let totalLatencyMs = 0;
   let continuationState: import("./provider").OpenAIResponsesContinuation | undefined;
+  // Leave room for tool execution, persistence, and SSE completion inside the
+  // portal routes' 120-second platform ceiling.
+  const lunaDeadline = selection.route === "luna_primary" ? performance.now() + 100_000 : undefined;
   const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 };
 
   const observer = opts.observer;
   let lastStopReason: string | null = null;
   notify(
     observer?.onStart &&
-      (() => observer.onStart!({ system, toolsAvailable: tools.map((t) => t.name), model, tier, provider: selection.provider, route: selection.route })),
+      (() => observer.onStart!({ system, toolsAvailable: tools.map((t) => t.name), model, tier, provider: selection.provider, route: selection.route, reasoningEffort: selection.reasoningEffort })),
   );
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     // Snapshot the messages sent for this call before we mutate the array, so the
     // trace records the exact prompt for replay.
     const callInput = [...messages];
-    const response = await completeAgentModel({ selection, system, tools, messages, continuationState });
+    await opts.beforeModelCall?.({ iteration: i, system, tools, messages: callInput, model });
+    const remainingMs = lunaDeadline === undefined ? undefined : Math.floor(lunaDeadline - performance.now());
+    if (remainingMs !== undefined && remainingMs < 1_000) throw new Error("Luna turn exceeded its time budget.");
+    const callSelection = remainingMs === undefined ? selection : { ...selection, timeoutMs: Math.min(selection.timeoutMs ?? 45_000, remainingMs) };
+    const response = await completeAgentModel({ selection: callSelection, system, tools, messages, continuationState });
     continuationState = response.continuationState;
     actualProvider = response.provider;
-    if (response.fallbackReason) effectiveModel = selection.fallbackModel || model;
+    effectiveModel = response.responseModel || (response.fallbackReason ? selection.fallbackModel || model : model);
     fallbackReason ??= response.fallbackReason;
     totalLatencyMs += response.latencyMs;
 
     const callUsage: TurnUsage = {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+      cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
+      reasoningOutputTokens: response.usage.reasoningOutputTokens,
+      raw: response.usage.raw,
     };
     usage.inputTokens += callUsage.inputTokens;
     usage.outputTokens += callUsage.outputTokens;
+    usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + (callUsage.cachedInputTokens ?? 0);
+    usage.cacheCreationInputTokens = (usage.cacheCreationInputTokens ?? 0) + (callUsage.cacheCreationInputTokens ?? 0);
+    usage.reasoningOutputTokens = (usage.reasoningOutputTokens ?? 0) + (callUsage.reasoningOutputTokens ?? 0);
 
     const toolUses = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
@@ -206,7 +234,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
         (() =>
           observer.onLlmCall!({
             iteration: i,
-            model: response.fallbackReason ? selection.fallbackModel || model : model,
+            model: response.responseModel || (response.fallbackReason ? selection.fallbackModel || model : model),
             usage: callUsage,
             stopReason: response.stopReason,
             toolsChosen: toolUses.map((u) => u.name),
@@ -214,8 +242,11 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
             assistantContent: response.content,
             provider: response.provider,
             route: selection.route,
+            reasoningEffort: selection.reasoningEffort,
             latencyMs: response.latencyMs,
             fallbackReason: response.fallbackReason,
+            responseId: response.responseId,
+            rawOutput: response.rawOutput,
           })),
     );
 
@@ -252,6 +283,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
           usage,
           provider: actualProvider,
           route: selection.route,
+          reasoningEffort: selection.reasoningEffort,
           fallbackReason,
           latencyMs: totalLatencyMs,
           iterationCount: i + 1,
@@ -272,8 +304,13 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
         .map((b) => b.text)
         .join("")
         .trim();
+      const hasUnresolvedReadError = toolTrace.some((entry) => !entry.ok && opts.registry.get(entry.tool)?.kind === "read") ||
+        toolEvidence.some((entry) => opts.registry.get(entry.tool)?.kind === "read" && failedBusinessRead(entry.output));
+      const successfulEvidence = toolEvidence.filter((entry) => !failedBusinessRead(entry.output));
       return {
-        reply: reply || "I couldn't find an answer to that.",
+        reply: selection.route === "luna_primary"
+          ? guardLunaReplyLinks(guardLunaFailedLookupClaim(reply || "I couldn't find an answer to that.", hasUnresolvedReadError), successfulEvidence.map((entry) => entry.output))
+          : reply || "I couldn't find an answer to that.",
         toolTrace,
         toolEvidence,
         model: effectiveModel,
@@ -281,6 +318,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
         usage,
         provider: actualProvider,
         route: selection.route,
+        reasoningEffort: selection.reasoningEffort,
         fallbackReason,
         latencyMs: totalLatencyMs,
         iterationCount: i + 1,
@@ -319,8 +357,12 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
           .map((b) => b.text)
           .join("")
           .trim();
+        const hasUnresolvedReadError = toolTrace.some((entry) => !entry.ok && opts.registry.get(entry.tool)?.kind === "read") ||
+          toolEvidence.some((entry) => opts.registry.get(entry.tool)?.kind === "read" && failedBusinessRead(entry.output));
         return {
-          reply,
+          reply: selection.route === "luna_primary"
+            ? guardLunaReplyLinks(guardLunaFailedLookupClaim(reply, hasUnresolvedReadError), toolEvidence.filter((entry) => !failedBusinessRead(entry.output)).map((entry) => entry.output))
+            : reply,
           toolTrace,
           toolEvidence,
           model: effectiveModel,
@@ -328,6 +370,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
           usage,
           provider: actualProvider,
           route: selection.route,
+          reasoningEffort: selection.reasoningEffort,
           fallbackReason,
           latencyMs: totalLatencyMs,
           iterationCount: i + 1,
@@ -392,6 +435,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
     usage,
     provider: actualProvider,
     route: selection.route,
+    reasoningEffort: selection.reasoningEffort,
     fallbackReason,
     latencyMs: totalLatencyMs,
     iterationCount: MAX_ITERATIONS,

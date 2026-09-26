@@ -117,7 +117,7 @@ describe("sendTaskAssigneeEmail", () => {
     // The regression: the link is built from resolveEmailLinkBaseUrl(), so it
     // must be a clickable absolute URL, never a bare "/portal/..." path.
     expect(email.text).toContain(
-      "Open your task list: https://prop-lane.space/portal/tasks/overdue",
+      "Open your task list: https://proplane.ai/portal/tasks/overdue",
     );
     expect(email.text).toContain("Property: 1420 Pine St");
   });
@@ -134,7 +134,7 @@ describe("sendTaskAssigneeEmail", () => {
     const email = delivered[0]!;
     expect(email.subject).toBe("New task assigned: Walk the vacant unit");
     expect(email.text).toContain(
-      "Open your task list: https://prop-lane.space/portal/tasks",
+      "Open your task list: https://proplane.ai/portal/tasks",
     );
   });
 

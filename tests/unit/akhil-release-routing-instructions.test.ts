@@ -66,7 +66,8 @@ describe("developer-specific release routing", () => {
   it("names the verified live Vercel project and branch-scoped staging environment", () => {
     expect(rootInstructions).toContain("Vercel project `proplane`");
     expect(deploymentWorkflow).toContain("`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`");
-    expect(deploymentWorkflow).toContain("`staging` branch-scoped variables");
+    // Prose rewraps; compare with whitespace collapsed.
+    expect(deploymentWorkflow.replace(/\s+/g, " ")).toContain("`staging` branch-scoped variables");
     expect(deploymentWorkflow).not.toContain("Vercel project** `axis-2`");
   });
 

@@ -217,6 +217,22 @@ shared conversation hook replays it. Details in
 
 ### Latency-aware model routing
 
+Interactive manager, resident, and vendor portal text turns use
+`gpt-6-luna` by default when the server has `OPENAI_API_KEY`. Set
+`AXIS_AGENT_LUNA_ENABLED=false` or `AXIS_AGENT_LUNA_ROLLOUT_PERCENT=0` to
+roll back. Explicit percentage values from 0 to 100 select an actor-stable
+cohort. Missing key or malformed settings retain the established
+Anthropic/OpenRouter route. Luna receives the full role-scoped catalog. It uses low reasoning by
+default and high for analytical, multi-question, long, or deep-history turns.
+Images stay on the separately pinned vision model. Disable the flag or set the
+percentage to zero for immediate rollback. This does not migrate SMS, title
+generation, parsers, or prospect shadow comparisons. The loop preserves the
+same preview/confirmation boundary for write tools. Luna portal replies block links
+not present in a successful tool result, and a failed read alone cannot support
+a claim that a record is absent. Langfuse and PostHog record
+the selected route, provider, model, effort, latency and fallback; Langfuse
+also records tokens and estimated cached-input-aware cost.
+
 Interactive text turns use a conservative two-provider route. When enabled,
 clear product questions use no tools and clear single-record lookups expose
 exactly one read tool to OpenRouter's `google/gemini-3.5-flash-lite` model.

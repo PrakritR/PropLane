@@ -86,8 +86,9 @@ describe("normalizing residentPricing / residentPrices", () => {
   it("pads from the room's own figures when there are no rows at all", () => {
     const room = normalizedRoom({ residentPricing: "per_resident", residentPrices: [] });
     expect(room.residentPrices).toEqual([
-      { monthlyRent: 1000, utilitiesEstimate: "75", securityDeposit: "250", pricingMode: "fixed" },
-      { monthlyRent: 1000, utilitiesEstimate: "75", securityDeposit: "250", pricingMode: "fixed" },
+      // Padded rows copy the room's proration method too.
+      { monthlyRent: 1000, utilitiesEstimate: "75", securityDeposit: "250", pricingMode: "fixed", prorateMethod: "auto" },
+      { monthlyRent: 1000, utilitiesEstimate: "75", securityDeposit: "250", pricingMode: "fixed", prorateMethod: "auto" },
     ]);
   });
 

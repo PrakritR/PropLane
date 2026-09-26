@@ -168,7 +168,7 @@ describe("work-email eligibility matches the work number", () => {
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue(trial);
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue(trial);
     mocks.loadManagerAssistantEmail.mockResolvedValue(existing ? { address: "assistant@test.invalid", workspaceId: "ws-mine" } : null);
-    expect(await (await GET()).json()).toMatchObject({
+    expect(await (await GET(new Request("http://localhost"))).json()).toMatchObject({
       canRequest: !existing,
       canUse: existing,
       entitlement: { eligible: true },
@@ -186,7 +186,7 @@ describe("work-email eligibility matches the work number", () => {
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue(notEnrolled);
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue(notEnrolled);
     mocks.loadManagerAssistantEmail.mockResolvedValue(null);
-    expect(await (await GET()).json()).toMatchObject({ canRequest: false, canUse: false });
+    expect(await (await GET(new Request("http://localhost"))).json()).toMatchObject({ canRequest: false, canUse: false });
     const response = await POST(new Request("https://prop-lane.test/api/manager/assistant-email", {
       method: "POST", body: JSON.stringify({ action: "request_address" }),
     }));
@@ -198,7 +198,7 @@ describe("work-email eligibility matches the work number", () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "business", source });
     mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid", workspaceId: "ws-mine" });
-    expect(await (await GET()).json()).toMatchObject({ canUse: true });
+    expect(await (await GET(new Request("http://localhost"))).json()).toMatchObject({ canUse: true });
   });
 
   /**
@@ -210,7 +210,7 @@ describe("work-email eligibility matches the work number", () => {
     vi.stubEnv("RESEND_API_KEY", "");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
     mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid", workspaceId: "ws-mine" });
-    expect(await (await GET()).json()).toMatchObject({
+    expect(await (await GET(new Request("http://localhost"))).json()).toMatchObject({
       state: "assigned_send_off",
       canUse: false,
     });
@@ -226,17 +226,17 @@ describe("work-email eligibility matches the work number", () => {
 
     vi.stubEnv("RESEND_API_KEY", "");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
-    expect(await (await GET()).json()).toMatchObject({ state: "assigned_send_off", canUse: false });
+    expect(await (await GET(new Request("http://localhost"))).json()).toMatchObject({ state: "assigned_send_off", canUse: false });
 
     vi.stubEnv("RESEND_API_KEY", "test-key");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "past_due" });
-    expect(await (await GET()).json()).toMatchObject({ state: "assigned_plan_hold", canUse: false });
+    expect(await (await GET(new Request("http://localhost"))).json()).toMatchObject({ state: "assigned_plan_hold", canUse: false });
   });
 });
 
 describe("GET /api/manager/assistant-email", () => {
   it("returns status for an authenticated manager", async () => {
-    const response = await GET();
+    const response = await GET(new Request("http://localhost"));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toMatchObject({
@@ -326,7 +326,7 @@ describe("one work email per workspace", () => {
     mocks.activeWorkspace = MY_WS;
     mocks.isAssistantEmailProvisioningEnabled.mockReturnValue(true);
     mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
-    const body = await (await GET()).json();
+    const body = await (await GET(new Request("http://localhost"))).json();
     expect(body.workspaceRole).toBe("primary");
     expect(body.workspace).toMatchObject({ id: "ws-mine", owned: true });
     expect(body.workspaceEmail).toBeNull();
@@ -339,7 +339,7 @@ describe("one work email per workspace", () => {
   });
 
   it("GET hands a co-manager the owner's address and no Request button", async () => {
-    const res = await GET();
+    const res = await GET(new Request("http://localhost"));
     const body = await res.json();
     expect(body.workspaceRole).toBe("co_manager");
     expect(body.workspaceEmail).toEqual({
@@ -354,7 +354,7 @@ describe("one work email per workspace", () => {
   it("GET hides the workspace address while the deployment cannot receive", async () => {
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("RESEND_INBOUND_WEBHOOK_SECRET", "");
-    const res = await GET();
+    const res = await GET(new Request("http://localhost"));
     const body = await res.json();
     expect(body.receivingAvailable).toBe(false);
     expect(body.workspaceEmail?.address).toBeNull();
@@ -406,7 +406,7 @@ describe("an address the deployment cannot receive at is assigned, not ready", (
       address: "assist-jane@prop-lane.space",
       provisionState: "active",
     });
-    const body = await (await GET()).json();
+    const body = await (await GET(new Request("http://localhost"))).json();
     expect(body.sendingAvailable).toBe(true);
     expect(body.receivingAvailable).toBe(false);
     expect(body.state).toBe("assigned_send_off");

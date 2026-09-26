@@ -110,6 +110,10 @@ function makeDb() {
           return builder;
         },
         is: () => builder,
+        // The resident quota on create/approve excludes the row being written.
+        neq: () => builder,
+        ilike: () => builder,
+        or: () => builder,
         delete() {
           const applyDelete = (values: string[]) => {
             if (table === "manager_application_records") {

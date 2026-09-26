@@ -75,9 +75,9 @@ describe("runAgentTurn observer", () => {
 
     // One generation per LLM call, each with THIS call's tokens (not the accumulator).
     expect(llm).toHaveLength(2);
-    expect(llm[0]!.usage).toEqual({ inputTokens: 30, outputTokens: 12 });
+    expect(llm[0]!.usage).toMatchObject({ inputTokens: 30, outputTokens: 12, raw: { input_tokens: 30, output_tokens: 12 } });
     expect(llm[0]!.toolsChosen).toEqual(["list_things"]);
-    expect(llm[1]!.usage).toEqual({ inputTokens: 40, outputTokens: 8 });
+    expect(llm[1]!.usage).toMatchObject({ inputTokens: 40, outputTokens: 8, raw: { input_tokens: 40, output_tokens: 8 } });
     expect(llm[1]!.toolsChosen).toEqual([]);
 
     // Tool span carries the raw model args and the tool's actual result.
@@ -88,7 +88,7 @@ describe("runAgentTurn observer", () => {
     expect(tool[0]!.output).toEqual({ things: ["a", "b"] });
 
     // The wire result is unchanged: accumulated usage still reported.
-    expect(result.usage).toEqual({ inputTokens: 70, outputTokens: 20 });
+    expect(result.usage).toMatchObject({ inputTokens: 70, outputTokens: 20 });
   });
 
   it("reports a failed tool call with its error as the output", async () => {

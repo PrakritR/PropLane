@@ -181,6 +181,20 @@ describe("manager-sms-messages types", () => {
   });
 });
 
+describe("normalizeManagerSmsConversationsPayload keeps the server archive flag", () => {
+  // loadSms mirrors this flag into the local archive set, replacing it, so a
+  // dropped flag un-archives every SMS thread on the next poll.
+  it("passes archived through and defaults it to false", () => {
+    const payload = normalizeManagerSmsConversationsPayload({
+      residents: [
+        { name: "Archived", conversationKey: "owner:resident:a", archived: true, messages: [] },
+        { name: "Live", conversationKey: "owner:resident:b", messages: [] },
+      ] as never,
+    });
+    expect(payload.residents.map((r) => r.archived)).toEqual([true, false]);
+  });
+});
+
 describe("smsConversationDisplayName — manager Communication phone labels", () => {
   it("detects phone-like labels", () => {
     expect(isPhoneLikeLabel("+15105791976")).toBe(true);

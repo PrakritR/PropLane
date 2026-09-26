@@ -248,6 +248,9 @@ export function normalizeManagerSmsConversationsPayload(
         tenancyStatus: resident?.tenancyStatus === "applicant" ? ("applicant" as const) : ("resident" as const),
         counterpartyRole: resident?.counterpartyRole,
         conversationKey: resident?.conversationKey,
+        // Server-owned; `mirrorManagerSmsArchivedFromServer` replaces the local
+        // archive set from this, so dropping it un-archived every SMS thread.
+        archived: resident?.archived === true,
         memberKeys: Array.isArray(resident?.memberKeys)
           ? resident.memberKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
           : undefined,

@@ -5,7 +5,7 @@ import { publicOrigin } from "@/lib/tools/domains/leasing-sms";
 import { runWithSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 const LEGACY_ORIGIN = "https://www.axis-seattle-housing.com";
-const CANONICAL_ORIGIN = "https://prop-lane.space";
+const CANONICAL_ORIGIN = "https://proplane.ai";
 const ORIGIN_KEYS = [
   "CLAW_MESSENGER_LINK_ORIGIN",
   "PROPLANE_SMS_LINK_ORIGIN",

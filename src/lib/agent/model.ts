@@ -19,7 +19,7 @@ import { lastUserText as lastUserMessageText } from "@/lib/agent/chat-handler";
 
 export type ModelTier = "simple" | "standard" | "complex";
 export type AgentProvider = "anthropic" | "openrouter" | "openai";
-export type AgentRoute = "anthropic" | "fast_direct" | "fast_lookup" | "openai_shadow";
+export type AgentRoute = "anthropic" | "fast_direct" | "fast_lookup" | "openai_shadow" | "luna_primary";
 export type AgentModelSelection = {
   model: string;
   tier: ModelTier;
@@ -27,6 +27,11 @@ export type AgentModelSelection = {
   route: AgentRoute;
   /** Anthropic safety/reliability fallback for the OpenRouter fast lane. */
   fallbackModel?: string;
+  /** Explicit opt-in controls for controlled evaluations; normal routing omits them. */
+  reasoningEffort?: "low" | "medium" | "high";
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+  disableBillingFallback?: boolean;
 };
 
 /** Route selection plus optional read-only fast-lane tool shortlist. */
@@ -64,7 +69,8 @@ export const TIER_MODELS: Record<ModelTier, string> = {
 export const AGENT_MODEL = TIER_MODELS.standard;
 
 /** Per-model pricing in USD per million tokens (input, output). */
-export const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: number }> = {
+export const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: number; cachedInputPerMTok?: number; cacheCreationInputPerMTok?: number }> = {
+  "gpt-6-luna": { inputPerMTok: 0.1, cachedInputPerMTok: 0.01, cacheCreationInputPerMTok: 0.125, outputPerMTok: 0.5 },
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
   "claude-sonnet-4-6": { inputPerMTok: 3, outputPerMTok: 15 },
   "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
@@ -74,8 +80,15 @@ export const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok
 const warnedUnpricedModels = new Set<string>();
 
 /** Estimated USD cost of a turn from accumulated token usage. 0 if unpriced. */
-export function estimateCostUsd(model: string, usage: { inputTokens: number; outputTokens: number }): number {
-  const price = MODEL_PRICING[model];
+export function estimateCostUsd(model: string, usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number }): number {
+  const pricedModel = /^claude-haiku-4-5(?:-\d{8})?$/.test(model)
+    ? "claude-haiku-4-5"
+    : /^claude-sonnet-4-6(?:-\d{8})?$/.test(model)
+      ? "claude-sonnet-4-6"
+      : /^gpt-6-luna(?:-\d{4}-\d{2}-\d{2})?$/.test(model)
+        ? "gpt-6-luna"
+        : model;
+  const price = MODEL_PRICING[pricedModel];
   if (!price) {
     if (!warnedUnpricedModels.has(model)) {
       warnedUnpricedModels.add(model);
@@ -85,10 +98,40 @@ export function estimateCostUsd(model: string, usage: { inputTokens: number; out
     }
     return 0;
   }
-  return (
-    (usage.inputTokens / 1_000_000) * price.inputPerMTok +
-    (usage.outputTokens / 1_000_000) * price.outputPerMTok
-  );
+  const isLuna = model === "gpt-6-luna" || model.startsWith("gpt-6-luna-");
+  if (!isLuna) return (usage.inputTokens * price.inputPerMTok + usage.outputTokens * price.outputPerMTok) / 1_000_000;
+  const cached = Math.min(usage.inputTokens, usage.cachedInputTokens ?? 0);
+  const cacheCreation = Math.min(usage.inputTokens - cached, usage.cacheCreationInputTokens ?? 0);
+  const regularInput = usage.inputTokens - cached - cacheCreation;
+  return (regularInput * price.inputPerMTok +
+    cached * (price.cachedInputPerMTok ?? price.inputPerMTok) +
+    cacheCreation * (price.cacheCreationInputPerMTok ?? price.inputPerMTok) +
+    usage.outputTokens * price.outputPerMTok) / 1_000_000;
+}
+
+/** Server-side, actor-stable rollout; the existing route remains the rollback. */
+export function selectPortalAgentRoute(args: Parameters<typeof selectAgentRoute>[0]): AgentRouteSelection {
+  const flag = process.env.AXIS_AGENT_LUNA_ENABLED?.trim().toLowerCase();
+  const enabled = flag === undefined || flag === "true";
+  const keyPresent = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const percentage = Number(process.env.AXIS_AGENT_LUNA_ROLLOUT_PERCENT ?? "100");
+  if (!enabled || !keyPresent || args.hasAttachments || process.env.AXIS_AGENT_MODEL?.trim() || !Number.isFinite(percentage) || percentage <= 0) return selectAgentRoute(args);
+  let hash = 2166136261;
+  for (const char of args.actorKey) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  if ((hash >>> 0) % 100 >= Math.min(100, percentage)) return selectAgentRoute(args);
+  const text = lastUserText(args.messages).trim();
+  const words = text.split(/\s+/).filter(Boolean);
+  const complexIntent = /\b(compare|analy[sz]e|analysis|trend|forecast|project(?:ion)?|reconcile|break\s*down|across|versus|correlat(?:e|ion)|root cause|recommend|strategy|optimi[sz]e)\b/i.test(text);
+  const high = complexIntent || words.length > 60 || text.length > 400 || (text.match(/\?/g) ?? []).length >= 2 || args.messages.length >= 10;
+  return {
+    model: "gpt-6-luna",
+    tier: high ? "complex" : "standard",
+    provider: "openai",
+    route: "luna_primary",
+    reasoningEffort: high ? "high" : "low",
+    maxOutputTokens: high ? 12_000 : 8_000,
+    timeoutMs: 45_000,
+  };
 }
 
 // Words that signal analysis/reasoning across data rather than a single lookup.

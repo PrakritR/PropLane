@@ -39,6 +39,10 @@ function makeDbMock(options: {
                 if (col === "resident_email") {
                   return {
                     order: vi.fn().mockResolvedValue({ data: applicationRows, error: null }),
+                    // Pipeline-order owner lookup: first owned application row.
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: applicationRows[0] ?? null, error: null }),
+                    }),
                   };
                 }
                 if (col === "id") {
