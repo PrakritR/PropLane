@@ -415,6 +415,7 @@ answer. Fail closed to `true`.
 | Manager account creation | `docs/agents/manager-account-creation.md` | `/auth/create-account` never auto-redirects into a portal |
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
+| Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |
 | Communication | `docs/agents/communication-inbox.md` | One inbox; authorize then append; `formatInboxStamp`; never `inline` |
 | Record pages | docs/agents/record-page.md | Residents standard; header icons per section; no footer or toolbar; picker on phone |
 | Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |

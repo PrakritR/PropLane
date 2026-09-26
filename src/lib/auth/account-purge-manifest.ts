@@ -420,12 +420,26 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "manager_automation_settings",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+    // Also stores a VENDOR's own Google Calendar/Sheets tokens (Calendar and
+    // Sheets connect reuse this table keyed by whatever userId connects —
+    // see src/lib/google-calendar/settings.ts and the vendor Calendar
+    // routes), so a vendor-account purge needs this rule too or a vendor's
+    // OAuth tokens survive their own account deletion.
+    vendor: { ids: ["manager_user_id"] },
   },
   {
     // Workspace rung of the settings scope (PLAN-0920-0845); owned by the workspace owner.
     table: "workspace_automation_settings",
     phase: 2,
     manager: { ids: ["owner_user_id"] },
+  },
+  {
+    // Two-way Google Calendar sync attention items (proplane-calendar-reconcile.server.ts);
+    // owner_user_id is a manager OR vendor's own auth id (see owner_kind).
+    table: "google_calendar_pending_changes",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
   },
   {
     // Address-prefill lookups this manager spent each month (docs/agents/listing-prefill.md).

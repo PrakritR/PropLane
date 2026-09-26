@@ -75,6 +75,8 @@ export type GoogleSheetsConnection = {
   refreshToken: string | null;
   accessToken: string | null;
   accessTokenExpiresAt: string | null;
+  /** True once a revoked/expired refresh token was detected and the connection was proactively disconnected. */
+  revoked?: boolean;
 };
 
 export const DEFAULT_GOOGLE_SHEETS_CONNECTION: GoogleSheetsConnection = {
@@ -83,6 +85,7 @@ export const DEFAULT_GOOGLE_SHEETS_CONNECTION: GoogleSheetsConnection = {
   refreshToken: null,
   accessToken: null,
   accessTokenExpiresAt: null,
+  revoked: false,
 };
 
 export function ambikaSuggestedSpreadsheetUrl(): string {
@@ -285,6 +288,7 @@ export function normalizeGoogleSheetsConnection(raw: unknown): GoogleSheetsConne
       typeof row.accessTokenExpiresAt === "string" && row.accessTokenExpiresAt.trim()
         ? row.accessTokenExpiresAt
         : null,
+    revoked: row.revoked === true,
   };
 }
 

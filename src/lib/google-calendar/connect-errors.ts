@@ -12,6 +12,12 @@ export function formatGoogleCalendarConnectError(
   } catch {
     /* keep raw reason */
   }
+  if (isGoogleCalendarRevoked(decoded)) {
+    return "Google Calendar access was revoked or expired. Click Connect to reconnect.";
+  }
+  if (isGoogleCalendarPartialConsent(decoded)) {
+    return decoded;
+  }
   if (isGoogleCalendarOAuthBlocked(decoded)) {
     return (
       "Google blocked Calendar access for this app (calendar.events is a sensitive scope). " +
@@ -39,6 +45,18 @@ export function isGoogleCalendarRedirectUriMismatch(reason: string | null): bool
   }
   const lower = decoded.toLowerCase();
   return lower.includes("redirect_uri_mismatch") || lower.includes("redirect uri mismatch");
+}
+
+/** True when a previously-connected account's refresh token was revoked/expired (see `GoogleCalendarRevokedError`). */
+export function isGoogleCalendarRevoked(reason: string | null): boolean {
+  if (!reason?.trim()) return false;
+  return reason.toLowerCase().includes("revoked or expired");
+}
+
+/** True when Google reported a granular-consent grant missing Calendar permission. */
+export function isGoogleCalendarPartialConsent(reason: string | null): boolean {
+  if (!reason?.trim()) return false;
+  return reason.toLowerCase().includes("connected without calendar permission");
 }
 
 export function isGoogleCalendarOAuthBlocked(reason: string | null): boolean {

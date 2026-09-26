@@ -42,6 +42,7 @@ import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } f
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
+import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import {
   isGoogleBusyIncompleteWarning,
@@ -666,6 +667,9 @@ function PortalCalendarManager({
         titleInlineFilter={null}
         compactFilterRow={portal === "manager"}
       >
+        {portal === "manager" ? (
+          <GoogleCalendarPendingChangesBanner apiBase="/api/portal/google-calendar" refreshSignal={googleCalendarTick} />
+        ) : null}
         {portal === "manager" ? (
           <PortalListControlStack
             className="mb-2 max-lg:mb-1.5"

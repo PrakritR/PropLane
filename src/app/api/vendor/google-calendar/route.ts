@@ -70,10 +70,14 @@ export async function PATCH(req: Request) {
     const ctx = await requireVendor();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "settings_write");
-    const body = (await req.json()) as { syncEnabled?: boolean };
-    const connection = await saveGoogleCalendarConnection(ctx.db, ctx.userId, {
-      syncEnabled: body.syncEnabled !== false,
-    });
+    const body = (await req.json()) as { syncEnabled?: boolean; vendorPushEnabled?: boolean };
+    // Each field is only ever touched when the body actually names it — a
+    // vendor-push-only PATCH (the panel's separate toggle) must never reset
+    // `syncEnabled` back to its default, and vice versa.
+    const patch: { syncEnabled?: boolean; vendorPushEnabled?: boolean } = {};
+    if (typeof body.syncEnabled === "boolean") patch.syncEnabled = body.syncEnabled;
+    if (typeof body.vendorPushEnabled === "boolean") patch.vendorPushEnabled = body.vendorPushEnabled;
+    const connection = await saveGoogleCalendarConnection(ctx.db, ctx.userId, patch);
     return NextResponse.json(googleCalendarPublicStatus(connection));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });

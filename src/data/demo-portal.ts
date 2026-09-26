@@ -252,8 +252,17 @@ export type DemoManagerWorkOrderRow = {
   /** Full property address, snapshotted at submission time for manager/vendor display. */
   propertyAddress?: string;
   scheduledAtIso?: string;
-  /** Google Calendar event id after PropPlane sync. */
+  /** Google Calendar event id after PropPlane sync (manager's own connected calendar). */
   googleCalendarEventId?: string;
+  /**
+   * Google Calendar event id on the ASSIGNED VENDOR's own connected calendar,
+   * pushed only when that vendor has `vendorPushEnabled` on
+   * (`src/lib/google-calendar/vendor-calendar-push.server.ts`). Distinct from
+   * `googleCalendarEventId` above because manager and vendor each connect a
+   * different Google account, so the same visit can have two independent
+   * remote event ids.
+   */
+  vendorGoogleCalendarEventId?: string;
   residentName?: string;
   residentEmail?: string;
   propertyId?: string;

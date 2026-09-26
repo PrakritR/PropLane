@@ -265,10 +265,30 @@ export async function exchangeGoogleCalendarCode(
     expires_in?: number;
     error?: string;
     error_description?: string;
+    scope?: string;
   };
   if (!res.ok || !data.access_token) {
     const detail = data.error_description?.trim() || data.error || "Could not connect Google Calendar.";
     throw new Error(detail);
+  }
+
+  // Granular consent: Google lets a user uncheck individual scopes on the
+  // consent screen rather than approving or denying the whole request. When
+  // present, the token response's `scope` field reflects what was ACTUALLY
+  // granted, which can be a strict subset of what was requested — connecting
+  // on a token that lacks `calendar.events` would otherwise silently save
+  // `connected: true` for an account that cannot read or write a single
+  // event. Only enforced when Google actually reports a `scope` (some
+  // non-incremental token responses omit it entirely) — an absent field is
+  // not evidence of a narrower grant, so it is not treated as one.
+  if (data.scope?.trim()) {
+    const grantedScopes = new Set(data.scope.split(/\s+/).filter(Boolean));
+    if (!grantedScopes.has("https://www.googleapis.com/auth/calendar.events")) {
+      throw new Error(
+        "Google connected without Calendar permission. On the Google screen, check the box next to " +
+          "Calendar events and try Connect again.",
+      );
+    }
   }
 
   const email = await fetchGoogleAccountEmail(data.access_token);
@@ -286,6 +306,7 @@ export async function exchangeGoogleCalendarCode(
     accessToken: data.access_token,
     accessTokenExpiresAt: expiresAt,
     calendarId: existing.calendarId ?? "primary",
+    revoked: false,
   });
 }
 
@@ -297,6 +318,23 @@ async function fetchGoogleAccountEmail(accessToken: string): Promise<string | nu
   if (!res.ok) return null;
   const data = (await res.json()) as { email?: string };
   return data.email?.trim() || null;
+}
+
+/**
+ * Google's token-endpoint codes that mean the refresh token itself is dead
+ * (revoked from the user's Google Account, expired past its max age, or the
+ * OAuth client's grant was invalidated) rather than a transient failure. Once
+ * seen, retrying the exact same refresh token will never succeed — the only
+ * way forward is a fresh Connect. See
+ * https://developers.google.com/identity/protocols/oauth2/web-server#offline
+ */
+const GOOGLE_REFRESH_TOKEN_DEAD_ERRORS = new Set(["invalid_grant", "invalid_token"]);
+
+export class GoogleCalendarRevokedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleCalendarRevokedError";
+  }
 }
 
 async function refreshAccessToken(connection: GoogleCalendarConnection): Promise<{
@@ -320,13 +358,23 @@ async function refreshAccessToken(connection: GoogleCalendarConnection): Promise
   });
   const data = (await res.json()) as { access_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !data.access_token) {
-    throw new Error(data.error ?? "Could not refresh Google Calendar session.");
+    const code = data.error ?? "Could not refresh Google Calendar session.";
+    if (GOOGLE_REFRESH_TOKEN_DEAD_ERRORS.has(code)) {
+      throw new GoogleCalendarRevokedError(
+        "Google Calendar access was revoked or expired. Reconnect to keep syncing.",
+      );
+    }
+    throw new Error(code);
   }
   const expiresAt =
     typeof data.expires_in === "number"
       ? new Date(Date.now() + data.expires_in * 1000).toISOString()
       : null;
   return { accessToken: data.access_token, expiresAt };
+}
+
+export function isGoogleCalendarRevokedError(error: unknown): boolean {
+  return error instanceof GoogleCalendarRevokedError;
 }
 
 export async function getGoogleCalendarAccessToken(
@@ -344,7 +392,28 @@ export async function getGoogleCalendarAccessToken(
   const expiresAt = connection.accessTokenExpiresAt ? Date.parse(connection.accessTokenExpiresAt) : 0;
   const needsRefresh = !connection.accessToken || !expiresAt || expiresAt < Date.now() + 60_000;
   if (needsRefresh) {
-    const refreshed = await refreshAccessToken(connection);
+    let refreshed: { accessToken: string; expiresAt: string | null };
+    try {
+      refreshed = await refreshAccessToken(connection);
+    } catch (e) {
+      if (e instanceof GoogleCalendarRevokedError) {
+        // Proactively disconnect rather than leaving `connected: true` on a
+        // dead refresh token forever — every future call would otherwise
+        // throw this same opaque error indefinitely with no reconnect CTA.
+        // Tokens are cleared like an explicit disconnect; `revoked: true`
+        // is what lets the status API tell the UI "reconnect" (not merely
+        // "connect"), and is cleared on the next successful (re)connect.
+        await saveGoogleCalendarConnection(db, managerUserId, {
+          connected: false,
+          refreshToken: null,
+          accessToken: null,
+          accessTokenExpiresAt: null,
+          revoked: true,
+        }).catch(() => undefined);
+        throw new GoogleCalendarNotLinkedError(e.message);
+      }
+      throw e;
+    }
     connection = await saveGoogleCalendarConnection(db, managerUserId, {
       accessToken: refreshed.accessToken,
       accessTokenExpiresAt: refreshed.expiresAt,
@@ -396,6 +465,12 @@ export function classifyGoogleCalendarEventsFetchError(message: string): {
     return {
       warning: "calendar_oauth_not_configured",
       hint: "Server is missing Google Calendar OAuth credentials. Set GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET, then restart the dev server.",
+    };
+  }
+  if (normalized.includes("revoked")) {
+    return {
+      warning: "calendar_reconnect_required",
+      hint: "Google Calendar access was revoked or expired. Reconnect Google Calendar to keep syncing.",
     };
   }
   if (normalized.includes("not connected") || normalized.includes("reconnect") || normalized.includes("expired")) {
@@ -734,9 +809,39 @@ export async function listGoogleCalendarEventsForSync(
   managerUserId: string,
   syncToken: string | null,
 ): Promise<GoogleCalendarSyncPage> {
+  return listCalendarEventsForSyncImpl(db, managerUserId, syncToken, (connection) => connection.calendarId ?? "primary");
+}
+
+/**
+ * Same paged incremental-sync walk as {@link listGoogleCalendarEventsForSync},
+ * but scoped to the dedicated write/"PropLane" calendar instead of the
+ * read/primary one. This is what `pullProplaneCalendarPendingChanges`
+ * (`proplane-calendar-reconcile.server.ts`) uses to detect a Google-side edit
+ * or deletion of a PropLane-authored event — those events no longer appear on
+ * the primary calendar at all once a dedicated calendar exists, so the
+ * primary-calendar walk above cannot see them.
+ */
+export async function listGoogleCalendarWriteEventsForSync(
+  db: SupabaseClient,
+  managerUserId: string,
+  syncToken: string | null,
+): Promise<GoogleCalendarSyncPage | { events: []; syncTokenInvalid: false; truncated: false; noWriteCalendar: true }> {
+  const { connection } = await getGoogleCalendarAccessToken(db, managerUserId);
+  if (!connection.writeCalendarId) {
+    return { events: [], syncTokenInvalid: false, truncated: false, noWriteCalendar: true };
+  }
+  return listCalendarEventsForSyncImpl(db, managerUserId, syncToken, resolveGoogleCalendarWriteId);
+}
+
+async function listCalendarEventsForSyncImpl(
+  db: SupabaseClient,
+  managerUserId: string,
+  syncToken: string | null,
+  resolveCalendarId: (connection: GoogleCalendarConnection) => string,
+): Promise<GoogleCalendarSyncPage> {
   const { connection, accessToken } = await getGoogleCalendarAccessToken(db, managerUserId);
   if (!connection.syncEnabled) return { events: [], syncTokenInvalid: false, truncated: false };
-  const calendarId = encodeURIComponent(connection.calendarId ?? "primary");
+  const calendarId = encodeURIComponent(resolveCalendarId(connection));
   const token = syncToken?.trim() || null;
   const dayMs = 24 * 60 * 60 * 1000;
   const fullSyncWindow = token
@@ -961,6 +1066,16 @@ function googleCalendarEventBody(input: GoogleCalendarEventWriteInput) {
   };
 }
 
+/**
+ * The calendar every PropLane-authored WRITE targets: the dedicated
+ * secondary "PropLane" calendar once `ensureProplaneCalendarId` has created
+ * one, falling back to the read/primary calendar for a connection that
+ * predates it (or whose creation failed) so writes never silently stop.
+ */
+export function resolveGoogleCalendarWriteId(connection: GoogleCalendarConnection): string {
+  return connection.writeCalendarId?.trim() || connection.calendarId?.trim() || "primary";
+}
+
 export async function createGoogleCalendarEvent(
   db: SupabaseClient,
   managerUserId: string,
@@ -969,7 +1084,7 @@ export async function createGoogleCalendarEvent(
 ): Promise<string | null> {
   const { connection, accessToken } = await getGoogleCalendarAccessToken(db, managerUserId);
   if (!connection.syncEnabled) return null;
-  const calendarId = encodeURIComponent(connection.calendarId ?? "primary");
+  const calendarId = encodeURIComponent(resolveGoogleCalendarWriteId(connection));
   const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events`, {
     method: "POST",
     headers: {
@@ -1004,7 +1119,7 @@ export async function updateGoogleCalendarEvent(
   if (!trimmedId) return null;
   const { connection, accessToken } = await getGoogleCalendarAccessToken(db, managerUserId);
   if (!connection.syncEnabled) return null;
-  const calendarId = encodeURIComponent(connection.calendarId ?? "primary");
+  const calendarId = encodeURIComponent(resolveGoogleCalendarWriteId(connection));
   const encodedEventId = encodeURIComponent(trimmedId);
   let ifMatch: string | null = null;
   if (conditionalWrite) {
@@ -1051,7 +1166,7 @@ export async function deleteGoogleCalendarEvent(
   if (!trimmedId) return;
   const { connection, accessToken } = await getGoogleCalendarAccessToken(db, managerUserId);
   if (!connection.syncEnabled) return;
-  const calendarId = encodeURIComponent(connection.calendarId ?? "primary");
+  const calendarId = encodeURIComponent(resolveGoogleCalendarWriteId(connection));
   const encodedEventId = encodeURIComponent(trimmedId);
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodedEventId}`,
