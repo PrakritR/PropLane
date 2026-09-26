@@ -237,6 +237,21 @@ bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other
 portal table in this codebase.
 
+**Jobs board (C152/C153) — additive to Services, not a marketplace.** A
+separate `/vendor/jobs` section (`src/components/portal/vendor-jobs-panel.tsx`)
+lists the same `biddingOpen` rows Services already tracks, under Invited /
+Open tabs. Invited is real: `isInvitedJob()` reuses the existing single-vendor
+`biddingOpen` flag and the vendor's own `work_order_bids` row (still
+`submitted`, not yet `accepted`/`declined`) — Submit bid / Withdraw bid post
+to the same `/api/portal/work-order-bids` route Services already uses. Open is
+a placeholder only: there is no cross-workspace marketplace data model today
+(`work_order_bids` only ever has rows for the currently-assigned vendor, and
+RLS scopes both sides to their own `user_id`) — building a genuine "browse
+every workspace's open jobs matching my trades" board needs a new table, not
+just a new tab. Services' own Potential/Current/Past classification
+(`vendor-work-order-tabs.ts`) is unchanged; Jobs is a second, purely additive
+view onto the same rows.
+
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
 **Connect account reuses the manager's column.** `profiles.stripe_connect_account_id`
