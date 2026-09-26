@@ -5,6 +5,7 @@ import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 import type { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { isAssistantUnifiedInboxRow } from "@/lib/communication-inbox-assistant";
+import { isContactInboxThreadId } from "@/lib/communication-resident-placeholders";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
@@ -24,7 +25,15 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   // returns, and requiring every member to be present left such a row with
   // "No actions available." while the header could still archive it. The
   // mutations only send the ids the list actually holds.
-  const permitted = members.every((member) => {
+  // A resident-directory placeholder row (`buildResidentPlaceholderInboxItems`)
+  // has no stored conversation at all — nothing exists server-side to archive,
+  // and letting Archive run on it was a silent no-op that still toasted
+  // "Archived." while the row never moved (PRP resurrection sweep). Offer no
+  // actions on it rather than a false success.
+  const isPlaceholderRow = members.some(
+    (member) => member?.channel === "email" && isContactInboxThreadId(member.threadId),
+  );
+  const permitted = !isPlaceholderRow && members.every((member) => {
     if (!member) return false;
     return member.channel !== "sms" || manager;
   });

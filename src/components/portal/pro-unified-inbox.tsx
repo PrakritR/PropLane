@@ -186,6 +186,29 @@ function inboxUsesDesktopSplit(): boolean {
   return window.matchMedia("(min-width: 1024px)").matches;
 }
 
+type ManagerInboxSnapshot = {
+  emailThreads: PersistedInboxThread[];
+  smsResidents: ManagerSmsResidentConversation[];
+};
+
+/**
+ * Last-ready Communication list per viewer+workspace, held only for the life
+ * of this module (PLAN B2). `ManagerUnifiedInbox` can remount without a full
+ * page reload — e.g. navigating to another portal section and back — and
+ * without this it re-showed the loading skeleton and re-ran every source
+ * fetch even though the exact same list was already known. On such a
+ * remount this snapshot renders immediately instead, while `loadInitialList`
+ * revalidates silently underneath; a failed revalidation keeps showing the
+ * snapshot rather than surfacing an error. The very first load of a browser
+ * session has no entry yet and keeps the original all-sources-ready
+ * invariant (`tests/unit/inbox-initial-loading-readiness.test.tsx`).
+ */
+const managerInboxSnapshotCache = new Map<string, ManagerInboxSnapshot>();
+
+function managerInboxSnapshotKey(viewerId: string, workspaceId: string | null | undefined): string {
+  return `${viewerId}::${workspaceId ?? "default"}`;
+}
+
 export function ManagerUnifiedInbox({
   tabId,
   commBase,
@@ -457,7 +480,14 @@ export function ManagerUnifiedInbox({
       return;
     }
     setInitialListViewerId(viewerId);
-    setInitialListState("loading");
+    // PLAN B2: a remount within the same session already proved this exact
+    // viewer+workspace ready once (`managerInboxSnapshotCache`, seeded by the
+    // layout effect below). Keep showing it — never flash back to "loading" —
+    // while the fetches below revalidate silently.
+    const hadCachedSnapshot = managerInboxSnapshotCache.has(
+      managerInboxSnapshotKey(viewerId, workspaceIdentity.id),
+    );
+    if (!hadCachedSnapshot) setInitialListState("loading");
     const [inbox, applications, smsOk] = await Promise.all([
       syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
       syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
@@ -472,7 +502,12 @@ export function ManagerUnifiedInbox({
     if (inbox.stale || applications.stale) return;
     if (applications.ok) onApplicationsLoaded?.();
     if (inbox.ok) setEmailThreads(inbox.rows);
-    setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
+    const ready = inbox.ok && applications.ok && smsOk;
+    // A background revalidation failure after a cache hit keeps the last
+    // known-good snapshot on screen (silent) instead of surfacing an error —
+    // the very first load of a session has no cache hit and keeps the
+    // original invariant exactly.
+    setInitialListState(ready || hadCachedSnapshot ? "ready" : "error");
   }, [isClient, loadSms, onApplicationsLoaded, sessionReady, smsUiEnabled, viewerId, workspaceIdentity.id]);
 
   const retryInitialList = useCallback(async (): Promise<void> => {
@@ -490,6 +525,46 @@ export function ManagerUnifiedInbox({
       initialLoadGeneration.current += 1;
     };
   }, [loadInitialList]);
+
+  // PLAN B2 — seed from the last-ready snapshot BEFORE paint on a remount, so
+  // the skeleton never has a chance to flash. `useLayoutEffect` (not
+  // `useEffect`) so this commits in the same phase as the mount, ahead of
+  // `loadInitialList`'s own effect above. A brand-new session has no cache
+  // entry and this is a no-op, preserving the original invariant.
+  //
+  // This is a MOUNT-only opportunity — `hasSeededSnapshotRef` is consumed the
+  // first time `viewerId` resolves truthy and never re-armed. A genuine
+  // account switch WITHIN the same mounted instance (A-B-A) must keep going
+  // through the ordinary fetch cycle: seeding again on every viewerId change
+  // would restore viewer A's stale rows the instant the session flips back
+  // to A, defeating the deliberate "empty during the transition" guarantee
+  // those cases already have (see the A-B-A tests in
+  // `tests/unit/inbox-initial-loading-readiness.test.tsx`).
+  const hasSeededSnapshotRef = useRef(false);
+  useLayoutEffect(() => {
+    if (hasSeededSnapshotRef.current) return;
+    if (!isClient || !viewerId?.trim()) return;
+    hasSeededSnapshotRef.current = true;
+    const key = managerInboxSnapshotKey(viewerId, workspaceIdentity.id);
+    const cached = managerInboxSnapshotCache.get(key);
+    if (!cached) return;
+    setInitialListViewerId(viewerId);
+    setInitialListState("ready");
+    setEmailThreads(cached.emailThreads);
+    if (smsUiEnabled) setSmsResidents(cached.smsResidents);
+  }, [isClient, smsUiEnabled, viewerId, workspaceIdentity.id]);
+
+  // Keep the snapshot cache mirroring whatever is currently rendered as
+  // "ready", so the NEXT remount of this viewer+workspace has the freshest
+  // possible fallback (including live updates while mounted, e.g. polling).
+  useEffect(() => {
+    if (!isClient || !viewerId?.trim()) return;
+    if (initialListState !== "ready" || initialListViewerId !== viewerId) return;
+    managerInboxSnapshotCache.set(managerInboxSnapshotKey(viewerId, workspaceIdentity.id), {
+      emailThreads,
+      smsResidents,
+    });
+  }, [emailThreads, initialListState, initialListViewerId, isClient, smsResidents, viewerId, workspaceIdentity.id]);
 
   useEffect(() => {
     // smsUiEnabled is a stable server prop; when off, loadSms no-ops and
@@ -838,13 +913,15 @@ export function ManagerUnifiedInbox({
       ),
       "active",
     );
-    const archived = pinAssistant(mergeUnifiedInboxItems(
+    // PropLane Assistant never appears on Archived — it cannot be archived
+    // away, so it belongs only on Active/Unread (docs/agents/communication-inbox.md).
+    const archived = mergeUnifiedInboxItems(
       [
         ...filteredEmail.filter((t) => t.folder === "trash").map(emailThreadMergeStub),
         ...allSmsItems.filter((row) => row.archived).map((row) => row.item),
       ],
       listSort,
-    ), "archived");
+    );
     return { active: active.length, archived: archived.length };
   }, [
     allSmsItems,
@@ -874,6 +951,10 @@ export function ManagerUnifiedInbox({
       [...emailListItems, ...smsListItems, ...placeholderListItems],
       listSort,
     );
+    // PropLane Assistant is pinned on Active and Unread — never on Archived,
+    // where it cannot be forced back in and is never selectable
+    // (docs/agents/communication-inbox.md).
+    if (listSegment === "archived") return merged;
     if (!assistantThreadId || !viewerId) {
       return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
     }
@@ -1103,6 +1184,7 @@ export function ManagerUnifiedInbox({
             value={listSegmentProp}
             onChange={onArchivedViewChange}
             counts={listSegmentCounts}
+            interceptNavigation
           />
           <div className="flex min-w-0 items-center gap-1">
             <div className="relative min-w-0 flex-1">

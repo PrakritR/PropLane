@@ -365,8 +365,9 @@ Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communica
 - SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
 - Residents cannot schedule a compose (deliberate).
 - A thread's `row_data` may carry a `recordRef: {kind,id,label}`; a record page's
-  Communication section (`record-communication-section.tsx`) filters the same
-  inbox down to that one record's threads — see `docs/agents/communication-inbox.md` § recordRef.
+  Communication section (`record-communication-section.tsx`) merges the same
+  inbox into one timeline of every conversation with that record's contact(s),
+  archived included — see `docs/agents/communication-inbox.md` § recordRef.
 
 ## Inbox attachments
 

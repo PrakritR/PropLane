@@ -63,8 +63,15 @@ export async function upsertManagerInboxNotice(
     const messages = Array.isArray(row.messages) ? row.messages as { id: string }[] : [];
     if (row.rootMessageId === messageId || messages.some((m) => m.id === messageId)) return;
     const updatedAt = new Date(Math.max(Date.now(), Date.parse(prior.updated_at) + 1)).toISOString();
+    // Only a genuinely INBOUND turn (no explicit `folder`, or `folder:
+    // "inbox"`) may reopen an archived notice — an outbound append
+    // (`folder: "sent"`, e.g. the manager's own relayed text) must never
+    // un-archive it. Forcing "inbox" on every append here regardless of
+    // direction resurrected an archived SMS conversation on its next
+    // outbound turn (captain resurrection sweep).
+    const inbound = args.folder !== "sent";
     const { data: updated, error: updateError } = await db.from("portal_inbox_thread_records")
-      .update({ row_data: { ...row, folder: "inbox", preview: incoming.preview,
+      .update({ row_data: { ...row, folder: inbound ? "inbox" : (row.folder ?? "inbox"), preview: incoming.preview,
         time: stamp, unread: Boolean(row.unread) || incoming.unread,
         messages: [...messages, { id: messageId, from: args.from, body: args.body,
           at: stamp, outbound: args.folder === "sent" }] }, updated_at: updatedAt })
