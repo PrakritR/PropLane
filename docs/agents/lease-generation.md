@@ -657,21 +657,25 @@ regardless of document mode. Owner: `buildLeaseExportWithAuditPdf`
 
 `leaseAuditTrailFacts` (`lease-execution-evidence.ts`) is the pure derivation
 — it was already computing the hash but nothing rendered it. `null` when the
-row has nothing yet to attest (unsigned). Rendered in two places, both inside
-files this agent owns:
+row has nothing yet to attest (unsigned).
 
-- The lease-document tab, right under the existing Signatures facts
-  (`renderLeaseAuditTrailFacts`, `pro-leases-pipeline-panel.tsx`).
-- An "Audit trail" card on the lease record's Overview, mirroring the shape of
-  the existing "Signatures" card.
+**Audit trail is a real tab**, registered as `"audit-trail"` in the shared
+`record-sections.ts` lease-kind entry (same shape Applications uses for
+`"application-form"`), between "Lease document" and "Answers" — the shared
+shell registry was off-limits to this workstream when this was first built
+(landed as an Overview card + document-tab content instead) and was cleared
+for a follow-up once the shell stream finished. `renderLeaseAuditTrailFacts`
+(`pro-leases-pipeline-panel.tsx`) renders it; a row with nothing to attest yet
+shows an empty state rather than a blank tab. Overview now keeps only a
+one-line "Fingerprint" summary card with a "Section →" link to the tab
+(`docs/agents/record-page.md` point 3), not the full fact list.
 
-**Known gap, flagged rather than worked around:** the item's own language
-("Overview, document viewer, and an Audit trail") reads as three siblings —
-i.e. a dedicated Audit trail TAB — which needs a new tab id registered in the
-shared `record-sections.ts` lease-kind entry. That file is explicitly
-off-limits to this workstream (shared shell registry); the content above is
-the real, complete audit trail, just reachable from Overview/the document tab
-rather than its own tab until the shell owner adds the id.
+`sectionActions["audit-trail"]` offers Export (wired to the real
+`onExport`/`buildLeaseExportWithAuditPdf` action, C064) and Share; per-section
+header actions are declared here for the next phase that wires
+`activeSectionId` end to end (see this registry's own docs) — today the lease
+record's real header icons still come from `LeasePrimaryHeaderActions`
+directly, the pre-existing "Known gap" in `docs/agents/record-page.md`.
 
 ### Answers section: every clause's answer, by section (C281, Ida Cares lease-first, Sep 2026)
 
@@ -683,14 +687,18 @@ already uses), and reads each one's recorded `signingAnswers` value —
 other unanswered type, never a guess. `null`/absent only when the row is not
 a lease-first row at all (`signingTemplateSnapshot` unset).
 
-Rendered as one card per section (`ReviewSection`/`ReviewRow`, reused from
-`pro-application-readonly-review.tsx` — same shape as the Applications record
-page's own "Application form" section) on the lease document tab
-(`renderLeaseAnswersSection`, `pro-leases-pipeline-panel.tsx`), plus a
-condensed "Answers" card on Overview linking there. Same known gap as Audit
-trail above: a dedicated Answers TAB (matching Applications' own
-`application-form` tab) needs a new id in the shared `record-sections.ts`
-lease-kind entry, off-limits to this workstream.
+**Answers is a real tab**, registered as `"answers"` in `record-sections.ts`
+right after Audit trail — same follow-up as above, same shape as
+Applications' own `"application-form"` tab. It is listed for EVERY lease, the
+same way Applications always lists "Screening" whether or not a check exists:
+`renderLeaseAnswersSection` (`pro-leases-pipeline-panel.tsx`) shows the real
+per-section cards (`ReviewSection`/`ReviewRow`, reused from
+`pro-application-readonly-review.tsx`) for a lease-first row, and an empty
+state for an ordinary application-driven lease that carries no
+`signingTemplateSnapshot`. Overview keeps only a one-line "N of M answered"
+summary (`leaseFirstAnswersSummaryLabel`, same file as
+`leaseFirstAnswersBySection` — reads the identical "answered" rule so the two
+can never disagree) linking to the tab.
 
 ### The PDF-import pipeline now classifies real sections (C282, Sep 2026)
 

@@ -338,10 +338,20 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     // PLAN-0921-1029, area 2: Overview · Lease document · Payments ·
     // Communication. "Terms", "Signatures" and "Amendments" fold into the
     // Lease document view instead of staying separate tabs.
+    //
+    // C066/C281: "Audit trail" and "Answers" are real tabs, same shape as
+    // Applications' own "application-form" — who signed/when/the fingerprint,
+    // and (Ida Cares lease-first only) every clause's answer by section.
+    // Answers is listed for every lease the same way Applications always
+    // lists "Screening" regardless of whether a check exists — the panel
+    // shows an empty state for an ordinary application-driven lease that
+    // carries no `signingTemplateSnapshot`.
     ownGroups: [
       { label: "Lease", ids: [
         { id: "overview", label: "Overview" },
         { id: "lease-document", label: "Lease document" },
+        { id: "audit-trail", label: "Audit trail" },
+        { id: "answers", label: "Answers" },
       ] },
       { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
     ],
@@ -357,6 +367,13 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "new-version", label: "Generate new version", icon: Plus },
         { id: "upload", label: "Upload a PDF", icon: Upload },
         { id: "download", label: "Download", icon: Download },
+      ],
+      "audit-trail": [
+        { id: "export", label: "Export", icon: Download },
+        { id: "share", label: "Share", icon: Share2 },
+      ],
+      answers: [
+        { id: "share", label: "Share", icon: Share2 },
       ],
       payments: [
         { id: "add-charge", label: "Add charge", icon: Plus },
