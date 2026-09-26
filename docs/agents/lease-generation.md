@@ -78,6 +78,28 @@ either).
 Coverage: `tests/unit/lease-signer-invite.test.ts`,
 `tests/unit/resident-lease-first-signing-wizard-invite.test.ts`.
 
+## Lease-first "House rules addendum" step — numbered clauses, not red-flag styling (C276)
+
+C282's real PDF-import section classification (`lease-template-pdf-import.ts`)
+made this partly buildable: once a "House rules addendum" section carries its
+own individually-classified clause rows (rather than one placeholder
+acknowledgment field), `ResidentLeaseFirstSigningWizard` renders every
+non-required field in that section as a numbered, READ-ONLY rule
+(`HouseRuleClauseRow`) instead of an editable question, and its one required
+field as a single final acknowledgment step requiring BOTH initials AND a
+date (`HouseRulesAcknowledgmentRow`) — an ordinary clause step elsewhere is
+unchanged (initials only). The date rides in `signingAnswers` under
+`${field.key}__date`, additive to the existing JSON blob.
+
+Still NOT buildable: red-flagged-in-red styling. `pdf-source.server.ts`'s
+block shape is a plain-text extraction with no font/color metadata anywhere
+in the pipeline, so there is no signal to tell a red-flagged rule from an
+ordinary one — inferring it from keywords would be inventing the source
+document's own styling rather than reading it. Building this needs real
+color/style capture added to the PDF extraction layer first.
+
+Coverage: `tests/unit/resident-lease-first-signing-wizard-house-rules.test.tsx`.
+
 ## PDF import review and signing
 
 The private original PDF remains the source for both lease and application imports. The shared server parser records page spans, form widgets, a source SHA-256, and unresolved pages. A bounded local OCR pass handles up to four image-only pages. A manager must resolve every reported import issue before publishing an application template or confirming a converted lease. The PDF is served through the owner-scoped private document route, never a public object URL.

@@ -32,6 +32,20 @@ import {
 
 const AUTHORIZATION_SECTION_RE = /authoriz|signature/i;
 const INVITE_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+/**
+ * C276 — now buildable for the numbered-clause and final-initials-and-date
+ * parts once a lease template's "House rules addendum" section carries its
+ * real, individually-classified clauses (C282's `looksLikeSectionHeader`
+ * groups an imported PDF's own headings; the section title itself is never
+ * one of its own fields — same convention as every other imported section).
+ * Still NOT buildable: red-flagged-in-red styling. Nothing in the PDF import
+ * pipeline (`pdf-source.server.ts`'s block shape) captures text color or font
+ * — it is a plain-text extraction — so there is no signal anywhere to tell a
+ * red-flagged rule from an ordinary one. Guessing from keywords would be
+ * inventing the source document's own styling rather than reading it, so
+ * this deliberately does not attempt it.
+ */
+const HOUSE_RULES_SECTION_RE = /house rules/i;
 
 type ClauseStep = { kind: "clause"; id: string; title: string; fields: ManagerCustomApplicationField[] };
 type ReviewStep = { kind: "review" };
@@ -183,6 +197,80 @@ function InviteSignerRow({
   );
 }
 
+/** One numbered, read-only rule from the imported "House rules addendum" section (C276). */
+function HouseRuleClauseRow({ index, text }: { index: number; text: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4" data-attr={`lease-house-rule-${index}`}>
+      <p className="text-sm leading-relaxed text-foreground">
+        <span className="mr-2 font-semibold text-muted">{index}.</span>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The house rules section's single final "I have read and understand" step
+ * (C276) — initials AND a date, not initials alone. The date answer rides in
+ * `signingAnswers` under `${field.key}__date`, alongside the field's own
+ * initials answer under `${field.key}` — additive to the existing JSON blob,
+ * no schema change.
+ */
+function HouseRulesAcknowledgmentRow({
+  field,
+  initials,
+  date,
+  onInitialsChange,
+  onDateChange,
+}: {
+  field: ManagerCustomApplicationField;
+  initials: string;
+  date: string;
+  onInitialsChange: (next: string) => void;
+  onDateChange: (next: string) => void;
+}) {
+  const text = field.description?.trim() || field.label;
+  return (
+    <div className="rounded-xl border border-border bg-card p-4" data-attr={`lease-house-rules-ack-${field.key}`}>
+      <p className="text-sm leading-relaxed text-foreground">{text}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor={`lease-house-rules-initials-${field.key}`}
+            className="text-xs font-semibold uppercase tracking-wide text-muted"
+          >
+            Initials{field.required ? " *" : ""}
+          </label>
+          <input
+            id={`lease-house-rules-initials-${field.key}`}
+            value={initials}
+            maxLength={6}
+            onChange={(e) => onInitialsChange(e.target.value.toUpperCase())}
+            data-attr={`lease-house-rules-initials-${field.key}`}
+            className="w-20 rounded-lg border border-border bg-card px-2 py-1.5 text-center text-sm font-semibold uppercase outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor={`lease-house-rules-date-${field.key}`}
+            className="text-xs font-semibold uppercase tracking-wide text-muted"
+          >
+            Date{field.required ? " *" : ""}
+          </label>
+          <input
+            id={`lease-house-rules-date-${field.key}`}
+            type="date"
+            value={date}
+            onChange={(e) => onDateChange(e.target.value)}
+            data-attr={`lease-house-rules-date-${field.key}`}
+            className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Which phase (if any) of the lease-first signing flow this row is in, so the
  * parent panel can suppress its generic document-preview/sign UI while this
@@ -312,9 +400,16 @@ export function ResidentLeaseFirstSigningWizard({
   };
 
   const stepFields = step.kind === "clause" ? step.fields : step.kind === "sign" ? step.inviteFields : [];
+  const isHouseRulesStep = step.kind === "clause" && HOUSE_RULES_SECTION_RE.test(step.title);
   const missingRequired =
     step.kind === "clause" &&
-    step.fields.some((f) => f.required && f.filledBy !== "manager" && !answerFor(f).trim());
+    step.fields.some((f) => {
+      if (f.filledBy === "manager" || !f.required) return false;
+      if (!answerFor(f).trim()) return true;
+      // The house rules step's acknowledgment needs BOTH initials and a date (C276) —
+      // every other clause step keeps today's initials-only requirement.
+      return isHouseRulesStep && f.type === "initials" && !(answers[`${f.key}__date`] ?? "").trim();
+    });
 
   const goNext = () => {
     saveAnswers(answers);
@@ -347,6 +442,26 @@ export function ResidentLeaseFirstSigningWizard({
               error={inviteErrors[field.key]}
             />
           ))
+        ) : isHouseRulesStep ? (
+          <>
+            {stepFields
+              .filter((field) => !field.required)
+              .map((field, index) => (
+                <HouseRuleClauseRow key={field.key} index={index + 1} text={field.description?.trim() || field.label} />
+              ))}
+            {stepFields
+              .filter((field) => field.required)
+              .map((field) => (
+                <HouseRulesAcknowledgmentRow
+                  key={field.key}
+                  field={field}
+                  initials={answerFor(field)}
+                  date={answers[`${field.key}__date`] ?? ""}
+                  onInitialsChange={(next) => setAnswer(field.key, next)}
+                  onDateChange={(next) => setAnswer(`${field.key}__date`, next)}
+                />
+              ))}
+          </>
         ) : (
           stepFields.map((field) =>
             field.type === "initials" ? (
