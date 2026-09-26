@@ -17,7 +17,7 @@ const KPI_TILES = [
   { label: "Applications", value: "2", tone: "warning" as const, emphasis: true },
   { label: "Overdue", value: "$1,240", tone: "danger" as const, emphasis: true },
   { label: "Services", value: "0", tone: "neutral" as const, emphasis: false },
-  { label: "Messages", value: "3", tone: "brand" as const, emphasis: true },
+  { label: "Communication", value: "3", tone: "brand" as const, emphasis: true },
 ] as const;
 
 const KPI_TONE_STYLES = {

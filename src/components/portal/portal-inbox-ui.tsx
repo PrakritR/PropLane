@@ -2845,7 +2845,7 @@ export function InboxThreadView({
             data-attr="inbox-thread-back"
           >
             <ChevronLeft className="h-5 w-5" strokeWidth={2.25} />
-            <span className="sr-only">Inbox</span>
+            <span className="sr-only">Communication</span>
           </button>
         ) : null}
         {!hideIdentityHeader ? (
