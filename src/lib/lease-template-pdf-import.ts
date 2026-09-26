@@ -1,6 +1,6 @@
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
 import type { ApplicationConfigSlice } from "@/lib/rental-application/application-field-catalog";
-import type { PdfImportIssue, PdfImportSource } from "@/lib/pdf-import/pdf-source.server";
+import type { PdfColorRun, PdfImportIssue, PdfImportSource } from "@/lib/pdf-import/pdf-source.server";
 
 /**
  * A single source-ordered lease clause, mapped into the SAME
@@ -36,6 +36,29 @@ export type LeaseTemplatePdfImportMapping = {
 
 /** A block this short (after trimming) is almost certainly a header, page number, or stray mark — not a clause. */
 const MIN_CLAUSE_CHARACTERS = 20;
+
+/** A clause is "predominantly red" (C276) once at least half its characters fall inside a `red` colorRun. */
+const RED_CLAUSE_MIN_COVERAGE = 0.5;
+
+/**
+ * Real signal, not a guess: `page.colorRuns` (`pdf-source.server.ts`) comes
+ * from walking the PDF's own fill-color operators, aligned to this exact
+ * block's source offsets. A clause counts as flagged only when the majority
+ * of its own characters were actually filled with a red color in the source
+ * document — never inferred from keywords or punctuation.
+ */
+function isPredominantlyRed(colorRuns: PdfColorRun[], start: number, end: number): boolean {
+  const length = end - start;
+  if (length <= 0) return false;
+  let redCharacters = 0;
+  for (const run of colorRuns) {
+    if (run.color !== "red") continue;
+    const overlapStart = Math.max(run.start, start);
+    const overlapEnd = Math.min(run.end, end);
+    if (overlapEnd > overlapStart) redCharacters += overlapEnd - overlapStart;
+  }
+  return redCharacters / length >= RED_CLAUSE_MIN_COVERAGE;
+}
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
@@ -149,6 +172,10 @@ export function mapLeaseTemplatePdfImport(source: PdfImportSource): LeaseTemplat
         // row without inventing a third field on `ManagerCustomApplicationField`.
         description: cleaned,
         section: currentSection,
+        // C276: a clause the source PDF filled predominantly in red carries
+        // that forward as emphasis (see `isPredominantlyRed`), editable by the
+        // manager in the review editor for a misread (`ManagerLeaseQuestionsEditorModal`).
+        flagged: isPredominantlyRed(page.colorRuns, block.start, block.end) || undefined,
         sourcePage: page.pageNumber,
         sourceStart: block.start,
         sourceEnd: block.end,
@@ -186,6 +213,7 @@ export function leaseImportMappingToDraft(mapping: LeaseTemplatePdfImportMapping
       options: [...question.options],
       description: question.description,
       section: question.section,
+      flagged: question.flagged,
     })),
     applicationConfigMode: "custom",
     questionDisplayOrder: mapping.questions.map((question) => question.id),

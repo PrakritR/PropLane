@@ -14,8 +14,8 @@
  * revision, publish — without the application editor's per-question
  * drag-reorder/inline-type-edit UI. A published lease's questions are shown
  * grouped by section, in source order, read-only apart from required/owner
- * toggles; reordering or retyping an individual imported clause is a
- * follow-up (see the build report).
+ * and red-flag ("Important", C276 — `toggleFlagged`) toggles; reordering or
+ * retyping an individual imported clause is a follow-up (see the build report).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -91,6 +91,7 @@ export function ManagerLeaseQuestionsEditorModal({
   // per template rather than needing a reset effect.
   const [localTemplate, setLocalTemplate] = useState<PropertyLeaseTemplate | null>(template);
   const [resolvedIssueIndexes, setResolvedIssueIndexes] = useState<Set<number>>(new Set());
+  const [togglingFlagId, setTogglingFlagId] = useState<string | null>(null);
   const autoImportRanRef = useRef(false);
 
   const draft = localTemplate ? draftLeaseQuestionConfigForTemplate(localTemplate) : null;
@@ -155,6 +156,36 @@ export function ManagerLeaseQuestionsEditorModal({
       return ok;
     } finally {
       setSaving(false);
+    }
+  };
+
+  /**
+   * C276's one manager-editable correction path: the import's own red-flag
+   * detection (`lease-template-pdf-import.ts`'s `isPredominantlyRed`) can
+   * misread a clause, so a manager can flip it here rather than re-importing.
+   * Persists through the same generic `onSave` path `saveLabel` uses — not
+   * the PDF-import route — so it survives independently of any later
+   * re-import/review-and-confirm pass.
+   */
+  const toggleFlagged = async (fieldId: string) => {
+    if (!draft) return;
+    setTogglingFlagId(fieldId);
+    try {
+      const nextDraft = {
+        ...draft,
+        customApplicationFields: draft.customApplicationFields.map((field) =>
+          field.id === fieldId ? { ...field, flagged: !field.flagged } : field,
+        ),
+      };
+      const updatedLocal: PropertyLeaseTemplate = { ...localTemplate, draftQuestionConfig: nextDraft };
+      const next = templates.some((t) => t.id === localTemplate.id)
+        ? templates.map((t) => (t.id === localTemplate.id ? updatedLocal : t))
+        : [...templates, updatedLocal];
+      const ok = await onSave(next);
+      if (ok) setLocalTemplate(updatedLocal);
+      else showToast("Could not save that change.");
+    } finally {
+      setTogglingFlagId(null);
     }
   };
 
@@ -326,6 +357,21 @@ export function ManagerLeaseQuestionsEditorModal({
                 {group.fields.map((field) => (
                   <li key={field.id} className="flex items-center justify-between gap-2 text-sm text-foreground" data-attr={`lease-question-row-${field.key}`}>
                     <span className="min-w-0 flex-1 truncate">{field.label}</span>
+                    <label
+                      className="flex shrink-0 items-center gap-1.5 text-xs text-muted"
+                      data-attr={`lease-question-flagged-${field.key}`}
+                      title="Mark this clause as a red-flagged rule (misread from the PDF? fix it here)."
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5"
+                        checked={field.flagged === true}
+                        disabled={togglingFlagId === field.id}
+                        onChange={() => void toggleFlagged(field.id)}
+                        data-attr={`lease-question-flagged-toggle-${field.key}`}
+                      />
+                      Important
+                    </label>
                     <span className="shrink-0 text-xs text-muted">
                       {field.type}
                       {field.required ? " · required" : ""}
