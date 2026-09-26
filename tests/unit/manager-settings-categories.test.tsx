@@ -105,9 +105,7 @@ const CATEGORIES = [
   "payments",
   "tasks",
   "reminders",
-  "bookings",
   "spreadsheets",
-  "inspections",
   "services",
 ] as const;
 

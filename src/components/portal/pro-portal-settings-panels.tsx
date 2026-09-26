@@ -31,14 +31,8 @@ import {
   type SettingsResolutionSource,
 } from "@/components/portal/settings-property-scope";
 import { SettingsGroupSourceTag, scopeTagLabel } from "@/components/portal/settings-scope-bar";
-import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
-import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
-import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
-import {
-  ServiceRequestAutomationRows,
-  ServiceVendorAutomationRows,
-  useServiceAutomationSettings,
-} from "@/components/portal/service-automation-settings-section";
+import { managerSettingsProfilePath } from "@/lib/portal-settings-section";
+import { useServiceAutomationSettings } from "@/components/portal/service-automation-settings-section";
 import { DEFAULT_SERVICE_AUTOMATION_SETTINGS } from "@/lib/service-automation-settings";
 import { RESIDENT_MAINTENANCE_CATEGORY_LABELS } from "@/lib/work-order-taxonomy";
 import {
@@ -89,18 +83,6 @@ import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
-import {
-  ManagerReminderRuleSettingsPanel,
-  type ManagerReminderRuleSettingsHandle,
-} from "@/components/portal/manager-reminder-rule-settings";
-import {
-  ApplicationRemindersSettingsBundle,
-  IncomingPaymentRemindersSettingsBundle,
-  LeaseRemindersSettingsBundle,
-  OutgoingPaymentRemindersSettingsBundle,
-  InspectionRemindersSettingsBundle,
-  ServiceRemindersSettingsBundle,
-} from "@/components/portal/reminder-settings-bundles";
 import {
   PaymentListingLateFeeSettings,
   type PaymentListingLateFeeHandle,
@@ -271,8 +253,6 @@ export function ApplicationsSettingsPanel({
   waiverCode = "",
   onWaiverCodeChange,
   onWaiverCodeCommit,
-  teamMembers = [],
-  reminderFormRef,
   showFormLink = false,
   source,
   applicationSettings = DEFAULT_MANAGER_APPLICATION_SETTINGS,
@@ -295,8 +275,6 @@ export function ApplicationsSettingsPanel({
   onWaiverCodeChange?: (code: string) => void;
   /** Persist the promo code to every selected property (blur / Apply). */
   onWaiverCodeCommit?: () => void;
-  teamMembers?: WorkAssignmentTeamMember[];
-  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
   showFormLink?: boolean;
   /** The `source` the host's `manager-application-settings` GET resolved to, for the Handling tag. */
   source?: SettingsResolutionSource | null;
@@ -475,36 +453,14 @@ export function ApplicationsSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <ManagerAutomationSelectRow
-          label="Response promise"
-          field="applicationResponsePromiseDays"
-          options={[
-            { value: "3", label: "Answer within 3 days" },
-            { value: "1", label: "Answer within 1 day" },
-            { value: "2", label: "Answer within 2 days" },
-            { value: "5", label: "Answer within 5 days" },
-            { value: "0", label: "No promise" },
-          ]}
-          parse={(value) => Number(value) as 0 | 1 | 2 | 3 | 5}
-          dataAttr="applications-response-promise"
-        />
-        <AutomationRuleRows
-          rows={[
-            { kind: "application_decision_manager" },
-            { kind: "application_no_lease_manager" },
-          ]}
-          disabled={loading || saving}
-        />
-        <ApplicationRemindersSettingsBundle
-          teamMembers={teamMembers}
-          formRef={reminderFormRef}
-          disabled={loading || saving}
-        />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
-        <AutomatedMessagesList area="applications" disabled={loading || saving} />
+      <PortalSettingsSection title="Reminders and messages">
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="applications-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
     </div>
   );
@@ -514,13 +470,11 @@ export function TaskSettingsPanel({
   teamMembers,
   onFooterReady,
   onSaved,
-  reminderFormRef,
   formRef,
 }: {
   teamMembers: WorkAssignmentTeamMember[];
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   onSaved?: () => void;
-  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
   formRef?: React.Ref<TaskSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
@@ -727,15 +681,14 @@ export function TaskSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <ManagerReminderRuleSettingsPanel
-          kind="task"
-          audienceMode="manager"
-          teamMembers={teamMembers}
-          formRef={reminderFormRef}
-          disabled={saving}
-        />
-        <AutomationRuleRows rows={[{ kind: "task_overdue" }]} disabled={saving} />
+      <PortalSettingsSection title="Reminders and messages">
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="tasks-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
 
       <PortalSettingsSection title="Lifecycle automation" action={<SettingsGroupSourceTag namespace="task-automation-settings" />}>
@@ -763,8 +716,6 @@ export function LeaseSettingsPanel({
   propertyId,
   onPropertyIdChange,
   onAutomationChange,
-  teamMembers = [],
-  reminderFormRef,
   showFormLink = false,
   source,
   leasingPipeline = DEFAULT_LEASING_PIPELINE,
@@ -777,8 +728,6 @@ export function LeaseSettingsPanel({
   propertyId: string;
   onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
-  teamMembers?: WorkAssignmentTeamMember[];
-  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
   showFormLink?: boolean;
   /** The `source` the host's `manager-application-settings` GET resolved to, for the Documents tag. */
   source?: SettingsResolutionSource | null;
@@ -867,51 +816,14 @@ export function LeaseSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Ending" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <AutomationRuleRows
-          rows={[
-            { kind: "lease_ending_manager", multi: true },
-            { kind: "lease_ending", multi: true },
-            { kind: "renewal_offer_expiry" },
-            { kind: "countersign_overdue" },
-          ]}
-          disabled={loading || saving}
-        />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Move-in" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <AutomationRuleRows
-          rows={[
-            { kind: "move_in", multi: true },
-            { kind: "move_in_payment_method" },
-          ]}
-          disabled={loading || saving}
-        />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Move-out" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <AutomationRuleRows
-          rows={[
-            { kind: "move_out", multi: true },
-            { kind: "move_out_inspection_manager" },
-            { kind: "deposit_accounting", multi: true },
-          ]}
-          disabled={loading || saving}
-        />
-        <LeaseAutomationSettingsRows />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <LeaseRemindersSettingsBundle
-          teamMembers={teamMembers}
-          formRef={reminderFormRef}
-          disabled={loading || saving}
-        />
-        <AutomationRuleRows rows={[{ kind: "document_signature" }]} disabled={loading || saving} />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
-        <AutomatedMessagesList area="lease" disabled={loading || saving} />
+      <PortalSettingsSection title="Reminders and messages">
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="lease-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
     </div>
   );
@@ -954,15 +866,9 @@ function ServiceCategoriesAutomationRow() {
 }
 
 export function ServicesSettingsPanel({
-  teamMembers,
   onFooterReady,
-  workOrderReminderFormRef,
-  serviceOrderReminderFormRef,
 }: {
-  teamMembers: WorkAssignmentTeamMember[];
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
-  workOrderReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
-  serviceOrderReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
   useReportSettingsPanelFooter(onFooterReady, null);
 
@@ -971,39 +877,14 @@ export function ServicesSettingsPanel({
       <PortalSettingsSection title="Service types" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
         <ServiceCategoriesAutomationRow />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Requests" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
-        <ServiceRequestAutomationRows />
-        <AutomationRuleRows
-          rows={[
-            { kind: "work_order_unassigned" },
-            { kind: "work_order_unassigned_emergency" },
-            { kind: "service_request_decision" },
-            { kind: "service_request_unpaid" },
-          ]}
-        />
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Vendors" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
-        <ServiceVendorAutomationRows />
-        <AutomationRuleRows
-          rows={[
-            { kind: "vendor_offer_expiry" },
-            { kind: "work_order_no_on_my_way" },
-            { kind: "vendor_invoice_nudge" },
-            { kind: "invoice_approval" },
-            { kind: "vendor_document_expiry", label: "Warn before vendor documents expire" },
-          ]}
-        />
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <AutoMessageAssigneeRow />
-        <ServiceRemindersSettingsBundle
-          teamMembers={teamMembers}
-          workOrderFormRef={workOrderReminderFormRef}
-          serviceOrderFormRef={serviceOrderReminderFormRef}
-        />
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
-        <AutomatedMessagesList area="services" />
+      <PortalSettingsSection title="Reminders and messages">
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="services-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
     </PortalSettingsSections>
   );
@@ -1015,7 +896,7 @@ export function ServicesSettingsPanel({
  * flip through the same `/api/portal/automation-settings` PATCH every other
  * automation preference uses; the row reports its own failure and reverts.
  */
-function AutoMessageAssigneeRow() {
+export function AutoMessageAssigneeRow() {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const { userId } = usePortalSession();
@@ -1084,73 +965,10 @@ function AutoMessageAssigneeRow() {
   );
 }
 
-/**
- * Bookings settings.
- *
- * Reminders are the whole panel. Settings used to open the Link Airbnb dialog —
- * the same dialog the button beside it already opens — so the section had two
- * controls leading to one place and no home for a booking preference.
- *
- * Manager-side only, so no counterparty switch: an imported channel booking
- * carries no guest contact. See the note at the top of `lib/reminders/rules.ts`.
- */
-/**
- * Inspections settings. Reminders are the whole panel: a move-in or move-out condition report
- * has no other per-manager preference to hold, and the reminder is what stops one being missed.
- */
-export function InspectionsSettingsPanel({
-  teamMembers,
-  onFooterReady,
-  dueReminderFormRef,
-  reviewReminderFormRef,
-}: {
-  teamMembers: WorkAssignmentTeamMember[];
-  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
-  dueReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
-  reviewReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
-}) {
-  useReportSettingsPanelFooter(onFooterReady, null);
-
-  return (
-    <PortalSettingsSections>
-      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <InspectionRemindersSettingsBundle
-          teamMembers={teamMembers}
-          dueFormRef={dueReminderFormRef}
-          reviewFormRef={reviewReminderFormRef}
-        />
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
-        <AutomatedMessagesList area="inspections" />
-      </PortalSettingsSection>
-    </PortalSettingsSections>
-  );
-}
-
-export function BookingsSettingsPanel({
-  teamMembers,
-  onFooterReady,
-  reminderFormRef,
-}: {
-  teamMembers: WorkAssignmentTeamMember[];
-  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
-  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
-}) {
-  useReportSettingsPanelFooter(onFooterReady, null);
-
-  return (
-    <PortalSettingsSections>
-      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <ManagerReminderRuleSettingsPanel
-          kind="booking"
-          audienceMode="manager"
-          teamMembers={teamMembers}
-          formRef={reminderFormRef}
-        />
-      </PortalSettingsSection>
-    </PortalSettingsSections>
-  );
-}
+// Bookings and Inspections settings tabs are gone (C111/C116): both held only
+// a Reminders/Messages section, which now lives centrally on Settings →
+// Reminders, grouped under "Bookings" and "Inspections" — see
+// `pro-portal-automation-settings-panel.tsx`.
 
 export const RESIDENT_SETTINGS_AREAS = [
   { value: "household", label: "Household reminders" },
@@ -1168,32 +986,29 @@ export function ResidentSettingsPanel({
   onPropertyIdChange,
   area,
   onAreaChange,
-  teamMembers = [],
-  paymentsFormRef,
-  householdFormRef,
 }: {
   propertyOptions: { id: string; label: string }[];
   selectedPropertyId: string;
   onPropertyIdChange: (propertyId: string) => void;
   area: ResidentSettingsArea;
   onAreaChange: (area: ResidentSettingsArea) => void;
-  teamMembers?: WorkAssignmentTeamMember[];
-  paymentsFormRef?: React.Ref<PaymentAutomationSettingsHandle>;
-  householdFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
   void propertyOptions;
   void selectedPropertyId;
   void onPropertyIdChange;
   void area;
   void onAreaChange;
-  void teamMembers;
-  void paymentsFormRef;
-  void householdFormRef;
 
   return (
     <PortalSettingsSections>
-      <PortalSettingsSection title="Welcome" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-        <AutomationRuleRows rows={[{ kind: "resident_welcome", multi: true }]} />
+      <PortalSettingsSection title="Reminders and messages">
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="resident-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
     </PortalSettingsSections>
   );
@@ -1590,12 +1405,9 @@ export function TourSettingsPanel({
  * Outgoing reminders, in that order.
  */
 export function PaymentsSettingsPanel({
-  onSaved,
   onFooterReady,
   formRef,
   mode = "incoming",
-  teamMembers = [],
-  outgoingReminderFormRef,
   propertyOptions = [],
 }: {
   onSaved?: () => void;
@@ -1603,21 +1415,17 @@ export function PaymentsSettingsPanel({
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
   /** Incoming = resident rent reminders; outgoing = manager payee reminders. */
   mode?: "incoming" | "outgoing";
-  teamMembers?: WorkAssignmentTeamMember[];
-  outgoingReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
   propertyOptions?: { id: string; label: string }[];
   initialPropertyId?: string;
 }) {
   const workspaces = useWorkspaces();
   const scope = useSettingsPropertyScope();
-  const remindersRef = useRef<PaymentAutomationSettingsHandle | null>(null);
   const lateFeeRef = useRef<PaymentListingLateFeeHandle | null>(null);
 
   useImperativeHandle(
     formRef,
     () => ({
       saveIfDirty: async () => {
-        if ((await remindersRef.current?.saveIfDirty()) === false) return false;
         if ((await lateFeeRef.current?.saveIfDirty()) === false) return false;
         return true;
       },
@@ -1660,11 +1468,14 @@ export function PaymentsSettingsPanel({
   if (mode === "outgoing") {
     return (
       <div className="space-y-6">
-        <PortalSettingsSection title="Reminders">
-          <OutgoingPaymentRemindersSettingsBundle
-            teamMembers={teamMembers}
-            formRef={outgoingReminderFormRef}
-          />
+        <PortalSettingsSection title="Reminders and messages">
+          <PortalSettingsGroup>
+            <PortalSettingsLinkRow
+              label="Edit reminder timing and automated messages"
+              href={managerSettingsProfilePath("automation")}
+              dataAttr="payments-outgoing-open-reminders-hub"
+            />
+          </PortalSettingsGroup>
         </PortalSettingsSection>
       </div>
     );
@@ -1707,32 +1518,14 @@ export function PaymentsSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection
-        title="Incoming reminders"
-        action={<SettingsGroupSourceTag namespace="incoming-payment-reminders" />}
-      >
-        <IncomingPaymentRemindersSettingsBundle
-          teamMembers={teamMembers}
-          onSaved={onSaved}
-          formRef={remindersRef}
-        />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection title="Delinquency">
-        <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically">
-        <AutomatedMessagesList area="payments" />
-      </PortalSettingsSection>
-
-      <PortalSettingsSection
-        title="Outgoing reminders"
-        action={<SettingsGroupSourceTag namespace="outgoing-payment-reminders" />}
-      >
-        <OutgoingPaymentRemindersSettingsBundle
-          teamMembers={teamMembers}
-          formRef={outgoingReminderFormRef}
-        />
+      <PortalSettingsSection title="Reminders and messages">
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="payments-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
     </div>
   );
@@ -1874,13 +1667,15 @@ export function CommunicationSettingsPanel({
           return true;
         }
         // Only the field this screen can still edit — the seven "Send via for"
-        // categories are no longer writable from here (see the doc comment above).
+        // categories, and "Auto-send AI drafts" (now on Settings → Reminders,
+        // see `AutoSendAiDraftsRow`), are no longer writable from here (see the
+        // doc comment above).
         const res = await fetch("/api/portal/automation-settings", {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend,
+            shareProfileContactWithoutWorkChannel: draft.shareProfileContactWithoutWorkChannel,
             ...(scope.propertyId ? { propertyId: scope.propertyId } : {}),
             ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
           }),
@@ -1954,15 +1749,6 @@ export function CommunicationSettingsPanel({
       action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
     >
       <PortalSettingsGroup>
-        <PortalSettingsRow label="Auto-send AI drafts">
-          <PortalSettingsToggle
-            checked={draft.inboxAiDraftAutoSend}
-            onChange={(next) => setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: next }))}
-            label="Auto-send AI drafts"
-            disabled={saving}
-            dataAttr="communication-inbox-ai-draft-auto-send"
-          />
-        </PortalSettingsRow>
         {workEmailAudience ? (
           <PortalSettingsRow label="Who can email the assistant">
             <span className="text-[13px] font-medium text-foreground" data-attr="communication-who-can-email-assistant">
@@ -1987,12 +1773,14 @@ export function CommunicationSettingsPanel({
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
       <div className="mt-6 space-y-3">
-        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Follow-ups</p>
-        <AutomationRuleRows rows={[{ kind: "message_unanswered" }]} />
-      </div>
-      <div className="mt-6 space-y-3">
-        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Messages sent automatically</p>
-        <AutomatedMessagesList area="communication" />
+        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Reminders and messages</p>
+        <PortalSettingsGroup>
+          <PortalSettingsLinkRow
+            label="Edit reminder timing and automated messages"
+            href={managerSettingsProfilePath("automation")}
+            dataAttr="communication-open-reminders-hub"
+          />
+        </PortalSettingsGroup>
       </div>
     </PortalSettingsSection>
   );
@@ -2155,7 +1943,7 @@ export function PropertySettingsPanel({
  * One autosaving select bound to a single `ManagerAutomationSettings` field —
  * the same PATCH every other automation preference uses (PLAN-0915).
  */
-function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
+export function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
   label,
   field,
   options,

@@ -26,8 +26,8 @@ const VALID_MANAGER_PORTAL_SETTINGS_TABS = new Set<ManagerPortalSettingsTab>([
   "payments",
   "services",
   "communication",
-  "bookings",
-  "inspections",
+  // Bookings and Inspections settings tabs are gone (C111/C116) — no longer
+  // valid `ManagerPortalSettingsTab` values.
   "automation",
 ]);
 

@@ -47,8 +47,6 @@ export type ManagerPortalSettingsTab =
   | "payouts"
   | "services"
   | "communication"
-  | "bookings"
-  | "inspections"
   | "automation";
 
 export function ProPortalSettingsModal({

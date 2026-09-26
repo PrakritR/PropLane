@@ -81,6 +81,31 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
   };
 });
 
+// C111 moved every area's reminders onto ONE tab (`automation` — the
+// Reminders hub), which is now where several INDEPENDENTLY registered
+// handles are actually mounted together under a single tab (Payments' own
+// outgoing-reminder sub-panel lost that shape in the same move — it no
+// longer carries a second handle of its own).
+vi.mock("@/components/portal/pro-portal-automation-settings-panel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/portal/pro-portal-automation-settings-panel")>();
+  const React = await import("react");
+
+  function MockManagerPortalAutomationSettingsPanel({
+    formRef,
+    applicationsReminderFormRef,
+  }: ComponentProps<typeof actual.ManagerPortalAutomationSettingsPanel>) {
+    React.useImperativeHandle(formRef, () => ({ saveIfDirty: paymentsSaveIfDirty }), []);
+    React.useImperativeHandle(
+      applicationsReminderFormRef,
+      () => ({ saveIfDirty: paymentsOutgoingReminderSaveIfDirty }),
+      [],
+    );
+    return <div>Reminders hub</div>;
+  }
+
+  return { ...actual, ManagerPortalAutomationSettingsPanel: MockManagerPortalAutomationSettingsPanel };
+});
+
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 
 /** A save whose resolution the test controls by hand, to assert ordering. */
@@ -143,16 +168,18 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
   });
 
   it("runs every panel's save even when one of them rejects (allSettled, not all)", async () => {
-    paymentsSaveIfDirty.mockRejectedValueOnce(new Error("Payments save failed"));
+    // C111: the Reminders hub (`automation` tab) is where several
+    // independently registered handles are actually mounted together now.
+    paymentsSaveIfDirty.mockRejectedValueOnce(new Error("Reminders save failed"));
     const onClose = vi.fn();
 
-    render(<ProPortalSettingsModal open onClose={onClose} initialTab="payments" />);
-    await screen.findByText("Payments panel");
+    render(<ProPortalSettingsModal open onClose={onClose} initialTab="automation" />);
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => expect(paymentsSaveIfDirty).toHaveBeenCalledTimes(1));
-    // The sibling outgoing-reminder save still ran despite the other rejecting.
+    // The sibling handle's save still ran despite the other rejecting.
     await waitFor(() => expect(paymentsOutgoingReminderSaveIfDirty).toHaveBeenCalledTimes(1));
     expect(onClose).not.toHaveBeenCalled();
   });

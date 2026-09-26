@@ -12,9 +12,8 @@
  * independently.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { DEFAULT_REMINDER_SETTINGS, type ReminderSettings } from "@/lib/reminders/rules";
-import { FIXED_RULE_FIELDS } from "@/lib/reminders/fixed-rule-fields";
 import {
   MANAGER_SETTINGS_ENTRY_POINTS,
   getSettingsEntryPointForTab,
@@ -90,18 +89,6 @@ afterEach(() => {
   showToast.mockReset();
 });
 
-function moduleGroup(container: HTMLElement, moduleId: string): HTMLElement {
-  const el = container.querySelector<HTMLElement>(`[data-attr="settings-module-${moduleId}"]`);
-  if (!el) throw new Error(`module group "${moduleId}" not found`);
-  return el;
-}
-
-function row(container: HTMLElement, kind: string): HTMLElement {
-  const el = container.querySelector<HTMLElement>(`[data-attr="settings-row-${kind}"]`);
-  if (!el) throw new Error(`row "${kind}" not found`);
-  return el;
-}
-
 describe("Notifications hub — copy", () => {
   it("quiet hours row is a label and its control, with no zone sentence under it", async () => {
     render(<ManagerPortalAutomationSettingsPanel />);
@@ -112,17 +99,34 @@ describe("Notifications hub — copy", () => {
   });
 });
 
-describe("Notifications hub — index (PLAN-0915)", () => {
-  it("is globals plus an index into every area tab; no per-kind rows live here", async () => {
+describe("Notifications hub — rules & messages (C111)", () => {
+  it("is globals plus every area's reminder rules and automated messages, grouped and filterable", async () => {
     const { container } = render(<ManagerPortalAutomationSettingsPanel />);
     // WS4 (PLAN-0925 Part 5, C190): the read-only "What PropLane sends" list
-    // now sits ahead of the index, so the manager finds the actual defaults
-    // before the link to go change one.
-    await screen.findByText(/Change a rule or a template/i);
-    for (const tab of ["applications", "tours", "lease", "services", "communication", "inspections"]) {
-      expect(container.querySelector(`[data-attr="automation-index-${tab}"]`)).toBeTruthy();
+    // sits ahead of the per-area groups, so the manager finds the shipped
+    // defaults before the actual editable rules.
+    await screen.findByText(/Rules & messages/i);
+    // C111: every area tab's own Reminders/Messages section moved HERE,
+    // grouped by area — including Bookings and Inspections, whose settings
+    // tabs are gone (C116) because that was all they held.
+    for (const heading of [
+      "Applications",
+      "Lease, move-in & move-out",
+      "Tasks",
+      "Residents",
+      "Payments",
+      "Services & vendors",
+      "Communication",
+      "Bookings",
+      "Inspections",
+    ]) {
+      // `WhatProplaneSends` groups its own read-only list by the same area
+      // names, so a heading can legitimately appear more than once.
+      expect((await screen.findAllByText(heading)).length).toBeGreaterThan(0);
     }
-    expect(container.querySelector('[data-attr="settings-row-work_order"]')).toBeNull();
+    // The area filter is a dropdown, not a link-out index.
+    expect(container.querySelector('[data-attr="automation-index-applications"]')).toBeNull();
+    expect(container.querySelector('[data-attr="reminders-area-filter"]')).toBeTruthy();
     expect(container.textContent).not.toContain("Work order");
   });
 });

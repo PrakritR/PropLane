@@ -556,7 +556,7 @@ function useBookingsWorkspace({
       <ProPortalSettingsModal
         open={settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
-        initialTab="bookings"
+        initialTab="automation"
         scoped
         scopedTitle={settingsDialogTitlePrefix(bookingsSettingsEntry)}
         propertyOptions={propertyOptions}

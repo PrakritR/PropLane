@@ -81,9 +81,9 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
     expect(body).not.toMatch(/PaymentsSettingsArea/);
   });
 
-  it("renders Payment setup, Processing fee, Late fees, Incoming reminders, Outgoing reminders in that order", () => {
+  it("renders Payment setup, Processing fee, Late fees in that order; Incoming/Outgoing reminders moved to the Reminders hub (C111)", () => {
     const body = paymentsSettingsPanelSource();
-    const titles = ["Payment setup", "Processing fee", "Late fees", "Incoming reminders", "Outgoing reminders"];
+    const titles = ["Payment setup", "Processing fee", "Late fees"];
     const positions = titles.map((title) => {
       const idx = body.indexOf(`title="${title}"`);
       expect(idx, `missing section titled "${title}"`).toBeGreaterThan(-1);
@@ -92,13 +92,14 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
     for (let i = 1; i < positions.length; i += 1) {
       expect(positions[i], `"${titles[i]}" is not after "${titles[i - 1]}"`).toBeGreaterThan(positions[i - 1]);
     }
+    expect(body).not.toContain('title="Incoming reminders"');
+    expect(body).not.toContain('title="Outgoing reminders"');
+    expect(body).toContain("Edit reminder timing and automated messages");
   });
 
-  it("gives each of the five sections a scope-bar-fed source tag", () => {
+  it("gives Processing fee and Late fees a scope-bar-fed source tag; reminders keep theirs on the Reminders hub", () => {
     const body = paymentsSettingsPanelSource();
     expect(body).toContain('<SettingsGroupSourceTag namespace="processing-fee-settings" />');
-    expect(body).toContain('<SettingsGroupSourceTag namespace="incoming-payment-reminders" />');
-    expect(body).toContain('<SettingsGroupSourceTag namespace="outgoing-payment-reminders" />');
     // Late fees has no workspace/account rung, so it carries its own always-"property"
     // tag (computed from the module's resolved scope) rather than the generic
     // by-namespace lookup — same vocabulary (`scopeTagLabel`), correct count.
@@ -107,6 +108,13 @@ describe("Payments settings: stacked sections replace the area dropdown", () => 
     // account-only — so it alone carries none.
     const setupSection = body.slice(body.indexOf('title="Payment setup"'), body.indexOf('title="Processing fee"'));
     expect(setupSection).not.toContain("SettingsGroupSourceTag");
+
+    const hub = readFileSync(
+      `${process.cwd()}/src/components/portal/pro-portal-automation-settings-panel.tsx`,
+      "utf8",
+    );
+    expect(hub).toContain("IncomingPaymentRemindersSettingsBundle");
+    expect(hub).toContain("OutgoingPaymentRemindersSettingsBundle");
   });
 });
 

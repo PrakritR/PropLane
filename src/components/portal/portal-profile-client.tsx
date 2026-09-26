@@ -7,9 +7,7 @@ import {
   Bell,
   BellRing,
   Calendar,
-  CalendarDays,
   CheckSquare,
-  ClipboardCheck,
   CreditCard,
   FileText,
   Folder,
@@ -126,8 +124,6 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "payouts",
   "tasks",
   "reminders",
-  "bookings",
-  "inspections",
   "services",
 ]);
 
@@ -180,9 +176,7 @@ export type SettingsGroupId =
   | "payouts"
   | "tasks"
   | "reminders"
-  | "bookings"
   | "spreadsheets"
-  | "inspections"
   | "services";
 
 const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
@@ -194,8 +188,6 @@ const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>
   payouts: "payouts",
   tasks: "tasks",
   reminders: "automation",
-  bookings: "bookings",
-  inspections: "inspections",
   services: "services",
 };
 
@@ -522,10 +514,10 @@ export function PortalProfileClient({
         { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Operations" },
         { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
         { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
-        { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },
         { id: "spreadsheets", label: "Spreadsheets", description: "Google workbooks.", icon: Table2, group: "Operations" },
-        { id: "inspections", label: "Inspections", description: "Inspection rules.", icon: ClipboardCheck, group: "Operations" },
-        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
+        // Bookings and Inspections settings tabs are gone (C111/C116): both
+        // held only reminders, now on this Reminders entry.
+        { id: "reminders", label: "Reminders", description: "Reminder matrix, quiet hours, and every area's automated messages.", icon: BellRing, group: "Operations" },
       );
     }
     return list;
@@ -554,6 +546,11 @@ export function PortalProfileClient({
     if (rawTab === "automation") router.replace("/portal/profile?tab=reminders");
     if (rawTab === "leases") router.replace("/portal/profile?tab=lease");
     if (rawTab === "residents") router.replace("/portal/profile?tab=resident");
+    // Bookings and Inspections settings tabs are gone (C111/C116): both held
+    // only reminders, now on this Reminders tab — an old bookmark lands
+    // there instead of silently falling back to Profile.
+    if (rawTab === "bookings") router.replace("/portal/profile?tab=reminders");
+    if (rawTab === "inspections") router.replace("/portal/profile?tab=reminders");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const activeGroup =

@@ -120,7 +120,9 @@ describe("CommunicationSettingsPanel", () => {
     stubPanelFetches(readyNumber, readyEmail);
     render(<CommunicationSettingsPanel />);
 
-    expect(await screen.findByText("Auto-send AI drafts")).toBeTruthy();
+    // "Auto-send AI drafts" moved to the central Reminders hub (C111); this
+    // panel's own load-anchor is the reminders/messages link row it left behind.
+    expect(await screen.findByText("Edit reminder timing and automated messages")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Copy work email/ })).toBeNull();
     expect(showToast).not.toHaveBeenCalled();
@@ -146,7 +148,7 @@ describe("CommunicationSettingsPanel", () => {
     stubPanelFetches(readyNumber, null);
     render(<CommunicationSettingsPanel />);
 
-    await screen.findByText("Auto-send AI drafts");
+    await screen.findByText("Edit reminder timing and automated messages");
     expect(screen.queryByText("Who can email the assistant")).toBeNull();
   });
 });

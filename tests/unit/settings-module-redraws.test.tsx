@@ -57,12 +57,12 @@ import {
   LeaseSettingsPanel,
   TaskSettingsPanel,
   PaymentsSettingsPanel,
-  BookingsSettingsPanel,
-  InspectionsSettingsPanel,
   ServicesSettingsPanel,
   ResidentSettingsPanel,
   CommunicationSettingsPanel,
 } from "@/components/portal/pro-portal-settings-panels";
+import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
+import { ServiceRemindersSettingsBundle } from "@/components/portal/reminder-settings-bundles";
 import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automation-settings-client";
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
@@ -140,7 +140,7 @@ function ControlledApplications() {
       propertyIds={propertyIds}
       onPropertyIdsChange={setPropertyIds}
       onAutomationChange={setAutomation}
-      teamMembers={[]}
+      source="property"
     />
   );
 }
@@ -157,7 +157,7 @@ function ControlledLease() {
       propertyId={propertyId}
       onPropertyIdChange={setPropertyId}
       onAutomationChange={setAutomation}
-      teamMembers={[]}
+      source="property"
     />
   );
 }
@@ -173,19 +173,25 @@ afterEach(() => {
 });
 
 describe("settings module redraws — scope tags", () => {
-  it("Applications tags both its reminders and its messages-sent sections", async () => {
+  // C111: every area tab drops its own Reminders/Messages sections — that
+  // content, and its scope tag, now live centrally on Settings → Reminders
+  // (`pro-portal-automation-settings-panel.tsx`). Each area tab keeps only
+  // its own link out to that hub.
+  it("Applications tags its own Application system/Handling sections and links out for reminders", async () => {
     stubFetch();
     render(withScope(<ControlledApplications />, ["prop-1"]));
-    expect((await screen.findAllByText("Own values on 1 property")).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText("Own values on 1 property")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Edit reminder timing and automated messages")).toBeTruthy();
   });
 
-  it("Lease tags its Ending/Move-in/Move-out/Reminders and messages-sent sections", async () => {
+  it("Lease tags its own Lease system/Documents sections and links out for reminders", async () => {
     stubFetch();
     render(withScope(<ControlledLease />, ["prop-1"]));
-    expect((await screen.findAllByText("Own values on 1 property")).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText("Own values on 1 property")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Edit reminder timing and automated messages")).toBeTruthy();
   });
 
-  it("Task, Bookings, Inspections, Services, Communication each tag their section as Account when no house is picked", async () => {
+  it("Task, Services, Communication each tag their remaining section as Account when no house is picked", async () => {
     stubFetch();
     render(withScope(<TaskSettingsPanel teamMembers={[]} />));
     expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
@@ -198,27 +204,22 @@ describe("settings module redraws — scope tags", () => {
     expect((await screen.findAllByText("Payment setup")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Processing fee").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Late fees").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Incoming reminders").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Outgoing reminders").length).toBeGreaterThan(0);
+    // Incoming/Outgoing reminders and Delinquency moved to the Reminders hub (C111).
+    expect(screen.queryByText("Incoming reminders")).toBeNull();
+    expect(screen.queryByText("Outgoing reminders")).toBeNull();
+    expect(screen.getByText("Edit reminder timing and automated messages")).toBeTruthy();
     cleanup();
 
-    render(withScope(<BookingsSettingsPanel teamMembers={[]} />));
+    render(withScope(<ServicesSettingsPanel />));
     expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
-    cleanup();
-
-    render(withScope(<InspectionsSettingsPanel teamMembers={[]} />));
-    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
-    cleanup();
-
-    render(withScope(<ServicesSettingsPanel teamMembers={[]} />));
-    expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Edit reminder timing and automated messages")).toBeTruthy();
     cleanup();
 
     render(withScope(<CommunicationSettingsPanel />));
     expect((await screen.findAllByText("Account")).length).toBeGreaterThan(0);
   });
 
-  it("Resident settings is the welcome message, tagged Account when no house is picked", async () => {
+  it("Resident settings links out to the Reminders hub instead of carrying its own Welcome reminder", async () => {
     stubFetch();
     render(
       withScope(
@@ -228,12 +229,11 @@ describe("settings module redraws — scope tags", () => {
           onPropertyIdChange={() => {}}
           area="household"
           onAreaChange={() => {}}
-          teamMembers={[]}
         />,
       ),
     );
-    expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
-    expect(screen.getByText("Account")).toBeTruthy();
+    expect(await screen.findByText("Edit reminder timing and automated messages")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Welcome" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
     expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();
@@ -333,9 +333,9 @@ describe("settings module redraws — every row is a label and its control, noth
     expect(screen.queryByText("Send the generated lease for signature when it is ready.")).toBeNull();
   });
 
-  it("Communication's Auto-send AI drafts row has no helper subtext", async () => {
+  it("Auto-send AI drafts (now on the Reminders hub, C111) row has no helper subtext", async () => {
     stubFetch();
-    render(<CommunicationSettingsPanel />);
+    render(<AutoSendAiDraftsRow />);
     await screen.findByRole("switch", { name: "Auto-send AI drafts" });
     expect(
       screen.queryByText(
@@ -347,7 +347,7 @@ describe("settings module redraws — every row is a label and its control, noth
     ).toBeNull();
   });
 
-  it("Resident welcome is the only household section in this tab", async () => {
+  it("Resident settings has no household reminder or payment-reminder controls of its own (C111)", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
@@ -356,10 +356,10 @@ describe("settings module redraws — every row is a label and its control, noth
         onPropertyIdChange={() => {}}
         area="household"
         onAreaChange={() => {}}
-        teamMembers={[]}
       />,
     );
-    expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
+    expect(await screen.findByText("Edit reminder timing and automated messages")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Welcome" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Household reminders" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Payment reminders" })).toBeNull();
     expect(screen.queryByText(/Portfolio-wide payment reminder presets/)).toBeNull();
@@ -383,7 +383,7 @@ describe("Communication — the duplicate Send via for editor is gone", () => {
   it("renders no Send via for control", async () => {
     stubFetch();
     render(<CommunicationSettingsPanel />);
-    await screen.findByText("Auto-send AI drafts");
+    await screen.findByText("Edit reminder timing and automated messages");
     expect(screen.queryByText("Send via for")).toBeNull();
     expect(screen.queryByText("Payment reminders")).toBeNull();
     expect(screen.queryByText("Tour reminders")).toBeNull();
@@ -401,9 +401,19 @@ describe("no hand-rolled checkbox survives in the redrawn file", () => {
 });
 
 describe("service copy says Service visit, never Work order", () => {
-  it("Services panel renders Service visit copy and never Work order", async () => {
+  it("Services settings tab itself never says Work order", async () => {
     stubFetch();
-    const { container } = render(<ServicesSettingsPanel teamMembers={[]} />);
+    const { container } = render(<ServicesSettingsPanel />);
+    await screen.findByText("Edit reminder timing and automated messages");
+    expect(container.textContent).not.toContain("Work order");
+  });
+
+  // The reminder rows that actually carry "Service visit" copy moved to the
+  // Reminders hub (C111) — `ServiceRemindersSettingsBundle` is the same
+  // self-contained component that hub renders under its Services group.
+  it("Service reminder rows (now on the Reminders hub) render Service visit copy and never Work order", async () => {
+    stubFetch();
+    const { container } = render(<ServiceRemindersSettingsBundle teamMembers={[]} />);
     await waitFor(() => expect(container.textContent).toContain("Service visit"));
     expect(container.textContent).not.toContain("Work order");
   });
@@ -428,9 +438,26 @@ describe("converted toggles are real switches", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("Communication's Auto-send AI drafts flips", async () => {
-    stubFetch();
-    render(<CommunicationSettingsPanel />);
+  it("Auto-send AI drafts (now on the Reminders hub, C111) flips", async () => {
+    // The shared `stubFetch()` echoes the same canned defaults on every PATCH
+    // regardless of body, which would bounce this optimistic toggle straight
+    // back to false — this row's own PATCH round-trip needs its response to
+    // actually reflect what was sent, same as the real route does.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/portal/automation-settings")) {
+          const patch = init?.body ? (JSON.parse(String(init.body)) as { inboxAiDraftAutoSend?: boolean }) : {};
+          return Response.json({
+            settings: { ...DEFAULT_MANAGER_AUTOMATION_SETTINGS, ...patch },
+            source: "account",
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+    render(<AutoSendAiDraftsRow />);
     const toggle = await screen.findByRole("switch", { name: "Auto-send AI drafts" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     await userEvent.click(toggle);
