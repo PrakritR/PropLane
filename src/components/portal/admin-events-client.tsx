@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Calendar, Handshake, Home, ListChecks, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -11,7 +12,7 @@ import {
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPersonRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { ADMIN_UI_EVENT } from "@/lib/demo-admin-ui";
@@ -35,6 +36,22 @@ type MeetingsTab = "pending" | "upcoming" | "past";
 /** `?tab=` is user-supplied — only the three real views are honoured. */
 function meetingsTabFromParam(raw: string | null): MeetingsTab {
   return raw === "upcoming" || raw === "past" ? raw : "pending";
+}
+
+/**
+ * Meeting kind → the glyph that distinguishes it at a glance (U068): a tour
+ * request reads the same as a partner intro or a renewal check-in until now,
+ * with nothing but the free-text name/notes to tell them apart.
+ */
+const MEETING_KIND_META: Record<"partner" | "tour" | "task", { icon: LucideIcon; label: string }> = {
+  tour: { icon: Home, label: "Property tour" },
+  partner: { icon: Handshake, label: "Partner call" },
+  task: { icon: ListChecks, label: "Task" },
+};
+
+function meetingKindMeta(kind: "partner" | "tour" | "task" | undefined) {
+  if (!kind) return { icon: Calendar, label: "Meeting" };
+  return MEETING_KIND_META[kind];
 }
 
 function formatWindow(startIso: string, endIso: string): string {
@@ -230,34 +247,50 @@ export function AdminEventsClient() {
 
   const rows =
     tab === "pending"
-      ? pending.map((row) => (
-          <div key={row.id}>
-            <PortalPersonRecordRow
-              name={`${row.name} · ${formatWindow(row.proposedStart, row.proposedEnd)}`}
-              subtitle={[row.email, row.propertyTitle].filter(Boolean).join(" · ")}
-              selected={expandedId === row.id}
-              checked={selectedIds.has(row.id)}
-              onSelectedChange={() => toggleSelected(row.id)}
-              onOpen={() => setExpandedId((cur) => (cur === row.id ? null : row.id))}
-              dataAttr="admin-meeting-row"
-            />
-            {expandedId === row.id ? detailBlock(row.notes, row.phone) : null}
-          </div>
-        ))
-      : (tab === "upcoming" ? upcoming : past).map((event) => (
-          <div key={event.id}>
-            <PortalPersonRecordRow
-              name={`${event.attendeeName || event.title} · ${formatWindow(event.start, event.end)}`}
-              subtitle={[event.attendeeEmail, event.propertyTitle].filter(Boolean).join(" · ")}
-              selected={expandedId === event.id}
-              onOpen={() => setExpandedId((cur) => (cur === event.id ? null : event.id))}
-              dataAttr="admin-meeting-row"
-            />
-            {expandedId === event.id
-              ? detailBlock(event.notes || event.instructions, event.attendeePhone)
-              : null}
-          </div>
-        ));
+      ? pending.map((row) => {
+          const kindMeta = meetingKindMeta(row.kind);
+          return (
+            <div key={row.id}>
+              <PortalPersonRecordRow
+                name={`${row.name} · ${formatWindow(row.proposedStart, row.proposedEnd)}`}
+                subtitle={[row.email, row.propertyTitle].filter(Boolean).join(" · ")}
+                selected={expandedId === row.id}
+                checked={selectedIds.has(row.id)}
+                onSelectedChange={() => toggleSelected(row.id)}
+                onOpen={() => setExpandedId((cur) => (cur === row.id ? null : row.id))}
+                dataAttr="admin-meeting-row"
+                badge={
+                  <PortalRowFact icon={kindMeta.icon} srLabel="Meeting type">
+                    {kindMeta.label}
+                  </PortalRowFact>
+                }
+              />
+              {expandedId === row.id ? detailBlock(row.notes, row.phone) : null}
+            </div>
+          );
+        })
+      : (tab === "upcoming" ? upcoming : past).map((event) => {
+          const kindMeta = meetingKindMeta(event.kind);
+          return (
+            <div key={event.id}>
+              <PortalPersonRecordRow
+                name={`${event.attendeeName || event.title} · ${formatWindow(event.start, event.end)}`}
+                subtitle={[event.attendeeEmail, event.propertyTitle].filter(Boolean).join(" · ")}
+                selected={expandedId === event.id}
+                onOpen={() => setExpandedId((cur) => (cur === event.id ? null : event.id))}
+                dataAttr="admin-meeting-row"
+                badge={
+                  <PortalRowFact icon={kindMeta.icon} srLabel="Meeting type">
+                    {kindMeta.label}
+                  </PortalRowFact>
+                }
+              />
+              {expandedId === event.id
+                ? detailBlock(event.notes || event.instructions, event.attendeePhone)
+                : null}
+            </div>
+          );
+        });
 
   return (
     <ManagerPortalPageShell

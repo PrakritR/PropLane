@@ -103,3 +103,10 @@ describe("AdminEventsClient decline", () => {
     expect(state.toast).toHaveBeenCalledWith("Request declined.");
   });
 });
+
+describe("AdminEventsClient meeting type glyph (U068)", () => {
+  it("shows a type glyph fact for a tour request, distinguishing it from other call kinds", async () => {
+    render(<AdminEventsClient />);
+    expect(await screen.findByText("Property tour")).toBeInTheDocument();
+  });
+});
