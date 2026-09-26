@@ -18,6 +18,11 @@ import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";
  * Sections carry a heading and nothing else unless the lede says something the
  * heading cannot: a second sentence restating the first is what made this page
  * read as machine-written.
+ *
+ * Light throughout (captain 2026-09-25): the Codex-style hero (site/hero.tsx)
+ * keeps its own soft gradient backdrop around the embedded portal window;
+ * everything below it renders in the normal light theme, same as every other
+ * public page.
  */
 export default function HomePage() {
   return (

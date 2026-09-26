@@ -1,111 +1,75 @@
-import Image from "next/image";
 import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
-import { SITE_MEASURE } from "@/components/marketing/site/primitives";
+import { AxisLogoMark } from "@/components/brand/axis-logo";
+import { CodexHeroWindow } from "@/components/marketing/site/codex-hero-window";
+import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY, SITE_MEASURE } from "@/components/marketing/site/primitives";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
-import { cn } from "@/lib/utils";
 import "@/components/marketing/site/site.css";
 
 /**
- * The home hero — "Night blue". One line, centered, on navy, and then the
- * product itself: the real manager dashboard in a browser frame bleeding off
- * the fold, the iPhone dashboard over it, and one row of finished work floating
- * out — the object the whole site is about.
+ * The home hero — Codex-style, light mode (openai.com/codex reference,
+ * captain 2026-09-25, third pass). A soft white/lavender gradient washing
+ * into periwinkle and violet, centered: the PropLane mark in a rounded white
+ * tile, a big "PropLane" title, a one-line caption carrying today's exact
+ * tagline ("Property management for room rentals."), today's exact CTAs
+ * (Start free — no card / Book a demo / the App Store badge) and fine print,
+ * then — lower on the page, large and centered, overlapping the bottom of
+ * the wash — the real manager portal, live and clickable, with the same
+ * phone mockup and floating activity card today's live home page carries
+ * (`CodexHeroWindow` → `/demo` in an iframe, opening on Dashboard).
  *
- * There is deliberately NO sub-headline and no eyebrow. The eyebrow said
- * "AI-automated property management" and the sub spent forty words restating
- * the headline; both read as though a machine wrote the page. The product shot
- * explains what this is far better than a paragraph, and it now starts higher
- * up the fold. Colours are explicit (not theme tokens) because the public pages
- * are locked to the light theme and this section is deliberately dark either way.
- *
- * Screenshots come from `public/marketing/product/` — captured from the
- * dev/test seed with nudges dismissed (see scripts/capture-marketing-shots.mjs);
- * never from production.
+ * Nothing below the hero changes theme — the whole page stays light, same as
+ * every other public page (captain: "use light mode only — remove dark mode
+ * for the time being"). The top nav's wordmark text is hidden site-wide
+ * (`public-navbar.tsx`'s `AxisLogoLink showWordmark={false}`) — only the mark
+ * icon remains as the home link, so it doesn't compete with this hero's own
+ * big "PropLane" title right below it.
  */
 export function SiteHero() {
   return (
     <section
-      className="site-hero relative overflow-hidden bg-[#0b1120] pb-16 text-white sm:pb-20 lg:pb-24"
+      className="site-hero relative overflow-hidden bg-[linear-gradient(180deg,#fbfcff_0%,#f3f5fc_100%)] pb-8 pt-16 sm:pb-14 sm:pt-20"
       aria-labelledby="site-hero-title"
       data-site-hero
     >
-      {/* Background: two blue glows and a dot grain. Pure CSS, no assets. */}
-      <div aria-hidden className="site-hero-glow site-hero-glow-a" />
-      <div aria-hidden className="site-hero-glow site-hero-glow-b" />
-      <div aria-hidden className="site-hero-grain" />
+      {/* The wash: three soft periwinkle/violet glows, diagonal, behind the content. */}
+      <div aria-hidden className="codex-hero-wash codex-hero-wash-a" />
+      <div aria-hidden className="codex-hero-wash codex-hero-wash-b" />
+      <div aria-hidden className="codex-hero-wash codex-hero-wash-c" />
 
-      <div className={cn(SITE_MEASURE, "relative z-[1] pt-16 sm:pt-20 lg:pt-24")}>
-        <div className="mx-auto flex max-w-[60rem] flex-col items-center text-center">
+      <div className={`${SITE_MEASURE} relative z-[1]`}>
+        <div className="mx-auto flex max-w-[42rem] flex-col items-center text-center">
+          <AxisLogoMark className="shadow-[0_20px_45px_-18px_rgba(40,99,240,0.45)]" />
           <h1
             id="site-hero-title"
-            className="text-[clamp(2.4rem,5.6vw,4rem)] font-bold leading-[1.02] tracking-[-0.035em] text-white"
+            className="mt-6 text-[clamp(2.75rem,7vw,4.75rem)] font-bold leading-[1.02] tracking-[-0.04em] text-foreground"
           >
-            Property management
-            <br />
-            that <span className="text-[#5a8cff]">runs itself.</span>
+            PropLane
           </h1>
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href={GET_STARTED_HREF}
-              data-attr="home-hero-get-started"
-              className="inline-flex min-h-[48px] items-center justify-center rounded-full bg-white px-7 text-[15px] font-bold text-[#0b1120] shadow-[0_10px_30px_-10px_rgba(255,255,255,0.35)] transition hover:-translate-y-0.5 hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-            >
+          <p className="mt-4 max-w-[32rem] text-[22px] font-normal leading-snug text-[#4a4e56]">
+            Property management for room rentals.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started" className={SITE_BTN_PRIMARY}>
               Start free — no card
             </Link>
-            <Link
-              href={BOOK_DEMO_HREF}
-              data-attr="home-hero-book-demo"
-              className="inline-flex min-h-[48px] items-center justify-center rounded-full border border-white/30 px-7 text-[15px] font-bold text-white transition hover:border-white/60 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-            >
+            <Link href={BOOK_DEMO_HREF} data-attr="home-hero-book-demo" className={SITE_BTN_SECONDARY}>
               Book a demo
             </Link>
-            <AppStoreBadge tone="light" size="lg" dataAttr="home-hero-app-store" className="h-12" />
+            <AppStoreBadge dataAttr="home-hero-app-store" />
           </div>
-          <p className="mt-4 text-[13px] text-[#8391ad]">Free for one home · No card · Web and iPhone</p>
+          <p className="mt-4 text-[13px] text-muted">Free for one home · No card · Web and iPhone</p>
         </div>
+      </div>
 
-        {/* Media: the real product, bleeding off the fold. */}
-        <div className="relative mx-auto mt-8 max-w-[min(100%,980px)] overflow-visible sm:mt-10">
-          <div className="site-hero-browser">
-            <div className="flex items-center gap-1.5 border-b border-black/5 bg-[#f1f3f7] px-3 py-2 text-[11px] text-[#4a4e56]">
-              <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
-              <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
-              <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
-              <span className="ml-2 rounded-md bg-white px-2.5 py-0.5">prop-lane.space/portal/dashboard</span>
-            </div>
-            <Image
-              src="/marketing/product/dashboard.webp"
-              alt="The PropLane manager dashboard: occupancy, rent collected, open requests and a Needs attention list"
-              width={1440}
-              height={900}
-              priority
-              sizes="(max-width: 980px) 100vw, 980px"
-              className="block h-auto w-full"
-            />
-          </div>
-
-          <div className="site-hero-phone" aria-hidden>
-            <Image
-              src="/marketing/product/phone-dashboard.webp"
-              alt=""
-              width={390}
-              height={844}
-              sizes="180px"
-              className="block h-auto w-full"
-            />
-          </div>
-
-          {/* Two rows lifted from the dashboard's own queue. */}
-          <div className="site-hero-draft" aria-hidden>
-            <p className="mb-1.5 flex items-center gap-2 text-[11px] font-bold text-primary">
-              Needs attention <span className="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">Done</span>
-            </p>
-            <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · Pacific Plumbing dispatched to Maple 2A</p>
-            <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · resident notified</p>
-            <p className="mt-2 text-[11px] text-[#4a4e56]">Tour booked with Jamie P. · Sat 2:00 PM · <span className="font-bold text-[#15803d]">Done</span></p>
-          </div>
-        </div>
+      {/* The product itself, lower on the page, large and centered, its
+          shadow bleeding past the hero's own bottom edge. Deliberately
+          OUTSIDE the text column's SITE_MEASURE — wider than the 1280px
+          reading measure above it, but not edge to edge (captain, second
+          pass): ~88-90vw on large screens, capped at 1320px, comfortable
+          side gutters rather than a bare 24px. */}
+      <div className="relative z-[1] mx-auto mt-14 w-[90vw] max-w-[1320px] sm:mt-16">
+        <CodexHeroWindow />
       </div>
     </section>
   );

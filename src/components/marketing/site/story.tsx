@@ -79,11 +79,11 @@ type InboxPane = {
   asked: string;
 };
 
-const CONVERSATIONS: { initials: string; name: string; sub: string; id: StepId | null; vendor?: boolean }[] = [
-  { initials: "JP", name: "Jamie P.", sub: "Ash Flats 6 · Tour", id: "prospect" },
-  { initials: "DR", name: "Dana Reyes", sub: "Maple 2A · Repair", id: "resident" },
-  { initials: "PP", name: "Pacific Plumbing", sub: "Job #1042", id: "vendor", vendor: true },
-  { initials: "EW", name: "Ethan Wright", sub: "Application fee", id: null },
+const CONVERSATIONS: { initials: string; name: string; sub: string; when: string; id: StepId | null; vendor?: boolean }[] = [
+  { initials: "JP", name: "Jamie P.", sub: "Ash Flats 6 · Tour", when: "10:05 AM", id: "prospect" },
+  { initials: "DR", name: "Dana Reyes", sub: "Maple 2A · Repair", when: "8:41 AM", id: "resident" },
+  { initials: "PP", name: "Pacific Plumbing", sub: "Job #1042", when: "10:30 AM", id: "vendor", vendor: true },
+  { initials: "EW", name: "Ethan Wright", sub: "Application fee", when: "Tue", id: null },
 ];
 
 const INBOX_PANES: InboxPane[] = [
@@ -229,16 +229,29 @@ function InboxFrame({ pane, onPick }: { pane: InboxPane; onPick: (id: StepId) =>
   return (
     <div className="site-story-inbox" data-story-pane={pane.id}>
       <div className="site-story-list">
-        <div className="flex items-end gap-3 border-b border-border px-3 pb-1.5 pt-2.5 text-[11.5px] font-bold text-muted">
+        {/* Work-number card — the real Communication page's own left-column header. */}
+        <div className="m-2 flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[11.5px] font-bold text-foreground">+1 (206) 555-0100</span>
+            <span className="block truncate text-[10px] text-muted">Your work number · Ready to send</span>
+          </span>
+          <i aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11px] not-italic text-muted">⧉</i>
+        </div>
+        <div className="flex items-end gap-3 border-b border-border px-3 pb-1.5 pt-1 text-[11.5px] font-bold text-muted">
           <span className="-mb-[7px] border-b-2 border-primary pb-1 text-primary">
-            All <i className="not-italic rounded-full bg-primary/10 px-1.5 text-[10px]">4</i>
+            Active <i className="not-italic rounded-full bg-primary/10 px-1.5 text-[10px]">3</i>
           </span>
           <span>
-            Unread <i className="not-italic rounded-full bg-primary/10 px-1.5 text-[10px]">2</i>
+            Archived <i className="not-italic rounded-full bg-primary/10 px-1.5 text-[10px]">1</i>
           </span>
-          <span>Archived</span>
         </div>
-        <div className="m-2 rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted">Search contacts or messages</div>
+        <div className="m-2 flex items-center gap-1.5">
+          <div className="flex-1 rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted">Search</div>
+          <i aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border text-[11px] not-italic text-muted">▾</i>
+          <i aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border text-[11px] not-italic text-muted">⚙</i>
+          <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-[13px] text-white">＋</span>
+        </div>
+        <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.06em] text-muted">4 conversations</p>
         {CONVERSATIONS.map((c) => (
           <button
             type="button"
@@ -246,15 +259,19 @@ function InboxFrame({ pane, onPick }: { pane: InboxPane; onPick: (id: StepId) =>
             onClick={() => c.id && onPick(c.id)}
             disabled={!c.id}
             className={cn(
-              "flex w-full gap-2 border-b border-border px-2.5 py-2 text-left transition hover:bg-accent/60 disabled:cursor-default disabled:hover:bg-transparent",
+              "flex w-full items-start gap-2 border-b border-border px-2.5 py-2 text-left transition hover:bg-accent/60 disabled:cursor-default disabled:hover:bg-transparent",
               c.id === pane.id && "border-l-[3px] border-l-primary bg-primary/[0.06] pl-[7px]",
             )}
           >
             <Avatar initials={c.initials} vendor={c.vendor} />
-            <span className="min-w-0">
-              <span className="block truncate text-[12px] font-bold text-foreground">{c.name}</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline justify-between gap-1">
+                <span className="truncate text-[12px] font-bold text-foreground">{c.name}</span>
+                <span className="shrink-0 text-[9.5px] text-muted">{c.when}</span>
+              </span>
               <span className="block truncate text-[10.5px] text-muted">{c.sub}</span>
             </span>
+            <i aria-hidden className="not-italic text-[11px] text-muted">⋯</i>
           </button>
         ))}
       </div>
@@ -266,10 +283,9 @@ function InboxFrame({ pane, onPick }: { pane: InboxPane; onPick: (id: StepId) =>
             <span className="block text-[13px] font-bold text-foreground">{pane.contact.name}</span>
             <span className="block truncate text-[11px] text-muted">{pane.contact.sub}</span>
           </span>
-          <span className="ml-auto flex gap-1.5" aria-hidden>
-            <i className="grid h-7 w-7 place-items-center rounded-lg border border-border text-[12px] not-italic text-muted">✎</i>
-            <i className="grid h-7 w-7 place-items-center rounded-lg border border-border text-[12px] not-italic text-muted">▤</i>
-          </span>
+          <i aria-hidden className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border text-[12px] not-italic text-muted">
+            ▤
+          </i>
         </div>
 
         <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-[var(--pl-surface)] px-3.5 py-3">
@@ -328,9 +344,10 @@ function InboxFrame({ pane, onPick }: { pane: InboxPane; onPick: (id: StepId) =>
           <i className={cn(TOOL_BTN, "text-muted")} aria-hidden>
             ⊕
           </i>
-          <div className={cn("min-h-[40px] flex-1 rounded-2xl border border-border px-3 py-2 text-[12px] leading-snug", typed ? "text-foreground" : "text-muted")}>
+          <div className={cn("relative min-h-[40px] flex-1 rounded-2xl border border-border py-2 pl-3 pr-8 text-[12px] leading-snug", typed ? "text-foreground" : "text-muted")}>
             {typed || "Write a reply…"}
             {typing ? <span className="site-story-caret" aria-hidden /> : null}
+            <i aria-hidden className="not-italic absolute right-2.5 top-1/2 -translate-y-1/2 text-[13px] text-muted">🙂</i>
           </div>
           <button
             type="button"

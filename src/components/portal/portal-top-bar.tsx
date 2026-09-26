@@ -4,6 +4,7 @@ import { ChevronDown, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useSyncExternalStore } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import {
@@ -182,10 +183,12 @@ export function PortalTopBar({
             Settings
           </DropdownMenuItem>
 
-          <div className="flex items-center justify-between gap-3 px-3 py-2">
-            <span className="text-[13.5px] font-medium text-foreground">Appearance</span>
-            <ThemeToggle />
-          </div>
+          {DARK_MODE_ENABLED ? (
+            <div className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-[13.5px] font-medium text-foreground">Appearance</span>
+              <ThemeToggle />
+            </div>
+          ) : null}
 
           <div className="px-1">
             <PortalRoleSwitcher currentKind={kind} />

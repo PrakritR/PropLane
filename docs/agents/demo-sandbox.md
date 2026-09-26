@@ -3,6 +3,46 @@
 
 # Sandbox accounts & the /demo mirror (one config, every environment)
 
+**`/demo` is a real, standalone public page again** (`src/app/demo/page.tsx`,
+deliberately outside the `(public)` route group so it renders with no
+marketing nav/footer). The home page's Codex-style hero
+(`src/components/marketing/site/hero.tsx`, `site/codex-hero-window.tsx`)
+also embeds that exact same page live, in a real `<iframe src="/demo">`
+opening on the manager Dashboard — an iframe is a separate browsing context,
+so a click inside it can never navigate the marketing page away. Both entry
+points run the identical component and the identical one-way, no-writes
+rules below; nothing about them differs by route.
+
+**The manager view is built from the REAL portal shell** (`demo-manager-
+shell.tsx`), not a redrawn stand-in: the actual `PortalSidebar`,
+`PortalTopBar`, `PortalMobileNavBar`, and the real `AssistantDockPanel`
+(pointed at `/api/agent/demo-chat` instead of the auth-gated
+`/api/agent/chat`), each fed the demo data layer — `usePortalSession()`
+already resolves a synthetic `demo-manager` scope id under any `/demo` path,
+and `WorkspaceProvider` now has a demo branch (`GET /api/demo/workspace`,
+public and read-only, never a caller-supplied id) since the real
+`GET /api/workspaces` requires a session and would 401 a signed-out visitor.
+There is no role switcher, no "Run demo" walkthrough, and no separate
+floating chat bubble — manager only, matching the real `/portal` (captain
+2026-09-25). `PortalAssistantDockRail`'s own `dockable`/`isDemoModeActive()`
+gate is intentionally skipped for this one page (see that file's docstring)
+rather than loosened anywhere shared.
+
+**The portfolio is real, not fictional.** `buildDemoIdleSnapshot()` (below)
+now returns "Seattle Homes" — three properties, one leased resident, one
+pending application, one upcoming tour — written onto the canonical
+`manager@test.proplane.local` account by `scripts/seed-demo-manager-
+portfolio.ts` (dev/test only; see that script's header for the production
+caveat). Because that account is also a shared QA fixture other panes seed
+other properties onto, both `demo-portal-mirror.server.ts` and
+`GET /api/demo/workspace` filter every property-scoped row down to exactly
+those three property ids — `/demo` always shows the curated portfolio, never
+whatever else has accumulated on the account.
+
+`next.config.ts`'s `/demo/:path+` redirect and `src/middleware.ts`
+still bounce an unknown deeper sub-path (there is no `/demo/[section]` route)
+to plain `/demo`, never to `/`.
+
 **`/demo` is read-only against real data, and when it does read it the flow is
 strictly one-way: signed-in portal edits → DB → `/demo`. Never the reverse.**
 `/demo` renders from browser-local stores re-seeded on every mount, so demo edits

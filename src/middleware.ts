@@ -20,9 +20,14 @@ function stampCrawlPolicy(request: NextRequest, response: NextResponse): NextRes
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (path === "/demo" || path.startsWith("/demo/")) {
+  // `/demo` is a real page again (src/app/demo/page.tsx) — the home page's
+  // Codex-style hero embeds it live in an iframe (site/codex-hero-window.tsx).
+  // Only a deeper sub-path (no `/demo/[section]` route exists) still bounces,
+  // now to the sandbox itself rather than back to the marketing page — kept
+  // in sync with next.config.ts's `/demo/:path+` redirect.
+  if (path.startsWith("/demo/") && path !== "/demo/") {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/demo";
     return stampCrawlPolicy(request, NextResponse.redirect(url));
   }
   if (path === "/dashboard" || path === "/dashboard/") {
