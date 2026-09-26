@@ -138,7 +138,10 @@ export function resolveResidentJourneyNextAction(input: ResidentJourneyInput): R
       id: "payments",
       title: `${input.totalBalanceDueLabel} overdue`,
       detail: "Pay now to avoid late fees.",
-      href: `${base}/payments`,
+      // `?pay=now` is the C248 shortcut: resident-payments-panel.tsx reads it
+      // and opens the pay confirmation directly, skipping list -> record ->
+      // Pay for the single most common resident action.
+      href: `${base}/payments?pay=now`,
       ctaLabel: "Pay now",
       urgent: true,
     };
@@ -148,7 +151,7 @@ export function resolveResidentJourneyNextAction(input: ResidentJourneyInput): R
       id: "payments",
       title: `${input.totalBalanceDueLabel} due`,
       detail: "Take care of your next payment.",
-      href: `${base}/payments`,
+      href: `${base}/payments?pay=now`,
       ctaLabel: "Pay now",
       urgent: false,
     };

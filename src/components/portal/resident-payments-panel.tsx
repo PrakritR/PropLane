@@ -916,6 +916,40 @@ export function ResidentPaymentsPanel({
     openPayConfirm(ids, paymentMethod);
   }, [openPayConfirm, paymentMethod, selectedIds, setSelectedIds, showToast, unpaidPayableCharges]);
 
+  // C248: `?pay=now` (from the dashboard's "Balance due" shortcut) or
+  // `?pay=<chargeId>` (from a specific attention row) opens the pay
+  // confirmation the moment the list is ready to pay it — skipping the
+  // list -> record -> Pay button dance for the single most common resident
+  // action. Cleared from the URL once handled so it never re-fires.
+  useEffect(() => {
+    if (chargeIdProp) return;
+    const payParam = searchParams.get("pay");
+    if (!payParam || !paymentsUnlocked || payConfirm) return;
+    if (payParam === "now") {
+      if (unpaidPayableCharges.length === 0) return;
+      payHeaderAction();
+    } else {
+      const targetIds = filterChargesForPayMethod(charges.filter((c) => c.id === payParam && isPayableHouseholdCharge(c))).map(
+        (c) => c.id,
+      );
+      if (targetIds.length === 0) return;
+      openPayConfirm(targetIds, paymentMethod);
+    }
+    router.replace(`${basePath}/payments`);
+  }, [
+    basePath,
+    charges,
+    chargeIdProp,
+    openPayConfirm,
+    payConfirm,
+    paymentMethod,
+    paymentsUnlocked,
+    payHeaderAction,
+    router,
+    searchParams,
+    unpaidPayableCharges,
+  ]);
+
   const showCheckoutInExpandedRow = Boolean(
     payConfirm === null && checkout && expandedId && checkout.chargeIds.includes(expandedId),
   );
