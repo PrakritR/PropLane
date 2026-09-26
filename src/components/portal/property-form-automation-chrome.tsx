@@ -31,6 +31,7 @@ export function PropertyFormAutomationCommandBar({
   addDataAttr,
   addIcon,
   activeFilterChips,
+  panes = PANES,
 }: {
   pane: FormAutomationPane;
   onPaneChange: (pane: FormAutomationPane) => void;
@@ -44,23 +45,33 @@ export function PropertyFormAutomationCommandBar({
   addLabel: string;
   addDataAttr: string;
   addIcon?: LucideIcon;
+  /**
+   * C228: the property record page dropped its own inline Automation pane
+   * (that content moved onto the form itself, in Settings -> Forms), so it
+   * passes just `[{ id: "form", ... }]` here — a single destination renders
+   * as a plain header, no dead second tab. The generic settings-gear modal
+   * (`FormAutomationPaneSwitch`) is untouched and still offers both.
+   */
+  panes?: { id: FormAutomationPane; label: string }[];
 }) {
   return (
     <PortalListControlStack
       className="mb-2 max-lg:mb-1.5"
       variant="command"
       destinationRow={
-        <LocalDestinationNav
-          items={PANES.map((item) => ({
-            id: item.id,
-            label: item.label,
-            dataAttr: `property-form-automation-${item.id}`,
-          }))}
-          activeId={pane}
-          onChange={(id) => onPaneChange(id as FormAutomationPane)}
-          ariaLabel="Form or automation"
-          appearance="command"
-        />
+        panes.length > 1 ? (
+          <LocalDestinationNav
+            items={panes.map((item) => ({
+              id: item.id,
+              label: item.label,
+              dataAttr: `property-form-automation-${item.id}`,
+            }))}
+            activeId={pane}
+            onChange={(id) => onPaneChange(id as FormAutomationPane)}
+            ariaLabel="Form or automation"
+            appearance="command"
+          />
+        ) : undefined
       }
       activeDestinationId={pane}
       destinationAriaLabel="Form or automation"

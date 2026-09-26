@@ -11,6 +11,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "mgr-1", email: "manager@example.com", ready: true }),
 }));
+// jsdom's default pathname ("/") would otherwise read as the public demo
+// surface (`isPublicDemoSurfaceEnabled`), which the C228 Automation blocks
+// treat as a reason to skip the network entirely.
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
+  isDemoModeActive: () => false,
+}));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
 }));
@@ -120,5 +127,53 @@ describe("Settings → Forms panel", () => {
       expect(calls.some(([url, init]: [string, RequestInit]) => String(url).includes("forms-terminology") && init?.method === "PATCH")).toBe(true);
     });
     expect(await screen.findByText("Intake form")).toBeTruthy();
+  });
+
+  // C228: lease/application automation moved off the property record page
+  // onto the form itself — "Used at" already asserted above; this covers the
+  // Automation block sitting right next to it, on the SAME workspace-scoped
+  // storage every property's Handling section already reads/writes.
+  describe("C228 — Automation block per form", () => {
+    it("Application form's Automation block edits the workspace automation settings", async () => {
+      render(<ManagerFormsSettingsPanel propertyOptions={PROPERTY_OPTIONS} />);
+      await screen.findByText("Application");
+
+      const toggle = await screen.findByRole("switch", { name: "Auto-approve applications" });
+      expect(toggle.getAttribute("aria-checked")).toBe("false");
+      fireEvent.click(toggle);
+
+      await waitFor(() => {
+        const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+        expect(
+          calls.some(([url, init]: [string, RequestInit]) => {
+            if (!String(url).includes("manager-application-settings") || init?.method !== "PATCH") return false;
+            const body = JSON.parse(String(init.body)) as { automation?: { autoApproveApplications?: boolean } };
+            return body.automation?.autoApproveApplications === true;
+          }),
+        ).toBe(true);
+      });
+      // No promo code here — it is unique per property, never workspace-wide.
+      expect(document.querySelector('[data-attr="forms-application-promo-code"]')).toBeNull();
+    });
+
+    it("Lease form's Automation block edits the workspace lease automation settings", async () => {
+      render(<ManagerFormsSettingsPanel propertyOptions={PROPERTY_OPTIONS} />);
+      await screen.findByText("Lease");
+
+      const toggle = await screen.findByRole("switch", { name: "Auto-generate the lease on approval" });
+      expect(toggle.getAttribute("aria-checked")).toBe("false");
+      fireEvent.click(toggle);
+
+      await waitFor(() => {
+        const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+        expect(
+          calls.some(([url, init]: [string, RequestInit]) => {
+            if (!String(url).includes("manager-application-settings") || init?.method !== "PATCH") return false;
+            const body = JSON.parse(String(init.body)) as { automation?: { autoGenerateLease?: boolean } };
+            return body.automation?.autoGenerateLease === true;
+          }),
+        ).toBe(true);
+      });
+    });
   });
 });

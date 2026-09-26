@@ -3,15 +3,14 @@ import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
-import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
-import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -130,7 +129,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
    */
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const router = useRouter();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [formKindFilter, setFormKindFilter] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
@@ -155,11 +154,10 @@ export function ManagerPropertyApplicationQuestionsPanel({
       }),
     [listingId, saveTarget, managerUserId, bulkPropertyIds],
   );
-  const settingsPropertyOptions = useMemo(() => {
-    const id = settingsPropertyId?.trim();
-    if (!id) return [];
-    return [{ id, label: settingsPropertyLabel?.trim() || "This property" }];
-  }, [settingsPropertyId, settingsPropertyLabel]);
+  // `settingsPropertyId`/`settingsPropertyLabel` no longer resolve a local automation
+  // sheet (C228) — kept as props so callers need no change, just unused here.
+  void settingsPropertyId;
+  void settingsPropertyLabel;
 
   const persistSubmission = useCallback(
     async (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
@@ -581,30 +579,21 @@ export function ManagerPropertyApplicationQuestionsPanel({
         />
       ) : null}
 
-      {settingsPropertyOptions.length > 0 ? (
-        <ProPortalSettingsModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          initialTab="applications"
-          initialPane="automation"
-          scoped
-          scopedTitle="Application"
-          propertyOptions={settingsPropertyOptions}
-          initialPropertyId={settingsPropertyOptions[0]?.id}
-        />
-      ) : null}
     </>
   );
 
+  // C228: the property page no longer carries its own application automation
+  // block. The gear now opens Settings -> Forms, where every application
+  // form's Automation block lives (same workspace-scoped storage) alongside "Used at".
   const commandBar = !embedInModal ? (
     <PropertyFormAutomationCommandBar
       pane={pane}
       onPaneChange={setPane}
+      panes={[{ id: "form", label: "Form" }]}
       filter={formFilterSheet}
-      onSettings={() => setSettingsOpen(true)}
-      settingsLabel="Application settings"
+      onSettings={() => router.push("/portal/profile?tab=forms")}
+      settingsLabel="Application automation"
       settingsDataAttr="property-application-settings-open"
-      settingsDisabled={settingsPropertyOptions.length === 0}
       onAdd={openAdd}
       addLabel="Add application"
       addDataAttr="property-application-command-add"
@@ -629,20 +618,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
     />
   ) : null;
 
-  const automationBody =
-    !embedInModal && pane === "automation" ? (
-      <SettingsModulePage
-        tab="applications"
-        propertyOptions={settingsPropertyOptions}
-        initialPropertyId={settingsPropertyOptions[0]?.id}
-        active
-      />
-    ) : null;
-
   return (
     <>
       {commandBar}
-      {automationBody}
       {embedInModal || pane === "form" ? (
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
         <>
