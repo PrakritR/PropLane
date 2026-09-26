@@ -513,7 +513,6 @@ export function ResidentPaymentsPanel({
     if (!paymentsUnlocked) {
       setCheckout(null);
       setPayConfirm(null);
-      setPaymentMethodModalOpen(false);
     }
   }, [paymentsUnlocked]);
 

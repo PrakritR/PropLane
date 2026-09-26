@@ -93,7 +93,22 @@ export type OperationsNamespace =
    * itself (a listing opts out entirely via `applicationFormSource: "custom"`
    * on its own submission instead, a different mechanism from this rung).
    */
-  | "applicationFormTemplate";
+  | "applicationFormTemplate"
+  /**
+   * The workspace-wide forms terminology overrides (`FormsTerminology`,
+   * `rental-application/forms-terminology.ts`). Workspace-rung only, same
+   * shape as `applicationFormTemplate` — no per-property picker on this
+   * settings page, so there is no property-override rung for it.
+   */
+  | "formsTerminology"
+  /**
+   * The workspace-wide lease clause template
+   * (`WorkspaceLeaseClauseTemplate`, `lease-templates/workspace-lease-clause-template.ts`).
+   * Workspace-rung only, same shape as `applicationFormTemplate` — no
+   * per-property picker on this settings page, so there is no
+   * property-override rung for it.
+   */
+  | "leaseClauseTemplate";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {
