@@ -76,6 +76,43 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 /**
+ * Phone-only sticky "Sign lease" bar, pinned just above the native/mobile
+ * bottom tab bar (same `--portal-native-bottom-nav-inset` offset
+ * {@link PortalResidentListFab} anchors its FAB to). The lease detail page's
+ * header still carries the icon-only action for desktop parity; on phone
+ * this is the discoverable, one-tap path to the signing modal instead of a
+ * small header icon the resident has to notice first (C128).
+ */
+export function ResidentLeaseSignStickyBar({
+  onSign,
+  disabled,
+  label,
+}: {
+  onSign: () => void;
+  disabled: boolean;
+  label: string;
+}) {
+  return (
+    <div
+      className="fixed inset-x-0 z-[44] flex justify-center px-3 lg:hidden"
+      style={{ bottom: "calc(var(--portal-native-bottom-nav-inset, 0px) + 0.75rem)" }}
+      data-attr="resident-lease-sign-sticky-bar"
+    >
+      <Button
+        type="button"
+        variant="primary"
+        className="w-full max-w-md rounded-full py-3 text-base font-semibold shadow-[0_12px_28px_-12px_rgba(47,107,255,0.75)]"
+        disabled={disabled}
+        data-attr="resident-lease-sign-sticky-bar-button"
+        onClick={onSign}
+      >
+        {label}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * Resident Lease section — list of all lease records (current, prior, in progress);
  * each row opens a detail page like Documents › Application.
  */
@@ -826,6 +863,13 @@ export function ResidentLeasePanel({
           )}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
+      {showSigningWorkflowActions && !residentAlreadySigned ? (
+        <ResidentLeaseSignStickyBar
+          onSign={() => onSignLease()}
+          disabled={!leaseDocumentLoaded}
+          label={leaseDocumentLoaded ? "Sign lease" : "Loading lease…"}
+        />
+      ) : null}
     </>
   );
 }
