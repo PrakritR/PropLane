@@ -703,6 +703,37 @@ export function meetingPaintsCalendarGrid(meeting: DemoMeeting): boolean {
   return !meeting.googleCalendarInformational;
 }
 
+/**
+ * C259: a chip's background (`meeting.color`) already encodes STATUS —
+ * confirmed vs a co-manager's tour vs still pending — so two meetings of the
+ * same status but different kinds (a move-in inspection task, a vendor
+ * visit, a tour) were visually identical until the label was read. This adds
+ * a second, TYPE-keyed signal — a small colored dot before the label — that
+ * still tells them apart even when the label itself truncates.
+ */
+export const MEETING_TYPE_DOT_COLOR: Record<NonNullable<DemoMeeting["kind"]>, string> = {
+  tour: "bg-sky-500",
+  service: "bg-violet-500",
+  task: "bg-amber-500",
+  partner: "bg-slate-400",
+};
+
+export function meetingTypeDotColor(kind: DemoMeeting["kind"]): string {
+  return (kind && MEETING_TYPE_DOT_COLOR[kind]) || "bg-slate-400";
+}
+
+/** The type-color-code dot — same glyph everywhere a meeting chip renders its label. */
+export function MeetingTypeDot({ kind, className }: { kind: DemoMeeting["kind"]; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      data-attr="meeting-type-dot"
+      data-meeting-kind={kind ?? "unknown"}
+      className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", meetingTypeDotColor(kind), className)}
+    />
+  );
+}
+
 function shiftDateStr(dateStr: string, days: number): string {
   const [year, month, day] = dateStr.split("-").map(Number);
   if (!year || !month || !day) return dateStr;
@@ -3286,7 +3317,10 @@ export function PortalCalendarPanels({
                   >
                     {meeting ? (
                       isMeetingStart ? (
-                        <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
+                        <span className="flex items-center justify-center gap-1 truncate">
+                          <MeetingTypeDot kind={meeting.kind} />
+                          <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
+                        </span>
                       ) : (
                         <span className="block truncate opacity-70">
                           {isGoogleCalendarPrivateBlock(meeting)
@@ -3759,10 +3793,11 @@ export function PortalCalendarPanels({
                             {meeting ? (
                               <button
                                 type="button"
-                                className={`w-full rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
+                                className={`flex w-full items-center gap-1.5 truncate rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
                                 onClick={(e: MouseEvent<HTMLButtonElement>) => openSlotDetails(ds, slotIdx, e.currentTarget, meeting)}
                               >
-                                {meetingCalendarGridLabel(meeting)}
+                                <MeetingTypeDot kind={meeting.kind} />
+                                <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
                               </button>
                             ) : vendorViewer ? (
                               <button
@@ -3812,11 +3847,12 @@ export function PortalCalendarPanels({
                     {meeting ? (
                       <button
                         type="button"
-                        className={`absolute inset-1 z-[1] rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
+                        className={`absolute inset-1 z-[1] flex items-center gap-1.5 truncate rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
                         style={{ height: `calc(${meeting.durationMinutes / SLOT_DURATION_MINUTES} * 40px - 4px)` }}
                         onClick={(e: MouseEvent<HTMLButtonElement>) => openSlotDetails(ds, slotIdx, e.currentTarget, meeting)}
                       >
-                        {meetingCalendarGridLabel(meeting)}
+                        <MeetingTypeDot kind={meeting.kind} />
+                        <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
                       </button>
                     ) : vendorViewer ? (
                       <button
