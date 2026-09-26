@@ -244,6 +244,74 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/**
+ * C178: phone-only per-plan accordion, a deliberate reversal of PRP-314's
+ * horizontal scroller — each plan expands to its own full feature list
+ * instead of a table that scrolls sideways. Reads the SAME `COMPARE` rows as
+ * `CompareTable`, just transposed to one plan's column per panel, so the two
+ * renderings can never list different features. Pro (the featured tier)
+ * opens by default; desktop is unchanged (`CompareTable`'s single table).
+ */
+function ComparePlanAccordion() {
+  return (
+    <div className="mt-10 flex flex-col gap-3" data-attr="pricing-compare-phone">
+      {MANAGER_PLAN_TIERS.map((tier, i) => (
+        <details
+          key={tier.id}
+          className="group overflow-hidden rounded-2xl border border-border bg-card"
+          open={tier.id === "pro"}
+          data-attr={`pricing-compare-phone-${tier.id}`}
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[14px] font-bold text-foreground [&::-webkit-details-marker]:hidden">
+            {tier.label} — every feature
+            <span
+              aria-hidden
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border text-muted transition-transform group-open:rotate-180"
+            >
+              ▾
+            </span>
+          </summary>
+          <div className="border-t border-border px-5 pb-4">
+            {COMPARE.map((g) => (
+              <div key={g.group}>
+                <p className="pt-3 text-[11px] font-bold uppercase tracking-[0.07em] text-primary">{g.group}</p>
+                {g.rows.map((r) => (
+                  <div
+                    key={r.label}
+                    className="flex items-center justify-between gap-3 border-t border-border/60 py-2 text-[13px]"
+                  >
+                    <span className="text-foreground">{r.label}</span>
+                    <CellValue value={r.cells[i]!} />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * C178: a fixed bottom bar on phone so the CTA is always one tap away while
+ * scrolling the plan cards or the comparison accordion, instead of scrolling
+ * back to the top. `md:hidden` — desktop keeps its inline card CTAs only.
+ */
+function MobileStickyCta() {
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-3 border-t border-border bg-card/95 px-4 py-2.5 backdrop-blur-md md:hidden [html[data-native]_&]:pb-[max(0.625rem,env(safe-area-inset-bottom))]"
+      data-attr="pricing-sticky-cta"
+    >
+      <p className="flex-1 text-[12.5px] text-muted">Free for {RATE_CARD.free.includedDoors} doors, no card.</p>
+      <Link href={TIER_CTA.free.href} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
+        Get started
+      </Link>
+    </div>
+  );
+}
+
 function BillingToggle({ annual }: { annual: boolean }) {
   const pill = (on: boolean) =>
     cn(
@@ -275,7 +343,7 @@ export default async function PricingPage({
   const rates = COMMS_BILLING_RATES_CENTS;
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative min-h-0 flex-1 pb-16 md:pb-0">
       <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
         <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
           <SiteHeading as="h1" id="pricing-title">
@@ -290,21 +358,29 @@ export default async function PricingPage({
       </section>
 
       <section className="py-12 sm:py-14" aria-label="Plans">
-        {/* Three plans stay side by side on a phone too (PRP-314): a snap scroller
-            below md, a plain 3-column grid from md up. Stacking them meant only
-            one plan was ever on screen, which defeats a comparison page. */}
+        {/* C178 (captain-requested reversal of PRP-314's side-by-side snap
+            scroller): phone stacks full-width cards in one column; md+ keeps
+            the unchanged 3-column grid. */}
         <div
-          className={`${SITE_MEASURE} flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 pt-3 [&>*]:w-[84%] [&>*]:shrink-0 [&>*]:snap-center md:grid md:grid-cols-3 md:gap-5 md:overflow-visible md:pb-0 md:[&>*]:w-auto`}
-          data-attr="pricing-plan-scroller"
+          className={`${SITE_MEASURE} flex flex-col gap-4 pt-3 md:grid md:grid-cols-3 md:gap-5 md:pt-0`}
+          data-attr="pricing-plan-stack"
         >
           {MANAGER_PLAN_TIERS.map((tier) => (
             <PlanCard key={tier.id} tier={tier} annual={annual} />
           ))}
         </div>
         <div className={SITE_MEASURE}>
-          <CompareTable />
+          {/* C178: phone gets a per-plan accordion instead of the sideways-
+              scrolling table; desktop's <CompareTable> is unchanged. */}
+          <div className="md:hidden">
+            <ComparePlanAccordion />
+          </div>
+          <div className="hidden md:block">
+            <CompareTable />
+          </div>
         </div>
       </section>
+      <MobileStickyCta />
 
       <SiteSection ariaLabel="Credit and fees">
         <div className="grid gap-4 md:grid-cols-2">
