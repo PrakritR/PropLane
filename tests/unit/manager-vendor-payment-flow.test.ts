@@ -5,6 +5,7 @@ import {
   defaultManagerVendorPayMethod,
   enrichOutgoingRowWithVendorPayments,
   managerCanPayOutgoingRowWithMethod,
+  managerVendorPayMethodsWithBalance,
 } from "@/lib/manager-vendor-payment-flow";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 
@@ -68,5 +69,45 @@ describe("manager-vendor-payment-flow", () => {
     expect(managerCanPayOutgoingRowWithMethod({ ...row, bucket: "paid" }, "ach")).toBe(false);
     const unlinked = enrichOutgoingRowWithVendorPayments(row, vendor({ achPaymentsEnabled: false }));
     expect(managerCanPayOutgoingRowWithMethod(unlinked, "ach")).toBe(false);
+  });
+
+  // C098: "Pay from balance" is a MANAGER-side funding choice, never gated by
+  // what the vendor separately accepts from Stripe.
+  describe("balance (C098)", () => {
+    it("is absent from the method list until the caller resolves it eligible", () => {
+      expect(managerVendorPayMethodsWithBalance(vendor(), false)).toEqual(["ach"]);
+      expect(managerVendorPayMethodsWithBalance(vendor(), true)).toEqual(["balance", "ach"]);
+    });
+
+    it("is offered even for a vendor with no ACH set up", () => {
+      expect(managerVendorPayMethodsWithBalance(vendor({ achPaymentsEnabled: false }), true)).toEqual(["balance"]);
+    });
+
+    it("defaults to balance once eligible, never overriding an explicit non-eligible default", () => {
+      expect(defaultManagerVendorPayMethod(vendor(), true)).toBe("balance");
+      expect(defaultManagerVendorPayMethod(vendor(), false)).toBe("ach");
+    });
+
+    it("gates the balance method on eligibility alone, independent of the vendor's own accepted methods", () => {
+      const row = enrichOutgoingRowWithVendorPayments(
+        {
+          id: "wo-1",
+          propertyName: "Oak",
+          categoryLabel: "Vendor payment",
+          payeeLabel: "Ace HVAC",
+          chargeTitle: "Fix AC",
+          amountLabel: "$120.00",
+          dueDate: "Jul 1",
+          bucket: "pending",
+          statusLabel: "Awaiting approval",
+          workOrderId: "wo-1",
+        },
+        vendor({ achPaymentsEnabled: false }),
+      );
+      expect(managerCanPayOutgoingRowWithMethod(row, "balance", true)).toBe(true);
+      expect(managerCanPayOutgoingRowWithMethod(row, "balance", false)).toBe(false);
+      // A paid or workOrder-less row is never payable, balance included.
+      expect(managerCanPayOutgoingRowWithMethod({ ...row, bucket: "paid" }, "balance", true)).toBe(false);
+    });
   });
 });

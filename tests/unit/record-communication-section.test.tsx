@@ -140,8 +140,20 @@ describe("RecordCommunicationSection", () => {
     expect(screen.getByPlaceholderText("Write a reply…")).toBeInTheDocument();
   });
 
-  it("shows the other-conversations link only when other threads with this contact exist", async () => {
-    threadRows = [LEASE_THREAD, OTHER_CONTACT_THREAD];
+  it("merges every conversation with this contact into one timeline, archived included, with no separate link", async () => {
+    const ARCHIVED_CONTACT_THREAD: FixtureThread = {
+      id: "thr-resident-2",
+      folder: "trash",
+      from: "Jordan Vega",
+      email: "jordan@example.com",
+      subject: "About the weekend",
+      preview: "Are you around this weekend?",
+      body: "Are you around this weekend?",
+      time: "Sep 8, 9:00 AM",
+      unread: false,
+      recordRef: { kind: "resident" as const, id: "res-9", label: "Jordan Vega" },
+    };
+    threadRows = [LEASE_THREAD, OTHER_CONTACT_THREAD, ARCHIVED_CONTACT_THREAD];
     render(
       <RecordCommunicationSection
         role="manager"
@@ -151,8 +163,13 @@ describe("RecordCommunicationSection", () => {
       />,
     );
 
-    const link = await screen.findByText(/1 other conversation with this contact/i);
-    expect(link.closest("a")).toHaveAttribute("href", "/portal/communication");
+    await screen.findByText("Hi, quick question about move-in.");
+    // The other (non-recordRef) conversation with the same contact — and the
+    // archived one — merge into this ONE timeline rather than staying behind
+    // a separate "N other conversations" link, which no longer exists.
+    expect(screen.getByText("Where can I park?")).toBeInTheDocument();
+    expect(screen.getByText("Are you around this weekend?")).toBeInTheDocument();
+    expect(screen.queryByText(/other conversation/i)).toBeNull();
 
     cleanup();
     threadRows = [LEASE_THREAD];

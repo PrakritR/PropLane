@@ -42,15 +42,31 @@ clickable chip on a thread that carries a `recordRef`, using
 `recordRoutePath()` to build the record's route.
 
 `RecordCommunicationSection` (`src/components/portal/record-communication-section.tsx`,
-the record-page Communication tab) reads the SAME persisted inbox cache every
-other Communication surface does, via `loadPersistedInbox` — synchronous, and
-empty on a cold page load until `syncPersistedInboxFromServer` completes at
-least once. That gap used to render the confident "No messages about this X
-yet" empty state before the real thread had even been fetched, so reloading
-the exact same conversation intermittently "had no messages" depending on
-network timing. `initialSyncDone` distinguishes "still checking" from
-"checked, and there really is nothing" — the empty label only ever reflects
-the completed sync's own answer. See `tests/unit/record-communication-section.test.tsx`.
+the record-page Communication tab) renders ONE merged timeline of EVERY
+conversation with that record's contact(s) — not just the record-tagged
+thread. A thread is included when its stamped `recordRef` matches this record
+OR its counterparty email matches one of `contactIds` (case-insensitive) OR
+(when the thread shape carries one) its phone matches `contactPhone` —
+INCLUDING archived (folder `"trash"`) threads, across every property. Their
+messages interleave chronologically into one timeline; day dividers and the
+per-message channel tag both already come from `InboxMessageTimeline` /
+`buildInboxMessageTimeline` reading that merged order, so nothing new was
+added to the bubble for this. There is no "N other conversations with this
+contact" link anymore — this pane already shows all of them. Replying still
+targets exactly one thread: `primaryThread` prefers the one stamped with THIS
+record's own `recordRef`, else the newest thread with the contact, else none
+(a send then stamps a brand-new thread with this recordRef), exactly as
+before.
+
+It reads the SAME persisted inbox cache every other Communication surface
+does, via `loadPersistedInbox` — synchronous, and empty on a cold page load
+until `syncPersistedInboxFromServer` completes at least once. That gap used to
+render the confident "No messages about this X yet" empty state before the
+real thread had even been fetched, so reloading the exact same conversation
+intermittently "had no messages" depending on network timing.
+`initialSyncDone` distinguishes "still checking" from "checked, and there
+really is nothing" — the empty label only ever reflects the completed sync's
+own answer. See `tests/unit/record-communication-section.test.tsx`.
 
 ## SMS notices while the SMS panel is hidden
 
@@ -131,6 +147,56 @@ conversations) plus the archive toggle. Invariants:
   tabbed panels survive only for the /demo path and legacy route redirects — on
   those three portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
+- **Switching the manager's Active ⇄ Archived tab is instant, with no
+  skeleton and no refetch.** `InboxListSegmentTabs` (`portal-inbox-ui.tsx`)
+  takes an `interceptNavigation` prop; the manager list passes it and
+  preventDefaults a plain left click (no modifier key), calling `onChange`
+  instead of letting the `<Link>` navigate. `ManagerCommunication`
+  (`pro-communication.tsx`) owns the segment as CLIENT state
+  (`useCommunicationListSegment`, mirroring `useCommunicationThreadId`) and
+  pushes the URL with `history.pushState`
+  (`selectCommunicationSegmentUrl`, `portal-communication-nav.ts`) rather than
+  navigating — a real App Router navigation to a different `[segment]` route
+  was what remounted `ManagerUnifiedInbox` and reset its already-loaded lists
+  on every tab click. Browser back/forward still updates the segment via
+  `popstate`. `ManagerUnifiedInbox` also renders the last-ready snapshot for
+  this viewer+workspace immediately on an actual remount (sidebar navigation
+  away and back), from a module-level cache (`managerInboxSnapshotCache`),
+  and revalidates silently underneath — a first-ever session load has no
+  cache entry and keeps the original all-sources-ready invariant
+  (`tests/unit/inbox-initial-loading-readiness.test.tsx`). Archive/restore are
+  optimistic (the row moves and counts update immediately; a persistence
+  failure rolls the exact render back and toasts) and every selected SMS row
+  archives/restores in parallel (`Promise.allSettled`), not a sequential loop.
+  Resident and vendor keep ordinary Link navigation on these tabs (no
+  `interceptNavigation`).
+- **An archived conversation must never resurrect on its own.** Three
+  delivery-side bugs used to do exactly that (captain resurrection sweep):
+  (1) `findExistingPortalMessageThread` (`portal-inbox-delivery.ts`) only
+  matched a thread whose CURRENT folder equalled the side being delivered, so
+  once a thread was archived (folder `"trash"`) the next message to/from that
+  person inserted a brand-new duplicate row instead of appending to the real,
+  archived one; (2) `upsertManagerInboxNotice`
+  (`sms-inbox-notice.server.ts`) forced `folder: "inbox"` on every append
+  regardless of direction, so even the MANAGER's own outbound relay text
+  un-archived an SMS notice thread; (3) the SMS archive poll
+  (`mirrorManagerSmsArchivedFromServer`, `manager-sms-archive.client.ts`)
+  replaced the ENTIRE locally-archived id set with only what the current
+  response explicitly marked `archived: true`, so a conversation merely
+  absent from one response (a partial payload, a different member-key
+  spelling) silently lost its archived flag. The fixed policy, applied
+  consistently: **only a genuinely INBOUND message from the counterparty may
+  reopen (un-archive) a thread; an outbound or automated append (a manager
+  send, a reminder, a notice, an assistant copy) never does.** A same-person
+  archived thread that a past instance of bug (1) already forked into a
+  separate near-empty active duplicate heals back into one conversation on
+  READ, in `collapsePersonInboxThreads` (`portal-inbox-storage.ts`, only when
+  its caller asks to merge across folders) — the more recently active thread
+  wins folder and every message from both merges into one timeline; no
+  migration needed. A resident-directory placeholder row
+  (`buildResidentPlaceholderInboxItems`, no stored conversation at all) offers
+  no Archive action — running it used to silently no-op while still toasting
+  "Archived.".
 - **Archived ⋯ is Restore + Delete** for email and SMS (SMS hard-delete is
   `DELETE /api/manager/sms-conversations`). Active ⋯ stays Archive only. PropLane
   Assistant cannot be archived or deleted. Archived has a **Delete all archived**
@@ -275,7 +341,12 @@ conversations) plus the archive toggle. Invariants:
   their own chat, another workspace has a new chat, and the viewer never sees
   anyone else's. Legacy `agent_notice_{userId}` is the default workspace's
   chat; other workspaces use `agent_notice_{userId}__{workspaceId}`. The row
-  is pinned on Active, Unread, and Archived and cannot be archived away. If
+  is pinned on Active and Unread — never Archived, where it is not selectable
+  and does not count towards the Archived badge — and cannot be archived away
+  (`pro-unified-inbox.tsx`'s `mergedRows` / `listSegmentCounts` skip pinning it
+  when the segment is `"archived"`; `withPinnedPropLaneAssistantThreads`
+  itself still accepts a `listSegment` of `"archived"` for callers that build
+  the row set before this same filtering, e.g. its own unit tests). If
   they ask about a house that lives in another workspace, the assistant
   replies exactly "Please switch to the other workspace for these questions."
   (2) sharing is per house — a co-manager sees another owner's

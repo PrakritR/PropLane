@@ -9,13 +9,14 @@ type Row = { id: string; owner_user_id: string; scope: string; thread_type: stri
 function memoryDb() {
   const rows = new Map<string, Row>();
   const db = { from() {
-    const filters: [string, unknown][] = [];
+    const filters: ((r: Row) => boolean)[] = [];
     let operation = "read";
     let value: Partial<Row> = {};
     let single = false;
     const q = {
       select: () => q, order: () => q, range: () => q,
-      eq(key: string, expected: unknown) { filters.push([key, expected]); return q; },
+      eq(key: string, expected: unknown) { filters.push((r) => r[key as keyof Row] === expected); return q; },
+      in(key: string, expected: unknown[]) { filters.push((r) => expected.includes(r[key as keyof Row])); return q; },
       upsert(row: Row) { operation = "insert"; value = row; return q; },
       update(row: Partial<Row>) { operation = "update"; value = row; return q; },
       single() { single = true; return q; },
@@ -26,7 +27,7 @@ function memoryDb() {
             rows.set(value.id!, structuredClone(value as Row));
             return { data: [{ id: value.id }], error: null };
           }
-          const found = [...rows.values()].filter((r) => filters.every(([k, v]) => r[k as keyof Row] === v));
+          const found = [...rows.values()].filter((r) => filters.every((f) => f(r)));
           if (operation === "update") for (const row of found) rows.set(row.id, structuredClone({ ...row, ...value }));
           return { data: structuredClone(single ? found[0] : found), error: null };
         }).then(resolve, reject);
@@ -154,6 +155,28 @@ describe("SMS inbox durable append", () => {
     const current = rows.get(target.id)!;
     await updateSmsNoticeMailboxState(db, current, { ...current.row_data, aiDraft: undefined });
     expect(rows.get(target.id)!.row_data.aiDraft).toBeUndefined();
+  });
+
+  /**
+   * Regression for the captain resurrection sweep, item 2: appending a turn
+   * used to force `folder: "inbox"` regardless of direction, so even the
+   * MANAGER's own outbound relay text (`folder: "sent"`) un-archived a
+   * notice thread the manager had just archived. Only a genuinely inbound
+   * append (no `folder`, i.e. the default) may reopen it.
+   */
+  it("preserves an archived notice's folder on an outbound append, and only an inbound append reopens it", async () => {
+    const { db, rows } = memoryDb();
+    await upsertManagerInboxNotice(db, args);
+    const target = [...rows.values()][0]!;
+    rows.set(target.id, { ...target, row_data: { ...target.row_data, folder: "trash" } });
+
+    await upsertManagerInboxNotice(db, { ...args, folder: "sent", body: "Outbound reply", messageId: "sid-out" });
+    expect(rows.get(target.id)!.row_data.folder).toBe("trash");
+    expect((rows.get(target.id)!.row_data.messages as unknown[])).toHaveLength(1);
+
+    await upsertManagerInboxNotice(db, { ...args, body: "Inbound again", messageId: "sid-in-2" });
+    expect(rows.get(target.id)!.row_data.folder).toBe("inbox");
+    expect((rows.get(target.id)!.row_data.messages as unknown[])).toHaveLength(2);
   });
 
   it("archives all historical phone members but never another owner's rows", async () => {

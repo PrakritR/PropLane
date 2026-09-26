@@ -28,8 +28,20 @@ function formatMoney(cents: number, currency: string): string {
  * Renders nothing at all while the flag is off (`{ enabled: false }` from the
  * read route) or while nothing has loaded yet — this card is additive, never
  * a placeholder shown to every manager/vendor.
+ *
+ * `variant="subordinate"` (C255) drops the card chrome and the large balance
+ * headline for a single inline row — same Withdraw behavior, sized to sit
+ * beside "Pay vendors" / "Plan & credit" without visually competing with
+ * them, per the captain's "balance-spending actions the redesign wants to
+ * encourage" note.
  */
-export function ProplaneBalanceCard({ portal }: { portal: ProplaneBalancePortalKind }) {
+export function ProplaneBalanceCard({
+  portal,
+  variant = "default",
+}: {
+  portal: ProplaneBalancePortalKind;
+  variant?: "default" | "subordinate";
+}) {
   const { showToast } = useAppUi();
   const apiBase = API_BASE[portal];
   const [snapshot, setSnapshot] = useState<BalanceSnapshot | null>(null);
@@ -88,28 +100,53 @@ export function ProplaneBalanceCard({ portal }: { portal: ProplaneBalancePortalK
     }
   }
 
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm" data-attr="proplane-balance-card">
-      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">PropLane balance · Available</p>
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-4 max-md:flex-col max-md:items-stretch">
-        <p className="text-[32px] font-extrabold leading-none tracking-tight text-foreground" data-attr="proplane-balance-available">
-          {formatMoney(snapshot.availableCents, snapshot.currency)}
-        </p>
+  const trigger =
+    variant === "subordinate" ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm" data-attr="proplane-balance-card-subordinate">
+        <span className="text-muted">
+          Balance:{" "}
+          <span className="font-medium text-foreground" data-attr="proplane-balance-available">
+            {formatMoney(snapshot.availableCents, snapshot.currency)}
+          </span>
+        </span>
         <Button
           type="button"
+          variant="ghost"
           onClick={() => setWithdrawOpen(true)}
           disabled={snapshot.availableCents <= 0}
           data-attr="proplane-balance-withdraw"
-          className="max-md:w-full"
         >
           Withdraw
         </Button>
       </div>
-      {snapshot.pendingCents > 0 ? (
-        <p className="mt-2 text-xs text-muted" data-attr="proplane-balance-pending">
-          {formatMoney(snapshot.pendingCents, snapshot.currency)} pending — not yet available to withdraw
-        </p>
-      ) : null}
+    ) : (
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm" data-attr="proplane-balance-card">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">PropLane balance · Available</p>
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-4 max-md:flex-col max-md:items-stretch">
+          <p className="text-[32px] font-extrabold leading-none tracking-tight text-foreground" data-attr="proplane-balance-available">
+            {formatMoney(snapshot.availableCents, snapshot.currency)}
+          </p>
+          <Button
+            type="button"
+            onClick={() => setWithdrawOpen(true)}
+            disabled={snapshot.availableCents <= 0}
+            data-attr="proplane-balance-withdraw"
+            className="max-md:w-full"
+          >
+            Withdraw
+          </Button>
+        </div>
+        {snapshot.pendingCents > 0 ? (
+          <p className="mt-2 text-xs text-muted" data-attr="proplane-balance-pending">
+            {formatMoney(snapshot.pendingCents, snapshot.currency)} pending — not yet available to withdraw
+          </p>
+        ) : null}
+      </div>
+    );
+
+  return (
+    <>
+      {trigger}
 
       <Modal open={withdrawOpen} onClose={() => setWithdrawOpen(false)} title="Withdraw from PropLane balance">
         <div className="space-y-4 p-1">
@@ -141,6 +178,6 @@ export function ProplaneBalanceCard({ portal }: { portal: ProplaneBalancePortalK
           </Button>
         </div>
       </Modal>
-    </div>
+    </>
   );
 }

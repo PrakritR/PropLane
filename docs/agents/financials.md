@@ -250,6 +250,27 @@ this way. Once pricing is platform-controlled (Custom accounts, this
 architecture), PropLane — not Stripe — is responsible for 1099-K/1099-NEC
 filing; nothing here files one yet.
 
+**Balance-dependent UI dark-launches behind a SECOND flag, `WORKSPACE_CONNECT_ENABLED`
+(`src/lib/workspace-connect/flag.ts`)** — the per-workspace Connect architecture
+(C186-C189), independent of `PROPLANE_BALANCE_ENABLED` above. `GET
+/api/portal/proplane-balance` returns both `enabled` (this ledger) and
+`workspaceConnectEnabled` (that flag) so a new balance-spending surface can
+require both without either flag knowing about the other:
+
+- **Outgoing "Pay from balance" (C098)** — `ManagerOutgoingPaymentDetail`
+  offers `"balance"` as a payment method (`manager-vendor-payment-flow.ts`)
+  once both flags read on, defaulting to it, and submits the SAME
+  `POST /api/portal/work-orders/approve-pay` every other channel uses with
+  `paymentChannel: "balance"` — that route and its `insufficient_balance` 422
+  already existed (`work-order-approve-pay.server.ts`); only the UI wiring and
+  the ACH-fallback handling (switch to `"ach"` on 422, never a dead end) are
+  new here.
+- **Finances overview "Money-in" actions (C255)** — a gated row of "Pay
+  vendors" / "Plan & credit" (equal-weight cards) and "Withdraw"
+  (`ProplaneBalanceCard variant="subordinate"`, deliberately lighter chrome so
+  it never reads as a third same-weight action) on
+  `finances-overview.tsx`.
+
 # Financials Phase 5: AP bills, budgets, owner statements
 
 **Schema** — `supabase/migrations/20260712120000_manager_bills_ap.sql`: `manager_bills`, `manager_budgets`, `manager_property_owners`, `manager_reserve_policies`, `manager_owner_distributions`; `vendor_invoices.bill_id` FK to `manager_bills`.

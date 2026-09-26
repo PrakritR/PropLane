@@ -81,11 +81,8 @@ import {
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { ServiceEscalationSettingsModal } from "@/components/portal/service-escalation-settings-modal";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
@@ -944,21 +941,13 @@ export function ManagerAllServicesPanel({
         showToast={showToast}
       />
 
-      <ManagerPortalSettingsModal
+      <ServiceEscalationSettingsModal
         open={servicesSettingsOpen}
         onClose={() => setServicesSettingsOpen(false)}
-        initialTab="services"
-        scopedTitle={settingsDialogTitlePrefix(servicesSettingsEntry)}
-        editAction={
-          propertyOptions.length > 0
-            ? {
-                label: "Edit service catalog",
-                description: "Service types and pricing per property.",
-                dataAttr: "edit-service-requests-open",
-                onSelect: () => setEditServiceRequestsOpen(true),
-              }
-            : undefined
-        }
+        onEditCatalog={() => {
+          setServicesSettingsOpen(false);
+          setEditServiceRequestsOpen(true);
+        }}
       />
 
       <ScheduleServiceVisitModal

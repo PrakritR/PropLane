@@ -38,7 +38,8 @@ import {
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
-import { selectCommunicationThreadUrl } from "@/lib/portal-communication-nav";
+import { useCommunicationListSegment } from "@/hooks/use-communication-list-segment";
+import { selectCommunicationSegmentUrl, selectCommunicationThreadUrl } from "@/lib/portal-communication-nav";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { consumeManagerComposePrefill, type ManagerComposePrefill } from "@/lib/manager-compose-prefill";
@@ -72,7 +73,7 @@ export function communicationFilterTouches(
 }
 
 export function ManagerCommunication({
-  listSegment = "active",
+  listSegment: listSegmentProp = "active",
   threadId,
   inboxTabId = "unopened",
   smsUiEnabled = false,
@@ -98,11 +99,21 @@ export function ManagerCommunication({
   const commBase = `${portalBase}/communication`;
   const { userId, ready: sessionReady } = useManagerUserId();
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
+  // Client-tracked segment (PLAN B1): a plain-click Active/Archived tab
+  // switch updates this via `history.pushState` instead of a full App Router
+  // navigation, so `ManagerUnifiedInbox` never remounts and its already-loaded
+  // lists never re-fetch. A genuine full navigation (deep link, reload,
+  // sidebar link) still remounts this component, re-seeding the hook from the
+  // fresh `listSegmentProp`.
+  const { segment: listSegment, setSegment: setListSegment } = useCommunicationListSegment(
+    commBase,
+    listSegmentProp,
+  );
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
   const [filters, setFilters] = useState<CommunicationThreadFilters>({
     ...EMPTY_COMMUNICATION_THREAD_FILTERS,
-    status: listSegment === "unread" ? "unread" : "active",
+    status: listSegmentProp === "unread" ? "unread" : "active",
   });
   useEffect(() => {
     setFilters((current) => {
@@ -115,6 +126,16 @@ export function ManagerCommunication({
       return current;
     });
   }, [listSegment]);
+  const handleSegmentNavigate = useCallback(
+    (next: "active" | "archived") => {
+      setListSegment(next);
+      // A thread open in one folder never exists in the other — close it so
+      // the URL (now segment-only) and the open-thread state agree.
+      setActiveThreadId(undefined);
+      selectCommunicationSegmentUrl(`${commBase}/${next}`);
+    },
+    [commBase, setActiveThreadId, setListSegment],
+  );
   const [listSort, setListSort] = useState<CommunicationListSort>("recent");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
@@ -399,11 +420,7 @@ export function ManagerCommunication({
         listActions={communicationCommandActions}
         onAddConversation={() => openCompose("email")}
         onApplicationsLoaded={refreshDirectory}
-        onArchivedViewChange={() =>
-          setFilters((current) =>
-            current.status === "archived" ? { ...current, status: "active" } : current,
-          )
-        }
+        onArchivedViewChange={handleSegmentNavigate}
       />
       <ManagerPortalSettingsModal
         open={communicationSettingsOpen}
