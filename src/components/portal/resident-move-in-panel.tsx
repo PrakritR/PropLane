@@ -10,12 +10,15 @@ export async function ResidentMoveInPanel({
   tabId = "placement",
   tabs: _tabs,
   focusRoomId,
+  leaseSigned = false,
 }: {
   residentEmail?: string | null;
   basePath?: string;
   tabId?: string;
   tabs?: PortalTab[];
   focusRoomId?: string;
+  /** Already resolved by the caller's access check — free to pass along, no extra query. */
+  leaseSigned?: boolean;
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
   const resolved = email ? await loadResidentMoveInForEmail(email) : null;
@@ -28,6 +31,7 @@ export async function ResidentMoveInPanel({
         email={email}
         activeTab={tabId}
         focusRoomId={focusRoomId}
+        leaseSigned={leaseSigned}
       />
     </ManagerPortalPageShell>
   );

@@ -1547,6 +1547,7 @@ export async function renderPortalSection(
         tabId={moveInTab}
         tabs={meta.tabs}
         focusRoomId={typeof searchParams?.room === "string" ? searchParams.room : undefined}
+        leaseSigned={residentAccess?.leaseSigned ?? false}
       />
     );
   }
