@@ -88,7 +88,7 @@ export function RentReceiptDocumentView({ doc }: { doc: RentReceiptDocument }) {
       <div className="space-y-5 px-8 py-6">
         <div className="grid gap-4 sm:grid-cols-2">
           <InfoBlock label="Received by (landlord / property manager)" lines={[doc.landlordName, ...doc.landlordAddress.split("\n")]} />
-          <InfoBlock label="Paid by (tenant)" lines={[doc.tenantName, doc.tenantEmail]} />
+          <InfoBlock label="Paid by (resident)" lines={[doc.tenantName, doc.tenantEmail]} />
         </div>
         <InfoBlock
           label="Rental property"

@@ -118,7 +118,7 @@ describe("ManagerReminderRuleSettingsPanel audience rows", () => {
     // Send via is one dropdown for the rule; Inbox is ticked and cannot be unticked.
     fireEvent.click(screen.getByRole("button", { name: "Send via", expanded: false }));
     const listbox = screen.getByRole("listbox", { name: "Send via" });
-    const inbox = within(listbox).getByRole("option", { name: "Inbox" });
+    const inbox = within(listbox).getByRole("option", { name: "Communication" });
     expect(inbox.getAttribute("aria-selected")).toBe("true");
     expect(inbox.getAttribute("aria-disabled")).toBe("true");
 
@@ -126,7 +126,7 @@ describe("ManagerReminderRuleSettingsPanel audience rows", () => {
     // just trusting `aria-disabled` — this is the guarantee the control exists to make.
     fireEvent.pointerDown(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
-    expect(within(listbox).getByRole("option", { name: "Inbox" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(listbox).getByRole("option", { name: "Communication" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("gives every settings row a label and a control, never a sentence under it", async () => {

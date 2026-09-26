@@ -2691,7 +2691,7 @@ export const ManagerInbox = forwardRef<
         }}
         managerUserId={userId}
         defaultResident={workflowResident}
-        defaultTitle={workflowTitleFromMessage(workflowMessageText, "Maintenance request")}
+        defaultTitle={workflowTitleFromMessage(workflowMessageText, "Service request")}
         defaultDescription={workflowMessageText}
       />
       <ManagerCreateServiceRequestModal
@@ -2748,7 +2748,7 @@ export const ManagerInbox = forwardRef<
 
   return (
     <ManagerPortalPageShell
-      title="Inbox"
+      title="Communication"
       titleAside={
         <>
           {tabId === "trash" ? (

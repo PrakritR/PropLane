@@ -979,7 +979,7 @@ export const AdminInboxClient = forwardRef<
 
   return (
     <ManagerPortalPageShell
-      title="Inbox"
+      title="Communication"
       titleAside={titleAside}
       filterRow={
         <ManagerPortalStatusPills

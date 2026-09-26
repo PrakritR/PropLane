@@ -558,7 +558,7 @@ export function VendorWorkOrdersPanel({
           delete next[row.id];
           return next;
         });
-        showToast("Bid withdrawn.");
+        showToast("Quote withdrawn.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
@@ -575,7 +575,7 @@ export function VendorWorkOrdersPanel({
         delete next[row.id];
         return next;
       });
-      showToast("Bid withdrawn.");
+      showToast("Quote withdrawn.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not withdraw bid.");
     } finally {
@@ -856,7 +856,7 @@ export function VendorWorkOrdersPanel({
               disabled={submittingId === row.id}
               onClick={() => submitBid(row)}
             >
-              {pricingPending ? "Submit price" : bid ? "Update bid" : "Submit bid"}
+              {pricingPending ? "Submit price" : bid ? "Update quote" : "Submit quote"}
             </Button>
             {bid && bid.status === "submitted" ? (
               <Button
@@ -867,7 +867,7 @@ export function VendorWorkOrdersPanel({
                 disabled={withdrawingBidId === row.id}
                 onClick={() => withdrawBid(row)}
               >
-                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw bid"}
+                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw quote"}
               </Button>
             ) : null}
           </PortalTableDetailActions>

@@ -219,7 +219,7 @@ const SERVICE_REMINDER_TYPES = [
 const SERVICE_REPLY_TEMPLATES = [
   {
     value: "maintenance" as const,
-    label: "Maintenance visit",
+    label: "Service visit",
   },
   {
     value: "addon" as const,

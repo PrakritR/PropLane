@@ -33,7 +33,7 @@ import { ResidentCommunication } from "@/components/portal/resident-communicatio
 import { VendorCommunication } from "@/components/portal/vendor-communication";
 afterEach(cleanup);
 describe.each([ResidentCommunication, VendorCommunication])("status filtering", (Component) => {
-  it("filters read and unread, searches archives, and resets to all live conversations", async () => {
+  it("filters read and unread, and resets to all live conversations", async () => {
     render(<Component />);
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "read" } });
     await waitFor(() => expect(screen.getByText("Read subject")).toBeTruthy());
@@ -42,14 +42,34 @@ describe.each([ResidentCommunication, VendorCommunication])("status filtering", 
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "unread" } });
     await waitFor(() => expect(screen.getByText("Unread subject")).toBeTruthy());
     expect(screen.queryByText("Read subject")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "archived" } });
-    fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
-    await waitFor(() => expect(screen.getByText("Archived subject")).toBeTruthy());
-    expect(screen.queryByText("Unread subject")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "active" } });
     await waitFor(() => expect(screen.getByText("Unread subject")).toBeTruthy());
     expect(screen.getByText("Read subject")).toBeTruthy();
     expect(screen.queryByText("Archived subject")).toBeNull();
+  });
+});
+
+describe("resident reaches an archived conversation through the Status filter (no tab)", () => {
+  it("has no Active|Archived tab and lists Archived among the Status options", async () => {
+    render(<ResidentCommunication />);
+    expect(screen.queryByRole("link", { name: "Archived" })).toBeNull();
+    const options = [...screen.getByLabelText("Status").querySelectorAll("option")].map((o) => o.textContent);
+    expect(options).toContain("Archived");
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "archived" } });
+    fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
+    await waitFor(() => expect(screen.getByText("Archived subject")).toBeTruthy());
+    expect(screen.queryByText("Unread subject")).toBeNull();
+  });
+});
+
+describe("vendor reaches an archived conversation through the Active|Archived tab (captain, 2026-09-26: matches manager)", () => {
+  it("has no Archived option in the Status filter, only the tab", async () => {
+    render(<VendorCommunication />);
+    const options = [...screen.getByLabelText("Status").querySelectorAll("option")].map((o) => o.textContent);
+    expect(options).not.toContain("Archived");
+    fireEvent.click(screen.getByRole("link", { name: "Archived" }));
+    fireEvent.change(screen.getByLabelText("Search messages"), { target: { value: "Archived" } });
+    await waitFor(() => expect(screen.getByText("Archived subject")).toBeTruthy());
+    expect(screen.queryByText("Unread subject")).toBeNull();
   });
 });

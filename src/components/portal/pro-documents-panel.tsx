@@ -73,7 +73,7 @@ import type { DocumentDetailTabId } from "@/lib/portal-detail-routes";
 export const DOCUMENT_TAB_DESTINATIONS = [
   { id: "applications", label: "Applications" },
   { id: "leases", label: "Leases" },
-  { id: "other", label: "Other" },
+  { id: "other", label: "Other documents" },
 ] as const;
 
 /** Every routable documents tab id (including hidden report views kept for bookmarks). */

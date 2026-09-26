@@ -41,9 +41,14 @@ type GoogleCalendarStatus = {
 export function GoogleCalendarConnectPanel({
   onConnectionChange,
   presentation = "card",
+  /** Manager (default) reads/writes `/api/portal/google-calendar/*`; a role that
+   * clones the manager OAuth flow onto its own storage (vendor) passes its own
+   * base, e.g. `/api/vendor/google-calendar`. */
+  apiBase = "/api/portal/google-calendar",
 }: {
   onConnectionChange?: () => void;
   presentation?: "card" | "dialog";
+  apiBase?: string;
 }) {
   const { showToast } = useAppUi();
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
@@ -54,12 +59,12 @@ export function GoogleCalendarConnectPanel({
 
   const load = useCallback(async () => {
     try {
-      await fetch("/api/portal/google-calendar/link-session", {
+      await fetch(`${apiBase}/link-session`, {
         method: "POST",
         credentials: "include",
       }).catch(() => undefined);
       const res = await fetch(
-        `/api/portal/google-calendar?origin=${encodeURIComponent(window.location.origin)}`,
+        `${apiBase}?origin=${encodeURIComponent(window.location.origin)}`,
         { credentials: "include" },
       );
       if (!res.ok) return;
@@ -68,7 +73,7 @@ export function GoogleCalendarConnectPanel({
     } catch {
       setStatus(null);
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     void load();
@@ -85,9 +90,9 @@ export function GoogleCalendarConnectPanel({
     const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
     showToast("Opening Google sign-in…");
     window.location.assign(
-      `/api/portal/google-calendar/connect?origin=${origin}&returnTo=${returnTo}`,
+      `${apiBase}/connect?origin=${origin}&returnTo=${returnTo}`,
     );
-  }, [showToast, status?.configured]);
+  }, [apiBase, showToast, status?.configured]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

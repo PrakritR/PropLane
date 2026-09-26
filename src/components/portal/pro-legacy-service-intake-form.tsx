@@ -387,8 +387,8 @@ export function ManagerLegacyServiceIntakeForm({
         });
         showToast(
           result.vendorName
-            ? `Maintenance request created. ${result.vendorName} notified.`
-            : "Maintenance request created.",
+            ? `Service request created. ${result.vendorName} notified.`
+            : "Service request created.",
         );
         if (result.vendorNotifyError) {
           showToast("Request saved, but the vendor could not be notified.");

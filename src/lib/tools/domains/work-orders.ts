@@ -1100,7 +1100,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       { label: "Vendor", value: owned.row.vendorName || "—" },
       {
         label: "Labor payout",
-        value: laborCents > 0 ? `${centsLabel(laborCents)}${bid ? " (accepted bid — locked)" : ""}` : "None on record",
+        value: laborCents > 0 ? `${centsLabel(laborCents)}${bid ? " (accepted quote — locked)" : ""}` : "None on record",
       },
       { label: "Materials (your expense)", value: materialsCents > 0 ? centsLabel(materialsCents) : "—" },
       { label: "Payment channel", value: channel.toUpperCase() },

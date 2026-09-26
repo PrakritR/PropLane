@@ -185,9 +185,15 @@ describe("the Free plan property cap", () => {
   );
 
   it("never pre-disables Add property — the plan-unknown case is handled at click time, not by disabling the control", () => {
-    expect(src).toContain("addPropertyDisabled={false}");
-    expect(src).not.toContain("addPropertyDisabled={!skuLoaded}");
-    expect(src).not.toContain("addPropertyDisabled={!skuLoaded || atPropertyLimit}");
+    // commit 135c3f2a ("empty state no longer repeats Create next to the
+    // header's own") deleted the empty-state Create pill, the last consumer
+    // of the `addPropertyDisabled` prop/plumbing, so that literal is gone for
+    // good reason. The invariant it guarded is unchanged: the header trigger
+    // is never disabled on a loading or at-limit flag — gating happens when
+    // the menu is asked to open, via `canOpenAdd()`.
+    expect(src).not.toContain("disabled={!skuLoaded}");
+    expect(src).not.toContain("disabled={!skuLoaded || atPropertyLimit}");
+    expect(src).toContain("if (next && !canOpenAdd()) return;");
     expect(src).toContain("if (!skuLoaded) {");
     expect(src).toContain('showToast("Loading subscription…")');
   });

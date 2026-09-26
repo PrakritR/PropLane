@@ -397,10 +397,16 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
   return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
-/** Vendor calendar views. List is the accessible record view of the same visits. */
-export const VENDOR_CALENDAR_VIEW_TABS = ["list", "day", "week", "month"] as const;
+/**
+ * Vendor Calendar's own destination tabs — a kind filter over the week grid,
+ * not a day/week/month view switcher (the grid itself is always the week
+ * view; there is no separate view-mode picker). "All" shows both scheduled
+ * services and painted availability; "Services" hides availability painting;
+ * "Availability" hides scheduled-visit blocks.
+ */
+export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services", "availability"] as const;
 export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
-export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "week";
+export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
 
 export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
   if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
@@ -625,34 +631,6 @@ export function parseVendorWorkOrderListTab(raw: string | undefined | null): Ven
   }
   if (raw && VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) return VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!;
   return DEFAULT_VENDOR_WORK_ORDER_TAB;
-}
-
-/**
- * Vendor Jobs board tabs (C152/C153): additive to Services, never a
- * replacement — Invited surfaces the jobs a manager has opened for this
- * vendor's own bid (today's single-vendor-at-a-time `biddingOpen` flag,
- * docs/agents/vendor-portal.md Phase 2). Open is a placeholder: a genuine
- * cross-workspace marketplace browse has no backing data model yet
- * (work_order_bids only ever has rows for the currently-assigned vendor).
- */
-export const VENDOR_JOBS_LIST_TABS = ["invited", "open"] as const;
-export type VendorJobsListTabId = (typeof VENDOR_JOBS_LIST_TABS)[number];
-export const DEFAULT_VENDOR_JOBS_TAB: VendorJobsListTabId = "invited";
-
-export const VENDOR_JOBS_LIST_TAB_LABELS: Record<VendorJobsListTabId, string> = {
-  invited: "Invited",
-  open: "Open",
-};
-
-export function parseVendorJobsListTab(raw: string | undefined | null): VendorJobsListTabId {
-  if (raw && (VENDOR_JOBS_LIST_TABS as readonly string[]).includes(raw)) {
-    return raw as VendorJobsListTabId;
-  }
-  return DEFAULT_VENDOR_JOBS_TAB;
-}
-
-export function vendorJobsListHref(basePath: string, tab: VendorJobsListTabId = DEFAULT_VENDOR_JOBS_TAB): string {
-  return `${basePath}/jobs/${tab}`;
 }
 
 export function vendorWorkOrderListHref(

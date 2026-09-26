@@ -27,7 +27,7 @@ const NAV_GROUPS: DocsNavGroup[] = [
       { id: "applications", label: "Applications & screening" },
       { id: "leases", label: "Leases & e-signature" },
       { id: "rent", label: "Rent & payments" },
-      { id: "maintenance", label: "Maintenance & services" },
+      { id: "maintenance", label: "Services" },
     ],
   },
   {
@@ -196,7 +196,7 @@ export default function DocsPage() {
           <DocSection
             id="maintenance"
             kicker="Core workflows"
-            title="Maintenance & services"
+            title="Services"
           >
             <p>
               Residents submit maintenance requests. Add-on requests cover optional services such as

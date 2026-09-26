@@ -513,10 +513,9 @@ export function ManagerProperties({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  {/* Not pre-disabled on `!skuLoaded`: `onOpenChange` below
+                  {/* Not pre-disabled on `!skuLoaded`: `onOpenChange` above
                       already calls `canOpenAdd()`, which toasts and queues a
-                      retry for the still-loading case — see the comment on
-                      `addPropertyDisabled` above. A washed-out disabled-
+                      retry for the still-loading case. A washed-out disabled-
                       looking button for that brief window was the bug. */}
                   <PortalPrimaryIconAction label="Add property" data-attr="manager-properties-add-top" />
                 </DropdownMenuTrigger>

@@ -43,6 +43,12 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 }));
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
+  // WorkspaceProvider (rendered under ManagerPromotion via the shared portal
+  // list empty-state card) also imports these two directly — a mock that only
+  // covers isDemoModeActive throws "no export is defined" deep in that
+  // provider instead of failing this file's own assertions.
+  DEMO_MANAGER_USER_ID: "demo-manager",
+  resolveManagerScopeUserId: (userId: string | null) => userId,
 }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: () => {} }));
 vi.mock("@/components/portal/promotion-new-modal", () => ({
@@ -154,11 +160,14 @@ describe("Promotion command bar", () => {
     expect(screen.getByText("Open house flyer")).toBeTruthy();
   });
 
-  it("defaults New promotion to text on the Text section", () => {
+  it("defaults Add promotion to text on the Text section", () => {
     promoRows.current = [seedRow()];
     searchParamsRef.current = new URLSearchParams("kind=text");
     render(<ManagerPromotion />);
-    fireEvent.click(screen.getByRole("button", { name: "New promotion" }));
+    // "Add <noun>" is the one accessible-name shape every list band's primary
+    // uses now (a046971f, portalListAddPrimaryLabel) — this used to be a
+    // literal "New promotion" label.
+    fireEvent.click(screen.getByRole("button", { name: "Add promotion" }));
     expect(screen.getByText("text")).toBeTruthy();
   });
 });

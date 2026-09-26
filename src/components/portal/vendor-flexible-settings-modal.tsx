@@ -44,7 +44,7 @@ export function VendorFlexibleSettingsModal({
       open={open}
       title="Flexible settings"
       onClose={onClose}
-      description="Rank preferred times of day for auto-scheduling flexible visits. A tenant's requested time always wins when you're available."
+      description="Rank preferred times of day for auto-scheduling flexible visits. A resident's requested time always wins when you're available."
       footer={
         <ModalFooter>
           <Button

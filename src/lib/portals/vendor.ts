@@ -8,19 +8,6 @@ export const vendorPortal: PortalDefinition = {
   accent: "blue",
   sections: [
     { section: "dashboard", label: "Dashboard", tabs: [] },
-    // C152/C153: Invited surfaces jobs this vendor has been asked to bid on
-    // (today's single-vendor biddingOpen flag); Open is a placeholder — a
-    // genuine cross-workspace marketplace browse has no data model yet
-    // (docs/agents/vendor-portal.md Phase 2). Purely additive to Services,
-    // which keeps its own assigned-job flow unchanged.
-    {
-      section: "jobs",
-      label: "Jobs",
-      tabs: [
-        { id: "invited", label: "Invited" },
-        { id: "open", label: "Open" },
-      ],
-    },
     { section: "work-orders", label: "Services", tabs: [] },
     { section: "calendar", label: "Calendar", tabs: [] },
     { section: "communication", label: "Communication", tabs: [] },
@@ -35,9 +22,13 @@ export const vendorPortal: PortalDefinition = {
     {
       section: "documents",
       label: "Documents",
-      // Source is a filter in one list; the document KIND stays structural for
-      // uploads while its category remains a row label.
-      tabs: [{ id: "all", label: "All" }],
+      // Status (All / On file / Missing) is the routed tab with real counts;
+      // Source and Category are Filter-sheet fields, not separate tabs.
+      tabs: [
+        { id: "all", label: "All" },
+        { id: "on-file", label: "On file" },
+        { id: "missing", label: "Missing" },
+      ],
     },
     { section: "reviews", label: "Reviews", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
@@ -47,7 +38,6 @@ export const vendorPortal: PortalDefinition = {
 /** Default smoke-test paths for web + native WebView (vendor portal). */
 export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/vendor/dashboard" },
-  { label: "Jobs", path: "/vendor/jobs/invited" },
   { label: "Services", path: "/vendor/work-orders" },
   { label: "Calendar", path: "/vendor/calendar" },
   { label: "Communication", path: "/vendor/communication/active" },

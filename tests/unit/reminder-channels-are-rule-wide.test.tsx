@@ -104,12 +104,12 @@ describe("ManagerReminderRuleSettingsPanel channels are rule-wide", () => {
     await screen.findByText("You");
     fireEvent.click(screen.getByRole("button", { name: "Send via", expanded: false }));
     const listbox = screen.getByRole("listbox", { name: "Send via" });
-    const inbox = within(listbox).getByRole("option", { name: "Inbox" });
+    const inbox = within(listbox).getByRole("option", { name: "Communication" });
     expect(inbox.getAttribute("aria-selected")).toBe("true");
     expect(inbox.getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.pointerDown(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
-    expect(within(listbox).getByRole("option", { name: "Inbox" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(listbox).getByRole("option", { name: "Communication" }).getAttribute("aria-selected")).toBe("true");
   });
 });
