@@ -63,6 +63,7 @@ import {
   leaseAwaitingManagerCountersign,
   UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
   runLeaseDownload,
+  runLeaseExport,
   sendLeaseBackToManager,
   sendLeaseToResident,
   hasBothLeaseSignatures,
@@ -78,7 +79,11 @@ import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { attachLibraryLeaseDocumentAndParse, retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
 import { LeaseAttachFromLibraryModal } from "@/components/portal/lease-attach-from-library-modal";
-import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import {
+  leaseAllowsSignedPdfUpload,
+  leaseCanBeMarkedSignedOffPlatform,
+  leaseClaimsExecution,
+} from "@/lib/lease-execution-evidence";
 import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
 import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
@@ -547,6 +552,11 @@ export function ManagerLeasesPipelinePanel({
     runLeaseDownload(row, showToast);
   };
 
+  /** C064: Export — a real signed-document-with-audit-page PDF, distinct from plain Download. */
+  const onExport = (row: LeasePipelineRow) => {
+    runLeaseExport(row, showToast);
+  };
+
   const openSendLeasePreview = (row: LeasePipelineRow) => {
     const residentEmail = row.residentEmail.trim().toLowerCase();
     if (!residentEmail || !residentAccountEmails.has(residentEmail)) {
@@ -822,6 +832,7 @@ export function ManagerLeasesPipelinePanel({
           btnClass={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
           row={row}
           downloadDataAttr="lease-download"
+          exportDataAttr="lease-export"
           signManagerDataAttr="lease-manager-sign"
           signingReminderDataAttr="lease-signing-reminder"
           deleteDataAttr="lease-delete"
@@ -829,6 +840,7 @@ export function ManagerLeasesPipelinePanel({
           moveToManagerReviewDataAttr="lease-move-manager-review"
           editLeaseDataAttr="lease-edit"
           onDownload={() => onDownload(row)}
+          onExport={() => onExport(row)}
           onSignManager={() => onManagerSign(row)}
           onSigningReminder={() => openLeaseSigningReminderPreview(row)}
           signingReminderBusy={reminderBusyForRow === row.id}
@@ -1436,6 +1448,19 @@ export function ManagerLeasesPipelinePanel({
                   onClick={() => onDownload(singleSelectedLeaseRow)}
                 >
                   Download
+                </Button>
+              ) : null}
+              {singleSelectedLeaseRow &&
+              hasLeaseDocument(singleSelectedLeaseRow) &&
+              leaseClaimsExecution(singleSelectedLeaseRow) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-export"
+                  onClick={() => onExport(singleSelectedLeaseRow)}
+                >
+                  Export
                 </Button>
               ) : null}
               {singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow) ? (

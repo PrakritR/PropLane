@@ -568,6 +568,33 @@ charges stay.
   That is correct (nothing was executed through the portal), but it means a
   present signature does not imply a present fingerprint.
 
+### Export: a real signed-document-with-audit-page PDF (C064, Sep 2026)
+
+**Export** is a NEW action, distinct from the plain **Download** section
+action next to it: Download hands back the lease's own document as-is
+(uploaded PDF, or the generated HTML file); Export always produces a real PDF
+that ends with the certificate page (`buildLeaseSignaturePagePdf` — who
+signed, when, the document fingerprint, template/jurisdiction, consent),
+regardless of document mode. Owner: `buildLeaseExportWithAuditPdf`
+(`lease-pipeline-storage.ts`), `appendSignaturePageToPdfBytes` /
+`buildLeaseBodyTextPdf` / `htmlToPlainTextParagraphs` (`lease-pdf-signing.ts`).
+
+- Only offered once the lease carries some signature (`leaseClaimsExecution`)
+  — an unsigned lease has nothing yet to attest, so `buildLeaseExportWithAuditPdf`
+  returns `null` and the UI does not show the action.
+- For an uploaded PDF, the base is the row's **ORIGINAL** bytes
+  (`getLeasePdfBaseDataUrl`'s `originalDataUrl ?? dataUrl`), never the copy
+  signing may have already merged a certificate into — Export always adds
+  exactly one certificate page, never two.
+- For a PropLane-generated (HTML) lease there is no source PDF to build on, so
+  the body is paginated from the SAME rendered HTML the manager and resident
+  already see, with markup stripped by `htmlToPlainTextParagraphs` (never
+  reworded) and its own inline `<!-- axis-signatures:start/end -->` block
+  removed first so the one real certificate page is not duplicated.
+- UI: `LeasePrimaryHeaderActions`' `onExport` (lease record header icons and
+  the list's single-select bulk bar), wired through `runLeaseExport` /
+  `exportLeaseWithAuditPdf`.
+
 # Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
 
 A lease signed on paper or in another tool is filed from the Leases tab: upload the

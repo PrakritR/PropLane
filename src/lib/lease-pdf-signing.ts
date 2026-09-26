@@ -12,7 +12,7 @@ import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 
-function dataUrlToBytes(dataUrl: string): Uint8Array {
+export function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.split(",")[1] ?? "";
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -20,7 +20,7 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-function bytesToDataUrl(bytes: Uint8Array): string {
+export function bytesToDataUrl(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
   return `data:application/pdf;base64,${btoa(binary)}`;
@@ -270,4 +270,101 @@ export async function mergeUploadedLeasePdfWithSignatures(row: LeasePipelineRow)
   if (!base) return null;
   if (!row.residentSignature && !row.managerSignature) return base;
   return appendSignaturePageToPdf(base, row);
+}
+
+/**
+ * Append the certificate page (see `buildLeaseSignaturePagePdf`) onto ANY
+ * already-built PDF's bytes, not just an uploaded original. The Export action
+ * (C064) needs this for a GENERATED (HTML) lease, whose base document is
+ * rendered as text pages by `buildLeaseBodyTextPdf` rather than uploaded —
+ * the certificate itself is identical either way.
+ */
+export async function appendSignaturePageToPdfBytes(
+  baseBytes: Uint8Array,
+  row: LeasePipelineRow,
+): Promise<Uint8Array> {
+  const baseDoc = await PDFDocument.load(baseBytes);
+  const sigBytes = await buildLeaseSignaturePagePdf(row);
+  const sigDoc = await PDFDocument.load(sigBytes);
+  const [sigPage] = await baseDoc.copyPages(sigDoc, [0]);
+  baseDoc.addPage(sigPage);
+  return baseDoc.save();
+}
+
+/**
+ * Plain-text paragraphs from a lease's already-rendered HTML — strips markup
+ * only, never rewords or summarizes. Used to lay the Export PDF's body pages
+ * (`buildLeaseBodyTextPdf`) when the lease has no source PDF of its own (a
+ * generated document), so Export still produces a real PDF rather than
+ * refusing.
+ */
+export function htmlToPlainTextParagraphs(html: string): string[] {
+  const withoutNonContent = html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+  const withBreaks = withoutNonContent
+    .replace(/<\/(p|div|li|h[1-6]|tr|section|article|header|footer)>/gi, "\n\n")
+    .replace(/<br\s*\/?>/gi, "\n");
+  const stripped = withBreaks.replace(/<[^>]+>/g, "");
+  const decoded = stripped
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"');
+  return decoded
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim())
+    .filter(Boolean);
+}
+
+/**
+ * Paginated body text as a PDF — the Export action's base document for a
+ * GENERATED lease (no uploaded PDF exists to build on). It is exactly
+ * `paragraphs`, wrapped and paginated across as many US-Letter pages as
+ * needed; it never invents or summarizes content.
+ */
+export async function buildLeaseBodyTextPdf(paragraphs: string[]): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const margin = 54;
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const maxWidth = pageWidth - margin * 2;
+  const winAnsiSafe = (text: string) => text.replace(/[^\x20-\x7E\xA0-\xFF]/g, "?");
+
+  let page = pdf.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const drawLine = (text: string, size: number) => {
+    if (y < margin) {
+      page = pdf.addPage([pageWidth, pageHeight]);
+      y = pageHeight - margin;
+    }
+    page.drawText(winAnsiSafe(text), { x: margin, y, size, font: regular, color: rgb(0.1, 0.1, 0.1) });
+    y -= size + 6;
+  };
+
+  const drawWrapped = (text: string, size = 10.5) => {
+    let line = "";
+    for (const word of winAnsiSafe(text).split(/\s+/)) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && regular.widthOfTextAtSize(candidate, size) > maxWidth) {
+        drawLine(line, size);
+        line = word;
+        continue;
+      }
+      line = candidate;
+    }
+    if (line) drawLine(line, size);
+    y -= 4; // paragraph gap
+  };
+
+  if (paragraphs.length === 0) {
+    drawWrapped("No lease text available.", 11);
+  } else {
+    for (const paragraph of paragraphs) drawWrapped(paragraph, 10.5);
+  }
+  return pdf.save();
 }
