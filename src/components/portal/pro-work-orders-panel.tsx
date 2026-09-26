@@ -890,7 +890,7 @@ export function ManagerWorkOrdersPanel({
       if (isDemoModeActive()) {
         if (!acceptDemoWorkOrderBid(bid.workOrderId)) throw new Error("Could not accept bid.");
         await loadBids(bid.workOrderId);
-        showToast("Bid accepted. Vendor assigned at the agreed cost.");
+        showToast("Quote accepted. Vendor assigned at the agreed cost.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
@@ -903,7 +903,7 @@ export function ManagerWorkOrdersPanel({
       if (!res.ok) throw new Error(data.error ?? "Could not accept bid.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(bid.workOrderId);
-      showToast("Bid accepted. Vendor assigned at the agreed cost.");
+      showToast("Quote accepted. Vendor assigned at the agreed cost.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not accept bid.");
     } finally {

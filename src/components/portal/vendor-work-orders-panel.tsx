@@ -558,7 +558,7 @@ export function VendorWorkOrdersPanel({
           delete next[row.id];
           return next;
         });
-        showToast("Bid withdrawn.");
+        showToast("Quote withdrawn.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
@@ -575,7 +575,7 @@ export function VendorWorkOrdersPanel({
         delete next[row.id];
         return next;
       });
-      showToast("Bid withdrawn.");
+      showToast("Quote withdrawn.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not withdraw bid.");
     } finally {
