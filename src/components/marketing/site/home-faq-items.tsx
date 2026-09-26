@@ -24,11 +24,11 @@ export const HOME_FAQ_ITEMS: SiteFaqItem[] = [
   },
   {
     q: "Is there a free plan?",
-    a: "Yes. Free is $0 with no card: one property listing, applications, tours and rent collection. Residents, leases, the inbox drafts and co-managers are on Pro and up.",
+    a: "Yes. Free is $0 with no card: one property listing, applications, tours and rent collection. Residents, leases, Communication drafts and co-managers are on Pro and up.",
   },
   {
     q: "How much does it cost?",
-    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and the inbox, priced by doors past the first 20). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, priced by doors past the first 120). A year up front is two months free.`,
+    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and Communication, for up to 20 homes). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, for up to 120 homes). A year up front is two months free.`,
   },
   {
     q: "Do I need a credit card to try it?",

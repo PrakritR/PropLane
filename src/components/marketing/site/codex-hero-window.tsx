@@ -12,6 +12,19 @@ const PHONE_BEZEL_WIDTH = 250;
 const PHONE_SCALE = PHONE_BEZEL_WIDTH / PHONE_VIEWPORT_WIDTH;
 const PHONE_BEZEL_HEIGHT = Math.round(PHONE_VIEWPORT_HEIGHT * PHONE_SCALE);
 
+function useReducedMotionPreference(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
 function CloseIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden>
@@ -30,14 +43,45 @@ function PhoneIcon({ className }: { className?: string }) {
 }
 
 /**
+ * One event in the hero's activity stream — the same Seattle Homes story the
+ * `/demo` embed beside it renders (Jamie P., Pacific Plumbing, Dana Reyes;
+ * see `demo-guided-data.ts`), never invented, so the two never disagree.
+ */
+type HeroActivityEvent = { title: string; detail: string; tag: string };
+
+const HERO_ACTIVITY_EVENTS: HeroActivityEvent[] = [
+  { title: "Pacific Plumbing dispatched to Maple 2A", detail: "Service request #1042 · Thu 10–12 · resident notified", tag: "Done" },
+  { title: "Tour booked with Jamie P.", detail: "Fremont Studio · Sat 2:00 PM", tag: "Confirmed" },
+  { title: "Rent paid — $1,800", detail: "Dana Reyes · Alder House · autopay", tag: "Paid" },
+  { title: "Application approved", detail: "Jamie P. · Fremont Studio", tag: "Approved" },
+];
+
+const HERO_ACTIVITY_INTERVAL_MS = 4200;
+
+/**
  * Lifted straight from the dashboard's own queue — today's live home page
- * (site/hero.tsx, before the Codex redesign) carries the exact same card;
- * kept verbatim per the captain's request, just restyled for the light wash.
- * Dismissible with its own ✕, same as the phone mockup.
+ * (site/hero.tsx, before the Codex redesign) carried a single static card;
+ * this now cycles through a short, real activity stream (captain 2026-09-25:
+ * "have ui auto update") so the hero is never a frozen screenshot. Dismissible
+ * with its own ✕, same as the phone mockup. Never rotates under
+ * `prefers-reduced-motion` — the first event just stays put.
  */
 function CodexHeroActivityCard({ onDismiss }: { onDismiss: () => void }) {
+  const reducedMotion = useReducedMotionPreference();
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (reducedMotion) return;
+    const id = window.setInterval(() => {
+      setIndex((i) => (i + 1) % HERO_ACTIVITY_EVENTS.length);
+    }, HERO_ACTIVITY_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [reducedMotion]);
+
+  const event = HERO_ACTIVITY_EVENTS[index]!;
+
   return (
-    <div className="codex-hero-activity-card">
+    <div className="codex-hero-activity-card" data-attr="home-hero-activity-card" aria-live="polite">
       <button
         type="button"
         onClick={onDismiss}
@@ -47,16 +91,12 @@ function CodexHeroActivityCard({ onDismiss }: { onDismiss: () => void }) {
         <CloseIcon className="h-3.5 w-3.5" />
       </button>
       <p className="mb-1.5 flex items-center gap-2 pr-5 text-[11px] font-bold text-primary">
-        Needs attention
-        <span className="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">Done</span>
+        Activity
+        <span className="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">{event.tag}</span>
       </p>
-      <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">
-        PropLane · Pacific Plumbing dispatched to Maple 2A
-      </p>
-      <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · resident notified</p>
-      <p className="mt-2 text-[11px] text-[#4a4e56]">
-        Tour booked with Jamie P. · Sat 2:00 PM · <span className="font-bold text-[#15803d]">Done</span>
-      </p>
+      <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · {event.title}</p>
+      <p className="text-[11px] text-[#4a4e56]">{event.detail}</p>
+      <p className="mt-2 text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted">Sample data</p>
     </div>
   );
 }

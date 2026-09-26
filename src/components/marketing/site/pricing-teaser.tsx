@@ -16,19 +16,21 @@ import { cn } from "@/lib/utils";
  * per-door billing.
  */
 const TIER_LINE: Record<PlanTierId, string> = {
-  free: `${RATE_CARD.free.includedDoors} doors · no card`,
-  pro: `${RATE_CARD.pro.includedDoors} doors included · residents, leases, inbox`,
-  business: `${RATE_CARD.business.includedDoors} doors included · unlimited co-managers`,
+  free: `${RATE_CARD.free.includedDoors} homes · no card`,
+  pro: `${RATE_CARD.pro.includedDoors} homes included · residents, leases, Communication`,
+  business: `${RATE_CARD.business.includedDoors} homes included · unlimited co-managers`,
 };
 
 /**
  * The extra-door rate, one tier below its included count. `null` on Free
  * because it has no overage rate at all (`RATE_CARD.free.perExtraDoorMonthlyCents`
  * is `null`, a hard cap, not a $0 price) — see the rate card's own doc comment.
+ * Copy says "home", never "door" (captain 2026-09-25) — the underlying unit
+ * and RATE_CARD's numbers are unchanged, wording only.
  */
 function extraDoorLine(tier: "pro" | "business"): string {
   const cents = RATE_CARD[tier].perExtraDoorMonthlyCents;
-  return `+${formatRateCardUsd(cents ?? 0)}/mo per extra door`;
+  return `+${formatRateCardUsd(cents ?? 0)}/mo per extra home`;
 }
 
 const TIER_EXTRA_DOOR_LINE: Record<PlanTierId, string | null> = {
@@ -102,7 +104,7 @@ export function SitePricingTeaser() {
       <SiteIntro
         eyebrow="Pricing"
         id="site-pricing-title"
-        title={`Free for one home. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors} doors. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
+        title={`Free for one home. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors} homes. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
         lede="No card to start."
         align="center"
       />

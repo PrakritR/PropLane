@@ -1,7 +1,7 @@
-import { SiteAudienceSwitch } from "@/components/marketing/site/audience-switch";
 import { SiteFaq } from "@/components/marketing/site/faq";
 import { SiteHero } from "@/components/marketing/site/hero";
 import { HOME_FAQ_ITEMS } from "@/components/marketing/site/home-faq-items";
+import { SiteLifecycleRows } from "@/components/marketing/site/lifecycle-rows";
 import { SitePricingTeaser } from "@/components/marketing/site/pricing-teaser";
 import { SiteReplacesStrip } from "@/components/marketing/site/replaces-strip";
 import { SiteStory } from "@/components/marketing/site/story";
@@ -33,7 +33,7 @@ export default function HomePage() {
       <SiteHero />
       <SiteReplacesStrip />
       <SiteStory />
-      <SiteAudienceSwitch />
+      <SiteLifecycleRows />
       <SiteSwitchSteps />
       <SitePricingTeaser />
       <SiteFaq items={HOME_FAQ_ITEMS} />

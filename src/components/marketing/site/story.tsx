@@ -543,10 +543,10 @@ export function SiteStory() {
   return (
     <SiteSection id="product" tone="muted" ariaLabelledBy="site-story-title" className="site-story-band">
       <SiteIntro
-        eyebrow="The inbox"
+        eyebrow="Communication"
         id="site-story-title"
         title="Every message answered. Every workflow run."
-        lede="One inbox for prospects, residents and vendors."
+        lede="One thread for prospects, residents and vendors."
       />
 
       <div className="site-story" data-active={active}>
