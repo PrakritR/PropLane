@@ -282,6 +282,18 @@ fee while a retry that fails on a new intent is fee'd again. Coverage:
 
 **Deploy:** `npm run db:push` for Phase 5+6 tables before bill/NSF paths succeed.
 
+# Payment record page: only a tab that can have data
+
+The manager payment record page (`pro-payments-ledger-panel.tsx`) filters
+`recordSections("manager", "payment", …).groups` per row rather than showing
+every registered tab unconditionally: **Service** only for a
+`chargeKind === "work_order_charge"` row (a paid add-on/work-order charge),
+**Vendor** never (a resident charge is never a vendor payment — that money
+moves on the Outgoing side, a different record), **Documents** never (no
+upload path exists for a charge), **Activity** only when `migrationSourceId`
+is set (an imported charge has a real migration event; an ordinary one does
+not). Coverage: `tests/unit/payment-record-linked-sections.test.tsx`.
+
 # Manager charge counts: one bucket rule, one scoping rule
 
 Two manager surfaces show the same money — the dashboard "Payments" attention
