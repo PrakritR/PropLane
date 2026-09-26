@@ -7,6 +7,7 @@ import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
 import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Receipt, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
@@ -167,6 +168,10 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [directoryMinRatingFilter, setDirectoryMinRatingFilter] = useState("");
   const [addingDirectoryId, setAddingDirectoryId] = useState<string | null>(null);
   const [payoutsOpen, setPayoutsOpen] = useState(false);
+  // C272: "Add to your vendors" grants the directory vendor visibility into
+  // this workspace's service requests — a confirm step names that before the
+  // grant, rather than a silent one-click add.
+  const [pendingDirectoryAdd, setPendingDirectoryAdd] = useState<AxisCatalogVendor | null>(null);
 
   const directoryTab = parseVendorDirectoryTab(searchParams?.get("tab"));
   const catalogDetailId = searchParams?.get("catalog")?.trim() || null;
@@ -251,6 +256,13 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     },
     [showToast],
   );
+
+  const confirmAddDirectoryVendor = useCallback(() => {
+    if (!pendingDirectoryAdd) return;
+    const row = pendingDirectoryAdd;
+    setPendingDirectoryAdd(null);
+    void addDirectoryVendorToRoster(row);
+  }, [addDirectoryVendorToRoster, pendingDirectoryAdd]);
 
   const vendors = useMemo(() => {
     void tick;
@@ -578,6 +590,31 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const modals = (
     <>
+      <Modal
+        open={pendingDirectoryAdd !== null}
+        onClose={() => setPendingDirectoryAdd(null)}
+        title="Add to your vendors"
+      >
+        <div className="space-y-4 p-1">
+          <p className="text-sm leading-relaxed text-foreground">
+            {pendingDirectoryAdd?.name ?? "This vendor"} will be added to your roster and will be able to see
+            this workspace&apos;s service requests so they can bid and get assigned jobs.
+          </p>
+          <ModalFooter>
+            <Button type="button" variant="outline" onClick={() => setPendingDirectoryAdd(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              data-attr="vendor-directory-add-confirm"
+              disabled={addingDirectoryId === pendingDirectoryAdd?.directoryVendorUserId}
+              onClick={confirmAddDirectoryVendor}
+            >
+              Add to your vendors
+            </Button>
+          </ModalFooter>
+        </div>
+      </Modal>
       <ManagerVendorPayoutsModal open={payoutsOpen} onClose={() => setPayoutsOpen(false)} />
       <ManagerVendorFormModal
         open={vendorFormOpen}
@@ -1004,7 +1041,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           const isDirectory = Boolean(row.directoryVendorUserId);
           const busy = isDirectory && addingDirectoryId === row.directoryVendorUserId;
           const openProfile = () => navigate(vendorCatalogDetailHref(basePath, row.catalogId));
-          const add = () => (isDirectory ? void addDirectoryVendorToRoster(row) : openAddVendorForm(row.trade, row));
+          const add = () => (isDirectory ? setPendingDirectoryAdd(row) : openAddVendorForm(row.trade, row));
           const tradesLabel = row.trades?.length ? row.trades.join(", ") : row.trade;
           return (
             <RecordActionContext.Provider
@@ -1266,7 +1303,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     <>
       {directoryTab === "catalog" ? (
         <PortalIconAction
-          label="Filter"
+          // C256: the generic "Filter" tooltip gave no hint the popover covers
+          // trade and rating — name what it filters, and say when one is applied.
+          label={`Filter by trade or rating${directoryFilterActive ? " · active" : ""}`}
           icon={SlidersHorizontal}
           active={directoryFilterOpen || directoryFilterActive}
           onClick={() => setDirectoryFilterOpen((v) => !v)}
