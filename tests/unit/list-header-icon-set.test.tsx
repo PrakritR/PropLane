@@ -9,7 +9,7 @@
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CalendarSync, RefreshCw, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { CalendarSync, Download, RefreshCw, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
@@ -81,6 +81,13 @@ describe("list command band contract", () => {
   it("accepts the Settings icon without a report", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     renderStack({ actions: <PortalIconAction icon={Settings2} label="Settings" /> });
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("accepts the Export CSV glyph (N025)", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderStack({ actions: <PortalIconAction icon={Download} label="Export CSV" /> });
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
