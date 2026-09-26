@@ -10,9 +10,19 @@
  * free.
  *
  * `data-surface="light"` (see `globals.css`'s "Always-light embeds" block)
- * rebinds `--background`/`--card`/`--border`/`--foreground` to the light
- * palette regardless of the surrounding theme, so this panel is always white
- * even if `--card` were ever dark somewhere else in the app.
+ * rebinds `--background`/`--border`/`--foreground` to the light palette
+ * regardless of the surrounding theme, so this panel's TEXT/border tokens
+ * are always the light ones even if the surrounding shell were dark.
+ * Deliberately NOT `bg-card` for the panel's own background, though:
+ * `--card` under `[data-surface="light"]` is `rgba(255,255,255,0.94)` (a
+ * glass surface, by design, for OTHER embeds) — 6% see-through was exactly
+ * the captain's "should not be transparent" report (hero/buttons/product
+ * window bleeding through the panel and results, nav going grey). The panel
+ * is a literal `bg-white`, fully opaque, and there is deliberately no
+ * `Dialog.Overlay` scrim: the panel itself is the full-height, full-width
+ * solid sheet under the nav, so nothing is left for a scrim to dim or cover
+ * — and the real nav bar (outside this component, positioned above it in
+ * the DOM) is never touched, so it stays its normal solid-white self.
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -78,10 +88,9 @@ export function PublicSearchOverlay({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/30 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=open]:fade-in" />
         <Dialog.Content
           data-surface="light"
-          className="fixed inset-x-0 top-14 z-[71] w-full border-b border-border bg-card text-left shadow-[0_24px_48px_-24px_rgba(11,27,58,0.35)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=open]:fade-in data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2"
+          className="fixed inset-x-0 top-14 bottom-0 z-[71] w-full overflow-y-auto bg-white text-left shadow-[0_24px_48px_-24px_rgba(11,27,58,0.35)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=open]:fade-in data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             inputRef.current?.focus();
@@ -109,7 +118,7 @@ export function PublicSearchOverlay({
                 <ArrowRight className="size-5" strokeWidth={2.25} aria-hidden />
               </button>
             </div>
-            <ul className="mt-3 flex max-h-[50vh] flex-col overflow-y-auto" data-attr="public-search-results">
+            <ul className="mt-3 flex flex-col" data-attr="public-search-results">
               {results.length === 0 ? (
                 <li className="px-1 py-6 text-[13.5px] text-muted">No pages match &ldquo;{query}&rdquo;.</li>
               ) : (
