@@ -20,6 +20,7 @@ import {
   VENDOR_DOCUMENT_LABELS,
   VENDOR_DOCUMENT_SECTIONS,
   vendorDocumentStatusLabel,
+  isVendorComplianceDocumentKind,
   type VendorDocumentKind,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
@@ -409,19 +410,53 @@ export function VendorDocumentsPanel({
           ) : null}
           {ownRows.map(({ kind, section, doc }) => {
             const expanded = expandedKind === kind;
+            const complianceMissing = !doc && isVendorComplianceDocumentKind(kind);
             return (
               <div key={kind}>
                 <PortalPropertyRecordRow
                   title={VENDOR_DOCUMENT_LABELS[kind]}
+                  attention={complianceMissing}
                   address={doc?.fileName ? `Mine · ${doc.fileName}` : `Mine · ${section}`}
                   leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
-                  // The status is a plain fact beside the date — never a pill.
-                  facts={[doc ? safeFormatDateTime(doc.uploadedAt) : "", vendorDocumentStatusLabel(doc)].filter(Boolean).join(" · ")}
+                  // The status is plain coloured text beside the date — never a pill.
+                  // A missing compliance document (C262) gets its own red
+                  // `statusWord` instead of being folded into `facts` like
+                  // ordinary paperwork, so it reads as a gap rather than a fact.
+                  facts={complianceMissing ? section : [doc ? safeFormatDateTime(doc.uploadedAt) : "", vendorDocumentStatusLabel(doc)].filter(Boolean).join(" · ")}
+                  statusWord={complianceMissing ? { tone: "bad", text: "Missing — required" } : undefined}
                   selected={expanded}
                   onOpen={() => setExpandedKind((cur) => (cur === kind ? null : kind))}
                   dataAttr="vendor-document-row"
                 />
-                {expanded ? <div className="mb-2 px-1">{renderRowActions(kind, doc)}</div> : null}
+                {expanded ? (
+                  <div className="mb-2 px-1">{renderRowActions(kind, doc)}</div>
+                ) : complianceMissing ? (
+                  // Prominent CTA (C262): a compliance gap does not wait for the
+                  // row to be expanded to offer the fix.
+                  <div className="mb-2 px-1">
+                    <PortalIconAction
+                      icon={Upload}
+                      label="Upload PDF"
+                      tone="danger"
+                      disabled={uploadingKind === kind}
+                      data-attr={`vendor-documents-upload-${kind}`}
+                      onClick={() => fileRefs.current[kind]?.click()}
+                    />
+                    <input
+                      ref={(el) => {
+                        fileRefs.current[kind] = el;
+                      }}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) void uploadFile(kind, file);
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             );
           })}

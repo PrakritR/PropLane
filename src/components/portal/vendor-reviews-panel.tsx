@@ -1,12 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { formatVendorReviewAggregate, VENDOR_REVIEW_BODY_MAX_LENGTH, type PublicVendorReview, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+
+/**
+ * C263 asked for a workspace filter too, but `/api/vendor/reviews` never
+ * returns which workspace left a review — `reviewerLabel` is hardcoded to
+ * "A PropLane manager" everywhere in `mapPublicVendorReviewRow`
+ * (`src/lib/vendor-reviews.ts`) specifically so a vendor can never learn
+ * which manager/workspace reviewed them. Filtering by workspace would need
+ * exposing that identity to the vendor, which reverses a deliberate privacy
+ * decision — so only the rating filter is built here; the workspace half is
+ * intentionally not implemented (flagged, not silently built around).
+ */
+const RATING_FILTER_OPTIONS = [
+  { value: "all", label: "All ratings" },
+  { value: "5", label: "5 stars" },
+  { value: "4", label: "4 stars & up" },
+  { value: "3", label: "3 stars & up" },
+  { value: "2", label: "2 stars & up" },
+  { value: "1", label: "1 star & up" },
+] as const;
+type RatingFilterValue = (typeof RATING_FILTER_OPTIONS)[number]["value"];
 
 /** The vendor reply is one-shot: once sent it renders read-only, no edit affordance (C157). */
 function ReviewReplyForm({ review, onReplied }: { review: PublicVendorReview; onReplied: (next: PublicVendorReview) => void }) {
@@ -74,6 +96,7 @@ export function VendorReviewsPanel() {
   const [reviews, setReviews] = useState<PublicVendorReview[] | null>(null);
   const [aggregate, setAggregate] = useState<VendorReviewAggregate>({ average: null, count: 0 });
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [ratingFilter, setRatingFilter] = useState<RatingFilterValue>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +121,12 @@ export function VendorReviewsPanel() {
     };
   }, []);
 
+  const minStars = ratingFilter === "all" ? null : Number(ratingFilter);
+  const filteredReviews = useMemo(
+    () => (reviews && minStars != null ? reviews.filter((review) => review.stars >= minStars) : reviews),
+    [reviews, minStars],
+  );
+
   return (
     <ManagerPortalPageShell title="Reviews" hideTitleOnMobileNav compactFilterRow>
       <div className="space-y-3 px-3 pb-6 sm:px-4" data-attr="vendor-reviews-panel">
@@ -105,15 +134,36 @@ export function VendorReviewsPanel() {
           <span className="text-sm font-medium">Overall</span>
           <span className="text-sm text-muted">{state === "ready" ? formatVendorReviewAggregate(aggregate) : "—"}</span>
         </div>
+        {reviews && reviews.length > 0 ? (
+          <PortalListControlStack
+            variant="command"
+            filterRow={
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted">
+                Rating
+                <FieldSingleSelect
+                  label="Filter by rating"
+                  hideLabel
+                  value={ratingFilter}
+                  onChange={(next) => setRatingFilter(next as RatingFilterValue)}
+                  options={[...RATING_FILTER_OPTIONS]}
+                  variant="pill"
+                  dataAttr="vendor-reviews-rating-filter"
+                />
+              </div>
+            }
+          />
+        ) : null}
         {state === "loading" ? (
           <p className="py-10 text-center text-sm">Loading reviews…</p>
         ) : state === "error" ? (
           <p className="py-10 text-center text-sm">Could not load reviews.</p>
         ) : !reviews || reviews.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted">No reviews yet.</p>
+        ) : !filteredReviews || filteredReviews.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted">No reviews match this rating.</p>
         ) : (
           <ul className="space-y-2.5">
-            {reviews.map((review) => (
+            {filteredReviews.map((review) => (
               <li key={review.id} className="space-y-2 rounded-xl border border-border bg-card p-3.5" data-attr="vendor-review-row">
                 <div className="flex items-center justify-between gap-2">
                   <VendorReviewStarDisplay stars={review.stars} size="md" />

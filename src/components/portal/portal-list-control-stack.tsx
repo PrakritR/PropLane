@@ -8,6 +8,7 @@ import {
   CalendarPlus,
   CalendarSync,
   Copy,
+  Download,
   Phone,
   RefreshCw,
   Search,
@@ -47,6 +48,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Wrench, // Payment setup
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
+  Download, // Export CSV (N025)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

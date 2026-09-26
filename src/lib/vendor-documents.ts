@@ -102,6 +102,20 @@ export function vendorDocumentStatusTone(doc: VendorDocumentRecord | undefined):
   return "portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
 }
 
+/**
+ * The subset of document kinds that gate a vendor's "Verified" standing
+ * elsewhere in the product (the manager directory's Insured/Licensed facts,
+ * `vendor-directory.server.ts`) or block 1099 reporting. Missing one of
+ * these reads as a compliance gap, not ordinary paperwork — it gets the row's
+ * `attention` dot + a red `statusWord` plus an always-visible Upload action,
+ * never a pill (C262).
+ */
+export const VENDOR_COMPLIANCE_DOCUMENT_KINDS: VendorDocumentKind[] = ["w9", "insurance", "license"];
+
+export function isVendorComplianceDocumentKind(kind: VendorDocumentKind): boolean {
+  return (VENDOR_COMPLIANCE_DOCUMENT_KINDS as readonly string[]).includes(kind);
+}
+
 export function isVendorDocumentKind(value: string): value is VendorDocumentKind {
   return (VENDOR_DOCUMENT_KINDS as readonly string[]).includes(value);
 }

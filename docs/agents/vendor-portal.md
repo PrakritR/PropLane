@@ -156,6 +156,13 @@ That route now also calls `deliverPortalInboxMessage()` with
 the vendor has signed up; the email always sends via the vendor's stored email
 regardless of signup status. Phase 2 (tour → bid) should hook the same
 `deliverPortalInboxMessage` call rather than growing a second notification path.
+The vendor's own `/vendor/reviews` has a rating filter ("5 stars", "4 stars &
+up", …) — a workspace filter was also requested (C263) but is intentionally
+NOT built: `mapPublicVendorReviewRow`'s `reviewerLabel` is hardcoded to "A
+PropLane manager" for every review on that route specifically so a vendor can
+never learn which manager/workspace reviewed them, and a workspace filter
+would require exposing that identity.
+
 Inbox scoping added a 3rd scope constant (`axis_portal_inbox_vendor_v1`,
 mirrored across `portal-inbox-delivery.ts`, `portal-inbox-thread-scope.ts`, and
 the legacy duplicate in `send-inbox-message/route.ts` — yes, the scope-for-role

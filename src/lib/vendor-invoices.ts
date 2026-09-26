@@ -137,3 +137,90 @@ export function formatInvoiceMoney(cents: number, currency = "usd"): string {
 /** Columns selected from `vendor_invoices` for client/tool reads (no internal audit ids). */
 export const VENDOR_INVOICE_SELECT =
   "id, vendor_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at";
+
+/**
+ * Invoice detail timeline (C161): Submitted → Approved → Scheduled → Paid,
+ * with Rejected as its own short, terminal branch instead of a plain
+ * "rejected" fact next to the total.
+ *
+ * `decided_at` is overwritten by every manager decision (approve, schedule,
+ * OR mark paid — see `/api/vendor/invoices/[id]/decision`), so once the
+ * status has moved past a step, that step's own instant is no longer stored
+ * anywhere and reads as "—" rather than a guessed date — same rule the
+ * vendor payout timeline uses (`vendor-payout-timeline.ts`). Because
+ * `approved → scheduled` is optional (`VENDOR_INVOICE_ALLOWED_TRANSITIONS`
+ * allows `approved → paid` directly), a `paid` invoice's Scheduled step
+ * cannot be asserted either way — it renders "skipped" rather than a false
+ * "done".
+ */
+export type VendorInvoiceTimelineStepId = "submitted" | "approved" | "scheduled" | "paid" | "rejected";
+export type VendorInvoiceTimelineState = "done" | "pending" | "skipped" | "failed";
+
+export type VendorInvoiceTimelineStep = {
+  id: VendorInvoiceTimelineStepId;
+  label: string;
+  state: VendorInvoiceTimelineState;
+  /** ISO instant the step happened, or null when nothing stored says when. */
+  at: string | null;
+  detail: string | null;
+};
+
+export function vendorInvoiceTimeline(
+  invoice: Pick<VendorInvoice, "status" | "submittedAt" | "decidedAt" | "paidAt" | "decisionNote">,
+): VendorInvoiceTimelineStep[] {
+  const submitted: VendorInvoiceTimelineStep = {
+    id: "submitted",
+    label: "Submitted",
+    state: "done",
+    at: invoice.submittedAt || null,
+    detail: null,
+  };
+
+  if (invoice.status === "rejected") {
+    return [
+      submitted,
+      {
+        id: "rejected",
+        label: "Rejected",
+        state: "failed",
+        at: invoice.decidedAt,
+        detail: invoice.decisionNote?.trim() || null,
+      },
+    ];
+  }
+
+  const approved: VendorInvoiceTimelineStep = {
+    id: "approved",
+    label: "Approved",
+    state: invoice.status === "submitted" ? "pending" : "done",
+    at: invoice.status === "approved" ? invoice.decidedAt : null,
+    detail: null,
+  };
+
+  const scheduled: VendorInvoiceTimelineStep =
+    invoice.status === "paid"
+      ? {
+          id: "scheduled",
+          label: "Scheduled",
+          state: "skipped",
+          at: null,
+          detail: "Approved invoices can go straight to paid without this step.",
+        }
+      : {
+          id: "scheduled",
+          label: "Scheduled",
+          state: invoice.status === "scheduled" ? "done" : "pending",
+          at: invoice.status === "scheduled" ? invoice.decidedAt : null,
+          detail: null,
+        };
+
+  const paid: VendorInvoiceTimelineStep = {
+    id: "paid",
+    label: "Paid",
+    state: invoice.status === "paid" ? "done" : "pending",
+    at: invoice.status === "paid" ? invoice.paidAt : null,
+    detail: null,
+  };
+
+  return [submitted, approved, scheduled, paid];
+}
