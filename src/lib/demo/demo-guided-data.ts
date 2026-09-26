@@ -352,6 +352,10 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       scheduled: "Thu 10:00 AM – 12:00 PM",
       scheduledAtIso: new Date(Date.now() + 2 * DAY_MS).toISOString(),
       cost: "$140.00",
+      // Matches the accepted bid below — Pacific Plumbing IS the assigned
+      // vendor here, so the manager's own work-order detail shows "Vendor:
+      // Pacific Plumbing" instead of "Not assigned" on an already-scheduled job.
+      vendorName: "Pacific Plumbing",
       residentName,
       residentEmail,
     },

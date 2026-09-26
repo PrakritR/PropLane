@@ -153,7 +153,12 @@ export function readManagerWorkOrderRows(fallback: DemoManagerWorkOrderRow[] = E
 export function readVendorWorkOrderRows(): DemoManagerWorkOrderRow[] {
   const rows = readManagerWorkOrderRows();
   if (!isDemoModeActive()) return rows;
-  return rows.filter((r) => r.vendorName === DEMO_VENDOR_NAME);
+  // The Seattle Homes idle snapshot's own vendor story is Pacific Plumbing
+  // (`demo-guided-data.ts`'s `vendors`/`workOrderBids`/`managerInbox` all name
+  // it, matching the home page's Communication mock) — the demo `vendor` role
+  // login is the neutral canonical `DEMO_VENDOR_NAME`, so a row assigned to
+  // either name is "this vendor's job" in the sandbox.
+  return rows.filter((r) => r.vendorName === DEMO_VENDOR_NAME || r.vendorName === "Pacific Plumbing");
 }
 
 export function writeManagerWorkOrderRows(
