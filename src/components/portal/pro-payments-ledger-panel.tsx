@@ -2173,7 +2173,43 @@ export function ManagerPaymentsLedgerPanel({
               ? [{ id: "refund", label: "Refund", icon: RotateCcw }]
               : []),
           ];
-          const sections = { ...allSections, headerActions };
+          // C095: a charge only ever has real data behind Service (a paid
+          // add-on/work-order charge), Resident (always), Documents (never —
+          // no upload path exists for a charge) or Activity (only an imported
+          // charge carries one, via `migrationSourceId`). Before faithfully
+          // rendered the other three tabs anyway, each with an empty-state
+          // message; hiding a tab that can never have content reads truer
+          // than a permanent dead end.
+          const isServiceCharge = detailRow.chargeKind === "work_order_charge";
+          const hasImportedActivity = Boolean(detailRow.migrationSourceId);
+          const groups = allSections.groups
+            .map((group) => {
+              if (group.label === "Linked") {
+                return {
+                  ...group,
+                  items: group.items.filter((item) => {
+                    if (item.id === "service") return isServiceCharge;
+                    // A resident charge is never a vendor payment — that
+                    // money moves on the Outgoing side, a different record.
+                    if (item.id === "vendor") return false;
+                    return true;
+                  }),
+                };
+              }
+              if (group.label === "") {
+                return {
+                  ...group,
+                  items: group.items.filter((item) => {
+                    if (item.id === "documents") return false;
+                    if (item.id === "activity") return hasImportedActivity;
+                    return true;
+                  }),
+                };
+              }
+              return group;
+            })
+            .filter((group) => group.items.length > 0);
+          const sections = { ...allSections, groups, headerActions };
           // Every action `record-sections.ts` still lists for this record kind
           // (record-payment, send-reminder, delete) now has a real handler,
           // reusing the same reversible paths the detail page's own buttons use
