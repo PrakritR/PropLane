@@ -24,42 +24,6 @@
   height: 820px;
   background: radial-gradient(circle, rgba(154, 156, 245, 0.5) 0%, rgba(154, 156, 245, 0) 70%);
 }
-/* 250×541 = the 200×433 bezel × 1.25 (captain 2026-09-25: "bigger phone"
-   pass) — width/height must track codex-hero-window.tsx's PHONE_BEZEL_WIDTH
-   (and its derived height), which the iframe's scale() is computed from. */
-.codex-hero-phone {
-  position: absolute;
-  right: -16px;
-  bottom: -24px;
-  z-index: 3;
-  width: 250px;
-  height: 541px;
-  overflow: hidden;
-  border: 8px solid #111;
-  border-radius: 40px;
-  background: #fff;
-  box-shadow: 0 30px 70px -18px rgba(15, 23, 42, 0.45);
-}
-/* The bring-it-back chip, same spot the phone itself sits — a small round
-   pill so it never reads as another dashboard control. */
-.codex-hero-phone-chip {
-  position: absolute;
-  right: -16px;
-  bottom: -24px;
-  z-index: 3;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 9999px;
-  border: none;
-  background: #111;
-  color: #fff;
-  box-shadow: 0 14px 30px -10px rgba(15, 23, 42, 0.5);
-  cursor: pointer;
-  transition: transform 0.15s ease;
-}
-.codex-hero-phone-chip:hover { transform: scale(1.06); }
 .codex-hero-activity-card {
   position: absolute;
   left: -16px;
@@ -76,13 +40,10 @@
   .codex-hero-activity-card { width: 200px; left: -10px; padding: 8px 26px 8px 10px; }
 }
 @media (max-width: 767px) {
-  /* Phone: the card stays, small — only the phone mockup (hidden via the
-     `lg:block` wrapper in codex-hero-window.tsx) goes away. */
   .codex-hero-activity-card { width: 168px; left: -6px; top: 30%; padding: 7px 24px 7px 9px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .codex-hero-phone, .codex-hero-activity-card, .codex-hero-phone-chip { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-  .codex-hero-activity-card { animation-delay: 0.15s; }
+  .codex-hero-activity-card { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: 0.15s; }
 }
 @keyframes codex-hero-rise {
   from { opacity: 0; transform: translateY(14px); }
@@ -99,6 +60,25 @@
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ───────────── product mock panels (site/product-mock/*) ─────────────
+   Captain 2026-09-26: the Codex-reference media panel — a soft blue/violet
+   gradient backdrop with the real portal window floating inside it, cropped
+   at the panel's own bottom (and, on narrow viewports, right) edge by
+   `overflow: hidden` rather than scaled — "panel scales down, horizontal
+   crop ok." Replaces the retired live `/demo` iframe embeds. */
+.pm-backdrop {
+  background: linear-gradient(165deg, #eef1ff 0%, #e6ebff 45%, #dbe2ff 100%);
+}
+.pm-backdrop-wash {
+  position: absolute;
+  inset: -15%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(90, 140, 255, 0.22) 0%, rgba(90, 140, 255, 0) 60%),
+    radial-gradient(circle at 85% 85%, rgba(154, 156, 245, 0.2) 0%, rgba(154, 156, 245, 0) 60%);
+}
+.pm-window { z-index: 1; }
 
 /* ───────────── communication scroll story (site/story.tsx) ───────────── */
 .site-story {

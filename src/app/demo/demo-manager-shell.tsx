@@ -12,7 +12,6 @@ import { PortalContainerProvider } from "@/components/ui/portal-container-contex
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { hydrateDemoGuidedState } from "@/lib/demo/demo-guided";
-import { installLifecycleBeatListener, subscribeLifecycleToast } from "@/lib/demo/demo-lifecycle-scenarios";
 import { seedDemoPortalIdleData } from "@/lib/demo/demo-seed";
 import { CANONICAL_DEMO_MANAGER_NAME, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { DEMO_RESIDENT_EMAIL, DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, setDemoRole } from "@/lib/demo/demo-session";
@@ -266,24 +265,6 @@ export function DemoManagerShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The home page's lifecycle rows script this /demo embed via postMessage
-  // beats (`demo-lifecycle-scenarios.ts`) — install the one listener here so
-  // it works no matter which section/role this embed opened on.
-  useEffect(() => installLifecycleBeatListener(), []);
-  const [lifecycleToast, setLifecycleToast] = useState<string | null>(null);
-  useEffect(() => {
-    let hideTimer: number | null = null;
-    const unsubscribe = subscribeLifecycleToast((text) => {
-      setLifecycleToast(text);
-      if (hideTimer) window.clearTimeout(hideTimer);
-      hideTimer = window.setTimeout(() => setLifecycleToast(null), 4000);
-    });
-    return () => {
-      unsubscribe();
-      if (hideTimer) window.clearTimeout(hideTimer);
-    };
-  }, []);
-
   const [portalRole, setPortalRole] = useState<DemoPortalRole>(initialRole);
   const [section, setSection] = useState(() =>
     isValidDemoSection(initialRole, initialSection) ? initialSection : "dashboard",
@@ -408,17 +389,6 @@ export function DemoManagerShell({
                 <DemoAssistantDockRail open={assistantOpen} onClose={() => setAssistantOpen(false)} />
               </div>
             </WorkspaceProvider>
-            {lifecycleToast ? (
-              <div
-                role="status"
-                data-attr="demo-lifecycle-toast"
-                className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center px-3"
-              >
-                <div className="flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-[12.5px] font-semibold text-background shadow-[0_16px_34px_-10px_rgba(15,23,42,0.4)]">
-                  {lifecycleToast}
-                </div>
-              </div>
-            ) : null}
           </div>
         </PortalContainerProvider>
       </AssistantConversationProvider>

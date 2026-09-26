@@ -3,15 +3,27 @@
 
 # Sandbox accounts & the /demo mirror (one config, every environment)
 
-**`/demo` is a real, standalone public page again** (`src/app/demo/page.tsx`,
-deliberately outside the `(public)` route group so it renders with no
-marketing nav/footer). The home page's Codex-style hero
-(`src/components/marketing/site/hero.tsx`, `site/codex-hero-window.tsx`)
-also embeds that exact same page live, in a real `<iframe src="/demo">`
-opening on the manager Dashboard — an iframe is a separate browsing context,
-so a click inside it can never navigate the marketing page away. Both entry
-points run the identical component and the identical one-way, no-writes
-rules below; nothing about them differs by route.
+**`/demo` is retired from the public site (captain 2026-09-26: "remove live
+demo no need").** `next.config.ts`'s `redirects()` and `src/middleware.ts`
+both bounce `/demo` and every `/demo/*` sub-path straight to `/`, so the page
+is unreachable by URL and the home page no longer embeds or links it
+anywhere — the marketing hero and lifecycle/import sections now render
+STATIC, fixture-fed mockups built from the real portal presentational
+components instead of a live `<iframe src="/demo">` (see
+`docs/agents/marketing-mocks.md`).
+
+The page component (`src/app/demo/page.tsx`, `demo-manager-shell.tsx`,
+`demo-section-renderer.tsx`, …) and its whole data layer (`src/lib/demo/*`:
+`isDemoModeActive`, `buildDemoIdleSnapshot`, the canonical portfolio seed,
+etc.) are deliberately NOT deleted — plenty of unrelated code and unit tests
+still import from `@/lib/demo/*` for in-app demo-mode gating that has nothing
+to do with this public route. Only the public URL closed; if a future
+decision wants a live sandbox reachable again, that is a new decision, not a
+revert of this one. The former postMessage scripting between the home page
+and this shell (`demo-lifecycle-scenarios.ts`, `LifecycleBeatMessage`,
+`installLifecycleBeatListener`) was deleted outright, along with the unused
+`DemoRouteSlice` iframe-embed component — nothing calls into `/demo` from the
+marketing bundle any more.
 
 **The manager view is built from the REAL portal shell** (`demo-manager-
 shell.tsx`), not a redrawn stand-in: the actual `PortalSidebar`,
@@ -39,9 +51,10 @@ other properties onto, both `demo-portal-mirror.server.ts` and
 those three property ids — `/demo` always shows the curated portfolio, never
 whatever else has accumulated on the account.
 
-`next.config.ts`'s `/demo/:path+` redirect and `src/middleware.ts`
-still bounce an unknown deeper sub-path (there is no `/demo/[section]` route)
-to plain `/demo`, never to `/`.
+`next.config.ts`'s `/demo` + `/demo/:path+` redirects and `src/middleware.ts`
+now bounce the bare route AND every sub-path straight to `/` (captain
+2026-09-26) — before this pass, only an unknown deeper sub-path bounced, and
+only back to plain `/demo`.
 
 **`/demo` renders from ONE bundled, deterministic dataset in code — a fully
 synthetic "Seattle Homes" account (manager, residents, a vendor — ids in the
@@ -83,15 +96,12 @@ and several tour/lease reads learned this the hard way — each called a real,
 auth-gated route unconditionally until audited). Keep that gate pattern for any
 new panel action or read that hits an authed route.
 
-**`/demo?role=&section=&tab=` deep-links into one exact record**, read on the
-server (`src/app/demo/page.tsx`) so the initial render is already correct. The
-home page's five lifecycle rows (`site/lifecycle-rows.tsx`) and the audience
-mocks (`site/demo-route-slice.tsx`) both deep-link this way — e.g.
-`?role=resident&section=lease&tab=demo-lease-demo-prop-alder` opens that one
-lease's own sign/record view, not just the bare section list. A section or tab
-combination that isn't wired in `demo-section-renderer.tsx` renders "Nothing to
-show yet." rather than erroring — treat that as a missing case to add, the way
-manager `tours` and resident `lease`'s `?tab=` were until this pass.
+**`/demo?role=&section=&tab=` still deep-links into one exact record** for
+whoever navigates there directly during development (it is simply no longer
+reachable from a public link) — read on the server (`src/app/demo/page.tsx`)
+so the initial render is already correct. A section or tab combination that
+isn't wired in `demo-section-renderer.tsx` renders "Nothing to show yet."
+rather than erroring.
 
 **The guided "Run demo" tour builds its own data from a blank slate.**
 `prepareDemoSegment` (`src/lib/demo/demo-segment-prep.ts`) seeds

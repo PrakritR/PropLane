@@ -15,9 +15,9 @@ import "@/components/marketing/site/site.css";
  * tagline ("Property management for room rentals."), today's exact CTAs
  * (Start free — no card / Book a demo / the App Store badge) and fine print,
  * then — lower on the page, large and centered, overlapping the bottom of
- * the wash — the real manager portal, live and clickable, with the same
- * phone mockup and floating activity card today's live home page carries
- * (`CodexHeroWindow` → `/demo` in an iframe, opening on Dashboard).
+ * the wash — the static manager Dashboard panel with its floating activity
+ * card (`CodexHeroWindow`; captain 2026-09-26 — no live `/demo` iframe, no
+ * phone mockup, see `docs/agents/demo-sandbox.md`).
  *
  * Nothing below the hero changes theme — the whole page stays light, same as
  * every other public page (captain: "use light mode only — remove dark mode
