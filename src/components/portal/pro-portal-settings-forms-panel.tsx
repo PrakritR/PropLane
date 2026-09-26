@@ -501,7 +501,6 @@ export function ManagerFormsSettingsPanel({ propertyOptions }: { propertyOptions
   return (
     <>
       <PortalSettingsSection title="Naming">
-        <p className="mb-2 text-xs text-muted">Renaming here relabels this Forms page. It does not rewrite every nav label or notice.</p>
         <PortalSettingsGroup>
           <PortalSettingsRow label="Call applications">
             <Input
