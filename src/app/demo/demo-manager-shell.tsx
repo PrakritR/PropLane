@@ -247,9 +247,12 @@ function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onCha
 export function DemoManagerShell({
   initialRole = "manager",
   initialSection = "dashboard",
+  initialTab,
 }: {
   initialRole?: DemoPortalRole;
   initialSection?: string;
+  /** `?tab=` — a record id or sub-tab within `initialSection` (e.g. a lease id for "lease"). */
+  initialTab?: string;
 } = {}) {
   useLayoutEffect(() => {
     setDemoRole(initialRole);
@@ -266,7 +269,7 @@ export function DemoManagerShell({
   const [section, setSection] = useState(() =>
     isValidDemoSection(initialRole, initialSection) ? initialSection : "dashboard",
   );
-  const [tab, setTab] = useState<string | null>(null);
+  const [tab, setTab] = useState<string | null>(() => initialTab?.trim() || null);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
 

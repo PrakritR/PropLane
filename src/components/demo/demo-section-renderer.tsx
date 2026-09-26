@@ -42,6 +42,7 @@ const loading = () => (
 // Manager / pro panels
 const ManagerDashboard = dynamic(() => import("@/components/portal/pro-dashboard").then((m) => m.ManagerDashboard), { ssr: false, loading });
 const ManagerProperties = dynamic(() => import("@/components/portal/pro-properties").then((m) => m.ManagerProperties), { ssr: false, loading });
+const ManagerTours = dynamic(() => import("@/components/portal/pro-tours").then((m) => m.ManagerTours), { ssr: false, loading });
 const ManagerApplications = dynamic(() => import("@/components/portal/pro-applications").then((m) => m.ManagerApplications), { ssr: false, loading });
 const ManagerResidents = dynamic(() => import("@/components/portal/pro-residents").then((m) => m.ManagerResidents), { ssr: false, loading });
 const ManagerLeases = dynamic(() => import("@/components/portal/pro-leases").then((m) => m.ManagerLeases), { ssr: false, loading });
@@ -155,6 +156,13 @@ export function DemoSectionRenderer({
         return <ManagerDashboard displayName={managerDisplayName} />;
       case "properties":
         return <ManagerProperties />;
+      case "tours":
+        return (
+          <ManagerTours
+            bucket={tabId === "upcoming" || tabId === "past" ? tabId : "pending"}
+            basePath={basePath}
+          />
+        );
       // Not a sidebar nav item (matches the real /portal/properties/import,
       // reached from a button on Properties, not its own nav entry) — a
       // deep-link-only section for the home page's "Switching" embed.
@@ -246,8 +254,12 @@ export function DemoSectionRenderer({
       return <ResidentApplicationsPanel applyMode={tab === "apply"} />;
     case "lease":
       // ResidentLeasePanel renders its own "Lease" page shell; wrapping it in a
-      // second shell would stack the header twice.
-      return <ResidentLeasePanel />;
+      // second shell would stack the header twice. `?tab=<leaseId>` deep-links
+      // straight to that lease's own detail/sign view (the real route's
+      // `leaseDetailId`) — otherwise the bare list only shows already-signed
+      // document snapshots, which a lease still awaiting a signature has none
+      // of yet.
+      return <ResidentLeasePanel leaseDetailId={tab ?? undefined} />;
     case "payments":
       // Payments is Charges-only now — no sub-tabs to forward.
       return <ResidentPaymentsPanel />;
