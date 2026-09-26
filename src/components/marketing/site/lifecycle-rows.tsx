@@ -7,8 +7,9 @@ import {
   type LifecycleBeatMessage,
 } from "@/lib/demo/demo-lifecycle-scenarios";
 import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { demoOnlyBrowseCardPlaceholderImage } from "@/lib/room-listings-catalog";
 import { SiteEyebrow, SiteSection } from "@/components/marketing/site/primitives";
-import type { DemoPortalRole } from "@/lib/demo/demo-session";
+import { isDemoModeActive, type DemoPortalRole } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
 
 /**
@@ -70,12 +71,14 @@ type LifecycleStep = {
 };
 
 /** A slot chip for the prospect tour-booking beats. */
-function SlotChip({ label, selected }: { label: string; selected: boolean }) {
+function SlotChip({ label, state }: { label: string; state: "open" | "selected" | "taken" }) {
   return (
     <span
       className={cn(
-        "rounded-lg border px-2.5 py-1.5 text-[11px] font-bold",
-        selected ? "border-primary bg-primary text-white" : "border-border bg-card text-foreground",
+        "rounded-lg border px-2 py-1.5 text-center text-[10.5px] font-bold",
+        state === "selected" && "border-primary bg-primary text-white",
+        state === "open" && "border-border bg-card text-foreground",
+        state === "taken" && "border-transparent bg-[var(--pl-surface-muted)] text-muted/60 line-through",
       )}
     >
       {label}
@@ -83,68 +86,219 @@ function SlotChip({ label, selected }: { label: string; selected: boolean }) {
   );
 }
 
-/** Prospect (Jamie P.) tour-booking beats — no /demo equivalent exists for an anonymous, pre-account visitor; see the file's own scope note. */
-function toursProspectBeats(): ReactNode[] {
-  const listingCard = (
-    <div className="mb-3 overflow-hidden rounded-xl border border-border">
-      <div className="flex h-14 items-center justify-center bg-[var(--pl-surface-muted)] text-muted">Fremont Studio</div>
+/** The Fremont Studio listing header every tour beat keeps on screen — a real
+ * screen keeps its context, it doesn't blank out between steps. Photo is the
+ * demo-only stock placeholder (`isDemoModeActive()`-gated per its own doc
+ * comment) — never a fabricated photo of a real listing. */
+function ProspectListingHeader() {
+  // `isDemoModeActive()` reads `window.location`, which doesn't exist during
+  // SSR — reading it directly here disagreed between the server's render
+  // (always false) and the client's first paint (true on the home page),
+  // a real hydration mismatch. Same fix the codebase's own demo hooks use:
+  // resolve it only after mount, so the server and first client paint agree.
+  const [photo, setPhoto] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- window.location is only readable after mount
+    if (isDemoModeActive()) setPhoto(demoOnlyBrowseCardPlaceholderImage("demo-prop-fremont"));
+  }, []);
+  return (
+    <div className="mb-2.5 shrink-0 overflow-hidden rounded-xl border border-border">
+      {photo ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a tiny decorative demo-only mock photo, not a real listing asset worth Next/Image's pipeline
+        <img src={photo} alt="" className="h-16 w-full object-cover" />
+      ) : (
+        <div className="flex h-16 items-center justify-center bg-[var(--pl-surface-muted)] text-muted">Fremont Studio</div>
+      )}
       <div className="px-2.5 py-2">
         <p className="text-[11.5px] font-bold text-foreground">Fremont Studio</p>
-        <p className="text-[10px] text-muted">$1,400/mo · Studio</p>
+        <p className="text-[10px] text-muted">$1,400/mo · Studio · 1 bath</p>
       </div>
     </div>
   );
-  const heading = <p className="mb-2 text-[11px] font-bold text-foreground">Book a tour</p>;
+}
+
+function StickyButton({ label, active }: { label: string; active: boolean }) {
+  return (
+    <div className="mt-auto shrink-0 pt-2">
+      <div
+        className={cn(
+          "grid h-8 place-items-center rounded-full text-[11.5px] font-bold",
+          active ? "bg-primary text-white" : "bg-[var(--pl-surface-muted)] text-muted",
+        )}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+const TOUR_DAYS = ["Sat 27", "Sun 28", "Mon 29"];
+const TOUR_SLOTS_BY_DAY: Record<string, { label: string; state: "open" | "taken" }[]> = {
+  "Sat 27": [
+    { label: "10:00 AM", state: "taken" },
+    { label: "2:00 PM", state: "open" },
+    { label: "4:00 PM", state: "open" },
+  ],
+  "Sun 28": [
+    { label: "11:00 AM", state: "open" },
+    { label: "1:00 PM", state: "taken" },
+  ],
+  "Mon 29": [{ label: "5:30 PM", state: "open" }],
+};
+
+/** Prospect (Jamie P.) tour-booking beats — no /demo equivalent exists for an
+ * anonymous, pre-account visitor; see the file's own scope note. The listing
+ * header stays on screen every beat — only the picker/confirmation below it
+ * changes, like a real screen a visitor is scrolling through, not a slideshow. */
+function toursProspectBeats(): ReactNode[] {
+  /** The full week, every day's slots at once — a real booking screen scrolls
+   * through the week, it doesn't hide five sixths of it behind a day filter. */
+  function weekList(activeDay: string, selected: string | null) {
+    return (
+      <div className="space-y-2">
+        {TOUR_DAYS.map((d) => (
+          <div key={d}>
+            <p className={cn("mb-1 text-[10px] font-bold", d === activeDay ? "text-primary" : "text-muted")}>{d}</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {TOUR_SLOTS_BY_DAY[d]!.map((s) => (
+                <SlotChip key={s.label} label={s.label} state={d === activeDay && s.label === selected ? "selected" : s.state} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  const picker = (activeDay: string, selected: string | null, buttonActive: boolean) => (
+    <div className="flex h-full flex-col">
+      <ProspectListingHeader />
+      <p className="mb-2 shrink-0 text-[11px] font-bold text-foreground">Book a tour</p>
+      {weekList(activeDay, selected)}
+      <StickyButton label={selected ? `Request ${selected}` : "Pick a time"} active={buttonActive} />
+    </div>
+  );
+  const confirmation = (title: string, tone: "pending" | "done", statusLine: string) => (
+    <div className="flex h-full flex-col">
+      <ProspectListingHeader />
+      <div className="flex flex-col items-center pt-2 text-center">
+        <div
+          className={cn(
+            "mb-2 grid h-10 w-10 place-items-center rounded-full",
+            tone === "done" ? "bg-[#e8f7ee] text-[#15803d]" : "bg-primary/10 text-primary",
+          )}
+        >
+          ✓
+        </div>
+        <p className="text-[12px] font-bold text-foreground">{title}</p>
+        <p className="mt-1 text-[10.5px] text-muted">{statusLine}</p>
+      </div>
+      <div className="mt-3 space-y-1.5 rounded-lg border border-border p-2.5">
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Date</span><span className="font-semibold text-foreground">Sat, Sep 27</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Time</span><span className="font-semibold text-foreground">2:00 PM</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Address</span><span className="font-semibold text-foreground">3301 Fremont Ave N</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Host</span><span className="font-semibold text-foreground">Seattle Homes</span></div>
+      </div>
+      <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-[var(--pl-surface-muted)] px-2.5 py-2">
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] text-primary">✦</span>
+        <p className="text-[10px] text-muted">{tone === "done" ? "A reminder text goes out the morning of your tour." : "The manager confirms within a few hours."}</p>
+      </div>
+      <StickyButton label={tone === "done" ? "Add to calendar" : "Message the manager"} active={tone === "done"} />
+    </div>
+  );
   return [
-    <div key={0}>{listingCard}{heading}<div className="grid grid-cols-2 gap-1.5"><SlotChip label="Sat 2:00 PM" selected={false} /><SlotChip label="Sun 10:00 AM" selected={false} /></div></div>,
-    <div key={1}>{listingCard}{heading}<div className="grid grid-cols-2 gap-1.5"><SlotChip label="Sat 2:00 PM" selected /><SlotChip label="Sun 10:00 AM" selected={false} /></div></div>,
-    <div key={2} className="pt-6 text-center">
-      <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-primary/10 text-primary">✓</div>
-      <p className="text-[12px] font-bold text-foreground">Tour requested</p>
-      <p className="mt-1 text-[10.5px] text-muted">Sat, 2:00 PM · Pending</p>
-    </div>,
-    <div key={3} className="pt-6 text-center">
-      <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-[#e8f7ee] text-[#15803d]">✓</div>
-      <p className="text-[12px] font-bold text-foreground">Tour confirmed</p>
-      <p className="mt-1 text-[10.5px] text-muted">Sat, 2:00 PM · Reminder set for Friday</p>
-    </div>,
+    picker("Sat 27", null, false),
+    picker("Sat 27", "2:00 PM", true),
+    confirmation("Tour requested", "pending", "Sat, Sep 27 · 2:00 PM · Waiting on Seattle Homes"),
+    confirmation("Tour confirmed", "done", "Sat, Sep 27 · 2:00 PM · Reminder set for Friday"),
   ];
 }
 
-/** Prospect (Jamie P.) application beats — same scope note as tours above. */
+/** Prospect (Jamie P.) application beats — same scope note as tours above.
+ * The applicant header and step progress stay on screen every beat. */
 function applicationsProspectBeats(): ReactNode[] {
-  const header = (idx: number) => (
-    <div className="mb-3">
-      <p className="mb-2 text-[11px] font-bold text-foreground">Apply — Fremont Studio</p>
-      <div className="flex items-center gap-1">
-        {["Profile", "Documents", "Fee", "Submit"].map((s, i) => (
-          <span key={s} className={cn("h-1.5 flex-1 rounded-full", i <= idx ? "bg-primary" : "bg-border")} />
-        ))}
+  function header(idx: number) {
+    return (
+      <div className="mb-2.5 shrink-0">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">JP</span>
+          <div className="min-w-0">
+            <p className="truncate text-[11.5px] font-bold text-foreground">Jamie P.</p>
+            <p className="truncate text-[10px] text-muted">Fremont Studio · $1,400/mo</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {["Profile", "Documents", "Fee", "Submit"].map((s, i) => (
+            <span key={s} className={cn("h-1.5 flex-1 rounded-full", i <= idx ? "bg-primary" : "bg-border")} />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[8.5px] font-bold uppercase tracking-[0.04em] text-muted">
+          {["Profile", "Documents", "Fee", "Submit"].map((s) => (
+            <span key={s}>{s}</span>
+          ))}
+        </div>
       </div>
-    </div>
-  );
-  const docRow = (label: string, done: boolean) => (
-    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
-      <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md text-[10px]", done ? "bg-[#e8f7ee] text-[#15803d]" : "bg-[var(--pl-surface-muted)] text-muted")}>
-        {done ? "✓" : "…"}
-      </span>
-      <span className="text-[11px] font-semibold text-foreground">{label}</span>
+    );
+  }
+  function docRow(label: string, state: "done" | "pending" | "todo") {
+    return (
+      <div key={label} className="mb-1.5 flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
+        <span
+          className={cn(
+            "grid h-5 w-5 shrink-0 place-items-center rounded-md text-[10px]",
+            state === "done" ? "bg-[#e8f7ee] text-[#15803d]" : "bg-[var(--pl-surface-muted)] text-muted",
+          )}
+        >
+          {state === "done" ? "✓" : "…"}
+        </span>
+        <span className="text-[11px] font-semibold text-foreground">{label}</span>
+        <span className="ml-auto text-[9.5px] font-bold uppercase text-muted">{state === "done" ? "Uploaded" : "Pending"}</span>
+      </div>
+    );
+  }
+  const docsBeat = (incomeDone: boolean, referencesDone: boolean) => (
+    <div className="flex h-full flex-col">
+      {header(1)}
+      {docRow("Photo ID", "done")}
+      {docRow("Proof of income", incomeDone ? "done" : "pending")}
+      {docRow("References", referencesDone ? "done" : "todo")}
+      <StickyButton label="Continue" active={incomeDone && referencesDone} />
     </div>
   );
   return [
-    <div key={0}>{header(1)}{docRow("Photo ID", true)}{docRow("Proof of income", false)}</div>,
-    <div key={1}>{header(1)}{docRow("Photo ID", true)}{docRow("Proof of income", true)}</div>,
-    <div key={2}>
+    docsBeat(false, false),
+    docsBeat(true, true),
+    <div key={2} className="flex h-full flex-col">
       {header(2)}
-      <div className="flex items-center justify-between rounded-lg border border-border px-2.5 py-2">
-        <span className="text-[11px] font-semibold text-foreground">Application fee</span>
-        <span className="text-[11px] font-bold text-foreground">$50</span>
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.04em] text-muted">Application fee</p>
+      <div className="space-y-1.5 rounded-lg border border-border p-2.5">
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Screening & background check</span><span className="font-semibold text-foreground">$45.00</span></div>
+        <div className="flex items-center justify-between border-t border-border pt-1.5 text-[11px] font-bold"><span className="text-foreground">Total due now</span><span className="text-foreground">$45.00</span></div>
       </div>
+      <div className="mt-2 flex items-center justify-between rounded-lg border border-dashed border-border px-2.5 py-2">
+        <span className="text-[10.5px] font-semibold text-muted">Card ending 4242</span>
+        <span className="text-[9.5px] font-bold text-primary">Change</span>
+      </div>
+      <p className="mt-2 text-[9.5px] leading-relaxed text-muted">Charged once, only after Seattle Homes reviews your documents.</p>
+      <StickyButton label="Pay $45 & submit" active />
     </div>,
-    <div key={3} className="pt-6 text-center">
-      <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-[#e8f7ee] text-[#15803d]">✓</div>
-      <p className="text-[12px] font-bold text-foreground">Application submitted</p>
-      <p className="mt-1 text-[10.5px] text-muted">Fremont Studio · $50 paid</p>
+    <div key={3} className="flex h-full flex-col">
+      {header(3)}
+      <div className="flex flex-col items-center pt-1 text-center">
+        <div className="mb-2 grid h-10 w-10 place-items-center rounded-full bg-[#e8f7ee] text-[#15803d]">✓</div>
+        <p className="text-[12px] font-bold text-foreground">Application submitted</p>
+        <p className="mt-1 text-[10.5px] text-muted">Fremont Studio · $45 paid</p>
+      </div>
+      <div className="mt-3 space-y-1.5 rounded-lg border border-border p-2.5">
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Applicant</span><span className="font-semibold text-foreground">Jamie P.</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Property</span><span className="font-semibold text-foreground">Fremont Studio</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Documents</span><span className="font-semibold text-[#15803d]">Complete</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Status</span><span className="font-semibold text-foreground">Under review</span></div>
+      </div>
+      <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-[var(--pl-surface-muted)] px-2.5 py-2">
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] text-primary">✦</span>
+        <p className="text-[10px] text-muted">Seattle Homes usually decides within a day.</p>
+      </div>
+      <StickyButton label="View application" active={false} />
     </div>,
   ];
 }
@@ -289,7 +443,7 @@ function DeviceFrame({
         <div className="flex h-[478px] w-full flex-col overflow-hidden rounded-[1.5rem] bg-background">
           <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5">
             <span className="text-[9.5px] font-bold text-muted">‹</span>
-            <span className="truncate text-[9.5px] font-semibold text-muted">prop-lane.space/listings/fremont-studio</span>
+            <span className="truncate text-[9.5px] font-semibold text-muted">proplane.ai/listings/fremont-studio</span>
           </div>
           <div className="flex-1 overflow-hidden p-3">{perspective.beats[beat % perspective.beats.length]}</div>
         </div>
@@ -306,7 +460,7 @@ function DeviceFrame({
           <i className="h-2.5 w-2.5 rounded-full bg-border" aria-hidden />
           <i className="h-2.5 w-2.5 rounded-full bg-border" aria-hidden />
           <span className="ml-2 truncate rounded-md bg-card px-2 py-0.5 text-[10.5px] text-muted">
-            prop-lane.space{perspective.path}
+            proplane.ai{perspective.path}
           </span>
         </div>
         <iframe

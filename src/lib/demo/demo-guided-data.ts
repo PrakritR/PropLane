@@ -44,6 +44,7 @@ import type { PartnerInquiry, PlannedEvent } from "@/lib/demo-admin-scheduling";
 import type { GuidedDemoStep } from "@/lib/demo/demo-guided";
 import { CANONICAL_DEMO_RESIDENT_EMAIL, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { DEMO_MANAGER_USER_ID, DEMO_RESIDENT_USER_ID } from "@/lib/demo/demo-session";
+import { TOUR_CALENDAR_TIME_ZONE, zonedWallTimeMs } from "@/lib/tour-slot-math";
 
 /** Calendar slice of a snapshot: tours, partner inquiries, manager availability. */
 export type DemoScheduleSeed = {
@@ -112,6 +113,28 @@ function daysAgo(n: number): Date {
 }
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A sensible Pacific wall-clock instant, N days from today — never "whatever
+ * second the seed happened to run" (a tour or service visit seeded at
+ * 2:48 AM read as broken, not as sample data). `daysFromToday` is applied to
+ * the SERVER's current instant first and then read back as a Pacific
+ * calendar date, so it stays "N days out" regardless of the server's own
+ * time zone.
+ */
+function pacificWallTimeIso(daysFromToday: number, hour: number, minute = 0): string {
+  const anchor = new Date(Date.now() + daysFromToday * DAY_MS);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TOUR_CALENDAR_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(anchor);
+  const year = Number(parts.find((p) => p.type === "year")!.value);
+  const month = Number(parts.find((p) => p.type === "month")!.value);
+  const day = Number(parts.find((p) => p.type === "day")!.value);
+  return new Date(zonedWallTimeMs(year, month, day, hour * 60 + minute, TOUR_CALENDAR_TIME_ZONE)).toISOString();
 }
 
 /**
@@ -380,7 +403,7 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       bucket: "scheduled",
       description: "Kitchen faucet has been dripping for two days.",
       scheduled: "Thu 10:00 AM – 12:00 PM",
-      scheduledAtIso: new Date(Date.now() + 2 * DAY_MS).toISOString(),
+      scheduledAtIso: pacificWallTimeIso(2, 10, 0),
       cost: "$140.00",
       // Matches the accepted bid below — Pacific Plumbing IS the assigned
       // vendor here, so the manager's own work-order detail shows "Vendor:
@@ -419,7 +442,7 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       consultationVisitAt: null,
       amountCents: 14000,
       materialsCents: 0,
-      proposedTime: new Date(Date.now() + 2 * DAY_MS).toISOString(),
+      proposedTime: pacificWallTimeIso(2, 10, 0),
       note: "Standard faucet cartridge replacement.",
       status: "accepted",
       createdAt: daysAgo(3).toISOString(),
@@ -432,18 +455,19 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     // open, un-bid "No hot water" job is its own real state to show.
   ];
 
-  // Three tours this week, across all three properties.
+  // Three tours this week, across all three properties, at sensible Pacific
+  // wall times — never "whatever second the seed happened to run".
   const tourAttendees = [
-    { name: "Jamie P.", email: "jamie.p@example.com", propertyId: "demo-prop-fremont", propertyTitle: "Fremont Studio", inDays: 1 },
-    { name: "Sample Prospect Two", email: "sample.prospect.two@example.com", propertyId: "demo-prop-maple", propertyTitle: "Maple Duplex", inDays: 2 },
-    { name: "Sample Prospect Three", email: "sample.prospect.three@example.com", propertyId: "demo-prop-alder", propertyTitle: "Alder House", inDays: 4 },
+    { name: "Jamie P.", email: "jamie.p@example.com", propertyId: "demo-prop-fremont", propertyTitle: "Fremont Studio", inDays: 1, hour: 14, minute: 0 },
+    { name: "Sample Prospect Two", email: "sample.prospect.two@example.com", propertyId: "demo-prop-maple", propertyTitle: "Maple Duplex", inDays: 2, hour: 10, minute: 0 },
+    { name: "Sample Prospect Three", email: "sample.prospect.three@example.com", propertyId: "demo-prop-alder", propertyTitle: "Alder House", inDays: 4, hour: 17, minute: 30 },
   ];
   const schedule: DemoScheduleSeed = {
     plannedEvents: tourAttendees.map((t, i) => ({
       id: `demo-tour-${i}`,
       title: `Tour · ${t.propertyTitle}`,
-      start: new Date(Date.now() + t.inDays * DAY_MS).toISOString(),
-      end: new Date(Date.now() + t.inDays * DAY_MS + 30 * 60 * 1000).toISOString(),
+      start: pacificWallTimeIso(t.inDays, t.hour, t.minute),
+      end: pacificWallTimeIso(t.inDays, t.hour, t.minute + 30),
       kind: "tour",
       managerUserId,
       propertyId: t.propertyId,
