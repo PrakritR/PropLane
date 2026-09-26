@@ -84,8 +84,24 @@ export type InspectionDetail = { report: InspectionRecord; baseline: InspectionR
  * how many each side has added, not which review step a report is parked on.
  */
 export type InspectionPhotoCounts = { manager: number; resident: number; total: number; lastAt: string | null };
+/** How many of the report's rooms have at least one photo from either side, and how many rooms exist. */
+export type InspectionRoomProgress = { done: number; total: number };
 export type InspectionSummary = Omit<InspectionRecord, "document" | "resident_email" | "resident_user_id">
-  & { photos: InspectionPhotoCounts };
+  & { photos: InspectionPhotoCounts; roomProgress: InspectionRoomProgress };
+
+/**
+ * Room-by-room photo progress for the LIST row (C250/U033): a row that only ever said "No photos
+ * yet" or a static "Required" gave no sense of which specific rooms still needed a photo. This
+ * ships two integers, never the photo arrays themselves, keeping the list's existing privacy
+ * shape (`inspectionPhotoCounts` sets the same precedent).
+ */
+export function inspectionRoomProgress(document: InspectionDocument): InspectionRoomProgress {
+  const total = document.areas.length;
+  const done = document.areas.filter(area =>
+    area.items.some(item => item.manager.photos.length > 0 || item.resident.photos.length > 0),
+  ).length;
+  return { done, total };
+}
 
 export function inspectionPhotoCounts(document: InspectionDocument): InspectionPhotoCounts {
   const counts: InspectionPhotoCounts = { manager: 0, resident: 0, total: 0, lastAt: null };

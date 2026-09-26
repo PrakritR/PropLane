@@ -22,7 +22,8 @@ const report = (over: Partial<InspectionSummary> & { id: string; application_id:
   property_label: "5259 Brooklyn Ave NE", room_label: "Room 1", kind: "move-in", status: "draft",
   inspection_date: "2026-03-04", baseline_id: null, revision: 1,
   created_at: "2026-03-04T00:00:00.000Z", updated_at: "2026-03-04T00:00:00.000Z",
-  photos: { manager: 0, resident: 0, total: 0, lastAt: null }, ...over,
+  photos: { manager: 0, resident: 0, total: 0, lastAt: null },
+  roomProgress: { done: 0, total: 15 }, ...over,
 });
 const photos = (manager: number, resident: number) => ({ manager, resident, total: manager + resident, lastAt: "2026-08-09T00:00:00.000Z" });
 
@@ -149,6 +150,29 @@ describe("buildInspectionRows", () => {
 
     expect(rows[0]!.required).toBe(false);
     expect(rows[0]!.photos).toBe("No photos yet");
+  });
+
+  /**
+   * C250/U033: once a report exists the row carries per-room photo progress instead of a bare
+   * requirement flag — "3 of 15 rooms photographed" says which rooms still need a photo, which
+   * a static "Required" never did. A residency with no report yet has no per-room data at all.
+   */
+  it("carries the report's room progress onto its row", () => {
+    const rows = buildInspectionRows("move-in", [
+      residency({ id: "app-1", moveInDate: "2026-08-01", occupancy: "current", requiredKinds: ["move-in"] }),
+    ], [
+      report({ id: "r-1", application_id: "app-1", roomProgress: { done: 3, total: 15 } }),
+    ]);
+
+    expect(rows[0]!.roomProgress).toEqual({ done: 3, total: 15 });
+  });
+
+  it("has no room progress for a residency with no report yet", () => {
+    const rows = buildInspectionRows("move-in", [
+      residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming" }),
+    ], []);
+
+    expect(rows[0]!.roomProgress).toBeUndefined();
   });
 });
 

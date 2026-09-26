@@ -33,7 +33,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
-import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
+import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionRoomProgress, type InspectionSummary } from "@/lib/inspections/model";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
@@ -58,6 +58,14 @@ const photoLine = (photos: InspectionPhotoCounts) => {
   const parts = [photos.resident ? `resident ${photos.resident}` : "", photos.manager ? `manager ${photos.manager}` : ""].filter(Boolean);
   return `${photos.total} photo${photos.total === 1 ? "" : "s"}${parts.length > 1 ? ` · ${parts.join(", ")}` : ""}`;
 };
+
+/**
+ * "3 of 8 rooms photographed" (C250/U033) — the roster row's second fact, so a manager can tell
+ * which residents still need specific rooms covered without opening every report. Empty once a
+ * report has no rooms at all (should not happen, but never divide by zero into a line).
+ */
+const roomProgressLine = (progress: InspectionRoomProgress): string =>
+  progress.total ? `${progress.done} of ${progress.total} room${progress.total === 1 ? "" : "s"} photographed` : "";
 
 /** Room-by-room progress straight from the stored document — the same rows Rooms itself renders. */
 function inspectionRoomStats(document: InspectionDocument): { done: number; total: number; issues: number } {
@@ -116,6 +124,8 @@ export type InspectionRow = {
   tenancy: string;
   /** "No photos yet" or "4 photos · resident 2, manager 2". */
   photos: string;
+  /** Set only once a report exists — there is no per-room data before one is created. */
+  roomProgress?: InspectionRoomProgress;
   /** The room's own configuration requires this kind of inspection. */
   required: boolean;
   report?: InspectionSummary;
@@ -166,6 +176,7 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
       address: `${residency?.property || report.property_label}${roomSuffix(residency?.room || report.room_label)}`,
       tenancy: tenancyLine(residency),
       photos: photoLine(report.photos),
+      roomProgress: report.roomProgress,
       required: requiredFor(residency),
       report,
       residency,
@@ -312,6 +323,8 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<InspectionDetail | null>(null);
+  // Bumped by the retry button below so the detail effect re-runs without a full remount.
+  const [detailRetryToken, setDetailRetryToken] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -351,11 +364,23 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   useEffect(() => {
     if (!reportId) return;
     let cancelled = false;
-    inspectionRequest<InspectionDetail>(role, `/${reportId}`).then(value => {
+    setError("");
+    // C202: a stalled fetch (dropped connection, a proxy that never closes the
+    // response) previously left `detail` null forever — the loading paragraph
+    // below had no error and no timeout to fall back on, and photos stayed
+    // unreachable behind it. A bounded wait guarantees this always resolves
+    // into either the report or a retryable error.
+    const controller = new AbortController();
+    const stall = setTimeout(() => controller.abort(), 15_000);
+    inspectionRequest<InspectionDetail>(role, `/${reportId}`, { signal: controller.signal }).then(value => {
       if (!cancelled) setDetail(value);
-    }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Could not open this report."); });
-    return () => { cancelled = true; };
-  }, [reportId, role]);
+    }).catch(e => {
+      if (cancelled) return;
+      const stalled = e instanceof DOMException && e.name === "AbortError";
+      setError(stalled ? "This report is taking longer than expected to load." : e instanceof Error ? e.message : "Could not open this report.");
+    }).finally(() => clearTimeout(stall));
+    return () => { cancelled = true; controller.abort(); clearTimeout(stall); };
+  }, [reportId, role, detailRetryToken]);
   const run = async (operation: () => Promise<void>) => {
     if (working.current) return;
     working.current = true; setBusy(true); setError("");
@@ -556,7 +581,13 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       </PortalRecordDetailPage>
     );
   }
-  if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
+  if (reportId) return <div className="space-y-3 p-4">
+    {error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}
+    <div className="flex flex-wrap gap-2">
+      {error && <Button onClick={() => setDetailRetryToken(t => t + 1)} data-attr="inspection-detail-retry">Retry</Button>}
+      <Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button>
+    </div>
+  </div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
       <ResidentDetailSubsectionChrome
@@ -715,7 +746,11 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       facts={<>
         {row.tenancy ? <PortalRowFact icon={CalendarDays} srLabel="Tenancy">{row.tenancy}</PortalRowFact> : null}
         <PortalRowFact icon={Camera} srLabel="Photos">{row.photos}</PortalRowFact>
-        {row.required ? <PortalRowFact icon={ClipboardCheck} srLabel="Requirement">Required</PortalRowFact> : null}
+        {row.roomProgress && row.roomProgress.total > 0 ? (
+          <PortalRowFact icon={ClipboardCheck} srLabel="Room progress">{roomProgressLine(row.roomProgress)}</PortalRowFact>
+        ) : row.required ? (
+          <PortalRowFact icon={ClipboardCheck} srLabel="Requirement">Required</PortalRowFact>
+        ) : null}
       </>}
       checked={selected.has(row.key)}
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
