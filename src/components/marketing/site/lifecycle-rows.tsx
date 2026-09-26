@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  LIFECYCLE_BEAT_MESSAGE_SOURCE,
+  type LifecycleBeatMessage,
+} from "@/lib/demo/demo-lifecycle-scenarios";
 import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteEyebrow, SiteSection } from "@/components/marketing/site/primitives";
 import type { DemoPortalRole } from "@/lib/demo/demo-session";
@@ -172,7 +176,17 @@ function useReducedMotion(): boolean {
 }
 
 /** Desktop app window (browser-chrome-lite bar) or phone bezel around the real, interactive `/demo` iframe. */
-function DeviceFrame({ perspective, label, kicker }: { perspective: Perspective; label: string; kicker: string }) {
+function DeviceFrame({
+  perspective,
+  label,
+  kicker,
+  iframeRef,
+}: {
+  perspective: Perspective;
+  label: string;
+  kicker: string;
+  iframeRef: (el: HTMLIFrameElement | null) => void;
+}) {
   const src = demoSrc(perspective);
   const title = `PropLane ${label} — ${kicker}`;
   if (perspective.device === "desktop") {
@@ -188,6 +202,7 @@ function DeviceFrame({ perspective, label, kicker }: { perspective: Perspective;
         </div>
         <iframe
           key={src}
+          ref={iframeRef}
           src={src}
           title={title}
           loading="lazy"
@@ -199,30 +214,62 @@ function DeviceFrame({ perspective, label, kicker }: { perspective: Perspective;
   return (
     <div className="mx-auto w-[236px] shrink-0 rounded-[2.1rem] border-[7px] border-foreground/90 bg-foreground/90 shadow-[0_22px_46px_-16px_rgba(15,23,42,0.4)]">
       <div className="h-[478px] w-full overflow-hidden rounded-[1.5rem] bg-background">
-        <iframe key={src} src={src} title={title} loading="lazy" className="block h-full w-full border-0" />
+        <iframe key={src} ref={iframeRef} src={src} title={title} loading="lazy" className="block h-full w-full border-0" />
       </div>
     </div>
   );
 }
 
+const BEATS_PER_PERSPECTIVE = 4;
+const BEAT_INTERVAL_MS = 1800;
+
 function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
   const reducedMotion = useReducedMotion();
   const [activeIdx, setActiveIdx] = useState(0);
+  const [beat, setBeat] = useState(0);
   const [paused, setPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const multiplePerspectives = step.perspectives.length > 1;
 
+  const postBeat = useCallback((nextBeat: number) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const message: LifecycleBeatMessage = { source: LIFECYCLE_BEAT_MESSAGE_SOURCE, scenario: step.id, beat: nextBeat };
+    try {
+      win.postMessage(message, window.location.origin);
+    } catch {
+      /* the iframe hasn't finished loading yet — the next tick retries */
+    }
+  }, [step.id]);
+
+  // Scripted beats: advance every ~1.8s (never under reduced motion or while
+  // paused); after BEATS_PER_PERSPECTIVE beats, rotate to the next
+  // perspective and start that one's beats from 0.
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    if (reducedMotion || paused || !multiplePerspectives) return;
+    if (reducedMotion || paused) return;
     timerRef.current = setInterval(() => {
-      setActiveIdx((i) => (i + 1) % step.perspectives.length);
-    }, 6000);
+      setBeat((b) => {
+        const next = (b + 1) % BEATS_PER_PERSPECTIVE;
+        if (next === 0 && multiplePerspectives) {
+          setActiveIdx((i) => (i + 1) % step.perspectives.length);
+        }
+        return next;
+      });
+    }, BEAT_INTERVAL_MS);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [reducedMotion, paused, multiplePerspectives, step.perspectives.length]);
+
+  // Post the current beat whenever it (or the active perspective/iframe)
+  // changes — covers the scripted tick above AND a manual tab/replay switch.
+  useEffect(() => {
+    const id = window.setTimeout(() => postBeat(beat), 150);
+    return () => window.clearTimeout(id);
+  }, [beat, activeIdx, postBeat]);
 
   const active = step.perspectives[activeIdx] ?? step.perspectives[0]!;
 
@@ -257,8 +304,8 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
     <div className="flex min-h-0 flex-col justify-center">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-muted">Sample data</span>
-        {multiplePerspectives ? (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {multiplePerspectives ? (
             <div
               role="tablist"
               aria-label={`${step.kicker} perspective`}
@@ -275,6 +322,7 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
                     data-attr={`home-lifecycle-${step.id}-${p.id}`}
                     onClick={() => {
                       setActiveIdx(i);
+                      setBeat(0);
                       setPaused(true);
                     }}
                     className={cn(
@@ -287,20 +335,30 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
                 );
               })}
             </div>
-            <button
-              type="button"
-              aria-label={`Replay the ${step.kicker.toLowerCase()} demo`}
-              title="Replay"
-              data-attr={`home-lifecycle-${step.id}-replay`}
-              onClick={() => setPaused(false)}
-              className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-border bg-card text-muted hover:text-foreground"
-            >
-              <ReplayIcon />
-            </button>
-          </div>
-        ) : null}
+          ) : null}
+          <button
+            type="button"
+            aria-label={`Replay the ${step.kicker.toLowerCase()} demo`}
+            title="Replay"
+            data-attr={`home-lifecycle-${step.id}-replay`}
+            onClick={() => {
+              setBeat(0);
+              setPaused(false);
+            }}
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-border bg-card text-muted hover:text-foreground"
+          >
+            <ReplayIcon />
+          </button>
+        </div>
       </div>
-      <DeviceFrame perspective={active} label={active.label} kicker={step.kicker} />
+      <DeviceFrame
+        perspective={active}
+        label={active.label}
+        kicker={step.kicker}
+        iframeRef={(el) => {
+          iframeRef.current = el;
+        }}
+      />
     </div>
   );
 
