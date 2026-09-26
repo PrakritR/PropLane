@@ -43,55 +43,55 @@ whatever else has accumulated on the account.
 still bounce an unknown deeper sub-path (there is no `/demo/[section]` route)
 to plain `/demo`, never to `/`.
 
-**`/demo` is read-only against real data, and when it does read it the flow is
-strictly one-way: signed-in portal edits → DB → `/demo`. Never the reverse.**
-`/demo` renders from browser-local stores re-seeded on every mount, so demo edits
-live in sessionStorage and are wiped by refresh. The seed comes from
-`GET /api/demo/portal-snapshot` (service-role read of `manager@`/`resident@`/
-`vendor@test.proplane.local`, ids remapped to synthetic `demo-*` scopes, per-empty-
-collection static fallback) **only while the mirror is enabled — it is currently
-off**, so today every mount seeds the static snapshot instead; see the two
-sources below. Every server-mirror write path is `isDemoModeActive()`-gated; the
-work-orders panel's direct fetches (approve-pay / complete / auto-schedule /
-bid-accept / vendor email) got explicit demo short-circuits — a signed-in user
-browsing `/demo` must never write real rows. Keep that gate pattern for any new
-panel action that fetches an authed route.
+**`/demo` renders from ONE bundled, deterministic dataset in code — a fully
+synthetic "Seattle Homes" account (manager, residents, a vendor — ids in the
+`demo-*` namespace) — never a live mirror of any real account's rows, and
+never writes anywhere (captain 2026-09-25).** `buildDemoIdleSnapshot()` in
+`src/lib/demo/demo-guided-data.ts` returns that populated "Seattle Homes"
+portfolio (three properties — Alder House, Maple Duplex, Fremont Studio —
+residents, a pending application, an upcoming tour, a scheduled work order with
+an accepted Pacific Plumbing bid, a manager inbox thread), so every portal
+panel it feeds shows real numbers on first paint instead of "nothing here
+yet." `/demo` renders from browser-local stores re-seeded on every mount
+(`seedDemoPortalIdleData()`), so demo edits live in sessionStorage and are
+wiped by refresh.
 
-**The static demo dataset ships EMPTY, on purpose — and it is only one of TWO
-data sources.** A visitor sees whichever of these wins:
+**The DB mirror is retired, not paused.** `DEMO_PORTAL_MIRROR_ENABLED`
+(`src/lib/demo/demo-mirror-flag.ts`) is permanently `false` — do not flip it
+back on; a future decision to show live account data in `/demo` again is a new
+decision, not a revert of this one. `GET /api/demo/portal-snapshot` still
+exists (both mirror readers always resolve `null`) so it always answers with
+the same bundled static snapshot regardless of what any `@test.proplane.local`
+account's real rows look like in whatever environment the deploy points at.
 
-1. **The DB mirror** — `GET /api/demo/portal-snapshot`, the canonical
-   `@test.proplane.local` accounts' real portal rows. Wins whenever those accounts
-   hold data, in whatever environment the deploy points at — while it is
-   enabled, which it currently is not (see below).
-2. **The static snapshot** — `buildDemoIdleSnapshot()` in
-   `src/lib/demo/demo-guided-data.ts`, the fallback when the mirror is empty or
-   unreachable. It returns `emptySnapshot()`, so `/demo` renders the real portal
-   panels in their normal "nothing here yet" empty states for all three roles.
+There is deliberately no PORTFOLIO invented for a real account: the seeded
+"Seattle Homes" data lives entirely in `buildDemoIdleSnapshot()`'s code, keyed
+to the synthetic `demo-*` scope ids, never written onto a real
+`@test.proplane.local` row. The former `src/lib/demo/demo-data.ts` (Ava Nguyen,
+The Pioneer, Cascade Lofts, …) was deleted for a related but distinct reason —
+a second, hand-maintained fixture drifting from the product — which is why
+`buildDemoIdleSnapshot()` stays the single seam: it also feeds the sandboxed
+agent context (`demo-agent-context.ts`) and the canonical-portfolio DB seed
+(`scripts/seed-demo-manager-portfolio.ts`, dev/test only), so one edit here
+keeps all three in sync. Every server-mirror write path stays
+`isDemoModeActive()`-gated defensively; the work-orders panel's direct fetches
+(approve-pay / complete / auto-schedule / bid-accept / vendor email) got
+explicit demo short-circuits — a signed-in user browsing `/demo` must never
+write real rows, and must never have their OWN real account data fetched
+either (`useManagerMessagingNumberStatus()`, `fetchManagerReachabilityForWelcome()`,
+and several tour/lease reads learned this the hard way — each called a real,
+auth-gated route unconditionally until audited). Keep that gate pattern for any
+new panel action or read that hits an authed route.
 
-There is deliberately no fictional portfolio in code: a made-up applicant or
-building on a public sandbox reads as a real record to a visitor, and invented
-data drifts from the product as the portals change. The former
-`src/lib/demo/demo-data.ts` (Ava Nguyen, The Pioneer, Cascade Lofts, …) was
-deleted for exactly that reason. **To give the demo a portfolio, put real data on
-the canonical accounts and let the mirror carry it** — do not re-add a static
-fixture. `buildDemoIdleSnapshot()` is the single seam if a curated baseline is
-ever wanted again; it also feeds the sandboxed agent context
-(`demo-agent-context.ts`) and the canonical-portfolio DB seed, so filling it in
-lights up all three at once.
-
-Because the mirror is a separate source, **emptying the code does not empty a
-deployed `/demo`** — rows already sitting on the canonical accounts keep being
-served, and purging those rows is a live-DB operation, separate from any code
-change. So the mirror is currently switched OFF at
-`DEMO_PORTAL_MIRROR_ENABLED` (`src/lib/demo/demo-mirror-flag.ts`), which forces
-source 2 everywhere and guarantees a clean sandbox in every environment without
-touching a database. Both the server route (`fetchDemoPortalMirrorSnapshot` /
-`fetchDemoGuidedMirrorSnapshot` return `null`) and the client seeder
-(`seedDemoPortalDataFromMirror` / `seedDemoGuidedBaseData` skip the fetch) read
-that one constant. **It is meant to be turned back on** once the leftover
-fictional rows are purged — the mirror code underneath is untouched. Flip the
-constant; do not delete the mirror.
+**`/demo?role=&section=&tab=` deep-links into one exact record**, read on the
+server (`src/app/demo/page.tsx`) so the initial render is already correct. The
+home page's five lifecycle rows (`site/lifecycle-rows.tsx`) and the audience
+mocks (`site/demo-route-slice.tsx`) both deep-link this way — e.g.
+`?role=resident&section=lease&tab=demo-lease-demo-prop-alder` opens that one
+lease's own sign/record view, not just the bare section list. A section or tab
+combination that isn't wired in `demo-section-renderer.tsx` renders "Nothing to
+show yet." rather than erroring — treat that as a missing case to add, the way
+manager `tours` and resident `lease`'s `?tab=` were until this pass.
 
 **The guided "Run demo" tour builds its own data from a blank slate.**
 `prepareDemoSegment` (`src/lib/demo/demo-segment-prep.ts`) seeds
