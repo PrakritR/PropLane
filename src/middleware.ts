@@ -1,5 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  legacyHostCanonicalRedirectUrl,
+  NATIVE_SESSION_MARKER_COOKIE,
+  shouldRedirectLegacyHostVisitor,
+} from "@/lib/legacy-host-redirect";
 import { legacyPaidPortalToPortal } from "@/lib/legacy-portal-redirect";
 import {
   isCanonicalPublicCrawlHost,
@@ -20,6 +25,26 @@ function stampCrawlPolicy(request: NextRequest, response: NextResponse): NextRes
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+
+  // Browser visitors on a legacy domain (prop-lane.space, proplane.space,
+  // axis-seattle-housing.com, and their www variants) go to proplane.ai.
+  // Never a Vercel domain-level 308 — see src/lib/legacy-host-redirect.ts for
+  // why an installed native shell must stay exempt.
+  if (
+    shouldRedirectLegacyHostVisitor({
+      pathname: path,
+      method: request.method,
+      hostname: requestHostFromHeaders(request.headers),
+      headers: request.headers,
+      hasNativeMarkerCookie: Boolean(request.cookies.get(NATIVE_SESSION_MARKER_COOKIE)?.value),
+    })
+  ) {
+    return NextResponse.redirect(
+      legacyHostCanonicalRedirectUrl(path, request.nextUrl.search),
+      308,
+    );
+  }
+
   // `/demo` is a real page again (src/app/demo/page.tsx) — the home page's
   // Codex-style hero embeds it live in an iframe (site/codex-hero-window.tsx).
   // Only a deeper sub-path (no `/demo/[section]` route exists) still bounces,

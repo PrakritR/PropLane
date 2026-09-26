@@ -6,6 +6,7 @@ import { loadPublicExtraListingsFromServer } from "@/lib/demo-property-pipeline"
 import { detectNativePlatformSync, tagHtmlNativePlatform } from "@/lib/native/detect-native";
 import { installNativeZoomLock } from "@/lib/native/disable-native-zoom";
 import { handleNativeOAuthReturnUrl, isNativeOAuthInProgress } from "@/lib/native/open-url";
+import { markNativeSession } from "@/lib/native/native-session-marker";
 import { nativeOAuthMarketingSiteMessage } from "@/lib/auth/oauth-failure-messages";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { getNativeInfo, registerPushIfGranted, resendCachedToken } from "@/lib/native/push-client";
@@ -56,6 +57,11 @@ export function NativeBridge() {
         if (disposed || !isNative) return;
 
         tagHtmlNativePlatform(platform);
+        // First-party evidence for src/lib/legacy-host-redirect.ts: proves later
+        // requests on whatever host this shell is pointed at (an old install can
+        // still be on a legacy domain — see capacitor.config.ts) came from inside
+        // the app, so middleware never bounces them to proplane.ai.
+        markNativeSession();
         recordAppLaunch();
         void loadPublicExtraListingsFromServer().catch(() => {});
         const removeZoomLock = installNativeZoomLock();
