@@ -9,6 +9,7 @@ import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { suggestVendorsForWorkOrder } from "@/lib/work-order-auto-match";
 import { resolveOwnedVendor } from "@/lib/work-order-vendor.server";
+import { loadVendorInsuranceExpiryStatus } from "@/lib/vendor-business-profile.server";
 import { acceptWorkOrderBid, vendorNamesById, type WorkOrderActor } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers, vendorDirectoryRowsById } from "@/lib/work-order-offers.server";
 import { approveAndPayWorkOrder } from "@/lib/work-order-approve-pay.server";
@@ -221,10 +222,28 @@ export const suggestVendorsForWorkOrderTool = defineTool({
     }
 
     const vendors = await loadVendorsForMatching(ctx);
-    const candidates = suggestVendorsForWorkOrder(workOrder, vendors, { allWorkOrders: workOrders });
+    // N006: this work order's property + trade preferred-vendor list, tried
+    // first (in priority order) before the fairness ranking.
+    const preferredVendorIds = workOrder.propertyId && workOrder.category
+      ? await loadPreferredVendorIds(ctx, workOrder.propertyId, workOrder.category)
+      : [];
+    const candidates = suggestVendorsForWorkOrder(workOrder, vendors, { allWorkOrders: workOrders, preferredVendorIds });
     return { found: true, workOrderId: workOrder.id, category: workOrder.category ?? null, candidates };
   },
 });
+
+/** N006: ordered (highest priority first) preferred vendor ids for this landlord's property + trade. */
+async function loadPreferredVendorIds(ctx: AgentContext, propertyId: string, trade: string): Promise<string[]> {
+  const { data, error } = await ctx.db
+    .from("manager_vendor_preferences")
+    .select("vendor_id, priority")
+    .eq("manager_user_id", ctx.landlordId)
+    .eq("property_id", propertyId)
+    .eq("trade", trade)
+    .order("priority", { ascending: true });
+  if (error) return [];
+  return ((data ?? []) as { vendor_id: string }[]).map((row) => row.vendor_id);
+}
 
 export const listWorkOrderBidsTool = defineTool({
   name: "list_work_order_bids",
@@ -501,6 +520,18 @@ export const assignVendorTool = defineWriteTool({
     if (owned.row.vendorId === input.vendorId.trim()) {
       throw new Error(`${vendor.name || "This vendor"} is already assigned to this work order.`);
     }
+    // N007: expired insurance blocks a NEW assignment — never an already-in-progress
+    // job. A vendor with no tracked insurance at all (the common case for a
+    // manually-added vendor) is never blocked, only one whose recorded expiry
+    // date has actually passed.
+    if (vendor.vendorUserId) {
+      const insurance = await loadVendorInsuranceExpiryStatus(ctx.db, vendor.vendorUserId);
+      if (insurance.expired) {
+        throw new Error(
+          `${vendor.name || "This vendor"}'s insurance expired on ${insurance.insuranceExpiresAt} — ask them to renew before assigning new work.`,
+        );
+      }
+    }
     const lines = [
       { label: "Work order", value: owned.row.title || owned.id },
       { label: "Vendor", value: `${vendor.name || input.vendorId}${vendor.trade ? ` (${vendor.trade})` : ""}` },
@@ -521,6 +552,14 @@ export const assignVendorTool = defineWriteTool({
     if (!owned) throw new Error("No matching work order for this landlord.");
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, input.vendorId, ctx.landlordId);
     if (rejected || !vendor) throw new Error("This vendor is not available to this landlord.");
+    if (vendor.vendorUserId) {
+      const insurance = await loadVendorInsuranceExpiryStatus(ctx.db, vendor.vendorUserId);
+      if (insurance.expired) {
+        throw new Error(
+          `${vendor.name || "This vendor"}'s insurance expired on ${insurance.insuranceExpiresAt} — ask them to renew before assigning new work.`,
+        );
+      }
+    }
 
     const dedupeKey = `assign_vendor:${ctx.landlordId}:${owned.id}:${input.vendorId.trim()}`;
     const audit = await writeAuditLog(ctx, {

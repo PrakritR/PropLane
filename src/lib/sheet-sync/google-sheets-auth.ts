@@ -13,10 +13,19 @@ import {
   resolveGoogleCalendarOAuthConfig,
 } from "@/lib/google-calendar/settings";
 
+/**
+ * Only the file you pick. `spreadsheets.readonly` and `drive.metadata.readonly`
+ * are dropped: both are broader than one file, and `drive.metadata.readonly`
+ * is Google-restricted, which is why the app is "blocked" for every manager
+ * except the developer account today. `drive.file` grants access to exactly
+ * the file the Picker returns (see `google-spreadsheet-picker.tsx`), and the
+ * Sheets API honours that grant for reads on that same file — no separate
+ * Sheets scope is needed. Google does not block or restrict `drive.file`, so
+ * this needs no verification review. See memory
+ * `proplane-google-oauth-blocked` and BUILD-WAVE2.md C210.
+ */
 export const GOOGLE_SHEETS_OAUTH_SCOPES = [
-  "https://www.googleapis.com/auth/spreadsheets.readonly",
   "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/drive.metadata.readonly",
   "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
@@ -27,6 +36,18 @@ export function googlePickerApiKey(): string | null {
     process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ||
     null
   );
+}
+
+/**
+ * The Picker requires the requesting app's project number (`setAppId`) to
+ * grant `drive.file` access to whatever the user picks — without it the
+ * picker opens but the returned file id is not actually accessible to the
+ * token. A Google OAuth client id is `<project-number>-xxxx.apps.googleusercontent.com`.
+ */
+export function googlePickerAppId(): string | null {
+  const clientId = resolveGoogleCalendarOAuthConfig()?.clientId?.trim();
+  const projectNumber = clientId?.split("-")[0]?.trim();
+  return projectNumber && /^\d+$/.test(projectNumber) ? projectNumber : null;
 }
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";

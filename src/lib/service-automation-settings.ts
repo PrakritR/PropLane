@@ -32,6 +32,13 @@ export type ServiceAutomationSettings = {
   autoCloseHours: 0 | 24 | 48 | 72;
   /** Whether a resident's rating is relayed to the vendor. */
   shareRatingsWithVendors: boolean;
+  /**
+   * C133: repair categories (`RESIDENT_MAINTENANCE_CATEGORY_LABELS`) hidden from the
+   * resident "Report maintenance" picklist for this workspace. Additive and nullable
+   * by construction — an absent/empty list means every category is still requestable,
+   * so existing workspaces see no behavior change until a manager disables one.
+   */
+  disabledRepairCategories: string[];
 };
 
 export const DEFAULT_SERVICE_AUTOMATION_SETTINGS: ServiceAutomationSettings = {
@@ -43,6 +50,7 @@ export const DEFAULT_SERVICE_AUTOMATION_SETTINGS: ServiceAutomationSettings = {
   residentConfirmation: true,
   autoCloseHours: 48,
   shareRatingsWithVendors: false,
+  disabledRepairCategories: [],
 };
 
 export const RESPONSE_PROMISE_OPTIONS: { value: ServiceResponsePromise; label: string; phrase: string }[] = [
@@ -97,6 +105,9 @@ export function normalizeServiceAutomationSettings(raw: unknown): ServiceAutomat
     residentConfirmation: bool(row.residentConfirmation, d.residentConfirmation),
     autoCloseHours: oneOf(row.autoCloseHours, [0, 24, 48, 72] as const, d.autoCloseHours),
     shareRatingsWithVendors: bool(row.shareRatingsWithVendors, d.shareRatingsWithVendors),
+    disabledRepairCategories: Array.isArray(row.disabledRepairCategories)
+      ? row.disabledRepairCategories.filter((v): v is string => typeof v === "string")
+      : d.disabledRepairCategories,
   };
 }
 

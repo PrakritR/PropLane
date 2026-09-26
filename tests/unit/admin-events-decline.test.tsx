@@ -25,7 +25,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ sh
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "admin-1", email: "admin@example.test" }),
 }));
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => state.demo }));
+vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => state.demo, DEMO_MANAGER_USER_ID: "demo-manager" }));
 vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo-admin-scheduling")>()),
   ADMIN_AVAILABILITY_STORAGE_KEY: "availability",

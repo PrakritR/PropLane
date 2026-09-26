@@ -20,6 +20,7 @@ import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.
 import { doorCountForListing } from "@/lib/billing/door-count";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
+import { reconcileListingApplicationFormOnWrite } from "@/lib/listing-application-form-write.server";
 import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
@@ -432,11 +433,22 @@ export async function POST(req: Request) {
      * listing forever, with no grant recorded anywhere. The browser now stores
      * intent; this decides.
      */
-    const { rowData: rowDataForWrite, propertyData: propertyDataForWrite } =
+    const { rowData: rowDataForFeeWrite, propertyData: propertyDataForFeeWrite } =
       await reconcileListingServiceFeeOnWrite(db, {
         ownerUserId: managerUserIdForWrite,
         rowData: rowDataForWrite0,
         propertyData: propertyDataForWrite0,
+      });
+    // N037: a listing that follows the workspace application form (the
+    // default) gets the workspace's CURRENT question set baked onto its own
+    // stored submission on every save — see
+    // `reconcileListingApplicationFormOnWrite` for why this can't be a live
+    // read. A listing on `applicationFormSource: "custom"` is untouched.
+    const { rowData: rowDataForWrite, propertyData: propertyDataForWrite } =
+      await reconcileListingApplicationFormOnWrite(db, {
+        ownerUserId: managerUserIdForWrite,
+        rowData: rowDataForFeeWrite,
+        propertyData: propertyDataForFeeWrite,
       });
 
     const newWorkspaceId = !existing ? createWorkspaceId : undefined;

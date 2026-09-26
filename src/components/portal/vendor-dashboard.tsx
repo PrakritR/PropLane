@@ -17,7 +17,7 @@ import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card"
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks } from "lucide-react";
+import { CalendarDays, ListChecks, Wrench, FileText, Mail } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   MANAGER_WORK_ORDERS_EVENT,
@@ -304,24 +304,28 @@ export function VendorDashboard({}: { displayName: string }) {
               value={String(openWorkOrders.length)}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-jobs"
+              icon={Wrench}
             />
             <KpiCard
               label="Quotes due"
               value={String(quotesPending.length)}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-quotes"
+              icon={FileText}
             />
             <KpiCard
               label="Upcoming visits"
               value={String(upcomingVisits.length)}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
+              icon={CalendarDays}
             />
             <KpiCard
               label="Unread messages"
               value={String(inboxThreads.length)}
               href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
+              icon={Mail}
             />
           </>
         }
@@ -356,16 +360,12 @@ export function VendorDashboard({}: { displayName: string }) {
               </div>
             </div>
             {jobCards.length === 0 ? (
+              // Exactly one create control for "Your jobs": the header icon
+              // action above stays the CTA — this card explains the empty
+              // state without a second, duplicate "Add" button (C147).
               <PortalListEmptyCard
                 title={portalEmptyCopy("work-orders.pending").title}
                 section="work-orders"
-                actions={[
-                  {
-                    label: "Add",
-                    onClick: () => router.push(`${vendorWorkOrderListHref(BASE, "pending")}?add=1`),
-                    dataAttr: "vendor-dashboard-empty-add",
-                  },
-                ]}
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

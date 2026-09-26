@@ -60,9 +60,11 @@ describe("demo-guided-data snapshots", () => {
     expect(snapshot.applications.length).toBeGreaterThan(0);
     expect(snapshot.charges.length).toBeGreaterThan(0);
     expect(snapshot.leases.length).toBeGreaterThan(0);
+    // The busy portfolio (captain 2026-09-25) seeds real work orders and a
+    // manager inbox thread too.
+    expect(snapshot.workOrders.length).toBeGreaterThan(0);
+    expect(snapshot.managerInbox.length).toBeGreaterThan(0);
     // Buckets the portfolio deliberately leaves untouched stay empty.
-    expect(snapshot.workOrders).toEqual([]);
-    expect(snapshot.managerInbox).toEqual([]);
     expect(snapshot.residentInbox).toEqual([]);
     expect(snapshot.vendorInbox).toEqual([]);
     expect(snapshot.residentUploads).toEqual([]);

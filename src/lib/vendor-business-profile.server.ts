@@ -30,6 +30,54 @@ export type VendorBusinessProfile = {
   onboardingCompletedAt: string | null;
 };
 
+/**
+ * Whether a vendor's insurance is currently valid: an uploaded certificate,
+ * and — when an expiry date is recorded — that date hasn't passed. Shared by
+ * the manager-facing directory eligibility filter
+ * (`vendor-directory.server.ts`'s "verified-only" directory, C083/C198) and
+ * any other surface that needs the same "insured right now" bar.
+ */
+export function vendorInsuranceIsCurrent(
+  profile: Pick<VendorBusinessProfile, "insuranceDocPath" | "insuranceExpiresAt">,
+): boolean {
+  if (!profile.insuranceDocPath) return false;
+  if (!profile.insuranceExpiresAt) return true;
+  return profile.insuranceExpiresAt >= new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * N007: whether this vendor's insurance is KNOWN to have lapsed — true only
+ * when they recorded an expiry date and it has passed. A vendor who never
+ * recorded insurance at all (most manually-added roster vendors, who have no
+ * `vendor_business_profiles` row) is never blocked by this check — only a
+ * vendor who once had a tracked expiry that is now in the past. This is
+ * intentionally narrower than `vendorInsuranceIsCurrent` (which also requires
+ * an uploaded certificate to count as "insured" for directory listing) so
+ * that assigning/paying a vendor who simply never provided insurance data —
+ * the common case for a manually-added vendor — is never blocked by this gate.
+ */
+export function vendorInsuranceHasExpired(
+  profile: Pick<VendorBusinessProfile, "insuranceExpiresAt"> | null | undefined,
+): boolean {
+  const expiresAt = profile?.insuranceExpiresAt?.trim();
+  if (!expiresAt) return false;
+  return expiresAt < new Date().toISOString().slice(0, 10);
+}
+
+/** Loads just the vendor's insurance-expiry status by their auth user id — the shape `assignVendorTool` and `payoutVendorForWorkOrder` need for the N007 gate. */
+export async function loadVendorInsuranceExpiryStatus(
+  db: SupabaseClient,
+  vendorUserId: string,
+): Promise<{ expired: boolean; insuranceExpiresAt: string | null }> {
+  const { data } = await db
+    .from("vendor_business_profiles")
+    .select("insurance_expires_at")
+    .eq("user_id", vendorUserId)
+    .maybeSingle();
+  const insuranceExpiresAt = ((data as { insurance_expires_at: string | null } | null)?.insurance_expires_at ?? null);
+  return { expired: vendorInsuranceHasExpired({ insuranceExpiresAt }), insuranceExpiresAt };
+}
+
 /** Minimum fields a self-serve vendor must fill before the onboarding checklist item counts as done. */
 export function vendorOnboardingRequiredFieldsFilled(profile: Pick<VendorBusinessProfile, "businessName" | "trades" | "serviceArea" | "serviceAreaZips" | "serviceRadiusMiles">): boolean {
   const hasArea = profile.serviceArea.trim().length > 0 || profile.serviceAreaZips.length > 0 || profile.serviceRadiusMiles != null;

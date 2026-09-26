@@ -115,7 +115,10 @@ describe("Notifications hub — copy", () => {
 describe("Notifications hub — index (PLAN-0915)", () => {
   it("is globals plus an index into every area tab; no per-kind rows live here", async () => {
     const { container } = render(<ManagerPortalAutomationSettingsPanel />);
-    await screen.findByText(/Everything sent automatically/i);
+    // WS4 (PLAN-0925 Part 5, C190): the read-only "What PropLane sends" list
+    // now sits ahead of the index, so the manager finds the actual defaults
+    // before the link to go change one.
+    await screen.findByText(/Change a rule or a template/i);
     for (const tab of ["applications", "tours", "lease", "services", "communication", "inspections"]) {
       expect(container.querySelector(`[data-attr="automation-index-${tab}"]`)).toBeTruthy();
     }

@@ -22,6 +22,7 @@ import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-n
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import type { ManagerVendorSummary } from "@/lib/manager-vendor-summary.server";
 import { invalidateManagerVendorSummary, loadManagerVendorSummary } from "@/lib/manager-vendor-summary-client";
+import { computeTypicalPriceFromAcceptedBids } from "@/lib/manager-vendor-typical-rates";
 import {
   persistManagerVendorToServer,
   readManagerVendorCategorySettings,
@@ -52,7 +53,7 @@ import {
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
-import { ArrowRight, BriefcaseBusiness, CircleDollarSign, Contact, Star } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, ChevronDown, ChevronUp, CircleDollarSign, Contact, Star, X } from "lucide-react";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { formatVendorReviewAggregate, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 
@@ -241,6 +242,34 @@ function jobMoney(cents: number | null | undefined): string {
   return cents == null ? "—" : `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * C080: "Typical job" derived from this vendor's own accepted-bid history on
+ * completed services, when there is any — a real observed figure rather than
+ * the manually entered `typicalRates[0]` rate. Falls back to that manual rate
+ * (unchanged label/behavior) when there's no accepted-bid history yet; the
+ * manual-rate entry capability itself is untouched (still set via the Edit
+ * vendor form / defaults modal).
+ */
+function typicalJobFigure(
+  jobs: readonly Pick<ManagerVendorSummary["jobs"][number], "status" | "acceptedQuoteCents">[],
+  row: ManagerVendorRow,
+): { label: string; value: string } {
+  const completedAcceptedCents = jobs
+    .filter((job) => job.status === "completed" || job.status === "paid")
+    .map((job) => job.acceptedQuoteCents);
+  const derived = computeTypicalPriceFromAcceptedBids(completedAcceptedCents);
+  if (derived) {
+    return {
+      label: "Typical job",
+      value: `${jobMoney(derived.averageCents)} · from ${derived.jobCount} completed job${derived.jobCount === 1 ? "" : "s"}`,
+    };
+  }
+  return {
+    label: "Typical service",
+    value: row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—",
+  };
+}
+
 /** Summary status is the only client-safe routing signal for a manager-visible job. */
 export function managerVendorSummaryJobHref(
   basePath: string,
@@ -252,6 +281,187 @@ export function managerVendorSummaryJobHref(
       ? "scheduled"
       : "open";
   return workOrderDetailHref(basePath, bucket, job.id);
+}
+
+type VendorPreferenceRow = { id: string; propertyId: string; trade: string; vendorId: string; priority: number };
+
+/**
+ * N006: an ordered preferred-vendor list per (property, trade), viewed and
+ * edited from this vendor's own record page. `suggestVendorsForWorkOrder`
+ * consults these rows first, in priority order, before its fairness ranking
+ * (`src/lib/work-order-auto-match.ts`). Reordering swaps this row's priority
+ * with its neighbor's — small and dependency-free rather than full
+ * drag-and-drop.
+ */
+function VendorPreferredForCard({
+  vendorId,
+  vendorTrades,
+  propertyOptions,
+}: {
+  vendorId: string;
+  vendorTrades: string[];
+  propertyOptions: { id: string; label: string }[];
+}) {
+  const [rows, setRows] = useState<VendorPreferenceRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [addPropertyId, setAddPropertyId] = useState("");
+  const [addTrade, setAddTrade] = useState(vendorTrades[0] ?? VENDOR_TRADE_OPTIONS[0]);
+
+  const refresh = useCallback(() => {
+    fetch(`/api/manager/vendor-preferences?vendorId=${encodeURIComponent(vendorId)}`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((data: { rows?: VendorPreferenceRow[] }) => setRows(data.rows ?? []))
+      .catch(() => setRows([]));
+  }, [vendorId]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const propertyLabel = (id: string) => propertyOptions.find((p) => p.id === id)?.label ?? id;
+
+  const savePreference = async (propertyId: string, trade: string, priority: number) => {
+    const res = await fetch("/api/manager/vendor-preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ propertyId, trade, vendorId, priority }),
+    });
+    return res.ok;
+  };
+
+  const addPreference = async () => {
+    if (!addPropertyId || !addTrade) return;
+    setBusy(true);
+    try {
+      const siblingCount = (rows ?? []).filter((r) => r.propertyId === addPropertyId && r.trade === addTrade).length;
+      if (await savePreference(addPropertyId, addTrade, siblingCount)) {
+        setAddPropertyId("");
+        refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removePreference = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/manager/vendor-preferences", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const movePreference = async (row: VendorPreferenceRow, direction: -1 | 1) => {
+    const siblings = (rows ?? [])
+      .filter((r) => r.propertyId === row.propertyId && r.trade === row.trade)
+      .sort((a, b) => a.priority - b.priority);
+    const index = siblings.findIndex((r) => r.id === row.id);
+    const swapWith = siblings[index + direction];
+    if (!swapWith) return;
+    setBusy(true);
+    try {
+      await Promise.all([
+        savePreference(row.propertyId, row.trade, swapWith.priority),
+        savePreference(swapWith.propertyId, swapWith.trade, row.priority),
+      ]);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="min-w-0 rounded-xl border border-border bg-card p-4 sm:col-span-2" data-attr="vendor-preferred-for">
+      <h2 className="text-sm font-semibold">Preferred for</h2>
+      <p className="mt-1 text-xs text-muted">
+        When a property + trade has an ordered preferred-vendor list, assignment suggestions try it first, in order.
+      </p>
+      {rows === null ? null : rows.length === 0 ? (
+        <p className="py-3 text-sm text-muted">Not set as a preferred vendor for any property yet.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-border">
+          {rows
+            .slice()
+            .sort((a, b) => a.propertyId.localeCompare(b.propertyId) || a.trade.localeCompare(b.trade) || a.priority - b.priority)
+            .map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+                <span className="min-w-0 truncate">
+                  {propertyLabel(r.propertyId)} · {r.trade}
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void movePreference(r, -1)}
+                    aria-label="Move up"
+                    className="rounded p-1 hover:bg-muted/40 disabled:opacity-40"
+                  >
+                    <ChevronUp className="size-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void movePreference(r, 1)}
+                    aria-label="Move down"
+                    className="rounded p-1 hover:bg-muted/40 disabled:opacity-40"
+                  >
+                    <ChevronDown className="size-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void removePreference(r.id)}
+                    aria-label="Remove preference"
+                    className="rounded p-1 hover:bg-muted/40 disabled:opacity-40"
+                  >
+                    <X className="size-4" aria-hidden />
+                  </button>
+                </span>
+              </li>
+            ))}
+        </ul>
+      )}
+      {propertyOptions.length ? (
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <Select
+            value={addPropertyId}
+            onChange={(e) => setAddPropertyId(e.target.value)}
+            data-attr="vendor-preferred-add-property"
+          >
+            <option value="">Choose a property…</option>
+            {propertyOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+          <Select value={addTrade} onChange={(e) => setAddTrade(e.target.value)} data-attr="vendor-preferred-add-trade">
+            {VENDOR_TRADE_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!addPropertyId || busy}
+            onClick={() => void addPreference()}
+            data-attr="vendor-preferred-add"
+          >
+            Add
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 export function ManagerVendorDetail({
@@ -387,6 +597,7 @@ export function ManagerVendorDetail({
   }, [managerUserId, refreshSummary, row.id]);
   const jobs = summary?.jobs ?? [];
   const openJobs = jobs.filter((job) => job.status !== "completed" && job.status !== "paid");
+  const typicalJob = useMemo(() => typicalJobFigure(jobs, row), [jobs, row]);
   const ratings = jobs.filter((job) => job.residentRating != null).map((job) => ({ id: job.id, rating: job.residentRating!, title: job.title }));
 
   // Manager-authored reviews (stars + notes + a vendor reply) — separate from
@@ -435,10 +646,13 @@ export function ManagerVendorDetail({
     smsAvailable,
   });
 
+  // C254: an empty profile/contact fact reads "Not set", the word every other kv card and
+  // wizard preview in the app uses for an empty value — not "—" (unused count/rating state
+  // elsewhere in this file still uses "—" directly, unaffected by this shared helper).
   const fact = (label: string, value: string) => (
     <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
       <span className="text-[13px] font-medium">{label}</span>
-      <span className="min-w-0 break-words text-right text-[13.5px]">{value || "—"}</span>
+      <span className="min-w-0 break-words text-right text-[13.5px]">{value || "Not set"}</span>
     </div>
   );
 
@@ -467,6 +681,7 @@ export function ManagerVendorDetail({
         <h2 className="text-sm font-semibold">About</h2>
         <p className="mt-3 break-words text-sm text-foreground">{draft.notes.trim() || "—"}</p>
       </section>
+      <VendorPreferredForCard vendorId={row.id} vendorTrades={draft.trades} propertyOptions={propertyOptions} />
     </div>
   );
 
@@ -493,13 +708,13 @@ export function ManagerVendorDetail({
       {tab === "overview" ? (
         <div className="space-y-4 px-3 pb-4 sm:px-4" data-attr="vendor-overview">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-attr="vendor-overview-metrics">
-            {[["Hourly", row.typicalRates?.[0]?.hourlyCents != null ? jobMoney(row.typicalRates[0].hourlyCents) : "—"], ["Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—"], ["Your completed jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—"], ["Your job ratings", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—"]].map(([label, value]) => (
+            {[["Hourly", row.typicalRates?.[0]?.hourlyCents != null ? jobMoney(row.typicalRates[0].hourlyCents) : "—"], [typicalJob.label, typicalJob.value], ["Your completed jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—"], ["Your job ratings", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—"]].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-border bg-card p-3"><span className="block text-xs font-medium text-muted">{label}</span><strong className="mt-1 block text-base">{value}</strong></div>
             ))}
           </div>
           <div className="grid gap-3 lg:grid-cols-2" data-attr="vendor-overview-desktop" data-mobile-layout="390-compact">
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Contact className="size-4" aria-hidden />Profile</h2>{overviewLink("Profile", "profile")}</div>{fact("Trade", draft.trades.join(", "))}{fact("Work contact", draft.email || draft.phone)}</section>
-            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><CircleDollarSign className="size-4" aria-hidden />Pricing</h2>{overviewLink("Pricing", "pricing")}</div>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><CircleDollarSign className="size-4" aria-hidden />Pricing</h2>{overviewLink("Pricing", "pricing")}</div>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact(typicalJob.label, typicalJob.value)}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Services</h2>{overviewLink("Services", "services")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
             <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}{fact("Manager reviews", managerReviewsState === "ready" ? formatVendorReviewAggregate(managerReviewAggregate) : "—")}</section>
           </div>
@@ -518,7 +733,7 @@ export function ManagerVendorDetail({
 
       {tab === "pricing" ? (
         <div className="grid gap-3 px-3 pb-4 sm:grid-cols-2 sm:px-4" data-attr="vendor-detail-pricing">
-          <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-published"><h2 className="text-sm font-semibold">Published rates</h2>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
+          <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-published"><h2 className="text-sm font-semibold">Published rates</h2>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact(typicalJob.label, typicalJob.value)}</section>
           <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-history"><h2 className="text-sm font-semibold">Your completed jobs</h2>{fact("Jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—")}{fact("Final invoiced", summary?.completedInvoiceTotalCents == null ? "—" : jobMoney(summary.completedInvoiceTotalCents))}{fact("Average final invoice", summary?.completedInvoiceAverageCents == null ? "—" : jobMoney(summary.completedInvoiceAverageCents))}</section>
           {summaryState === "error" ? <p role="alert" className="sm:col-span-2 text-sm text-destructive">Could not load vendor history.</p> : null}
         </div>

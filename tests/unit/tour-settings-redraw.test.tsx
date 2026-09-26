@@ -11,6 +11,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import { DEFAULT_MANAGER_TOUR_SETTINGS } from "@/lib/manager-tour-settings";
+import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automation-settings-client";
 
 const showToast = vi.fn();
 
@@ -29,6 +30,13 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 
+// The automation-settings read now goes through the shared cache
+// (`manager-automation-settings-client.ts`), which is keyed on the viewer id
+// this hook supplies — without it the panel's load effect no-ops forever.
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ ready: true, email: "manager@example.com", userId: "mgr-1" }),
+}));
+
 import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
 
@@ -39,21 +47,23 @@ function stubFetch(overrides?: { tourNoticeDays?: number; proposeTourConfirmatio
       const url = String(input);
       if (url.includes("/api/portal/manager-tour-settings")) {
         if (init?.method === "PATCH") {
-          return Response.json({ settings: { ...DEFAULT_MANAGER_TOUR_SETTINGS, ...overrides } });
+          return Response.json({ settings: { ...DEFAULT_MANAGER_TOUR_SETTINGS, ...overrides }, source: "account" });
         }
         return Response.json({
           settings: { ...DEFAULT_MANAGER_TOUR_SETTINGS, tourNoticeDays: overrides?.tourNoticeDays ?? 0 },
+          source: "account",
         });
       }
       if (url.includes("/api/portal/automation-settings")) {
         if (init?.method === "PATCH") {
-          return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
+          return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS, source: "account" });
         }
         return Response.json({
           settings: {
             ...DEFAULT_MANAGER_AUTOMATION_SETTINGS,
             proposeTourConfirmations: overrides?.proposeTourConfirmations ?? false,
           },
+          source: "account",
         });
       }
       if (url.includes("/api/portal/reminder-settings")) {
@@ -87,6 +97,11 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
+  // The shared automation-settings read cache (N032) is module-level and
+  // outlives a single test's render — without dropping it, a later test's
+  // mount would silently reuse an earlier test's cached value instead of
+  // hitting its own stub.
+  invalidateManagerAutomationSettingsCache();
 });
 
 describe("TourSettingsPanel redraw", () => {
@@ -142,12 +157,18 @@ describe("TourSettingsPanel redraw", () => {
     expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
-  it("tags its Reminders, Requests and follow-ups, and Messages sent automatically sections Account when no house is picked", async () => {
+  it("tags Booking Account when no house is picked, now that the property/workspace picker actually feeds the panel", async () => {
+    // WS4 (PLAN-0925 Part 5, C191): Reminders / Requests-and-follow-ups /
+    // Messages-sent-automatically are gone from this modal — reminder timing,
+    // channels and wording ship on the shipped defaults everywhere now (see
+    // `WhatProplaneSends`). The one section left, Booking, is what the scope
+    // picker above this panel actually reaches: fixing the bug where neither
+    // fetch here read `propertyId`/`workspaceId` is what makes this tag real.
     stubFetch();
     render(withScope(<TourSettingsPanel />));
     await screen.findByText("Notice required");
 
     const tags = await screen.findAllByText("Account");
-    expect(tags.length).toBeGreaterThanOrEqual(2);
+    expect(tags.length).toBeGreaterThanOrEqual(1);
   });
 });

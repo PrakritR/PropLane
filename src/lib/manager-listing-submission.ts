@@ -1274,7 +1274,8 @@ export type ManagerCustomApplicationFieldType =
   | "phone"
   | "email"
   | "photos"
-  | "file";
+  | "file"
+  | "initials";
 
 /**
  * Every type `normalizeCustomApplicationFields` accepts as valid stored data —
@@ -1298,6 +1299,7 @@ export const CUSTOM_APPLICATION_FIELD_TYPES: readonly ManagerCustomApplicationFi
   "email",
   "photos",
   "file",
+  "initials",
 ];
 
 /** Types the manager question-type picker offers for a NEW or edited question. */
@@ -1317,6 +1319,7 @@ export const CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS: readonly {
   { id: "email", label: "Email" },
   { id: "checkbox", label: "Checkbox" },
   { id: "file", label: "File" },
+  { id: "initials", label: "Initials" },
 ];
 
 /**
@@ -1381,6 +1384,14 @@ export type ManagerCustomApplicationField = {
    * A hidden question is never required and never blocks submit.
    */
   showIf?: { fieldKey: string; equals: string };
+  /**
+   * Who answers this question. Absent/`"resident"` (the default, and every
+   * question that existed before this field) is answered by the applicant or
+   * resident, exactly as today. `"manager"` means the manager (not the
+   * resident) supplies the value — a renderer showing this question to a
+   * resident must render it read-only rather than as an editable control.
+   */
+  filledBy?: "resident" | "manager";
 };
 
 const CUSTOM_APPLICATION_FIELD_TYPES_SET = new Set<string>(CUSTOM_APPLICATION_FIELD_TYPES);
@@ -1466,6 +1477,7 @@ export function normalizeCustomApplicationFields(
             equals: (showIfRaw as { equals: string }).equals,
           }
         : undefined;
+    const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
     out.push({
       id,
       key,
@@ -1477,6 +1489,7 @@ export function normalizeCustomApplicationFields(
       standardKey,
       description,
       showIf,
+      filledBy,
     });
   }
   return out;

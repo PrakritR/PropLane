@@ -724,15 +724,17 @@ function ManagerPropertyInlineDetails({
   // never read. Keeps the type a plain string for every href builder downstream.
   const propertyRouteKey = stablePropertyId || row?.adminRefId || "";
   // Memoized so `propertySections` below has a stable dependency.
-  // The shared trio (Communication · Documents · Activity) is available at
-  // every stage — a draft or unlisted home can still hold files and messages.
+  // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
+  // Documents sections are removed — conversations and files live only on the
+  // portal-wide Communication/Documents pages now. Activity stays available at
+  // every stage.
   const availableTabs = useMemo<PropertyDetailTabId[]>(
     () =>
       bucket === 3 || bucket === 5
-        ? ["preview", "communication", "documents", "activity"]
+        ? ["preview", "activity"]
         : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info", "communication", "documents", "activity"]
-          : ["preview", "house-details", "move-in", "application", "lease", "communication", "documents", "activity"],
+          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info", "activity"]
+          : ["preview", "house-details", "move-in", "application", "lease", "activity"],
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;

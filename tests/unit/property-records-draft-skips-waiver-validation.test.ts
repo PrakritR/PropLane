@@ -32,6 +32,7 @@ let RETIRED: string[] = [];
 let UPSERTS: Record<string, unknown>[] = [];
 let WAIVER_CALLS: Array<{ propertyId: string; code: string | null | undefined }> = [];
 let PREVIEW_CALLS: Array<{ propertyId: string; code: string | null | undefined }> = [];
+let THROW_WORKSPACE_LOOKUP = false;
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/co-manager-access", () => ({
@@ -90,26 +91,35 @@ vi.mock("@/lib/application-fee-waiver", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
-    from: () => ({
-      select: (_cols: string, opts?: { count?: string }) => {
-        if (!opts?.count) {
-          return { eq: () => ({ maybeSingle: async () => ({ data: EXISTING, error: null }) }) };
-        }
-        const builder = {
-          eq: () => builder,
-          in: () => builder,
-          neq: () => builder,
-          then(resolve: (v: { count: number | null; error: unknown }) => unknown) {
-            return Promise.resolve({ count: 0, error: null }).then(resolve);
-          },
-        };
-        return builder;
-      },
-      upsert: async (row: Record<string, unknown>) => {
-        UPSERTS.push(row);
-        return { error: null };
-      },
-    }),
+    from: (table: string) => {
+      // N037's reconcile reads this to find the owner's default workspace
+      // before copying its application form onto the listing — none exists
+      // in this fixture set, so the reconcile cleanly no-ops.
+      if (table === "portal_workspaces") {
+        if (THROW_WORKSPACE_LOOKUP) throw new Error("boom: workspace lookup unavailable");
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+      }
+      return {
+        select: (_cols: string, opts?: { count?: string }) => {
+          if (!opts?.count) {
+            return { eq: () => ({ maybeSingle: async () => ({ data: EXISTING, error: null }) }) };
+          }
+          const builder = {
+            eq: () => builder,
+            in: () => builder,
+            neq: () => builder,
+            then(resolve: (v: { count: number | null; error: unknown }) => unknown) {
+              return Promise.resolve({ count: 0, error: null }).then(resolve);
+            },
+          };
+          return builder;
+        },
+        upsert: async (row: Record<string, unknown>) => {
+          UPSERTS.push(row);
+          return { error: null };
+        },
+      };
+    },
   }),
 }));
 
@@ -135,6 +145,7 @@ beforeEach(() => {
   UPSERTS = [];
   WAIVER_CALLS = [];
   PREVIEW_CALLS = [];
+  THROW_WORKSPACE_LOOKUP = false;
   getUser.mockResolvedValue({ data: { user: { id: MANAGER } } });
 });
 
@@ -412,5 +423,20 @@ describe("POST /api/property-records — publishing a draft applies its promo co
     expect(res.status).toBe(200);
     expect(PREVIEW_CALLS).toEqual([]);
     expect(WAIVER_CALLS).toEqual([]);
+  });
+});
+
+describe("POST /api/property-records — N037's application-form copy is best-effort", () => {
+  it("still saves the property when the workspace-form lookup throws", async () => {
+    THROW_WORKSPACE_LOOKUP = true;
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "draft",
+      rowData: draftRowData(""),
+    });
+    expect(res.status).toBe(200);
+    expect(UPSERTS).toHaveLength(1);
   });
 });

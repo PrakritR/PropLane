@@ -40,13 +40,22 @@ describe("record-sections registry", () => {
     );
   });
 
-  it.each(ALL_RECORD_KINDS)("$role/$kind ends with the trio, communication always present", ({ role, kind }) => {
+  // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
+  // Documents rail items are removed — conversations and files live only on
+  // the portal-wide Communication/Documents pages now.
+  const KINDS_WITHOUT_COMMUNICATION = new Set(["manager/property"]);
+
+  it.each(ALL_RECORD_KINDS)("$role/$kind ends with the trio, communication present unless explicitly opted out", ({ role, kind }) => {
     const sections = recordSections(role, kind, { basePath: `/${role === "manager" ? "portal" : role}` });
     const allIds = sections.groups.flatMap((group) => group.items.map((item) => item.id));
-    // Communication is unconditional; a kind may omit documents and/or
+    // Communication defaults to present; a kind may omit documents and/or
     // activity (Task and Tour skip documents; several resident/vendor kinds
     // skip both), but never reorders the trio relative to its own sections.
-    expect(allIds).toContain("communication");
+    if (KINDS_WITHOUT_COMMUNICATION.has(`${role}/${kind}`)) {
+      expect(allIds).not.toContain("communication");
+    } else {
+      expect(allIds).toContain("communication");
+    }
     const trioIdsPresent = allIds.filter((id) => (RECORD_TRIO_IDS as readonly string[]).includes(id));
     const ownIds = allIds.filter((id) => !(RECORD_TRIO_IDS as readonly string[]).includes(id));
     // Every trio id present appears strictly after every own id.

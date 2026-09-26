@@ -359,7 +359,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         error={errors[customFieldErrorKey(field.key)]}
         onChange={(next) => patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })}
         getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired}
-        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} />
+        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly || field.filledBy === "manager"} />
     </div>
   );
 
@@ -407,7 +407,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             getApplicationId={getApplicationId}
             setupTokenRequired={p.photoSetupTokenRequired}
             getSetupToken={p.getPhotoSetupToken}
-            readOnly={photosReadOnly}
+            readOnly={photosReadOnly || field.filledBy === "manager"}
           />
         ))}
       </div>
@@ -1175,7 +1175,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               getApplicationId={getApplicationId}
               setupTokenRequired={p.photoSetupTokenRequired}
               getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
+              readOnly={photosReadOnly || field.filledBy === "manager"}
             />
           </div>
         );
@@ -1671,7 +1671,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
 
   if (step === 8) {
     const additionalFields = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields)
-      .filter((field) => field.section === "additional");
+      .filter((field) => field.section === "additional")
+      .filter((field) => !isCustomFieldHiddenByCondition(field, form.customFieldAnswers));
     const renderAdditionalField = (field: (typeof additionalFields)[number]) => {
       if (!field.isStandard) {
         return (
@@ -1684,7 +1685,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               getApplicationId={getApplicationId}
               setupTokenRequired={p.photoSetupTokenRequired}
               getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
+              readOnly={photosReadOnly || field.filledBy === "manager"}
             />
           </div>
         );

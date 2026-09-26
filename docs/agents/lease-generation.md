@@ -1,5 +1,47 @@
 # Lease generation — agent notes
 
+## Resident lease visibility, signing, and lease-first sends (Sep 2026 hotfix)
+
+Four invariants, closed together because a resident could not sign any lease
+in production until they were (live since Sep 19, `64f410ca`):
+
+- **The lease list is slim for every reader, including the resident's own
+  GET.** `residentCanViewLeaseRow` uses `leaseRowHasDocument`
+  (lease-pipeline-list-projection.ts), which understands `documentOmitted:
+  true` as "a document exists, just not inlined here" — never require actual
+  bytes on the list-shaped row. Requiring bytes is how every sent lease
+  became invisible: the resident's own copy of a sent lease never has bytes
+  to begin with.
+- **Signing loads the FULL document first, then waits for the server.**
+  `residentSignLease` / `managerSignLease` call `ensureLeaseDocumentLoaded`
+  before hashing (never hash the slim copy), then `await
+  persistLeaseRowToServerAwait` and return `LeasePipelineActionResult` (`{ok:
+  true } | { ok: false; error }`) — never a bare boolean, and never a
+  fire-and-forget `write()`. Nothing is marked signed locally until the
+  server has confirmed it.
+- **The server checks the signature hash.** `newSignatureHashMismatch`
+  (`lease-signature-hash-guard.ts`) refuses (409) a NEW signature whose
+  reported `documentSha256` disagrees with the SHA-256 of the bytes the
+  server actually has stored — wired into `POST /api/portal-lease-pipeline`
+  next to `leaseSignatureWriteRefusal`. It never judges a resend or re-sign
+  (that guard's job) and never refuses an absent hash (WebCrypto being
+  unavailable is honest, not forged).
+- **"Send lease to sign" creates a real draft.** `createLeaseFirstDraft`
+  (`src/lib/leasing/lease-first-draft.server.ts`) writes a server-authorized
+  `Draft` row (`bucket: "manager"`, `leaseFirst: true`), idempotent per
+  (manager, property, room, resident email). `buildResidentLeaseDocumentRows`
+  shows it to the resident before any document exists so
+  `ResidentLeaseIntakeSection` has something to render, and
+  `resident-portal-access.ts` resolves the pipeline manager and unlocks
+  `isPreLeaseResident` through it when there is no application yet.
+  `findLeaseRowIndexForApprovedApp`'s existing email+property match (not new
+  code) attaches a later approved application onto this same draft instead of
+  creating a duplicate lease.
+
+Coverage: `tests/unit/resident-lease-visible-when-slim.test.ts`,
+`lease-sign-awaits-server.test.ts`, `lease-signature-hash-guard.test.ts`,
+`lease-first-draft.test.ts`.
+
 ## PDF import review and signing
 
 The private original PDF remains the source for both lease and application imports. The shared server parser records page spans, form widgets, a source SHA-256, and unresolved pages. A bounded local OCR pass handles up to four image-only pages. A manager must resolve every reported import issue before publishing an application template or confirming a converted lease. The PDF is served through the owner-scoped private document route, never a public object URL.

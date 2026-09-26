@@ -60,7 +60,8 @@ import {
 import { residentVisibleCharges } from "@/lib/household-charge-visibility";
 import { syncManagerApplicationsFromServer, MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
-import { syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
+import { findLeaseForResidentEmail, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
+import { residentPaymentsUnlocked } from "@/lib/resident-payments-unlock";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { paymentFailureCopy } from "@/lib/payments/payment-error-copy";
@@ -94,6 +95,7 @@ import {
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
+import { RESIDENT_PAYMENTS_TAB_LABELS } from "@/lib/resident-payments-tabs";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -277,11 +279,15 @@ export function ResidentPaymentsPanel({
     void applicationTick;
     void tick;
     if (!email) return false;
-    if (applicationsForResidentEmail(email).some((row) => row.bucket === "approved")) return true;
-    // Manager-added residents should reach Payments even before an application
-    // row exists in the local cache. An application or holding fee is NOT that
-    // evidence — a prospect owes those — so it takes a tenancy charge.
-    return chargesImplyTenancy(readChargesForResident(email, userId));
+    // C140: unlocked by an approved application, a tenancy charge, OR (new) a
+    // signed lease — a resident the manager placed directly onto a lease,
+    // never through an application, otherwise stayed locked out until their
+    // first charge existed. See `residentPaymentsUnlocked` for the full rule.
+    return residentPaymentsUnlocked({
+      hasApprovedApplication: applicationsForResidentEmail(email).some((row) => row.bucket === "approved"),
+      charges: readChargesForResident(email, userId),
+      lease: findLeaseForResidentEmail(email),
+    });
   }, [applicationTick, email, tick, userId]);
 
   const [rentReporting, setRentReporting] = useState<RentReportingCardState | null>(null);
@@ -725,20 +731,20 @@ export function ResidentPaymentsPanel({
       [
         {
           id: "pending" as const,
-          label: "Pending",
+          label: RESIDENT_PAYMENTS_TAB_LABELS.pending,
           count: bucketCounts.pending,
           dataAttr: "resident-payments-tab-pending",
         },
         {
           id: "overdue" as const,
-          label: "Overdue",
+          label: RESIDENT_PAYMENTS_TAB_LABELS.overdue,
           count: bucketCounts.overdue,
           alert: bucketCounts.overdue > 0,
           dataAttr: "resident-payments-tab-overdue",
         },
         {
           id: "paid" as const,
-          label: "Paid",
+          label: RESIDENT_PAYMENTS_TAB_LABELS.paid,
           count: bucketCounts.paid,
           dataAttr: "resident-payments-tab-paid",
         },

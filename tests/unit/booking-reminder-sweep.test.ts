@@ -80,12 +80,37 @@ const LEASE_ROW = {
   },
 };
 
-function fakeDb(connections: unknown[], leases: unknown[]) {
+/** A hand-added booking (BUILD-WAVE2 C211) — same shape `bookings-block-dates-modal.tsx` and the sheet sync write. */
+const ROOM_DATE_BLOCK_ROW = {
+  id: "block-5",
+  manager_user_id: "mgr-1",
+  property_id: "mgr-house-2",
+  row_data: {
+    checkIn: "2026-09-19",
+    checkOut: "2026-09-23", // exclusive
+    reason: "Held",
+    residentName: "Priya S.",
+  },
+};
+
+/** A plain closed-dates block — nobody to check in, so it must never queue a reminder. */
+const CLOSED_BLOCK_ROW = {
+  id: "block-6",
+  manager_user_id: "mgr-1",
+  property_id: "mgr-house-2",
+  row_data: { checkIn: "2026-09-19", checkOut: "2026-09-20", reason: "Maintenance" },
+};
+
+function fakeDb(connections: unknown[], leases: unknown[], blocks: unknown[] = []) {
   return {
     from(table: string) {
-      const rows = table === "external_calendar_connections" ? connections : leases;
+      const rows =
+        table === "external_calendar_connections" ? connections : table === "portal_schedule_records" ? blocks : leases;
       return {
-        select: () => ({ limit: () => Promise.resolve({ data: rows, error: null }) }),
+        select: () => ({
+          limit: () => Promise.resolve({ data: rows, error: null }),
+          eq: () => ({ limit: () => Promise.resolve({ data: rows, error: null }) }),
+        }),
       };
     },
   } as never;
@@ -133,6 +158,21 @@ describe("sweepBookingReminders", () => {
     const queued = await sweepBookingReminders(fakeDb([CONNECTION], [LEASE_ROW]), NOW);
     expect(materialize).not.toHaveBeenCalled();
     expect(queued).toBe(0);
+  });
+
+  it("BUILD-WAVE2 C211: a hand-added / sheet-imported booking (room_date_block) also queues, anchored on check-in", async () => {
+    const queued = await sweepBookingReminders(fakeDb([], [], [ROOM_DATE_BLOCK_ROW]), NOW);
+    expect(queued).toBe(1);
+    const input = materialize.mock.calls[0]![1] as Record<string, unknown>;
+    expect(input.subjectId).toBe("block:block-5");
+    expect(input.anchorIso).toBe("2026-09-19T22:00:00.000Z");
+    expect((input.payload as { title: string }).title).toContain("Priya S.");
+  });
+
+  it("BUILD-WAVE2 C211: a plain closed-dates block with no name or channel reason never queues", async () => {
+    const queued = await sweepBookingReminders(fakeDb([], [], [CLOSED_BLOCK_ROW]), NOW);
+    expect(queued).toBe(0);
+    expect(materialize).not.toHaveBeenCalled();
   });
 
   it("PLAN-0916-1040: a house override fires where the workspace value would not — and vice versa", async () => {

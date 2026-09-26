@@ -4,7 +4,8 @@ import { TEAM_ROLE_LABELS } from "@/lib/co-manager-team-roles";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 
 import Link from "next/link";
-import { Building2, Check, ChevronDown, Plus, Settings, UserPlus } from "lucide-react";
+import { Check, ChevronDown, Plus, Settings, UserPlus } from "lucide-react";
+import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +47,17 @@ export function workspaceInitials(name: string): string {
  * the viewer has in a workspace, in one line. A shared workspace only lists the
  * houses the viewer reaches, so a selected scope prints that count.
  */
+/**
+ * C207: every new workspace is server-named literally "My workspace" until
+ * its owner renames it, so two shared workspaces from two different owners
+ * otherwise render as identical rows in the switcher menu. A workspace the
+ * viewer does not own always shows its owner's name for disambiguation.
+ */
+function switcherDisplayName(workspace: PortalWorkspace): string {
+  if (workspace.owned || !workspace.ownerName) return workspace.name;
+  return `${workspace.name} (${workspace.ownerName})`;
+}
+
 function standingLabel(workspace: PortalWorkspace): string {
   // Live houses only — a workspace's record list also holds drafts and
   // unlisted rows that still drive scoping (PRP-481).
@@ -74,12 +86,16 @@ export function WorkspaceSwitcher({
   const atCap = capKnown ? plan!.usage.workspaces >= plan!.workspaceLimit : false;
   const capLabel = capKnown ? `${plan!.usage.workspaces} of ${plan!.workspaceLimit}` : "";
 
+  // Every workspace shows the same PropLane house mark rather than its own
+  // initials tile — one brand glyph everywhere, not a per-workspace "SH"/"AF"
+  // (spec:addendum-1, C007). The name still distinguishes workspaces in the
+  // label beside it and in the switcher menu below.
   const avatar = (
     <span
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[11px] font-bold tracking-tight text-primary"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10"
       aria-hidden
     >
-      {ctx.loading ? <Building2 className="size-4" /> : workspaceInitials(name)}
+      <AxisLogoGlyph size="micro" />
     </span>
   );
 
@@ -148,8 +164,8 @@ export function WorkspaceSwitcher({
           // A brand-new account has no persisted workspace yet; the menu still
           // names the one it is standing in rather than opening on a separator.
           <DropdownMenuItem disabled data-attr="workspace-switcher-item">
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary" aria-hidden>
-              {workspaceInitials(name)}
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-primary/10" aria-hidden>
+              <AxisLogoGlyph size="micro" />
             </span>
             <span className="min-w-0 flex-1 truncate">{name}</span>
             <Check className="size-4" aria-hidden />
@@ -164,13 +180,13 @@ export function WorkspaceSwitcher({
             data-attr="workspace-switcher-item"
           >
             <span
-              className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-primary/10"
               aria-hidden
             >
-              {workspaceInitials(workspace.name)}
+              <AxisLogoGlyph size="micro" />
             </span>
             <span className="min-w-0 flex-1 truncate">
-              {workspace.name}
+              {switcherDisplayName(workspace)}
               {/* The home count is what tells a manager WHERE their portfolio
                   is: a workspace showing nothing is answered by the row that
                   holds the homes, without opening settings first. */}
