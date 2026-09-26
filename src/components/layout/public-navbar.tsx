@@ -207,7 +207,7 @@ export function PublicNavbar() {
                 {
                   title: "Services",
                   url: "/partner#partner-rows-title",
-                  description: "Requests, vendors, bids, work orders",
+                  description: "Requests, vendors, bids, maintenance",
                   icon: <Wrench strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-services",
                 },
