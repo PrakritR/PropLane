@@ -78,9 +78,15 @@ describe("ADD PROPERTY at the plan limit", () => {
     // still loading is the same story: `canOpenAdd()` already toasts and
     // queues a retry for that window (night UX sweep — a pre-disabled
     // button there was indistinguishable from permanently broken).
-    expect(SOURCE).toContain("addPropertyDisabled={false}");
-    expect(SOURCE).not.toContain("addPropertyDisabled={atPropertyLimit");
-    expect(SOURCE).not.toContain("addPropertyDisabled={!skuLoaded}");
+    //
+    // The `addPropertyDisabled` prop this used to check is gone (commit
+    // 135c3f2a deleted the empty-state "Create" pill, its last consumer);
+    // the header's own trigger was never wired to it — it gates on
+    // `canOpenAdd()` when the menu is asked to open, never via a disabled prop.
+    expect(SOURCE).not.toContain("addPropertyDisabled");
+    expect(SOURCE).not.toContain("disabled={atPropertyLimit");
+    expect(SOURCE).not.toContain("disabled={!skuLoaded}");
+    expect(SOURCE).toContain("if (next && !canOpenAdd()) return;");
   });
 });
 
