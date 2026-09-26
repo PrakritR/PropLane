@@ -1133,10 +1133,16 @@ export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string
  * block); "amendments" folds into that same view's version history. Old
  * links to any of the three still resolve — they just land on Lease document
  * rather than 404 or silently falling back to Overview.
+ *
+ * "audit-trail" and "answers" (C066/C281) are real tabs, not folded content —
+ * same shape as Applications' own "application-form" tab — added once the
+ * shared shell registry was clear for this workstream to touch.
  */
 export const LEASE_DETAIL_TABS = [
   "overview",
   "lease-document",
+  "audit-trail",
+  "answers",
   "payments",
   "communication",
 ] as const;

@@ -194,6 +194,21 @@ export function leaseFirstAnswersBySection(
   return out;
 }
 
+/**
+ * "N of M answered" — the one-line Overview summary for the Answers card
+ * (C281), covering every clause type, not just `initials`. `leaseFirstAnswersBySection`
+ * is the single source of what counts as "answered" (never `"—"` or
+ * `"Not yet initialed"`), so this and the full Answers tab can never disagree.
+ */
+export function leaseFirstAnswersSummaryLabel(
+  config: ApplicationTemplateQuestionConfig,
+  answers: Record<string, string> | null | undefined,
+): string {
+  const facts = leaseFirstAnswersBySection(config, answers).flatMap((section) => section.facts);
+  const answered = facts.filter((fact) => fact.value !== "—" && fact.value !== "Not yet initialed").length;
+  return `${answered} of ${facts.length}`;
+}
+
 /** Total required `initials`-type questions and how many `signingAnswers` already answers — the "N of M initials" fact. */
 export function leaseFirstInitialsProgress(
   config: ApplicationTemplateQuestionConfig | null | undefined,

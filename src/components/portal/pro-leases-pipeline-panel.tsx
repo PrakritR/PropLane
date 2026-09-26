@@ -93,7 +93,7 @@ import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
-import { leaseFirstAnswersBySection } from "@/lib/leasing/lease-first-signing-document";
+import { leaseFirstAnswersBySection, leaseFirstAnswersSummaryLabel } from "@/lib/leasing/lease-first-signing-document";
 import { ReviewRow, ReviewSection } from "@/components/portal/pro-application-readonly-review";
 
 async function reviewHtmlSha256(html: string): Promise<string> {
@@ -1297,6 +1297,10 @@ export function ManagerLeasesPipelinePanel({
         onDownload(detailRow);
         return;
       }
+      if (actionId === "export") {
+        onExport(detailRow);
+        return;
+      }
       if (actionId === "delete") {
         if (detailRow.status !== "Fully Signed") onDeleteLease(detailRow);
         else showToast("Coming soon");
@@ -1310,10 +1314,28 @@ export function ManagerLeasesPipelinePanel({
           {renderLeaseRowDetail(detailRow)}
           {renderLeaseTermsFacts(detailRow)}
           {renderLeaseSignaturesFacts(detailRow)}
-          {renderLeaseAuditTrailFacts(detailRow)}
-          {renderLeaseAnswersSection(detailRow)}
           {renderLeaseAmendmentsBody(detailRow)}
         </>
+      ) : activeTab === "audit-trail" ? (
+        renderLeaseAuditTrailFacts(detailRow) ?? (
+          <div className="px-3 pb-4 sm:px-4">
+            <PortalListEmptyCard
+              title="Nothing to attest yet"
+              workspaceAware={false}
+              dataAttr="lease-audit-trail-empty"
+            />
+          </div>
+        )
+      ) : activeTab === "answers" ? (
+        renderLeaseAnswersSection(detailRow) ?? (
+          <div className="px-3 pb-4 sm:px-4">
+            <PortalListEmptyCard
+              title="No lease-first answers for this lease"
+              workspaceAware={false}
+              dataAttr="lease-answers-empty"
+            />
+          </div>
+        )
       ) : activeTab === "payments" ? (
         <div className="px-3 pb-4 sm:px-4">
           <PortalListEmptyCard title="No payments linked yet" workspaceAware={false} dataAttr="lease-payments-empty" />
@@ -1371,55 +1393,46 @@ export function ManagerLeasesPipelinePanel({
               rows: [],
               emptyLabel: "No payments linked yet",
             },
-            // C066: who signed, when, and the document fingerprint — the
-            // audit trail already computed but never surfaced. Only shown
-            // once there is something to attest.
+            // C066: who signed, when, and the document fingerprint now have
+            // their own real tab (audit-trail) — Overview keeps only a
+            // one-line summary with a "Section →" link, per
+            // docs/agents/record-page.md point 3.
             ...(leaseClaimsExecution(detailRow)
               ? [
                   {
                     id: "audit-trail",
                     title: "Audit trail",
                     action: {
-                      label: "Lease document",
-                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document"),
+                      label: "Audit trail",
+                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "audit-trail"),
                     },
                     rows: [
                       {
-                        label: "Manager",
-                        value: detailRow.managerSignature
-                          ? `${detailRow.managerSignature.name} · ${detailRow.managerSignature.signedAtIso}`
-                          : "Not signed",
-                      },
-                      {
-                        label: "Resident",
-                        value: detailRow.residentSignature
-                          ? `${detailRow.residentSignature.name} · ${detailRow.residentSignature.signedAtIso}`
-                          : "Not signed",
-                      },
-                      {
                         label: "Fingerprint",
-                        value: documentFingerprintLabel(detailRow.documentSha256) ?? "—",
+                        value: documentFingerprintLabel(detailRow.documentSha256) ?? "Recorded",
                       },
                     ],
                   },
                 ]
               : []),
-            // C281 (Ida Cares lease-first): the resident's per-clause
-            // answers, one section = one card's worth of rows here (the full
-            // per-section breakdown is on the Lease document tab).
+            // C281 (Ida Cares lease-first): every clause's answer now has its
+            // own real tab (answers) — Overview keeps only a one-line
+            // "N of M answered" summary with a "Section →" link.
             ...(detailRow.signingTemplateSnapshot
               ? [
                   {
                     id: "answers",
                     title: "Answers",
                     action: {
-                      label: "Lease document",
-                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document"),
+                      label: "Answers",
+                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "answers"),
                     },
-                    rows: leaseFirstAnswersBySection(detailRow.signingTemplateSnapshot, detailRow.signingAnswers)
-                      .flatMap((section) => section.facts)
-                      .slice(0, 6)
-                      .map((fact) => ({ label: fact.label, value: fact.value })),
+                    rows: [
+                      {
+                        label: "Answered",
+                        value: leaseFirstAnswersSummaryLabel(detailRow.signingTemplateSnapshot, detailRow.signingAnswers),
+                      },
+                    ],
                   },
                 ]
               : []),
