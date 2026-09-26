@@ -9,7 +9,11 @@ import type { UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
 const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), clear: vi.fn(), sms: vi.fn(), smsDelete: vi.fn(), confirm: vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
-vi.mock("@/lib/communication-inbox-thread-mutations", () => ({
+vi.mock("@/lib/communication-inbox-thread-mutations", async (importOriginal) => ({
+  // previewArchivedInboxThreads / previewRestoredInboxThreads stay REAL (pure,
+  // no I/O) — the bulk hook calls them synchronously for the optimistic
+  // render (PLAN B3) before the mocked persistence calls below resolve.
+  ...(await importOriginal<typeof import("@/lib/communication-inbox-thread-mutations")>()),
   archivePersistedInboxThreads: mocks.archive,
   restorePersistedInboxThreads: mocks.restore,
   deletePersistedInboxThreadsForever: mocks.remove,
@@ -36,6 +40,9 @@ const rows: UnifiedInboxListItem[] = [
   // PropLane admin row.
   { key: "email:assistant-email-proof-1", threadId: "assistant-email-proof-1", channel: "email", name: "PropLane admin", preview: "", time: "", unread: false, sortMs: 5, memberKeys: ["email:assistant-email-proof-1", "email:gone-from-list"] },
   { key: "sms:sms-row-1", threadId: "sms-row-1", channel: "sms", name: "Text neighbor", preview: "", time: "", unread: false, sortMs: 6 },
+  // A resident-directory placeholder row (`buildResidentPlaceholderInboxItems`)
+  // — no stored conversation exists for it at all.
+  { key: "email:contact-ghost-1", threadId: "contact-ghost-1", channel: "email", name: "Ghost Resident", preview: "No messages yet.", time: "", unread: false, sortMs: 7 },
 ];
 const smsTargets = [{ conversationId: "sms-row-1", phone: "+15551234567", conversationKey: "sms-row-1" }];
 function Harness({ archived = false, manager = true }: { archived?: boolean; manager?: boolean }) {
@@ -121,6 +128,18 @@ it("does not offer Archive on PropLane Assistant, and still archives the PropLan
   open("PropLane admin"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
   await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", ["assistant-email-proof-1", "gone-from-list"]));
   expect(mocks.sms).not.toHaveBeenCalled();
+});
+
+/**
+ * Regression for the captain resurrection sweep: a placeholder row has no
+ * stored conversation, so Archive used to silently no-op there while still
+ * toasting "Archived." — offer no actions at all instead of a false success.
+ */
+it("offers no actions on a resident-directory placeholder row", async () => {
+  render(<Harness />); open("Ghost Resident");
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+  expect(mocks.archive).not.toHaveBeenCalled();
 });
 
 it("does not offer Archive on the assistant in a role portal either", async () => {

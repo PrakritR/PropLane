@@ -117,6 +117,19 @@ describe("buildZillowRentalFeedXml", () => {
     expect(xml).toContain("<listingUrl>https://prop-lane.space/rent/listings/prop-1</listingUrl>");
   });
 
+  it("never emits houseVideoDataUrl even when the projected submission carries one", () => {
+    const withVideo = projectedListing({
+      listingSubmission: {
+        ...projectedListing().listingSubmission,
+        houseVideoDataUrl: "https://cdn.proplane.test/house-walkthrough.mp4",
+      } as ManagerListingSubmissionV1,
+    });
+    const { xml, includedIds } = buildZillowRentalFeedXml([withVideo], "https://prop-lane.space");
+    expect(includedIds).toEqual(["prop-1"]);
+    expect(xml).not.toContain("house-walkthrough.mp4");
+    expect(elementNames(xml)).not.toContain("video");
+  });
+
   it("excludes a listing with no street address, and records why — never a placeholder", () => {
     const { xml, includedIds, excluded } = buildZillowRentalFeedXml(
       [projectedListing({ address: "" })],
