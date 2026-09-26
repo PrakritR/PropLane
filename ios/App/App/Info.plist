@@ -48,7 +48,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>PropLane uses the camera to attach photos to lease documents and work orders.</string>
+	<string>PropLane uses the camera to take photos and videos for listings, lease documents and services.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PropLane records sound when you film a video for a listing.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>PropLane lets you choose photos to attach to documents.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
