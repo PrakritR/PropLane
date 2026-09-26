@@ -133,43 +133,51 @@ mounting its portal's inbox panel with `suppressListPane` for the thread side);
 admin alone keeps its flat table driven by an `"all"` tabId (all non-trash
 conversations) plus the archive toggle. Invariants:
 
-- **Manager Communication has Active | Archived command tabs** under the work number
-  and work email boxes (`inbox-list-segments`) — same Tours chrome: label + count
-  badge + cobalt underline (`DestinationNav appearance="command"`). Unread stays in Filter (All
-  conversations, Read, Unread) for the current tab — Filter does not list
-  Archived. Resident and vendor still keep status in **Filter** (All
-  conversations, Read, Unread, Archived) rather than a segment rail.
-  `/communication/{active|unread|archived}[/{threadId}]` deep links remain.
-  `unread` is Active + unread filter. Admin still routes
+- **Manager AND vendor Communication have Active | Archived command tabs**
+  under the work number/email boxes (`inbox-list-segments`) — same Tours
+  chrome: label + count badge + cobalt underline (`DestinationNav
+  appearance="command"`). Unread stays in Filter (All conversations, Read,
+  Unread) for the current tab — Filter does not list Archived
+  (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
+  `hideArchived`). Resident is the one portal that still keeps status in
+  **Filter** (All conversations, Read, Unread, Archived) rather than a
+  segment rail — it has no Active|Archived tab row in its list header at all.
+  `/communication/{active|unread|archived}[/{threadId}]` deep links remain on
+  every portal. `unread` is Active + unread filter. Admin still routes
   `/communication/inbox/{tab}` and reaches archived through its
   `admin-inbox-archived-toggle` button. Trash/restore live in the open thread —
   never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone
   tabbed panels survive only for the /demo path and legacy route redirects — on
   those three portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
-- **Switching the manager's Active ⇄ Archived tab is instant, with no
-  skeleton and no refetch.** `InboxListSegmentTabs` (`portal-inbox-ui.tsx`)
-  takes an `interceptNavigation` prop; the manager list passes it and
-  preventDefaults a plain left click (no modifier key), calling `onChange`
-  instead of letting the `<Link>` navigate. `ManagerCommunication`
-  (`pro-communication.tsx`) owns the segment as CLIENT state
+- **Switching the manager's and vendor's Active ⇄ Archived tab is instant,
+  with no skeleton and no refetch (captain, 2026-09-26: vendor Communication
+  now matches manager's UI exactly).** `InboxListSegmentTabs`
+  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; the manager and
+  vendor lists both pass it and preventDefault a plain left click (no
+  modifier key), calling `onChange` instead of letting the `<Link>` navigate.
+  `ManagerCommunication` (`pro-communication.tsx`) and `VendorCommunication`
+  (`vendor-communication.tsx`) each own the segment as CLIENT state
   (`useCommunicationListSegment`, mirroring `useCommunicationThreadId`) and
-  pushes the URL with `history.pushState`
+  push the URL with `history.pushState`
   (`selectCommunicationSegmentUrl`, `portal-communication-nav.ts`) rather than
   navigating — a real App Router navigation to a different `[segment]` route
-  was what remounted `ManagerUnifiedInbox` and reset its already-loaded lists
-  on every tab click. Browser back/forward still updates the segment via
-  `popstate`. `ManagerUnifiedInbox` also renders the last-ready snapshot for
-  this viewer+workspace immediately on an actual remount (sidebar navigation
-  away and back), from a module-level cache (`managerInboxSnapshotCache`),
-  and revalidates silently underneath — a first-ever session load has no
-  cache entry and keeps the original all-sources-ready invariant
-  (`tests/unit/inbox-initial-loading-readiness.test.tsx`). Archive/restore are
-  optimistic (the row moves and counts update immediately; a persistence
-  failure rolls the exact render back and toasts) and every selected SMS row
-  archives/restores in parallel (`Promise.allSettled`), not a sequential loop.
-  Resident and vendor keep ordinary Link navigation on these tabs (no
-  `interceptNavigation`).
+  was what remounted `ManagerUnifiedInbox`/`VendorUnifiedInbox` and reset
+  their already-loaded lists on every tab click. Browser back/forward still
+  updates the segment via `popstate`. `ManagerUnifiedInbox` additionally
+  renders the last-ready snapshot for this viewer+workspace immediately on an
+  actual remount (sidebar navigation away and back), from a module-level
+  cache (`managerInboxSnapshotCache`), and revalidates silently underneath — a
+  first-ever session load has no cache entry and keeps the original
+  all-sources-ready invariant
+  (`tests/unit/inbox-initial-loading-readiness.test.tsx`); `VendorUnifiedInbox`
+  has no equivalent snapshot cache yet. Manager archive/restore are optimistic
+  (the row moves and counts update immediately; a persistence failure rolls
+  the exact render back and toasts) and every selected SMS row
+  archives/restores in parallel (`Promise.allSettled`), not a sequential loop —
+  vendor's `CommunicationRowActions` reuses the same shared archive/restore
+  path. Resident keeps ordinary Link navigation on its Filter-only status
+  (no tab, no `interceptNavigation`).
 - **An archived conversation must never resurrect on its own.** Three
   delivery-side bugs used to do exactly that (captain resurrection sweep):
   (1) `findExistingPortalMessageThread` (`portal-inbox-delivery.ts`) only
