@@ -532,11 +532,8 @@ export function ResidentDashboard({
     if (!clientReady || !email) return;
     // `/demo`'s Tours row isn't part of the seeded Seattle Homes resident
     // story (Dana Reyes is already leased) — never fetch this auth-gated
-    // route from the sandbox.
-    if (isDemoModeActive()) {
-      setTours([]);
-      return;
-    }
+    // route from the sandbox; `tours` already defaults to `[]`.
+    if (isDemoModeActive()) return;
     let alive = true;
     void (async () => {
       try {
