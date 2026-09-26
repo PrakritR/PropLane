@@ -93,6 +93,8 @@ import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { leaseFirstAnswersBySection } from "@/lib/leasing/lease-first-signing-document";
+import { ReviewRow, ReviewSection } from "@/components/portal/pro-application-readonly-review";
 
 async function reviewHtmlSha256(html: string): Promise<string> {
   if (!globalThis.crypto?.subtle) throw new Error("Secure review hashing is unavailable.");
@@ -931,6 +933,30 @@ export function ManagerLeasesPipelinePanel({
     );
   };
 
+  /**
+   * C281 (Ida Cares lease-first): Answers section — one card per
+   * license-agreement section, in source order, same shape as the
+   * Applications record page's own "Application form" section. Only a
+   * lease-first row carries `signingTemplateSnapshot`; an ordinary
+   * application-driven lease has nothing to show here.
+   */
+  const renderLeaseAnswersSection = (row: LeasePipelineRow) => {
+    if (!row.signingTemplateSnapshot) return null;
+    const sections = leaseFirstAnswersBySection(row.signingTemplateSnapshot, row.signingAnswers);
+    if (!sections.length) return null;
+    return (
+      <div className="grid grid-cols-1 gap-3 px-3 pb-4 sm:px-4 xl:grid-cols-2" data-attr="lease-answers-section">
+        {sections.map(({ section, facts }) => (
+          <ReviewSection key={section} title={section} data-attr={`lease-answers-section-${section}`}>
+            {facts.map((fact) => (
+              <ReviewRow key={fact.key} k={fact.label} v={fact.value} />
+            ))}
+          </ReviewSection>
+        ))}
+      </div>
+    );
+  };
+
   const renderLeaseAmendmentsBody = (row: LeasePipelineRow) => {
     if (row.pendingRenewal) {
       return (
@@ -1285,6 +1311,7 @@ export function ManagerLeasesPipelinePanel({
           {renderLeaseTermsFacts(detailRow)}
           {renderLeaseSignaturesFacts(detailRow)}
           {renderLeaseAuditTrailFacts(detailRow)}
+          {renderLeaseAnswersSection(detailRow)}
           {renderLeaseAmendmentsBody(detailRow)}
         </>
       ) : activeTab === "payments" ? (
@@ -1374,6 +1401,25 @@ export function ManagerLeasesPipelinePanel({
                         value: documentFingerprintLabel(detailRow.documentSha256) ?? "—",
                       },
                     ],
+                  },
+                ]
+              : []),
+            // C281 (Ida Cares lease-first): the resident's per-clause
+            // answers, one section = one card's worth of rows here (the full
+            // per-section breakdown is on the Lease document tab).
+            ...(detailRow.signingTemplateSnapshot
+              ? [
+                  {
+                    id: "answers",
+                    title: "Answers",
+                    action: {
+                      label: "Lease document",
+                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document"),
+                    },
+                    rows: leaseFirstAnswersBySection(detailRow.signingTemplateSnapshot, detailRow.signingAnswers)
+                      .flatMap((section) => section.facts)
+                      .slice(0, 6)
+                      .map((fact) => ({ label: fact.label, value: fact.value })),
                   },
                 ]
               : []),

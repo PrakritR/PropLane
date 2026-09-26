@@ -157,6 +157,42 @@ export function buildLeaseFirstSigningHtml(
   return parts.join("\n");
 }
 
+export type LeaseFirstAnswerFact = { key: string; label: string; value: string };
+export type LeaseFirstAnswersSection = { section: string; facts: LeaseFirstAnswerFact[] };
+
+/**
+ * Groups every clause's answer by section, in source order (C281) — the
+ * Answers section on the lease record page, same shape as the Applications
+ * record page's own "Application form" section (one card per section, in
+ * source order). Reads `signingAnswers` exactly as recorded; never invents a
+ * value for an unanswered clause.
+ */
+export function leaseFirstAnswersBySection(
+  config: ApplicationTemplateQuestionConfig,
+  answers: Record<string, string> | null | undefined,
+): LeaseFirstAnswersSection[] {
+  const sections = sectionsInOrder(config.customApplicationFields, config.questionDisplayOrder);
+  const bySection = new Map<string, ManagerCustomApplicationField[]>();
+  for (const field of config.customApplicationFields) {
+    const section = field.section?.trim() || "General";
+    const list = bySection.get(section) ?? [];
+    list.push(field);
+    bySection.set(section, list);
+  }
+  const out: LeaseFirstAnswersSection[] = [];
+  for (const section of sections) {
+    const fields = bySection.get(section) ?? [];
+    if (!fields.length) continue;
+    const facts: LeaseFirstAnswerFact[] = fields.map((field) => {
+      const raw = answers?.[field.key]?.trim();
+      const value = raw || (field.type === "initials" ? "Not yet initialed" : "—");
+      return { key: field.key, label: field.label, value };
+    });
+    out.push({ section, facts });
+  }
+  return out;
+}
+
 /** Total required `initials`-type questions and how many `signingAnswers` already answers — the "N of M initials" fact. */
 export function leaseFirstInitialsProgress(
   config: ApplicationTemplateQuestionConfig | null | undefined,

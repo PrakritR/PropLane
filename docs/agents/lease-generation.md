@@ -615,6 +615,25 @@ off-limits to this workstream (shared shell registry); the content above is
 the real, complete audit trail, just reachable from Overview/the document tab
 rather than its own tab until the shell owner adds the id.
 
+### Answers section: every clause's answer, by section (C281, Ida Cares lease-first, Sep 2026)
+
+`leaseFirstAnswersBySection` (`leasing/lease-first-signing-document.ts`) groups
+`signingTemplateSnapshot`'s clauses by their `section`, in source order
+(reusing the same `sectionsInOrder` helper `buildLeaseFirstSigningHtml`
+already uses), and reads each one's recorded `signingAnswers` value —
+`"Not yet initialed"` for an unanswered `initials` clause, `"—"` for any
+other unanswered type, never a guess. `null`/absent only when the row is not
+a lease-first row at all (`signingTemplateSnapshot` unset).
+
+Rendered as one card per section (`ReviewSection`/`ReviewRow`, reused from
+`pro-application-readonly-review.tsx` — same shape as the Applications record
+page's own "Application form" section) on the lease document tab
+(`renderLeaseAnswersSection`, `pro-leases-pipeline-panel.tsx`), plus a
+condensed "Answers" card on Overview linking there. Same known gap as Audit
+trail above: a dedicated Answers TAB (matching Applications' own
+`application-form` tab) needs a new id in the shared `record-sections.ts`
+lease-kind entry, off-limits to this workstream.
+
 # Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
 
 A lease signed on paper or in another tool is filed from the Leases tab: upload the
