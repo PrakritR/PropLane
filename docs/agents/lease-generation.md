@@ -634,6 +634,29 @@ trail above: a dedicated Answers TAB (matching Applications' own
 `application-form` tab) needs a new id in the shared `record-sections.ts`
 lease-kind entry, off-limits to this workstream.
 
+### The PDF-import pipeline now classifies real sections (C282, Sep 2026)
+
+`mapLeaseTemplatePdfImport` (`lease-template-pdf-import.ts`) previously
+produced one flat, unclassified list of clauses per imported PDF — the
+section grouping Settings → Forms → License agreement showed for Ida Cares
+existed only because that seed's `section` values were hand-authored. A real
+manager import got no sections at all. `looksLikeSectionHeader` (same file)
+is now a deterministic heading heuristic — a roman-numeral heading ("I.
+Fees") or a short (<= 8 words, <= 60 characters), unpunctuated line — that
+assigns every clause after it to that section until the next one, the exact
+"I. Fees" … "VIII. House rules" shape the Ida Cares seed already uses. The
+license-agreement editor and viewer (`pro-lease-questions-editor-modal.tsx`'s
+`sectionGroups`, `leaseFirstAnswersBySection`) needed no changes: both already
+grouped by whatever `field.section` held, which is exactly why the hand-authored
+seed rendered correctly before this fix.
+
+Not a legal-document parser: an unusually styled source PDF can still
+misclassify a heading, or miss one, in either direction — documented as a
+deliberate, bounded limitation in the module's own docstring rather than
+something this heuristic can eliminate. The manager's existing per-question
+section field in the review editor is the correction path for a
+misclassified line, same as any other imported field value.
+
 # Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
 
 A lease signed on paper or in another tool is filed from the Leases tab: upload the

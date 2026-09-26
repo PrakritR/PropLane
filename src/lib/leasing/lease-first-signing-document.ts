@@ -14,12 +14,13 @@
  * (Akhil's placement model: converted document + a visibly separate rider,
  * never merged into the source clauses).
  *
- * PLACEHOLDER-QUALITY by inheritance: `mapLeaseTemplatePdfImport`
- * (`lease-template-pdf-import.ts`) is a flat, unclassified extraction, so a
- * template built from a real PDF import (rather than the Ida Cares seed's
- * hand-classified sections) will render as one section per source page block
- * rather than true legal sections. That is a pre-existing import-quality
- * limit, not something this renderer can fix.
+ * `mapLeaseTemplatePdfImport` (`lease-template-pdf-import.ts`, C282) now
+ * classifies real imported PDFs into sections with a deterministic heading
+ * heuristic, the same "I. Fees" / "VIII. House rules" shape the Ida Cares
+ * seed hand-authors — not a legal-document parser, so an unusually styled
+ * source PDF can still misclassify a heading or a short clause. This
+ * renderer does not care which pipeline produced `config.section` values; it
+ * groups and orders by whatever is there either way.
  */
 import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
