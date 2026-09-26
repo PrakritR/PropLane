@@ -140,6 +140,42 @@ async function resolveInboundOriginal(db, sid, owner) {
   return data;
 }
 
+async function resolveRetainedHistoricalSource(db, table, sourceId) {
+  const { data, error } = await db.rpc("resolve_sms_retained_historical_source", {
+    p_source_table: table, p_source_id: String(sourceId),
+  });
+  if (error || !data || typeof data !== "object") throw new Error("retained_source_lookup_failed");
+  if (data.eligible !== true) return null;
+  if (data.sourceTable !== "inbound_sms_log" || !data.sourceId || !data.mirrorId || !data.owner ||
+      !/^[a-f0-9]{64}$/.test(String(data.fingerprint)) || typeof data.body !== "string" ||
+      postgresInstantMicros(data.occurredAt) === null || postgresInstantMicros(data.mirrorAt) === null) {
+    throw new Error("retained_source_result_invalid");
+  }
+  return data;
+}
+
+function retainedHistoricalCandidate(source, feedTable, row) {
+  if (String(row.id) !== String(feedTable === "inbound_sms_log" ? source.sourceId : source.mirrorId) ||
+      String(row.manager_user_id) !== String(source.owner) || String(row.message_sid) !== String(source.sid)) {
+    throw new Error("retained_source_row_mismatch");
+  }
+  const lineHash = createHash("md5").update(`retained:inbound_sms_log:${source.owner}:${source.sourceId}`).digest("hex");
+  const lineId = `${lineHash.slice(0, 8)}-${lineHash.slice(8, 12)}-${lineHash.slice(12, 16)}-${lineHash.slice(16, 20)}-${lineHash.slice(20, 32)}`;
+  const event = {
+    ownerManagerUserId: source.owner, counterpartyRole: source.role,
+    workLineId: lineId, identityKind: "unresolved", identityKey: `unresolved:inbound_sms_log:${source.sourceId}`,
+    counterpartyUserId: null, counterpartyPhone: null, sourceNamespace: "retained:inbound_sms_log",
+    sourceEventId: source.sourceId, direction: "inbound", body: source.body,
+    occurredAt: source.occurredAt, fromPhone: source.fromPhone, toPhone: source.toPhone,
+    sourceRef: { table: "inbound_sms_log", id: source.sourceId, historical: true,
+      archiveReason: "receipt_owner_conflict", fingerprint: source.fingerprint },
+  };
+  return { owner: source.owner, event, line: null, sourceTable: feedTable,
+    sourceId: String(row.id), sourceRowId: String(row.id), providerLookupId: source.sid,
+    retainedHistorical: { sourceId: source.sourceId, mirrorId: source.mirrorId,
+      fingerprint: source.fingerprint, isMirror: feedTable === "manager_sms_messages" } };
+}
+
 export async function mapBounded(items, concurrency, mapper) {
   const results = new Array(items.length);
   let next = 0;
@@ -159,6 +195,7 @@ function keyOf(owner, namespace, sourceId) {
 
 export function eventMatchesStored(existing, event, {
   historicalLine = false, allowIdentityEnrichment = false, allowRoleEnrichment = false,
+  allowMirrorTimeDrift = false,
 } = {}) {
   const previousSource = existing.source_ref && typeof existing.source_ref === "object" ? existing.source_ref : {};
   const candidateSource = event.sourceRef && typeof event.sourceRef === "object" ? event.sourceRef : {};
@@ -179,7 +216,7 @@ export function eventMatchesStored(existing, event, {
         && normalizeSmsPhone(existing.counterparty_phone) === normalizeSmsPhone(event.counterpartyPhone)));
   return existing.body === event.body
     && existing.direction === event.direction
-    && samePostgresInstant(existing.occurred_at, event.occurredAt)
+    && (allowMirrorTimeDrift || samePostgresInstant(existing.occurred_at, event.occurredAt))
     && existing.from_phone === (event.fromPhone ?? null)
     && existing.to_phone === (event.toPhone ?? null)
     && String(existing.owner_manager_user_id) === String(event.ownerManagerUserId)
@@ -188,6 +225,17 @@ export function eventMatchesStored(existing, event, {
     && (historicalLine || String(existing.work_line_id) === String(event.workLineId))
     && (identityMatches || provenEnrichment)
     && sourceCompatible;
+}
+
+export function isExactInboundMirrorOfOriginal(existing, event, candidate, { historicalLine = false } = {}) {
+  const providerSid = existing.source_ref?.providerEventId;
+  return candidate.sourceTable === "manager_sms_messages"
+    && event.direction === "inbound"
+    && existing.source_ref?.table === "inbound_sms_log"
+    && typeof providerSid === "string" && /^(?:SM|MM)[0-9a-fA-F]{32}$/.test(providerSid)
+    && providerSid === candidate.providerLookupId
+    && providerSid === event.sourceRef?.providerEventId
+    && eventMatchesStored(existing, event, { historicalLine, allowMirrorTimeDrift: true });
 }
 
 export function retainedHistoricalUnplacedIdentity(existing, event, candidate) {
@@ -336,6 +384,17 @@ async function maybeImportHistorical(db, table, sourceId) {
   return { ok: true, data };
 }
 
+async function importRetainedHistorical(db, table, sourceId) {
+  const { data, error } = await db.rpc("import_sms_retained_historical_source", {
+    p_source_table: table, p_source_id: String(sourceId),
+  });
+  if (error || (data?.skipped !== "deleted" &&
+      (data?.historicalSourcePreserved !== true || data?.historicalSourceMirrorAccounted !== true))) {
+    throw new Error(`retained_source_import_failed_${String(error?.code ?? "invalid_result")}`);
+  }
+  return data;
+}
+
 async function candidateFromRow(db, kind, row, options = {}) {
   const owner = String(row.manager_user_id ?? "").trim();
   if (!owner) return { owner, event: null, sourceTable: kind, sourceId: String(row.id ?? row.source_message_id ?? "") };
@@ -447,6 +506,36 @@ async function processCandidates(db, candidates, phaseCounts, { apply }) {
     const event = candidate.event;
     const prior = existing.get(keyOf(event.ownerManagerUserId, event.sourceNamespace, event.sourceEventId))
       ?? (candidate.providerLookupId ? existing.get(`provider\0${event.ownerManagerUserId}\0${candidate.providerLookupId}`) : null);
+    if (candidate.retainedHistorical) {
+      const proof = candidate.retainedHistorical;
+      if (prior && (prior.owner_manager_user_id !== event.ownerManagerUserId ||
+          prior.source_namespace !== event.sourceNamespace || prior.source_event_id !== event.sourceEventId ||
+          prior.source_ref?.archiveReason !== "receipt_owner_conflict" ||
+          prior.source_ref?.fingerprint !== proof.fingerprint ||
+          prior.source_ref?.mirror?.id !== proof.mirrorId ||
+          prior.metadata?.historical !== true || prior.metadata?.sendDisabled !== true ||
+          prior.metadata?.archiveReason !== "receipt_owner_conflict" ||
+          !eventMatchesStored(prior, event))) {
+        phaseCounts.integrityMismatch += 1;
+        throw new Error("retained_source_projection_conflict");
+      }
+      if (apply) {
+        const result = await importRetainedHistorical(db, candidate.sourceTable, candidate.sourceRowId);
+        if (result.skipped === "deleted") {
+          phaseCounts.deletedEvents = (phaseCounts.deletedEvents ?? 0) + 1;
+          addOwnerCount(phaseCounts, candidate.owner, "deletedEvents");
+          continue;
+        }
+      }
+      if (proof.isMirror) {
+        phaseCounts.historicalSourceMirrorAccounted = (phaseCounts.historicalSourceMirrorAccounted ?? 0) + 1;
+        addOwnerCount(phaseCounts, candidate.owner, "historicalSourceMirrorAccounted");
+      } else {
+        phaseCounts.historicalSourcePreserved = (phaseCounts.historicalSourcePreserved ?? 0) + 1;
+        addOwnerCount(phaseCounts, candidate.owner, "historicalSourcePreserved");
+      }
+      continue;
+    }
     if (prior) {
       const historicalLine = !candidate.line && prior.source_ref?.historical === true &&
         prior.source_ref?.table === candidate.sourceTable;
@@ -459,7 +548,8 @@ async function processCandidates(db, candidates, phaseCounts, { apply }) {
         candidate.sourceSubtype === "automated" && event.direction === "inbound" &&
         ["inbound_sms_log", "sms_inbound_receipts", "prospect_sms_ingress"].includes(String(prior.source_ref?.table ?? "")) &&
         prior.body !== event.body && eventMatchesStored(prior, { ...event, body: prior.body }, { historicalLine });
-      if (eventMatchesStored(prior, event, { historicalLine }) || placeholderEnriched || derivedAutomatedMirror) {
+      const exactInboundMirror = isExactInboundMirrorOfOriginal(prior, event, candidate, { historicalLine });
+      if (eventMatchesStored(prior, event, { historicalLine }) || placeholderEnriched || derivedAutomatedMirror || exactInboundMirror) {
         if (placeholderEnriched && !candidate.line) {
           // This exact historical singleton remains read-only until an owned
           // work-line epoch is proven. Its original bytes and synthetic line
@@ -495,7 +585,7 @@ async function processCandidates(db, candidates, phaseCounts, { apply }) {
         } else {
           phaseCounts.alreadyMapped += 1;
           if (placeholderEnriched) phaseCounts.enrichedPlaceholder += 1;
-          if (derivedAutomatedMirror) phaseCounts.derivedMirror += 1;
+          if (derivedAutomatedMirror || exactInboundMirror) phaseCounts.derivedMirror += 1;
           addOwnerCount(phaseCounts, candidate.owner, "alreadyMapped");
         }
       } else {
@@ -674,14 +764,16 @@ function feedConfigs() {
       build: async (db, rows) => {
         const sids = [...new Set(rows.map((row) => String(row.message_sid ?? "")).filter(Boolean))];
         const [{ data: receipts, error }, { data: ingressRows, error: ingressError }] = await Promise.all([
-          sids.length ? db.from("sms_inbound_receipts").select("message_sid").in("message_sid", sids)
+          sids.length ? db.from("sms_inbound_receipts").select("message_sid,manager_user_id,status").in("message_sid", sids)
             : Promise.resolve({ data: [], error: null }),
           sids.length ? db.from("prospect_sms_ingress").select("source_message_id,manager_user_id,channel").in("source_message_id", sids)
             : Promise.resolve({ data: [], error: null }),
         ]);
         if (error) throw new Error("log_receipt_inventory_unavailable");
         if (ingressError) throw new Error("log_ingress_inventory_unavailable");
-        const receiptSids = new Set((receipts ?? []).map((row) => String(row.message_sid)));
+        const receiptBySid = new Map((receipts ?? []).map((row) => [String(row.message_sid), row]));
+        const receiptSids = new Set(receiptBySid.keys());
+        const ingressSids = new Set((ingressRows ?? []).map((row) => String(row.source_message_id)));
         const ingressBySid = new Map();
         for (const ingress of ingressRows ?? []) {
           if (ingress.channel !== "twilio") continue;
@@ -691,6 +783,12 @@ function feedConfigs() {
         }
         return mapBounded(rows, MAX_ORIGINAL_RPC_CONCURRENCY, async (row) => {
           const sid = String(row.message_sid ?? "");
+          const receipt = receiptBySid.get(sid);
+          if (receipt?.status === "completed" && receipt.manager_user_id &&
+              receipt.manager_user_id !== row.manager_user_id && !ingressSids.has(sid)) {
+            const retained = await resolveRetainedHistoricalSource(db, "inbound_sms_log", row.id);
+            if (retained) return retainedHistoricalCandidate(retained, "inbound_sms_log", row);
+          }
           const expectedOwner = ingressBySid.get(sid) ?? String(row.manager_user_id);
           const original = receiptSids.has(sid)
             ? await resolveInboundOriginal(db, sid, expectedOwner) : null;
@@ -713,14 +811,16 @@ function feedConfigs() {
         const inboundSids = [...new Set(rows.filter((row) => row.direction === "inbound")
           .map((row) => String(row.message_sid ?? "")).filter(Boolean))];
         const [{ data: receipts, error: receiptError }, { data: ingressRows, error: ingressError }] = await Promise.all([
-          inboundSids.length ? db.from("sms_inbound_receipts").select("message_sid").in("message_sid", inboundSids)
+          inboundSids.length ? db.from("sms_inbound_receipts").select("message_sid,manager_user_id,status").in("message_sid", inboundSids)
             : Promise.resolve({ data: [], error: null }),
           inboundSids.length ? db.from("prospect_sms_ingress")
             .select("source_message_id,manager_user_id,channel").in("source_message_id", inboundSids)
             : Promise.resolve({ data: [], error: null }),
         ]);
         if (receiptError || ingressError) throw new Error("manager_log_receipt_inventory_unavailable");
-        const receiptSids = new Set((receipts ?? []).map((receipt) => String(receipt.message_sid)));
+        const receiptBySid = new Map((receipts ?? []).map((receipt) => [String(receipt.message_sid), receipt]));
+        const receiptSids = new Set(receiptBySid.keys());
+        const ingressSids = new Set((ingressRows ?? []).map((row) => String(row.source_message_id)));
         const ingressBySid = new Map();
         for (const ingress of ingressRows ?? []) {
           if (ingress.channel !== "twilio") continue;
@@ -730,7 +830,13 @@ function feedConfigs() {
         }
         return mapBounded(rows, MAX_ORIGINAL_RPC_CONCURRENCY, async (row) => {
           const sid = String(row.message_sid ?? "");
+          const receipt = receiptBySid.get(sid);
           if (row.direction === "inbound" && receiptSids.has(sid)) {
+            if (receipt.status === "completed" && receipt.manager_user_id &&
+                receipt.manager_user_id !== row.manager_user_id && !ingressSids.has(sid)) {
+            const retained = await resolveRetainedHistoricalSource(db, "manager_sms_messages", row.id);
+            if (retained) return retainedHistoricalCandidate(retained, "manager_sms_messages", row);
+            }
             await resolveInboundOriginal(db, sid, ingressBySid.get(sid) ?? String(row.manager_user_id));
           }
           return { ...await candidateFromRow(db, "manager_sms_messages", row, {

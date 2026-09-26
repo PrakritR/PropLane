@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SMS pagination P2 correction handoff</title>
+<style>body{max-width:860px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui;color:#17202b}code{background:#eff2f6;padding:2px 4px}li{margin:8px 0}</style>
+<h1>SMS pagination P2 correction</h1>
+<p>26 September 2026. Implemented in the AXIS-2-sms-release worktree.</p>
+<p>A refreshed SMS head now retains loaded older pages and their cursor only when a stable row or message ID overlaps the loaded window. If no ID overlaps, all four affected surfaces use the fresh head and its continuation cursor. This makes the first omitted turn or conversation reachable again, including when the old cursor was null.</p>
+<ul>
+  <li>Manager SMS panel conversation list and transcript: <code>src/components/portal/pro-sms-panel.tsx</code></li>
+  <li>Resident detail transcript: <code>src/components/portal/pro-resident-detail-inbox.tsx</code></li>
+  <li>Unified inbox conversation list: <code>src/components/portal/pro-unified-inbox.tsx</code></li>
+  <li>Shared ID overlap and cursor rule: <code>src/lib/sms-paged-head.ts</code></li>
+</ul>
+<p>The unified inbox retains pending optimistic contacts across a head reset. Existing selection and projection state checks remain in place. Equal timestamps are compared by stable IDs, and transcript ordering still uses timestamp then ID.</p>
+<p>Focused regression fixtures cover a 50-turn window followed by 51 new turns, a 40-conversation window followed by 41 new conversations, normal overlap, and equal-timestamp IDs. Tests on pinned Node 22.23.0: 3 files, 10 tests passed, exit 0. Focused ESLint: exit 0 with 39 existing warnings and no errors.</p>
+<p>No browser, database, broad suite, build, or ship operation was run. The repository's requested graph refresh was attempted: <code>npx graphify hook-rebuild</code> had no executable, and the installed <code>graphify</code> command did not recognize <code>hook-rebuild</code>. Graph artifacts were not refreshed.</p>
+</html>

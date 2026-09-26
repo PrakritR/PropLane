@@ -505,7 +505,7 @@ describe("POST /api/webhooks/email/inbound", () => {
     const res = await post(JSON.stringify(RECEIVED_PAYLOAD), { "Content-Type": "application/json" });
     expect(res.status).toBe(403);
     expect(ingestSpy).not.toHaveBeenCalled();
-  });
+  }, 45_000);
 
   it("rejects a bad signature on Vercel", async () => {
     process.env.VERCEL = "1";

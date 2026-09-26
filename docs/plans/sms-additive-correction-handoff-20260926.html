@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SMS additive correction handoff</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#17202b}h1,h2{line-height:1.25}code{background:#edf1f4;padding:.1em .3em;overflow-wrap:anywhere}li{margin:.45em 0}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd3da;padding:9px;text-align:left;vertical-align:top}</style>
+<body>
+<h1>SMS additive correction handoff</h1>
+<p>26 September 2026. Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code>. This handoff addresses the two P2 findings in the independent SMS additive review and its bounded lower-priority observations. No database migration was applied by this correction worker.</p>
+<h2>Corrections</h2>
+<ul>
+<li>Projection-ID deletion now authorizes the exact projection detail at delete permission and takes the owner from that scoped result. A retained conversation with no counterparty phone can be deleted. Legacy deletion still requires a valid phone, and a supplied phone on a projection request must match its detail.</li>
+<li>The direct SMS panel sends confirmed archive/restore versions and deleted projection IDs to the parent reconciliation path. Conflicts and failed mutations send exact detail reconciliation IDs. The parent keeps already loaded pages and neighbors while updating folder membership and next expected version.</li>
+<li>Panel and bulk actions capture viewer and workspace generations when the action starts. A delayed result from an A-B-A viewer or workspace switch cannot mutate the new list.</li>
+<li>The backfill calls the retained resolver only for completed, receipt-backed owner mismatches with no ingress row. SQL remains the final authority. The eighth SQL retry path uses null-safe comparisons and checks archive metadata, phone, alias, event count and summary fields.</li>
+</ul>
+<h2>Exact migration pin</h2>
+<p>Eighth migration <code>20260926190000_sms_retained_historical_source.sql</code> and its release runner now pin SHA-256 <code>a829b4cf30cebc57e50ca486318e7751cf6823ff3c451e9d3038d6c267eba0f6</code>. The seven applied SQL files were not edited. The ninth migration was not edited. A prior positive SQL probe used the old eighth hash and must be rerun against this exact source before apply.</p>
+<h2>Focused validation</h2>
+<table><tr><th>Check</th><th>Result</th></tr>
+<tr><td>Six focused Vitest files on Node 22.23.0, one worker, 768 MB heap</td><td>27 tests passed, exit 0. Includes actual panel actions from a second-page fixture, null-phone deletion through the route, legacy phone guard, owner grant refusal, deferred A-B-A viewer/workspace changes and retained backfill prefilter.</td></tr>
+<tr><td>Two inbox integration files after clearing their module snapshot cache between tests</td><td>42 tests passed, exit 0. The earlier archived first-row order failure and duplicated selected transcript came from cross-test snapshot state; each test now begins with a fresh manager inbox snapshot.</td></tr>
+<tr><td>Targeted ESLint on changed TypeScript files</td><td>Exit 0; 0 errors and 32 warnings in the existing component/hook surface.</td></tr>
+<tr><td>Git whitespace check on changed source</td><td>Exit 0.</td></tr></table>
+<h2>Remaining release gates</h2>
+<p>The release owner must rerun the eighth SQL positive and negative probes with the new hash, complete the tenth gap runner and real database evidence, run one coordinated whole-project validation, exercise real owner and co-manager product paths, and perform staging QA and the repository ship gates. This correction has not promoted a branch or changed a database.</p>
+</body></html>

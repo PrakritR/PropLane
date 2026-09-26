@@ -15,6 +15,7 @@ import {
   type SmsProjectionViewState,
 } from "@/lib/sms/sms-projection.server";
 import { resolveViewerWorkNumber } from "@/lib/sms/manager-workspace-role.server";
+import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 
 const PAGE_SIZE = 40;
 
@@ -313,7 +314,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
   const line = summary.workLinePhone;
   if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], lines: line ? [line] : [] })) return null;
   const page = await getSmsProjectionTurns(db, { ownerManagerUserId: summary.ownerManagerUserId, conversationId, before: before ?? undefined, limit: 50 });
-  const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && turn.sourceEventId.startsWith("SM")).map((turn) => turn.sourceEventId))];
+  const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && isTwilioMessageSid(turn.sourceEventId)).map((turn) => turn.sourceEventId))];
   const { data: outboxRows, error: outboxError } = outboundSids.length
     ? await db.from("sms_outbox").select("provider_message_sid,actor_user_id").eq("manager_user_id", summary.ownerManagerUserId).in("provider_message_sid", outboundSids)
     : { data: [], error: null };

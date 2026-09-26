@@ -277,8 +277,8 @@ describe("managed Twilio inbound retry", () => {
       ownerManagerUserId: canonicalOwner, counterpartyRole: "prospect", identityKey: "phone:+12065552222",
     }));
   });
-  it("repairs a manager-log source intent from the saved row without sending again", async () => {
-    const sid = "SM11111111111111111111111111111111";
+  it.each(["SM", "MM"])("repairs a %s manager-log source intent from the saved row without sending again", async (prefix) => {
+    const sid = `${prefix}${"1".repeat(32)}`;
     mocks.managerLog = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", manager_user_id: OWNER,
       resident_user_id: null, resident_phone: "+12065552222", direction: "outbound",
@@ -634,7 +634,7 @@ describe("managed Twilio inbound retry", () => {
   it.each(["receipt", "queued producer", "manager row intent"] as const)(
     "proves the %s inbound entry path with a distinct receipt holder, then reconstructs or acknowledges",
     async (path) => {
-      const sid = "SM-cross-holder";
+      const sid = `MM${"a".repeat(32)}`;
       const at = "2026-09-25T12:00:00.123456Z";
       const holder = "22222222-2222-4222-8222-222222222222";
       const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

@@ -7,7 +7,7 @@
 // present in Archived even after a full reload (a fresh fetch of the
 // server's own rows, not just the optimistic local write).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
@@ -75,7 +75,11 @@ describe("archiving a resident placeholder", () => {
         },
       };
     });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify(
+      String(input).includes("/api/manager/sms-conversations")
+        ? { residents: [], nextCursor: null }
+        : {},
+    ), { status: 200 })));
   });
 
   afterEach(() => {
@@ -92,7 +96,8 @@ describe("archiving a resident placeholder", () => {
         filterContacts={[CONTACT]}
       />,
     );
-    await waitFor(() => expect(screen.getByText("Atlas Sebastien Bailly")).toBeTruthy(), { timeout: 10000 });
+    await waitFor(() => expect(within(document.querySelector('[data-communication-inbox-list]') as HTMLElement)
+      .getAllByText("Atlas Sebastien Bailly").length).toBeGreaterThan(0), { timeout: 10000 });
 
     const { archivePlaceholderContactThread } = await import("@/lib/communication-inbox-thread-mutations");
     await act(async () => {
@@ -133,9 +138,8 @@ describe("archiving a resident placeholder", () => {
       />,
     );
     await waitFor(() => expect(screen.queryByText("Loading conversations…")).toBeNull(), { timeout: 10000 });
-    console.log("ARCHIVED_SERVERROWS", JSON.stringify(serverRows));
-    console.log("ARCHIVED_LIST", document.querySelector('[data-communication-inbox-list]')?.innerHTML);
-    await waitFor(() => expect(screen.getByText("Atlas Sebastien Bailly")).toBeTruthy(), { timeout: 10000 });
+    await waitFor(() => expect(within(document.querySelector('[data-communication-inbox-list]') as HTMLElement)
+      .getAllByText("Atlas Sebastien Bailly").length).toBeGreaterThan(0), { timeout: 10000 });
     archivedView.unmount();
   }, 180000);
 });

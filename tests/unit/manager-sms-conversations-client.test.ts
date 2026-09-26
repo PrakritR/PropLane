@@ -109,7 +109,7 @@ describe("loadManagerSmsConversationsClient", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await expect(second.json()).resolves.toEqual({ residents: [{ conversationKey: "ttl-a", messages: [] }] });
-    expect(first).not.toBe(second);
+    expect(first === second).toBe(false);
   });
 
   it("force always starts a fresh fetch even inside the TTL window", async () => {
@@ -134,5 +134,28 @@ describe("loadManagerSmsConversationsClient", () => {
     await loadManagerSmsConversationsClient("viewer-ttl-invalidate");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches each cursor separately and invalidates every page for one workspace", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(payload("head"))
+      .mockResolvedValueOnce(payload("older-a"))
+      .mockResolvedValueOnce(payload("older-b"))
+      .mockResolvedValueOnce(payload("fresh-a"));
+    setPortalSessionViewer("viewer-pages");
+
+    await loadManagerSmsConversationsClient("viewer-pages", false, "workspace-a");
+    await loadManagerSmsConversationsClient("viewer-pages", false, "workspace-a", "cursor-a");
+    await loadManagerSmsConversationsClient("viewer-pages", false, "workspace-a", "cursor-b");
+    const cached = await loadManagerSmsConversationsClient("viewer-pages", false, "workspace-a", "cursor-a");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/manager/sms-conversations?before=cursor-a", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/manager/sms-conversations?before=cursor-b", expect.anything());
+    await expect(cached.json()).resolves.toEqual({ residents: [{ conversationKey: "older-a", messages: [] }] });
+
+    invalidateManagerSmsConversationsClient("viewer-pages", "workspace-a");
+    const fresh = await loadManagerSmsConversationsClient("viewer-pages", false, "workspace-a", "cursor-a");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await expect(fresh.json()).resolves.toEqual({ residents: [{ conversationKey: "fresh-a", messages: [] }] });
   });
 });

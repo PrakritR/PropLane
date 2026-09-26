@@ -424,6 +424,14 @@ describe("PRP-470 initial Communication readiness", () => {
 
   it("shows a retryable load error and recovers on retry", async () => {
     let calls = 0;
+    let smsCalls = 0;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/api/manager/sms-conversations")) {
+        smsCalls += 1;
+        return Promise.resolve(Response.json({ residents: [] }));
+      }
+      return Promise.resolve(Response.json({}));
+    });
     vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
       loadPersistedInbox: () => [],
@@ -447,14 +455,13 @@ describe("PRP-470 initial Communication readiness", () => {
     const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" onAddConversation={() => {}} />);
 
-    await act(async () => smsResult.resolve(Response.json({ residents: [] })));
-
     await waitFor(() => expect(screen.getByText("Could not load conversations.")).toBeTruthy());
     expect(screen.queryByRole("button", { name: /add conversation/i })).toBeNull();
     await act(async () => {
       screen.getByRole("button", { name: /retry/i }).click();
     });
     await waitFor(() => expect(screen.getByText("Recovered resident")).toBeTruthy());
+    expect(smsCalls).toBe(2);
     expect(screen.queryByText("Could not load conversations.")).toBeNull();
   });
 
@@ -802,6 +809,7 @@ describe("PRP-470 initial Communication readiness", () => {
     const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
 
     const first = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
+    await act(async () => smsResult.resolve(Response.json({ residents: [] })));
     await waitFor(() => expect(screen.getByText("Snapshot resident")).toBeTruthy());
     expect(inboxCalls).toBe(1);
     first.unmount();

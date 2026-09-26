@@ -275,14 +275,14 @@ export function ManagerUnifiedInbox({
   const [smsResidents, setSmsResidents] = useState<ManagerSmsResidentConversation[]>([]);
   const [smsListVersion, setSmsListVersion] = useState(0);
   const [smsNextCursor, setSmsNextCursor] = useState<string | null>(null);
-  // A first-page poll changes its continuation token. Only an appended page
-  // may advance the oldest loaded boundary.
+  // A fresh head starts a new paging window because conversation recency can
+  // reorder rows; an append advances only that window's continuation.
   const oldestSmsCursorRef = useRef<string | null>(null);
+  const smsListWindowGenerationRef = useRef(0);
   const [smsLoadingMore, setSmsLoadingMore] = useState(false);
   const [smsPageError, setSmsPageError] = useState<string | null>(null);
   const [smsOpenedIds, setSmsOpenedIds] = useState<Set<string>>(() => new Set());
   const smsOpenedIdsRef = useRef(smsOpenedIds);
-  const firstSmsPageIdsRef = useRef(new Set<string>());
   const deletedSmsProjectionIdsRef = useRef(new Set<string>());
   const [smsHiddenIds, setSmsHiddenIds] = useState<Set<string>>(() => loadSmsHiddenIds());
   const [smsArchivedIds, setSmsArchivedIds] = useState<Set<string>>(() => loadManagerSmsArchivedIds());
@@ -352,7 +352,6 @@ export function ManagerUnifiedInbox({
     // a previous viewer's contact metadata or authorization state forward.
     setSmsResidents([]);
     deletedSmsProjectionIdsRef.current.clear();
-    firstSmsPageIdsRef.current = new Set();
     oldestSmsCursorRef.current = null;
     setSmsNextCursor(null);
     setSmsPageError(null);
@@ -369,7 +368,6 @@ export function ManagerUnifiedInbox({
     smsWorkspaceEpochRef.current += 1;
     setSmsResidents([]);
     deletedSmsProjectionIdsRef.current.clear();
-    firstSmsPageIdsRef.current = new Set();
     oldestSmsCursorRef.current = null;
     setSmsNextCursor(null);
     setSmsPageError(null);
@@ -443,6 +441,7 @@ export function ManagerUnifiedInbox({
 
   const loadSms = useCallback(async ({ force = false, initialGeneration, cursor, append = false }: { force?: boolean; initialGeneration?: number; cursor?: string | null; append?: boolean } = {}): Promise<boolean> => {
     const requestViewerEpoch = viewerEpochRef.current;
+    const requestedWindowGeneration = smsListWindowGenerationRef.current;
     const requestViewerId = viewerId;
     const requestWorkspaceId = workspaceIdentity.id;
     if (smsPollHaltedRef.current) return false;
@@ -481,20 +480,20 @@ export function ManagerUnifiedInbox({
       if (
         viewerEpochRef.current !== requestViewerEpoch ||
         currentSmsWorkspaceIdRef.current !== requestWorkspaceId ||
+        (append && requestedWindowGeneration !== smsListWindowGenerationRef.current) ||
         (initialGeneration !== undefined && initialGeneration !== initialLoadGeneration.current)
       ) {
         return false;
       }
       const normalized = normalizeManagerSmsConversationsPayload(body);
-      if (append || oldestSmsCursorRef.current === null && firstSmsPageIdsRef.current.size === 0) {
-        oldestSmsCursorRef.current = normalized.nextCursor ?? null;
-        setSmsNextCursor(oldestSmsCursorRef.current);
-      }
+      const server = normalized.residents.filter((row) => !row.projectionId || !deletedSmsProjectionIdsRef.current.has(row.projectionId));
+      if (!append) smsListWindowGenerationRef.current += 1;
+      oldestSmsCursorRef.current = normalized.nextCursor ?? null;
+      setSmsNextCursor(oldestSmsCursorRef.current);
       mirrorManagerSmsArchivedFromServer(normalized.residents);
       setSmsArchivedIds(loadManagerSmsArchivedIds());
       setSmsResidents((current) => {
         if (smsResidentsViewerEpochRef.current !== requestViewerEpoch) return current;
-        const server = normalized.residents.filter((row) => !row.projectionId || !deletedSmsProjectionIdsRef.current.has(row.projectionId));
         const serverKeys = new Set(
           server.flatMap((row) =>
             [row.conversationKey, ...(row.memberKeys ?? [])].filter(
@@ -522,16 +521,12 @@ export function ManagerUnifiedInbox({
           }
           return [...byId.values()];
         }
-        // A new head event can push the previous first-page tail out of the
-        // refreshed page while it still lies ahead of our oldest-page cursor.
-        // Keep every loaded row until an explicit delete/scope reset removes it.
-        const loadedOlderPages = current.filter((row) =>
-          !server.some((fresh) => smsConversationId(fresh) === smsConversationId(row)),
-        );
-        firstSmsPageIdsRef.current = new Set(server.map(smsConversationId));
+        // Conversation recency is mutable. An old row can move into the new
+        // head while an entire middle page is still missing, so every head
+        // refresh starts a new authorized pagination window.
         const currentById = new Map(current.map((row) => [smsConversationId(row), row]));
         const unique = new Map<string, ManagerSmsResidentConversation>();
-        for (const row of [...pendingOptimistic, ...server, ...loadedOlderPages]) {
+        for (const row of [...pendingOptimistic, ...server]) {
           const id = smsConversationId(row);
           const previous = currentById.get(id);
           unique.set(id, previous && previous.projectionId &&

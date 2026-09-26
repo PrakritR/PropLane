@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { noticeRpcMemory } from "./sms-notice-rpc-memory";
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
@@ -18,7 +19,7 @@ import { buildConversationKey } from "@/lib/sms-conversation-identity";
 type ThreadRow = { id: string; owner_user_id: string; scope: string; thread_type: string; row_data: Record<string, unknown>; updated_at: string };
 type ControlRow = { manager_user_id: string; conversation_key: string; archived: boolean; updated_at: string };
 
-function makeDb(threadSeed: ThreadRow[], controlSeed: ControlRow[]) {
+function makeDb(threadSeed: ThreadRow[], controlSeed: ControlRow[], options?: { failControlWrite?: () => boolean }) {
   const threads = new Map<string, ThreadRow>(threadSeed.map((r) => [r.id, structuredClone(r)]));
   const controls = new Map<string, ControlRow>(
     controlSeed.map((r) => [`${r.manager_user_id}\0${r.conversation_key}`, structuredClone(r)]),
@@ -108,6 +109,7 @@ function makeDb(threadSeed: ThreadRow[], controlSeed: ControlRow[]) {
   }
 
   const db = {
+    rpc: noticeRpcMemory(threads, controls, options),
     from(table: string) {
       return table === "manager_tour_followup_controls" ? controlsTable() : threadTable();
     },
@@ -162,6 +164,36 @@ function controlRowFor(role: "resident" | "applicant" | "prospect" | "vendor" | 
 }
 
 describe("upsertManagerInboxNotice reopening clears manager_tour_followup_controls", () => {
+  it("rolls back a failed control write, then retries the same SID exactly once", async () => {
+    const control = controlRowFor("resident");
+    let fail = true;
+    const { db, threads, controls } = makeDb([seedArchivedThread()], [control], { failControlWrite: () => fail });
+    const delivery = { ...args, body: "New inbound text", messageId: "sid-retry" };
+    await expect(upsertManagerInboxNotice(db, delivery)).rejects.toThrow("Could not append");
+    const threadId = seedArchivedThread().id;
+    expect(threads.get(threadId)!.row_data.folder).toBe("trash");
+    expect(threads.get(threadId)!.row_data.messages).toEqual([]);
+    expect(controls.get(`${MANAGER}\0${control.conversation_key}`)!.archived).toBe(true);
+    fail = false;
+    await upsertManagerInboxNotice(db, delivery);
+    await upsertManagerInboxNotice(db, delivery);
+    expect((threads.get(threadId)!.row_data.messages as unknown[])).toHaveLength(1);
+    expect(threads.get(threadId)!.row_data.folder).toBe("inbox");
+    expect(controls.get(`${MANAGER}\0${control.conversation_key}`)!.archived).toBe(false);
+  });
+
+  it("does not undo a later manager archive when the same SID is replayed", async () => {
+    const control = controlRowFor("resident");
+    const { db, threads, controls } = makeDb([seedArchivedThread()], [control]);
+    const delivery = { ...args, body: "New inbound text", messageId: "sid-once" };
+    await upsertManagerInboxNotice(db, delivery);
+    const thread = threads.get(seedArchivedThread().id)!;
+    threads.set(thread.id, { ...thread, row_data: { ...thread.row_data, folder: "trash" } });
+    controls.get(`${MANAGER}\0${control.conversation_key}`)!.archived = true;
+    await upsertManagerInboxNotice(db, delivery);
+    expect(threads.get(thread.id)!.row_data.folder).toBe("trash");
+    expect(controls.get(`${MANAGER}\0${control.conversation_key}`)!.archived).toBe(true);
+  });
   it("clears the controls archived flag when an inbound text reopens the notice", async () => {
     const controlRow = controlRowFor("resident");
     const { db, threads, controls } = makeDb([seedArchivedThread()], [controlRow]);

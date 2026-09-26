@@ -12,6 +12,7 @@ const {
   sourceNamespace,
   feedMayRunAfter,
   eventMatchesStored,
+  isExactInboundMirrorOfOriginal,
   retainedHistoricalUnplacedIdentity,
   isCleanCutoverInventory,
 } = await import(backfillUrl.href);
@@ -109,6 +110,47 @@ describe("SMS projection backfill safety", () => {
     expect(eventMatchesStored({ ...existing, identity_kind: "phone", identity_key: "phone:+14155550123", counterparty_phone: "+14155550123" }, {
       ...event, counterpartyPhone: "+14155550124", identityKind: "user", identityKey: "user:person-a", counterpartyUserId: "person-a",
     }, { allowIdentityEnrichment: true })).toBe(false);
+  });
+
+  it("accounts for an inbound mirror's later write time only with exact original-provider proof", () => {
+    const sid = `MM${"a".repeat(32)}`;
+    const event = {
+      ownerManagerUserId: "owner", counterpartyRole: "prospect", workLineId: "line",
+      identityKind: "phone", identityKey: "phone:+14155550123", counterpartyUserId: null,
+      body: "original", direction: "inbound", occurredAt: "2026-09-25T12:00:01Z",
+      fromPhone: "+14155550123", toPhone: "+14155550999",
+      sourceRef: { table: "manager_sms_messages", id: "mirror", providerEventId: sid },
+    };
+    const existing = {
+      owner_manager_user_id: "owner", counterparty_role: "prospect", work_line_id: "line",
+      identity_kind: "phone", identity_key: "phone:+14155550123", counterparty_user_id: null,
+      body: "original", direction: "inbound", occurred_at: "2026-09-25T12:00:00Z",
+      from_phone: "+14155550123", to_phone: "+14155550999",
+      source_ref: { table: "inbound_sms_log", id: "original", providerEventId: sid },
+    };
+    const candidate = { sourceTable: "manager_sms_messages", providerLookupId: sid };
+    expect(eventMatchesStored(existing, event)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, event, candidate)).toBe(true);
+    expect(isExactInboundMirrorOfOriginal({ ...existing, body: "changed" }, event, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal({ ...existing, owner_manager_user_id: "other" }, event, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, { ...event, fromPhone: "+14155550124" }, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, event, { ...candidate, providerLookupId: `MM${"b".repeat(32)}` })).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, event, { ...candidate, sourceTable: "sms_relay_messages" })).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, { ...event, workLineId: "other-line" }, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, { ...event, identityKey: "phone:+14155550124" }, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, { ...event, sourceRef: { ...event.sourceRef, providerEventId: `MM${"b".repeat(32)}` } }, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal(existing, { ...event, direction: "outbound" }, candidate)).toBe(false);
+    for (const badSid of [`MM${"g".repeat(32)}`, `MM${"a".repeat(31)}`, `SM${"a".repeat(33)}`, "PM" + "a".repeat(32)]) {
+      expect(isExactInboundMirrorOfOriginal({ ...existing, source_ref: { ...existing.source_ref, providerEventId: badSid } },
+        { ...event, sourceRef: { ...event.sourceRef, providerEventId: badSid } },
+        { ...candidate, providerLookupId: badSid })).toBe(false);
+    }
+    const smsSid = `SM${"a".repeat(32)}`;
+    expect(isExactInboundMirrorOfOriginal(
+      { ...existing, source_ref: { ...existing.source_ref, providerEventId: smsSid } },
+      { ...event, sourceRef: { ...event.sourceRef, providerEventId: smsSid } },
+      { ...candidate, providerLookupId: smsSid },
+    )).toBe(true);
   });
 
   it("does not call an incomplete or unresolved inventory clean", () => {

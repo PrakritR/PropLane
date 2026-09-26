@@ -1,4 +1,5 @@
 "use client";
+import { refreshedPageCursor } from "@/lib/sms-paged-head";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Archive, Pencil, Trash2 } from "lucide-react";
@@ -324,6 +325,13 @@ export function ResidentDirectChatPane({
         }
         setProjectionPages((current) => {
           const previous = current[id];
+          if (!previous || !refreshedPageCursor(detail.messages!, previous.messages, detail.nextCursor, previous.nextCursor, (message) => message.id).overlaps) {
+            return { ...current, [id]: {
+              messages: [...detail.messages!].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
+              nextCursor: detail.nextCursor ?? null,
+              resident: detail.resident!,
+            } };
+          }
           const byId = new Map([...(previous?.messages ?? []), ...detail.messages!].map((message) => [message.id, message]));
           return { ...current, [id]: {
             messages: [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),

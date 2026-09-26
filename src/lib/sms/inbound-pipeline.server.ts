@@ -45,6 +45,7 @@ import {
 import { projectManagerSmsEvent } from "@/lib/sms/project-manager-sms-event.server";
 import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.server";
 import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
+import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
@@ -352,7 +353,7 @@ async function hydrateManagerLogRetry(
   const fromPhone = row.from_phone ? String(row.from_phone) : null;
   const toPhone = row.to_phone ? String(row.to_phone) : null;
   const body = String(row.body ?? "");
-  if (!sid.startsWith("SM") || !["inbound", "outbound"].includes(direction) ||
+  if (!isTwilioMessageSid(sid) || !["inbound", "outbound"].includes(direction) ||
       !Number.isFinite(Date.parse(occurredAt)) || !toPhone) {
     throw new Error("manager_log_envelope_invalid");
   }

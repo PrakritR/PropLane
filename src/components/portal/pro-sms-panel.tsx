@@ -12,6 +12,7 @@ import {
 } from "react";
 import { ChevronLeft, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
@@ -181,6 +182,7 @@ export const ManagerSmsPanel = forwardRef<
     onControlledActiveIdChange?: (id: string | null) => void;
     onConversationOpened?: () => void;
     onProjectionStateChanged?: () => void;
+    onProjectionMutationStart?: () => (mutation: import("@/hooks/use-unified-communication-bulk").SmsBulkMutation) => void;
     /** When embedded in unified Communication — drives archive/restore chrome. */
     listSegment?: InboxListSegment;
     /** Fires after archive or restore so the parent list can refresh. */
@@ -206,6 +208,7 @@ export const ManagerSmsPanel = forwardRef<
     onControlledActiveIdChange,
     onConversationOpened,
     onProjectionStateChanged,
+    onProjectionMutationStart,
     listSegment = "active",
     onArchived,
     pageScroll = false,
@@ -231,6 +234,7 @@ export const ManagerSmsPanel = forwardRef<
   useEffect(() => { controlledSelectionCallbackRef.current = onControlledActiveIdChange; }, [onControlledActiveIdChange]);
   const markingReadRef = useRef(new Set<string>());
   const historyRequestRef = useRef(0);
+  const listWindowGenerationRef = useRef(0);
   const [threadRetry, setThreadRetry] = useState(0);
   const [listLoadingMore, setListLoadingMore] = useState(false);
   const [listPageError, setListPageError] = useState<string | null>(null);
@@ -314,6 +318,7 @@ export const ManagerSmsPanel = forwardRef<
 
   const load = useCallback(async (opts?: { quiet?: boolean; cursor?: string | null; append?: boolean }) => {
     const requestedScope = scopeKey;
+    const requestedWindowGeneration = listWindowGenerationRef.current;
     if (!opts?.quiet) setLoading(true);
     setError(null);
     if (opts?.append) {
@@ -328,16 +333,18 @@ export const ManagerSmsPanel = forwardRef<
       const body = (await res.json()) as ManagerSmsConversationsPayload & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not load SMS.");
       if (scopeRef.current !== requestedScope) return;
+      if (opts?.append && requestedWindowGeneration !== listWindowGenerationRef.current) return;
       const normalized = normalizeManagerSmsConversationsPayload(body);
+      if (!opts?.append) listWindowGenerationRef.current += 1;
       setData((current) => {
-        if ((!opts?.append && !opts?.quiet) || !current) return normalized;
+        if (!opts?.append || !current) return normalized;
         const byId = new Map(current.residents.map((resident) => [conversationId(resident), resident]));
         for (const resident of normalized.residents) {
           const id = conversationId(resident);
           const previous = byId.get(id);
           byId.set(id, previous ? { ...previous, ...resident } : resident);
         }
-        return { ...normalized, residents: [...byId.values()], nextCursor: opts?.append ? normalized.nextCursor : current.nextCursor };
+        return { ...normalized, residents: [...byId.values()], nextCursor: normalized.nextCursor };
       });
       if (opts?.quiet && !opts.append) setListRefreshVersion((version) => version + 1);
     } catch (e) {
@@ -558,6 +565,9 @@ export const ManagerSmsPanel = forwardRef<
       const latestMessages = Array.isArray(body.messages) ? body.messages : [];
       setThreadPages((current) => {
         const prior = current[projectionId]?.messages ?? [];
+        if (!refreshedPageCursor(latestMessages, prior, body.nextCursor, current[projectionId]?.nextCursor ?? null, (message) => message.id).overlaps) {
+          return { ...current, [projectionId]: { messages: [...latestMessages].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)), nextCursor: body.nextCursor ?? null } };
+        }
         const byId = new Map([...prior, ...latestMessages].map((message) => [message.id, message]));
         const messages = [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
         return { ...current, [projectionId]: { messages, nextCursor: current[projectionId] ? current[projectionId]!.nextCursor : body.nextCursor ?? null } };
@@ -727,6 +737,7 @@ export const ManagerSmsPanel = forwardRef<
   const archiveConversation = useCallback(
     async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
+      const reportMutation = onProjectionMutationStart?.();
       if (resident.projectionId && Number.isFinite(resident.stateVersion)) {
         try {
           const response = await updateManagerSmsConversationStateClient({
@@ -735,20 +746,23 @@ export const ManagerSmsPanel = forwardRef<
             expectedVersion: resident.stateVersion!,
           });
           if (response.status === 409) {
+            reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
             showToast("This conversation changed. Refreshing its status.");
             void load({ quiet: true });
             return;
           }
           if (!response.ok) throw new Error("Could not archive conversation.");
           const body = await response.json().catch(() => ({})) as { version?: number };
+          if (!Number.isSafeInteger(body.version)) throw new Error("Conversation state is unavailable.");
           setData((current) => current ? {
             ...current,
             residents: current.residents.map((row) => row.projectionId === resident.projectionId
               ? { ...row, archived: true, stateVersion: Number.isFinite(body.version) ? body.version : row.stateVersion }
               : row),
           } : current);
-          onProjectionStateChanged?.();
+          reportMutation?.({ updated: [{ projectionId: resident.projectionId, archived: true, version: body.version! }], deleted: [], reconcile: [] });
         } catch (error) {
+          reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
           showToast(error instanceof Error ? error.message : "Could not archive conversation.");
           return;
         }
@@ -764,12 +778,13 @@ export const ManagerSmsPanel = forwardRef<
       onArchived?.();
       showToast("Moved to archived.");
     },
-    [load, onArchived, onProjectionStateChanged, setActiveId, showToast],
+    [load, onArchived, onProjectionMutationStart, setActiveId, showToast],
   );
 
   const restoreConversation = useCallback(
     async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
+      const reportMutation = onProjectionMutationStart?.();
       if (resident.projectionId && Number.isFinite(resident.stateVersion)) {
         try {
           const response = await updateManagerSmsConversationStateClient({
@@ -778,20 +793,23 @@ export const ManagerSmsPanel = forwardRef<
             expectedVersion: resident.stateVersion!,
           });
           if (response.status === 409) {
+            reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
             showToast("This conversation changed. Refreshing its status.");
             void load({ quiet: true });
             return;
           }
           if (!response.ok) throw new Error("Could not restore conversation.");
           const body = await response.json().catch(() => ({})) as { version?: number };
+          if (!Number.isSafeInteger(body.version)) throw new Error("Conversation state is unavailable.");
           setData((current) => current ? {
             ...current,
             residents: current.residents.map((row) => row.projectionId === resident.projectionId
               ? { ...row, archived: false, stateVersion: Number.isFinite(body.version) ? body.version : row.stateVersion }
               : row),
           } : current);
-          onProjectionStateChanged?.();
+          reportMutation?.({ updated: [{ projectionId: resident.projectionId, archived: false, version: body.version! }], deleted: [], reconcile: [] });
         } catch (error) {
+          reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
           showToast(error instanceof Error ? error.message : "Could not restore conversation.");
           return;
         }
@@ -807,13 +825,14 @@ export const ManagerSmsPanel = forwardRef<
       onArchived?.();
       showToast("Restored.");
     },
-    [load, onArchived, onProjectionStateChanged, setActiveId, showToast],
+    [load, onArchived, onProjectionMutationStart, setActiveId, showToast],
   );
 
   const deleteConversation = useCallback(
     async (resident: ManagerSmsResidentConversation) => {
       const phone = resident.phone?.trim();
-      if (!phone) {
+      const reportMutation = onProjectionMutationStart?.();
+      if (!phone && !resident.projectionId) {
         showToast("No phone on this conversation.");
         return;
       }
@@ -843,10 +862,12 @@ export const ManagerSmsPanel = forwardRef<
         });
         const body = (await res.json().catch(() => ({}))) as { error?: string; partial?: boolean };
         if (!res.ok) {
+          if (resident.projectionId) reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
           showToast(body.error ?? "Could not delete conversation.");
           return;
         }
         if (body.partial) {
+          if (resident.projectionId) reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
           // Part of the thread is already gone but part remains — hiding the
           // row would claim a completeness the server did not deliver.
           showToast(body.error ?? "Some texts could not be deleted. Try again.");
@@ -859,16 +880,18 @@ export const ManagerSmsPanel = forwardRef<
           persistHiddenConversationIds(next);
           return next;
         });
+        if (resident.projectionId) reportMutation?.({ updated: [], deleted: [resident.projectionId], reconcile: [] });
         if (activeId === rowId) setActiveId(null);
         showToast("Conversation deleted.");
         void load();
       } catch {
+        if (resident.projectionId) reportMutation?.({ updated: [], deleted: [], reconcile: [resident.projectionId] });
         showToast("Could not delete conversation.");
       } finally {
         setDeletingId(null);
       }
     },
-    [activeId, endpoint, load, showToast],
+    [activeId, endpoint, load, onProjectionMutationStart, showToast],
   );
 
   const deleteSavedContact = useCallback(

@@ -15,7 +15,8 @@ const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 type Row = Record<string, unknown>;
-function fixture({ failLog = false, missingOriginal = false, payloadOnly = false, badPayload = false, pendingLog = false } = {}) {
+function fixture({ failLog = false, missingOriginal = false, payloadOnly = false, badPayload = false, pendingLog = false,
+  retained = false, retainedLookupError = false } = {}) {
   const tables: Record<string, Row[]> = {
     prospect_sms_ingress: [{ source_message_id: SID, manager_user_id: B, channel: "twilio",
       body: Array.from(BODY.trim()).slice(0, 2000).join(""), received_at: "2026-09-25T12:00:08.000Z", burst_id: "burst-1", burst_revision: 1 }],
@@ -45,7 +46,22 @@ function fixture({ failLog = false, missingOriginal = false, payloadOnly = false
     }
     tables.portal_workspaces[0].owner_user_id = A;
   }
+  if (retained) {
+    tables.prospect_sms_ingress = [];
+    tables.prospect_sms_bursts = [];
+    tables.manager_sms_numbers = [];
+    tables.inbound_sms_log[0].manager_user_id = B;
+    tables.inbound_sms_log[0].created_at = "2026-09-02T20:20:41.259580Z";
+    tables.inbound_sms_log[0].conversation_key = `${B}:prospect:${FROM}`;
+    tables.manager_sms_messages = [{ id: "44444444-4444-4444-8444-444444444444", manager_user_id: B,
+      resident_user_id: null, resident_phone: FROM, direction: "inbound", body: BODY,
+      from_phone: FROM, to_phone: TO, message_sid: SID, source: "work_number",
+      created_at: "2026-09-02T20:20:41.117906Z", counterparty_role: "prospect", conversation_key: `${B}:prospect:${FROM}` }];
+    tables.sms_inbound_receipts[0].first_received_at = "2026-09-02T20:20:40.000000Z";
+  }
   let originalCalls = 0;
+  let retainedImports = 0;
+  let retainedLookups = 0;
   const db = {
     from(table: string) {
       const conditions: Array<(row: Row) => boolean> = [];
@@ -74,6 +90,39 @@ function fixture({ failLog = false, missingOriginal = false, payloadOnly = false
       return q;
     },
     async rpc(name: string, args: Row) {
+      if (name === "resolve_sms_retained_historical_source") {
+        retainedLookups += 1;
+        if (retainedLookupError) return { data: null, error: { code: "P0001" } };
+        if (!retained) return { data: { eligible: false, reason: "fingerprint_mismatch" }, error: null };
+        return { data: { eligible: true, sourceTable: "inbound_sms_log", sourceId: tables.inbound_sms_log[0].id,
+          mirrorId: tables.manager_sms_messages[0].id, owner: B, receiptOwner: A,
+          role: "prospect", userId: null, sid: SID, body: BODY, fromPhone: FROM, toPhone: TO,
+          occurredAt: tables.inbound_sms_log[0].created_at, mirrorAt: tables.manager_sms_messages[0].created_at,
+          fingerprint: "a".repeat(64) }, error: null };
+      }
+      if (name === "import_sms_retained_historical_source") {
+        retainedImports += 1;
+        const prior = tables.sms_projection_turns.find((row) => row.provider_sid === SID);
+        if (!prior) {
+          const id = String(tables.inbound_sms_log[0].id);
+          const lineHash = (await import("node:crypto")).createHash("md5").update(`retained:inbound_sms_log:${B}:${id}`).digest("hex");
+          const line = `${lineHash.slice(0, 8)}-${lineHash.slice(8, 12)}-${lineHash.slice(12, 16)}-${lineHash.slice(16, 20)}-${lineHash.slice(20, 32)}`;
+          tables.sms_projection_conversations.push({ id: "retained-conversation", owner_manager_user_id: B,
+            counterparty_role: "prospect", work_line_id: line, identity_kind: "unresolved",
+            identity_key: `unresolved:inbound_sms_log:${id}`, counterparty_user_id: null,
+            counterparty_phone: null, metadata: { historical: true, sendDisabled: true,
+              archiveReason: "receipt_owner_conflict" }, event_count: 1 });
+          tables.sms_projection_turns.push({ owner_manager_user_id: B, conversation_id: "retained-conversation",
+            source_namespace: "retained:inbound_sms_log", source_event_id: id, provider_sid: SID,
+            direction: "inbound", body: BODY, occurred_at: tables.inbound_sms_log[0].created_at,
+            from_phone: FROM, to_phone: TO, source_ref: { table: "inbound_sms_log", id, historical: true,
+              archiveReason: "receipt_owner_conflict", fingerprint: "a".repeat(64),
+              mirror: { table: "manager_sms_messages", id: tables.manager_sms_messages[0].id,
+                occurredAt: tables.manager_sms_messages[0].created_at } } });
+        }
+        return { data: { inserted: !prior, historicalSourcePreserved: true,
+          historicalSourceMirrorAccounted: true }, error: null };
+      }
       if (name === "resolve_sms_completed_receipt_original") {
         originalCalls += 1;
         if (missingOriginal) return { data: { ok: false, reason: "original_missing" }, error: null };
@@ -107,12 +156,38 @@ function fixture({ failLog = false, missingOriginal = false, payloadOnly = false
     },
   };
   const dir = mkdtempSync(join(tmpdir(), "sms-backfill-correction-")); dirs.push(dir);
-  return { db, tables, cursorFile: join(dir, "cursor.json"), calls: () => originalCalls };
+  return { db, tables, cursorFile: join(dir, "cursor.json"), calls: () => originalCalls,
+    retainedCalls: () => retainedImports, retainedLookups: () => retainedLookups };
 }
 
 describe("completed original backfill across all durable feeds", () => {
+  it("preserves one retained source and accounts for its differently timed mirror across two passes", async () => {
+    const { db, tables, cursorFile, calls, retainedCalls, retainedLookups } = fixture({ retained: true });
+    const opts = { apply: true, cursorFile, batchSize: 100, maxPages: 10 };
+    const first = await runBackfill(db, opts);
+    const second = await runBackfill(db, opts);
+    expect(first).toMatchObject({ cleanPasses: 1, readyForApply: true });
+    expect(second).toMatchObject({ complete: true, cleanPasses: 2 });
+    expect(first.sources.find((s: Row) => s.source === "inbound_sms_log")?.counts.historicalSourcePreserved).toBe(1);
+    expect(first.sources.find((s: Row) => s.source === "manager_sms_messages")?.counts.historicalSourceMirrorAccounted).toBe(1);
+    expect(tables.sms_projection_turns).toHaveLength(1);
+    expect(tables.sms_projection_turns[0]).toMatchObject({ owner_manager_user_id: B,
+      occurred_at: "2026-09-02T20:20:41.259580Z", source_namespace: "retained:inbound_sms_log" });
+    expect(tables.sms_projection_conversations[0]).toMatchObject({ identity_kind: "unresolved",
+      counterparty_user_id: null, metadata: { historical: true, sendDisabled: true,
+        archiveReason: "receipt_owner_conflict" } });
+    expect(calls()).toBe(0);
+    expect(retainedCalls()).toBe(4);
+    expect(retainedLookups()).toBe(4);
+  });
+
+  it("fails closed when retained evidence query fails", async () => {
+    const { db, cursorFile } = fixture({ retained: true, retainedLookupError: true });
+    await expect(runBackfill(db, { apply: true, cursorFile, batchSize: 100, maxPages: 10 }))
+      .rejects.toThrow("retained_source_lookup_failed");
+  });
   it("accounts for a co-manager holder under the canonical owner through two clean passes", async () => {
-    const { db, tables, cursorFile, calls } = fixture();
+    const { db, tables, cursorFile, calls, retainedLookups } = fixture();
     const opts = { apply: true, cursorFile, batchSize: 100, maxPages: 10 };
     const first = await runBackfill(db, opts);
     expect(first).toMatchObject({ complete: false, readyForApply: true, cleanPasses: 1 });
@@ -125,6 +200,7 @@ describe("completed original backfill across all durable feeds", () => {
     expect(tables.sms_projection_turns).toHaveLength(1);
     expect(tables.sms_projection_cutover[0].ready).toBe(true);
     expect(calls()).toBe(4);
+    expect(retainedLookups()).toBe(0);
     expect(first.sources.find((source: Row) => source.source === "sms_inbound_receipts")?.counts.scanned).toBe(0);
   });
 

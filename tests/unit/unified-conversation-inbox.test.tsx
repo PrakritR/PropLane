@@ -156,7 +156,7 @@ vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({
 }));
 vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
 
-import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
+import { ManagerUnifiedInbox, resetManagerInboxSnapshotCacheForTests } from "@/components/portal/pro-unified-inbox";
 import { resetManagerSmsConversationsClientCacheForTests } from "@/lib/manager-sms-conversations-client";
 
 afterEach(() => {
@@ -169,6 +169,7 @@ afterEach(() => {
   // test would silently render an earlier test's cached SMS payload instead
   // of its own mock. Each test's mount should read a fresh fetch.
   resetManagerSmsConversationsClientCacheForTests();
+  resetManagerInboxSnapshotCacheForTests();
 });
 
 describe("conversation rows carry no select checkbox", () => {

@@ -175,7 +175,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   ),
 }));
 
-import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
+import { ManagerUnifiedInbox, resetManagerInboxSnapshotCacheForTests } from "@/components/portal/pro-unified-inbox";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
 const email = (id: string, body: string, key: string, observation: string) => ({
@@ -360,32 +360,58 @@ describe("routed SMS and list continuation", () => {
     expect(screen.queryByTestId("inbox-thread-skeleton")).toBeNull();
   });
 
-  it("retains the oldest list cursor through a first-page poll", async () => {
+  it("restarts the list at the fresh cursor when an existing conversation moves into the head", async () => {
     state.rows = [];
     const row = (id: string) => ({ ...sms(id, `BODY ${id}`), projectionId: id, residentEmail: null, name: `Person ${id}`, unread: false });
     const seen: Array<string | null> = [];
     let firstPoll = false;
+    const initial = Array.from({ length: 40 }, (_, index) => row(String(index + 1)));
+    const fresh = [row("1"), ...Array.from({ length: 39 }, (_, index) => row(String(index + 43)))];
     state.list.mockImplementation(async (_viewer: string, _force: boolean, _workspace: string | null, cursor?: string | null) => {
       seen.push(cursor ?? null);
-      if (cursor === "page-two") return Response.json({ residents: [row("two")], nextCursor: "page-three" });
-      if (cursor === "page-three") return Response.json({ residents: [row("three")], nextCursor: null });
-      if (firstPoll) return Response.json({ residents: [row("new")], nextCursor: "changed-first-page" });
-      return Response.json({ residents: [row("one")], nextCursor: "page-two" });
+      if (cursor === "fresh-boundary") return Response.json({ residents: [row("42"), row("41")], nextCursor: "older-boundary" });
+      if (firstPoll) return Response.json({ residents: fresh, nextCursor: "fresh-boundary" });
+      return Response.json({ residents: initial, nextCursor: null });
+    });
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    await screen.findByText("Person 40");
+    expect(screen.queryByText("Load more conversations")).toBeNull();
+    firstPoll = true;
+    fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
+    await screen.findByText("Person 81");
+    expect(screen.queryByText("Person 40")).toBeNull();
+    expect(screen.getByText("Person 1")).toBeTruthy();
+    fireEvent.click(screen.getByText("Load more conversations"));
+    await screen.findByText("Person 41");
+    expect(screen.getByText("Person 42")).toBeTruthy();
+    expect(seen).toEqual([null, null, "fresh-boundary"]);
+  });
+
+  it("discards an older list page that resolves after a fresh head", async () => {
+    state.rows = [];
+    const row = (id: string) => ({ ...sms(id, `BODY ${id}`), projectionId: id, residentEmail: null, name: `Person ${id}`, unread: false });
+    const stale = deferred<Response>();
+    const seen: Array<string | null> = [];
+    let freshHead = false;
+    state.list.mockImplementation(async (_viewer: string, _force: boolean, _workspace: string | null, cursor?: string | null) => {
+      seen.push(cursor ?? null);
+      if (cursor === "old-boundary") return stale.promise;
+      if (cursor === "fresh-boundary") return Response.json({ residents: [row("41")], nextCursor: null });
+      return freshHead
+        ? Response.json({ residents: [row("1"), row("81")], nextCursor: "fresh-boundary" })
+        : Response.json({ residents: [row("1")], nextCursor: "old-boundary" });
     });
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     fireEvent.click(await screen.findByText("Load more conversations"));
-    await screen.findByText("Person two");
-    firstPoll = true;
+    await waitFor(() => expect(seen).toEqual([null, "old-boundary"]));
+    freshHead = true;
     fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
-    await screen.findByText("Person new");
-    expect(screen.getByText("Person one")).toBeTruthy();
-    expect(screen.getByText("Person two")).toBeTruthy();
+    await screen.findByText("Person 81");
+    await act(async () => stale.resolve(Response.json({ residents: [row("stale")], nextCursor: null })));
+    expect(screen.queryByText("Person stale")).toBeNull();
     fireEvent.click(screen.getByText("Load more conversations"));
-    await screen.findByText("Person three");
-    expect(screen.getByText("Person one")).toBeTruthy();
-    expect(screen.getByText("Person two")).toBeTruthy();
-    expect(seen).toEqual([null, "page-two", null, "page-three"]);
-    expect(screen.queryByText("Load more conversations")).toBeNull();
+    await screen.findByText("Person 41");
+    expect(seen).toEqual([null, "old-boundary", null, "fresh-boundary"]);
   });
 
   it("drops a selected projection when its unchanged summary loses detail authorization on poll", async () => {
@@ -460,6 +486,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetManagerInboxSnapshotCacheForTests();
   vi.unstubAllGlobals();
   // Storage spies sit on Storage.prototype under jsdom; never let one outlive
   // a test whose assertion threw before its inline mockRestore().

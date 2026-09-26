@@ -8,10 +8,10 @@ import { pathToFileURL } from "node:url";
 import { SMS_RELEASE_TARGETS, sha256 } from "./sms-durability-release-manifest.mjs";
 import { runBackfill, isCleanCutoverInventory } from "./backfill-sms-projection.mjs";
 
-const BACKFILL_HASH = "801d1ac6f57c63f667bb54749c94e7b2bf206c0eb4b08626294882c275ee552e";
+export const BACKFILL_HASH = "c6a3c61c993b45354a7a9c69377e81b64d3323311f82eac15831c27b7aba6924";
 const CURSORS = {
-  staging: "/private/tmp/sms-staging-20260926-completed-receipt-cursor.json",
-  production: "/private/tmp/sms-production-20260926-completed-receipt-cursor.json",
+  staging: "/private/tmp/sms-staging-20260926-reviewed-c6a3c61c-cursor.json",
+  production: "/private/tmp/sms-production-20260926-reviewed-c6a3c61c-cursor.json",
 };
 
 export function bindCursor(options) {
@@ -52,8 +52,7 @@ export function args(argv) {
 
 export function assertMigrationPostflights(target, spawn = spawnSync) {
   for (const [script, label] of [
-    ["sms-durability-release-migrations.mjs", "SMS migration"],
-    ["sms-completed-receipt-release-migration.mjs", "completed-receipt migration"],
+    ["sms-message-sid-prefix-release-migration.mjs", "SMS SID correction migration"],
   ]) {
     const result = spawn(process.execPath,
       [new URL(`./${script}`, import.meta.url).pathname, "--target", target, "--phase", "postflight"],

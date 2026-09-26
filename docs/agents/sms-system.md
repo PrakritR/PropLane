@@ -1236,6 +1236,8 @@ replay checks those tombstones under the lock. A historical provider SID can be
 reconciled only with matching original bytes, time, direction, wire pair, role,
 identity and line epoch. A synthetic summary is redirected only when every
 remaining turn has been individually proven; otherwise unrelated turns remain.
+Twilio Message SIDs use the exact `^(SM|MM)[0-9a-fA-F]{32}$` shape; both prefixes
+carry the same replay, provider-collision and tombstone protections.
 The backfill is resumable, dry-run first, and requires two clean identity and
 source-accounting passes before the cutover flag is ready.
 

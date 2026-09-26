@@ -76,9 +76,10 @@ export async function DELETE(req: Request) {
     conversationKey?: string;
     projectionId?: string;
   };
-  const phone = normalizeE164(String(body.phone ?? "").trim());
+  const suppliedPhone = String(body.phone ?? "").trim();
+  const phone = normalizeE164(suppliedPhone);
   const requestedKey = String(body.conversationKey ?? "").trim();
-  if (!phone)
+  if (!body.projectionId && !phone)
     return NextResponse.json(
       { error: "Enter a valid phone number." },
       { status: 400 },
@@ -90,7 +91,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
     }
     const detail = await fetchManagerSmsProjectionDetail(auth.db, auth.user.id, projectionId, null, "delete");
-    if (!detail || normalizeE164(detail.resident.phone ?? "") !== phone) {
+    if (!detail || (suppliedPhone && (!phone || normalizeE164(detail.resident.phone ?? "") !== phone))) {
       return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
     }
     const ownerManagerUserId = String(detail.resident.ownerManagerUserId ?? "");
