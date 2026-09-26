@@ -211,7 +211,7 @@ async function resolveSetPrice(
   if (ownBid?.status === "accepted") {
     return {
       ok: false,
-      error: "Your accepted bid amount is locked — the manager already accepted it, so the price can't be changed here.",
+      error: "Your accepted quote amount is locked — the manager already accepted it, so the price can't be changed here.",
     };
   }
   return { ok: true, resolved: { target, amountCents, materialsCents } };
