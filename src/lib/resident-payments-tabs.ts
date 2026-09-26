@@ -11,3 +11,15 @@ export const RESIDENT_PAYMENTS_TAB_LABELS: Record<"pending" | "overdue" | "paid"
   overdue: "Due",
   paid: "Paid",
 };
+
+/**
+ * C261: with at most one charge ever (across every status), the Upcoming /
+ * Due / Paid tabs and the header's Payment method utility button are sized
+ * for a list that does not exist yet — pure visual noise around a single
+ * row. `resident-payments-panel.tsx` hides both when this is true; Payment
+ * method access is never lost, since `ResidentAutopayCard` (rendered
+ * unconditionally below the header) opens the same modal.
+ */
+export function shouldSimplifyResidentPaymentsHeader(totalChargeCount: number): boolean {
+  return totalChargeCount <= 1;
+}

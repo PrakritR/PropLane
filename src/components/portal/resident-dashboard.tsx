@@ -77,6 +77,11 @@ import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { residentTourBucketForView, sortResidentTourViews } from "@/lib/resident-tour-list";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
+import {
+  residentJourneySteps,
+  resolveResidentJourneyNextAction,
+  type ResidentJourneyStep,
+} from "@/lib/resident-journey-timeline";
 
 const BASE = "/resident";
 
@@ -395,6 +400,79 @@ function servicePreviewItems(
   return items;
 }
 
+/**
+ * C118 — one journey timeline, one button. The four cards below (Tour,
+ * Application, Lease, Payments) still carry their own detail rows, but a
+ * resident should never have to open all four just to learn what to do
+ * next; this reads the same underlying state and always resolves to
+ * exactly one next step.
+ */
+export function ResidentJourneyBanner({
+  steps,
+  action,
+}: {
+  steps: ResidentJourneyStep[];
+  action: ReturnType<typeof resolveResidentJourneyNextAction>;
+}) {
+  if (action.id === "none") return null;
+  return (
+    <Link
+      href={action.href}
+      data-attr="resident-dashboard-journey"
+      className="mb-1 flex w-full flex-col gap-3 rounded-2xl border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+      style={{
+        borderColor: action.urgent ? "var(--status-overdue-border, var(--status-overdue-fg))" : "var(--border)",
+        background: action.urgent ? "var(--status-overdue-bg)" : "var(--card)",
+      }}
+    >
+      <div className="flex items-center gap-2" aria-hidden data-attr="resident-dashboard-journey-steps">
+        {steps.map((step, index) => (
+          <Fragment key={step.id}>
+            {index > 0 ? (
+              <span
+                className="h-px w-4 shrink-0"
+                style={{ background: step.state === "upcoming" ? "var(--border)" : "var(--primary)" }}
+              />
+            ) : null}
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={{
+                background:
+                  step.state === "done" ? "var(--primary)" : step.state === "current" ? DOT_CONFIRMED : "var(--border)",
+              }}
+            />
+            <span
+              className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                step.state === "upcoming" ? "text-muted" : "text-foreground"
+              }`}
+            >
+              {step.label}
+            </span>
+          </Fragment>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0">
+          <span
+            className="block truncate text-lg font-semibold [html[data-native]_&]:text-base"
+            style={{ color: action.urgent ? "var(--status-overdue-fg)" : "var(--foreground)" }}
+          >
+            {action.title}
+          </span>
+          <span className="block truncate text-sm text-muted [html[data-native]_&]:text-[12px]">{action.detail}</span>
+        </span>
+        <span
+          className="shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold text-white"
+          style={{ background: action.urgent ? "var(--status-overdue-fg)" : "var(--btn-primary)" }}
+          data-attr="resident-dashboard-journey-cta"
+        >
+          {action.ctaLabel}
+        </span>
+      </div>
+    </Link>
+  );
+}
+
 export function ResidentDashboard({
   applicationApproved = false,
   leaseSigned = false,
@@ -680,6 +758,33 @@ export function ResidentDashboard({
       ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}. Lease not started yet.`
       : "No lease on file yet.";
 
+  // C118 — the one journey timeline this whole dashboard resolves to.
+  const journeyInput = useMemo(
+    () => ({
+      hasPendingTour: pendingTourCount > 0,
+      applicationSubmitted: applicationRows.length > 0,
+      applicationApproved,
+      leaseSignatureNeeded: Boolean(lease.cta),
+      leaseSigned,
+      overdueChargeCount,
+      pendingChargeCount: pendingCharges.length,
+      totalBalanceDueLabel: formatUsd(totalBalanceDue),
+      basePath: BASE,
+    }),
+    [
+      pendingTourCount,
+      applicationRows.length,
+      applicationApproved,
+      lease.cta,
+      leaseSigned,
+      overdueChargeCount,
+      pendingCharges.length,
+      totalBalanceDue,
+    ],
+  );
+  const journeySteps = useMemo(() => residentJourneySteps(journeyInput), [journeyInput]);
+  const journeyAction = useMemo(() => resolveResidentJourneyNextAction(journeyInput), [journeyInput]);
+
   const openServiceCount = canUseServices ? serviceItems.length : 0;
   const openCount =
     (visibility.tours ? pendingTourCount : 0) +
@@ -701,6 +806,7 @@ export function ResidentDashboard({
           <DashboardSkeleton />
         ) : (
         <>
+        <ResidentJourneyBanner steps={journeySteps} action={journeyAction} />
         {leaseSigned && showHouseDetails ? (
           <Link
             href={houseDetailsHref}
@@ -977,7 +1083,10 @@ export function ResidentDashboard({
               const overdue = isHouseholdChargeOverdue(charge);
               return (
                 <IssueRow
-                  href={`${BASE}/payments`}
+                  // C248: `?pay=<chargeId>` skips list -> record -> Pay —
+                  // resident-payments-panel.tsx opens the pay confirmation
+                  // for this exact charge as soon as the page loads.
+                  href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
                   dot={sectionAccentDot(sectionTone)}
                   title={charge.title || "Charge"}
                   subtitle={formatCompactChargeLine(
