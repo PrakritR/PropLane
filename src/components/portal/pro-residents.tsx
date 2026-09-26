@@ -386,6 +386,62 @@ type ActiveResident = {
   residentSlotFact?: string;
 };
 
+/**
+ * What the server says a Delete would remove. The order is the order the confirm
+ * dialog lists them, and "Services" covers both maintenance and add-on requests —
+ * the product never says "work order".
+ */
+const RESIDENT_DELETE_COUNT_LABELS = [
+  ["leases", "Bookings", "booking"],
+  ["charges", "Charges", "charge"],
+  ["services", "Services", "service"],
+  ["inspections", "Inspections", "inspection"],
+  ["documents", "Documents", "document"],
+  ["conversations", "Conversations", "conversation"],
+] as const;
+
+type ResidentDeleteCounts = Record<(typeof RESIDENT_DELETE_COUNT_LABELS)[number][0], number>;
+
+type ResidentDeletePreviewState = {
+  loading: boolean;
+  counts: ResidentDeleteCounts | null;
+  /** Set when the count could not be read; Delete stays held rather than guessing. */
+  error: string | null;
+};
+
+const EMPTY_RESIDENT_DELETE_PREVIEW: ResidentDeletePreviewState = {
+  loading: false,
+  counts: null,
+  error: null,
+};
+
+function emptyResidentDeleteCounts(): ResidentDeleteCounts {
+  return { leases: 0, charges: 0, services: 0, inspections: 0, documents: 0, conversations: 0 };
+}
+
+function readResidentDeleteCounts(value: unknown): ResidentDeleteCounts {
+  const source = (value ?? {}) as Record<string, unknown>;
+  const counts = emptyResidentDeleteCounts();
+  for (const [key] of RESIDENT_DELETE_COUNT_LABELS) {
+    const raw = source[key];
+    counts[key] = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
+  }
+  return counts;
+}
+
+function addResidentDeleteCounts(into: ResidentDeleteCounts, from: ResidentDeleteCounts): ResidentDeleteCounts {
+  const total = { ...into };
+  for (const [key] of RESIDENT_DELETE_COUNT_LABELS) total[key] += from[key];
+  return total;
+}
+
+/** "1 booking, 9 charges, 2 services" — only the buckets that actually had rows. */
+function describeResidentDeleteCounts(counts: ResidentDeleteCounts): string {
+  return RESIDENT_DELETE_COUNT_LABELS.filter(([key]) => counts[key] > 0)
+    .map(([key, plural, singular]) => `${counts[key]} ${counts[key] === 1 ? singular : plural.toLowerCase()}`)
+    .join(", ");
+}
+
 export function ManagerResidents({
   tabId: tabIdProp = "current",
   residentId: residentIdProp,
@@ -449,6 +505,9 @@ export function ManagerResidents({
   const [residentPaymentSettingsOpen, setResidentPaymentSettingsOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [bulkDeletePreview, setBulkDeletePreview] = useState<ResidentDeletePreviewState>(
+    EMPTY_RESIDENT_DELETE_PREVIEW,
+  );
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [uploadingLeaseRowId, setUploadingLeaseRowId] = useState<string | null>(null);
@@ -2299,14 +2358,69 @@ export function ManagerResidents({
     }
   }
 
-  async function executeResidentDelete(selectedResident: ActiveResident): Promise<boolean> {
+  /**
+   * Ask the server what a Delete would remove, without removing it. Returns null
+   * when the count cannot be read — the dialog then holds Delete instead of
+   * implying the resident has nothing linked to them.
+   */
+  async function previewResidentDelete(resident: ActiveResident): Promise<ResidentDeleteCounts | null> {
+    try {
+      const res = await fetch("/api/portal/delete-resident-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ mode: "preview", email: resident.email, applicationId: resident.id }),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => null)) as { counts?: unknown } | null;
+      return body?.counts ? readResidentDeleteCounts(body.counts) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadResidentDeletePreview(residents: ActiveResident[]) {
+    if (residents.length === 0) {
+      setBulkDeletePreview(EMPTY_RESIDENT_DELETE_PREVIEW);
+      return;
+    }
+    setBulkDeletePreview({ loading: true, counts: null, error: null });
+    let total = emptyResidentDeleteCounts();
+    for (const resident of residents) {
+      const counts = await previewResidentDelete(resident);
+      if (!counts) {
+        setBulkDeletePreview({
+          loading: false,
+          counts: null,
+          error: "Couldn't read what is linked to this resident. Try again.",
+        });
+        return;
+      }
+      total = addResidentDeleteCounts(total, counts);
+    }
+    setBulkDeletePreview({ loading: false, counts: total, error: null });
+  }
+
+  /**
+   * Delete one resident from this portfolio. The server removes the application
+   * AND every lease, charge, service, inspection, document and conversation
+   * linked to them in one transaction, so this waits for its answer and reports
+   * the counts it actually removed. It used to fire its own lease / service /
+   * charge deletes and ignore the replies — the lease endpoint refuses a signed
+   * lease, so every booking bar survived a "Deleted … and all related portal
+   * data" toast.
+   */
+  async function executeResidentDelete(
+    selectedResident: ActiveResident,
+  ): Promise<{ ok: true; removed: ResidentDeleteCounts } | { ok: false }> {
     const allRows = readManagerApplicationRows();
     if (!allRows.some((row) => row.id === selectedResident.id)) {
       showToast("Resident not found.");
-      return false;
+      return { ok: false };
     }
 
     let serverDeleteError: string | null = null;
+    let removed = emptyResidentDeleteCounts();
     try {
       const res = await fetch("/api/portal/delete-resident-access", {
         method: "POST",
@@ -2318,9 +2432,11 @@ export function ManagerResidents({
           applicationId: selectedResident.id,
         }),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string; removed?: unknown } | null;
       if (!res.ok) {
         serverDeleteError = body?.error ?? "Could not delete resident.";
+      } else {
+        removed = readResidentDeleteCounts(body?.removed);
       }
     } catch {
       serverDeleteError = "Could not delete resident.";
@@ -2340,12 +2456,17 @@ export function ManagerResidents({
       */
       if (!(await residentIsLocalOnly(selectedResident))) {
         showToast(serverDeleteError);
-        return false;
+        return { ok: false };
       }
     }
 
     writeManagerApplicationRows(allRows.filter((row) => row.id !== selectedResident.id));
 
+    /*
+      Everything below only clears this BROWSER's mirror of rows the server has
+      already removed, so Bookings, Payments, Services and Communication agree
+      with the database before the next sync lands. None of it is the delete.
+    */
     const residentEmail = selectedResident.email.trim().toLowerCase();
     removeResidentHouseholdPaymentData(selectedResident.email);
 
@@ -2367,24 +2488,17 @@ export function ManagerResidents({
     clearUploadedOwnLease(selectedResident.email);
 
     const allInbox = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []);
-    const deletedThreads = allInbox.filter((thread) => thread.email.trim().toLowerCase() === residentEmail);
-    const nextInbox = allInbox.filter((thread) => thread.email.trim().toLowerCase() !== residentEmail);
-    persistInbox(MANAGER_INBOX_STORAGE_KEY, nextInbox);
-    for (const thread of deletedThreads) {
-      void fetch("/api/portal-inbox-threads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "delete", id: thread.id }),
-      }).catch(() => undefined);
-    }
+    persistInbox(
+      MANAGER_INBOX_STORAGE_KEY,
+      allInbox.filter((thread) => thread.email.trim().toLowerCase() !== residentEmail),
+    );
 
     await syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
     setHcTick((n) => n + 1);
     setLeaseTick((n) => n + 1);
     setWorkOrderTick((n) => n + 1);
     setInboxTick((n) => n + 1);
-    return true;
+    return { ok: true, removed };
   }
 
   /**
@@ -2402,36 +2516,50 @@ export function ManagerResidents({
     if (listSelectedResidents.length === 0) return;
     setBulkDeleteBusy(true);
     let deleted = 0;
+    let removed = emptyResidentDeleteCounts();
+    const deletedNames: string[] = [];
     const failed: string[] = [];
     try {
       // Serial on purpose: each delete rewrites the same local application,
       // lease and inbox stores, so overlapping runs would race each other's
       // read-modify-write and leave rows behind.
       for (const resident of listSelectedResidents) {
-        if (await executeResidentDelete(resident)) deleted += 1;
-        else failed.push(resident.name || resident.email || resident.id);
+        const result = await executeResidentDelete(resident);
+        if (result.ok) {
+          deleted += 1;
+          removed = addResidentDeleteCounts(removed, result.removed);
+          deletedNames.push(resident.name || resident.email || resident.id);
+        } else failed.push(resident.name || resident.email || resident.id);
       }
     } finally {
       setBulkDeleteBusy(false);
     }
     setBulkDeleteOpen(false);
+    setBulkDeletePreview(EMPTY_RESIDENT_DELETE_PREVIEW);
     clearSelection();
     if (activeResidentId && listSelectedResidents.some((row) => row.id === activeResidentId)) {
       navigate(`${portalBase}/residents/${residentsTab}`);
     }
     if (deleted > 0) {
+      // Name what actually went. A count of rows the server confirms is the only
+      // honest version of the old "and all related portal data".
+      const subject = deleted === 1 ? deletedNames[0] : `${deleted} residents`;
+      const linked = describeResidentDeleteCounts(removed);
       showToast(
         failed.length > 0
-          ? `Deleted ${deleted} resident${deleted === 1 ? "" : "s"}; ${failed.length} could not be deleted.`
-          : `Deleted ${deleted} resident${deleted === 1 ? "" : "s"} and all related portal data.`,
+          ? `Deleted ${subject}; ${failed.length} could not be deleted.`
+          : linked
+            ? `Deleted ${subject} · ${linked}.`
+            : `Deleted ${subject}.`,
       );
     } else if (failed.length > 0) {
       // Never finish a destructive action in silence: each attempt already
-      // toasted its own reason, but a run that deleted nothing must say so.
+      // toasted its own reason, but a run that deleted nothing must say so. The
+      // delete is one transaction, so a failure left every linked row in place.
       showToast(
         failed.length === 1
-          ? `${failed[0]} could not be deleted.`
-          : `None of the ${failed.length} selected residents could be deleted.`,
+          ? `Couldn't delete ${failed[0]}. Nothing was removed. Try again.`
+          : `Couldn't delete any of the ${failed.length} selected residents. Nothing was removed.`,
       );
     }
   }
@@ -2451,14 +2579,16 @@ export function ManagerResidents({
     }
     const label = resident.name || resident.email || "this resident";
     if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
-    if (!(await executeResidentDelete(resident))) return;
+    const result = await executeResidentDelete(resident);
+    if (!result.ok) return;
     setEditResidentOpen(false);
     setEditResidentTargetId(null);
     clearSelection();
     if (activeResidentId === targetId) {
       navigate(`${portalBase}/residents/${residentsTab}`);
     }
-    showToast("Resident and all related portal data deleted.");
+    const linked = describeResidentDeleteCounts(result.removed);
+    showToast(linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`);
   }
 
   function leaseGenerationGateTitle(row: LeasePipelineRow): string | undefined {
@@ -3783,7 +3913,10 @@ export function ManagerResidents({
               className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
               data-attr="residents-bulk-delete"
               disabled={listSelectedResidents.length === 0}
-              onClick={() => setBulkDeleteOpen(true)}
+              onClick={() => {
+                setBulkDeleteOpen(true);
+                void loadResidentDeletePreview(listSelectedResidents);
+              }}
             >
               Delete
             </Button>
@@ -3843,7 +3976,13 @@ export function ManagerResidents({
           listSelectedResidents.length === 1 ? "Delete resident" : `Delete ${listSelectedResidents.length} residents`
         }
         dataAttr="residents-bulk-delete-confirm"
-        onClose={() => setBulkDeleteOpen(false)}
+        // Consent is about the counts, so hold Delete until the server has sent
+        // them. Cancel stays live — this is not "already deleting".
+        confirmDisabled={bulkDeletePreview.loading || bulkDeletePreview.error !== null}
+        onClose={() => {
+          setBulkDeleteOpen(false);
+          setBulkDeletePreview(EMPTY_RESIDENT_DELETE_PREVIEW);
+        }}
         onConfirm={() => void deleteSelectedResidents()}
         description={
           <>
@@ -3862,6 +4001,22 @@ export function ManagerResidents({
                 </span>
               ))}
             </span>
+            {/* The server's own count of what goes with them. Delete removes all
+                of it in one transaction, or none of it. */}
+            {bulkDeletePreview.error ? (
+              <span className="mt-3 block text-xs text-rose-700">{bulkDeletePreview.error}</span>
+            ) : bulkDeletePreview.loading || !bulkDeletePreview.counts ? (
+              <span className="mt-3 block text-xs text-muted">Counting what is linked to them…</span>
+            ) : (
+              <span className="mt-3 block space-y-0.5" data-attr="residents-delete-linked-counts">
+                {RESIDENT_DELETE_COUNT_LABELS.map(([key, label]) => (
+                  <span key={key} className="flex items-center justify-between text-xs">
+                    <span className="text-muted">{label}</span>
+                    <span className="font-medium tabular-nums">{bulkDeletePreview.counts![key]}</span>
+                  </span>
+                ))}
+              </span>
+            )}
           </>
         }
       />

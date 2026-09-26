@@ -41,6 +41,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AddRowButton, CardAction, CardFoot, CheckboxOption, ColumnHelp, EditorDone, FactRow, MoneyInput, MultiPick, RecordCard, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { RENT_PER_RESIDENT_HELP, sharedRoomPricingSummaryLine } from "@/lib/shared-room-display";
+import { arrangementSummaryLine } from "@/lib/room-arrangement-pricing";
+import { ArrangementPriceEditor } from "@/components/portal/listing-wizard-v2/listing-arrangement-editor";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   feeAppliesToLeaseType,
@@ -797,7 +799,7 @@ function MonthlyCards({
         };
         const rentN = num(rent.text), utilN = num(util.text), depN = num(dep.text);
         const p = prorateOf(room);
-        const sharedLine = sharedRoomPricingSummaryLine(capacity, rentN);
+        const sharedLine = arrangementSummaryLine(room) ?? sharedRoomPricingSummaryLine(capacity, rentN);
         const summary = [
           sharedLine ?? (rentN > 0 ? usd(rentN) : "Rent not set"),
           `+${usd(utilN)} utilities`,
@@ -823,24 +825,12 @@ function MonthlyCards({
             dataAttr="listing-v2-price-card"
           >
             {capacity >= 2 ? (
-              <FactRow first label="Residents">
-                <span className="text-[13px] font-semibold text-muted" data-attr="listing-v2-price-residents">
-                  {capacity} · set on Rooms
-                </span>
-              </FactRow>
-            ) : null}
+              <ArrangementPriceEditor room={room} onRoom={(next) => onRoom(room.id, next)} />
+            ) : (
+            <>
             <FactRow
-              first={capacity < 2}
-              label={
-                capacity >= 2 ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    Rent /mo per resident
-                    <ColumnHelp title={RENT_PER_RESIDENT_HELP.title} text={RENT_PER_RESIDENT_HELP.text} dataAttr="listing-v2-rent-per-resident-help" />
-                  </span>
-                ) : (
-                  "Rent /mo"
-                )
-              }
+              first
+              label="Rent /mo"
               own={!base && rent.src === "own"}
               onReset={!base && rent.src === "own" ? () => resetOne("monthlyRent") : undefined}
               resetLabel={`Reset rent for ${name} (${term}) to long-term`}
@@ -882,6 +872,8 @@ function MonthlyCards({
                 onChange={(v) => writeOne("securityDeposit", v)}
               />
             </FactRow>
+            </>
+            )}
             <FactRow label="Listed rent">
               {base ? (
                 <RowSelectCell

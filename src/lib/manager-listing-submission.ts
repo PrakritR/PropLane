@@ -24,6 +24,7 @@ import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fe
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { normalizeOccupancyPrices, type RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import { normalizeUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
@@ -356,6 +357,16 @@ export type ManagerRoomSubmission = {
    * the application — so the public projection may carry it.
    */
   residentPrices?: ManagerRoomResidentPrice[];
+  /**
+   * Which head-counts this room is offered as (1 = private, 2 = shared by 2, …).
+   * Absent means every count from 1 through {@link occupancyCapacity}.
+   */
+  offeredResidentCounts?: number[];
+  /**
+   * Rent per resident for each offered head-count. A row may `sameAs` a smaller
+   * count. Everyone in the room pays that arrangement's one number.
+   */
+  occupancyPrices?: RoomOccupancyPrice[];
   /**
    * Short stay / Airbnb: whether each resident has their own night and week
    * rates. Independent of {@link residentPricing} so a room can split monthly
@@ -2173,6 +2184,19 @@ function normalizeManagerListingSubmissionV1Base(
       ),
       stayResidentPrices: normalizeStayResidentPriceRows(
         (legacyRoom as ManagerRoomSubmission & { stayResidentPrices?: unknown }).stayResidentPrices,
+      ),
+      offeredResidentCounts: Array.isArray(
+        (legacyRoom as ManagerRoomSubmission & { offeredResidentCounts?: unknown }).offeredResidentCounts,
+      )
+        ? ((legacyRoom as ManagerRoomSubmission).offeredResidentCounts as number[]).filter(
+            (n) => Number.isInteger(n) && n >= 1 && n <= 20,
+          )
+        : undefined,
+      occupancyPrices: normalizeOccupancyPrices(
+        (legacyRoom as ManagerRoomSubmission & { occupancyPrices?: unknown }).occupancyPrices,
+        normalizeRoomOccupancyCapacity(
+          (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
+        ),
       ),
       // Raw-cleaned only here; the capacity clamp and empty-drop need the
       // normalized room, so `reconcileRoomResidentMoveIn` runs on it below.

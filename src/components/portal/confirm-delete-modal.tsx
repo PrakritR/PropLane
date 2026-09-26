@@ -24,6 +24,7 @@ export function ConfirmDeleteModal({
   busyLabel = "Deleting…",
   note = "This cannot be undone.",
   busy = false,
+  confirmDisabled = false,
   tone = "danger",
   onClose,
   onConfirm,
@@ -38,6 +39,12 @@ export function ConfirmDeleteModal({
   /** Pass null where the action IS reversible — a row that moves to another tab is not gone. */
   note?: ReactNode;
   busy?: boolean;
+  /**
+   * Hold the confirm without claiming the action is running — Cancel stays live.
+   * For a dialog whose consent depends on something still loading (the counts a
+   * cascade delete is about to remove).
+   */
+  confirmDisabled?: boolean;
   /** `primary` for a confirm that is not destructive (apply, switch, submit anyway). */
   tone?: "danger" | "primary";
   onClose: () => void;
@@ -55,7 +62,7 @@ export function ConfirmDeleteModal({
       primaryAction={{
         label: busy ? busyLabel : confirmLabel,
         onClick: onConfirm,
-        disabled: busy,
+        disabled: busy || confirmDisabled,
         loading: busy,
         dataAttr,
       }}

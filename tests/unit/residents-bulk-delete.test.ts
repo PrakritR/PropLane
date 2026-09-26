@@ -29,7 +29,24 @@ describe("residents list — bulk delete", () => {
     // `executeResidentDelete` is what purges the server record plus the local
     // application, lease, charge, service and inbox rows; a second implementation
     // would drift from it. Serial, because they all rewrite the same stores.
-    expect(SOURCE).toMatch(/for \(const resident of listSelectedResidents\) \{\s*\n\s*if \(await executeResidentDelete\(resident\)\)/);
+    expect(SOURCE).toMatch(
+      /for \(const resident of listSelectedResidents\) \{\s*\n\s*const result = await executeResidentDelete\(resident\);/,
+    );
+  });
+
+  /**
+   * The bug this closes: the browser fired its own lease / service / charge
+   * deletes and never read the replies, and the lease endpoint refuses a signed
+   * lease — so every booking bar survived a toast claiming everything was gone.
+   */
+  it("shows the server's own count of what goes, and waits for it", () => {
+    expect(SOURCE).toContain('mode: "preview"');
+    expect(SOURCE).toContain('data-attr="residents-delete-linked-counts"');
+    // Consent depends on the counts, so Delete is held until they land.
+    expect(SOURCE).toContain("confirmDisabled={bulkDeletePreview.loading || bulkDeletePreview.error !== null}");
+    // The toast reports what the server removed, not an assumption.
+    expect(SOURCE).toContain("removed = readResidentDeleteCounts(body?.removed)");
+    expect(SOURCE).not.toContain('body: JSON.stringify({ action: "delete", id: thread.id })');
   });
 
   it("clears the selection and leaves a detail route it just destroyed", () => {

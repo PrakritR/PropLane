@@ -1,4 +1,7 @@
-import { removeResidentApplication } from "@/lib/auth/remove-resident-application";
+import {
+  previewResidentApplicationRemoval,
+  removeResidentApplication,
+} from "@/lib/auth/remove-resident-application";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
@@ -32,6 +35,7 @@ export async function POST(req: Request) {
       email?: unknown;
       purgeData?: unknown;
       applicationId?: unknown;
+      mode?: unknown;
     } | null;
     const emailInput = normalizeEmail(body?.email);
     const applicationId = typeof body?.applicationId === "string" ? body.applicationId.trim() : "";
@@ -39,6 +43,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Email or applicationId is required." }, { status: 400 });
     }
     const purgeData = body?.purgeData === true;
+    // `preview` counts what a delete would remove and writes nothing. The
+    // confirm dialog reads it, so the numbers a manager agrees to are the
+    // server's, never the browser's own guess at what it can see.
+    const preview = body?.mode === "preview";
 
     const svc = createSupabaseServiceRoleClient();
     if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
@@ -59,6 +67,15 @@ export async function POST(req: Request) {
     }
 
     const isAdmin = String(requestor.role ?? "").toLowerCase() === "admin" || (await isAdminUser(user.id));
+
+    if (preview) {
+      if (!applicationId) {
+        return NextResponse.json({ error: "Choose the resident to preview." }, { status: 400 });
+      }
+      const counted = await previewResidentApplicationRemoval(svc, { userId: user.id, isAdmin }, { applicationId, email });
+      return NextResponse.json(counted, { status: counted.ok ? 200 : counted.status });
+    }
+
     if (!isAdmin) {
       if (!purgeData) {
         return NextResponse.json({ error: "Resident logins belong to the resident. You can remove an application from your portfolio while keeping their login and financial history." }, { status: 403 });

@@ -12,7 +12,20 @@ type Row = Record<string, unknown>;
 function database(seed: Record<string, Row[]>) {
   const rows = structuredClone(seed);
   const db = {
-    async rpc(_name: string, args: { p_table: string }) {
+    async rpc(name: string, args: { p_table: string; p_manager?: string; p_targets?: { table: string; ids: string[] }[] }) {
+      if (name === "purge_manager_resident_rows") {
+        // Stands in for the one-transaction resident cascade: it deletes only
+        // rows the named manager owns, so a cross-portfolio leak still fails here.
+        const counts: Record<string, number> = {};
+        for (const target of args.p_targets ?? []) {
+          const owner = target.table.startsWith("resident_autopay") ? "manager_id"
+            : target.table === "portal_inbox_thread_records" ? "owner_user_id" : "manager_user_id";
+          const before = rows[target.table] ?? [];
+          rows[target.table] = before.filter(row => !(target.ids.includes(String(row.id)) && row[owner] === args.p_manager));
+          counts[target.table] = before.length - rows[target.table].length;
+        }
+        return { error: null, data: counts };
+      }
       // Financial behavior is exercised against PostgreSQL in the SQL suite.
       // These scope/retry fixtures only call preservation for empty tables.
       if ((rows[args.p_table] ?? []).length) throw new Error("Use the PostgreSQL financial fixture for populated financial tables");
