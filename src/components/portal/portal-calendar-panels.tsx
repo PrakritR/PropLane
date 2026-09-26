@@ -986,6 +986,7 @@ export function PortalCalendarPanels({
   vendorViewer = false,
   hideViewModeControl = false,
   onVendorAvailabilityEdit,
+  onVendorAvailabilityRemove,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -1028,6 +1029,15 @@ export function PortalCalendarPanels({
   hideViewModeControl?: boolean;
   /** Vendor edits are delegated to the canonical vendor-availability editor. */
   onVendorAvailabilityEdit?: (dateStr: string, slotIdx?: number) => void;
+  /**
+   * Vendor calendar: the same one-click × the manager's Tours availability
+   * blocks get, for the vendor's OWN painted run. When supplied, `canEditAvailability`
+   * turns on for `vendorViewer` (only for this — see `hasEditableKeys`), and the
+   * × on a run's first cell calls this instead of the manager-only
+   * `removeDefaultRun`/`removeOpenRun` paths, which operate on a different
+   * (legacy schedule-record) storage the vendor never writes to.
+   */
+  onVendorAvailabilityRemove?: (dateStr: string, startSlot: number, endSlotExclusive: number) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1146,10 +1156,17 @@ export function PortalCalendarPanels({
   }, [availabilityKeysByKind, writeStorageKeys]);
   // A vendor supplies a storage key solely as a paint cache of canonical
   // `/api/vendor/availability` rules. It is never a legacy schedule-record
-  // target, even though the manager calendar uses the same prop for writes.
+  // target, even though the manager calendar uses the same prop for writes —
+  // so the KEYS never make a vendor's run "editable" here. The one exception
+  // is `onVendorAvailabilityRemove`: when the caller supplies it, the vendor
+  // may remove (but never add/paint through this legacy path) their own run
+  // via the same × the manager's Tours blocks get.
   const hasEditableKeys = useMemo(
-    () => !isVendorViewer && AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
-    [isVendorViewer, kindKeysMap],
+    () =>
+      isVendorViewer
+        ? Boolean(onVendorAvailabilityRemove)
+        : AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
+    [isVendorViewer, kindKeysMap, onVendorAvailabilityRemove],
   );
   const [uncontrolledViewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
   const viewMode = controlledViewMode ?? uncontrolledViewMode;
@@ -3039,7 +3056,11 @@ export function PortalCalendarPanels({
     const compactGridTopGap = flowScroll ? "mt-0" : "mt-2";
     const compactMobileTopGap = flowScroll ? "mt-0" : "mt-2 max-lg:mt-4";
     const copyToHousesDisabled = !onCopyWeekToHouses || !otherProperties?.length;
-    const canEditWeek = !vendorMode && canEditAvailability;
+    // `canEditAvailability` now also covers a vendor's own run-level × (see
+    // `hasEditableKeys`), which must never surface the manager-only week menu
+    // (copy/clear week, copy to houses) or its "+ Add availability" — the
+    // vendor calendar owns its own primary "Add availability" icon elsewhere.
+    const canEditWeek = !vendorMode && !isVendorViewer && canEditAvailability;
     // One "Availability" icon holds every bulk/utility action (copy, clear,
     // copy to houses, connect Google Calendar) so the persistent command band
     // stays Filter · Availability · Share · + — never six loose icons
@@ -3361,6 +3382,13 @@ export function PortalCalendarPanels({
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (vendorViewer) {
+                          // The vendor's own run only — never the manager-only
+                          // legacy schedule-record paths below, which write to
+                          // a storage the vendor never reads from.
+                          onVendorAvailabilityRemove?.(ds, run.startSlot, run.endSlotExclusive);
+                          return;
+                        }
                         if (run.isDefault) {
                           removeDefaultRun(ds, run.startSlot, run.endSlotExclusive);
                         } else {
