@@ -1571,6 +1571,38 @@ export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerL
   };
 }
 
+export type LeasePipelineProgressSegment = {
+  id: ManagerLeaseTab;
+  count: number;
+  /** Percentage of the whole pipeline this stage occupies, 0–100. */
+  pct: number;
+};
+
+export type LeasePipelineProgress = {
+  total: number;
+  signed: number;
+  segments: LeasePipelineProgressSegment[];
+};
+
+/**
+ * Total-progress summary across the four lease pipeline stages (C245/U027):
+ * the tabs already show each stage's own count, but nothing said how many
+ * leases are stuck at each stage relative to the whole pipeline. `null` when
+ * there is nothing to summarize — an empty bar communicates nothing.
+ */
+export function computeLeasePipelineProgress(
+  counts: Record<ManagerLeaseTab, number>,
+  order: ManagerLeaseTab[] = ["manager", "resident", "signed", "completed"],
+): LeasePipelineProgress | null {
+  const total = order.reduce((sum, id) => sum + counts[id], 0);
+  if (total === 0) return null;
+  return {
+    total,
+    signed: counts.completed,
+    segments: order.map((id) => ({ id, count: counts[id], pct: (counts[id] / total) * 100 })),
+  };
+}
+
 function formatUpdatedLabel(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
