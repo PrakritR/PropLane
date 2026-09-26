@@ -211,6 +211,34 @@ function rentReportingLastReportLabel(submission: RentReportingLastSubmission): 
   return `${sentLabel} · ${monthLabel} rent · ${statusLabel}`;
 }
 
+/**
+ * Phone-only sticky "Pay $X" bar for a single charge's record page, pinned
+ * above the mobile bottom tab bar — same pattern and offset as
+ * {@link ResidentLeaseSignStickyBar} / `PortalResidentListFab`. The header
+ * still carries its own Pay button for desktop parity; on phone this turns
+ * the most common resident action into a full-width, always-visible target
+ * instead of a button that scrolls out of view with the header (C139).
+ */
+function ResidentPaymentStickyPayBar({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div
+      className="fixed inset-x-0 z-[44] flex justify-center px-3 lg:hidden"
+      style={{ bottom: "calc(var(--portal-native-bottom-nav-inset, 0px) + 0.75rem)" }}
+      data-attr="resident-payment-sticky-pay-bar"
+    >
+      <Button
+        type="button"
+        variant="primary"
+        className="w-full max-w-md rounded-full py-3 text-base font-semibold shadow-[0_12px_28px_-12px_rgba(47,107,255,0.75)]"
+        data-attr="resident-payment-sticky-pay-bar-button"
+        onClick={onClick}
+      >
+        {label}
+      </Button>
+    </div>
+  );
+}
+
 export function ResidentPaymentsPanel({
   initialStatus,
   bucket: bucketProp,
@@ -1853,6 +1881,7 @@ export function ResidentPaymentsPanel({
     const activeChargeTab = parseResidentPaymentDetailTab(chargeDetailTab);
     const chargeSections = recordSections("resident", "payment", { basePath, bucket });
     const chargePayable = isPayableHouseholdCharge(detailCharge);
+    const chargeStickyPayIds = filterChargesForPayMethod([detailCharge]).map((c) => c.id);
     return (
       <>
         <PortalRecordDetailPage
@@ -1923,6 +1952,12 @@ export function ResidentPaymentsPanel({
             )}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
+        {chargePayable && chargeStickyPayIds.length > 0 ? (
+          <ResidentPaymentStickyPayBar
+            label={`Pay ${detailCharge.balanceLabel}`}
+            onClick={() => openPayConfirm(chargeStickyPayIds, paymentMethod)}
+          />
+        ) : null}
         {paymentModals}
       </>
     );
