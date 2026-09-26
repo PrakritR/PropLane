@@ -300,6 +300,7 @@ export function PortalInboxMessageTable({
   primaryPartyHeader = "From",
   layout = "default",
   selection,
+  hideExpandedDetail = false,
 }: {
   rows: PortalInboxTableRow[];
   onMarkRead?: (id: string) => void;
@@ -316,6 +317,17 @@ export function PortalInboxMessageTable({
   /** Schedule tab uses Recipient + Send date & time + Subject (no trailing When). */
   layout?: PortalInboxTableLayout;
   selection?: PortalInboxSelectionProps;
+  /**
+   * Additive (default `false`, every existing caller unchanged): skip
+   * rendering the inline conversation/reply block below an expanded row.
+   * `expandedId` / `onToggleExpand` still drive row selection, clickability,
+   * and the chevron state — for a caller (admin Communication, C022) that
+   * renders the open conversation in a separate `InboxThreadView` pane
+   * instead of inline, so the table is purely the list side of a two-pane
+   * layout. `getThreadMessages` / `onReply` / `renderExtraActions` become
+   * unused in that mode and may be omitted.
+   */
+  hideExpandedDetail?: boolean;
 }) {
   const { showToast } = useAppUi();
   const [replyDraftById, setReplyDraftById] = useState<Record<string, string>>({});
@@ -493,7 +505,7 @@ export function PortalInboxMessageTable({
                 {extra}
               </div>
             ) : null}
-            {isExpanded ? (
+            {isExpanded && !hideExpandedDetail ? (
               <div className="mt-3 border-t border-border pt-3">{renderExpandedContent(row, detailText, extra)}</div>
             ) : null}
           </div>
@@ -573,7 +585,7 @@ export function PortalInboxMessageTable({
                       </div>
                     </td>
                   </tr>
-                  {isExpanded ? (
+                  {isExpanded && !hideExpandedDetail ? (
                     <tr className={PORTAL_TABLE_DETAIL_ROW}>
                       <td colSpan={detailColSpan} className={`${PORTAL_TABLE_DETAIL_CELL} text-left`}>
                         {renderExpandedContent(row, detailText, extra)}
