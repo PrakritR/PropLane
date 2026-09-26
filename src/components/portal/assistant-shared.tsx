@@ -156,7 +156,7 @@ export const ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
   },
   {
     label: "Draft a reminder",
-    prompt: "Draft a rent reminder message for tenants who are overdue.",
+    prompt: "Draft a rent reminder message for residents who are overdue.",
     toneClass: "text-[var(--status-approved-fg)]",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
