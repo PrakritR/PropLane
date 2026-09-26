@@ -18,7 +18,13 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { parseMoneyAmount } from "@/lib/household-charges";
 import { fetchWorkOrderBidsResult, type WorkOrderBid } from "@/lib/work-order-bids";
 import { upsertWorkOrderBid, WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
-import { fetchOpenJobListings, formatBudgetRange, type OpenJobListing } from "@/lib/work-order-open-listings";
+import {
+  fetchOpenJobListings,
+  formatBudgetRange,
+  submitOpenListingBid,
+  withdrawOpenListingBid,
+  type OpenJobListing,
+} from "@/lib/work-order-open-listings";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import {
   VENDOR_JOBS_LIST_TABS,
@@ -72,9 +78,16 @@ function defaultBidForm(bid: WorkOrderBid | undefined): BidFormState {
   };
 }
 
-/** Bid modal target — shared shape for an Invited row (a full work order) and an
- * Open listing (a redacted marketplace row); both key their bid on `workOrderId`. */
-type BidTarget = { workOrderId: string; title: string; subtitle: string };
+/**
+ * Bid modal target. An Invited row is a full work order the vendor already sees in
+ * full (`kind: "workOrder"`) — unchanged, pre-existing behavior. An Open listing is
+ * the redacted marketplace row (`kind: "openListing"`): the vendor never learns its
+ * work order id, so submit/withdraw and the "already bid" lookup both key on the
+ * listing's own opaque id instead.
+ */
+type BidTarget =
+  | { kind: "workOrder"; workOrderId: string; title: string; subtitle: string }
+  | { kind: "openListing"; openListingId: string; title: string; subtitle: string };
 
 const OPEN_LISTINGS_PAGE_SIZE = 20;
 
@@ -108,11 +121,16 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
   const [areaFilter, setAreaFilter] = useState("");
   const [areaFilterDraft, setAreaFilterDraft] = useState("");
 
+  const [bidsByOpenListingId, setBidsByOpenListingId] = useState<Record<string, WorkOrderBid>>({});
+
   const loadBids = useCallback(async () => {
     const result = await fetchWorkOrderBidsResult();
     setBidsSyncFailed(!result.ok);
     if (!result.ok) return;
     setBidsByWorkOrderId(Object.fromEntries(result.bids.map((b) => [b.workOrderId, b])));
+    setBidsByOpenListingId(
+      Object.fromEntries(result.bids.filter((b) => b.openListingId).map((b) => [b.openListingId as string, b])),
+    );
   }, []);
 
   useEffect(() => {
@@ -177,10 +195,15 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
     [invited.length, listings.length],
   );
 
-  const bidTargetBid = bidTarget ? bidsByWorkOrderId[bidTarget.workOrderId] : undefined;
+  const bidTargetBid = !bidTarget
+    ? undefined
+    : bidTarget.kind === "workOrder"
+      ? bidsByWorkOrderId[bidTarget.workOrderId]
+      : bidsByOpenListingId[bidTarget.openListingId];
 
   const openBidForm = (target: BidTarget) => {
-    setForm(defaultBidForm(bidsByWorkOrderId[target.workOrderId]));
+    const existingBid = target.kind === "workOrder" ? bidsByWorkOrderId[target.workOrderId] : bidsByOpenListingId[target.openListingId];
+    setForm(defaultBidForm(existingBid));
     setBidTarget(target);
   };
 
@@ -200,7 +223,9 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
     }
     setSubmitting(true);
     try {
-      if (demo) {
+      // Demo only ever exercises the Invited (real work order) path — the Open tab's
+      // browse always returns empty under /demo (no real session to query).
+      if (demo && bidTarget.kind === "workOrder") {
         upsertWorkOrderBid({
           workOrderId: bidTarget.workOrderId,
           vendorUserId: "demo-vendor-1",
@@ -217,21 +242,27 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
         closeBidForm();
         return;
       }
-      const res = await fetch("/api/portal/work-order-bids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action: "submit",
-          workOrderId: bidTarget.workOrderId,
-          amountCents,
-          materialsCents: bidTargetBid?.materialsCents ?? 0,
-          proposedTime: proposedTimeIso,
-          note: form.note,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not submit bid.");
+      const result =
+        bidTarget.kind === "openListing"
+          ? await submitOpenListingBid(bidTarget.openListingId, { amountCents, proposedTime: proposedTimeIso, note: form.note })
+          : await (async () => {
+              const res = await fetch("/api/portal/work-order-bids", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  action: "submit",
+                  workOrderId: bidTarget.workOrderId,
+                  amountCents,
+                  materialsCents: bidTargetBid?.materialsCents ?? 0,
+                  proposedTime: proposedTimeIso,
+                  note: form.note,
+                }),
+              });
+              const data = await res.json();
+              return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Could not submit bid." };
+            })();
+      if (!result.ok) throw new Error(result.error ?? "Could not submit bid.");
       await loadBids();
       showToast("Bid submitted.");
       closeBidForm();
@@ -246,7 +277,7 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
     if (!bidTarget) return;
     setWithdrawing(true);
     try {
-      if (demo) {
+      if (demo && bidTarget.kind === "workOrder") {
         setBidsByWorkOrderId((prev) => {
           const next = { ...prev };
           delete next[bidTarget.workOrderId];
@@ -256,14 +287,20 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
         closeBidForm();
         return;
       }
-      const res = await fetch("/api/portal/work-order-bids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "withdraw", workOrderId: bidTarget.workOrderId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not withdraw bid.");
+      const result =
+        bidTarget.kind === "openListing"
+          ? await withdrawOpenListingBid(bidTarget.openListingId)
+          : await (async () => {
+              const res = await fetch("/api/portal/work-order-bids", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ action: "withdraw", workOrderId: bidTarget.workOrderId }),
+              });
+              const data = await res.json();
+              return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Could not withdraw bid." };
+            })();
+      if (!result.ok) throw new Error(result.error ?? "Could not withdraw bid.");
       await loadBids();
       showToast("Bid withdrawn.");
       closeBidForm();
@@ -407,7 +444,7 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
           dataAttr="vendor-jobs-open-list"
         >
           {listings.map((listing) => {
-            const bid = bidsByWorkOrderId[listing.workOrderId];
+            const bid = bidsByOpenListingId[listing.id];
             const budget = formatBudgetRange(listing.budgetMinCents, listing.budgetMaxCents);
             return (
               <PortalServiceRecordRow
@@ -418,7 +455,8 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
                   .join(" · ")}
                 onOpen={() =>
                   openBidForm({
-                    workOrderId: listing.workOrderId,
+                    kind: "openListing",
+                    openListingId: listing.id,
                     title: listing.trade,
                     subtitle: [listing.area, listing.timeframe].filter(Boolean).join(" · "),
                   })
@@ -480,7 +518,7 @@ export function VendorJobsPanel({ tabId = "invited" }: { tabId?: VendorJobsListT
               subtitle={[row.reference, propertyLabel(row), bid ? "Bid submitted" : "Invited to bid"]
                 .filter(Boolean)
                 .join(" · ")}
-              onOpen={() => openBidForm({ workOrderId: row.id, title: row.title, subtitle: propertyLabel(row) })}
+              onOpen={() => openBidForm({ kind: "workOrder", workOrderId: row.id, title: row.title, subtitle: propertyLabel(row) })}
               dataAttr="vendor-job-invited-row"
             />
           );

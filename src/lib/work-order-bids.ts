@@ -5,6 +5,9 @@
 export type WorkOrderBid = {
   id: string;
   workOrderId: string;
+  /** Set only for a bid placed through the C152 open marketplace (never present
+   * on demo/local bids, which are always the Invited-tab path). */
+  openListingId?: string | null;
   vendorUserId: string;
   vendorDirectoryId: string | null;
   vendorName?: string;

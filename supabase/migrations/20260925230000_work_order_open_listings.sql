@@ -44,26 +44,18 @@ create index if not exists work_order_open_listings_manager_idx on public.work_o
 
 alter table public.work_order_open_listings enable row level security;
 
--- Every real write (open/close/reopen) goes through the service-role API
--- (src/app/api/portal/work-order-open-listings/route.ts), which re-derives
--- ownership from the work order's own manager_user_id — never from a
--- client-supplied id. RLS below is read-only on both sides, matching the
--- work_order_bids / work_order_vendor_offers precedent
--- (20260705120002_work_order_bids_vendor_select_only.sql).
-drop policy if exists work_order_open_listings_vendor_read on public.work_order_open_listings;
-create policy work_order_open_listings_vendor_read on public.work_order_open_listings
-  for select
-  to authenticated
-  using (status = 'open');
-
-drop policy if exists work_order_open_listings_manager_read on public.work_order_open_listings;
-create policy work_order_open_listings_manager_read on public.work_order_open_listings
-  for select
-  to authenticated
-  using (manager_user_id = auth.uid());
-
--- Defense in depth alongside the read-only policy set above: no INSERT/UPDATE/DELETE
--- grant to anon or authenticated at all, and anon gets no privilege on this table
--- whatsoever (a listing is visible only to a signed-in vendor).
+-- No client-side read policy at all, on either side. Both the manager's own
+-- view (GET .../work-order-open-listings?workOrderId=) and the vendor's
+-- cross-workspace browse are served EXCLUSIVELY by the service-role API
+-- (src/app/api/portal/work-order-open-listings/route.ts), which applies a
+-- redacted projection before anything reaches the client (the browse
+-- response carries only an opaque listing id, never work_order_id or
+-- manager_user_id). RLS constrains which ROW a policy exposes, never which
+-- COLUMN, so a `status = 'open'` policy "for vendors" would let ANY
+-- authenticated user — a resident, another manager, anyone signed in —
+-- read every open listing's raw row directly via PostgREST, including its
+-- manager_user_id and work_order_id: there is no policy shape here that is
+-- "safe for vendors, safe for everyone else" without the API's projection in
+-- front of it. So: no policy, and no privilege to even attempt one.
 revoke all on public.work_order_open_listings from anon;
-revoke insert, update, delete on public.work_order_open_listings from authenticated;
+revoke all on public.work_order_open_listings from authenticated;

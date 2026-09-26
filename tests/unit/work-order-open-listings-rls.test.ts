@@ -1,12 +1,19 @@
 /**
  * C152 `work_order_open_listings` is a redacted, semi-public marketplace
- * listing — the row-level policies below are the thing standing between "any
- * signed-in vendor may browse this" and "any signed-in vendor may write it,
- * or an anonymous caller may read it too". This is a lighter, table-scoped
- * version of `role-grant-surface.test.ts`'s replay, kept as its own file so a
- * later migration touching this one table fails a fast, obviously-named test
- * rather than only the broad trust-table suite (which does not name this
- * table — see AGENTS.md "The PostgREST surface is public").
+ * listing — but PostgREST only ever constrains which ROW a policy exposes,
+ * never which COLUMN, so a `status = 'open'` SELECT policy "for vendors"
+ * would let ANY authenticated user (a resident, another manager, anyone
+ * signed in) read every open listing's RAW row directly — manager_user_id
+ * and work_order_id included — bypassing the service-role API's redacted
+ * projection entirely. Both the manager's own view and the vendor's browse
+ * are served exclusively by that API, so this table has NO client-side read
+ * path at all: no policy, and no privilege to even attempt one.
+ *
+ * A lighter, table-scoped version of `role-grant-surface.test.ts`'s replay,
+ * kept as its own file so a later migration touching this one table fails a
+ * fast, obviously-named test rather than only the broad trust-table suite
+ * (which does not name this table — see AGENTS.md "The PostgREST surface is
+ * public").
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -14,6 +21,7 @@ import { join } from "node:path";
 
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 const TABLE = "work_order_open_listings";
+const CLIENT_ROLES = ["anon", "authenticated"] as const;
 
 function migrationText(): string {
   const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
@@ -37,52 +45,40 @@ describe(`RLS/grant surface: public.${TABLE}`, () => {
     expect(new RegExp(`revoke\\s+all\\s+on\\s+public\\.${TABLE}\\s+from\\s+anon`, "i").test(SQL)).toBe(true);
   });
 
-  it("revokes insert/update/delete from authenticated", () => {
-    expect(
-      new RegExp(`revoke\\s+insert\\s*,\\s*update\\s*,\\s*delete\\s+on\\s+public\\.${TABLE}\\s+from\\s+authenticated`, "i").test(SQL),
-    ).toBe(true);
+  it("revokes all privileges from authenticated — no client read path at all", () => {
+    expect(new RegExp(`revoke\\s+all\\s+on\\s+public\\.${TABLE}\\s+from\\s+authenticated`, "i").test(SQL)).toBe(true);
   });
 
-  it("grants no INSERT/UPDATE/DELETE to anon or authenticated", () => {
-    // Every GRANT statement in the migration history that names this table.
-    const grants = [...SQL.matchAll(/grant\s+(.+?)\s+on\s+(?:public\.)?([a-z_,\s]+?)\s+to\s+([a-z_,\s]+?);/gi)];
-    for (const [, privileges, targetsRaw, granteesRaw] of grants) {
-      const targets = targetsRaw.split(",").map((t) => t.trim());
-      if (!targets.includes(TABLE) && !/all\s+tables\s+in\s+schema\s+public/i.test(targetsRaw)) continue;
-      const grantees = granteesRaw.split(",").map((g) => g.trim());
-      const writesAny = /insert|update|delete|\ball\b/i.test(privileges);
-      if (!writesAny) continue;
-      for (const role of ["anon", "authenticated"]) {
-        expect(grantees, `unexpected write grant on ${TABLE} to ${role}: "${privileges}"`).not.toContain(role);
+  it("creates NO policy on this table — neither role has a read (or write) path", () => {
+    const createPolicies = [...SQL.matchAll(new RegExp(`create\\s+policy\\s+"?([\\w-]+)"?\\s+on\\s+public\\.${TABLE}\\b`, "gi"))];
+    expect(
+      createPolicies.map((m) => m[1]),
+      `${TABLE} must have zero RLS policies — every client read goes through the service-role API, and a policy here is exactly the leak that shipped once already`,
+    ).toEqual([]);
+  });
+
+  it("grants nothing to anon or authenticated at any point in the migration history", () => {
+    // Every GRANT statement in the migration history that names this table, replayed
+    // in order against a REVOKE-from-both baseline (this table starts fully locked).
+    const held = new Map<string, Set<string>>(CLIENT_ROLES.map((r) => [r, new Set<string>()]));
+    const statements = [...SQL.matchAll(/(grant|revoke)\s+(.+?)\s+on\s+(?:public\.)?([a-z_,\s]+?)\s+(?:to|from)\s+([a-z_,\s]+?);/gi)];
+    for (const match of statements) {
+      const [, verbRaw, privsRaw, targetsRaw, granteesRaw] = match;
+      const targets = targetsRaw!.split(",").map((t) => t.trim());
+      if (!targets.includes(TABLE) && !/all\s+tables\s+in\s+schema\s+public/i.test(targetsRaw!)) continue;
+      const verb = verbRaw!.toLowerCase();
+      const grantees = granteesRaw!.split(",").map((g) => g.trim());
+      const privileges = /\ball\b/i.test(privsRaw!) ? ["select", "insert", "update", "delete"] : privsRaw!.split(",").map((p) => p.trim().toLowerCase());
+      for (const role of CLIENT_ROLES) {
+        if (!grantees.includes(role)) continue;
+        for (const p of privileges) {
+          if (verb === "grant") held.get(role)!.add(p);
+          else held.get(role)!.delete(p);
+        }
       }
     }
-  });
-
-  it("creates only SELECT policies (no client-side write policy)", () => {
-    const createPolicies = [...SQL.matchAll(new RegExp(`create\\s+policy\\s+"?([\\w-]+)"?\\s+on\\s+public\\.${TABLE}\\s+([\\s\\S]*?);`, "gi"))];
-    expect(createPolicies.length).toBeGreaterThan(0);
-    for (const [, name, body] of createPolicies) {
-      expect(/\bfor\s+(insert|update|delete|all)\b/i.test(body), `policy ${name} on ${TABLE} must not permit a client write: ${body}`).toBe(
-        false,
-      );
+    for (const role of CLIENT_ROLES) {
+      expect([...held.get(role)!].sort(), `${role} must end with no privilege on ${TABLE}`).toEqual([]);
     }
-  });
-
-  it("scopes the vendor SELECT policy to authenticated and status = 'open' — never anon, never every row", () => {
-    const vendorPolicy = /create\s+policy\s+work_order_open_listings_vendor_read\s+on\s+public\.work_order_open_listings\s+([\s\S]*?);/i.exec(
-      SQL,
-    );
-    expect(vendorPolicy, "expected work_order_open_listings_vendor_read to exist").not.toBeNull();
-    const body = vendorPolicy![1];
-    expect(/\bto\s+authenticated\b/i.test(body)).toBe(true);
-    expect(/status\s*=\s*'open'/i.test(body)).toBe(true);
-  });
-
-  it("scopes the manager SELECT policy to their own rows via auth.uid()", () => {
-    const managerPolicy = /create\s+policy\s+work_order_open_listings_manager_read\s+on\s+public\.work_order_open_listings\s+([\s\S]*?);/i.exec(
-      SQL,
-    );
-    expect(managerPolicy, "expected work_order_open_listings_manager_read to exist").not.toBeNull();
-    expect(/manager_user_id\s*=\s*auth\.uid\(\)/i.test(managerPolicy![1])).toBe(true);
   });
 });

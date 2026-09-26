@@ -38,14 +38,16 @@ describe("publicOpenListingProjection", () => {
   it("carries only the marketplace-safe fields", () => {
     const projected = publicOpenListingProjection(RAW_ROW);
     expect(Object.keys(projected).sort()).toEqual(
-      ["area", "budgetMaxCents", "budgetMinCents", "description", "id", "openedAt", "timeframe", "trade", "workOrderId"].sort(),
+      ["area", "budgetMaxCents", "budgetMinCents", "description", "id", "openedAt", "timeframe", "trade"].sort(),
     );
   });
 
-  it("never leaks manager_user_id or internal status/timestamps", () => {
+  it("never leaks manager_user_id, work_order_id, or internal status/timestamps", () => {
     const projected = publicOpenListingProjection(RAW_ROW) as Record<string, unknown>;
     expect(projected.managerUserId).toBeUndefined();
     expect(projected.manager_user_id).toBeUndefined();
+    expect(projected.workOrderId).toBeUndefined();
+    expect(projected.work_order_id).toBeUndefined();
     expect(projected.status).toBeUndefined();
     expect(projected.closedAt).toBeUndefined();
     expect(projected.createdAt).toBeUndefined();
@@ -181,8 +183,9 @@ describe("browseOpenListings — vendor-only", () => {
     if (!result.ok) return;
     expect(result.listings).toHaveLength(1);
     expect(Object.keys(result.listings[0]!).sort()).toEqual(
-      ["area", "budgetMaxCents", "budgetMinCents", "description", "id", "openedAt", "timeframe", "trade", "workOrderId"].sort(),
+      ["area", "budgetMaxCents", "budgetMinCents", "description", "id", "openedAt", "timeframe", "trade"].sort(),
     );
+    expect((result.listings[0] as Record<string, unknown>).workOrderId).toBeUndefined();
   });
 
   it("ignores a trade value outside the known vendor trade list", async () => {

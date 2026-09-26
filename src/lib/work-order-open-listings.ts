@@ -4,9 +4,15 @@
 export const OPEN_LISTING_TIMEFRAMES = ["ASAP", "This week", "This month", "Flexible"] as const;
 export type OpenListingTimeframe = (typeof OPEN_LISTING_TIMEFRAMES)[number];
 
+/**
+ * The vendor browse shape — deliberately has NO `workOrderId`: a vendor who
+ * is only browsing has no need to learn the manager's internal work order id
+ * before choosing to bid. `id` (the listing's own opaque id) is the only
+ * handle `submitOpenListingBid` / `withdrawOpenListingBid` need; the server
+ * resolves the real work order id from it.
+ */
 export type OpenJobListing = {
   id: string;
-  workOrderId: string;
   trade: string;
   area: string;
   description: string;
@@ -105,6 +111,46 @@ export async function closeOpenListing(workOrderId: string): Promise<{ ok: boole
     return { ok: true, listing: data.listing };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not close bidding." };
+  }
+}
+
+export type OpenListingBidInput = { amountCents: number; proposedTime: string; note?: string };
+
+/** Submit (or update) a bid on an open marketplace listing, by the listing's own
+ * opaque id — never by work order id, which the browse response never carries. */
+export async function submitOpenListingBid(
+  openListingId: string,
+  input: OpenListingBidInput,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/portal/work-order-bids", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "submit", openListingId, materialsCents: 0, ...input }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error ?? "Could not submit bid." };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not submit bid." };
+  }
+}
+
+/** Withdraw a bid on an open marketplace listing, by the listing's own opaque id. */
+export async function withdrawOpenListingBid(openListingId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/portal/work-order-bids", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "withdraw", openListingId }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error ?? "Could not withdraw bid." };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not withdraw bid." };
   }
 }
 

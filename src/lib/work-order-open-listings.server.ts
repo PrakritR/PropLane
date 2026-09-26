@@ -54,10 +54,17 @@ export type OwnOpenListingJson = {
  * `publicListingProjection` uses for public rental listings — everything the
  * underlying work order carries (address, unit, resident identity, access
  * notes, photos) is deliberately absent because it is never read here.
+ *
+ * Deliberately excludes `work_order_id` and `manager_user_id` too: a vendor
+ * who is only browsing has no need to learn either internal identifier before
+ * they choose to bid, and the listing's own opaque `id` is enough to bid or
+ * withdraw — `resolveWorkOrderIdForOpenListing` resolves the real work order
+ * id server-side from that id, and a bid is linked back to the listing by
+ * `work_order_bids.open_listing_id`, never by handing `work_order_id` to the
+ * client.
  */
 export type PublicOpenListingJson = {
   id: string;
-  workOrderId: string;
   trade: string;
   area: string;
   description: string;
@@ -83,11 +90,11 @@ function toOwnJson(row: OpenListingRecord): OwnOpenListingJson {
   };
 }
 
-/** The public projection — called ONLY on rows already queried with `status = 'open'`. */
+/** The public projection — called ONLY on rows already queried with `status = 'open'`.
+ * No `work_order_id` / `manager_user_id` — see `PublicOpenListingJson`. */
 export function publicOpenListingProjection(row: OpenListingRecord): PublicOpenListingJson {
   return {
     id: row.id,
-    workOrderId: row.work_order_id,
     trade: row.trade,
     area: row.area,
     description: row.description,
@@ -314,14 +321,32 @@ export async function closeOpenListingBestEffort(db: Db, workOrderId: string): P
   }
 }
 
-/** True when this work order currently has an OPEN marketplace listing — used by
- * `resolveVendorWorkOrderAccess` to admit a vendor nobody specifically offered the job to. */
-export async function hasOpenListing(db: Db, workOrderId: string): Promise<boolean> {
+/** The open listing id for this work order, if one is currently `open` — used by
+ * `resolveVendorWorkOrderAccess` to admit a vendor nobody specifically offered the job
+ * to, and to stamp the listing id onto their bid (`work_order_bids.open_listing_id`). */
+export async function resolveOpenListingId(db: Db, workOrderId: string): Promise<string | null> {
   const { data } = await db
     .from("work_order_open_listings")
     .select("id")
     .eq("work_order_id", workOrderId)
     .eq("status", "open")
     .maybeSingle();
-  return Boolean(data);
+  return data ? String((data as { id: string }).id) : null;
+}
+
+/**
+ * The inverse lookup the API route uses: a client sends only the listing's
+ * opaque `id` (never a work order id) to submit or withdraw a marketplace
+ * bid, and this resolves the real work order id server-side — re-checking
+ * `status = 'open'` here too, so a stale or just-closed listing id can't be
+ * replayed to sneak a late bid onto a job that already stopped soliciting.
+ */
+export async function resolveWorkOrderIdForOpenListing(db: Db, listingId: string): Promise<string | null> {
+  const { data } = await db
+    .from("work_order_open_listings")
+    .select("work_order_id")
+    .eq("id", listingId)
+    .eq("status", "open")
+    .maybeSingle();
+  return data ? String((data as { work_order_id: string }).work_order_id) : null;
 }
