@@ -361,7 +361,7 @@ export function useUnifiedCommunicationBulk({
         phone,
         conversationKey: target?.conversationKey ?? id,
         ...(target?.projectionId ? { projectionId: target.projectionId } : {}),
-      }).catch(() => ({ ok: false }));
+      }).catch(() => ({ ok: false, partial: false }));
       if (!result.ok || result.partial) {
         smsFailed += 1;
         if (target?.projectionId) reconcileProjectionIds.push(target.projectionId);

@@ -105,6 +105,8 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ ok: true, deleted: Number(deleted ?? 0) });
   }
 
+  if (!phone) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+
   const { data: cutover } = await auth.db.from("sms_projection_cutover").select("ready").eq("singleton", true).maybeSingle();
   if (cutover?.ready === true) {
     return NextResponse.json({ error: "Reload this conversation before deleting it." }, { status: 409 });

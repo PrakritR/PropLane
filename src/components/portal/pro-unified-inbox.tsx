@@ -1679,7 +1679,6 @@ export function ManagerUnifiedInbox({
       emailThreadSnapshot={selectedEmailThreads}
       onViewed={markSelectedRead}
       onProjectionStateChanged={handleSmsProjectionStateChanged}
-      onProjectionMutationStart={beginSmsMutation}
       projectionScope={`${viewerId}:${workspaceIdentity.id}:${selectedRow?.key ?? ""}`}
       viewActive={mobileThreadOpen || (isClient && inboxUsesDesktopSplit())}
       /*
