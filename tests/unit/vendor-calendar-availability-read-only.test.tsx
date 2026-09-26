@@ -115,11 +115,11 @@ describe("vendor calendar canonical availability", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("keeps Set availability available from the list command bar and opens the dialog", async () => {
+  it("keeps Add availability available from the command bar and opens the dialog", async () => {
     demoMode.mockReturnValue(true);
-    render(<VendorCalendarPanel view="list" />);
+    render(<VendorCalendarPanel tab="all" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Set availability" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add availability" }));
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(screen.getByText("Set availability")).toBeTruthy();
   });
@@ -138,10 +138,9 @@ describe("vendor calendar canonical availability", () => {
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
   });
 
-  // The vendor Calendar (C155) is now a single day-grouped agenda with no
-  // List/Day/Week/Month grid to paint, so `installVendorAvailabilityPaintCache`
-  // is exercised directly as the pure utility it's kept exported to be — the
-  // underlying availability-window math it does is unchanged and still real.
+  // `installVendorAvailabilityPaintCache` is exercised directly as the pure
+  // utility it's exported to be — the underlying availability-window math is
+  // the same whether the caller is painting the real week grid or a test.
   it("derives painted slots from weekly and one-off availability rules with adjacent empty states, no legacy requests", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

@@ -83,24 +83,25 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar (C155) is a day-grouped agenda with the shared availability editor, no view switcher", () => {
+  it("vendor calendar (C155 superseded, captain 2026-09-26) is the shared week-grid engine with All/Services/Availability tabs", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
-    // The List/Day/Week/Month grid switcher is gone (C155); the panel is one
-    // continuous chronological agenda grouped under date headers.
-    expect(calendar).not.toContain('label: "List"');
-    expect(calendar).not.toContain('label: "Day"');
-    expect(calendar).not.toContain('label: "Week"');
-    expect(calendar).not.toContain('label: "Month"');
-    expect(calendar).not.toContain("vendorViewer");
-    expect(calendar).toContain("groupMeetingsByDate");
-    expect(calendar).toContain("agendaDateHeaderLabel");
-    expect(calendar).toContain('data-attr="vendor-calendar-agenda-day"');
-    // Still surfaces the shared canonical availability editor.
+    // The agenda-only redesign (C155) was reverted: the vendor Calendar is now
+    // the same week-grid engine the manager Calendar uses, in `vendorViewer`
+    // mode, filtered by a kind tab instead of a view-mode switcher.
+    expect(calendar).toContain("PortalCalendarPanels");
+    expect(calendar).toContain("vendorViewer");
+    expect(calendar).toContain("onVendorAvailabilityEdit");
+    expect(calendar).toContain("hideViewModeControl");
+    expect(calendar).toContain("GoogleCalendarConnectDialog");
+    // Set-availability edits and removal both go through the one canonical
+    // editor — clicking a painted block re-opens it rather than a bespoke
+    // grid-level delete.
     expect(calendar).toContain("VendorAvailabilityEditor");
     expect(calendar).toContain("VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT");
-    // Routing keeps the legacy view tabs alive for old links (`view` is
-    // accepted and ignored by the panel itself).
-    expect(read("src/lib/portal-detail-routes.ts")).toContain('["list", "day", "week", "month"]');
+    expect(read("src/lib/portal-detail-routes.ts")).toContain('["all", "services", "availability"]');
+    // The old "Flexible weekday" / "Add work" vendor-only chrome never
+    // returns — those are vendorDayFlexibility/vendorCalendarActions, both
+    // deliberately left unset here.
     expect(calendar).not.toContain("vendorDayFlexibility");
     expect(calendar).not.toContain("Add work");
     expect(calendar).not.toContain("Mark day as flexible");

@@ -90,7 +90,7 @@ type PortalCalendarProps = {
 };
 
 export function PortalCalendar(props: PortalCalendarProps) {
-  if (props.portal === "vendor") return <VendorCalendarPanel view={props.vendorCalendarView ?? "week"} />;
+  if (props.portal === "vendor") return <VendorCalendarPanel tab={props.vendorCalendarView ?? "all"} />;
   return <PortalCalendarManager {...props} portal={props.portal} />;
 }
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
