@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { classifyFillColorHex, parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
+import {
+  ACTIVE_PDF_MESSAGE,
+  assertSafePdfForImport,
+  classifyFillColorHex,
+  parsePdfForImport,
+  PROTECTED_PDF_MESSAGE,
+} from "@/lib/pdf-import/pdf-source.server";
 import { parseUploadedLeasePdfBytes } from "@/lib/uploaded-lease-parse.server";
 import { parseLeasePdfBuffer } from "@/lib/lease-pdf-parse.server";
 import { uploadedLeaseConversionBlocker, uploadedLeaseSourceIssueKey } from "@/lib/uploaded-lease-extraction";
@@ -121,6 +127,82 @@ describe("PDF source import", () => {
     page.node.set(PDFName.of("Annots"), pdf.context.obj([pdf.context.register(link)]));
     const result = await parsePdfForImport({ bytes: await pdf.save(), fileName: "link.pdf" });
     expect(result.pages).toHaveLength(1);
+  });
+
+  // Word / Google Docs exports are tagged: structure elements carry `/A`
+  // attribute objects (`/O /Layout ...`). These are not actions, and treating
+  // them as one rejected nearly every real lease a manager exported from Word.
+  function taggedPdf(pdf: PDFDocument, attributes: unknown) {
+    const rootDict = pdf.context.obj({ Type: PDFName.of("StructTreeRoot") });
+    const root = pdf.context.register(rootDict);
+    const element = pdf.context.obj({ Type: PDFName.of("StructElem"), S: PDFName.of("P"), P: root, A: attributes });
+    rootDict.set(PDFName.of("K"), pdf.context.obj([pdf.context.register(element)]));
+    pdf.catalog.set(PDFName.of("StructTreeRoot"), root);
+    pdf.catalog.set(PDFName.of("MarkInfo"), pdf.context.obj({ Marked: true }));
+  }
+
+  it.each([
+    ["a single attribute object", { O: PDFName.of("Layout"), Placement: PDFName.of("Block") }],
+    ["an attribute array with a revision number", [{ O: PDFName.of("List"), ListNumbering: PDFName.of("Decimal") }, 0]],
+  ])("allows a tagged PDF whose structure element has %s", async (_label, attributes) => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([200, 200]);
+    taggedPdf(pdf, pdf.context.obj(attributes as never));
+    await expect(assertSafePdfForImport(await pdf.save({ useObjectStreams: true }))).resolves.toBeUndefined();
+  });
+
+  it("still rejects a JavaScript action hidden in a structure element's /A", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([200, 200]);
+    taggedPdf(pdf, pdf.context.obj({ O: PDFName.of("Layout"), S: PDFName.of("JavaScript"), JS: PDFString.of("app.alert('x')") }));
+    await expect(assertSafePdfForImport(await pdf.save())).rejects.toThrow(ACTIVE_PDF_MESSAGE);
+  });
+
+  it("rejects a structure attribute object that chains a /Next action", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([200, 200]);
+    taggedPdf(pdf, pdf.context.obj({ O: PDFName.of("Layout"), Next: { S: PDFName.of("Launch"), F: PDFString.of("calc.exe") } }));
+    await expect(assertSafePdfForImport(await pdf.save())).rejects.toThrow(ACTIVE_PDF_MESSAGE);
+  });
+
+  it.each(["Launch", "SubmitForm", "GoToR", "Named"])(
+    "rejects an outline item that mimics a structure element to hide a %s action",
+    async (kind) => {
+      const pdf = await PDFDocument.create();
+      const page = pdf.addPage([200, 200]);
+      const outlinesDict = pdf.context.obj({ Type: PDFName.of("Outlines") });
+      const outlines = pdf.context.register(outlinesDict);
+      const item = pdf.context.obj({
+        Title: PDFString.of("Start"),
+        Parent: outlines,
+        S: PDFName.of("Sect"),
+        P: page.ref,
+        A: { O: PDFName.of("Layout"), Next: { S: PDFName.of(kind), F: PDFString.of("x") } },
+      });
+      const itemRef = pdf.context.register(item);
+      outlinesDict.set(PDFName.of("First"), itemRef);
+      outlinesDict.set(PDFName.of("Last"), itemRef);
+      pdf.catalog.set(PDFName.of("Outlines"), outlines);
+      await expect(assertSafePdfForImport(await pdf.save())).rejects.toThrow(ACTIVE_PDF_MESSAGE);
+      // Same attack without /Next: the shape alone must not earn a skip either.
+      item.set(PDFName.of("A"), pdf.context.obj({ O: PDFName.of("Layout") }));
+      await expect(assertSafePdfForImport(await pdf.save())).rejects.toThrow(ACTIVE_PDF_MESSAGE);
+    },
+  );
+
+  it("allows an /OpenAction destination array (open at page 1)", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([200, 200]);
+    pdf.catalog.set(PDFName.of("OpenAction"), pdf.context.obj([page.ref, PDFName.of("Fit")]));
+    await expect(assertSafePdfForImport(await pdf.save())).resolves.toBeUndefined();
+  });
+
+  it("names a password-protected PDF instead of calling it active content", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([200, 200]);
+    const bytes = Buffer.from(await pdf.save({ useObjectStreams: false })).toString("latin1")
+      .replace("trailer\n<<", "trailer\n<<\n/Encrypt << /Filter /Standard /V 1 /R 2 >>");
+    await expect(assertSafePdfForImport(new Uint8Array(Buffer.from(bytes, "latin1")))).rejects.toThrow(PROTECTED_PDF_MESSAGE);
   });
 
   it("never turns an unsafe uploaded lease into an approvable failed parse", async () => {
