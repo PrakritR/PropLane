@@ -18,7 +18,7 @@ describe("vendor portal matches manager chrome", () => {
     const communication = vendorPortal.sections.find((s) => s.section === "communication");
     expect(communication?.label).toBe("Communication");
     expect(vendorPortal.sections.some((s) => s.section === "payments")).toBe(false);
-    expect(vendorPortal.sections.some((s) => s.label === "Inbox")).toBe(false);
+    expect(vendorPortal.sections.some((s) => s.label === "Communication")).toBe(false);
     expect(vendorPortal.sections.find((s) => s.section === "financials")?.tabs.map((t) => t.id)).toEqual([
       "income",
       "invoices",
