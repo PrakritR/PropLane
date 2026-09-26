@@ -41,7 +41,7 @@ export function ProductPanelBackdrop({ children, className }: { children: ReactN
 export function ProductWindow({
   path,
   children,
-  width = 720,
+  width = 840,
   contentHeight = 560,
   fill = false,
 }: {

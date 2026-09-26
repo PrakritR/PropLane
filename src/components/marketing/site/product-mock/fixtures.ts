@@ -301,11 +301,19 @@ export const DASHBOARD_ATTENTION = [
   { id: "att-lease-fremont", title: "Countersign Jamie P.'s lease", detail: "Fremont Studio · resident signed", actionLabel: "Sign" as const, href: "#", tone: "pending" as const },
 ];
 
-const HOUR_MS = 60 * 60 * 1000;
+/** A sensible wall-clock time N days out — never a raw `Date.now()` offset,
+ * which lands on whatever minute the page happened to load
+ * (`docs/agents/lavish-plan-standard.md`'s "sensible times"). */
+function atTime(daysFromToday: number, hour: number, minute = 0): number {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromToday);
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
 export const DASHBOARD_UPCOMING = [
-  { id: "up-tour-fremont", kind: "Tour", title: "Jamie P.", detail: "Fremont Studio", at: Date.now() + 26 * HOUR_MS, href: "#" },
-  { id: "up-tour-alder", kind: "Tour", title: "Morgan Ito", detail: "Alder House · Room 2", at: Date.now() + 45 * HOUR_MS, href: "#" },
-  { id: "up-service-maple", kind: "Maintenance", title: "Pacific Plumbing", detail: "Maple Duplex", at: Date.now() + 72 * HOUR_MS, href: "#" },
+  { id: "up-tour-fremont", kind: "Tour", title: "Jamie P.", detail: "Fremont Studio", at: atTime(1, 14, 0), href: "#" },
+  { id: "up-tour-alder", kind: "Tour", title: "Morgan Ito", detail: "Alder House · Room 2", at: atTime(2, 11, 0), href: "#" },
+  { id: "up-service-maple", kind: "Maintenance", title: "Pacific Plumbing", detail: "Maple Duplex", at: atTime(3, 10, 0), href: "#" },
 ];
 
 export const DASHBOARD_PROPERTIES = [

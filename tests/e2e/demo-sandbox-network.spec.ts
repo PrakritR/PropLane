@@ -74,9 +74,9 @@ test.describe("/demo is retired from the public site", () => {
     for (const [id, expectedText] of [
       ["tours", "Fremont Studio"],
       ["applications", "Sample Applicant"],
-      ["leasing", "Test Resident"],
+      ["leasing", "Dana Reyes"],
       ["payments", "September rent"],
-      ["services", "No hot water"],
+      ["services", "Kitchen faucet drip"],
     ] as const) {
       const row = page.locator(`[data-lifecycle-row="${id}"]`);
       await row.scrollIntoViewIfNeeded();
@@ -87,7 +87,7 @@ test.describe("/demo is retired from the public site", () => {
   test("the switching section renders the real import review panel", async ({ page }) => {
     await page.goto("/");
     await page.locator("#site-switch-heading").scrollIntoViewIfNeeded();
-    await expect(page.getByRole("heading", { name: "Review what the agent found" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Review what the agent found" })).toBeVisible();
     await expect(page.getByText("Dana Reyes").first()).toBeVisible();
   });
 });
