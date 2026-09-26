@@ -78,11 +78,11 @@ either).
 Coverage: `tests/unit/lease-signer-invite.test.ts`,
 `tests/unit/resident-lease-first-signing-wizard-invite.test.ts`.
 
-## Lease-first "House rules addendum" step — numbered clauses, not red-flag styling (C276)
+## Lease-first "House rules addendum" step — numbered clauses, with red-flag styling (C276)
 
 C282's real PDF-import section classification (`lease-template-pdf-import.ts`)
-made this partly buildable: once a "House rules addendum" section carries its
-own individually-classified clause rows (rather than one placeholder
+made the structure buildable: once a "House rules addendum" section carries
+its own individually-classified clause rows (rather than one placeholder
 acknowledgment field), `ResidentLeaseFirstSigningWizard` renders every
 non-required field in that section as a numbered, READ-ONLY rule
 (`HouseRuleClauseRow`) instead of an editable question, and its one required
@@ -91,14 +91,28 @@ date (`HouseRulesAcknowledgmentRow`) — an ordinary clause step elsewhere is
 unchanged (initials only). The date rides in `signingAnswers` under
 `${field.key}__date`, additive to the existing JSON blob.
 
-Still NOT buildable: red-flagged-in-red styling. `pdf-source.server.ts`'s
-block shape is a plain-text extraction with no font/color metadata anywhere
-in the pipeline, so there is no signal to tell a red-flagged rule from an
-ordinary one — inferring it from keywords would be inventing the source
-document's own styling rather than reading it. Building this needs real
-color/style capture added to the PDF extraction layer first.
+Red-flagged-in-red styling is now real, derived from the PDF's own ink, never
+guessed: `pdf-source.server.ts`'s `parsePdfForImport` walks each page's
+operator list (not just `getTextContent()`) tracking `setFill*` color state
+alongside every `showText`/`showSpacedText` call, aligns each call back onto
+the plain-text extraction's own character offsets, and reports the result as
+`pages[n].colorRuns` — spans of non-default fill color, normalized into a
+small palette (`classifyFillColorHex`: `"default"` / `"red"` / `"other"`,
+red being a hue within 20° of true red at sufficient saturation) alongside
+the raw hex. This is purely additive: every existing caller's plain `text` /
+`blocks` output is byte-identical to before. `lease-template-pdf-import.ts`'s
+`isPredominantlyRed` marks a clause `flagged: true` only when at least half
+its own characters overlap a `red` colorRun. `HouseRuleClauseRow` renders a
+flagged clause in the design system's `text-danger` token (never a raw hex)
+plus a non-color `TriangleAlert` cue with its own `aria-label="Important"`,
+so the emphasis still reaches a resident who cannot perceive color. A manager
+can correct a misread in `ManagerLeaseQuestionsEditorModal`'s per-question
+"Important" checkbox (`toggleFlagged`) — the one editable field on an
+otherwise read-only imported clause.
 
-Coverage: `tests/unit/resident-lease-first-signing-wizard-house-rules.test.tsx`.
+Coverage: `tests/unit/pdf-source-color.test.ts`,
+`tests/unit/lease-template-pdf-import-color.test.ts`,
+`tests/unit/resident-lease-first-signing-wizard-house-rules.test.tsx`.
 
 ## PDF import review and signing
 

@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 /**
- * C276 — now buildable in part, once a lease template's "House rules
- * addendum" section carries its own real, individually-classified clauses
- * (C282's `looksLikeSectionHeader` groups an imported PDF's own headings,
- * mirrored here by a synthetic fixture with the same shape). This covers what
- * IS buildable: numbered read-only rule clauses, and a single final
- * acknowledgment step requiring BOTH initials and a date. Red-flagged-in-red
- * styling stays out of scope — nothing in the PDF import pipeline captures
- * text color, so there is no signal to build it from (see the component's
- * own `HOUSE_RULES_SECTION_RE` comment).
+ * C276 — a lease template's "House rules addendum" section carries its own
+ * real, individually-classified clauses (C282's `looksLikeSectionHeader`
+ * groups an imported PDF's own headings, mirrored here by a synthetic
+ * fixture with the same shape): numbered read-only rule clauses, a single
+ * final acknowledgment step requiring BOTH initials and a date, and a
+ * `flagged` clause rendered in red with a non-color cue (the PDF's own
+ * detected fill color, see `HOUSE_RULES_SECTION_RE`'s comment).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -89,6 +87,24 @@ describe("ResidentLeaseFirstSigningWizard — house rules addendum", () => {
     expect(screen.getByText("2.")).toBeTruthy();
     // A rule clause is read-only text, never a textarea/input a resident could edit.
     expect(screen.queryByRole("textbox", { name: /smoking/i })).toBeNull();
+  });
+
+  it("renders a flagged (red-detected) clause in the danger token with an accessible non-color cue", () => {
+    const flaggedRow = row();
+    flaggedRow.signingTemplateSnapshot!.customApplicationFields[0] = {
+      ...flaggedRow.signingTemplateSnapshot!.customApplicationFields[0]!,
+      flagged: true,
+    };
+    render(<ResidentLeaseFirstSigningWizard row={flaggedRow} onReachedSign={vi.fn()} />);
+
+    const flaggedText = screen.getByText(/No smoking anywhere on the property/);
+    expect(flaggedText.className).toContain("text-danger");
+    expect(screen.getByRole("img", { name: "Important" })).toBeTruthy();
+
+    // The other (unflagged) rule keeps its ordinary styling and no cue.
+    const ordinaryText = screen.getByText(/Quiet hours are 10pm to 7am/);
+    expect(ordinaryText.className).not.toContain("text-danger");
+    expect(screen.getAllByRole("img", { name: "Important" })).toHaveLength(1);
   });
 
   it("requires both initials and a date before Continue is enabled, and saves both", () => {

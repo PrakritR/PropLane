@@ -20,6 +20,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
@@ -33,17 +34,14 @@ import {
 const AUTHORIZATION_SECTION_RE = /authoriz|signature/i;
 const INVITE_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 /**
- * C276 — now buildable for the numbered-clause and final-initials-and-date
- * parts once a lease template's "House rules addendum" section carries its
- * real, individually-classified clauses (C282's `looksLikeSectionHeader`
- * groups an imported PDF's own headings; the section title itself is never
- * one of its own fields — same convention as every other imported section).
- * Still NOT buildable: red-flagged-in-red styling. Nothing in the PDF import
- * pipeline (`pdf-source.server.ts`'s block shape) captures text color or font
- * — it is a plain-text extraction — so there is no signal anywhere to tell a
- * red-flagged rule from an ordinary one. Guessing from keywords would be
- * inventing the source document's own styling rather than reading it, so
- * this deliberately does not attempt it.
+ * C276 — buildable in full now that a lease template's "House rules
+ * addendum" section carries its real, individually-classified clauses
+ * (C282's `looksLikeSectionHeader` groups an imported PDF's own headings; the
+ * section title itself is never one of its own fields — same convention as
+ * every other imported section), AND each clause's own red-flag emphasis
+ * (`field.flagged`), read straight off the PDF's own detected fill color
+ * (`lease-template-pdf-import.ts`'s `isPredominantlyRed`, fed by
+ * `pdf-source.server.ts`'s `colorRuns`) — never guessed from keywords.
  */
 const HOUSE_RULES_SECTION_RE = /house rules/i;
 
@@ -197,12 +195,26 @@ function InviteSignerRow({
   );
 }
 
-/** One numbered, read-only rule from the imported "House rules addendum" section (C276). */
-function HouseRuleClauseRow({ index, text }: { index: number; text: string }) {
+/**
+ * One numbered, read-only rule from the imported "House rules addendum"
+ * section (C276). `flagged` (a PDF-detected red-flag clause) renders in the
+ * design system's danger token — never a raw hex — plus a non-color
+ * `TriangleAlert` cue with its own accessible label, so the emphasis still
+ * reaches a resident who cannot perceive color.
+ */
+function HouseRuleClauseRow({ index, text, flagged }: { index: number; text: string; flagged?: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4" data-attr={`lease-house-rule-${index}`}>
-      <p className="text-sm leading-relaxed text-foreground">
-        <span className="mr-2 font-semibold text-muted">{index}.</span>
+      <p className={`text-sm leading-relaxed ${flagged ? "font-semibold text-danger" : "text-foreground"}`}>
+        <span className={`mr-2 font-semibold ${flagged ? "text-danger" : "text-muted"}`}>{index}.</span>
+        {flagged ? (
+          <TriangleAlert
+            role="img"
+            aria-label="Important"
+            data-attr={`lease-house-rule-flag-${index}`}
+            className="mr-1 inline-block h-4 w-4 -translate-y-0.5 text-danger"
+          />
+        ) : null}
         {text}
       </p>
     </div>
@@ -447,7 +459,12 @@ export function ResidentLeaseFirstSigningWizard({
             {stepFields
               .filter((field) => !field.required)
               .map((field, index) => (
-                <HouseRuleClauseRow key={field.key} index={index + 1} text={field.description?.trim() || field.label} />
+                <HouseRuleClauseRow
+                  key={field.key}
+                  index={index + 1}
+                  text={field.description?.trim() || field.label}
+                  flagged={field.flagged === true}
+                />
               ))}
             {stepFields
               .filter((field) => field.required)
