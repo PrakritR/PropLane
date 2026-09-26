@@ -2,9 +2,9 @@ import { test, expect } from "@playwright/test";
 import { E2E_ACCOUNTS } from "../fixtures";
 import { signIn, establishActivePortal } from "../helpers/auth";
 
-const BROOKLYN_PROPERTY_ID = "mgr-seed-5259-brooklyn-ave-ne";
+const QA_PROPERTY_ID = "mgr-demo-emerald";
 
-const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(BROOKLYN_PROPERTY_ID)}/calendar/bookings`;
+const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(QA_PROPERTY_ID)}/bookings`;
 
 /**
  * A house's Calendar → Bookings tab.
@@ -31,7 +31,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
 
     await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
 
-    const linkAirbnb = page.locator('[data-attr="property-bookings-link-airbnb"]');
+    const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
     await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
     await linkAirbnb.click();
 
@@ -47,19 +47,16 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
 
     await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
 
-    const linkAirbnb = page.locator('[data-attr="property-bookings-link-airbnb"]');
+    const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
     await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
     await linkAirbnb.click();
     await expect(page.getByRole("heading", { name: "Link calendars" })).toBeVisible();
 
-    // The room select auto-picks when the listing has exactly one room, so read
-    // the options rather than assuming either shape.
+    // Emerald Court has one room. The shared Select renders a button and
+    // auto-picks that room after the listing data loads.
     const roomSelect = page.locator('[data-attr="channel-calendar-link-room"]');
-    const roomValues = await roomSelect
-      .locator("option")
-      .evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value).filter(Boolean));
-    expect(roomValues.length, "listing exposes at least one room to link").toBeGreaterThan(0);
-    await roomSelect.selectOption(roomValues[0]!);
+    await expect(roomSelect).toBeEnabled({ timeout: 30_000 });
+    await expect(roomSelect).toContainText("Unit 3");
 
     // Shape-valid Airbnb export URL: the save is what this asserts, and the
     // fetch behind "sync" is allowed to fail against a placeholder feed.
@@ -84,7 +81,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
       const icsRes = await fetch(exportUrl);
       const text = await icsRes.text();
       return { ok: icsRes.ok && text.includes("BEGIN:VCALENDAR"), status: icsRes.status, snippet: text.slice(0, 80) };
-    }, BROOKLYN_PROPERTY_ID);
+    }, QA_PROPERTY_ID);
 
     expect(exportRes.ok, JSON.stringify(exportRes)).toBe(true);
   });

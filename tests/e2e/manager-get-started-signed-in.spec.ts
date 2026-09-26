@@ -100,7 +100,7 @@ test.describe('"Get started" while signed in', () => {
 
     // Enter from the marketing home page exactly like an end user would.
     await page.goto("/");
-    const cta = page.getByRole("link", { name: /get started/i }).first();
+    const cta = page.getByRole("link", { name: /start free/i }).first();
     // PRP-307: a plain "Get started" asks who you are instead of assuming a
     // manager, so the CTA points at the bare create surface and the role is
     // chosen on the next screen.
@@ -109,7 +109,6 @@ test.describe('"Get started" while signed in', () => {
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       cta.click(),
     ]);
-    await page.waitForLoadState("networkidle").catch(() => {});
 
     const chain = redirectChain(response, page.url());
     // No silent bounce to a portal — the create surface always loads.
@@ -128,7 +127,6 @@ test.describe('"Get started" while signed in', () => {
 
   test("signed-out Get started is unchanged: manager trial signup form, no notice", async ({ page }) => {
     await page.goto("/auth/create-account?mode=create&role=manager");
-    await page.waitForLoadState("networkidle").catch(() => {});
     await expectManagerCreateForm(page, { signedIn: false });
     await expect(page.getByText(/you're signed in as/i)).toHaveCount(0);
     await page.screenshot({ path: shot("signed-out-get-started"), fullPage: true });
@@ -136,10 +134,9 @@ test.describe('"Get started" while signed in', () => {
 
   test("role=resident opens generic signup then portal chooser (no setup-link block)", async ({ page }) => {
     await page.goto("/auth/create-account?mode=create&role=resident");
-    await page.waitForLoadState("networkidle").catch(() => {});
     await expect(page.getByPlaceholder("Full name")).toBeVisible();
     await expect(page.getByPlaceholder("Email")).toBeVisible();
-    await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^create account$/i })).toBeVisible();
     await expect(page.getByText(/setup link/i)).toHaveCount(0);
     await page.screenshot({ path: shot("resident-self-serve"), fullPage: true });
   });
@@ -159,13 +156,13 @@ test.describe('"Get started" while signed in', () => {
 
     await managerSubmitButton(page, true).click();
     await page.waitForURL(/\/portal/, { timeout: 60_000 });
-    await page.waitForLoadState("networkidle").catch(() => {});
 
     // The browser session is now the NEW account, not the one we signed in as.
     const sessionEmail = await sessionEmailFromCookies(page);
     expect(sessionEmail).toBe(newEmail);
     // ...and the portal it opened belongs to the new (empty) account.
-    await expect(page.getByText(/welcome, second account manager/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByText("No properties yet.")).toBeVisible();
     console.log(`created + signed in as new account: ${sessionEmail} at ${page.url()}`);
     await page.screenshot({ path: shot("new-account-portal"), fullPage: true });
   });

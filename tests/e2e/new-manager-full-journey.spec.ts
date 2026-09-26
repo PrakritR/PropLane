@@ -46,6 +46,7 @@ test.describe("New manager — full journey from scratch", () => {
 
   test("pricing → signup → portal tour → first listing draft", async ({ page }) => {
     test.setTimeout(300_000);
+    page.setDefaultTimeout(30_000);
 
     await mockStripeAllRoutes(page);
 
@@ -74,10 +75,9 @@ test.describe("New manager — full journey from scratch", () => {
     await page.getByPlaceholder("Full name").fill(fullName);
     await page.getByPlaceholder("Email").fill(email);
     await page.getByPlaceholder(/Password \(8\+/).fill(password);
-    const phoneInput = page.locator("#mgr-phone-input, #signup-phone").filter({ visible: true }).first();
-    if (await phoneInput.count()) await phoneInput.fill(phone);
+    await page.getByRole("textbox", { name: "Phone number" }).fill(phone);
     await shot(page, "03-create-account-filled");
-    await page.getByRole("button", { name: /create account/i }).click();
+    await page.getByRole("button", { name: /create property account/i }).click();
 
     await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
     if (page.url().includes("/auth/get-started")) {

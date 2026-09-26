@@ -9,11 +9,11 @@ const hasFullEnv = Boolean(
 test.describe("Full lifecycle smoke", () => {
   test.skip(!hasFullEnv, "Requires full E2E seed environment");
 
-  test("public can reach apply flow from listings", async ({ page }) => {
+  test("unscoped apply link asks for a manager link", async ({ page }) => {
     await page.goto("/rent/listings");
     await expect(page).toHaveURL(/\/rent\/listings/);
     await page.goto("/rent/apply");
     await expect(page).toHaveURL(/\/rent\/apply/);
-    await expect(page.getByText(/applying as part of a group/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Manager link required")).toBeVisible({ timeout: 15_000 });
   });
 });

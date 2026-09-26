@@ -62,10 +62,9 @@ async function createFreshManager(page: Page, stamp: number) {
   await page.getByPlaceholder("Full name").fill(fullName);
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder(/Password \(8\+/).fill(password);
-  const phoneInput = page.locator("#mgr-phone-input, #signup-phone").filter({ visible: true }).first();
-  if (await phoneInput.count()) await phoneInput.fill(phone);
+  await page.getByRole("textbox", { name: "Phone number" }).fill(phone);
   await shot(page, "02-create-account-filled");
-  await page.getByRole("button", { name: /create account/i }).click();
+  await page.getByRole("button", { name: /create property account/i }).click();
 
   await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
   if (page.url().includes("/auth/manager/choose-plan")) {
@@ -177,6 +176,7 @@ test.describe("Manager signup → listing → resident apply", () => {
 
     const managerContext = await browser.newContext({ viewport: DESKTOP });
     const managerPage = await managerContext.newPage();
+    managerPage.setDefaultTimeout(30_000);
     await mockStripeAllRoutes(managerPage);
 
     const manager = await createFreshManager(managerPage, stamp);
@@ -189,6 +189,7 @@ test.describe("Manager signup → listing → resident apply", () => {
 
     const guestContext = await browser.newContext({ viewport: DESKTOP });
     const guestPage = await guestContext.newPage();
+    guestPage.setDefaultTimeout(30_000);
     await mockStripeAllRoutes(guestPage);
     await mockFreeApplicationFee(guestPage);
     await walkGuestRentalApplication(guestPage, propertyId, guest);

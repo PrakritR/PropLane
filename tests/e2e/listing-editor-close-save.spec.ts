@@ -57,6 +57,7 @@ test.describe("listing editor — save on close, no typing timer", () => {
     const createButton = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createButton).toBeEnabled({ timeout: 30_000 });
     await createButton.click();
+    await page.locator('[data-attr="manager-properties-add-property"]').click();
 
     // The property-name field is the editor's first text input.
     const nameField = page.getByPlaceholder("Magnolia House");

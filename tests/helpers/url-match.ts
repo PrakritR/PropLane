@@ -11,10 +11,15 @@ export function pathToUrlRegExp(path: string): RegExp {
   return new RegExp(`${escapeRegExp(path)}(?:/|$|\\?)`);
 }
 
-function pathPrefixMatches(pathname: string, path: string): boolean {
-  if (pathname === path) return true;
+function pathPrefixMatches(actualUrl: string, targetUrl: URL): boolean {
+  const actual = new URL(actualUrl);
+  const path = targetUrl.pathname;
   const prefix = path.endsWith("/") ? path : `${path}/`;
-  return pathname.startsWith(prefix);
+  if (actual.pathname !== path && !actual.pathname.startsWith(prefix)) return false;
+  for (const [key, value] of targetUrl.searchParams) {
+    if (actual.searchParams.get(key) !== value) return false;
+  }
+  return true;
 }
 
 /**
@@ -24,6 +29,7 @@ function pathPrefixMatches(pathname: string, path: string): boolean {
  * sub-segments such as `/portal/properties/listed` or `/resident/tour/pending`).
  */
 export async function gotoAppPath(page: Page, path: string, timeout = 45_000) {
+  const targetUrl = new URL(path, "http://localhost");
   const deadline = Date.now() + timeout;
   let lastUrl = page.url();
   while (Date.now() < deadline) {
@@ -32,7 +38,7 @@ export async function gotoAppPath(page: Page, path: string, timeout = 45_000) {
     if (pathname === "/auth/sign-in") {
       throw new Error(`Session expired while navigating to ${path}`);
     }
-    if (pathPrefixMatches(pathname, path)) return;
+    if (pathPrefixMatches(lastUrl, targetUrl)) return;
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     try {
@@ -44,7 +50,7 @@ export async function gotoAppPath(page: Page, path: string, timeout = 45_000) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes("ERR_ABORTED")) throw error;
     }
-    if (pathPrefixMatches(new URL(page.url()).pathname, path)) return;
+    if (pathPrefixMatches(page.url(), targetUrl)) return;
     await page.waitForTimeout(300);
   }
   throw new Error(`Timed out navigating to ${path} (last url: ${lastUrl})`);

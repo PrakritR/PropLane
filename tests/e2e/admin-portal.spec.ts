@@ -17,6 +17,7 @@ const ADMIN_SECTIONS = [
 ] as const;
 
 test.describe("Admin portal", () => {
+  test.describe.configure({ timeout: 120_000 });
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
   test.beforeEach(async ({ page }) => {
@@ -76,7 +77,20 @@ test.describe("Admin portal", () => {
     // Trash is reached via the "Archived" toggle; "Delete all trash" lives beside
     // it (see admin-communication.tsx / admin-inbox-client.tsx).
     await page.setViewportSize({ width: 1280, height: 720 });
+    let releaseRecipients = () => {};
+    const recipientGate = new Promise<void>((resolve) => { releaseRecipients = () => resolve(); });
+    let recipientRequestStarted = () => {};
+    const recipientRequest = new Promise<void>((resolve) => { recipientRequestStarted = () => resolve(); });
+    await page.route("**/api/admin/portal-users", async (route) => {
+      recipientRequestStarted();
+      await recipientGate;
+      await route.continue();
+    });
+    const recipientsLoaded = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/admin/portal-users" && response.ok(),
+    );
     await page.goto("/admin/communication/inbox/unopened");
+    await recipientRequest;
     await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible({
       timeout: 15_000,
     });
@@ -89,16 +103,34 @@ test.describe("Admin portal", () => {
     await page.getByRole("option", { name: "All managers" }).click();
     await page.getByPlaceholder("Subject").fill(subject);
     await page.getByPlaceholder(/write your message/i).fill("Automated trash-tab check.");
+    releaseRecipients();
+    await recipientsLoaded;
+    await expect(page.getByPlaceholder("Subject")).toHaveValue(subject);
+    await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("Automated trash-tab check.");
+    await expect(page.getByRole("button", { name: "Recipient type" })).toContainText("All managers");
+    const sendRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
+    );
     await page.getByRole("button", { name: "Send", exact: true }).click();
+    const sent = (await sendRequest).postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
+    expect(sent.subject).toBe(subject);
+    expect(sent.text).toBe("Automated trash-tab check.");
+    expect(sent.toUserIds?.length).toBeGreaterThan(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: "New message" }).click();
+    await expect(page.getByPlaceholder("Subject")).toHaveValue("");
+    await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("");
+    await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
 
-    // The sent message shows in the flat conversation list; expand it and
+    // Sent messages appear under Sent, not the default Unopened inbox. Expand and
     // archive. The list dual-mounts (a lg:hidden mobile card list + a hidden
     // lg:block desktop table), so target the desktop table ROW — getByText(...)
     // .first() would resolve to the off-screen mobile copy at this viewport.
+    await page.getByRole("button", { name: "Sent", exact: true }).click();
     const row = page.locator("table tbody").getByRole("row").filter({ hasText: subject });
     await expect(row).toBeVisible({ timeout: 15_000 });
     await row.click();
-    await row.getByRole("button", { name: "Move to trash" }).click();
+    await page.getByRole("button", { name: "Move to trash", exact: true }).click();
 
     // Switch to the archived (trash) view; "Delete all trash" appears when trash
     // is non-empty.
