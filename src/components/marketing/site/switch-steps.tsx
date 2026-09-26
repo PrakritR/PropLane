@@ -1,13 +1,16 @@
 import {
-  MockButton,
-  MockChip,
-  MockFrame,
-  MockRow,
-  SiteCtaPair,
-  SiteEyebrow,
-  SiteIntro,
-  SiteSection,
-} from "@/components/marketing/site/primitives";
+  AlertCircle,
+  Calendar,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  DoorOpen,
+  EyeOff,
+  Hash,
+  MoreHorizontal,
+} from "lucide-react";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { MockFrame, SiteCtaPair, SiteEyebrow, SiteIntro, SiteSection } from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
 
 type SwitchStep = { eyebrow: string; title: string; body: string };
@@ -16,30 +19,31 @@ const STEPS: SwitchStep[] = [
   {
     eyebrow: "Step 1",
     title: "Import your portfolio",
-    body: "Upload a spreadsheet or an export from AppFolio or Buildium. Properties, units and residents come in together, in the right order.",
+    body: "Drop a rent roll, an AppFolio or Buildium export, or lease PDFs. One read returns properties, rooms, residents, leases and open balances together.",
   },
   {
     eyebrow: "Step 2",
-    title: "Invite your residents",
-    body: "Residents get their own portal for paying rent, submitting requests and asking the property assistant questions.",
+    title: "Review what the agent found",
+    body: "One card per property, one row per resident, each citing the row or page it came from. Anything the file didn't say clearly is flagged, not guessed.",
   },
   {
     eyebrow: "Step 3",
-    title: "Collect rent in PropLane",
-    body: "Payments land in your dashboard as they come in, and anything paid outside PropLane can be recorded too.",
+    title: "Create it, invite when you're ready",
+    body: "Properties, residents, leases, charges and tasks are created through the same paths every other create in PropLane uses. Nothing is emailed until you say so.",
   },
 ];
 
-const WIZARD_STEPS = ["1 Upload", "2 Match columns", "3 Review", "4 Import", "5 Invite"];
-const CURRENT_WIZARD_STEP = "3 Review";
-
-const SUMMARY = [
-  { value: "2", label: "properties" },
-  { value: "7", label: "units" },
-  { value: "6", label: "residents" },
-];
-
-/** How switching to PropLane works: import, invite, collect — told as three steps beside the import screen itself. */
+/**
+ * A faithful, static replica of `/portal/properties/import`'s Review step —
+ * the real three-step flow is Upload → Review → Create (never the 5-step
+ * "match columns" wizard this section used to invent). Same summary-line
+ * shape, same property-card / resident-row anatomy — avatar, room, lease
+ * dates, source citation, plain status word (never a pill, matching the
+ * real `review-step.tsx`), rent right-aligned, one row expanded to show its
+ * gap inline, one empty room with its own Skip — down to reusing
+ * `PortalRowFact`, the same icon-fact atom the real row renders with.
+ * See `docs/agents/portfolio-import.md`.
+ */
 export function SiteSwitchSteps() {
   return (
     <SiteSection tone="muted" ariaLabelledBy="site-switch-heading">
@@ -63,54 +67,151 @@ export function SiteSwitchSteps() {
           <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-8" />
         </div>
         <div className="mx-auto w-full min-w-0 max-w-[540px] lg:mr-0">
-          <MockFrame title="Manager · Import your portfolio">
-            <div className="flex flex-wrap gap-1.5">
-              {WIZARD_STEPS.map((step) => {
-                const current = step === CURRENT_WIZARD_STEP;
-                return (
-                  <span
-                    key={step}
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold",
-                      current ? "border-primary bg-primary/10 text-primary" : "border-border text-muted",
-                    )}
+          <MockFrame title="Manager · Review what the agent found">
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
+              <span className="font-medium text-foreground">rent-roll.xlsx</span>
+              <span aria-hidden>·</span>
+              <span>2 properties</span>
+              <span aria-hidden>·</span>
+              <span>7 rooms</span>
+              <span aria-hidden>·</span>
+              <span>4 residents</span>
+              <span aria-hidden>·</span>
+              <span>1 open item</span>
+            </p>
+
+            {/* Maple Court — one ready resident, one needing an end date, expanded. */}
+            <div className="mt-3 rounded-2xl border border-border">
+              <div className="px-3.5 py-2.5">
+                <p className="text-[13.5px] font-bold text-foreground">Maple Court · 220 Maple Ave</p>
+                <p className="text-[11.5px] text-muted">4 rooms</p>
+              </div>
+              <div className="border-t border-border">
+                <div className="flex items-center gap-2.5 px-3.5 py-2">
+                  <div
+                    aria-hidden
+                    className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary/[0.08] text-[11px] font-extrabold text-primary"
                   >
-                    {step}
-                  </span>
-                );
-              })}
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              {SUMMARY.map((cell) => (
-                <div key={cell.label} className="rounded-xl border border-border px-3 py-2.5 text-center">
-                  <span className="block text-[20px] font-bold leading-none text-foreground">{cell.value}</span>
-                  <span className="block text-[11px] text-muted">{cell.label}</span>
+                    DR
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-foreground">Dana Reyes</span>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+                      <PortalRowFact icon={DoorOpen}>Room 1</PortalRowFact>
+                      <PortalRowFact icon={Calendar}>Mar 1, 2025 – Feb 28, 2026</PortalRowFact>
+                      <PortalRowFact icon={Hash}>row 4</PortalRowFact>
+                      <PortalRowFact icon={CheckCircle2}>Ready</PortalRowFact>
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-[13px] font-bold text-foreground">$1,850/mo</span>
+                  <MoreHorizontal className="size-4 shrink-0 text-muted" aria-hidden />
                 </div>
-              ))}
+                <div className="border-t border-border">
+                  <div className="flex items-center gap-2.5 px-3.5 py-2">
+                    <div
+                      aria-hidden
+                      className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary/[0.08] text-[11px] font-extrabold text-primary"
+                    >
+                      LO
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1 text-[13px] font-semibold text-foreground">
+                        <ChevronDown className="size-3.5 shrink-0 text-muted" aria-hidden />
+                        Luis Ortega
+                      </span>
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+                        <PortalRowFact icon={DoorOpen}>Room 3</PortalRowFact>
+                        <PortalRowFact icon={Calendar}>Jun 1, 2025 – —</PortalRowFact>
+                        <PortalRowFact icon={Hash}>row 6</PortalRowFact>
+                        <PortalRowFact icon={AlertCircle}>Needs end date</PortalRowFact>
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-[13px] font-bold text-foreground">$1,400/mo</span>
+                    <MoreHorizontal className="size-4 shrink-0 text-muted" aria-hidden />
+                  </div>
+                  <div className="border-t border-border bg-foreground/[0.02] px-3.5 py-2.5 pl-12">
+                    <label className="mb-1 block text-[11px] font-semibold text-foreground">When does the lease end?</label>
+                    <div className="flex h-8 w-40 items-center rounded-lg border border-border bg-card px-2 text-[12px] text-muted">
+                      mm/dd/yyyy
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 border-t border-border px-3.5 py-2">
+                  <div aria-hidden className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-foreground/[0.06] text-muted">
+                    <DoorOpen className="size-3.5" strokeWidth={1.6} />
+                  </div>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/70">Room 4 · Leave empty</span>
+                  <span className="text-[11.5px] font-bold text-muted">Skip</span>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 divide-y divide-border/60">
-              <MockRow
-                name="Maple Court"
-                title="Maple Court"
-                sub="220 Maple Ave · 4 units · 3 occupied"
-                right={<MockChip tone="good">Ready</MockChip>}
-              />
-              <MockRow
-                name="1412 Pine St"
-                title="1412 Pine St"
-                sub="3 rooms · 2 occupied"
-                right={<MockChip tone="good">Ready</MockChip>}
-              />
-              <MockRow
-                name="Luis Ortega"
-                title="Luis Ortega · Room 3"
-                sub="No email — add one to invite"
-                right={<MockChip tone="warn">Check</MockChip>}
-              />
+
+            {/* 1412 Pine St — everyone ready. */}
+            <div className="mt-3 rounded-2xl border border-border">
+              <div className="px-3.5 py-2.5">
+                <p className="text-[13.5px] font-bold text-foreground">1412 Pine St</p>
+                <p className="text-[11.5px] text-muted">3 rooms</p>
+              </div>
+              <div className="border-t border-border">
+                <div className="flex items-center gap-2.5 px-3.5 py-2">
+                  <div
+                    aria-hidden
+                    className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary/[0.08] text-[11px] font-extrabold text-primary"
+                  >
+                    SC
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1 text-[13px] font-semibold text-foreground">
+                      <ChevronRight className="size-3.5 shrink-0 text-transparent" aria-hidden />
+                      Sam Chen
+                    </span>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+                      <PortalRowFact icon={DoorOpen}>Room 1</PortalRowFact>
+                      <PortalRowFact icon={Calendar}>Jan 1, 2025 – Dec 31, 2025</PortalRowFact>
+                      <PortalRowFact icon={Hash}>row 11</PortalRowFact>
+                      <PortalRowFact icon={CheckCircle2}>Ready</PortalRowFact>
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-[13px] font-bold text-foreground">$1,100/mo</span>
+                  <MoreHorizontal className="size-4 shrink-0 text-muted" aria-hidden />
+                </div>
+                <div className="flex items-center gap-2.5 border-t border-border px-3.5 py-2">
+                  <div
+                    aria-hidden
+                    className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary/[0.08] text-[11px] font-extrabold text-primary"
+                  >
+                    JW
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1 text-[13px] font-semibold text-foreground">
+                      <ChevronRight className="size-3.5 shrink-0 text-transparent" aria-hidden />
+                      Jordan Wu
+                    </span>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+                      <PortalRowFact icon={DoorOpen}>Room 2</PortalRowFact>
+                      <PortalRowFact icon={Calendar}>Feb 1, 2025 – Jan 31, 2026</PortalRowFact>
+                      <PortalRowFact icon={Hash}>row 12</PortalRowFact>
+                      <PortalRowFact icon={CheckCircle2}>Ready</PortalRowFact>
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-[13px] font-bold text-foreground">$1,050/mo</span>
+                  <MoreHorizontal className="size-4 shrink-0 text-muted" aria-hidden />
+                </div>
+                <div className="flex items-center gap-2.5 border-t border-border px-3.5 py-2">
+                  <div aria-hidden className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-foreground/[0.06] text-muted">
+                    <EyeOff className="size-3.5" strokeWidth={1.6} />
+                  </div>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/70">Room 3 · Leave empty</span>
+                  <span className="text-[11.5px] font-bold text-muted">Skip</span>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <MockButton primary>Import 2 properties, 6 residents</MockButton>
-              <span className="text-[12px] text-muted">Nothing is emailed until you say so</span>
+
+            <div className={cn("mt-4 flex items-center justify-between gap-2")}>
+              <span className="text-[11.5px] text-muted">Nothing is emailed until you say so</span>
+              <span className="inline-flex h-8 shrink-0 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white">
+                Create 4…
+              </span>
             </div>
           </MockFrame>
         </div>
