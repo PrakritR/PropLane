@@ -14,7 +14,7 @@ import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assis
 import { hydrateDemoGuidedState } from "@/lib/demo/demo-guided";
 import { seedDemoPortalIdleData } from "@/lib/demo/demo-seed";
 import { CANONICAL_DEMO_MANAGER_NAME, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
-import { DEMO_RESIDENT_EMAIL, setDemoRole } from "@/lib/demo/demo-session";
+import { DEMO_RESIDENT_EMAIL, DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, setDemoRole } from "@/lib/demo/demo-session";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
   PORTAL_MAIN_CONTENT_ID,
@@ -23,6 +23,7 @@ import {
 } from "@/lib/portal-layout-classes";
 import { proPortal } from "@/lib/portals/pro";
 import { RESIDENT_PORTAL_BASE_PATH, RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
+import { vendorPortal } from "@/lib/portals/vendor";
 import type { PortalDefinition, PortalSection } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
 
@@ -39,12 +40,15 @@ function useRefLatest<T>(value: T) {
 const DEMO_ASSISTANT_ENDPOINT = "/api/agent/demo-chat";
 
 /**
- * The two portals this embed can show. Only manager and resident — the
- * captain's ask was a two-way switch, not the three-way manager/resident/
- * vendor toggle `DemoPortalShell` (a separate, older demo surface) already
- * has elsewhere in the app.
+ * The three portals this embed can show — manager, resident, and vendor
+ * (captain 2026-09-25: promoted from the earlier two-way manager/resident
+ * switch to match `DemoPortalShell`'s three-way toggle). The segmented
+ * control below is purely a local `/demo` affordance: real vendor accounts
+ * are a separate login, not a role a manager or resident can switch into, so
+ * the real avatar-menu "Switch to X portal" interception below stays
+ * manager↔resident only, matching what that real component actually offers.
  */
-type DemoPortalRole = "manager" | "resident";
+type DemoPortalRole = "manager" | "resident" | "vendor";
 
 /** Same shape `getResidentPortalDefinition()` (src/lib/portals/resident.ts)
  * builds server-side, inlined here because that helper is wrapped in React's
@@ -82,7 +86,15 @@ function parseDemoTarget(href: string): { role: DemoPortalRole; section: string;
   const [prefix, section, tab] = parts;
   if (prefix === "portal") return { role: "manager", section: section!, tab: tab ?? null };
   if (prefix === "resident") return { role: "resident", section: section!, tab: tab ?? null };
+  if (prefix === "vendor") return { role: "vendor", section: section!, tab: tab ?? null };
   return null;
+}
+
+/** Resolves a role to the `PortalDefinition` its shell renders. */
+function portalDefinitionFor(role: DemoPortalRole): PortalDefinition {
+  if (role === "resident") return residentPortal;
+  if (role === "vendor") return vendorPortal;
+  return proPortal;
 }
 
 /**
@@ -106,7 +118,10 @@ function installPortalRoleFetchShim(getRole: () => DemoPortalRole): () => void {
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes("/api/auth/portal-roles")) {
-      const reachable = getRole() === "manager" ? ["resident"] : ["manager"];
+      // Vendor accounts have no cross-portal switch in the real product — no
+      // reachable role, so the real avatar menu renders no switcher entry.
+      const current = getRole();
+      const reachable = current === "manager" ? ["resident"] : current === "resident" ? ["manager"] : [];
       return Promise.resolve(new Response(JSON.stringify({ reachableRoles: reachable }), { status: 200 }));
     }
     return original(input, init);
@@ -116,9 +131,13 @@ function installPortalRoleFetchShim(getRole: () => DemoPortalRole): () => void {
   };
 }
 
-const ROLE_SWITCH_LABEL: Record<DemoPortalRole, string> = {
-  // The OTHER role's switcher copy, from portal-switch-targets.ts's
-  // PORTAL_SWITCH_LABELS — this is the label shown while `role` is active.
+/** The OTHER role's switcher copy, from portal-switch-targets.ts's
+ * `PORTAL_SWITCH_LABELS` — the label shown while `role` is active. Vendor has
+ * no entry: the real avatar menu never offers a vendor account a switch
+ * target (see `installPortalRoleFetchShim` above), so this is never indexed
+ * with `"vendor"` in practice, but stays `Partial` rather than widening the
+ * fallback comparison below to accept `undefined`. */
+const ROLE_SWITCH_LABEL: Partial<Record<DemoPortalRole, string>> = {
   manager: "Switch to Resident portal",
   resident: "Switch to Property portal",
 };
@@ -159,9 +178,9 @@ function DemoAssistantDockRail({ open, onClose }: { open: boolean; onClose: () =
   );
 }
 
-/** Small "Manager | Resident" segmented control, above the shell itself —
- * not `DemoPortalShell`'s old pill bar. Purely local state; switching role
- * resets to that portal's Dashboard. */
+/** Small "Manager | Resident | Vendor" segmented control, above the shell
+ * itself — not `DemoPortalShell`'s old pill bar. Purely local state;
+ * switching role resets to that portal's Dashboard. */
 function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onChange: (next: DemoPortalRole) => void }) {
   return (
     <div
@@ -170,7 +189,7 @@ function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onCha
       data-attr="demo-role-switch"
       className="flex shrink-0 items-center gap-0.5 self-start rounded-full border border-border/70 bg-[var(--pl-surface-muted)] p-0.5 m-2"
     >
-      {(["manager", "resident"] as const).map((r) => (
+      {(["manager", "resident", "vendor"] as const).map((r) => (
         <button
           key={r}
           type="button"
@@ -192,12 +211,14 @@ function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onCha
 
 /**
  * The real signed-in-shaped portal, unauthenticated — the home page's
- * Codex-style hero window embeds this at `/demo`. Manager and Resident
- * views, switched by the segmented control above the shell or by the real
- * avatar-menu "Switch to X portal" entry (both local state, never a real
- * navigation): no "Run demo" walkthrough, no floating chat bubble, no
- * vendor role — the captain's reference is the real `/portal` and
- * `/resident`, not a redrawn or narrated tour of them (captain 2026-09-25).
+ * Codex-style hero window embeds this at `/demo`. Manager, Resident, and
+ * Vendor views, switched by the segmented control above the shell (all
+ * three) or by the real avatar-menu "Switch to X portal" entry (manager and
+ * resident only, matching what that real component actually offers) — both
+ * local state, never a real navigation: no "Run demo" walkthrough, no
+ * floating chat bubble — the captain's reference is the real `/portal`,
+ * `/resident`, and `/vendor`, not a redrawn or narrated tour of them
+ * (captain 2026-09-25).
  * Composed from the REAL shell components — `PortalSidebar`, `PortalTopBar`,
  * `WorkspaceProvider`, `AssistantDockPanel`, and the shared
  * `DemoSectionRenderer`'s resident branch for Resident — with the demo data
@@ -215,7 +236,7 @@ export function DemoManagerShell() {
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
 
-  const definition = portalRole === "resident" ? residentPortal : proPortal;
+  const definition = portalDefinitionFor(portalRole);
   const meta: PortalSection | undefined = useMemo(
     () => definition.sections.find((s) => s.section === section),
     [definition, section],
@@ -243,7 +264,7 @@ export function DemoManagerShell() {
     (href: string) => {
       const target = parseDemoTarget(href);
       if (!target) return;
-      const targetDefinition = target.role === "resident" ? residentPortal : proPortal;
+      const targetDefinition = portalDefinitionFor(target.role);
       if (!targetDefinition.sections.some((s) => s.section === target.section)) return;
       if (target.role !== portalRole) {
         setPortalRole(target.role);
@@ -284,7 +305,8 @@ export function DemoManagerShell() {
       // arrow span before the label text node) — match by substring, not
       // exact equality, since `textContent` includes that leading glyph.
       const button = target?.closest?.("button");
-      if (button?.textContent?.includes(ROLE_SWITCH_LABEL[portalRole])) {
+      const switchLabel = ROLE_SWITCH_LABEL[portalRole];
+      if (switchLabel && button?.textContent?.includes(switchLabel)) {
         e.preventDefault();
         e.stopPropagation();
         switchRole(portalRole === "manager" ? "resident" : "manager");
@@ -301,8 +323,9 @@ export function DemoManagerShell() {
     [navigateInDemo, portalRole, switchRole],
   );
 
-  const displayName = portalRole === "resident" ? DEMO_RESIDENT_DISPLAY_LABEL : CANONICAL_DEMO_MANAGER_NAME;
-  const displayEmail = portalRole === "resident" ? DEMO_RESIDENT_EMAIL : "manager@test.proplane.local";
+  const displayName =
+    portalRole === "resident" ? DEMO_RESIDENT_DISPLAY_LABEL : portalRole === "vendor" ? DEMO_VENDOR_NAME : CANONICAL_DEMO_MANAGER_NAME;
+  const displayEmail = portalRole === "resident" ? DEMO_RESIDENT_EMAIL : portalRole === "vendor" ? DEMO_VENDOR_EMAIL : "manager@test.proplane.local";
 
   return (
     <PortalAssistantConfigProvider endpoint={DEMO_ASSISTANT_ENDPOINT} managerName={CANONICAL_DEMO_MANAGER_NAME}>
