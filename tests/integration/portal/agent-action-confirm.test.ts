@@ -16,6 +16,18 @@ vi.mock("@/lib/auth/admin-preview", () => ({
   isAdminUser: vi.fn().mockResolvedValue(false),
 }));
 
+// Keep the real confirm tool and row scoping, with one owned default workspace.
+vi.mock("@/lib/workspaces/active.server", () => ({
+  resolveActiveWorkspaceFromRequest: vi.fn().mockResolvedValue({
+    id: "workspace-1", name: "Default", isDefault: true, propertyIds: ["prop-1"],
+  }),
+}));
+vi.mock("@/lib/workspaces/server", () => ({
+  loadWorkspaces: vi.fn().mockResolvedValue([{
+    id: "workspace-1", name: "Default", isDefault: true, propertyIds: ["prop-1"],
+  }]),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { track } from "@/lib/analytics/posthog";

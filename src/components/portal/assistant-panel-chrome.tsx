@@ -220,7 +220,7 @@ export function AssistantMessageList({
 }) {
   return (
     <div className="space-y-3 text-sm">
-      {messages.map((m, i) => (
+      {messages.map((m, i) => m.role === "assistant" && !m.content.trim() ? null : (
         <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
           <span
             className={

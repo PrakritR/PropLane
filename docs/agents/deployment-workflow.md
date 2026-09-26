@@ -31,15 +31,29 @@ fast-forward-only promotion and every production safety gate remain.
 
 The live dashboard project is **`proplane`**
 (`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) and serves `proplane.ai`. Legacy hosts
-`prop-lane.space` and `axis-seattle-housing.com` stay attached to the same
-Production deployment and **serve content directly** (with host-aware
-`noindex`) — do **not** 308 them to `proplane.ai`. A Vercel domain 308 breaks
-already-installed Capacitor shells whose `server.url` is still the legacy
-host and whose `allowNavigation` never included `proplane.ai` (permanent
-black splash). Do not relink the project or use a separate branch-created
-project for live traffic. The generic Preview environment shares production
-defaults, so staging deployments must retain their `staging` branch-scoped
-variables.
+(`prop-lane.space`, `proplane.space`, `axis-seattle-housing.com`, and each
+`www.` variant) stay attached to the same Production deployment — **never**
+a Vercel domain-level 308 to `proplane.ai`. Do not relink the project or use
+a separate branch-created project for live traffic. The generic Preview
+environment shares production defaults, so staging deployments must retain
+their `staging` branch-scoped variables. `proplane.space` (no hyphen) still
+needs to be attached to this project in the Vercel dashboard before it serves
+anything.
+
+**Legacy-host redirect lives in application middleware, not Vercel.** A
+domain-level 308 can't tell an already-installed Capacitor shell's WebView
+(`server.url` can still be a legacy host — `capacitor.config.ts`'s
+`allowNavigation`) from a phone's Safari tab; that ambiguity caused the
+2026-09-24 permanent black splash. `src/middleware.ts` +
+`src/lib/legacy-host-redirect.ts` instead redirect only an actual **browser**
+top-level page load on a legacy host (GET/HEAD, `Sec-Fetch-Dest: document` or
+`Sec-Fetch-Mode: navigate`) to `https://proplane.ai` + the same path and
+query, with a 308. It never redirects `/api/**`, a non-GET/HEAD request, or
+any request carrying native evidence — the Capacitor entry path, the
+first-party `proplane_native` cookie `NativeBridge` sets on launch, or an
+in-app WebView user agent. Everything else (assets, webhooks, cron, native
+traffic) keeps being served directly, unredirected, with host-aware
+`noindex` — see `docs/mobile-app.md` for the native side of this contract.
 
 **Search indexing:** only `proplane.ai` / `www.proplane.ai` may be crawled.
 Staging (`staging-prop-lane.space`), `*.vercel.app` previews, and every other

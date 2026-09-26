@@ -3,7 +3,7 @@
 // Tasks renders card rows now (like Leases/Residents), not a table: one card
 // per task, facts derived from the row data, no pills, no group headers, a
 // ⋯ per row in the shared order, and the shared empty state per tab.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerTaskList } from "@/components/portal/pro-task-list";
 import { deleteManagerTask, updateManagerTask } from "@/lib/manager-tasks";
@@ -87,7 +87,14 @@ function makeTask(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Tasks card rows", () => {
+  // The fixtures use fixed due dates; pin "today" before them so a task due
+  // on 2026-09-25 stays In progress instead of moving buckets on that date.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-20T12:00:00"));
+  });
   afterEach(() => {
+    vi.useRealTimers();
     tasks.length = 0;
     pathnameRef.current = "/portal/tasks";
     cleanup();

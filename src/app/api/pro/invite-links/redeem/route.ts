@@ -6,7 +6,8 @@ import { redeemInviteLink } from "@/lib/invite-links/invite-links.server";
 export const runtime = "nodejs";
 
 /**
- * Spend a use and produce the addressed invite the opener then accepts.
+ * Spend a use and apply the link for the signed-in opener: a manager link
+ * joins them as an accepted workspace member in one step (917d378b3).
  *
  * The redeemer names nothing: the scope and permissions come off the stored
  * link, and this route never reads them from the body.

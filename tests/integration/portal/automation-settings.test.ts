@@ -61,6 +61,9 @@ function mockManagerAuth(userId = "mgr-a") {
       if (table === "profiles") return profileChain;
       if (table === "profile_roles") return rolesChain;
       if (table === "manager_automation_settings") return settingsChain;
+      if (table === "manager_property_records") return {
+        select: () => ({ eq: async () => ({ data: [], error: null }) }),
+      };
       throw new Error(`Unexpected table ${table}`);
     }),
   } as never);
@@ -79,7 +82,7 @@ describe("/api/portal/automation-settings", () => {
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null } }) },
     } as never);
 
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/portal/automation-settings"));
     const { status } = await parseJsonResponse(res);
     expect(status).toBe(401);
   });
@@ -110,7 +113,7 @@ describe("/api/portal/automation-settings", () => {
       }),
     } as never);
 
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/portal/automation-settings"));
     const { status } = await parseJsonResponse(res);
     expect(status).toBe(401);
   });
@@ -118,7 +121,7 @@ describe("/api/portal/automation-settings", () => {
   it("GET returns manager automation settings", async () => {
     mockManagerAuth();
 
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/portal/automation-settings"));
     const { status, data } = await parseJsonResponse<{ settings?: { preDueReminderDays: number[] } }>(res);
     expect(status).toBe(200);
     expect(data.settings?.preDueReminderDays).toEqual([3, 2, 1]);
@@ -142,7 +145,7 @@ describe("/api/portal/automation-settings", () => {
   it("GET includes vendor-dispatch settings defaulting to off", async () => {
     mockManagerAuth();
 
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/portal/automation-settings"));
     const { status, data } = await parseJsonResponse<{ vendorDispatch?: { mode: string } }>(res);
     expect(status).toBe(200);
     expect(data.vendorDispatch?.mode).toBe("off");

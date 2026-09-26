@@ -41,6 +41,7 @@ vi.mock("@/lib/manager-sms-conversations-client", () => ({
 }));
 vi.mock("@/lib/manager-sms-archive.client", () => ({
   loadManagerSmsArchivedIds: () => new Set<string>(),
+  mirrorManagerSmsArchivedFromServer: vi.fn(),
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT: "manager-sms-archive-changed",
 }));
 vi.mock("@/components/portal/communication-row-actions", () => ({ CommunicationRowActions: () => null }));
@@ -230,8 +231,21 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Storage spies sit on Storage.prototype under jsdom; never let one outlive
+  // a test whose assertion threw before its inline mockRestore().
+  vi.restoreAllMocks();
   window.localStorage.clear();
 });
+
+/**
+ * Spy where the method actually lives. Node's built-in `localStorage` defines
+ * its methods on the instance; jsdom's `Storage` keeps them on the prototype,
+ * and assigning an own `setItem` there is swallowed by its named-item handling.
+ */
+function storageMethodOwner(method: "getItem" | "setItem"): Storage {
+  const storage = window.localStorage;
+  return Object.prototype.hasOwnProperty.call(storage, method) ? storage : (Object.getPrototypeOf(storage) as Storage);
+}
 
 describe("ManagerUnifiedInbox observed-read wiring", () => {
   it("collapses raw A/K1+B/K2 and renders only the explicitly bound native members", async () => {
@@ -264,14 +278,10 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
   it("bounds persistent native storage failure, releases the held email attempt, and recovers on explicit reopen", async () => {
     const openedKey = "axis_manager_sms_opened_v2:manager-1";
     window.localStorage.setItem(openedKey, JSON.stringify(["unrelated-opened-id"]));
-    // Node's built-in `localStorage` (jsdom's `window.localStorage` in this
-    // suite) defines its storage methods as own properties on the instance,
-    // not on `Storage.prototype`, so the spy must target the instance itself
-    // or the throwing implementation is never reached.
     const localStorageSetItem = vi.fn(() => {
       throw new Error("storage denied");
     });
-    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(localStorageSetItem);
+    const setItem = vi.spyOn(storageMethodOwner("setItem"), "setItem").mockImplementation(localStorageSetItem);
     let settleHeld!: (value: null) => void;
     const held = new Promise<null>((resolve) => { settleHeld = resolve; });
     state.post.mockReturnValueOnce(held);
@@ -339,11 +349,10 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
     await waitForSmsConversations();
-    // See the matching note above: spy on the instance, not `Storage.prototype`.
     const localStorageGetItem = vi.fn(() => {
       throw new Error("storage read denied");
     });
-    const getItem = vi.spyOn(window.localStorage, "getItem").mockImplementation(localStorageGetItem);
+    const getItem = vi.spyOn(storageMethodOwner("getItem"), "getItem").mockImplementation(localStorageGetItem);
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
     expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
@@ -419,10 +428,9 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
 
   it("keeps the hidden mobile thread pane from acknowledging until the user opens it", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
-    // See the matching note above: spy on the instance, not `Storage.prototype`.
     const storedSetItem = window.localStorage.setItem.bind(window.localStorage);
     const localStorageSetItem = vi.fn((key: string, value: string) => storedSetItem(key, value));
-    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(localStorageSetItem);
+    const setItem = vi.spyOn(storageMethodOwner("setItem"), "setItem").mockImplementation(localStorageSetItem);
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const list = await screen.findByTestId("manager-list");
     await waitForSmsConversations();

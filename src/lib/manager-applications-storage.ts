@@ -1,3 +1,4 @@
+import { canonicalRoomChoiceValue, parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { replacePublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
@@ -1039,18 +1040,15 @@ export { enrichApplicationForLease, resolveApplicationPersonalFields } from "@/l
 
 /* ─────────────── rent per resident: which room, which slot (PLAN-0920-0631) ─────────────── */
 
-/** Room identity without a trailing `::rN` resident-slot suffix. */
+/** Room identity without a trailing `::rN` resident-slot suffix (the shared parser, so `prop::r1` stays room r1). */
 function sameRoomChoiceIdentity(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
-  const strip = (value: string) => value.replace(/::r\d+$/i, "");
-  return strip(a) === strip(b);
+  return canonicalRoomChoiceValue(a) === canonicalRoomChoiceValue(b);
 }
 
 function residentSlotFromChoice(value: string): number | undefined {
-  const match = value.match(/::r(\d+)$/i);
-  const slot = match ? Number(match[1]) : undefined;
-  return Number.isInteger(slot) && (slot as number) >= 1 ? slot : undefined;
+  return parseRoomChoiceValue(value).residentSlot;
 }
 
 /**

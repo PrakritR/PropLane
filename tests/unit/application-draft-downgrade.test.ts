@@ -94,6 +94,10 @@ function makeFakeDb() {
         filters.push((row) => readColumn(row, col) === val);
         return api;
       },
+      neq(col: string, val: unknown) {
+        filters.push((row) => readColumn(row, col) !== val);
+        return api;
+      },
       ilike(col: string, pattern: string) {
         const want = pattern.toLowerCase();
         filters.push((row) => String(readColumn(row, col) ?? "").toLowerCase() === want);
@@ -143,12 +147,13 @@ function makeFakeDb() {
         else state.records.push({ ...values });
         return { data: null, error: null };
       },
-      then(resolve: (value: { data: Row[]; error: null }) => unknown) {
+      then(resolve: (value: { data: Row[]; count: number; error: null }) => unknown) {
         if (mode === "delete") {
           const doomed = new Set(matched());
           state.records = state.records.filter((row) => !doomed.has(row));
         }
-        return Promise.resolve(resolve({ data: matched(), error: null }));
+        // `count` answers head:true counts (the resident quota on approve).
+        return Promise.resolve(resolve({ data: matched(), count: matched().length, error: null }));
       },
     };
     return api;

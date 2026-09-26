@@ -48,7 +48,7 @@ import {
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { resolveListingCtaEmail } from "@/lib/listing-cta-email.server";
 
-const ADDRESS = "assist-jane@prop-lane.space";
+const ADDRESS = "assist-jane@proplane.ai";
 
 /** Just enough Supabase for the one `manager_assistant_emails` read. */
 function dbWith(row: Record<string, unknown> | null, opts: { throws?: boolean } = {}) {

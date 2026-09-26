@@ -113,6 +113,10 @@ function makeMultiRoleDb() {
                 }
                 return {
                   order: vi.fn().mockResolvedValue({ data: [APPROVED_APPLICATION], error: null }),
+                  // Pipeline-order owner lookup: first owned application row.
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({ data: APPROVED_APPLICATION, error: null }),
+                  }),
                 };
               }),
             };

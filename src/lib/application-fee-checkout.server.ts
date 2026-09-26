@@ -154,10 +154,10 @@ export async function resolveApplicationFeeProperty(
   }
 
   const listing = listingFromPropertyData(propertyRow?.property_data);
-  // The listing's OWN application fee is authoritative ([app-fee-authority] option B); the
-  // account-wide setting is only a default for listings that set nothing. An empty string is
-  // "unset" → fall back to the account-wide default; any set value (INCLUDING "0" = free) is
-  // charged as-is and must never fall through. See `src/lib/manager-application-settings.ts`.
+  // The Application system fee is authoritative for EVERY listing, including an explicit
+  // 0 (free); listing fees are ignored (PLAN-0924-1254, docs/agents/resident-payments.md).
+  // `effectiveApplicationFeeCents` owns that rule; the listing value is still passed only
+  // through its deprecated parameter.
   const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
   const rawListingFee = listingApplicationFeeRaw(listing, input.rentalType, offeredLeaseTerm(listing, input.leaseTerm));
   const listingFeeCents =

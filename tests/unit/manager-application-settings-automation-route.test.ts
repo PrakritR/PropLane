@@ -37,6 +37,18 @@ vi.mock("@/lib/manager-application-settings", async (importOriginal) => {
     validateManagerApplicationFeeCents: (...a: unknown[]) => validateManagerApplicationFeeCents(...a),
   };
 });
+// The leasing pipeline order (48a0d21a8) rides on GET; this suite is about
+// automation, so the stored pipeline is the default.
+vi.mock("@/lib/leasing-pipeline-preferences", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/leasing-pipeline-preferences")>();
+  return {
+    ...actual,
+    loadLeasingPipelineState: async () => ({
+      portfolio: actual.normalizeLeasingPipelinePreferences(undefined),
+      byPropertyId: {},
+    }),
+  };
+});
 vi.mock("@/lib/manager-application-settings.server", () => ({
   suggestedManagerApplicationFeeCents: (...a: unknown[]) => suggestedManagerApplicationFeeCents(...a),
 }));

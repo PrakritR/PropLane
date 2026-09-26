@@ -26,7 +26,7 @@ import { resolveWorkspaceOwnerForWorkEmail } from "@/lib/sms/manager-workspace-r
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 
 const owner = "owner", other = "other-owner", co = "co", solo = "solo";
-const OWNER_ADDRESS = "assist-prakrit-ramachandran@prop-lane.space";
+const OWNER_ADDRESS = "assist-prakrit-ramachandran@proplane.ai";
 
 function seed(links: Record<string, unknown>[], extra: Record<string, Record<string, unknown>[]> = {}) {
   return createMemoryDb({
@@ -143,12 +143,13 @@ describe("ensureManagerAssistantEmail — a co-manager is never minted an addres
   it("still creates one for a manager with houses of their own", async () => {
     const db = seed([accepted(owner, other, ["house-a"])]);
     const row = await ensureManagerAssistantEmail(db as never, other);
-    expect(row.address).toMatch(/^assist-maya@prop-lane\.space$/);
+    // New addresses take the workspace's name, not the person's (7b41df263).
+    expect(row.address).toBe("my-workspace@proplane.ai");
   });
 
   it("still creates one for a manager nobody has linked", async () => {
     const row = await ensureManagerAssistantEmail(seed([]) as never, solo);
-    expect(row.address).toBe("assist-solo@prop-lane.space");
+    expect(row.address).toBe("my-workspace@proplane.ai");
   });
 });
 

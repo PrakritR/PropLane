@@ -51,6 +51,7 @@ describe("payment scheduled Send now workspace authorization", () => {
       from: vi.fn((table: string) => {
         if (table === "profile_roles") return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }] }) }) };
         if (table === "profiles") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { full_name: "Owner", email: "owner@example.com" } }) }) }) };
+        if (table === "test_workspace_members") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) };
         throw new Error(`Unexpected table ${table}`);
       }),
     };

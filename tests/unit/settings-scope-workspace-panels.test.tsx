@@ -152,7 +152,8 @@ describe("settings-bar workspace scopes Communication identity", () => {
     await waitFor(() => {
       expect(screen.getByText("Channels")).toBeTruthy();
     });
-    expect(screen.getByText("Ash Flats")).toBeTruthy();
+    // Each Channels row (number, email) names its workspace.
+    expect(screen.getAllByText("Ash Flats").length).toBeGreaterThan(0);
     expect(screen.queryByText("Portal header workspace")).toBeNull();
     expect(screen.queryByText(/\+1 \(206\) 555-0999/)).toBeNull();
 

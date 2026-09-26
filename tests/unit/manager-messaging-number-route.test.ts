@@ -138,7 +138,7 @@ describe("manager messaging-number route", () => {
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "trialing" });
     process.env.SMS_PROVISIONING_ENABLED = "1";
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
-    expect((await (await GET()).json()).canRequest).toBe(false);
+    expect((await (await GET(new Request("http://localhost"))).json()).canRequest).toBe(false);
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
@@ -211,7 +211,7 @@ describe("manager messaging-number route", () => {
   });
 
   it("keeps GET strictly read-only and reports the effective paused mode", async () => {
-    const response = await GET();
+    const response = await GET(new Request("http://localhost"));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -232,13 +232,13 @@ describe("manager messaging-number route", () => {
 
   it("maps the nav subscription tier into planTier (free / unknown)", async () => {
     mocks.getManagerPortalNavSubscriptionTier.mockResolvedValueOnce("free");
-    expect((await (await GET()).json()).planTier).toBe("free");
+    expect((await (await GET(new Request("http://localhost"))).json()).planTier).toBe("free");
 
     mocks.getManagerPortalNavSubscriptionTier.mockResolvedValueOnce("paid");
-    expect((await (await GET()).json()).planTier).toBe("paid");
+    expect((await (await GET(new Request("http://localhost"))).json()).planTier).toBe("paid");
 
     mocks.getManagerPortalNavSubscriptionTier.mockResolvedValueOnce(null);
-    expect((await (await GET()).json()).planTier).toBe("unknown");
+    expect((await (await GET(new Request("http://localhost"))).json()).planTier).toBe("unknown");
   });
 
   it("hands a co-manager the workspace's number and never a Request button", async () => {
@@ -257,7 +257,7 @@ describe("manager messaging-number route", () => {
     mocks.cookies["proplane-workspace"] = SHARED_WS;
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -276,7 +276,7 @@ describe("manager messaging-number route", () => {
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
     mocks.cookies["proplane-workspace"] = SHARED_WS;
 
-    const body = await (await GET()).json();
+    const body = await (await GET(new Request("http://localhost"))).json();
 
     expect(body.workspaceNumber).toEqual({ phoneNumber: null, ownerUserId: OWNER, ownerName: "Prakrit Ramachandran" });
     expect(body.canRequest).toBe(false);
@@ -295,7 +295,7 @@ describe("manager messaging-number route", () => {
     });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
 
-    const body = await (await GET()).json();
+    const body = await (await GET(new Request("http://localhost"))).json();
 
     expect(body.number.lastError).toBeNull();
     expect(JSON.stringify(body)).not.toContain("database host");
@@ -320,7 +320,7 @@ describe("manager messaging-number route", () => {
     });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -347,7 +347,7 @@ describe("manager messaging-number route", () => {
     });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -497,7 +497,7 @@ describe("manager messaging-number route", () => {
     mocks.cookies["proplane-workspace"] = MY_WS;
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
-    const body = await (await GET()).json();
+    const body = await (await GET(new Request("http://localhost"))).json();
     expect(body.workspaceRole).toBe("primary");
     expect(body.workspace).toMatchObject({ id: MY_WS, owned: true });
     expect(body.number).toBeNull();

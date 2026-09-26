@@ -103,13 +103,21 @@ describe("provisioning inside a workspace someone else owns is refused, on both 
 
 describe("the settings copy names the workspace channel instead of offering a request", () => {
   it("the assistant email panel shows a co-manager the workspace address and who manages it", () => {
-    const panel = readFileSync(
+    const PANEL_SOURCE = readFileSync(
       join(process.cwd(), "src/components/portal/pro-assistant-email-settings-panel.tsx"),
       "utf8",
     );
-    expect(panel).toContain('label="Workspace email"');
-    expect(panel).toContain('label="Managed by"');
-    expect(panel).not.toContain("Request your own address");
+    // Channels redesign (PLAN-0924-1454): one read-only row per workspace the
+    // co-manager does not own, named by workspace, with no way to mint one.
+    const coManagerBranch = PANEL_SOURCE.slice(
+      PANEL_SOURCE.indexOf("if (isCoManager) {"),
+      PANEL_SOURCE.indexOf('dataAttr="channel-row-email"'),
+    );
+    expect(coManagerBranch).toContain("visibleEmails.filter((e) => !e.owned)");
+    expect(coManagerBranch).toContain("workspace={entry.workspaceName}");
+    expect(coManagerBranch).toContain("Copy address");
+    expect(coManagerBranch).not.toContain("request_address");
+    expect(PANEL_SOURCE).not.toContain("Request your own address");
   });
 
   it("the work number panel does the same", () => {
