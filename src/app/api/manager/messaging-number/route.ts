@@ -328,7 +328,7 @@ function publicProvisioningError(error: string): string {
 }
 
 /** Read-only manager messaging status. Never seeds a row or contacts a provider. */
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   const actor = await requireManagerRouteUser();
   if (!actor)
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });

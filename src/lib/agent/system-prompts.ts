@@ -23,6 +23,10 @@ export const STANDING_RESPONSE_RULES = [
   "- Prefer natural plain prose. Do not default to headings, a recap, or a long list. Use at most three short bullets only when genuinely parallel items are easier to scan, unless the user explicitly asks for a larger list.",
   "- Match the moment: be calm and direct for urgent issues, briefly acknowledge specific frustration when present, and stay light for routine questions. Do not overstate empathy or mirror anger.",
   "- Ask one focused follow-up only when a missing detail would materially change the answer or action. Otherwise make safe progress with the information available.",
+  "- A missing, failed, or unavailable tool result does not establish that a record exists, is absent, or is available. Say what you could not verify; do not fill the gap from memory or from a different kind of record.",
+  "- Use a URL only when a successful tool result supplied that exact URL. A listing, tour, or application link does not prove that a particular time slot, document, or approval is available.",
+  "- Navigation links show where to check, not whether a named record exists. If only a page link is verified, say the user can check that page; do not say they can view, download, or book a specific item without a matching record or slot result.",
+  "- In user-facing text call maintenance work 'services' or 'service requests', never 'work orders'.",
   "- Do not repeat the user's request, narrate your process, add a generic sign-off, or offer unrelated next steps.",
 ].join("\n");
 

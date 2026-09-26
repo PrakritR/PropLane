@@ -130,9 +130,17 @@ describe("the work email belongs to the workspace, exactly like the work number"
   });
 
   it("the assistant-email panel gives a co-manager the workspace address, not a Request button", () => {
-    const source = readFileSync("src/components/portal/pro-assistant-email-settings-panel.tsx", "utf8");
-    expect(source).toContain("status.workspaceEmail");
-    expect(source).toContain('label="Managed by"');
+    const PANEL_SOURCE = readFileSync("src/components/portal/pro-assistant-email-settings-panel.tsx", "utf8");
+    // Channels redesign (PLAN-0924-1454): one read-only row per workspace the
+    // co-manager does not own, named by workspace, with no way to mint one.
+    const coManagerBranch = PANEL_SOURCE.slice(
+      PANEL_SOURCE.indexOf("if (isCoManager) {"),
+      PANEL_SOURCE.indexOf('dataAttr="channel-row-email"'),
+    );
+    expect(coManagerBranch).toContain("visibleEmails.filter((e) => !e.owned)");
+    expect(coManagerBranch).toContain("workspace={entry.workspaceName}");
+    expect(coManagerBranch).toContain("Copy address");
+    expect(coManagerBranch).not.toContain("request_address");
   });
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { completeOpenAIResponses } from "@/lib/agent/provider";
+import { completeOpenAIResponses, OpenAIIncompleteResponseError } from "@/lib/agent/provider";
 import {
   isProspectGptShadowEnabled,
   runProspectGptShadow,
@@ -16,6 +16,23 @@ afterEach(() => {
 });
 
 describe("OpenAI Responses provider", () => {
+  it("passes explicit reasoning only when selected and preserves cache and reasoning usage", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const responseBody = JSON.stringify({
+      id: "resp_usage", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "Done." }] }],
+      usage: { input_tokens: 100, output_tokens: 25, input_tokens_details: { cached_tokens: 60, cache_write_tokens: 20 }, output_tokens_details: { reasoning_tokens: 15 } },
+    });
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(responseBody, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await completeOpenAIResponses({ ...base, model: "gpt-6-luna", reasoningEffort: "high", maxOutputTokens: 1024 });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
+    expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.max_output_tokens).toBe(1024);
+    expect(result.usage).toMatchObject({ inputTokens: 100, cachedInputTokens: 60, cacheCreationInputTokens: 20, outputTokens: 25, reasoningOutputTokens: 15 });
+    await completeOpenAIResponses(base);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1].body)).reasoning).toBeUndefined();
+  });
+
   it("round trips text and function calls, preserving call ids and continuation", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -53,6 +70,57 @@ describe("OpenAI Responses provider", () => {
       output: [{ type: "function_call", id: "item_only", name: "lookup", arguments: "{}" }],
     }), { status: 200 })));
     await expect(completeOpenAIResponses(base)).rejects.toThrow(/without call_id/);
+  });
+
+  it("fails closed on failed responses and missing usage in primary mode", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "failed", status: "failed", output: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "unmetered", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(completeOpenAIResponses(base)).rejects.toThrow(/failed response/);
+    await expect(completeOpenAIResponses({ ...base, requireUsage: true })).rejects.toThrow(/without token usage/);
+  });
+
+  it("preserves the HTTP status on a provider rate limit", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "Rate limit reached" } }), { status: 429 })));
+    await expect(completeOpenAIResponses(base)).rejects.toThrow(/request failed \(429\): Rate limit reached/);
+  });
+
+  it("preserves billable usage and the reason on an incomplete response", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "incomplete", model: "gpt-6-luna", status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: [],
+      usage: { input_tokens: 120, output_tokens: 1024, input_tokens_details: { cached_tokens: 80, cache_write_tokens: 20 }, output_tokens_details: { reasoning_tokens: 990 } },
+    }), { status: 200 })));
+    await expect(completeOpenAIResponses({ ...base, model: "gpt-6-luna", requireUsage: true })).rejects.toMatchObject({
+      name: "OpenAIIncompleteResponseError", incompleteReason: "max_output_tokens",
+      responseUsage: { inputTokens: 120, cachedInputTokens: 80, cacheCreationInputTokens: 20, outputTokens: 1024, reasoningOutputTokens: 990 },
+    } satisfies Partial<OpenAIIncompleteResponseError>);
+  });
+
+  it("fails closed on a completed response with no usable text or tool call", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "empty", model: "gpt-6-luna", status: "completed", output: [{ type: "reasoning", summary: [] }],
+      usage: { input_tokens: 100, output_tokens: 20 },
+    }), { status: 200 })));
+    await expect(completeOpenAIResponses({ ...base, model: "gpt-6-luna", requireUsage: true })).rejects.toMatchObject({
+      name: "OpenAIUnusableResponseError", failureReason: "empty_output", responseUsage: { inputTokens: 100, outputTokens: 20 },
+    });
+  });
+
+  it("fails closed on whitespace-only output text", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "blank", model: "gpt-6-luna", status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: "  \n " }] }],
+      usage: { input_tokens: 100, output_tokens: 1 },
+    }), { status: 200 })));
+    await expect(completeOpenAIResponses({ ...base, model: "gpt-6-luna", requireUsage: true })).rejects.toMatchObject({
+      name: "OpenAIUnusableResponseError", failureReason: "empty_output",
+    });
   });
 
   it("fails closed without a key and propagates timeout failures", async () => {

@@ -31,8 +31,11 @@ vi.mock("@/lib/manager-vendor-invite-client", () => ({
 
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Radix schedules focus cleanup on a zero-delay timer after unmount.
+  // Let it run before jsdom globals are restored.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();

@@ -11,11 +11,14 @@ import type { AgentModelSelection } from "./model";
 export type ProviderCompletion = {
   content: Anthropic.ContentBlock[];
   stopReason: string | null;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number; reasoningOutputTokens?: number; raw?: unknown };
   provider: "anthropic" | "openrouter" | "openai";
   fallbackReason?: string;
   latencyMs: number;
   continuationState?: OpenAIResponsesContinuation;
+  responseModel?: string;
+  responseId?: string;
+  rawOutput?: unknown;
 };
 
 export type OpenAIResponsesOutputItem = Record<string, unknown>;
@@ -78,12 +81,14 @@ async function completeAnthropic(args: {
   system: string;
   tools: AnthropicToolSchema[];
   messages: Anthropic.MessageParam[];
+  maxOutputTokens?: number;
+  timeoutMs?: number;
 }): Promise<ProviderCompletion> {
   const started = performance.now();
-  const client = new Anthropic();
+  const client = new Anthropic(args.timeoutMs ? { timeout: args.timeoutMs } : undefined);
   const response = await client.messages.create({
     model: args.model,
-    max_tokens: 4096,
+    max_tokens: args.maxOutputTokens ?? 4096,
     system: args.system,
     tools: args.tools as unknown as Anthropic.Tool[],
     messages: args.messages,
@@ -94,8 +99,13 @@ async function completeAnthropic(args: {
     usage: {
       inputTokens: response.usage?.input_tokens ?? 0,
       outputTokens: response.usage?.output_tokens ?? 0,
+      cachedInputTokens: response.usage?.cache_read_input_tokens ?? 0,
+      cacheCreationInputTokens: response.usage?.cache_creation_input_tokens ?? 0,
+      raw: response.usage,
     },
     provider: "anthropic",
+    responseModel: response.model,
+    responseId: response.id,
     latencyMs: Math.round(performance.now() - started),
   };
 }
@@ -182,9 +192,9 @@ async function completeAnthropicWithBillingFallback(args: {
   model: string;
 }): Promise<ProviderCompletion> {
   try {
-    return await completeAnthropic({ ...args, model: args.model });
+    return await completeAnthropic({ ...args, model: args.model, maxOutputTokens: args.selection.maxOutputTokens, timeoutMs: args.selection.timeoutMs });
   } catch (error) {
-    if (!isAssistantBillingFailure(error) || !process.env.OPENROUTER_API_KEY?.trim()) {
+    if (args.selection.disableBillingFallback || !isAssistantBillingFailure(error) || !process.env.OPENROUTER_API_KEY?.trim()) {
       throw error;
     }
     try {
@@ -205,7 +215,9 @@ async function completeAnthropicWithBillingFallback(args: {
 
 type OpenAIResponseBody = {
   id?: string;
+  model?: string;
   status?: string;
+  incomplete_details?: { reason?: string };
   output?: Array<{
     type?: string;
     id?: string;
@@ -214,9 +226,55 @@ type OpenAIResponseBody = {
     arguments?: unknown;
     content?: Array<{ type?: string; text?: string }>;
   }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } };
   error?: { message?: string };
 };
+
+export class OpenAIIncompleteResponseError extends Error {
+  readonly responseModel?: string;
+  readonly responseUsage?: ProviderCompletion["usage"];
+  readonly incompleteReason?: string;
+
+  constructor(body: OpenAIResponseBody) {
+    super(`OpenAI returned an incomplete response${body.incomplete_details?.reason ? ` (${body.incomplete_details.reason})` : ""}.`);
+    this.name = "OpenAIIncompleteResponseError";
+    this.responseModel = body.model;
+    this.incompleteReason = body.incomplete_details?.reason;
+    if (Number.isFinite(body.usage?.input_tokens) && Number.isFinite(body.usage?.output_tokens)) {
+      this.responseUsage = {
+        inputTokens: body.usage!.input_tokens!,
+        outputTokens: body.usage!.output_tokens!,
+        cachedInputTokens: body.usage?.input_tokens_details?.cached_tokens ?? 0,
+        cacheCreationInputTokens: body.usage?.input_tokens_details?.cache_write_tokens ?? 0,
+        reasoningOutputTokens: body.usage?.output_tokens_details?.reasoning_tokens ?? 0,
+        raw: body.usage,
+      };
+    }
+  }
+}
+
+export class OpenAIUnusableResponseError extends Error {
+  readonly responseModel?: string;
+  readonly responseUsage?: ProviderCompletion["usage"];
+  readonly failureReason: string;
+
+  constructor(body: OpenAIResponseBody, failureReason: string) {
+    super(`OpenAI returned a completed response without a usable answer (${failureReason}).`);
+    this.name = "OpenAIUnusableResponseError";
+    this.responseModel = body.model;
+    this.failureReason = failureReason;
+    if (Number.isFinite(body.usage?.input_tokens) && Number.isFinite(body.usage?.output_tokens)) {
+      this.responseUsage = {
+        inputTokens: body.usage!.input_tokens!,
+        outputTokens: body.usage!.output_tokens!,
+        cachedInputTokens: body.usage?.input_tokens_details?.cached_tokens ?? 0,
+        cacheCreationInputTokens: body.usage?.input_tokens_details?.cache_write_tokens ?? 0,
+        reasoningOutputTokens: body.usage?.output_tokens_details?.reasoning_tokens ?? 0,
+        raw: body.usage,
+      };
+    }
+  }
+}
 
 function openAIInput(messages: Anthropic.MessageParam[]): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
@@ -265,6 +323,8 @@ export async function completeOpenAIResponses(args: {
   continuationState?: OpenAIResponsesContinuation;
   maxOutputTokens?: number;
   timeoutMs?: number;
+  reasoningEffort?: "low" | "medium" | "high";
+  requireUsage?: boolean;
 }): Promise<ProviderCompletion> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) throw new Error("OpenAI is not configured.");
@@ -292,28 +352,37 @@ export async function completeOpenAIResponses(args: {
       store: false,
       include: ["reasoning.encrypted_content"],
       max_output_tokens: args.maxOutputTokens ?? 4096,
+      ...(args.reasoningEffort ? { reasoning: { effort: args.reasoningEffort } } : {}),
     }),
   });
   const body = (await response.json()) as OpenAIResponseBody;
-  if (!response.ok) throw new Error(body.error?.message || `OpenAI request failed (${response.status}).`);
+  if (!response.ok) throw new Error(`OpenAI request failed (${response.status}): ${body.error?.message || response.statusText}`);
   if (!body.id || !Array.isArray(body.output)) throw new Error("OpenAI returned an invalid response.");
-  if (body.status === "incomplete") throw new Error("OpenAI returned an incomplete response.");
+  if (body.status === "incomplete") throw new OpenAIIncompleteResponseError(body);
+  if (body.status && body.status !== "completed") throw new Error(`OpenAI returned a ${body.status} response.`);
+  if (args.requireUsage && (!body.usage || !Number.isFinite(body.usage.input_tokens) || !Number.isFinite(body.usage.output_tokens))) {
+    throw new Error("OpenAI returned a response without token usage.");
+  }
   const content: Anthropic.ContentBlock[] = [];
   for (const item of body.output) {
     if (item.type === "message") {
-      for (const part of item.content ?? []) if (part.type === "output_text" && part.text) content.push({ type: "text", text: part.text } as Anthropic.TextBlock);
-      if ((item.content ?? []).some((part) => part.type === "refusal")) throw new Error("OpenAI refused the shadow response.");
+      for (const part of item.content ?? []) if (part.type === "output_text" && part.text?.trim()) content.push({ type: "text", text: part.text } as Anthropic.TextBlock);
+      if ((item.content ?? []).some((part) => part.type === "refusal")) throw new OpenAIUnusableResponseError(body, "refusal");
     } else if (item.type === "function_call" && item.name) {
       if (!item.call_id) throw new Error("OpenAI returned a function call without call_id.");
       content.push({ type: "tool_use", id: item.call_id, name: item.name, input: parseOpenAIArguments(item.arguments) } as Anthropic.ToolUseBlock);
     }
   }
+  if (content.length === 0) throw new OpenAIUnusableResponseError(body, "empty_output");
   const hasCalls = content.some((item) => item.type === "tool_use");
   return {
     content,
     stopReason: hasCalls ? "tool_use" : "end_turn",
-    usage: { inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0 },
+    usage: { inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0, cachedInputTokens: body.usage?.input_tokens_details?.cached_tokens ?? 0, cacheCreationInputTokens: body.usage?.input_tokens_details?.cache_write_tokens ?? 0, reasoningOutputTokens: body.usage?.output_tokens_details?.reasoning_tokens ?? 0, raw: body.usage },
     provider: "openai",
+    responseModel: body.model,
+    responseId: body.id,
+    rawOutput: body.output,
     latencyMs: Math.round(performance.now() - started),
     continuationState: {
       provider: "openai",
@@ -341,7 +410,7 @@ export async function completeAgentModel(args: {
   continuationState?: OpenAIResponsesContinuation;
 }): Promise<ProviderCompletion> {
   if (args.selection.provider === "openai") {
-    return completeOpenAIResponses({ ...args, model: args.selection.model });
+    return completeOpenAIResponses({ ...args, model: args.selection.model, maxOutputTokens: args.selection.maxOutputTokens, timeoutMs: args.selection.timeoutMs, reasoningEffort: args.selection.reasoningEffort, requireUsage: args.selection.route === "luna_primary" });
   }
   if (args.selection.provider !== "openrouter") {
     return completeAnthropicWithBillingFallback({ ...args, model: args.selection.model });

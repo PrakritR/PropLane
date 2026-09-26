@@ -40,7 +40,13 @@ function makeStripe(account: Partial<Stripe.Account>): Stripe {
   } as unknown as Stripe;
 }
 
-function makeDb(opts: { managerUserId: string; managerAccountId: string | null; applicationFee?: string }): SupabaseClient {
+function makeDb(opts: {
+  managerUserId: string;
+  managerAccountId: string | null;
+  applicationFee?: string;
+  /** Application system fee (PLAN-0924-1254): the one fee every listing charges. */
+  managerFeeCents?: number;
+}): SupabaseClient {
   const from = (table: string) => {
     const chain: Record<string, unknown> = {};
     chain.select = () => chain;
@@ -65,6 +71,9 @@ function makeDb(opts: { managerUserId: string; managerAccountId: string | null; 
       }
       if (table === "profiles") {
         return { data: { stripe_connect_account_id: opts.managerAccountId }, error: null };
+      }
+      if (table === "manager_automation_settings" && opts.managerFeeCents !== undefined) {
+        return { data: { row_data: { applicationSettings: { applicationFeeCents: opts.managerFeeCents } } }, error: null };
       }
       return { data: null, error: null };
     };
@@ -140,14 +149,14 @@ describe("createApplicationFeeCheckout — destination + ownership", () => {
     expect(passed.destinationAccountId ?? "").toBe("");
   });
 
-  it("never falls back to the fee amount the client supplies — always the server-stored listing fee", async () => {
+  it("never uses a client or listing amount — always the server-stored account fee", async () => {
     const stripe = makeStripe({ id: "acct_manager_A", capabilities: { transfers: "active" }, payouts_enabled: true });
-    const db = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A", applicationFee: "$75" });
+    const db = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A", applicationFee: "$75", managerFeeCents: 6000 });
 
     await createApplicationFeeCheckout(db, stripe, baseInput);
 
     const passed = vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1] as { amountCents?: number };
-    expect(passed.amountCents).toBe(7500);
+    expect(passed.amountCents).toBe(6000);
   });
 
   it("BLOCKS Stripe checkout when the listing has card/ACH payments disabled", async () => {

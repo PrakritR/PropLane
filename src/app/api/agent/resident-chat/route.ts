@@ -21,10 +21,11 @@ import {
   PENDING_ACTION_SAVE_FAILED_NOTE,
 } from "@/lib/agent/assistant-turn-error";
 import { messagesNeedVisionModel, visionPinnedModel } from "@/lib/agent/assistant-vision-turn";
-import { selectAgentRoute, fastLaneRunOptions, type AgentRouteSelection } from "@/lib/agent/model";
+import { selectPortalAgentRoute, fastLaneRunOptions, type AgentRouteSelection } from "@/lib/agent/model";
 import { assistantResponse } from "@/lib/agent/assistant-stream";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 /** Resident archive, never shared with another resident under the same manager. */
 export async function GET(req: Request) {
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
     const hasVision = messagesNeedVisionModel(messages);
     const routing: AgentRouteSelection = hasVision
       ? visionPinnedModel()
-      : selectAgentRoute({
+      : selectPortalAgentRoute({
           messages: contextHint ? [...messages.slice(0, -1), { role: "user", content: `[Context: ${contextHint}]\n\n${lastUserText(messages)}` }] : messages,
           actorKey: ctx.userId,
           availableTools: [...registry.keys()],
@@ -146,6 +147,7 @@ export async function POST(req: Request) {
       tier: result.tier,
       provider: result.provider,
       route: result.route,
+      reasoningEffort: result.reasoningEffort ?? "none",
       fallback: Boolean(result.fallbackReason),
       latencyMs: result.latencyMs,
       images: attached.imageCount,

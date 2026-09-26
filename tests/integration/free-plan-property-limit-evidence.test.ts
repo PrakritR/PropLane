@@ -1,5 +1,5 @@
 /**
- * End-to-end proof of the Free plan's property cap, at the level a client sees.
+ * End-to-end proof of the Free plan's two-door cap, at the level a client sees.
  *
  * The unit files pin the rules one at a time; this one walks the whole story
  * through the REAL `GET`/`POST /api/property-records` handlers and the REAL
@@ -148,8 +148,8 @@ function liveIdsFor(owner: string) {
     .map((r) => String(r.id));
 }
 
-describe("free plan property limit — end to end over the real route", () => {
-  it("refuses a free manager's second listing while keeping every existing record", async () => {
+describe("free plan door limit — end to end over the real route", () => {
+  it("refuses a free manager's third one-door listing while keeping every existing record", async () => {
     say("=".repeat(78));
     say("POST/GET /api/property-records — real handlers, real plan resolver");
     say("=".repeat(78));
@@ -172,16 +172,14 @@ describe("free plan property limit — end to end over the real route", () => {
 
     const second = await post(listing("mgr-birch-202", free, "Birch Ave 202"));
     record("publish 2nd listing", 'POST {status:"live", id:"mgr-birch-202"}', second);
-    expect(second.status).toBe(403);
-    expect(second.data.error).toBe("Free includes 1 property. Upgrade to Pro or Business to add more.");
-    expect(second.data.code).toBe("property_limit_reached");
+    expect(second.status).toBe(200);
 
-    // The body cannot argue its way past it: naming somebody else as the owner
-    // is already refused by the route's ownership rule, and re-posting with a
-    // fresh id changes nothing.
+    // A third one-door listing exceeds Free's two-door allowance.
     const disguised = await post(listing("mgr-cedar-303", free, "Cedar Way 303"));
-    record("retry with a different id", 'POST {status:"live", id:"mgr-cedar-303"}', disguised);
+    record("publish 3rd listing", 'POST {status:"live", id:"mgr-cedar-303"}', disguised);
     expect(disguised.status).toBe(403);
+    expect(disguised.data.error).toBe("Free includes 2 doors. Upgrade to Pro or Business for more doors.");
+    expect(disguised.data.code).toBe("property_limit_reached");
 
     const draft = await post(listing("mgr-draft-404", free, "Unfinished draft", "draft"));
     record("save a draft (never a listing slot)", 'POST {status:"draft"}', draft);
@@ -201,7 +199,7 @@ describe("free plan property limit — end to end over the real route", () => {
     )}`);
     say();
     expect(afterFree.status).toBe(200);
-    expect(liveIdsFor(free)).toEqual(["mgr-maple-101"]);
+    expect(liveIdsFor(free)).toEqual(["mgr-maple-101", "mgr-birch-202"]);
 
     // ------------------------------------------------------- over the limit
     const over = "22222222-2222-4222-8222-222222222222";
@@ -265,7 +263,7 @@ describe("free plan property limit — end to end over the real route", () => {
       stripe_subscription_id: "sub_live_123",
     });
 
-    say("SCENARIO 3 — a paying Pro manager is unaffected inside their own cap");
+    say("SCENARIO 3 — a paying Pro manager can add doors beyond the old listing cap");
     say();
     SESSION = { id: pro, email: "pro-manager@example.test" };
     for (let n = 1; n <= PRO_MAX_PROPERTIES; n += 1) {
@@ -276,10 +274,7 @@ describe("free plan property limit — end to end over the real route", () => {
     const proOverflow = await post(listing("mgr-pro-over", pro, "One past the Pro cap"));
     say(`  publish listing ${PRO_MAX_PROPERTIES + 1} -> ${proOverflow.status} ${JSON.stringify(proOverflow.data)}`);
     say();
-    expect(proOverflow.status).toBe(403);
-    expect(proOverflow.data.error).toBe(
-      `Pro includes up to ${PRO_MAX_PROPERTIES} properties. Upgrade to Business to add more.`,
-    );
+    expect(proOverflow.status).toBe(200);
 
     // ------------------------------------------- unrecognized tier + Stripe
     const legacy = "44444444-4444-4444-8444-444444444444";
@@ -307,7 +302,7 @@ describe("free plan property limit — end to end over the real route", () => {
     const onBehalf = await post(listing("mgr-admin-published", free, "Published by staff"));
     record("admin creates a listing owned by the free manager", 'POST {managerUserId: <free manager>}', onBehalf);
     expect(onBehalf.status).toBe(403);
-    expect(onBehalf.data.error).toBe("Free includes 1 property. Upgrade to Pro or Business to add more.");
+    expect(onBehalf.data.error).toBe("Free includes 2 doors. Upgrade to Pro or Business for more doors.");
     CALLER_IS_ADMIN = false;
 
     say("=".repeat(78));

@@ -208,6 +208,10 @@ export function buildTraceObserver(
             ...promptFields,
             toolsAvailable: info.toolsAvailable,
             systemPrompt: info.system,
+            provider: info.provider,
+            model: info.model,
+            route: info.route,
+            reasoningEffort: info.reasoningEffort,
           },
         }),
       ),
@@ -225,9 +229,13 @@ export function buildTraceObserver(
             toolsChosen: e.toolsChosen,
             provider: e.provider,
             route: e.route,
+            reasoningEffort: e.reasoningEffort,
             latencyMs: e.latencyMs,
             fallbackReason: e.fallbackReason,
             estimatedCostUsd: estimateCostUsd(e.model, e.usage),
+            cachedInputTokens: e.usage.cachedInputTokens,
+            cacheCreationInputTokens: e.usage.cacheCreationInputTokens,
+            reasoningOutputTokens: e.usage.reasoningOutputTokens,
             ...promptFields,
             ...actorMeta,
           },
@@ -444,7 +452,7 @@ async function scoreTraceNumeric(opts: {
 
 type TurnInput = { role: string; content: string }[];
 
-type TurnUsage = { inputTokens: number; outputTokens: number };
+type TurnUsage = { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number; reasoningOutputTokens?: number };
 type TracedResult = {
   reply: string;
   toolTrace: { tool: string; ok: boolean }[];
@@ -456,6 +464,7 @@ type TracedResult = {
   suppression?: { toolName: string; referenceMessageId: string; reason: string };
   provider?: string;
   route?: string;
+  reasoningEffort?: "low" | "medium" | "high";
   fallbackReason?: string;
   latencyMs?: number;
   iterationCount?: number;
@@ -589,10 +598,14 @@ export async function traceAgentTurn<T extends TracedResult>(
           tier: result.tier,
           provider: result.provider,
           route: result.route,
+          reasoningEffort: result.reasoningEffort,
           fallbackReason: result.fallbackReason,
           latencyMs: result.latencyMs,
           inputTokens: result.usage?.inputTokens,
           outputTokens: result.usage?.outputTokens,
+          cachedInputTokens: result.usage?.cachedInputTokens,
+          cacheCreationInputTokens: result.usage?.cacheCreationInputTokens,
+          reasoningOutputTokens: result.usage?.reasoningOutputTokens,
           estimatedCostUsd: costUsd,
           pendingAction: result.pendingAction?.toolName,
           iterationCount: result.iterationCount,
@@ -649,7 +662,25 @@ export async function traceAgentTurn<T extends TracedResult>(
     return result;
   } catch (e) {
     try {
-      trace?.update({ output: e instanceof Error ? e.message : "error" });
+      const failed = e && typeof e === "object" && "responseUsage" in e
+        ? e as { responseUsage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; reasoningOutputTokens?: number }; responseModel?: string; incompleteReason?: string; failureReason?: string }
+        : null;
+      trace?.update({
+        output: e instanceof Error ? e.message : "error",
+        ...(failed?.responseUsage ? { metadata: {
+          costAccountingScope: "failed_call_only; earlier successful generations are separate",
+          failedCall: {
+            provider: "openai",
+            model: failed.responseModel,
+            reason: failed.incompleteReason ?? failed.failureReason,
+            inputTokens: failed.responseUsage.inputTokens,
+            outputTokens: failed.responseUsage.outputTokens,
+            cachedInputTokens: failed.responseUsage.cachedInputTokens,
+            reasoningOutputTokens: failed.responseUsage.reasoningOutputTokens,
+            estimatedCostUsd: failed.responseModel ? estimateCostUsd(failed.responseModel, failed.responseUsage) : undefined,
+          },
+        } } : {}),
+      });
     } catch {
       /* ignore */
     }

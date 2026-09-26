@@ -75,19 +75,11 @@ describe("a new listing's Pricing step starts blank", () => {
     }
   });
 
-  it("starts with Charge an application fee unticked, and reveals a blank fee field with no placeholder when ticked", () => {
+  it("offers no application fee on the listing — it is set once in Application system settings", () => {
+    // PLAN-0924-1254: the account-wide fee is authoritative for every listing.
     openPricing();
-    const toggle = document.querySelector('[data-attr="listing-v2-application-fee-on"]') as HTMLInputElement;
-    expect(toggle).toBeTruthy();
-    expect(toggle.checked).toBe(false);
-    // The fee row itself is hidden until the switch is on.
+    expect(document.querySelector('[data-attr="listing-v2-application-fee-on"]')).toBeNull();
     expect(screen.queryByLabelText("Application fee")).toBeNull();
-
-    fireEvent.click(toggle);
-    expect(toggle.checked).toBe(true);
-    const fee = screen.getByLabelText("Application fee") as HTMLInputElement;
-    expect(fee.value).toBe("");
-    expect(fee.placeholder).toBe("");
   });
 
   it("typing Room 1 rent does not fill another room", () => {

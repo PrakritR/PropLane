@@ -28,9 +28,11 @@ vi.mock("@/lib/domain-action-events.server", () => ({
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCoManagerPermissionForProperty: vi.fn().mockResolvedValue(false),
 }));
-vi.mock("@/lib/auth/co-manager-module-scope", () => ({
+vi.mock("@/lib/auth/co-manager-module-scope", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/co-manager-module-scope")>()),
   fetchRowsForManagerWithLinked: vi.fn(),
   linkedPropertyIdsForModule: vi.fn(),
+  resolveManagerWorkspaceRowScope: vi.fn().mockResolvedValue({ propertyIds: null, untaggedOwnedVisible: true }),
 }));
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";

@@ -95,8 +95,10 @@ exactly one active manager link per workspace, but **opening the sheet and
 changing Role or Houses never mint anything**: on open it only READS the
 workspace's active link (`GET /api/pro/invite-links?workspaceId=`) to hydrate
 Role, Houses, and (for Custom) the workspace-level grant, and changing any of
-those only updates local state. Minting or reusing a link happens ONLY at the
-moment the footer's "Invite link" action or Send is pressed, through
+those only updates local state. Minting happens ONLY when an action is
+pressed. "Copy invite link" always mints a NEW link with `replaceActive: false`
+(the earlier link keeps its own terms), copies it and closes the sheet; the
+link then lists under Invite links. Send goes through
 `resolveLinkForCurrentTerms`: when the on-screen terms still match the held
 link, it reuses that link's URL (revealing it if not already in hand);
 otherwise it mints a fresh one with `replaceActive: true` so a URL already

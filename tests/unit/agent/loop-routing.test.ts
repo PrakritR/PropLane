@@ -80,6 +80,6 @@ describe("runAgentTurn model routing", () => {
     expect(create).toHaveBeenCalledTimes(2);
     // A turn always uses one model for all of its iterations.
     expect(create.mock.calls[0]![0].model).toBe(create.mock.calls[1]![0].model);
-    expect(result.usage).toEqual({ inputTokens: 70, outputTokens: 20 });
+    expect(result.usage).toMatchObject({ inputTokens: 70, outputTokens: 20 });
   });
 });

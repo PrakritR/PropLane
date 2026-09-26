@@ -7,7 +7,7 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AnthropicToolSchema } from "@/lib/tools/registry";
-import { completeOpenAIResponses } from "./provider";
+import { completeOpenAIResponses, OpenAIUnusableResponseError } from "./provider";
 import { compareProspectShadow, type ProspectShadowComparison, type ShadowToolCall } from "./prospect-shadow-comparison";
 
 export type ProspectShadowToolEvidence = {
@@ -173,6 +173,9 @@ export async function runProspectGptShadow(burst: ProspectShadowBurst): Promise<
     burst.onResult?.({ burstId: burst.burstId, burstRevision: burst.burstRevision, promptId: burst.promptId, promptHash: comparison.identity.promptHash, release: burst.release, provider: "openai", model, shadowRole: "prospect_gpt_shadow", grounding: comparison.grounding, repetition: comparison.repetition, toolCorrectness: comparison.toolCorrectness, comparison, latencyMs, usage: totalUsage });
     return { status: "completed", reply, model, burstId: burst.burstId, usage: totalUsage, latencyMs, comparison };
   } catch (error) {
+    if (error instanceof OpenAIUnusableResponseError && error.failureReason === "empty_output") {
+      return { status: "unknown", reason: "shadow_empty_output", burstId: burst.burstId };
+    }
     return { status: "unknown", reason: error instanceof Error ? error.message.slice(0, 160) : "shadow_failed", burstId: burst.burstId };
   } finally {
     release();
