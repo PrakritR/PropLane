@@ -70,6 +70,16 @@ test.describe("/demo sandbox never calls a real data API", () => {
     // regression guard for the class of bug this part fixed (a real number
     // reading as "0"/"nothing yet" despite the bundle holding real rows).
     await expect(main.getByText(/applications ready/i).first()).toBeVisible();
+    // Occupancy and "Your properties" read from a SEPARATE store
+    // (AdminPropertyRow/`adminPublishLive`) than the rest of the bundle —
+    // its own regression guard, since it silently showed 0%/"No properties
+    // yet" even while every other panel on this same page was populated.
+    await expect(main.getByText(/^0%$/)).toHaveCount(0);
+    await expect(main.getByText("No properties yet.")).toHaveCount(0);
+    await expect(main.getByText("Alder House").first()).toBeVisible();
+    await expect(main.getByText("Maple Duplex").first()).toBeVisible();
+    await expect(main.getByText("Fremont Studio").first()).toBeVisible();
+    await expect(main.getByText("Phone number not set up")).toHaveCount(0);
   });
 
   test("vendor Services shows the seeded scheduled job, not every bucket at 0", async ({ page }) => {
