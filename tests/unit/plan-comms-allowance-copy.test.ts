@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 import {
@@ -6,6 +7,8 @@ import {
   commsAllowanceBlockedMessage,
   commsAllowanceFeatureText,
 } from "@/lib/comms-billing/allowances";
+import { formatUsdFromCents } from "@/lib/comms-billing/rates";
+import PricingPage from "@/app/(public)/pricing/page";
 
 /**
  * PRP-282: what a plan includes for texting, calling and the assistant is
@@ -39,10 +42,25 @@ describe("plan communication allowance copy (PRP-282)", () => {
     expect(msg).toMatch(/does not enable automatic charges/i);
   });
 
-  it("the public pricing page explains the allowance with the same three amounts", () => {
+  it("the public pricing page explains the allowance with the same three amounts", async () => {
     const src = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
     // Its own block on the page, not a 90-word FAQ answer.
     expect(src).toContain("Texting, calling and AI use");
-    for (const tier of ["free", "pro", "business"]) expect(src).toContain(`COMMS_INCLUDED_ALLOWANCE_CENTS.${tier}`);
+
+    // The guarantee is that the page's copy is DERIVED from
+    // COMMS_INCLUDED_ALLOWANCE_CENTS, not retyped — proven by actually
+    // rendering the page and looking for the live constant's formatted
+    // dollar amounts, rather than grepping source for one particular
+    // indexing spelling (`.pro` vs generic `[tier]`).
+    const jsx = await PricingPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(jsx);
+
+    expect(html).toContain(formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!));
+    expect(html).toContain(formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!));
+
+    // Free's enforced allowance is zero, and the page states that in words
+    // rather than retyping a "$0.00" — confirm both halves of that guarantee.
+    expect(COMMS_INCLUDED_ALLOWANCE_CENTS.free).toBe(0);
+    expect(html).toMatch(/free includes none/i);
   });
 });

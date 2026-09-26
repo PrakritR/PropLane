@@ -47,6 +47,7 @@ vi.stubGlobal("localStorage", fakeLocalStorage);
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
+  useRouter: () => ({ push: () => {}, replace: () => {}, prefetch: () => {} }),
 }));
 
 import { PublicNavbar } from "@/components/layout/public-navbar";
