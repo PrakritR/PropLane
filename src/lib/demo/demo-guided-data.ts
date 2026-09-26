@@ -186,99 +186,113 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     },
   ];
 
-  // Alder House: leased and occupied by the canonical demo resident.
-  const leases: LeasePipelineRow[] = [
-    {
-      id: "demo-lease-alder",
-      residentName,
-      residentEmail,
-      residentUserId,
-      managerUserId,
-      propertyId: "demo-prop-alder",
-      unit: "Alder House",
-      stageLabel: "Fully signed",
-      status: "Fully Signed",
-      updated: isoDate(daysAgo(60)),
-      updatedAtIso: daysAgo(60).toISOString(),
-      signedAtIso: daysAgo(60).toISOString(),
-      fullySignedAt: daysAgo(60).toISOString(),
-      bucket: "signed",
-      pdfVersion: 1,
-      notes: "",
-      signedRentLabel: "$3,200/mo",
-      thread: [],
-    },
-  ];
+  // Three occupied residents, one per property — the canonical demo resident
+  // account on Alder House (a real, signable-in login), and two DISPLAY-ONLY
+  // residents on Maple Duplex and Fremont Studio (residentUserId: null — no
+  // backing login, same pattern the applicant/prospect rows below already
+  // use for a name that shows up without inventing a real account).
+  const RESIDENTS = [
+    { propertyId: "demo-prop-alder", propertyLabel: "Alder House", unit: "Alder House", rent: 3200, email: residentEmail, name: residentName, userId: residentUserId },
+    { propertyId: "demo-prop-maple", propertyLabel: "Maple Duplex", unit: "Maple Duplex · Unit A", rent: 1850, email: "sample.resident.maple@example.com", name: "Sample Resident", userId: null },
+    { propertyId: "demo-prop-fremont", propertyLabel: "Fremont Studio", unit: "Fremont Studio", rent: 1400, email: "sample.resident.fremont@example.com", name: "Sample Resident", userId: null },
+  ] as const;
 
-  const rentProfiles: RecurringRentProfile[] = [
-    {
-      id: "demo-rentprofile-alder",
-      residentEmail,
-      residentName,
-      residentUserId,
-      propertyId: "demo-prop-alder",
-      propertyLabel: "Alder House",
-      roomLabel: "Whole house",
-      managerUserId,
-      // Dollars, not cents (RecurringRentProfile.monthlyRent) — 320000 here
-      // silently fed the real monthly rent-charge generator and produced two
-      // real $320,000.00 charge rows (hc_rent_resident_..._2026-07/-10) on
-      // the shared account before this was caught; that mistake is a good
-      // reason this constant has its own comment now.
-      monthlyRent: 3200,
-      dueDay: 1,
-      startMonth: isoDate(daysAgo(60)).slice(0, 7),
-      active: true,
-      updatedAt: daysAgo(60).toISOString(),
-    },
-  ];
+  const leases: LeasePipelineRow[] = RESIDENTS.map((r, i) => ({
+    id: `demo-lease-${r.propertyId}`,
+    residentName: r.name,
+    residentEmail: r.email,
+    residentUserId: r.userId,
+    managerUserId,
+    propertyId: r.propertyId,
+    unit: r.unit,
+    stageLabel: i === 0 ? "Resident signature pending countersign" : "Fully signed",
+    status: i === 0 ? "Resident Signature Pending" : "Fully Signed",
+    updated: isoDate(daysAgo(60 - i)),
+    updatedAtIso: daysAgo(60 - i).toISOString(),
+    signedAtIso: i === 0 ? undefined : daysAgo(60 - i).toISOString(),
+    fullySignedAt: i === 0 ? undefined : daysAgo(60 - i).toISOString(),
+    bucket: i === 0 ? "resident" : "signed",
+    pdfVersion: 1,
+    notes: "",
+    signedRentLabel: `$${r.rent.toLocaleString()}/mo`,
+    thread: [],
+  }));
 
-  // One paid charge (this month, on time) and one overdue charge (past due,
-  // unpaid) so "Rent collected" and "Needs attention" both have something real.
-  const charges: HouseholdCharge[] = [
-    {
-      id: "demo-charge-alder-paid",
-      createdAt: daysAgo(35).toISOString(),
-      residentEmail,
-      residentName,
-      residentUserId,
-      propertyId: "demo-prop-alder",
-      propertyLabel: "Alder House",
+  const rentProfiles: RecurringRentProfile[] = RESIDENTS.map((r) => ({
+    id: `demo-rentprofile-${r.propertyId}`,
+    residentEmail: r.email,
+    residentName: r.name,
+    residentUserId: r.userId,
+    propertyId: r.propertyId,
+    propertyLabel: r.propertyLabel,
+    roomLabel: r.unit,
+    managerUserId,
+    // Dollars, not cents (RecurringRentProfile.monthlyRent) — this field
+    // silently feeds the real monthly rent-charge generator; a cents value
+    // here once produced two real $320,000.00 charge rows on the shared
+    // account before it was caught.
+    monthlyRent: r.rent,
+    dueDay: 1,
+    startMonth: isoDate(daysAgo(150)).slice(0, 7),
+    active: true,
+    updatedAt: daysAgo(60).toISOString(),
+  }));
+
+  // Six months of paid rent per resident (cash flow history), this month's
+  // charge for each (two paid on time, Alder's overdue — the one "Needs
+  // attention" item and the only unpaid balance on the books).
+  const charges: HouseholdCharge[] = [];
+  for (const r of RESIDENTS) {
+    for (let monthsAgo = 6; monthsAgo >= 1; monthsAgo--) {
+      const paidAt = daysAgo(monthsAgo * 30 - 2);
+      charges.push({
+        id: `demo-charge-${r.propertyId}-m${monthsAgo}`,
+        createdAt: daysAgo(monthsAgo * 30).toISOString(),
+        residentEmail: r.email,
+        residentName: r.name,
+        residentUserId: r.userId,
+        propertyId: r.propertyId,
+        propertyLabel: r.propertyLabel,
+        managerUserId,
+        kind: "rent",
+        title: "Rent",
+        amountLabel: `$${r.rent.toLocaleString()}.00`,
+        balanceLabel: "$0.00",
+        status: "paid",
+        blocksLeaseUntilPaid: false,
+        paidAmountCents: r.rent * 100,
+        paidAt: paidAt.toISOString(),
+        paidMethod: "bank",
+        dueDay: 1,
+        rentMonth: isoDate(daysAgo(monthsAgo * 30)).slice(0, 7),
+      });
+    }
+    const isAlder = r.propertyId === "demo-prop-alder";
+    charges.push({
+      id: `demo-charge-${r.propertyId}-current`,
+      createdAt: daysAgo(isAlder ? 6 : 20).toISOString(),
+      residentEmail: r.email,
+      residentName: r.name,
+      residentUserId: r.userId,
+      propertyId: r.propertyId,
+      propertyLabel: r.propertyLabel,
       managerUserId,
       kind: "rent",
       title: "Rent",
-      amountLabel: "$3,200.00",
-      balanceLabel: "$0.00",
-      status: "paid",
+      amountLabel: `$${r.rent.toLocaleString()}.00`,
+      balanceLabel: isAlder ? `$${r.rent.toLocaleString()}.00` : "$0.00",
+      status: isAlder ? "pending" : "paid",
       blocksLeaseUntilPaid: false,
-      paidAmountCents: 320000,
-      paidAt: daysAgo(33).toISOString(),
-      paidMethod: "bank",
+      paidAmountCents: isAlder ? undefined : r.rent * 100,
+      paidAt: isAlder ? undefined : daysAgo(18).toISOString(),
+      paidMethod: isAlder ? undefined : "bank",
       dueDay: 1,
-      rentMonth: isoDate(daysAgo(35)).slice(0, 7),
-    },
-    {
-      id: "demo-charge-alder-overdue",
-      createdAt: daysAgo(6).toISOString(),
-      residentEmail,
-      residentName,
-      residentUserId,
-      propertyId: "demo-prop-alder",
-      propertyLabel: "Alder House",
-      managerUserId,
-      kind: "rent",
-      title: "Rent",
-      amountLabel: "$3,200.00",
-      balanceLabel: "$3,200.00",
-      status: "pending",
-      blocksLeaseUntilPaid: false,
-      dueDay: 1,
-      dueDateLabel: isoDate(daysAgo(6)),
-      rentMonth: isoDate(daysAgo(6)).slice(0, 7),
-    },
-  ];
+      dueDateLabel: isAlder ? isoDate(daysAgo(6)) : undefined,
+      rentMonth: isoDate(daysAgo(isAlder ? 6 : 20)).slice(0, 7),
+    });
+  }
 
-  // Maple Duplex: one pending application waiting on a decision.
+  // Two applications — one ready for review, one still in screening.
   const applications: DemoApplicantRow[] = [
     {
       id: "demo-app-maple",
@@ -292,28 +306,176 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       detail: "",
       managerUserId,
     },
+    {
+      id: "demo-app-fremont",
+      name: "Sample Applicant Two",
+      email: "sample.applicant.two@example.com",
+      property: "Fremont Studio",
+      propertyId: "demo-prop-fremont",
+      assignedPropertyId: "demo-prop-fremont",
+      stage: "Screening in progress",
+      bucket: "pending",
+      detail: "",
+      managerUserId,
+    },
   ];
 
-  // Fremont Studio: one upcoming tour.
+  // Pacific Plumbing: the same vendor the home page's own Communication mock
+  // names (site/story.tsx), for a consistent story between the two sections.
+  const vendors: ManagerVendorRow[] = [
+    {
+      id: "demo-vendor-pacific-plumbing",
+      managerUserId,
+      name: "Pacific Plumbing",
+      trade: "Plumbing",
+      trades: ["Plumbing"],
+      phone: "+1 (206) 555-0188",
+      email: "pacific.plumbing@example.com",
+      notes: "",
+      active: true,
+      propertyIds: ["demo-prop-alder", "demo-prop-maple", "demo-prop-fremont"],
+    },
+  ];
+
+  const workOrders: DemoManagerWorkOrderRow[] = [
+    {
+      id: "demo-wo-alder-faucet",
+      reference: "WO-1042",
+      propertyName: "Alder House",
+      propertyId: "demo-prop-alder",
+      unit: "Alder House",
+      title: "Kitchen faucet drip",
+      priority: "Normal",
+      status: "Scheduled",
+      bucket: "scheduled",
+      description: "Kitchen faucet has been dripping for two days.",
+      scheduled: "Thu 10:00 AM – 12:00 PM",
+      scheduledAtIso: new Date(Date.now() + 2 * DAY_MS).toISOString(),
+      cost: "$140.00",
+      residentName,
+      residentEmail,
+    },
+    {
+      id: "demo-wo-maple-heat",
+      reference: "WO-1043",
+      propertyName: "Maple Duplex",
+      propertyId: "demo-prop-maple",
+      unit: "Maple Duplex · Unit A",
+      title: "No hot water",
+      priority: "Urgent",
+      status: "Open",
+      bucket: "open",
+      description: "No hot water since this morning.",
+      scheduled: "",
+      cost: "",
+      residentName: "Sample Resident",
+      residentEmail: "sample.resident.maple@example.com",
+    },
+  ];
+
+  const workOrderBids: WorkOrderBid[] = [
+    {
+      id: "demo-bid-alder-faucet",
+      workOrderId: "demo-wo-alder-faucet",
+      vendorUserId: "demo-vendor-pacific-plumbing",
+      vendorDirectoryId: "demo-vendor-pacific-plumbing",
+      vendorName: "Pacific Plumbing",
+      vendorEmail: "pacific.plumbing@example.com",
+      quoteMode: "upfront",
+      consultationVisitAt: null,
+      amountCents: 14000,
+      materialsCents: 0,
+      proposedTime: new Date(Date.now() + 2 * DAY_MS).toISOString(),
+      note: "Standard faucet cartridge replacement.",
+      status: "accepted",
+      createdAt: daysAgo(3).toISOString(),
+      updatedAt: daysAgo(2).toISOString(),
+    },
+    // The Maple Duplex work order stays unbid on purpose (a second bid row
+    // for the same vendor in one upsert batch collides downstream in the DB
+    // writer — "ON CONFLICT DO UPDATE command cannot affect row a second
+    // time" — not worth a second synthetic vendor just to avoid it). An
+    // open, un-bid "No hot water" job is its own real state to show.
+  ];
+
+  // Three tours this week, across all three properties.
+  const tourAttendees = [
+    { name: "Jamie P.", email: "jamie.p@example.com", propertyId: "demo-prop-fremont", propertyTitle: "Fremont Studio", inDays: 1 },
+    { name: "Sample Prospect Two", email: "sample.prospect.two@example.com", propertyId: "demo-prop-maple", propertyTitle: "Maple Duplex", inDays: 2 },
+    { name: "Sample Prospect Three", email: "sample.prospect.three@example.com", propertyId: "demo-prop-alder", propertyTitle: "Alder House", inDays: 4 },
+  ];
   const schedule: DemoScheduleSeed = {
-    plannedEvents: [
-      {
-        id: "demo-tour-fremont",
-        title: "Tour · Fremont Studio",
-        start: new Date(Date.now() + 3 * DAY_MS).toISOString(),
-        end: new Date(Date.now() + 3 * DAY_MS + 30 * 60 * 1000).toISOString(),
-        kind: "tour",
-        managerUserId,
-        propertyId: "demo-prop-fremont",
-        propertyTitle: "Fremont Studio",
-        attendeeName: "Sample Prospect",
-        attendeeEmail: "sample.prospect@example.com",
-        notes: "",
-      },
-    ],
+    plannedEvents: tourAttendees.map((t, i) => ({
+      id: `demo-tour-${i}`,
+      title: `Tour · ${t.propertyTitle}`,
+      start: new Date(Date.now() + t.inDays * DAY_MS).toISOString(),
+      end: new Date(Date.now() + t.inDays * DAY_MS + 30 * 60 * 1000).toISOString(),
+      kind: "tour",
+      managerUserId,
+      propertyId: t.propertyId,
+      propertyTitle: t.propertyTitle,
+      attendeeName: t.name,
+      attendeeEmail: t.email,
+      notes: "",
+    })),
     partnerInquiries: [],
     availabilityByPropertyId: {},
   };
+
+  // Communication — the SAME names/story the home page's own Communication
+  // mock uses (site/story.tsx: Jamie P., Dana Reyes, Pacific Plumbing, Ethan
+  // Wright), so the two sections read as one consistent product.
+  const now = new Date();
+  const managerInbox: PersistedInboxThread[] = [
+    {
+      id: "demo-thread-jamie",
+      folder: "inbox",
+      from: "Jamie P.",
+      email: "jamie.p@example.com",
+      subject: "Tour at Fremont Studio",
+      preview: "2 PM please!",
+      body: "Hi! Is the room at 142 Ash St still available? Could I see it Saturday afternoon?",
+      time: new Date(now.getTime() - 45 * 60 * 1000).toISOString(),
+      unread: true,
+      rootChannel: "sms",
+    },
+    {
+      id: "demo-thread-dana",
+      folder: "inbox",
+      from: "Dana Reyes",
+      email: "dana.reyes@example.com",
+      subject: "Kitchen faucet",
+      preview: "Service request #1042 · Pacific Plumbing booked Thu 10–12",
+      body: "Hi, the kitchen faucet in Alder House has been dripping for two days. Can someone take a look?",
+      time: new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString(),
+      unread: true,
+      rootChannel: "email",
+    },
+    {
+      id: "demo-thread-pacific-plumbing",
+      folder: "inbox",
+      from: "Pacific Plumbing",
+      email: "pacific.plumbing@example.com",
+      subject: "Job #1042",
+      preview: "Running 20 min late — gate code?",
+      body: "Running 20 min late for Alder House. Is there a gate code? Is the resident home?",
+      time: new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString(),
+      unread: true,
+      rootChannel: "sms",
+    },
+    {
+      id: "demo-thread-ethan",
+      folder: "inbox",
+      from: "Ethan Wright",
+      email: "ethan.wright@example.com",
+      subject: "Application fee",
+      preview: "Do you take card for the application fee?",
+      body: "Hi, do you take card for the application fee, or is it bank transfer only?",
+      time: new Date(now.getTime() - 26 * 60 * 60 * 1000).toISOString(),
+      unread: false,
+      rootChannel: "email",
+    },
+  ];
 
   return {
     ...emptySnapshot(),
@@ -322,6 +484,10 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     charges,
     rentProfiles,
     leases,
+    vendors,
+    workOrders,
+    workOrderBids,
+    managerInbox,
     schedule,
   };
 }

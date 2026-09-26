@@ -69,7 +69,7 @@ const NavigationMenuContent = React.forwardRef<
   <NavigationMenuPrimitive.Content
     ref={ref}
     className={cn(
-      "left-0 top-0 w-full data-[motion^=from-]:animate-in data-[motion^=to-]:animate-out data-[motion^=from-]:fade-in data-[motion^=to-]:fade-out data-[motion=from-end]:slide-in-from-right-52 data-[motion=from-start]:slide-in-from-left-52 data-[motion=to-end]:slide-out-to-right-52 data-[motion=to-start]:slide-out-to-left-52 md:absolute md:w-auto",
+      "left-0 top-0 w-full data-[motion^=from-]:animate-in data-[motion^=to-]:animate-out data-[motion^=from-]:fade-in data-[motion^=to-]:fade-out data-[motion=from-end]:slide-in-from-right-52 data-[motion=from-start]:slide-in-from-left-52 data-[motion=to-end]:slide-out-to-right-52 data-[motion=to-start]:slide-out-to-left-52 md:absolute md:w-full",
       className,
     )}
     {...props}
@@ -79,14 +79,24 @@ NavigationMenuContent.displayName = NavigationMenuPrimitive.Content.displayName;
 
 const NavigationMenuLink = NavigationMenuPrimitive.Link;
 
+/**
+ * Full-width mega panel, not a small floating card (captain 2026-09-25):
+ * `fixed inset-x-0` decouples the panel from wherever its trigger sits in
+ * the row (near the logo, not the row's center), so it always spans the
+ * whole viewport under the sticky nav — `top-14` matches the nav's own
+ * `min-h-[56px]`. Desktop-only trigger (`lg:` mega menus), so the fixed
+ * offset never has to account for mobile safe-area inset. Content inside
+ * stays readable via its own inner max-width wrapper (see `DesktopMenuItem`
+ * in navbar1.tsx) — only the background/border/shadow are edge-to-edge.
+ */
 const NavigationMenuViewport = React.forwardRef<
   React.ElementRef<typeof NavigationMenuPrimitive.Viewport>,
   React.ComponentPropsWithoutRef<typeof NavigationMenuPrimitive.Viewport>
 >(({ className, ...props }, ref) => (
-  <div className={cn("absolute left-0 top-full flex justify-center")}>
+  <div className={cn("fixed inset-x-0 top-14 z-40 flex justify-center")}>
     <NavigationMenuPrimitive.Viewport
       className={cn(
-        "origin-top-center relative mt-1.5 h-[var(--radix-navigation-menu-viewport-height)] w-full overflow-hidden rounded-[22px] border bg-popover text-popover-foreground shadow data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-90 md:w-[var(--radix-navigation-menu-viewport-width)]",
+        "origin-top relative h-[var(--radix-navigation-menu-viewport-height)] w-full overflow-hidden border-b border-border bg-popover text-popover-foreground shadow-[0_24px_48px_-24px_rgba(11,27,58,0.25)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=open]:fade-in",
         className,
       )}
       ref={ref}

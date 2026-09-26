@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Navbar1, type NavbarMenuItem } from "@/components/ui/navbar1";
+import type { PublicSearchItem } from "@/components/layout/public-search-overlay";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { portalDashboardPath, normalizePortalRoles, parseAuthRole, type AuthRole } from "@/lib/auth/portal-roles";
 import {
@@ -155,9 +156,10 @@ export function PublicNavbar() {
           url: "/#product",
           active: productActive && !docsActive && !contactActive && !pricingActive && !whyActive,
           dataAttr: "nav-product",
+          intro: { title: "Explore Product", url: "/#product", dataAttr: "nav-product-intro" },
           groups: [
             {
-              heading: "Who it's for",
+              heading: "Portals",
               items: [
                 {
                   title: "Managers & landlords",
@@ -186,7 +188,7 @@ export function PublicNavbar() {
               ],
             },
             {
-              heading: "What's inside",
+              heading: "Features",
               items: [
                 {
                   title: "Leasing",
@@ -196,21 +198,28 @@ export function PublicNavbar() {
                   dataAttr: "nav-product-leasing",
                 },
                 {
-                  title: "Payments & ledger",
+                  title: "Payments",
                   url: "/partner#partner-rows-title",
                   description: "Charges, reminders, deposits, books",
                   icon: <CreditCard strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-payments",
                 },
                 {
-                  title: "Inbox & work number",
+                  title: "Services",
+                  url: "/partner#partner-rows-title",
+                  description: "Requests, vendors, bids, work orders",
+                  icon: <Wrench strokeWidth={2} aria-hidden />,
+                  dataAttr: "nav-product-services",
+                },
+                {
+                  title: "Communication",
                   url: "/#product",
                   description: "Email, SMS, in-app — one thread",
                   icon: <MessageSquareText strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-inbox",
                 },
                 {
-                  title: "Ask PropLane",
+                  title: "AI assistant",
                   url: "/why-proplane",
                   description: "Ask anything about your portfolio; it acts through the same tools you do",
                   icon: <Sparkles strokeWidth={2} aria-hidden />,
@@ -343,6 +352,31 @@ export function PublicNavbar() {
     return "/auth/create-account";
   }, [pathname]);
 
+  // Real routes only, for the search overlay — flattened straight from the
+  // same `menu` data plus a handful of top-level pages that aren't in a
+  // dropdown (home, sign in, the app). Never a fabricated destination — see
+  // the Log-in note below for the one destination this deliberately does
+  // NOT split by role.
+  const searchItems: PublicSearchItem[] = useMemo(() => {
+    const items: PublicSearchItem[] = [{ title: "Home", url: "/", group: "PropLane" }];
+    for (const top of menu) {
+      if (!top.groups) {
+        items.push({ title: top.title, url: top.url, group: "PropLane" });
+        continue;
+      }
+      if (top.intro) items.push({ title: top.intro.title, url: top.intro.url, group: top.title });
+      for (const g of top.groups) {
+        for (const sub of g.items) items.push({ title: sub.title, url: sub.url, group: top.title });
+      }
+    }
+    items.push(
+      { title: "The iPhone app", url: "/app", group: "PropLane" },
+      { title: "Sign in", url: "/auth/sign-in", group: "Account" },
+      { title: "Start free", url: signupHref, group: "Account" },
+    );
+    return items;
+  }, [menu, signupHref]);
+
   if (hideOnNative) return null;
 
   return (
@@ -354,13 +388,21 @@ export function PublicNavbar() {
         logoSlot={<AxisLogoLink href="/" size="compact" showWordmark={false} />}
         menu={menu}
         auth={{
+          // Deliberately ONE real link, not a "Manager / Resident / Vendor"
+          // dropdown: /auth/sign-in has no per-role variant or query-param
+          // hint (checked `src/app/auth/sign-in/page.tsx`) — every account
+          // signs in at the same place and is routed by its own role after
+          // auth, so a role-split Log-in menu would point three items at an
+          // identical destination. Real routes only, never an invented one.
           login: { text: "Log in", url: "/auth/sign-in" },
-          // "Start free" says what the button does — it is a $0 plan, not a form.
+          // "Start free" says what the button does — it is a $0 plan, not a
+          // form; the button itself renders the trailing "↗".
           signup: { text: "Start free", url: signupHref },
           secondary: { text: "Book a demo", url: BOOK_DEMO_HREF, dataAttr: "nav-book-demo" },
         }}
         portalLink={portalLink}
         mobileFooter={<AppStoreBadge dataAttr="nav-mobile-app-store" />}
+        searchItems={searchItems}
       />
     </div>
   );

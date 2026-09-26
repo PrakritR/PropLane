@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { DemoSectionRenderer } from "@/components/demo/demo-section-renderer";
@@ -13,7 +13,8 @@ import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-co
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { hydrateDemoGuidedState } from "@/lib/demo/demo-guided";
 import { seedDemoPortalIdleData } from "@/lib/demo/demo-seed";
-import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
+import { CANONICAL_DEMO_MANAGER_NAME, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
+import { DEMO_RESIDENT_EMAIL, setDemoRole } from "@/lib/demo/demo-session";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
   PORTAL_MAIN_CONTENT_ID,
@@ -21,23 +22,106 @@ import {
   PORTAL_SHELL_ROOT_CLASS,
 } from "@/lib/portal-layout-classes";
 import { proPortal } from "@/lib/portals/pro";
-import type { PortalSection } from "@/lib/portal-types";
+import { RESIDENT_PORTAL_BASE_PATH, RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
+import type { PortalDefinition, PortalSection } from "@/lib/portal-types";
+import { cn } from "@/lib/utils";
+
+/** A ref that always holds the latest value, for a callback (the fetch shim)
+ * that must read current state without becoming a render dependency. */
+function useRefLatest<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
 
 const DEMO_ASSISTANT_ENDPOINT = "/api/agent/demo-chat";
+
+/**
+ * The two portals this embed can show. Only manager and resident — the
+ * captain's ask was a two-way switch, not the three-way manager/resident/
+ * vendor toggle `DemoPortalShell` (a separate, older demo surface) already
+ * has elsewhere in the app.
+ */
+type DemoPortalRole = "manager" | "resident";
+
+/** Same shape `getResidentPortalDefinition()` (src/lib/portals/resident.ts)
+ * builds server-side, inlined here because that helper is wrapped in React's
+ * `cache()` for server components — this shell is a client component and
+ * needs a plain synchronous object. */
+const residentPortal: PortalDefinition = {
+  kind: "resident",
+  basePath: RESIDENT_PORTAL_BASE_PATH,
+  title: "Resident Portal",
+  accent: "blue",
+  sections: RESIDENT_UNIFIED_PORTAL_SECTIONS,
+};
+
+/**
+ * The demo resident this embed's Resident view signs in as. Deliberately the
+ * existing canonical `resident@test.proplane.local` identity
+ * (`CANONICAL_DEMO_RESIDENT_NAME`/`DEMO_RESIDENT_EMAIL`) rather than an
+ * invented name: it is the one resident in the seeded "Seattle Homes"
+ * portfolio with a REAL linked userId (Alder House, see
+ * `demo-guided-data.ts`'s `RESIDENTS[0]`), so its lease, rent profile, and
+ * charge history are genuinely consistent with what `ResidentLeasePanel` /
+ * `ResidentPaymentsPanel` render — not a second, disconnected identity.
+ */
+const DEMO_RESIDENT_DISPLAY_LABEL = `${CANONICAL_DEMO_RESIDENT_NAME} · Alder House`;
 
 /** App routes a reused portal panel might try to navigate to — never let them
  * reach the real (auth-gated) router; translate them into an in-demo section
  * switch instead, the same interception `DemoPortalShell` already used. */
 const DEMO_INTERCEPT_HREF = /^\/(portal|resident|vendor|admin|auth|rent)(\/|$)/;
 
-function parseDemoTarget(href: string): { section: string; tab: string | null } | null {
+function parseDemoTarget(href: string): { role: DemoPortalRole; section: string; tab: string | null } | null {
   const path = href.split(/[?#]/)[0] ?? "";
   const parts = path.split("/").filter(Boolean);
   if (parts.length < 2) return null;
   const [prefix, section, tab] = parts;
-  if (prefix !== "portal") return null;
-  return { section: section!, tab: tab ?? null };
+  if (prefix === "portal") return { role: "manager", section: section!, tab: tab ?? null };
+  if (prefix === "resident") return { role: "resident", section: section!, tab: tab ?? null };
+  return null;
 }
+
+/**
+ * The real avatar-menu "Switch to Resident/Property portal" entry
+ * (`PortalRoleSwitcher`) needs a live, authenticated `GET
+ * /api/auth/portal-roles` response before it renders any button at all, and
+ * its click handler then POSTs `/api/auth/set-active-portal` and does a real
+ * `router.push` — none of which can work unauthenticated inside `/demo`. To
+ * make that real component render and behave correctly here without forking
+ * it, this scopes a `fetch` override to the lifetime of this shell (removed
+ * on unmount) that answers ONLY that one read-only GET with the single
+ * reachable role the embed actually supports, so `PortalRoleSwitcher`
+ * renders its real button with its real copy; the click itself is then
+ * caught in the capture phase below (by that exact copy) and turned into a
+ * local role switch before its real POST/navigate can run — every other
+ * fetch passes through untouched.
+ */
+function installPortalRoleFetchShim(getRole: () => DemoPortalRole): () => void {
+  if (typeof window === "undefined") return () => {};
+  const original = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("/api/auth/portal-roles")) {
+      const reachable = getRole() === "manager" ? ["resident"] : ["manager"];
+      return Promise.resolve(new Response(JSON.stringify({ reachableRoles: reachable }), { status: 200 }));
+    }
+    return original(input, init);
+  }) as typeof window.fetch;
+  return () => {
+    window.fetch = original;
+  };
+}
+
+const ROLE_SWITCH_LABEL: Record<DemoPortalRole, string> = {
+  // The OTHER role's switcher copy, from portal-switch-targets.ts's
+  // PORTAL_SWITCH_LABELS — this is the label shown while `role` is active.
+  manager: "Switch to Resident portal",
+  resident: "Switch to Property portal",
+};
 
 /** The real "Ask PropLane" pill's own `data-attr`, from portal-top-bar.tsx. */
 const ASK_PROPLANE_PILL_SELECTOR = '[data-attr="portal-ask-proplane"]';
@@ -75,14 +159,49 @@ function DemoAssistantDockRail({ open, onClose }: { open: boolean; onClose: () =
   );
 }
 
+/** Small "Manager | Resident" segmented control, above the shell itself —
+ * not `DemoPortalShell`'s old pill bar. Purely local state; switching role
+ * resets to that portal's Dashboard. */
+function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onChange: (next: DemoPortalRole) => void }) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Switch portal view"
+      data-attr="demo-role-switch"
+      className="flex shrink-0 items-center gap-0.5 self-start rounded-full border border-border/70 bg-[var(--pl-surface-muted)] p-0.5 m-2"
+    >
+      {(["manager", "resident"] as const).map((r) => (
+        <button
+          key={r}
+          type="button"
+          role="tab"
+          aria-selected={role === r}
+          data-attr={`demo-role-switch-${r}`}
+          onClick={() => onChange(r)}
+          className={cn(
+            "min-h-7 rounded-full px-3 text-[12px] font-bold capitalize transition-colors",
+            role === r ? "bg-primary text-white" : "text-muted hover:text-foreground",
+          )}
+        >
+          {r}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
- * The real signed-in-shaped manager portal, unauthenticated — the home page's
- * Codex-style hero window embeds this at `/demo`. Manager role only, no role
- * switcher, no "Run demo" walkthrough, no floating chat bubble: the captain's
- * reference is the real `/portal`, not a redrawn or narrated tour of it
- * (captain 2026-09-25). Composed from the REAL shell components —
- * `PortalSidebar`, `PortalTopBar`, `WorkspaceProvider`, `AssistantDockPanel` —
- * with the demo data layer underneath, not `DemoPortalShell`'s own chrome.
+ * The real signed-in-shaped portal, unauthenticated — the home page's
+ * Codex-style hero window embeds this at `/demo`. Manager and Resident
+ * views, switched by the segmented control above the shell or by the real
+ * avatar-menu "Switch to X portal" entry (both local state, never a real
+ * navigation): no "Run demo" walkthrough, no floating chat bubble, no
+ * vendor role — the captain's reference is the real `/portal` and
+ * `/resident`, not a redrawn or narrated tour of them (captain 2026-09-25).
+ * Composed from the REAL shell components — `PortalSidebar`, `PortalTopBar`,
+ * `WorkspaceProvider`, `AssistantDockPanel`, and the shared
+ * `DemoSectionRenderer`'s resident branch for Resident — with the demo data
+ * layer underneath, not `DemoPortalShell`'s own chrome.
  */
 export function DemoManagerShell() {
   useLayoutEffect(() => {
@@ -90,13 +209,16 @@ export function DemoManagerShell() {
     void seedDemoPortalIdleData();
   }, []);
 
+  const [portalRole, setPortalRole] = useState<DemoPortalRole>("manager");
   const [section, setSection] = useState("dashboard");
   const [tab, setTab] = useState<string | null>(null);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+
+  const definition = portalRole === "resident" ? residentPortal : proPortal;
   const meta: PortalSection | undefined = useMemo(
-    () => proPortal.sections.find((s) => s.section === section),
-    [section],
+    () => definition.sections.find((s) => s.section === section),
+    [definition, section],
   );
 
   const selectSection = useCallback((next: string, nextTab: string | null = null) => {
@@ -104,14 +226,33 @@ export function DemoManagerShell() {
     setTab(nextTab);
   }, []);
 
+  const switchRole = useCallback((next: DemoPortalRole) => {
+    setPortalRole(next);
+    setDemoRole(next);
+    setSection("dashboard");
+    setTab(null);
+    setAssistantOpen(false);
+  }, []);
+
+  // The fetch shim only needs the LATEST role at click time, not a
+  // dependency that reinstalls it on every toggle.
+  const portalRoleRef = useRefLatest(portalRole);
+  useLayoutEffect(() => installPortalRoleFetchShim(() => portalRoleRef.current), [portalRoleRef]);
+
   const navigateInDemo = useCallback(
     (href: string) => {
       const target = parseDemoTarget(href);
-      if (target && proPortal.sections.some((s) => s.section === target.section)) {
-        selectSection(target.section, target.tab);
+      if (!target) return;
+      const targetDefinition = target.role === "resident" ? residentPortal : proPortal;
+      if (!targetDefinition.sections.some((s) => s.section === target.section)) return;
+      if (target.role !== portalRole) {
+        setPortalRole(target.role);
+        setDemoRole(target.role);
+        setAssistantOpen(false);
       }
+      selectSection(target.section, target.tab);
     },
-    [selectSection],
+    [portalRole, selectSection],
   );
 
   const onFrameClickCapture = useCallback(
@@ -134,6 +275,22 @@ export function DemoManagerShell() {
         return;
       }
 
+      // The real avatar-menu "Switch to Resident/Property portal" entry
+      // (`PortalRoleSwitcher`) — its fetch is shimmed above so it renders
+      // for real, its click is caught here (by its real, exact copy) before
+      // its own onClick can POST/navigate, and turned into the same local
+      // switch the segmented control performs.
+      // `PortalRoleSwitcher`'s button text is `"⇄ " + label` (an aria-hidden
+      // arrow span before the label text node) — match by substring, not
+      // exact equality, since `textContent` includes that leading glyph.
+      const button = target?.closest?.("button");
+      if (button?.textContent?.includes(ROLE_SWITCH_LABEL[portalRole])) {
+        e.preventDefault();
+        e.stopPropagation();
+        switchRole(portalRole === "manager" ? "resident" : "manager");
+        return;
+      }
+
       const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor) return;
       const href = anchor.getAttribute("href") ?? "";
@@ -141,36 +298,31 @@ export function DemoManagerShell() {
       e.preventDefault();
       navigateInDemo(href);
     },
-    [navigateInDemo],
+    [navigateInDemo, portalRole, switchRole],
   );
+
+  const displayName = portalRole === "resident" ? DEMO_RESIDENT_DISPLAY_LABEL : CANONICAL_DEMO_MANAGER_NAME;
+  const displayEmail = portalRole === "resident" ? DEMO_RESIDENT_EMAIL : "manager@test.proplane.local";
 
   return (
     <PortalAssistantConfigProvider endpoint={DEMO_ASSISTANT_ENDPOINT} managerName={CANONICAL_DEMO_MANAGER_NAME}>
-      <AssistantConversationProvider endpoint={DEMO_ASSISTANT_ENDPOINT} archiveKey="demo-manager:seattle-homes">
+      <AssistantConversationProvider endpoint={DEMO_ASSISTANT_ENDPOINT} archiveKey={`demo-${portalRole}:seattle-homes`}>
         <PortalContainerProvider container={frameEl}>
           <div
             ref={setFrameEl}
             onClickCapture={onFrameClickCapture}
             className={PORTAL_SHELL_ROOT_CLASS}
           >
+            <DemoRoleSwitchControl role={portalRole} onChange={switchRole} />
             <WorkspaceProvider>
               <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
-                <PortalSidebar definition={proPortal} subscriptionTier="paid" initialCollapsed={false} />
+                <PortalSidebar definition={definition} subscriptionTier="paid" initialCollapsed={false} />
                 <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                  <PortalTopBar
-                    kind="pro"
-                    basePath="/portal"
-                    name={CANONICAL_DEMO_MANAGER_NAME}
-                    email="manager@test.proplane.local"
-                  />
+                  <PortalTopBar kind={definition.kind} basePath={definition.basePath} name={displayName} email={displayEmail} />
                   <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
                     <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
-                      <PortalMobileNavBar
-                        definition={proPortal}
-                        name={CANONICAL_DEMO_MANAGER_NAME}
-                        email="manager@test.proplane.local"
-                      />
-                      <DemoSectionRenderer role="manager" section={section} tab={tab} meta={meta} />
+                      <PortalMobileNavBar definition={definition} name={displayName} email={displayEmail} />
+                      <DemoSectionRenderer role={portalRole} section={section} tab={tab} meta={meta} />
                     </div>
                   </main>
                 </div>
