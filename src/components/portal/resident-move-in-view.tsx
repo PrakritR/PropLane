@@ -56,7 +56,13 @@ function useMoveInChecklist(basePath: string): { chargesSettled: MoveInChecklist
 
   useEffect(() => {
     if (!ready) return;
-    if (!userId || isDemoModeActive()) { setChargesSettled(true); setInspectionDone(true); return; }
+    if (!userId || isDemoModeActive()) {
+      // Demo/no-session mode never sends real requests; read as "nothing left to check".
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setChargesSettled(true);
+      setInspectionDone(true);
+      return;
+    }
     let cancelled = false;
     void syncHouseholdChargesFromServer().then(() => {
       if (cancelled) return;

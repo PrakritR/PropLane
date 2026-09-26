@@ -364,6 +364,8 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   useEffect(() => {
     if (!reportId) return;
     let cancelled = false;
+    // Clearing a stale error before a retry, not synchronizing with an external read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError("");
     // C202: a stalled fetch (dropped connection, a proxy that never closes the
     // response) previously left `detail` null forever — the loading paragraph
