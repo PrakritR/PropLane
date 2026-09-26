@@ -2,13 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import {
+  FilterCollapsibleSection,
+  FilterFieldsAccordion,
+  FilterSingleSelectList,
+  filterSingleSelectSummary,
+  useFilterAccordionClose,
+} from "@/components/portal/filter-field-lists";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { AdminPropertyRecordPage } from "@/components/portal/admin-property-record-page";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PROPERTY_PIPELINE_EVENT, syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import {
@@ -19,7 +29,57 @@ import {
   readAdminPropertyRows,
   unlistManagerListing,
   type AdminPropertyBucketIndex,
+  type AdminPropertyRow,
 } from "@/lib/demo-admin-property-inventory";
+
+type PropertyKindFilter = "all" | "shared_home" | "entire_home";
+
+/** The listing's own rental model (`listingPlaceCategoryId`) — the closest real
+ * "property kind" every submission carries, shown in the mock as House/Co-living/
+ * Apartment. A row with no submission (a legacy/converted row) falls into "all"
+ * only, since neither bucket honestly applies. */
+function propertyKindOf(row: AdminPropertyRow): PropertyKindFilter | null {
+  const raw = row.submission?.listingPlaceCategoryId;
+  return raw === "shared_home" || raw === "entire_home" ? raw : null;
+}
+
+const PROPERTY_KIND_OPTIONS: { id: PropertyKindFilter; label: string; dataAttr: string }[] = [
+  { id: "all", label: "All kinds", dataAttr: "admin-properties-kind-all" },
+  { id: "shared_home", label: "Co-living (by room)", dataAttr: "admin-properties-kind-shared" },
+  { id: "entire_home", label: "Entire home", dataAttr: "admin-properties-kind-entire" },
+];
+
+/** Same shape as {@link AccountStatusFilterField} in admin-axis-users-client.tsx. */
+function PropertyKindFilterField({
+  value,
+  onChange,
+}: {
+  value: PropertyKindFilter;
+  onChange: (next: PropertyKindFilter) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const selectOptions = PROPERTY_KIND_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }));
+  const summary = filterSingleSelectSummary(value, selectOptions, "All kinds");
+
+  return (
+    <FilterCollapsibleSection
+      sectionId="property-kind"
+      label="Kind"
+      summary={summary}
+      empty={value === "all"}
+      menuOptionCount={selectOptions.length}
+      dataAttr="admin-properties-kind-trigger"
+    >
+      <FilterSingleSelectList
+        options={selectOptions}
+        value={value}
+        onChange={(next) => onChange(next as PropertyKindFilter)}
+        onPick={closeFieldMenu}
+        dataAttr="admin-properties-kind"
+      />
+    </FilterCollapsibleSection>
+  );
+}
 
 /** Admin inventory tabs — listed ↔ unlisted only (no approval queue). */
 const KPI_TABS: { bucket: AdminPropertyBucketIndex; label: string }[] = [
@@ -46,8 +106,9 @@ const EMPTY_COPY: Partial<Record<AdminPropertyBucketIndex, string>> = {
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 
-export function AdminPropertiesClient() {
+export function AdminPropertiesClient({ detailId }: { detailId?: string } = {}) {
   const { showToast } = useAppUi();
+  const navigate = usePortalNavigate();
   const searchParams = useSearchParams();
   // The open tab IS the URL, rather than state mirroring it through an effect.
   const activeKpi = bucketFromTabParam(searchParams.get("tab")) ?? 2;
@@ -96,21 +157,25 @@ export function AdminPropertiesClient() {
     return adminKpiCounts();
   }, [tick]);
   const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState<PropertyKindFilter>("all");
+  const [actionBusy, setActionBusy] = useState(false);
   const allRows = useMemo(() => {
     void tick;
     return readAdminPropertyRows(activeKpi);
   }, [tick, activeKpi]);
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return allRows;
-    return allRows.filter(
-      (row) =>
+    return allRows.filter((row) => {
+      if (kindFilter !== "all" && propertyKindOf(row) !== kindFilter) return false;
+      if (!needle) return true;
+      return (
         row.buildingName.toLowerCase().includes(needle) ||
         row.unitLabel.toLowerCase().includes(needle) ||
         row.address.toLowerCase().includes(needle) ||
-        row.neighborhood.toLowerCase().includes(needle),
-    );
-  }, [allRows, query]);
+        row.neighborhood.toLowerCase().includes(needle)
+      );
+    });
+  }, [allRows, query, kindFilter]);
   // Real query-param destinations, not local-state pills: the manager
   // Properties tabs this copies are linkable, and a staff member sharing
   // "the unlisted ones" should be able to send the URL.
@@ -141,6 +206,20 @@ export function AdminPropertiesClient() {
     setTick((t) => t + 1);
     clearSelection();
   };
+
+  // A detail route names a property by its stable adminRefId, which survives a
+  // list/unlist round-trip (unlike listingId) — search both buckets rather than
+  // trusting whichever tab happens to be in the URL.
+  const detailMatch = useMemo(() => {
+    if (!detailId) return null;
+    void tick;
+    const listed = readAdminPropertyRows(2);
+    const found = listed.find((p) => p.adminRefId === detailId);
+    if (found) return { row: found, bucket: 2 as const };
+    const unlisted = readAdminPropertyRows(3);
+    const foundUnlisted = unlisted.find((p) => p.adminRefId === detailId);
+    return foundUnlisted ? { row: foundUnlisted, bucket: 3 as const } : undefined;
+  }, [detailId, tick]);
 
   /**
    * View and Unlist — and List, for an unlisted row.
@@ -193,6 +272,47 @@ export function AdminPropertiesClient() {
     </div>
   ) : null;
 
+  if (detailId) {
+    if (!detailMatch) {
+      return (
+        <ManagerPortalPageShell title="Properties" hideTitleOnMobileNav navigationProvidesTitle titleInlineFilter={null}>
+          <PortalDataTableEmpty icon="data" message="Property not found" />
+        </ManagerPortalPageShell>
+      );
+    }
+    return (
+      <AdminPropertyRecordPage
+        row={detailMatch.row}
+        backHref={`/admin/properties?tab=${TAB_PARAM_BY_BUCKET[detailMatch.bucket]}`}
+        activeKpi={detailMatch.bucket}
+        busy={actionBusy}
+        onUnlist={() => {
+          if (!detailMatch.row.listingId) return;
+          setActionBusy(true);
+          const ok = unlistManagerListing(detailMatch.row.listingId);
+          setActionBusy(false);
+          if (ok) {
+            showToast("Unlisted property.");
+            setTick((t) => t + 1);
+          } else {
+            showToast("Action could not be completed.");
+          }
+        }}
+        onList={() => {
+          setActionBusy(true);
+          const id = listAdminRow(detailMatch.row);
+          setActionBusy(false);
+          if (id) {
+            showToast("Property listed.");
+            setTick((t) => t + 1);
+          } else {
+            showToast("Could not list property.");
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <ManagerPortalPageShell
       title="Properties"
@@ -220,6 +340,22 @@ export function AdminPropertiesClient() {
           dataAttr: "admin-properties-search",
           ariaLabel: "Search properties",
         }}
+        actions={
+          <PortalFilterSortSheet
+            activeCount={portalFilterActiveCount([kindFilter !== "all" ? kindFilter : ""])}
+            compactPanel
+            commandStripTrigger
+            filterFieldCount={1}
+            constrainDropdownToTitleBand={false}
+            mobileFlushBody
+            onReset={() => setKindFilter("all")}
+            dataAttr="admin-properties-filter-sheet-open"
+          >
+            <FilterFieldsAccordion>
+              <PropertyKindFilterField value={kindFilter} onChange={setKindFilter} />
+            </FilterFieldsAccordion>
+          </PortalFilterSortSheet>
+        }
       />
       {/*
         The shared list surface, not a bespoke table. Admin does not create
@@ -253,6 +389,7 @@ export function AdminPropertiesClient() {
               summary={`${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`}
               checked={selectedIds.has(rowKey)}
               onSelectedChange={() => toggleSelected(rowKey)}
+              onOpen={() => navigate(`/admin/properties/${encodeURIComponent(row.adminRefId)}`)}
               dataAttr="admin-property-row"
             />
           );
