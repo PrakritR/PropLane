@@ -132,18 +132,37 @@ function StickyButton({ label, active }: { label: string; active: boolean }) {
   );
 }
 
-const TOUR_DAYS = ["Sat 27", "Sun 28", "Mon 29"];
+/** "Sat 27" — same relative-day shape the real /demo Tours list renders, so
+ * this static mock never disagrees with the manager iframe's own (real)
+ * Fremont Studio tour date beside it. Evaluated once at module load on both
+ * server and client, which resolve within the same instant barring an exact
+ * midnight-boundary race — the same tolerance every other relative demo date
+ * in this bundle already accepts. */
+function relativeTourDayLabel(daysFromToday: number): string {
+  const d = new Date(Date.now() + daysFromToday * 24 * 60 * 60 * 1000);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
+  const day = d.toLocaleDateString("en-US", { day: "numeric", timeZone: "America/Los_Angeles" });
+  return `${weekday} ${day}`;
+}
+function relativeTourDateLabel(daysFromToday: number): string {
+  const d = new Date(Date.now() + daysFromToday * 24 * 60 * 60 * 1000);
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
+}
+const TOUR_DAY_1 = relativeTourDayLabel(1);
+const TOUR_DAY_2 = relativeTourDayLabel(2);
+const TOUR_DAY_3 = relativeTourDayLabel(4);
+const TOUR_DAYS = [TOUR_DAY_1, TOUR_DAY_2, TOUR_DAY_3];
 const TOUR_SLOTS_BY_DAY: Record<string, { label: string; state: "open" | "taken" }[]> = {
-  "Sat 27": [
+  [TOUR_DAY_1]: [
     { label: "10:00 AM", state: "taken" },
     { label: "2:00 PM", state: "open" },
     { label: "4:00 PM", state: "open" },
   ],
-  "Sun 28": [
+  [TOUR_DAY_2]: [
     { label: "11:00 AM", state: "open" },
     { label: "1:00 PM", state: "taken" },
   ],
-  "Mon 29": [{ label: "5:30 PM", state: "open" }],
+  [TOUR_DAY_3]: [{ label: "5:30 PM", state: "open" }],
 };
 
 /** Prospect (Jamie P.) tour-booking beats — no /demo equivalent exists for an
@@ -193,7 +212,7 @@ function toursProspectBeats(): ReactNode[] {
         <p className="mt-1 text-[10.5px] text-muted">{statusLine}</p>
       </div>
       <div className="mt-3 space-y-1.5 rounded-lg border border-border p-2.5">
-        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Date</span><span className="font-semibold text-foreground">Sat, Sep 27</span></div>
+        <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Date</span><span className="font-semibold text-foreground">{relativeTourDateLabel(1)}</span></div>
         <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Time</span><span className="font-semibold text-foreground">2:00 PM</span></div>
         <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Address</span><span className="font-semibold text-foreground">3301 Fremont Ave N</span></div>
         <div className="flex items-center justify-between text-[10.5px]"><span className="text-muted">Host</span><span className="font-semibold text-foreground">Seattle Homes</span></div>
@@ -206,10 +225,10 @@ function toursProspectBeats(): ReactNode[] {
     </div>
   );
   return [
-    picker("Sat 27", null, false),
-    picker("Sat 27", "2:00 PM", true),
-    confirmation("Tour requested", "pending", "Sat, Sep 27 · 2:00 PM · Waiting on Seattle Homes"),
-    confirmation("Tour confirmed", "done", "Sat, Sep 27 · 2:00 PM · Reminder set for Friday"),
+    picker(TOUR_DAY_1, null, false),
+    picker(TOUR_DAY_1, "2:00 PM", true),
+    confirmation("Tour requested", "pending", `${relativeTourDateLabel(1)} · 2:00 PM · Waiting on Seattle Homes`),
+    confirmation("Tour confirmed", "done", `${relativeTourDateLabel(1)} · 2:00 PM · Reminder set for Friday`),
   ];
 }
 
