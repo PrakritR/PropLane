@@ -88,6 +88,7 @@ function dispatchDb({
     let update: Row | null = null;
     let inserted: Row | null = null;
     let limitCalled = false;
+    let selectedLineIds = false;
     const result = () => {
       if (table === "sms_runtime_config") return { data: { mode: "enabled", pilot_manager_user_ids: ["manager-1"] }, error: null };
       if (table === "manager_sms_numbers") return { data: { manager_user_id: "manager-1", phone_number: "+12065550999", phone_number_sid: "PN1", messaging_service_sid: "MG1", campaign_sid: "CP1", provision_state: "active", registration_state: "registered", registration_ref: null, attachment_state: null, number_registration_state: null, grace_started_at: null, grace_expires_at: null, quarantined_at: null, quarantine_reason: null }, error: null };
@@ -96,7 +97,7 @@ function dispatchDb({
       if (table === "sms_consent_events") {
         return { data: consentEvents.filter((row) => filters.every((filter) => filter(row))), error: null };
       }
-      if (table === "sms_outbox") return { data: matching(filters) ? (limitCalled ? [{ ...outbox }] : outbox) : (limitCalled ? [] : null), error: null };
+      if (table === "sms_outbox") return { data: matching(filters) ? (limitCalled || selectedLineIds ? [{ ...outbox }] : outbox) : (limitCalled || selectedLineIds ? [] : null), error: null };
       return { data: null, error: null };
     };
     // This fluent fake intentionally supports a wider subset of the Supabase
@@ -108,7 +109,7 @@ function dispatchDb({
       gt(column: string, value: string) { filters.push((r) => String(r[column] ?? "") > value); return q; },
       lt(column: string, value: string) { filters.push((r) => String(r[column] ?? "") < value); return q; },
       lte(column: string, value: string) { filters.push((r) => String(r[column] ?? "") <= value); return q; },
-      in(column: string, values: unknown[]) { filters.push((r) => values.includes(r[column])); return q; },
+      in(column: string, values: unknown[]) { if (table === "sms_outbox" && column === "id") selectedLineIds = true; filters.push((r) => values.includes(r[column])); return q; },
       not(column: string, _operator: string, value: unknown) { filters.push((r) => r[column] !== value); return q; },
       is(column: string, value: unknown) { filters.push((r) => r[column] === value); return q; },
       order() { return q; },

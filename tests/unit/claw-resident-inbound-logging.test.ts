@@ -18,6 +18,7 @@ const resolveRegisteredClawManagers = vi.fn(async () => [] as unknown[]);
 const resolveMappedManagerContacts = vi.fn(async () => [] as unknown[]);
 const durableProspectSmsEnabled = vi.fn(() => false);
 const enqueueProspectSmsBurst = vi.fn();
+let failInboundInsert = false;
 const runResidentSmsAction = vi.fn(async () => ({
   classification: {
     intent: "balance",
@@ -97,7 +98,7 @@ vi.mock("@/lib/supabase/service", () => {
     c.order = self;
     c.limit = self;
     c.maybeSingle = async () => ({ data: null });
-    c.insert = async () => ({ error: null });
+    c.insert = async () => ({ error: failInboundInsert ? { code: "test_failure", message: "unavailable" } : null });
     return c;
   };
   return { createSupabaseServiceRoleClient: () => ({ from: () => chain() }) };
@@ -135,6 +136,7 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     resolveMappedManagerContacts.mockResolvedValue([]);
     durableProspectSmsEnabled.mockReturnValue(false);
     enqueueProspectSmsBurst.mockReset();
+    failInboundInsert = false;
   }, 30000);
 
   it("persists the resident's raw inbound text (direction=inbound) for the two-way portal thread", async () => {
@@ -170,6 +172,17 @@ describe("handleClawLeasingInbound — known resident thread", () => {
         text: "You're all caught up — nothing due right now.",
       }),
     );
+  });
+
+  it("continues the resident reply after the original inbound log succeeds but the manager mirror defers", async () => {
+    logManagerSmsMessage.mockResolvedValueOnce(false);
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+    const result = await handleClawLeasingInbound({
+      from: "+15105794001", text: "Can you confirm?", messageId: "inbound-mirror-deferred",
+      workNumber: "+12053690702", receivedAt: "2026-09-25T12:00:00.000Z",
+    });
+    expect(result).toMatchObject({ ok: true, replied: true });
+    expect(sendFromManager).toHaveBeenCalledOnce();
   });
 
   it("replaces a shared-line thread owned by a different manager before logging inbound", async () => {
@@ -394,6 +407,7 @@ describe("handleClawLeasingInbound — known resident thread", () => {
   it("withholds the reply and releases the warm-process claim when durable inbound persistence fails", async () => {
     const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
     logManagerSmsMessage.mockResolvedValueOnce(false);
+    failInboundInsert = true;
 
     const result = await handleClawLeasingInbound({
       from: "+15105794001",
@@ -405,6 +419,7 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     expect(result.replied).toBe(false);
     expect(sendFromManager).not.toHaveBeenCalled();
 
+    failInboundInsert = false;
     logManagerSmsMessage.mockResolvedValueOnce(true);
     const redelivered = await handleClawLeasingInbound({
       from: "+15105794001",

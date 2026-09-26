@@ -276,8 +276,23 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   db: SupabaseClient,
   ownerUserId: string,
   columns: string,
-  opts: { propertyId?: string | null } = {},
+  opts: { propertyId?: string | null; workLineId?: string | null } = {},
 ): Promise<{ data: T | null; error: { message: string } | null }> {
+  const exactLine = opts.workLineId?.trim();
+  if (exactLine) {
+    const { data: line, error } = await db.from("manager_sms_numbers").select(columns).eq("id", exactLine).maybeSingle();
+    if (error || !line) return { data: null, error: error ?? null };
+    const row = line as unknown as T & { manager_user_id?: string };
+    if (row.manager_user_id === ownerUserId) return { data: row, error: null };
+    const { data: holds, error: holdsError } = await db.from("workspace_work_numbers")
+      .select("workspace_id,portal_workspaces!inner(owner_user_id)").eq("number_id", exactLine);
+    if (holdsError) return { data: null, error: holdsError };
+    const allowed = (holds ?? []).some((hold) => {
+      const workspace = hold.portal_workspaces as unknown as { owner_user_id?: string } | null;
+      return workspace?.owner_user_id === ownerUserId;
+    });
+    return { data: allowed ? row : null, error: null };
+  }
   const query = db.from("manager_sms_numbers").select(columns).eq("manager_user_id", ownerUserId);
   // A real builder is thenable and yields every row; a single-row double
   // only answers `maybeSingle`, and its one row is the one candidate.

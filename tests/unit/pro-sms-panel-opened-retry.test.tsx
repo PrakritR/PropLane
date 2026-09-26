@@ -120,6 +120,38 @@ afterEach(() => {
 });
 
 describe("ManagerSmsPanel durable opened receipts", () => {
+  it("reauthorizes an unchanged selected projection on a quiet poll and removes a revoked transcript", async () => {
+    const resident = {
+      ...PAYLOAD.residents[0],
+      projectionId: "projection-alice",
+      unread: false,
+      stateVersion: 1,
+      messages: [{ ...PAYLOAD.residents[0].messages[0], id: "preview", body: "Public preview" }],
+    };
+    let detailReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/manager/sms-conversations/projection-alice")) {
+        detailReads += 1;
+        return detailReads === 1
+          ? Response.json({ resident, messages: [{ ...resident.messages[0], id: "private", body: "Private transcript" }], nextCursor: null })
+          : Response.json({ error: "Conversation unavailable" }, { status: 403 });
+      }
+      return Response.json({ ...PAYLOAD, residents: [resident] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ManagerSmsPanel />);
+    await waitFor(() => expect(screen.getByText("Alice Resident")).toBeTruthy());
+    fireEvent.click(screen.getByText("Alice Resident"));
+    await waitFor(() => expect(screen.getByText("Private transcript")).toBeTruthy());
+
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(detailReads).toBe(2));
+    await waitFor(() => expect(screen.queryByText("Private transcript")).toBeNull());
+    expect(screen.queryByText("Alice Resident")).toBeNull();
+  });
+
   it("retries a failed mounted receipt on A/B/A and survives remount without dropping unrelated IDs", async () => {
     storage.setItem(OPENED_KEY, JSON.stringify(["unrelated-opened-id"]));
     storage.setItem.mockClear();

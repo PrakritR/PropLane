@@ -7,6 +7,7 @@
 // replaced so this catches regressions in the actual manager-to-pane wiring.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 const state = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
@@ -15,6 +16,10 @@ const state = vi.hoisted(() => ({
   toast: vi.fn(),
   openedWrites: [] as string[],
   viewer: "manager-1",
+  detail: vi.fn(),
+  list: vi.fn(),
+  patch: vi.fn(),
+  replySms: false,
 }));
 
 vi.mock("@/hooks/use-is-client", () => ({ useIsClient: () => true }));
@@ -35,9 +40,9 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
 }));
 vi.mock("@/lib/manager-sms-conversations-client", () => ({
   invalidateManagerSmsConversationsClient: vi.fn(),
-  loadManagerSmsConversationsClient: vi.fn(async () =>
-    Response.json({ residents: state.sms, workNumber: "+12065550999" }),
-  ),
+  loadManagerSmsConversationsClient: vi.fn((...args: unknown[]) => state.list(...args)),
+  loadManagerSmsConversationDetailClient: (...args: unknown[]) => state.detail(...args),
+  updateManagerSmsConversationStateClient: (...args: unknown[]) => state.patch(...args),
 }));
 vi.mock("@/lib/manager-sms-archive.client", () => ({
   loadManagerSmsArchivedIds: () => new Set<string>(),
@@ -47,7 +52,7 @@ vi.mock("@/lib/manager-sms-archive.client", () => ({
 vi.mock("@/components/portal/communication-row-actions", () => ({ CommunicationRowActions: () => null }));
 vi.mock("@/components/portal/pro-work-number-card", () => ({ ManagerWorkNumberCard: () => null }));
 vi.mock("@/components/portal/pro-inbox", () => ({ ManagerInbox: () => null }));
-vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => null }));
+vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: ({ controlledActiveId }: { controlledActiveId?: string }) => <div data-testid="sms-thread" data-id={controlledActiveId} /> }));
 vi.mock("@/components/portal/portal-contact-details-modal", () => ({
   PortalContactDetailsModal: () => null,
 }));
@@ -92,11 +97,11 @@ vi.mock("@/lib/inbox-attachments", () => ({
   uploadInboxAttachment: vi.fn(),
 }));
 vi.mock("@/lib/manager-inbox-reply-channels", () => ({
-  hasInboxReplyChannelSelected: () => true,
+  hasInboxReplyChannelSelected: ({ viaProplane, viaSms, viaEmail }: { viaProplane: boolean; viaSms: boolean; viaEmail: boolean }) => viaProplane || viaSms || viaEmail,
   resolveCommunicationPersonThreadReplyChannels: () => ({
-    viaProplane: true,
+    viaProplane: !state.replySms,
     viaEmail: false,
-    viaSms: false,
+    viaSms: state.replySms,
   }),
 }));
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
@@ -137,7 +142,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
       <span>{name}</span><span>{preview}</span>
     </button>
   ),
-  InboxComposer: () => null,
+  InboxComposer: ({ onSubmit, onChange, disabled }: { onSubmit: () => void; onChange: (value: string) => void; disabled?: boolean }) => <><input aria-label="Reply" onChange={(event) => onChange(event.target.value)} /><button type="button" disabled={disabled} onClick={onSubmit}>Send reply</button></>,
   AiDraftReplyCard: () => null,
   InboxReplyChannelPicker: () => null,
   InboxScheduledCard: () => null,
@@ -145,21 +150,27 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   InboxThreadView: ({
     title,
     messages,
+    beforeMessages,
+    composer,
     onBack,
   }: {
     title: string;
     messages: Array<{ id: string; body: string; attachments?: Array<{ name?: string }> }>;
+    beforeMessages?: React.ReactNode;
+    composer?: React.ReactNode;
     onBack?: () => void;
   }) => (
     <div data-testid="resident-thread">
       {onBack ? <button type="button" onClick={onBack}>Back</button> : null}
       <h2>{title}</h2>
+      {beforeMessages}
       {messages.map((message) => (
         <div key={message.id} data-testid={`message-${message.id}`}>
           <span>{message.body}</span>
           {message.attachments?.map((attachment) => <span key={attachment.name}>{attachment.name}</span>)}
         </div>
       ))}
+      {composer}
     </div>
   ),
 }));
@@ -182,6 +193,221 @@ const email = (id: string, body: string, key: string, observation: string) => ({
   readSourcesComplete: true,
   smsConversationKey: key,
   smsBindingKeys: [key],
+});
+
+describe("merged projection transcript", () => {
+  it("discards a delayed detail response from an earlier A-B-A viewer session", async () => {
+    const old = deferred<Response>();
+    const resident = { ...sms("K1", "CURRENT PREVIEW"), projectionId: "projection-one", unread: false, stateVersion: 0 };
+    state.rows = [email("email-a", "EMAIL BODY", "K1", "obs-a")];
+    state.sms = [resident];
+    state.detail.mockReturnValueOnce(old.promise).mockImplementation(async () => Response.json({ resident, messages: [{ id: "fresh", direction: "inbound", body: "FRESH SESSION", createdAt: "2026-09-13T18:03:00.000Z" }], nextCursor: null }));
+    const view = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    fireEvent.click((await within(await screen.findByTestId("manager-list")).findByText("CURRENT PREVIEW")).closest("button")!);
+    await waitFor(() => expect(state.detail).toHaveBeenCalledTimes(1));
+    state.viewer = "viewer-b";
+    view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    state.viewer = "manager-1";
+    view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    const row = await within(await screen.findByTestId("manager-list")).findByText("CURRENT PREVIEW");
+    fireEvent.click(row.closest("button")!);
+    await within(await screen.findByTestId("resident-thread")).findByText("FRESH SESSION");
+    old.resolve(Response.json({ resident, messages: [{ id: "stale", direction: "inbound", body: "STALE SESSION", createdAt: "2026-09-13T18:02:00.000Z" }], nextCursor: null }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.queryByText("STALE SESSION")).toBeNull();
+  });
+
+  it("does not acknowledge an inbound until its exact detail rendered", async () => {
+    const resident = { ...sms("K1", "NEW PREVIEW"), projectionId: "projection-one", unread: true, stateVersion: 0 };
+    state.rows = [email("email-a", "EMAIL BODY", "K1", "obs-a")];
+    state.sms = [resident];
+    state.detail.mockResolvedValueOnce(Response.json({ error: "Unavailable" }, { status: 503 }));
+    state.detail.mockImplementation(async () => Response.json({ resident, messages: [{ id: "observed-inbound", direction: "inbound", body: "RENDERED INBOUND", createdAt: "2026-09-13T18:03:00.000Z" }], nextCursor: null }));
+    state.patch.mockResolvedValue(Response.json({ ok: true, version: 1 }));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    fireEvent.click((await within(await screen.findByTestId("manager-list")).findByText("NEW PREVIEW")).closest("button")!);
+    await screen.findByText("Unavailable");
+    expect(state.patch).not.toHaveBeenCalled();
+    state.sms = [{ ...resident, messages: [{ ...resident.messages[0], id: "observed-inbound" }] }];
+    fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
+    await within(await screen.findByTestId("resident-thread")).findByText("RENDERED INBOUND");
+    await waitFor(() => expect(state.patch).toHaveBeenCalledWith(expect.objectContaining({ projectionId: "projection-one", observed: { id: "observed-inbound", occurredAt: "2026-09-13T18:03:00.000Z" } })));
+  });
+
+  it("requires an exact choice for two bound lines and refuses a retired line", async () => {
+    const user = userEvent.setup();
+    state.replySms = true;
+    state.rows = [{ ...email("email-a", "SAVED EMAIL", "K1", "obs-a"), smsBindingKeys: ["K1", "K2"] }];
+    const first = { ...sms("K1", "LINE ONE"), projectionId: "projection-one", workLineId: "line-one", counterpartyRole: "resident", unread: false, stateVersion: 0 };
+    const second = { ...sms("K2", "LINE TWO"), projectionId: "projection-two", workLineId: "line-two", counterpartyRole: "applicant", unread: false, stateVersion: 0 };
+    state.sms = [first, second];
+    state.detail.mockImplementation(async (id: string) => Response.json({ resident: id === "projection-one" ? first : second, messages: id === "projection-one" ? first.messages : second.messages, nextCursor: null }));
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (String(url) === "/api/manager/sms-conversations" && init?.method === "POST") {
+        sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Response.json({ ok: true, status: "sent" });
+      }
+      return Response.json({ messages: [] });
+    }));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    const row = await within(await screen.findByTestId("manager-list")).findByText("SAVED EMAIL");
+    fireEvent.click(row.closest("button")!);
+    const thread = await screen.findByTestId("resident-thread");
+    await within(thread).findByText("LINE ONE");
+    expect(within(thread).getByRole("button", { name: "Send reply" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(within(thread).getByRole("button", { name: "Text line" }));
+    const secondLine = await screen.findByRole("option", { name: /applicant/ });
+    secondLine.focus();
+    await user.keyboard("{Enter}");
+    expect(within(thread).getByRole("button", { name: "Text line" }).textContent).toContain("applicant");
+    fireEvent.change(within(thread).getByRole("textbox", { name: "Reply" }), { target: { value: "The chosen line" } });
+    fireEvent.click(within(thread).getByRole("button", { name: "Send reply" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.projectionId).toBe("projection-two");
+    state.sms = [first, { ...second, sendDisabled: true, stateVersion: 1 }];
+    state.detail.mockImplementation(async (id: string) => Response.json({ resident: id === "projection-one" ? first : { ...second, sendDisabled: true }, messages: id === "projection-one" ? first.messages : second.messages, nextCursor: null }));
+    fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
+    await waitFor(() => expect(within(thread).getByRole("button", { name: "Send reply" }).hasAttribute("disabled")).toBe(true));
+    expect(sent).toHaveLength(1);
+  });
+  it("loads 101 selected turns, retains older pages across latest refresh, and sends on the selected work line", async () => {
+    state.replySms = true;
+    const turns = Array.from({ length: 101 }, (_, index) => ({
+      id: `turn-${index + 1}`,
+      direction: "inbound" as const,
+      body: `TEXT TURN ${index + 1}`,
+      createdAt: new Date(Date.UTC(2026, 8, 13, 18, 0, index + 1)).toISOString(),
+    }));
+    const resident = { ...sms("K1", "TEXT TURN 101"), projectionId: "projection-one", workLineId: "line-one", messages: [turns[100]], unread: false, stateVersion: 0 };
+    state.rows = [email("email-a", "SAVED EMAIL", "K1", "obs-a")];
+    state.sms = [resident];
+    state.detail.mockImplementation(async (_id: string, before?: string) => Response.json({
+      resident,
+      messages: before === "older-2" ? turns.slice(0, 1) : before === "older-1" ? turns.slice(1, 51) : turns.slice(-50),
+      nextCursor: before === "older-2" ? null : before === "older-1" ? "older-2" : "older-1",
+    }));
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (String(url) === "/api/manager/sms-conversations" && init?.method === "POST") {
+        sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Response.json({ ok: true, status: "sent" });
+      }
+      return Response.json({ messages: [] });
+    }));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    const row = await within(await screen.findByTestId("manager-list")).findByText("TEXT TURN 101");
+    fireEvent.click(row.closest("button")!);
+    const thread = await screen.findByTestId("resident-thread");
+    await within(thread).findByText("TEXT TURN 101");
+    expect(within(thread).getByText("SAVED EMAIL")).toBeTruthy();
+    fireEvent.click(within(thread).getByText("Load earlier texts"));
+    await within(thread).findByText("TEXT TURN 2");
+    fireEvent.click(within(thread).getByText("Load earlier texts"));
+    await within(thread).findByText("TEXT TURN 1");
+    expect(within(thread).queryByText("Load earlier texts")).toBeNull();
+    fireEvent.change(within(thread).getByRole("textbox", { name: "Reply" }), { target: { value: "Selected line reply" } });
+    fireEvent.click(within(thread).getByRole("button", { name: "Send reply" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.projectionId).toBe("projection-one");
+    await waitFor(() => expect(within(thread).getByText("TEXT TURN 1")).toBeTruthy());
+    expect(within(thread).queryByText("Load earlier texts")).toBeNull();
+    turns.push({ id: "turn-102", direction: "inbound", body: "TEXT TURN 102", createdAt: new Date(Date.UTC(2026, 8, 13, 18, 1, 42)).toISOString() });
+    state.sms = [{ ...resident, messages: [turns[101]] }];
+    fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
+    await within(thread).findByText("TEXT TURN 102");
+    expect(within(thread).getByText("TEXT TURN 1")).toBeTruthy();
+    expect(within(thread).queryByText("Load earlier texts")).toBeNull();
+  });
+});
+
+describe("routed SMS and list continuation", () => {
+  it("clears a previously selected thread when the next routed link is revoked", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const resident = { ...sms("K1", "PRIVATE BODY"), projectionId: id, residentEmail: null, unread: false };
+    state.rows = [];
+    state.sms = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => String(url).includes("revoked")
+      ? Response.json({ error: "Conversation not found." }, { status: 404 })
+      : Response.json({ resident, messages: resident.messages, nextCursor: null })));
+    const view = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled routeThreadId="old-notice" />);
+    await waitFor(() => expect(screen.getByTestId("sms-thread").getAttribute("data-id")).toBe(id));
+    view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled routeThreadId="revoked" />);
+    await screen.findByText("Conversation not found.");
+    expect(screen.queryByTestId("sms-thread")).toBeNull();
+  });
+
+  it("opens an authorized page-two projection and canonicalizes an old alias without list membership", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const resident = { ...sms("K1", "OLDER PROJECTED BODY"), projectionId: id, residentEmail: null, unread: false };
+    state.rows = [];
+    state.sms = [];
+    const routeChanged = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => String(url).includes("/api/manager/sms-conversations/old-notice")
+      ? Response.json({ resident, messages: resident.messages, nextCursor: null })
+      : Response.json({})));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled routeThreadId="old-notice" onRouteThreadChange={routeChanged} />);
+    await waitFor(() => expect(screen.getByTestId("sms-thread").getAttribute("data-id")).toBe(id));
+    expect(routeChanged).toHaveBeenCalledWith(id);
+  });
+
+  it.each([[409, "ambiguous"], [404, "not found"]])("shows an honest %s routed-link result", async (status, text) => {
+    state.rows = [];
+    state.sms = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: text }, { status })));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled routeThreadId="old-notice" />);
+    await waitFor(() => expect(screen.getByText(new RegExp(text, "i"))).toBeTruthy());
+    expect(screen.queryByTestId("inbox-thread-skeleton")).toBeNull();
+  });
+
+  it("retains the oldest list cursor through a first-page poll", async () => {
+    state.rows = [];
+    const row = (id: string) => ({ ...sms(id, `BODY ${id}`), projectionId: id, residentEmail: null, name: `Person ${id}`, unread: false });
+    const seen: Array<string | null> = [];
+    let firstPoll = false;
+    state.list.mockImplementation(async (_viewer: string, _force: boolean, _workspace: string | null, cursor?: string | null) => {
+      seen.push(cursor ?? null);
+      if (cursor === "page-two") return Response.json({ residents: [row("two")], nextCursor: "page-three" });
+      if (cursor === "page-three") return Response.json({ residents: [row("three")], nextCursor: null });
+      if (firstPoll) return Response.json({ residents: [row("new")], nextCursor: "changed-first-page" });
+      return Response.json({ residents: [row("one")], nextCursor: "page-two" });
+    });
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    fireEvent.click(await screen.findByText("Load more conversations"));
+    await screen.findByText("Person two");
+    firstPoll = true;
+    fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
+    await screen.findByText("Person new");
+    expect(screen.getByText("Person one")).toBeTruthy();
+    expect(screen.getByText("Person two")).toBeTruthy();
+    fireEvent.click(screen.getByText("Load more conversations"));
+    await screen.findByText("Person three");
+    expect(screen.getByText("Person one")).toBeTruthy();
+    expect(screen.getByText("Person two")).toBeTruthy();
+    expect(seen).toEqual([null, "page-two", null, "page-three"]);
+    expect(screen.queryByText("Load more conversations")).toBeNull();
+  });
+
+  it("drops a selected projection when its unchanged summary loses detail authorization on poll", async () => {
+    state.rows = [email("email-a", "SAVED EMAIL", "K1", "obs-a")];
+    const resident = { ...sms("K1", "REVOKED PREVIEW"), projectionId: "projection-revoked",
+      residentEmail: "resident@example.com", unread: false, stateVersion: 0 };
+    state.sms = [resident];
+    state.detail.mockImplementation(async () => Response.json({ resident,
+      messages: [{ id: "old-original", direction: "inbound", body: "OLD PRIVATE ORIGINAL", createdAt: "2026-09-13T18:03:00.000Z" }], nextCursor: null }));
+    let revoked = false;
+    vi.stubGlobal("fetch", vi.fn(async () => revoked
+      ? Response.json({ error: "not found" }, { status: 404 })
+      : Response.json({ resident, messages: [] })));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    fireEvent.click((await within(await screen.findByTestId("manager-list")).findByText("REVOKED PREVIEW")).closest("button")!);
+    await within(await screen.findByTestId("resident-thread")).findByText("OLD PRIVATE ORIGINAL");
+    revoked = true;
+    state.sms = [];
+    fireEvent(window, new Event("axis:manager-sms-contacts-changed"));
+    await waitFor(() => expect(screen.queryByText("OLD PRIVATE ORIGINAL")).toBeNull());
+    expect(screen.queryByText("REVOKED PREVIEW")).toBeNull();
+  });
 });
 
 const sms = (key: string, body: string) => ({
@@ -223,6 +449,10 @@ beforeEach(() => {
   state.sms = [sms("K1", "K1 NATIVE BODY"), sms("K2", "K2 NATIVE BODY"), sms("K3", "UNRELATED K3 BODY")];
   state.openedWrites = [];
   state.viewer = "manager-1";
+  state.replySms = false;
+  state.detail.mockReset();
+  state.patch.mockReset();
+  state.list.mockReset().mockImplementation(async () => Response.json({ residents: state.sms, workNumber: "+12065550999" }));
   state.post.mockImplementation(async (sources: Array<{ id: string }>) =>
     sources.map((source) => ({ id: source.id, status: "read", unread: false })),
   );

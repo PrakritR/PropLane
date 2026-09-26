@@ -115,6 +115,7 @@ export function usePortalNavCounts(
   smsUiEnabled = false,
 ): Partial<Record<string, PortalNavCountState>> {
   const { userId, email, ready } = useManagerUserId();
+  const smsWorkspaceId = activeWorkspaceIdentity()?.id ?? null;
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((n) => n + 1), []);
 
@@ -174,18 +175,23 @@ export function usePortalNavCounts(
   // this poll is a real request on every portal page: it runs at 60s, a third
   // of the Communication page's own cadence, and leans on the opened / archive
   // / contacts events (plus refocus) for immediacy. Egress is a constraint.
-  const [smsConversations, setSmsConversations] = useState<ManagerSmsResidentConversation[]>([]);
+  const [smsConversationState, setSmsConversationState] = useState<{
+    scope: string; rows: ManagerSmsResidentConversation[];
+  }>({ scope: "", rows: [] });
+  const smsScope = `${userId ?? ""}:${smsWorkspaceId ?? ""}`;
+  const smsConversations = smsConversationState.scope === smsScope ? smsConversationState.rows : [];
   useEffect(() => {
-    if (!(kind === "manager" || kind === "pro") || !smsUiEnabled || !userId) {
-      setSmsConversations([]);
+    if (!(kind === "manager" || kind === "pro") || !userId) {
+      setSmsConversationState({ scope: "", rows: [] });
       return;
     }
+    setSmsConversationState({ scope: smsScope, rows: [] });
     let cancelled = false;
     let halted = false;
     const load = async () => {
       if (halted) return;
       try {
-        const res = await loadManagerSmsConversationsClient(userId);
+        const res = await loadManagerSmsConversationsClient(userId, false, smsWorkspaceId);
         if (cancelled) return;
         if (pollShouldHaltAfterStatus(res.status)) {
           halted = true;
@@ -194,7 +200,7 @@ export function usePortalNavCounts(
         if (!res.ok) return;
         const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
         if (cancelled || !body || !Array.isArray(body.residents)) return;
-        setSmsConversations(normalizeManagerSmsConversationsPayload(body).residents);
+        setSmsConversationState({ scope: smsScope, rows: normalizeManagerSmsConversationsPayload(body).residents });
       } catch {
         /* keep the last good conversations */
       }
@@ -221,7 +227,7 @@ export function usePortalNavCounts(
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [kind, smsUiEnabled, userId]);
+  }, [kind, smsScope, smsWorkspaceId, userId]);
 
   return useMemo(() => {
     void tick;
@@ -257,11 +263,8 @@ export function usePortalNavCounts(
       const pendingWorkOrders = readManagerWorkOrderRows().filter(
         (w) => moduleRowVisibleToPortalUser(w, userId, "services") && w.bucket === "open",
       ).length;
-      // SMS-aware once the SMS Communication UI is on, so a person reached on
-      // both channels merges into one Active row exactly as the list does —
-      // matching `countVisibleUnreadCommunication` exactly when it is off,
-      // since `countUnreadActiveConversations` ignores `smsConversations`
-      // (never loaded) in that case.
+      // Projection unread state counts in either UI-flag state; the flag only
+      // changes SMS chrome, never whether an inbound original is actionable.
       const inbox = safeCount(() =>
         countUnreadActiveConversations(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []), {
           portal: "manager",

@@ -25,6 +25,8 @@ export function targetFromUrl(rawUrl) {
  */
 export const ID_COLUMNS = [
   "manager_user_id",
+  "owner_manager_user_id",
+  "viewer_user_id",
   "resident_user_id",
   "vendor_user_id",
   "owner_user_id",
@@ -134,6 +136,14 @@ export const DELETE_ORDER = [
   "sms_inbound_receipts",
   "sms_control_receipts",
   "sms_consent_events",
+  // Projection leaves and children must clear before their conversation parent.
+  "sms_projection_ambiguous_aliases",
+  "sms_projection_deleted_events",
+  "sms_projection_view_state",
+  "sms_projection_pending",
+  "sms_projection_aliases",
+  "sms_projection_turns",
+  "sms_projection_conversations",
   "sms_provisioning_operations",
   "inbound_sms_log",
   "property_utility_allocations",

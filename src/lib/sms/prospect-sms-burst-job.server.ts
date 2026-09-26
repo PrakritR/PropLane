@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
 import { claimProspectSmsBurst, completeProspectSmsBurst, type InlineProspectBurst } from "@/lib/sms/prospect-sms-burst.server";
+import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.server";
 import {
   loadConfirmedProspectTourBooking,
   recoverProspectTourBookingForBurst,
@@ -37,7 +38,7 @@ export async function runProspectSmsBurstJob(
     .select("manager_user_id,counterparty_phone_e164,reply_from_number,reply_transport,shared_catalog,channel")
     .eq("id", burstId).eq("revision", revision).maybeSingle();
   const { data: ingress, error: ingressError } = await db.from("prospect_sms_ingress")
-    .select("source_message_id,body,received_at").eq("burst_id", burstId).in("source_message_id", claim.sourceIds).order("received_at", { ascending: true });
+    .select("source_message_id,body,received_at,channel").eq("burst_id", burstId).in("source_message_id", claim.sourceIds).order("received_at", { ascending: true });
   if (burstError || ingressError || !burst || !ingress?.length) {
     await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
     return NextResponse.json({ error: "Burst state unavailable." }, { status: 503 });
@@ -47,6 +48,28 @@ export async function runProspectSmsBurstJob(
     return NextResponse.json({ ok: false, unsupported: true, error: "retired_transport_unsupported" });
   }
   const sourceIds = ingress.map((row) => String(row.source_message_id));
+  // The ingress queue is recorded after the webhook receipt. Its received_at
+  // is processing time, not the original transport time used by the live
+  // projector. Rehydrate Twilio originals from their immutable receipts so a
+  // burst can never replay the same SID with a later queue timestamp/body.
+  let originals: { messageId: string; body: string; receivedAt: string }[];
+  try {
+    if (burst.channel !== "sms" || ingress.length !== new Set(sourceIds).size ||
+        ingress.some((row) => row.channel !== "twilio")) throw new Error("burst_transport_conflict");
+    originals = [];
+    for (const row of ingress) {
+      const messageId = String(row.source_message_id);
+      const original = await resolveInboundOriginal(db, messageId, String(burst.manager_user_id));
+      if (!original.ingress || original.fromPhone !== burst.counterparty_phone_e164 ||
+          original.toPhone !== burst.reply_from_number || original.role !== "prospect") {
+        throw new Error("burst_original_conflict");
+      }
+      originals.push({ messageId, body: original.body, receivedAt: original.occurredAt });
+    }
+  } catch {
+    await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
+    return NextResponse.json({ error: "Original burst envelopes unavailable." }, { status: 503 });
+  }
   const committedBooking = await loadConfirmedProspectTourBooking(db, {
     managerUserId: String(burst.manager_user_id),
     burstId,
@@ -85,8 +108,9 @@ export async function runProspectSmsBurstJob(
   let result;
   try {
     result = await handleClawLeasingInbound({
-    from: String(burst.counterparty_phone_e164), text: ingress.map((row) => String(row.body)).join("\n"),
+    from: String(burst.counterparty_phone_e164), text: originals.map((row) => row.body).join("\n"),
     messageId: sourceIds.at(-1) ?? null, mergedMessageIds: sourceIds, managerUserId: String(burst.manager_user_id),
+    originalMessages: originals,
     workNumber: burst.reply_from_number ? String(burst.reply_from_number) : null,
     durableBurstWorker: true,
     durablyClaimed: true,

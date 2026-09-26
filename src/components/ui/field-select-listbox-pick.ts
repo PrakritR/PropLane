@@ -27,7 +27,7 @@ function optionValueFromRow(row: HTMLElement): string | null {
  * Returns a callback ref because the listbox mounts only while the menu is open.
  */
 export function useFieldSelectListboxPointerPick(
-  onPick: (value: string, event: PointerEvent) => void,
+  onPick: (value: string, event: PointerEvent | MouseEvent) => void,
 ) {
   const onPickRef = useRef(onPick);
   const pressRef = useRef<{ id: number; x: number; y: number; value: string } | null>(null);
@@ -88,13 +88,28 @@ export function useFieldSelectListboxPointerPick(
       clearPress(event.pointerId);
     };
 
+    const onClick = (event: MouseEvent) => {
+      // Native button activation by Enter, Space or assistive technology has no
+      // pointer gesture. Physical clicks follow pointerup and have detail > 0.
+      if (event.detail !== 0) return;
+      const element = fieldSelectEventTargetElement(event.target);
+      const row = element?.closest<HTMLButtonElement>('button[role="option"]');
+      if (!row || !list.contains(row) || row.disabled || row.getAttribute("aria-disabled") === "true") return;
+      const value = optionValueFromRow(row);
+      if (value === null) return;
+      armFilterSheetDismissGuardFromFieldPick();
+      onPickRef.current(value, event);
+    };
+
     list.addEventListener("pointerdown", onPointerDown);
     list.addEventListener("pointerup", onPointerUp);
     list.addEventListener("pointercancel", onPointerCancel);
+    list.addEventListener("click", onClick);
     cleanupRef.current = () => {
       list.removeEventListener("pointerdown", onPointerDown);
       list.removeEventListener("pointerup", onPointerUp);
       list.removeEventListener("pointercancel", onPointerCancel);
+      list.removeEventListener("click", onClick);
     };
   }, []);
 }

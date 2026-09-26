@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS callback fixture fix - September 26, 2026</title>
+  <style>
+    body { max-width: 760px; margin: 3rem auto; padding: 0 1.25rem; font: 16px/1.55 system-ui, sans-serif; color: #20252b; }
+    h1 { line-height: 1.2; } code { background: #f1f3f5; padding: .1rem .3rem; border-radius: .2rem; }
+    li { margin: .45rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>SMS callback fixture fix</h1>
+    <p>The callback tests failed after the burst job began resolving immutable Twilio originals through <code>resolve_sms_completed_receipt_original</code>. The test service client had no RPC mock, and its successful SMS fixtures omitted the transport fields required by the job.</p>
+    <p>The fixture now returns the resolver's complete receipt shape, including the claimed SID, owner, original body and timestamp, phone pair, prospect role, and ingress flag. Successful burst and ingress rows identify the SMS and Twilio channels. Assertions verify that the job resolves the claimed SID, passes the receipt timestamp to the handler, and completes the intended suppression or reply outcomes. The repeat and correction scenarios use distinct SIDs so each receipt stays immutable.</p>
+    <h2>Validation</h2>
+    <ul>
+      <li>Focused Vitest run with Node 22.23.0, one worker, 768 MB heap: 7 passed, 0 failed; exit code 0.</li>
+      <li>Focused ESLint run for <code>tests/unit/prospect-sms-burst-callback.test.ts</code>: exit code 0.</li>
+    </ul>
+    <p>No source implementation, database, network service, or server was changed or invoked for this fixture repair.</p>
+  </main>
+</body>
+</html>

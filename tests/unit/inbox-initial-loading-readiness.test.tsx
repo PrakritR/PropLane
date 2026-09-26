@@ -194,7 +194,7 @@ describe("PRP-470 initial Communication readiness", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the manager list loading until the deferred inbox succeeds", async () => {
+  it("keeps the manager list loading until inbox and projection summaries succeed", async () => {
     vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
       loadPersistedInbox: () => [],
@@ -218,6 +218,7 @@ describe("PRP-470 initial Communication readiness", () => {
     expect(screen.queryByText("Deferred manager")).toBeNull();
 
     await act(async () => resolveInbox([thread("manager-thread", "Deferred manager")]));
+    await act(async () => smsResult.resolve(Response.json({ residents: [] })));
     await waitFor(() => expect(screen.getByText("Deferred manager")).toBeTruthy());
     expect(screen.queryByText("Loading conversations…")).toBeNull();
   });
@@ -356,6 +357,8 @@ describe("PRP-470 initial Communication readiness", () => {
       await act(async () => resolveInbox([]));
     }
 
+    await act(async () => smsResult.resolve(Response.json({ residents: [] })));
+
     await waitFor(() => expect(screen.getByText("Deferred applicant")).toBeTruthy());
   });
 
@@ -382,7 +385,7 @@ describe("PRP-470 initial Communication readiness", () => {
     expect(screen.queryByText("Email resident")).toBeNull();
   });
 
-  it("does not fetch disabled SMS and reveals a successful empty inbox state", async () => {
+  it("loads projection rows with SMS-specific UI disabled and reveals the archived inbox", async () => {
     vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
       loadPersistedInbox: () => [],
@@ -406,8 +409,9 @@ describe("PRP-470 initial Communication readiness", () => {
     );
 
     await act(async () => resolveInbox([]));
+    await act(async () => smsResult.resolve(Response.json({ residents: [] })));
     await waitFor(() => expect(screen.queryByText("Loading conversations…")).toBeNull());
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/manager/sms-conversations"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/manager/sms-conversations"))).toBe(true);
     const archived = screen.getByRole("link", { name: /^Archived/ });
     expect(archived).toHaveAttribute("href", "/portal/communication/archived");
     expect(archived).toHaveAttribute("aria-current", "page");
@@ -443,6 +447,8 @@ describe("PRP-470 initial Communication readiness", () => {
     }));
     const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" onAddConversation={() => {}} />);
+
+    await act(async () => smsResult.resolve(Response.json({ residents: [] })));
 
     await waitFor(() => expect(screen.getByText("Could not load conversations.")).toBeTruthy());
     expect(screen.queryByRole("button", { name: /add conversation/i })).toBeNull();

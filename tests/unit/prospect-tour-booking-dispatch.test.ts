@@ -75,8 +75,9 @@ const bookingRow = {
   transport_from_number: null,
 };
 
-function queryFor(table: string) {
+function queryFor(table: string, claimedRow: typeof bookingRow) {
   let inserted = false;
+  let selectedLineLookup = false;
   const query: Record<string, unknown> = {};
   const terminal = () => {
     if (table === "sms_runtime_config") {
@@ -109,6 +110,7 @@ function queryFor(table: string) {
         : { data: [], error: null };
     }
     if (table === "sms_outbox") {
+      if (selectedLineLookup) return { data: [{ id: claimedRow.id, selected_work_line_id: null }], error: null };
       return { data: { id: OUTBOX_ID }, error: null };
     }
     return { data: null, error: null };
@@ -121,6 +123,7 @@ function queryFor(table: string) {
     return query;
   };
   query.eq = self;
+  query.in = () => { selectedLineLookup = true; return query; };
   query.is = self;
   query.lt = self;
   query.gt = self;
@@ -135,7 +138,7 @@ function queryFor(table: string) {
 
 function createDb(boundary: ReturnType<typeof vi.fn>, row = bookingRow) {
   return {
-    from: vi.fn((table: string) => queryFor(table)),
+    from: vi.fn((table: string) => queryFor(table, row)),
     rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
       if (name === "claim_sms_outbox") return { data: [row], error: null };
       if (name === "begin_prospect_tour_booking_confirmation_submission_v2") {

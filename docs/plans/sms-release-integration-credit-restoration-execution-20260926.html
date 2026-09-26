@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SMS reserved credit restoration - execution handoff</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#17212b}code{overflow-wrap:anywhere}li{margin:.4em 0}</style>
+<body>
+<h1>SMS reserved credit restoration</h1>
+<p>26 September 2026. Durable worktree: <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code>. Integration base: <code>b27fca80a</code>. This handoff covers only the bounded credit correction; the larger SMS durability and selected-line changes were already present in the restored worktree.</p>
+<h2>Change</h2>
+<p>The private send-policy helper now accepts an internal <code>creditAlreadyReserved</code> flag that defaults to false. Only the final policy call after an accepted, nonduplicate reservation passes true. That call still runs the real billing gate against the selected workspace wallet, requesting zero additional cents, so a pause or unreadable wallet remains blocking. It also carries the persisted recipient user ID and rejects a changed workspace as well as a changed sender phone.</p>
+<p>The conversation-log test fake now answers the selected-line <code>sms_outbox</code> list query. A new focused test uses the real billing gate with mocked wallet and provider helpers. It covers an exact 3-cent send in a nondefault workspace, a 2-cent refusal before reservation, and late pause, unreadable wallet, user-scoped opt-out, consent revocation, phone change, and workspace change. Each late refusal checks one refund of the original usage key and no provider call.</p>
+<h2>Owned paths</h2>
+<ul><li><code>src/lib/sms/owner-sms-dispatcher.server.ts</code></li><li><code>tests/unit/sms-selected-line-credit-dispatch.test.ts</code></li><li><code>tests/unit/sms-conversation-log-dispatch.test.ts</code></li></ul>
+<h2>Focused validation</h2>
+<ul><li>Node <code>v22.23.0</code> path used, matching <code>.nvmrc</code> and package engines.</li><li>Vitest on the two owned test files, <code>--maxWorkers=1</code> and a 768 MB heap limit: exit 0, 19 tests passed.</li><li>ESLint on the three owned code/test files: exit 0.</li><li><code>git diff --check</code> and <code>git diff --cached --check</code>: exit 0.</li></ul>
+<p>These are mocked dispatcher tests. They establish the send boundary and refund behavior, not carrier delivery or database concurrency. No database, provider, server, broad validation, commit, or deployment action was performed in this restoration. Root owns graph refresh, broader validation, and integration; an independent reviewer should inspect the current delta before approval.</p>
+</body>
+</html>

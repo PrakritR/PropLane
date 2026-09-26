@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Completed-receipt migration runner handoff</title>
+<style>body{max-width:920px;margin:40px auto;padding:0 24px;font:16px/1.55 system-ui,sans-serif;color:#17212b}code{overflow-wrap:anywhere}li{margin:.4em 0}</style>
+<body>
+<h1>Completed-receipt migration runner</h1>
+<p>26 September 2026. The runner at <code>/Users/akhilvemuri/coding/AXIS-2-sms-release/scripts/sms-completed-receipt-release-migration.mjs</code> is prepared for one additive SQL file, <code>20260926150000_sms_completed_receipt_originals.sql</code>, SHA-256 <code>14b8a67647c9f69eab22f8739acaa7d6ae3eb48ece284677eb8e0c064cf7fea0</code>. It makes no database connection when imported for tests. No remote database operation was run for this handoff.</p>
+<h2>Target and operation</h2>
+<p>Targets are fixed to dev <code>emstjswhotsnyksqhqyf</code>, staging <code>xwszcafaontidfgznlxd</code>, and production <code>qahnczmilgptcedaqype</code>. The CLI requires <code>--target</code> and defaults to read-only <code>preflight</code>. <code>--phase postflight</code> is also read-only. <code>--phase apply</code> requires <code>--apply-authorized</code> and a new target-named <code>.dump</code> path directly inside the mode-0700 <code>~/.codex/release-backups/sms-20260926</code> directory; the reviewed backup helper creates the archive exclusively and validates it before any SQL write. Only root operates the runner after independent review and authorization.</p>
+<h2>Fail-closed gates</h2>
+<ul>
+<li>Pin the six prior SMS SQL files through their existing immutable manifest. Require all six exact version, name and ledger statement hashes; reject name/version collisions. Before apply, require the new ledger row and resolver function to be absent and the live importer body to match migration 180.</li>
+<li>After a fresh backup, acquire a transaction-scoped advisory lock and repeat the exact preflight. Execute only the pinned new SQL, insert one matching ledger row, then check resolver and importer before commit. If commit outcome or verification is uncertain, exit with failure and require read-only inspection before any retry.</li>
+<li>Verify the new resolver signature <code>resolve_sms_completed_receipt_original(text,uuid)</code> and historical importer signature <code>import_sms_projection_historical_event(text,text)</code>, exactly one overload each, exact PostgreSQL stored source bodies, security-definer setting, volatile classification, fixed search path, postgres ownership, service-role execution and no anonymous/authenticated execution. The new importer source must contain two calls to the shared resolver.</li>
+<li>After commit, reconnect and repeat a read-only exact-ledger and catalog check. File size is bounded; database connection, statement, lock and backup commands have timeouts. No prior SMS migration file, release wrapper or data row is changed by this runner.</li>
+</ul>
+<h2>Local validation</h2>
+<p>Offline source import and hash/body extraction: exit 0. Focused Vitest on <code>tests/unit/sms-completed-receipt-release-migration.test.ts</code>: exit 0, 4 tests passed with one worker and 768 MB heap. Focused ESLint: exit 0. <code>git diff --check</code> and cached check: exit 0. These tests exercise source pins, exact target/phase authorization parsing and six-plus-one ledger refusal. They do not establish cloud database state or migration SQL correctness; root owns SQL rehearsal, exact-target preflight, apply and postflight.</p>
+</body></html>

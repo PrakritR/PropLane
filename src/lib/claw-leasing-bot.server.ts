@@ -58,6 +58,8 @@ import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { durableProspectSmsEnabled, enqueueProspectSmsBurst, type InlineProspectBurst } from "@/lib/sms/prospect-sms-burst.server";
 import type { ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { normalizeListingIdentity } from "@/lib/listing-identity";
+import { createHash } from "node:crypto";
+import { resolveSmsProjectionWorkLine } from "@/lib/sms/sms-projection.server";
 
 export {
   buildSmsDeepLink,
@@ -541,6 +543,7 @@ async function persistClawInboundSms(args: {
   fromPhone: string;
   toPhone: string;
   messageId: string;
+  receivedAt?: string | null;
   /** The sender's capacity — 'resident' from the resident hub, 'prospect' from
    * the leasing responder. Splits prospect vs resident threads on one line. */
   counterpartyRole?: SmsCounterpartyRole;
@@ -558,6 +561,7 @@ async function persistClawInboundSms(args: {
     fromPhone: args.fromPhone,
     toPhone: args.toPhone,
     messageSid: args.messageId || null,
+    createdAt: args.receivedAt ?? null,
     source: "automated",
     counterpartyRole: args.counterpartyRole,
   });
@@ -574,6 +578,7 @@ async function persistClawInboundSms(args: {
       counterpartyUserId: args.residentUserId,
       fromPhone: args.fromPhone,
     }),
+    ...(args.receivedAt ? { created_at: args.receivedAt } : {}),
   };
   const { error } = await db.from("inbound_sms_log").insert(identity);
   const inboundLogStored = !error || error.code === "23505";
@@ -587,9 +592,15 @@ async function persistClawInboundSms(args: {
     // threaded as an unidentified conversation.
     await db
       .from("inbound_sms_log")
-      .update(identity)
+      .update({
+        matched_sender_user_id: identity.matched_sender_user_id,
+        counterparty_role: identity.counterparty_role,
+        conversation_key: identity.conversation_key,
+      })
       .eq("message_sid", identity.message_sid)
       .eq("manager_user_id", args.managerUserId)
+      .eq("from_phone", args.fromPhone)
+      .eq("to_phone", args.toPhone)
       .eq("counterparty_role", "unknown")
       .then(
         () => undefined,
@@ -618,7 +629,10 @@ async function persistClawInboundSms(args: {
       return false;
     }
   }
-  return managerMessageLogged && inboundLogStored;
+  // Either accepted operational source is enough to keep the original. The
+  // gateway receipt already owns retries on a managed line; a mirror failure
+  // must not veto a durable inbound and trigger another paid agent turn.
+  return managerMessageLogged || inboundLogStored;
 }
 
 /** Run manager forwards after the reply is out the door.
@@ -657,6 +671,8 @@ async function mirrorLeasingInboundToCommunication(args: {
   propertyLabel: string | null;
   intent: LeasingIntent;
   messageId?: string | null;
+  workNumber: string | null;
+  receivedAt: string | null;
 }): Promise<void> {
   const db = createSupabaseServiceRoleClient();
   const { resolvePropertyScopedManagerRecipientIds } = await import(
@@ -669,6 +685,21 @@ async function mirrorLeasingInboundToCommunication(args: {
     channel: "inbox",
   });
   const subjectLabel = leasingInboundSubjectLabel(args.intent);
+  const line = args.workNumber && args.receivedAt
+    ? await resolveSmsProjectionWorkLine(db, {
+        ownerManagerUserId: args.landlordId,
+        phoneNumber: args.workNumber,
+        occurredAt: args.receivedAt,
+      }).catch(() => null) : null;
+  const originalSmsEvent = line && args.messageId && args.receivedAt ? {
+    sourceNamespace: `twilio:${args.landlordId}:${process.env.TWILIO_ACCOUNT_SID?.trim() || "unconfigured"}`,
+    sourceEventId: args.messageId,
+    ownerManagerUserId: args.landlordId,
+    counterpartyRole: "prospect",
+    workLineId: line.workLineId,
+    occurredAt: args.receivedAt,
+    bodySha256: createHash("sha256").update(args.text).digest("hex"),
+  } : undefined;
   await Promise.all(
     recipientIds.map((managerUserId) =>
       upsertManagerInboxNotice(db, {
@@ -681,6 +712,7 @@ async function mirrorLeasingInboundToCommunication(args: {
         preview: args.text.slice(0, 140) || "(empty)",
         body: args.text || "(empty message)",
         unread: true,
+        ...(originalSmsEvent ? { originalSmsEvent } : {}),
       }),
     ),
   );
@@ -708,6 +740,10 @@ export async function handleClawLeasingInbound(args: {
   durablyClaimed?: boolean;
   /** Set only by the durable burst worker after it acquired the matching revision lease. */
   durableBurstWorker?: boolean;
+  /** Immutable transport events covered by an aggregated agent turn. */
+  originalMessages?: Array<{ messageId: string; body: string; receivedAt: string }>;
+  /** Receipt first_received_at for a single claimed provider original. */
+  receivedAt?: string | null;
   /** Opaque revision lease loaded by the signed queue callback. */
   prospectBurst?: {
     burstId: string; revision: number; workerId: string;
@@ -755,6 +791,10 @@ export async function handleClawLeasingInbound(args: {
   }
 
   const text = (args.text ?? "").trim();
+  const originalEvents = (args.originalMessages ?? []).filter((event) => event.messageId.trim());
+  const inboundEvents = originalEvents.length > 0
+    ? originalEvents
+    : [{ messageId, body: text, receivedAt: args.receivedAt ?? null }];
   const scopedManagerId = args.managerUserId?.trim() || null;
 
   // Manager typing from their personal phone.
@@ -907,19 +947,27 @@ export async function handleClawLeasingInbound(args: {
       // replies — mirrors the logging already done for the leasing-prospect
       // path below. Outbound is logged for free inside replySms/sendFromManagerWorkNumber.
       const toLine = workNumber || clawLeasingAgentPhoneE164();
-      const inboundLogged = await persistClawInboundSms({
-        managerUserId: thread.managerUserId,
-        residentUserId,
-        residentPhone: from,
-        body: text,
-        fromPhone: from,
-        toPhone: toLine,
-        messageId,
-        counterpartyRole: "resident",
-      }).catch((e) => {
-        console.error("claw resident inbound log failed", e);
-        return false;
-      });
+      let inboundLogged = true;
+      for (const event of inboundEvents) {
+        const stored = await persistClawInboundSms({
+          managerUserId: thread.managerUserId,
+          residentUserId,
+          residentPhone: from,
+          body: event.body,
+          fromPhone: from,
+          toPhone: toLine,
+          messageId: event.messageId,
+          receivedAt: event.receivedAt,
+          counterpartyRole: "resident",
+        }).catch((e) => {
+          console.error("claw resident inbound log failed", e);
+          return false;
+        });
+        if (!stored) {
+          inboundLogged = false;
+          break;
+        }
+      }
       if (!inboundLogged) {
         console.error("claw resident inbound claim/consent failed; reply withheld", {
           managerUserId: thread.managerUserId,
@@ -1064,18 +1112,26 @@ export async function handleClawLeasingInbound(args: {
   // Claw thread (outbound already logs via sendFromManagerWorkNumber).
   if (landlordId) {
     const toLine = workNumber || clawLeasingAgentPhoneE164();
-    const inboundLogged = await persistClawInboundSms({
-      managerUserId: landlordId,
-      residentPhone: from,
-      body: text,
-      fromPhone: from,
-      toPhone: toLine,
-      messageId,
-      counterpartyRole: "prospect",
-    }).catch((e) => {
-      console.error("claw leasing inbound log failed", e);
-      return false;
-    });
+    let inboundLogged = true;
+    for (const event of inboundEvents) {
+      const stored = await persistClawInboundSms({
+        managerUserId: landlordId,
+        residentPhone: from,
+        body: event.body,
+        fromPhone: from,
+        toPhone: toLine,
+        messageId: event.messageId,
+        receivedAt: event.receivedAt,
+        counterpartyRole: "prospect",
+      }).catch((e) => {
+        console.error("claw leasing inbound log failed", e);
+        return false;
+      });
+      if (!stored) {
+        inboundLogged = false;
+        break;
+      }
+    }
     if (!inboundLogged) {
       console.error("claw leasing inbound claim/consent failed; reply withheld", {
         managerUserId: landlordId,
@@ -1084,15 +1140,19 @@ export async function handleClawLeasingInbound(args: {
       return { ok: false, intent, replied: false, error: "Inbound receipt unavailable." };
     }
     // Notice BEFORE reply attempt — see mirrorLeasingInboundToCommunication.
-    await mirrorLeasingInboundToCommunication({
-      landlordId,
-      propertyId,
-      from,
-      text,
-      propertyLabel,
-      intent,
-      messageId,
-    }).catch((e) => console.error("claw leasing inbox notice failed", e));
+    for (const event of inboundEvents) {
+      await mirrorLeasingInboundToCommunication({
+        landlordId,
+        propertyId,
+        from,
+        text: event.body,
+        propertyLabel,
+        intent,
+        messageId: event.messageId,
+        workNumber: toLine,
+        receivedAt: event.receivedAt,
+      }).catch((e) => console.error("claw leasing inbox notice failed", e));
+    }
   }
 
   // A reschedule reply is a narrow, durable tour transition. The ordinary

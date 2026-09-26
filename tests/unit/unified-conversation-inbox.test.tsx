@@ -5,9 +5,8 @@
 //
 //  1. Live conversations (inbox + sent) show together in ONE list; archived
 //     (trashed) conversations are the Archived tab, not a fourth folder.
-//  2. SMS conversations are gated behind `smsUiEnabled`. When off (default,
-//     A2P not cleared) the SMS endpoint is never fetched and no SMS row shows;
-//     when on, SMS rows join the same list. Transport is unaffected either way.
+//  2. SMS conversation rows always come from the shared projection. The flag
+//     gates SMS-specific compose chrome, while the same rows remain visible.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
 
@@ -66,6 +65,7 @@ const SMS_PAYLOAD = {
   workNumber: "+12065550999",
   residents: [
     {
+      projectionId: "sms-projection-1",
       residentUserId: "res-1",
       residentEmail: "jordan@example.com",
       name: "Jordan Lee",
@@ -88,6 +88,10 @@ const SMS_PAYLOAD = {
     },
   ],
 };
+
+function successfulFetch(url: unknown): Response {
+  return Response.json(String(url).includes("/api/manager/sms-conversations") ? { residents: [] } : {});
+}
 
 vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => ({ userId: "manager-1", email: "manager@example.com", ready: true }) }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
@@ -161,7 +165,7 @@ afterEach(() => {
 
 describe("conversation rows carry no select checkbox", () => {
   it("renders rows without a leading checkbox", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     const { container } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
 
     // The checkbox was removed from the conversation list on purpose: it put a
@@ -175,7 +179,7 @@ describe("conversation rows carry no select checkbox", () => {
 
 describe("unified conversation inbox (no folder tabs)", () => {
   it("shows one list filtered by read, unread, and archived status", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
 
     // Inbox and sent conversations appear together — no folder segregation.
@@ -211,7 +215,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
   });
 
   it("keeps search scoped to Unread instead of leaking matching read threads", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     render(
       <ManagerUnifiedInbox
         tabId="unopened"
@@ -226,19 +230,21 @@ describe("unified conversation inbox (no folder tabs)", () => {
     expect(await screen.findByText(/No messages match/)).toBeTruthy();
   });
 
-  it("never fetches SMS and shows no SMS row when the SMS UI flag is off (default)", async () => {
+  it("shows the same SMS projection row when SMS-specific UI is off", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(SMS_PAYLOAD), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
 
     await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
-    expect(screen.queryByText("Jordan Lee")).toBeNull();
+    expect(await screen.findByText("Jordan Lee")).toBeTruthy();
     const calledSms = fetchMock.mock.calls.some(([url]) => String(url).includes("/api/manager/sms-conversations"));
-    expect(calledSms).toBe(false);
+    expect(calledSms).toBe(true);
   });
 
-  it("does not fetch SMS when a direct placeholder send refreshes with the UI hidden", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+  it("does not force another SMS read after an email-only placeholder send with SMS UI hidden", async () => {
+    const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.includes("/api/manager/sms-conversations") ? SMS_PAYLOAD : {},
+    ), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     render(
       <ManagerUnifiedInbox
@@ -260,10 +266,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     fireEvent.click(await screen.findByText("New Resident"));
     fireEvent.click(await screen.findByTestId("direct-chat-sent"));
 
-    await waitFor(() => expect(fetchMock).not.toHaveBeenCalledWith(
-      "/api/manager/sms-conversations",
-      expect.anything(),
-    ));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/manager/sms-conversations"))).toHaveLength(1));
   });
 
   it("shows SMS conversations alongside email when the SMS UI flag is on", async () => {
@@ -364,7 +367,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
   });
 
   it("does not open a thread on mobile when changing the Status filter", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({
@@ -393,7 +396,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
 describe("desktop unread selection regression", () => {
   function desktop() {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
   }
 
   it("leaves Unread closed until an explicit click", async () => {
@@ -435,7 +438,7 @@ describe("desktop unread selection regression", () => {
 describe("unread results do not cascade", () => {
   it.each([false, true])("keeps the clicked pane after read without cascading (routed: %s)", async (routed) => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     const second = { ...EMAIL_INBOX, id: "thr-2000000004", from: "Second Unread", email: "second@example.com" };
     ALL_THREADS.push(second);
     try {
@@ -466,7 +469,7 @@ describe("unread results do not cascade", () => {
 
   it("clears retention when the canonical source disappears", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
     fireEvent.click(await screen.findByText("Dana Ramirez"));
     await screen.findByTestId("embedded-email-thread");
@@ -483,7 +486,7 @@ describe("unread results do not cascade", () => {
 
   it.each(["removed", "archived"] as const)("clears a routed last unread pane when its source is %s", async (change) => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} />);
     await screen.findByTestId("embedded-email-thread");
     EMAIL_INBOX.unread = false;
@@ -502,7 +505,7 @@ describe("unread results do not cascade", () => {
 
   it("does not render the old routed pane when the route changes to a missing thread", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     const props = { tabId: "unopened", commBase: "/portal/communication", listSegment: "unread" as const };
     const { rerender } = render(<ManagerUnifiedInbox {...props} routeThreadId={EMAIL_INBOX.id} />);
     await screen.findByTestId("embedded-email-thread");
@@ -512,7 +515,7 @@ describe("unread results do not cascade", () => {
 
   it("clears unread retention after search, contact filter, or status context changes", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));
     const base = { tabId: "unopened", commBase: "/portal/communication", routeThreadId: EMAIL_INBOX.id };
     const { rerender } = render(<ManagerUnifiedInbox {...base} listSegment="unread" searchQuery="" onSearchQueryChange={() => {}} />);
     await screen.findByTestId("embedded-email-thread");

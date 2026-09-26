@@ -12,6 +12,8 @@ import {
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
+import { decodeSmsProjectionCursor, fetchManagerSmsProjectionDetail, fetchManagerSmsProjectionPage } from "@/lib/sms/sms-projection-inbox.server";
+import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 
 export const runtime = "nodejs";
 
@@ -35,19 +37,27 @@ async function requireManager() {
 }
 
 /** Manager Communication → SMS: work number + per-resident inbound/outbound texts. */
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireManager();
   if ("error" in auth) return auth.error;
 
   try {
-    const payload = await fetchManagerSmsConversations(auth.db, auth.user.id);
+    const { data: cutover } = await auth.db.from("sms_projection_cutover").select("ready").eq("singleton", true).maybeSingle();
+    if (cutover?.ready !== true) {
+      const legacy = await fetchManagerSmsConversations(auth.db, auth.user.id);
+      return NextResponse.json({ ...legacy, nextCursor: null, projectionReady: false }, {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+    const before = decodeSmsProjectionCursor(new URL(req.url).searchParams.get("before"));
+    const payload = await fetchManagerSmsProjectionPage(auth.db, auth.user.id, before);
     return NextResponse.json(payload, {
       headers: { "Cache-Control": "private, no-store" },
     });
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Failed to load SMS conversations.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: message === "Invalid conversation cursor." ? 400 : 500 });
   }
 }
 
@@ -64,6 +74,7 @@ export async function DELETE(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     phone?: string;
     conversationKey?: string;
+    projectionId?: string;
   };
   const phone = normalizeE164(String(body.phone ?? "").trim());
   const requestedKey = String(body.conversationKey ?? "").trim();
@@ -72,6 +83,31 @@ export async function DELETE(req: Request) {
       { error: "Enter a valid phone number." },
       { status: 400 },
     );
+
+  if (body.projectionId) {
+    const projectionId = String(body.projectionId).trim();
+    if (!/^[0-9a-f-]{36}$/i.test(projectionId)) {
+      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    }
+    const detail = await fetchManagerSmsProjectionDetail(auth.db, auth.user.id, projectionId, null, "delete");
+    if (!detail || normalizeE164(detail.resident.phone ?? "") !== phone) {
+      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    }
+    const ownerManagerUserId = String(detail.resident.ownerManagerUserId ?? "");
+    if (!ownerManagerUserId) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    const { data: deleted, error: deleteError } = await auth.db.rpc("delete_sms_projection_conversation", {
+      p_owner: ownerManagerUserId,
+      p_conversation: detail.resident.projectionId,
+      p_actor: auth.user.id,
+    });
+    if (deleteError) return NextResponse.json({ error: "Could not delete conversation." }, { status: 500 });
+    return NextResponse.json({ ok: true, deleted: Number(deleted ?? 0) });
+  }
+
+  const { data: cutover } = await auth.db.from("sms_projection_cutover").select("ready").eq("singleton", true).maybeSingle();
+  if (cutover?.ready === true) {
+    return NextResponse.json({ error: "Reload this conversation before deleting it." }, { status: 409 });
+  }
 
   const conversations = await fetchManagerSmsConversations(
     auth.db,
@@ -158,13 +194,26 @@ export async function POST(req: Request) {
     text?: string;
     residentUserId?: string | null;
     conversationKey?: string | null;
+    projectionId?: string | null;
   };
+  let selectedConversation: ManagerSmsResidentConversation | undefined;
+  if (body.projectionId) {
+    const detail = await fetchManagerSmsProjectionDetail(auth.db, auth.user.id, String(body.projectionId), null, "edit");
+    if (!detail || normalizeE164(detail.resident.phone ?? "") !== normalizeE164(String(body.toPhone ?? ""))) {
+      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    }
+    if (detail.resident.sendDisabled) {
+      return NextResponse.json({ error: "This historical conversation cannot be replied to from a work number." }, { status: 409 });
+    }
+    selectedConversation = detail.resident;
+  }
   const result = await sendManagerConversationSms(auth.db, {
     actorUserId: auth.user.id,
     toPhone: body.toPhone,
     text: body.text,
     residentUserId: body.residentUserId,
     conversationKey: body.conversationKey,
+    selectedConversation,
     idempotencyKey: req.headers.get("idempotency-key") ?? undefined,
   });
   return NextResponse.json(result.body, { status: result.status });

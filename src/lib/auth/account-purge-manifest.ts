@@ -48,6 +48,16 @@ export type PurgeTableRule = {
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   {
+    table: "sms_projection_ambiguous_aliases",
+    phase: 1,
+    manager: { ids: ["owner_manager_user_id"] },
+  },
+  {
+    table: "sms_projection_deleted_events",
+    phase: 1,
+    manager: { ids: ["owner_manager_user_id"], detachIds: ["deleted_by"] },
+  },
+  {
     table: "portal_workspaces",
     // Properties must be removed first; deleting a workspace never deletes houses.
     phase: 4,
@@ -500,6 +510,33 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"] },
   },
   {
+    table: "sms_projection_view_state",
+    phase: 2,
+    manager: { ids: ["viewer_user_id"] },
+  },
+  {
+    table: "sms_projection_pending",
+    phase: 2,
+    manager: { ids: ["owner_manager_user_id"] },
+  },
+  {
+    table: "sms_projection_aliases",
+    phase: 2,
+    manager: { ids: ["owner_manager_user_id"] },
+  },
+  {
+    table: "sms_projection_turns",
+    phase: 2,
+    manager: { ids: ["owner_manager_user_id"] },
+  },
+  {
+    table: "sms_projection_conversations",
+    phase: 2,
+    manager: { ids: ["owner_manager_user_id"], detachIds: ["counterparty_user_id"] },
+    resident: { detachIds: ["counterparty_user_id"] },
+    vendor: { detachIds: ["counterparty_user_id"] },
+  },
+  {
     // Which house(s) a Communication thread is about. Owned by the workspace's
     // manager; the co-manager who tagged it is recorded, not an owner.
     table: "manager_sms_conversation_houses",
@@ -898,6 +935,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  sms_projection_cutover: "Global SMS migration readiness only; contains no account data.",
   vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",
   vendor_work_identity_operations: "Child of vendor_work_identities; removed by identity cascade after release is queued.",
   vendor_work_identity_outbox: "Child of vendor_work_identities; removed by identity cascade after release is queued.",

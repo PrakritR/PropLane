@@ -136,6 +136,12 @@ behalf (no viewer to narrow for). Library:
 
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
 
+The `conversation_key` rules below describe the operational transport log and
+legacy compatibility reader. Manager Communication after projection cutover uses
+the owner, role, canonical person identity, and work-line epoch described in
+the projection section below. Do not use the legacy key alone to choose a
+send line or authorize a projected history read.
+
 A conversation used to be derived from the phone-number pair on the wire
 (`sms_from_number` = To, `profiles.phone` = From). On the shared agent line
 that pair collapses — every manager shares one `To`, so distinct people/roles
@@ -1211,6 +1217,34 @@ Application approval derives its SMS recipient from the authorized stored applic
 `sms_outbox` stores `provider_from_phone` before provider submission and a due conversation-log marker with the accepted SID. The SMS cron repairs pending/failed Communication projections without calling the provider again. Final markers compare the claimed status and due timestamp, so an expired worker cannot overwrite a newer repair. An explicit invalid conversation key is blocked; only an absent legacy key may use trusted outbox identity fallback. Repair inventory, claim and projection failures surface through cron health alerts.
 
 Migration `20260909090000_sms_outbox_conversation_log_repair.sql` is required before running this source. Old rows without a captured submitted sender are excluded from automatic repair. Reconciliation does not infer a historic sender from the current work number.
+
+### Manager Communication projection cutover (September 2026)
+
+`sms_projection_conversations` and `sms_projection_turns` are the manager's
+durable Communication reader. One summary is an owner, role, identity and work
+line epoch; the list reads summaries in cursor pages, and a selected conversation
+reads turns in older pages. An email person thread can bind several SMS
+projections; the pane loads each binding separately and requires an explicit
+line choice before sending when several are eligible. Every selected send carries
+the authorized `projectionId` through the existing consent and outbox dispatcher
+to its exact work line. Retired historical lines remain readable and cannot send.
+
+The source log and provider receipts remain operational evidence. Live originals,
+historical imports and deletion use one owner-scoped transaction lock. Deletion
+writes tombstones for exact source events before removing the projection, and
+replay checks those tombstones under the lock. A historical provider SID can be
+reconciled only with matching original bytes, time, direction, wire pair, role,
+identity and line epoch. A synthetic summary is redirected only when every
+remaining turn has been individually proven; otherwise unrelated turns remain.
+The backfill is resumable, dry-run first, and requires two clean identity and
+source-accounting passes before the cutover flag is ready.
+
+Compatibility `sms_notice_` turns carry exact source markers. The manager inbox
+suppresses an original only when its projected replacement is visible to that
+viewer; unbound notices and annotations stay in both SMS UI flag states. Voice
+call notes use their own `voice:` source namespace and render as Call turns, not
+as provider SMS originals. Read and archive state is viewer-scoped, and unread
+advances only after the exact observed turn has rendered successfully.
 
 ## Nearby transit facts
 

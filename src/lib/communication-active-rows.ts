@@ -49,7 +49,10 @@ export function buildActiveCommunicationThreads(
   rows: PersistedInboxThread[],
   opts: BuildActiveCommunicationThreadsOpts,
 ): PersistedInboxThread[] {
-  const emailOnly = filterEmailInboxThreads(rows, { keepSmsLike: !opts.smsUiEnabled });
+  // Manager compatibility rows have already been reduced per original by the
+  // server. Keep unresolved SMS notices and call annotations in either flag
+  // state; the flag controls SMS chrome, not the availability of history.
+  const emailOnly = filterEmailInboxThreads(rows, { keepSmsLike: opts.portal === "manager" || !opts.smsUiEnabled });
   const base = opts.portal === "manager" ? collapsePersonInboxThreads(emailOnly, { mergeFolders: true }) : emailOnly;
   return withPinnedPropLaneAssistantThreads(
     base,
@@ -126,9 +129,10 @@ export function smsConversationPersonKey(
  * keyed on.
  */
 export function smsConversationRowId(
-  resident: Pick<ManagerSmsResidentConversation, "conversationKey" | "phone" | "residentUserId" | "residentEmail" | "name">,
+  resident: Pick<ManagerSmsResidentConversation, "projectionId" | "conversationKey" | "phone" | "residentUserId" | "residentEmail" | "name">,
 ): string {
   return (
+    resident.projectionId ??
     resident.conversationKey ??
     resident.phone ??
     resident.residentUserId ??
@@ -178,14 +182,14 @@ function smsConversationToUnreadMergeItem(
     preview: "",
     time: "",
     sortMs: 0,
-    unread: smsThreadHasUnread(messages, smsOpenedIds),
+    unread: resident.projectionId ? resident.unread === true : smsThreadHasUnread(messages, smsOpenedIds),
     smsBindingKey: resident.conversationKey?.trim() || undefined,
     personKey: smsConversationPersonKey(resident, explicitlyBoundSmsKeys),
   };
 }
 
 export type CountUnreadActiveConversationsOpts = CountUnreadActiveCommunicationOpts & {
-  /** Every SMS conversation the manager can see. Ignored when `smsUiEnabled` is false — the page never loads them either. */
+  /** Every SMS conversation the manager can see, including when SMS chrome is hidden. */
   smsConversations?: ManagerSmsResidentConversation[];
   /** Inbound message ids the manager has already opened (`loadManagerSmsOpenedIds`). */
   smsOpenedIds?: ReadonlySet<string>;
@@ -216,13 +220,14 @@ export function countUnreadActiveConversations(
   const smsOpenedIds = opts.smsOpenedIds ?? new Set<string>();
   const smsHiddenIds = opts.smsHiddenIds ?? new Set<string>();
   const smsArchivedIds = opts.smsArchivedIds ?? new Set<string>();
-  const smsConversations = opts.smsUiEnabled ? opts.smsConversations ?? [] : [];
+  const smsConversations = opts.smsConversations ?? [];
 
   const emailItems = active.map((thread) => emailThreadToUnreadMergeItem(thread, opts.archivedSmsIds));
   const smsItems = smsConversations
     .filter((resident) => {
       const rowId = smsConversationRowId(resident);
-      return !smsHiddenIds.has(rowId) && !smsArchivedIds.has(rowId);
+      return !smsHiddenIds.has(rowId) && (resident.projectionId
+        ? resident.archived !== true : !smsArchivedIds.has(rowId));
     })
     .map((resident) => smsConversationToUnreadMergeItem(resident, explicitlyBoundSmsKeys, smsOpenedIds));
 

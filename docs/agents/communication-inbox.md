@@ -207,19 +207,19 @@ conversations) plus the archive toggle. Invariants:
   Coverage: `tests/unit/inbox-turn-direction.test.ts`,
   `tests/unit/inbox-bubble-alignment.test.tsx`.
 - **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`,
-  `InboxChannel = email|sms|whatsapp|gmail`). Email is the only live channel; the
-  tag exists so SMS/WhatsApp/Gmail tag into the SAME per-person thread (built on
-  the one-thread-per-person `portal-inbox-delivery.ts` foundation) rather than a
-  parallel list. Bubbles render the FULL body (pre-wrap, no clamp).
-- **SMS UI is gated by `isSmsCommUiEnabled()`** (`src/lib/sms-comm-ui-flag.server.ts`,
+  `InboxChannel = email|sms|whatsapp|gmail`). Manager email and SMS are live in
+  one selected person pane. Each explicitly bound SMS projection loads its own
+  paged transcript; a list preview is never treated as history. Bubbles render
+  the full body (pre-wrap, no clamp).
+- **SMS compose is gated by `isSmsCommUiEnabled()`** (`src/lib/sms-comm-ui-flag.server.ts`,
   env `SMS_COMM_UI_ENABLED`, default OFF, server-resolved). `render-portal-section.tsx`
   threads it as the `smsUiEnabled` prop into all four Communication components
-  (manager / resident / vendor / admin), which gate their compose "via SMS"
-  channel, SMS rows, and SMS panel on it. It gates ONLY the UI — SMS transport,
-  both SMS agents, and phone provisioning stay live. ⚠️ While hidden, inbound-SMS
-  notices must stay visible: `filterEmailInboxThreads(rows, { keepSmsLike:
-  !smsUiEnabled })` lets them fall through into the conversation list instead of
-  vanishing into the hidden SMS panel. Coverage:
+  (manager / resident / vendor / admin). For manager Communication, the flag
+  controls SMS compose and chrome; authorized projected history and unresolved
+  compatibility notices remain visible in both states. The server removes only
+  exact original notice turns whose replacement is visible to that viewer.
+  Other portals keep their existing flag behavior. SMS transport, both SMS
+  agents, and phone provisioning stay live. Coverage:
   `tests/unit/unified-conversation-inbox.test.tsx`,
   `tests/unit/resident-conversation-inbox.test.tsx`,
   `tests/unit/vendor-conversation-inbox.test.tsx`,
@@ -277,9 +277,10 @@ conversations) plus the archive toggle. Invariants:
   threads), and only when no line places it does it fall back to the owner's
   default workspace. Manager email inbox sync is server-authoritative on fetch:
   rows the API omits are dropped from local storage (local-only ghosts do not
-  resurrect). SMS archive flags mirror from `manager_tour_followup_controls` on
-  each conversations fetch; the SMS reader cache keys on workspace so a switch
-  refetches. A conversation's house:
+  resurrect). New SMS projection archive/read state is per viewer with a
+  compare-and-set version; legacy archive flags still mirror from
+  `manager_tour_followup_controls`. The SMS reader cache keys on workspace so a
+  switch refetches. A conversation's house:
   SMS uses `houses[]` (conversation-houses tags, else residency); email uses
   the stamped `row_data.propertyId`, else the counterparty's applications and
   residency with that owner (`emailThreadHouses`, every house kept). Owner

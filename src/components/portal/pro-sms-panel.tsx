@@ -58,6 +58,7 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { useInboxThreadScroll } from "@/hooks/use-inbox-thread-scroll";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { useActiveWorkspaceIdentity } from "@/hooks/use-selected-workspace-id";
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import {
   MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE,
@@ -71,6 +72,10 @@ import {
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
   restoreManagerSmsConversation,
 } from "@/lib/manager-sms-archive.client";
+import {
+  loadManagerSmsConversationDetailClient,
+  updateManagerSmsConversationStateClient,
+} from "@/lib/manager-sms-conversations-client";
 
 // v2 stores CONVERSATION IDs, not phones: since one phone can be two threads
 // (prospect + resident), hiding by phone made deleting one thread visually
@@ -92,6 +97,7 @@ function conversationId(resident: ManagerSmsResidentConversation): string {
   // the same person across roles — prefer it over the phone so those threads
   // never collapse into one row.
   return (
+    resident.projectionId ??
     resident.conversationKey ??
     resident.phone ??
     resident.residentUserId ??
@@ -174,12 +180,15 @@ export const ManagerSmsPanel = forwardRef<
     controlledActiveId?: string | null;
     onControlledActiveIdChange?: (id: string | null) => void;
     onConversationOpened?: () => void;
+    onProjectionStateChanged?: () => void;
     /** When embedded in unified Communication — drives archive/restore chrome. */
     listSegment?: InboxListSegment;
     /** Fires after archive or restore so the parent list can refresh. */
     onArchived?: () => void;
     /** Let the portal page scroll the thread instead of a nested pane (resident profile). */
     pageScroll?: boolean;
+    /** SMS-specific compose/channel controls remain behind the server flag. */
+    smsUiEnabled?: boolean;
   }
 >(function ManagerSmsPanel(
   {
@@ -196,19 +205,39 @@ export const ManagerSmsPanel = forwardRef<
     controlledActiveId,
     onControlledActiveIdChange,
     onConversationOpened,
+    onProjectionStateChanged,
     listSegment = "active",
     onArchived,
     pageScroll = false,
+    smsUiEnabled = true,
   },
   ref,
 ) {
   const { showToast } = useAppUi();
   const { userId } = usePortalSession();
+  const workspaceIdentity = useActiveWorkspaceIdentity();
+  const scopeKey = `${userId ?? ""}:${workspaceIdentity.id ?? ""}`;
+  const scopeRef = useRef(scopeKey);
+  useEffect(() => { scopeRef.current = scopeKey; }, [scopeKey]);
   const confirm = useConfirm();
   const [data, setData] = useState<ManagerSmsConversationsPayload | null>(null);
+  const [threadPages, setThreadPages] = useState<Record<string, { messages: ManagerSmsMessageRow[]; nextCursor: string | null }>>({});
+  const [selectedDetailResident, setSelectedDetailResident] = useState<ManagerSmsResidentConversation | null>(null);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [threadLoadingEarlier, setThreadLoadingEarlier] = useState(false);
+  const [threadError, setThreadError] = useState<string | null>(null);
+  const threadRequestRef = useRef(0);
+  const controlledSelectionCallbackRef = useRef(onControlledActiveIdChange);
+  useEffect(() => { controlledSelectionCallbackRef.current = onControlledActiveIdChange; }, [onControlledActiveIdChange]);
+  const markingReadRef = useRef(new Set<string>());
+  const historyRequestRef = useRef(0);
+  const [threadRetry, setThreadRetry] = useState(0);
+  const [listLoadingMore, setListLoadingMore] = useState(false);
+  const [listPageError, setListPageError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openedSmsIds, setOpenedSmsIds] = useState<Set<string>>(() => loadManagerSmsOpenedIds(userId));
+  const [listRefreshVersion, setListRefreshVersion] = useState(0);
   // Mirrors `openedSmsIds` so `markOpened` can build and persist the next set
   // without waiting for React to run a state updater — see the comment there.
   const openedSmsIdsRef = useRef(openedSmsIds);
@@ -239,6 +268,8 @@ export const ManagerSmsPanel = forwardRef<
     },
     [controlledActiveId, onControlledActiveIdChange],
   );
+  const setActiveIdRef = useRef(setActiveId);
+  useEffect(() => { setActiveIdRef.current = setActiveId; }, [setActiveId]);
   const [draft, setDraft] = useState("");
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(true);
@@ -272,20 +303,52 @@ export const ManagerSmsPanel = forwardRef<
     return () => window.removeEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, sync as EventListener);
   }, []);
 
-  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+  useEffect(() => {
+    threadRequestRef.current += 1;
+    historyRequestRef.current += 1;
+    setData(null);
+    setThreadPages({});
+    setSelectedDetailResident(null);
+    setInternalActiveId(null);
+  }, [scopeKey]);
+
+  const load = useCallback(async (opts?: { quiet?: boolean; cursor?: string | null; append?: boolean }) => {
+    const requestedScope = scopeKey;
     if (!opts?.quiet) setLoading(true);
     setError(null);
+    if (opts?.append) {
+      setListLoadingMore(true);
+      setListPageError(null);
+    }
     try {
-      const res = await fetch(endpoint, { credentials: "include", cache: "no-store" });
+      const query = opts?.cursor
+        ? `${endpoint.includes("?") ? "&" : "?"}before=${encodeURIComponent(opts.cursor)}`
+        : "";
+      const res = await fetch(`${endpoint}${query}`, { credentials: "include", cache: "no-store" });
       const body = (await res.json()) as ManagerSmsConversationsPayload & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not load SMS.");
-      setData(normalizeManagerSmsConversationsPayload(body));
+      if (scopeRef.current !== requestedScope) return;
+      const normalized = normalizeManagerSmsConversationsPayload(body);
+      setData((current) => {
+        if ((!opts?.append && !opts?.quiet) || !current) return normalized;
+        const byId = new Map(current.residents.map((resident) => [conversationId(resident), resident]));
+        for (const resident of normalized.residents) {
+          const id = conversationId(resident);
+          const previous = byId.get(id);
+          byId.set(id, previous ? { ...previous, ...resident } : resident);
+        }
+        return { ...normalized, residents: [...byId.values()], nextCursor: opts?.append ? normalized.nextCursor : current.nextCursor };
+      });
+      if (opts?.quiet && !opts.append) setListRefreshVersion((version) => version + 1);
     } catch (e) {
+      if (scopeRef.current !== requestedScope) return;
       if (!opts?.quiet) setError(e instanceof Error ? e.message : "Could not load SMS.");
+      if (opts?.append) setListPageError(e instanceof Error ? e.message : "Could not load more conversations.");
     } finally {
       if (!opts?.quiet) setLoading(false);
+      if (opts?.append) setListLoadingMore(false);
     }
-  }, [endpoint]);
+  }, [endpoint, scopeKey]);
 
   useEffect(() => {
     void load();
@@ -312,13 +375,13 @@ export const ManagerSmsPanel = forwardRef<
     ref,
     () => ({
       openCompose: () => {
-        if (allowInlineCompose) setComposeOpen(true);
+        if (allowInlineCompose && smsUiEnabled) setComposeOpen(true);
       },
       reload: () => {
         void load();
       },
     }),
-    [allowInlineCompose, load],
+    [allowInlineCompose, load, smsUiEnabled],
   );
 
   const residents = useMemo(() => {
@@ -356,9 +419,10 @@ export const ManagerSmsPanel = forwardRef<
           messages,
           lastMessage,
           rowId,
-          unread: smsThreadHasUnread(messages, openedSmsIds),
-          hidden: hiddenConversationIds.has(rowId),
-          archived: archivedConversationIds.has(rowId),
+          unread: resident.unread ?? smsThreadHasUnread(messages, openedSmsIds),
+          hidden: [rowId, resident.conversationKey, ...(resident.memberKeys ?? [])]
+            .some((key) => Boolean(key) && hiddenConversationIds.has(key!)),
+          archived: resident.archived ?? archivedConversationIds.has(rowId),
         };
       })
       // iOS Messages: only threads with texts (or not locally deleted).
@@ -399,11 +463,19 @@ export const ManagerSmsPanel = forwardRef<
 
   const active = useMemo(() => {
     const fromList = visibleRows.find((r) => r.rowId === activeId) ?? rows.find((r) => r.rowId === activeId);
-    if (fromList) return fromList;
+    if (fromList) {
+      const messages = fromList.resident.projectionId
+        ? threadPages[fromList.rowId]?.messages ?? fromList.messages
+        : fromList.messages;
+      return { ...fromList, messages, unread: fromList.resident.unread ?? fromList.unread };
+    }
     if (!activeId) return null;
-    const resident = residents.find((r) => conversationId(r) === activeId);
+    const resident = residents.find((r) => conversationId(r) === activeId)
+      ?? (selectedDetailResident?.projectionId === activeId ? selectedDetailResident : null);
     if (!resident) return null;
-    const messages = Array.isArray(resident.messages) ? resident.messages : [];
+    const messages = resident.projectionId
+      ? threadPages[activeId]?.messages ?? (Array.isArray(resident.messages) ? resident.messages : [])
+      : (Array.isArray(resident.messages) ? resident.messages : []);
     const lastMessage = messages[messages.length - 1] ?? null;
     if (hiddenConversationIds.has(activeId)) return null;
     return {
@@ -411,11 +483,141 @@ export const ManagerSmsPanel = forwardRef<
       messages,
       lastMessage,
       rowId: activeId,
-      unread: smsThreadHasUnread(messages, openedSmsIds),
+      unread: resident.unread ?? smsThreadHasUnread(messages, openedSmsIds),
       hidden: false,
-      archived: archivedConversationIds.has(activeId),
+      archived: resident.archived ?? archivedConversationIds.has(activeId),
     };
-  }, [activeId, archivedConversationIds, hiddenConversationIds, openedSmsIds, residents, rows, visibleRows]);
+  }, [activeId, archivedConversationIds, hiddenConversationIds, openedSmsIds, residents, rows, selectedDetailResident, threadPages, visibleRows]);
+
+  const selectedResident = residents.find((resident) => conversationId(resident) === activeId)
+    ?? (selectedDetailResident?.projectionId === activeId ? selectedDetailResident : null);
+  const selectedSummaryTuple = selectedResident?.projectionId
+    ? `${selectedResident.messages?.[0]?.id ?? ""}:${selectedResident.stateVersion ?? ""}`
+    : "";
+  const legacySelectionLoaded = residents.some((resident) => conversationId(resident) === activeId && !resident.projectionId);
+  const activeIdRef = useRef(activeId);
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+
+  const markProjectionRead = useCallback(async (resident: ManagerSmsResidentConversation, observed: { occurredAt: string; id: string }) => {
+    if (!resident.projectionId || resident.unread !== true || !Number.isFinite(resident.stateVersion)) return;
+    if (markingReadRef.current.has(resident.projectionId)) return;
+    markingReadRef.current.add(resident.projectionId);
+    try {
+      const response = await updateManagerSmsConversationStateClient({
+        projectionId: resident.projectionId,
+        action: "markRead",
+        expectedVersion: resident.stateVersion!,
+        observed,
+      });
+      if (response.status === 409) {
+        void load({ quiet: true });
+        return;
+      }
+      if (!response.ok) return;
+      const body = await response.json().catch(() => ({})) as { version?: number };
+      setData((current) => current ? {
+        ...current,
+        residents: current.residents.map((row) => row.projectionId === resident.projectionId
+          ? { ...row, unread: false, stateVersion: Number.isFinite(body.version) ? body.version : row.stateVersion }
+          : row),
+      } : current);
+      setSelectedDetailResident((current) => current && current.projectionId === resident.projectionId
+        ? { ...current, unread: false, stateVersion: Number.isFinite(body.version) ? body.version : current.stateVersion }
+        : current);
+      onProjectionStateChanged?.();
+    } catch {
+      // A later summary refresh retries the state transition without touching local SMS history.
+    } finally {
+      markingReadRef.current.delete(resident.projectionId);
+    }
+  }, [load, onProjectionStateChanged]);
+
+  useEffect(() => {
+    if (!activeId || legacySelectionLoaded) return;
+    const projectionId = activeId;
+    const request = ++threadRequestRef.current;
+    const requestedScope = scopeRef.current;
+    setThreadLoading(true);
+    setThreadError(null);
+    void loadManagerSmsConversationDetailClient(projectionId).then(async (response) => {
+      const body = await response.json().catch(() => ({})) as { messages?: ManagerSmsMessageRow[]; nextCursor?: string | null; resident?: ManagerSmsResidentConversation; error?: string };
+      if (!response.ok) {
+        if ((response.status === 403 || response.status === 404) && request === threadRequestRef.current) {
+          setThreadPages((current) => { const next = { ...current }; delete next[projectionId]; return next; });
+          setSelectedDetailResident(null);
+          setData((current) => current ? { ...current, residents: current.residents.filter((row) => row.projectionId !== projectionId) } : current);
+          setActiveIdRef.current(null);
+        }
+        throw new Error(body.error ?? "Could not load this conversation.");
+      }
+      if (request !== threadRequestRef.current || activeIdRef.current !== projectionId || scopeRef.current !== requestedScope) return;
+      if (body.resident?.projectionId) {
+        setSelectedDetailResident(body.resident);
+        if (body.resident.projectionId !== projectionId) setActiveIdRef.current(body.resident.projectionId);
+      }
+      const latestMessages = Array.isArray(body.messages) ? body.messages : [];
+      setThreadPages((current) => {
+        const prior = current[projectionId]?.messages ?? [];
+        const byId = new Map([...prior, ...latestMessages].map((message) => [message.id, message]));
+        const messages = [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        return { ...current, [projectionId]: { messages, nextCursor: current[projectionId] ? current[projectionId]!.nextCursor : body.nextCursor ?? null } };
+      });
+    }).catch((error) => {
+      if (request === threadRequestRef.current && activeIdRef.current === projectionId && scopeRef.current === requestedScope) {
+        setThreadError(error instanceof Error ? error.message : "Could not load this conversation.");
+      }
+    }).finally(() => {
+      if (request === threadRequestRef.current) setThreadLoading(false);
+    });
+    return () => {
+      if (threadRequestRef.current === request) threadRequestRef.current += 1;
+      historyRequestRef.current += 1;
+      setThreadLoadingEarlier(false);
+    };
+  }, [activeId, legacySelectionLoaded, threadRetry, scopeKey, selectedSummaryTuple, listRefreshVersion]);
+
+  useEffect(() => {
+    const resident = selectedResident;
+    const messages = resident?.projectionId ? threadPages[resident.projectionId]?.messages : null;
+    if (!resident?.projectionId || resident.unread !== true || !messages?.length || threadLoading || threadError || document.visibilityState !== "visible") return;
+    const observed = messages[messages.length - 1];
+    if (!observed) return;
+    void markProjectionRead(resident, { occurredAt: observed.createdAt, id: observed.id });
+  }, [selectedResident, threadPages, threadLoading, threadError, markProjectionRead]);
+
+  const loadEarlierMessages = useCallback(async () => {
+    const resident = selectedResident;
+    const projectionId = resident?.projectionId;
+    const before = projectionId ? threadPages[projectionId]?.nextCursor : null;
+    if (!projectionId || !before || threadLoadingEarlier) return;
+    const request = ++historyRequestRef.current;
+    setThreadLoadingEarlier(true);
+    setThreadError(null);
+    try {
+      const response = await loadManagerSmsConversationDetailClient(projectionId, before);
+      const body = await response.json().catch(() => ({})) as { messages?: ManagerSmsMessageRow[]; nextCursor?: string | null; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not load earlier messages.");
+      if (request !== historyRequestRef.current || activeIdRef.current !== projectionId) return;
+      const older = Array.isArray(body.messages) ? body.messages : [];
+      setThreadPages((current) => {
+        const existing = current[projectionId]?.messages ?? [];
+        const byId = new Map([...older, ...existing].map((message) => [message.id, message]));
+        return {
+          ...current,
+          [projectionId]: {
+            messages: [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
+            nextCursor: body.nextCursor ?? null,
+          },
+        };
+      });
+    } catch (error) {
+      if (request === historyRequestRef.current && activeIdRef.current === projectionId) {
+        setThreadError(error instanceof Error ? error.message : "Could not load earlier messages.");
+      }
+    } finally {
+      if (request === historyRequestRef.current) setThreadLoadingEarlier(false);
+    }
+  }, [selectedResident, threadLoadingEarlier, threadPages]);
 
   const { scrollRef: threadScrollRef, endRef: threadEndRef, handleScroll: handleThreadScroll } =
     useInboxThreadScroll(activeId ?? undefined, active?.messages.length ?? 0);
@@ -449,11 +651,12 @@ export const ManagerSmsPanel = forwardRef<
   const openThread = useCallback(
     (rowId: string, messages: ManagerSmsMessageRow[]) => {
       setActiveId(rowId);
-      markOpened(messages.filter((m) => m.direction === "inbound").map((m) => m.id));
+      const resident = residents.find((row) => conversationId(row) === rowId);
+      if (!resident?.projectionId) markOpened(messages.filter((m) => m.direction === "inbound").map((m) => m.id));
       setDraft("");
       onConversationOpened?.();
     },
-    [markOpened, onConversationOpened, setActiveId],
+    [markOpened, onConversationOpened, residents, setActiveId],
   );
 
   const syncControlledOpen = useCallback(() => {
@@ -487,7 +690,7 @@ export const ManagerSmsPanel = forwardRef<
     if (!row) return; // rows may load after the id is set; retry until present.
     lastSyncedControlledIdRef.current = controlledActiveId;
     deferredControlledIdRef.current = null;
-    markOpened(row.messages.filter((m) => m.direction === "inbound").map((m) => m.id));
+    if (!row.resident?.projectionId) markOpened(row.messages.filter((m) => m.direction === "inbound").map((m) => m.id));
     onConversationOpenedRef.current?.();
   }, [controlledActiveId, markOpened, residents, rows]);
 
@@ -509,6 +712,12 @@ export const ManagerSmsPanel = forwardRef<
   const composeResidents =
     filterResidentEmail || filterResidentUserId ? residents : (data?.residents ?? []);
 
+  const loadMoreConversations = useCallback(() => {
+    const cursor = data?.nextCursor;
+    if (!cursor || listLoadingMore) return;
+    void load({ cursor, append: true });
+  }, [data?.nextCursor, listLoadingMore, load]);
+
   const handleSmsSent = useCallback(() => {
     void load().then(() => {
       onSentNavigate?.();
@@ -518,25 +727,87 @@ export const ManagerSmsPanel = forwardRef<
   const archiveConversation = useCallback(
     async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
-      try { await archiveManagerSmsConversation(rowId); } catch (error) { showToast(error instanceof Error ? error.message : "Could not archive conversation."); return; }
-      setArchivedConversationIds(loadManagerSmsArchivedIds());
+      if (resident.projectionId && Number.isFinite(resident.stateVersion)) {
+        try {
+          const response = await updateManagerSmsConversationStateClient({
+            projectionId: resident.projectionId,
+            action: "archive",
+            expectedVersion: resident.stateVersion!,
+          });
+          if (response.status === 409) {
+            showToast("This conversation changed. Refreshing its status.");
+            void load({ quiet: true });
+            return;
+          }
+          if (!response.ok) throw new Error("Could not archive conversation.");
+          const body = await response.json().catch(() => ({})) as { version?: number };
+          setData((current) => current ? {
+            ...current,
+            residents: current.residents.map((row) => row.projectionId === resident.projectionId
+              ? { ...row, archived: true, stateVersion: Number.isFinite(body.version) ? body.version : row.stateVersion }
+              : row),
+          } : current);
+          onProjectionStateChanged?.();
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "Could not archive conversation.");
+          return;
+        }
+      } else if (resident.conversationKey) {
+        try { await archiveManagerSmsConversation(resident.conversationKey); }
+        catch (error) { showToast(error instanceof Error ? error.message : "Could not archive conversation."); return; }
+        setArchivedConversationIds(loadManagerSmsArchivedIds());
+      } else {
+        showToast("Could not archive this conversation.");
+        return;
+      }
       setActiveId(null);
       onArchived?.();
       showToast("Moved to archived.");
     },
-    [onArchived, setActiveId, showToast],
+    [load, onArchived, onProjectionStateChanged, setActiveId, showToast],
   );
 
   const restoreConversation = useCallback(
     async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
-      try { await restoreManagerSmsConversation(rowId); } catch (error) { showToast(error instanceof Error ? error.message : "Could not restore conversation."); return; }
-      setArchivedConversationIds(loadManagerSmsArchivedIds());
+      if (resident.projectionId && Number.isFinite(resident.stateVersion)) {
+        try {
+          const response = await updateManagerSmsConversationStateClient({
+            projectionId: resident.projectionId,
+            action: "restore",
+            expectedVersion: resident.stateVersion!,
+          });
+          if (response.status === 409) {
+            showToast("This conversation changed. Refreshing its status.");
+            void load({ quiet: true });
+            return;
+          }
+          if (!response.ok) throw new Error("Could not restore conversation.");
+          const body = await response.json().catch(() => ({})) as { version?: number };
+          setData((current) => current ? {
+            ...current,
+            residents: current.residents.map((row) => row.projectionId === resident.projectionId
+              ? { ...row, archived: false, stateVersion: Number.isFinite(body.version) ? body.version : row.stateVersion }
+              : row),
+          } : current);
+          onProjectionStateChanged?.();
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "Could not restore conversation.");
+          return;
+        }
+      } else if (resident.conversationKey) {
+        try { await restoreManagerSmsConversation(resident.conversationKey); }
+        catch (error) { showToast(error instanceof Error ? error.message : "Could not restore conversation."); return; }
+        setArchivedConversationIds(loadManagerSmsArchivedIds());
+      } else {
+        showToast("Could not restore this conversation.");
+        return;
+      }
       setActiveId(null);
       onArchived?.();
       showToast("Restored.");
     },
-    [onArchived, setActiveId, showToast],
+    [load, onArchived, onProjectionStateChanged, setActiveId, showToast],
   );
 
   const deleteConversation = useCallback(
@@ -564,7 +835,11 @@ export const ManagerSmsPanel = forwardRef<
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           // The key, not the phone, identifies which of the two threads to drop.
-          body: JSON.stringify({ phone, conversationKey: resident.conversationKey ?? null }),
+          body: JSON.stringify({
+            phone,
+            conversationKey: resident.conversationKey ?? null,
+            ...(resident.projectionId ? { projectionId: resident.projectionId } : {}),
+          }),
         });
         const body = (await res.json().catch(() => ({}))) as { error?: string; partial?: boolean };
         if (!res.ok) {
@@ -630,11 +905,11 @@ export const ManagerSmsPanel = forwardRef<
 
   useEffect(() => {
     setDraft("");
-    setReplyViaEmail(false);
-    setReplyViaSms(true);
+    setReplyViaEmail(!smsUiEnabled && Boolean(selectedResident?.residentEmail?.trim()));
+    setReplyViaSms(smsUiEnabled && selectedResident?.sendDisabled !== true);
     setReplyIssue(null);
     replyAttemptRef.current = null;
-  }, [activeId]);
+  }, [activeId, selectedResident?.residentEmail, selectedResident?.sendDisabled, smsUiEnabled]);
 
   /**
    * The editor also carries the reply address, so it opens for a directory
@@ -701,6 +976,8 @@ export const ManagerSmsPanel = forwardRef<
 
   async function sendReply() {
     if (replyIssue) return;
+    if (!smsUiEnabled && replyViaSms) return;
+    if (active?.resident.sendDisabled && replyViaSms) return;
     if (!active?.resident.phone && !replyViaEmail) return;
     const text = draft.trim();
     if (!text) return;
@@ -767,6 +1044,7 @@ export const ManagerSmsPanel = forwardRef<
             text,
             residentUserId: active.resident.residentUserId,
             conversationKey: active.resident.conversationKey ?? null,
+            projectionId: active.resident.projectionId ?? null,
           }),
         });
         const body = (await res.json().catch(() => ({}))) as {
@@ -841,6 +1119,7 @@ export const ManagerSmsPanel = forwardRef<
       setDraft("");
       replyAttemptRef.current = null;
       await load();
+      if (smsOk && active?.resident.projectionId) setThreadRetry((value) => value + 1);
     } catch {
       if (smsRequestPending) {
         setReplyIssue(MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE);
@@ -946,6 +1225,20 @@ export const ManagerSmsPanel = forwardRef<
             />
           ))}
         </ul>
+        {data?.nextCursor ? (
+          <div className="flex flex-col items-center gap-1 border-t border-border px-3 py-3">
+            <button
+              type="button"
+              className="min-h-10 rounded-lg px-3 text-sm font-medium text-primary disabled:opacity-50"
+              data-attr="sms-messages-load-more-conversations"
+              disabled={listLoadingMore}
+              onClick={loadMoreConversations}
+            >
+              {listLoadingMore ? "Loading…" : "Load more conversations"}
+            </button>
+            {listPageError ? <p className="text-xs text-danger" role="alert">{listPageError}</p> : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1041,12 +1334,35 @@ export const ManagerSmsPanel = forwardRef<
             : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background/40 px-3 py-4 [-webkit-overflow-scrolling:touch]"
         }
       >
+        {active.resident.projectionId && threadPages[active.resident.projectionId]?.nextCursor ? (
+          <div className="mb-3 flex flex-col items-center gap-1">
+            <button
+              type="button"
+              className="min-h-10 rounded-lg px-3 text-sm font-medium text-primary disabled:opacity-50"
+              data-attr="sms-messages-load-earlier"
+              disabled={threadLoadingEarlier}
+              onClick={() => void loadEarlierMessages()}
+            >
+              {threadLoadingEarlier ? "Loading…" : "Load earlier messages"}
+            </button>
+            {threadError ? <p className="text-xs text-danger" role="alert">{threadError}</p> : null}
+          </div>
+        ) : null}
         {(() => {
           const threadMessages = [
             ...active.messages,
             ...(pendingOutboundByRow[active.rowId] ?? []),
           ];
-          return threadMessages.length === 0 ? (
+          return threadMessages.length === 0 && threadLoading ? (
+            <p className="py-6 text-center text-sm text-muted">Loading messages…</p>
+          ) : threadMessages.length === 0 && threadError ? (
+            <div className="py-6 text-center text-sm text-danger" role="alert">
+              <p>{threadError}</p>
+              <button type="button" className="mt-2 min-h-10 px-3 underline" onClick={() => setThreadRetry((current) => current + 1)}>
+                Retry
+              </button>
+            </div>
+          ) : threadMessages.length === 0 ? (
           <div className={`flex items-center justify-center py-6 ${pageScroll ? "" : "min-h-full flex-1"}`}>
             <PortalInboxEmptyState title="No messages in this conversation." />
           </div>
@@ -1074,7 +1390,7 @@ export const ManagerSmsPanel = forwardRef<
           </div>
         );
         })()}
-        {active.resident.conversationKey ? <TourInterestFollowUpCard conversationKey={active.resident.conversationKey} conversationKeys={active.resident.memberKeys} messageCount={active.messages.length} /> : null}
+        {smsUiEnabled && !active.resident.sendDisabled && active.resident.conversationKey ? <TourInterestFollowUpCard conversationKey={active.resident.conversationKey} conversationKeys={active.resident.memberKeys} messageCount={active.messages.length} /> : null}
         <div ref={threadEndRef} className="h-px shrink-0" aria-hidden />
       </div>
 
@@ -1098,7 +1414,7 @@ export const ManagerSmsPanel = forwardRef<
         </p>
       ) : null}
 
-      <div className="shrink-0">
+      {(smsUiEnabled && !active.resident.sendDisabled) || activeEmailAvailable ? <div className="shrink-0">
       <InboxComposer
         value={draft}
         onChange={setDraft}
@@ -1117,19 +1433,19 @@ export const ManagerSmsPanel = forwardRef<
               onViaEmailChange={setReplyViaEmail}
               onViaSmsChange={setReplyViaSms}
               emailAvailable={activeEmailAvailable}
-              smsAvailable
+              smsAvailable={smsUiEnabled && !active.resident.sendDisabled}
               onAddEmail={canEditContact ? openContactName : undefined}
             />
           </>
         }
       />
-      </div>
+      </div> : null}
     </div>
   );
 
   return (
     <div className="space-y-0">
-      {allowInlineCompose ? (
+      {allowInlineCompose && smsUiEnabled ? (
         <ManagerSmsComposeModal
           open={composeOpen}
           onClose={() => setComposeOpen(false)}

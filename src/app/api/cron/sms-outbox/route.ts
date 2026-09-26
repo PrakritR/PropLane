@@ -6,6 +6,7 @@ import {
 } from "@/lib/sms/owner-sms-dispatcher.server";
 import { reconcilePendingManagerNumberOperations } from "@/lib/sms/manager-number-provisioning.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { recoverSmsProjectionRetries } from "@/lib/sms/inbound-pipeline.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,6 +22,19 @@ export async function GET(req: Request) {
   const db = createSupabaseServiceRoleClient();
   const provisioning = await reconcilePendingManagerNumberOperations(db, 5);
   const conversationLogRepair = await reconcileSubmittedSmsConversationLogs(db, 25);
+  let projectionRecovery: { scanned: number; projected: number; failed: number; error?: string } = {
+    scanned: 0, projected: 0, failed: 0,
+  };
+  try {
+    projectionRecovery = await recoverSmsProjectionRetries(db, { limit: 25 });
+  } catch (error) {
+    projectionRecovery = {
+      scanned: 0,
+      projected: 0,
+      failed: 0,
+      error: error instanceof Error ? error.message : "projection_recovery_unavailable",
+    };
+  }
   const total = { claimed: 0, submitted: 0, blocked: 0, unknown: 0 };
   const infrastructureErrors = new Set<string>();
   let capacityReached = false;
@@ -73,6 +87,8 @@ export async function GET(req: Request) {
   if (infrastructureErrors.size > 0) alerts.push("dispatcher_infrastructure_unavailable");
   if (!conversationLogRepair.ok) alerts.push(`conversation_log_repair_${conversationLogRepair.error}`);
   else if (conversationLogRepair.failed > 0) alerts.push("conversation_log_repair_failed");
+  if (projectionRecovery.error) alerts.push("sms_projection_recovery_unavailable");
+  else if (projectionRecovery.failed > 0) alerts.push("sms_projection_recovery_failed");
   if (!unknownInventory.ok) alerts.push("unknown_inventory_unavailable");
   else if (unknownInventory.count > 0) alerts.push("unknown_submission_inventory_nonempty");
   if (dueBacklogError) alerts.push("due_backlog_inventory_unavailable");
@@ -88,6 +104,7 @@ export async function GET(req: Request) {
     alerts,
     provisioning,
     conversationLogRepair,
+    projectionRecovery,
     unknownInventory,
     dueBacklogCount: dueBacklogCount ?? null,
     quarantinedNumberCount: quarantinedNumberCount ?? null,

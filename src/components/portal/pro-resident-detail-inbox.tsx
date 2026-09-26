@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Archive, Pencil, Trash2 } from "lucide-react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import {
   InboxComposerAiMenu,
@@ -81,6 +82,8 @@ import {
   type PortalContactDetailsValues,
 } from "@/components/portal/portal-contact-details-modal";
 import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
+import type { ManagerSmsMessageRow } from "@/lib/manager-sms-messages";
+import { loadManagerSmsConversationDetailClient, updateManagerSmsConversationStateClient } from "@/lib/manager-sms-conversations-client";
 
 function emailThreadsForResident(email: string, snapshot?: PersistedInboxThread[]): PersistedInboxThread[] {
   if (snapshot) return snapshot.filter((thread) => thread.folder !== "trash");
@@ -178,8 +181,10 @@ export function ResidentDirectChatPane({
   readSources = [],
   emailThreadSnapshot,
   onViewed,
+  onProjectionStateChanged,
   viewActive = true,
   scheduledRefreshKey = 0,
+  projectionScope,
 }: {
   residentEmail: string;
   residentName?: string;
@@ -200,9 +205,12 @@ export function ResidentDirectChatPane({
   onViewed?: (sources: { id: string; observation: string; unread?: boolean }[]) => {
     kind: "deferred" | "attempted";
   };
+  onProjectionStateChanged?: () => void;
   /** Whether this pane is the pane currently rendered to the user. */
   viewActive?: boolean;
   scheduledRefreshKey?: number;
+  /** Changes whenever viewer, workspace or selected person changes. */
+  projectionScope?: string;
 }) {
   const { showToast } = useAppUi();
   const [draft, setDraft] = useState("");
@@ -284,7 +292,58 @@ export function ResidentDirectChatPane({
 
   const email = residentEmail.trim();
   const displayName = residentName?.trim() || email || "Resident";
-  const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
+  const nativeSummaries = useMemo(() => smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [], [smsResidents, smsResident]);
+  const projectionSummaries = nativeSummaries.filter((resident) => resident.projectionId);
+  const [selectedProjectionId, setSelectedProjectionId] = useState<string | null>(null);
+  const [projectionPages, setProjectionPages] = useState<Record<string, { messages: ManagerSmsMessageRow[]; nextCursor: string | null; resident: ManagerSmsResidentConversation }>>({});
+  const [projectionError, setProjectionError] = useState<string | null>(null);
+  const [projectionLoadingEarlier, setProjectionLoadingEarlier] = useState(false);
+  const [detailRefresh, setDetailRefresh] = useState(0);
+  const projectionGeneration = useRef(0);
+  const projectionScopeRef = useRef(projectionScope);
+  useEffect(() => { projectionScopeRef.current = projectionScope; }, [projectionScope]);
+  const summarySignature = projectionSummaries.map((resident) => `${resident.projectionId}:${resident.messages?.[0]?.id ?? ""}:${resident.stateVersion ?? ""}`).join("|");
+  useEffect(() => {
+    const available = projectionSummaries.map((resident) => resident.projectionId!);
+    setSelectedProjectionId((current) => current && available.includes(current) ? current : available.length === 1 ? available[0]! : null);
+    setProjectionPages((current) => Object.fromEntries(Object.entries(current).filter(([id]) => available.includes(id))));
+  }, [summarySignature]);
+  useEffect(() => {
+    if (!projectionSummaries.length) return;
+    const generation = ++projectionGeneration.current;
+    const scope = projectionScopeRef.current;
+    setProjectionError(null);
+    void Promise.all(projectionSummaries.map(async (summary) => {
+      const id = summary.projectionId!;
+      try {
+        const response = await loadManagerSmsConversationDetailClient(id);
+        const detail = await response.json().catch(() => ({})) as { messages?: ManagerSmsMessageRow[]; nextCursor?: string | null; resident?: ManagerSmsResidentConversation; error?: string };
+        if (generation !== projectionGeneration.current || scope !== projectionScopeRef.current) return;
+        if (!response.ok || detail.resident?.projectionId !== id || !Array.isArray(detail.messages)) {
+          throw new Error(detail.error ?? "Could not load conversation.");
+        }
+        setProjectionPages((current) => {
+          const previous = current[id];
+          const byId = new Map([...(previous?.messages ?? []), ...detail.messages!].map((message) => [message.id, message]));
+          return { ...current, [id]: {
+            messages: [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
+            nextCursor: previous ? previous.nextCursor : detail.nextCursor ?? null,
+            resident: detail.resident!,
+          } };
+        });
+      } catch (error) {
+        if (generation === projectionGeneration.current && scope === projectionScopeRef.current) {
+          setProjectionError(error instanceof Error ? error.message : "Could not load conversation.");
+          setProjectionPages((current) => { const next = { ...current }; delete next[id]; return next; });
+        }
+      }
+    }));
+    return () => { if (projectionGeneration.current === generation) projectionGeneration.current += 1; };
+  }, [summarySignature, detailRefresh, projectionScope]);
+  const selectedSmsResident = projectionSummaries.length
+    ? selectedProjectionId ? projectionPages[selectedProjectionId]?.resident ?? projectionSummaries.find((resident) => resident.projectionId === selectedProjectionId) ?? null : null
+    : smsResident ?? null;
+  const smsAvailable = smsUiEnabled && Boolean(selectedSmsResident?.phone?.trim()) && selectedSmsResident?.sendDisabled !== true;
   const emailAvailable = Boolean(email);
 
   const [replyViaProplane, setReplyViaProplane] = useState(true);
@@ -331,20 +390,46 @@ export function ResidentDirectChatPane({
   }, [email, smsAvailable, emailAvailable, lastInboundChannel, updateDraft]);
 
   const messages = useMemo(() => {
-    const native = smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [];
+    const native = nativeSummaries.map((resident) => resident.projectionId
+      ? { ...resident, messages: projectionPages[resident.projectionId]?.messages ?? [] }
+      : resident);
     return mergeThreadBubbles(
       inboxThreadBubbles(emailThreads),
       native.flatMap((resident) => smsThreadBubbles(resident, displayName)),
     );
-  }, [displayName, emailThreads, smsResident, smsResidents]);
+  }, [displayName, emailThreads, nativeSummaries, projectionPages]);
+  const readingProjectionRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!viewActive || document.visibilityState !== "visible" || projectionError) return;
+    const generation = projectionGeneration.current;
+    for (const summary of projectionSummaries) {
+      const id = summary.projectionId!;
+      const page = projectionPages[id];
+      const resident = page?.resident;
+      if (!page || resident?.unread !== true || !Number.isFinite(resident.stateVersion) || readingProjectionRef.current.has(id)) continue;
+      const observed = [...page.messages].reverse().find((message) => message.direction === "inbound");
+      if (!observed) continue;
+      readingProjectionRef.current.add(id);
+      void updateManagerSmsConversationStateClient({ projectionId: id, action: "markRead", expectedVersion: resident.stateVersion!, observed: { occurredAt: observed.createdAt, id: observed.id } })
+        .then(async (response) => {
+          if (!response.ok || projectionScopeRef.current !== projectionScope || projectionGeneration.current !== generation) return;
+          const body = await response.json().catch(() => ({})) as { version?: number };
+          if (projectionScopeRef.current !== projectionScope || projectionGeneration.current !== generation) return;
+          setProjectionPages((current) => current[id] ? { ...current, [id]: {
+            ...current[id]!, resident: { ...current[id]!.resident, unread: false, stateVersion: body.version ?? resident.stateVersion },
+          } } : current);
+          onProjectionStateChanged?.();
+        }).finally(() => readingProjectionRef.current.delete(id));
+    }
+  }, [viewActive, projectionError, projectionPages, summarySignature, projectionScope, onProjectionStateChanged]);
   const viewedSignature = useMemo(() => {
     const sources = readSources.map((source) => `${source.id}:${source.observation}`);
-    const inboundSms = (smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [])
+    const legacySms = nativeSummaries.filter((resident) => !resident.projectionId)
       .flatMap((resident) => resident.messages ?? [])
       .filter((message) => message.direction === "inbound")
       .map((message) => `sms:${message.id}`);
-    return [...sources, ...inboundSms].sort().join("|");
-  }, [readSources, smsResident, smsResidents]);
+    return [...sources, ...legacySms].sort().join("|");
+  }, [readSources, nativeSummaries]);
   const lastViewedSignature = useRef("");
   const consumeViewedAttempt = useCallback(() => {
     const outcome = onViewed?.(readSources);
@@ -629,7 +714,7 @@ export function ResidentDirectChatPane({
           senderPortal: "manager",
           attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
           toEmails: [email],
-          toUserIds: smsResident?.residentUserId ? [smsResident.residentUserId] : undefined,
+          toUserIds: selectedSmsResident?.residentUserId ? [selectedSmsResident.residentUserId] : undefined,
         });
         proplaneOk = result.ok;
         if (!proplaneOk && !replyViaEmail && !replyViaSms) {
@@ -639,7 +724,7 @@ export function ResidentDirectChatPane({
       }
 
       if (replyViaSms) {
-        const phone = smsResident?.phone?.trim();
+        const phone = selectedSmsResident?.phone?.trim();
         if (!phone) {
           showToast("No phone on file for this resident.");
           return;
@@ -650,8 +735,9 @@ export function ResidentDirectChatPane({
           JSON.stringify([
             phone,
             smsText,
-            smsResident?.residentUserId ?? null,
-            smsResident?.conversationKey ?? null,
+            selectedSmsResident?.residentUserId ?? null,
+            selectedSmsResident?.conversationKey ?? null,
+            selectedSmsResident?.projectionId ?? null,
           ]),
           1,
         );
@@ -667,8 +753,9 @@ export function ResidentDirectChatPane({
             body: JSON.stringify({
               toPhone: phone,
               text: smsText,
-              residentUserId: smsResident?.residentUserId ?? null,
-              conversationKey: smsResident?.conversationKey ?? null,
+              residentUserId: selectedSmsResident?.residentUserId ?? null,
+              conversationKey: selectedSmsResident?.conversationKey ?? null,
+              ...(selectedSmsResident?.projectionId ? { projectionId: selectedSmsResident.projectionId } : {}),
             }),
           });
           const body = (await res.json().catch(() => ({}))) as {
@@ -679,6 +766,7 @@ export function ResidentDirectChatPane({
           smsOutcomeUnknown = isManualSmsOutcomeUnknown(body);
           smsOk = res.ok && !smsOutcomeUnknown;
           if (!smsOutcomeUnknown) smsAttemptRef.current = null;
+          if (smsOk) setDetailRefresh((current) => current + 1);
           if (!smsOk && !replyViaEmail && !replyViaProplane && !smsOutcomeUnknown) {
             showToast(body.error ?? "Could not send SMS.");
             return;
@@ -903,6 +991,31 @@ export function ResidentDirectChatPane({
     </>
   );
 
+  const loadEarlierProjection = async (id: string) => {
+    const cursor = projectionPages[id]?.nextCursor;
+    if (!cursor || projectionLoadingEarlier) return;
+    const scope = projectionScopeRef.current;
+    const generation = projectionGeneration.current;
+    setProjectionLoadingEarlier(true);
+    setProjectionError(null);
+    try {
+      const response = await loadManagerSmsConversationDetailClient(id, cursor);
+      const body = await response.json().catch(() => ({})) as { messages?: ManagerSmsMessageRow[]; nextCursor?: string | null; error?: string };
+      if (!response.ok || !Array.isArray(body.messages)) throw new Error(body.error ?? "Could not load earlier messages.");
+      if (scope !== projectionScopeRef.current || generation !== projectionGeneration.current) return;
+      setProjectionPages((current) => {
+        const page = current[id];
+        if (!page) return current;
+        const byId = new Map([...body.messages!, ...page.messages].map((message) => [message.id, message]));
+        return { ...current, [id]: { ...page, messages: [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)), nextCursor: body.nextCursor ?? null } };
+      });
+    } catch (error) {
+      if (scope === projectionScopeRef.current && generation === projectionGeneration.current) setProjectionError(error instanceof Error ? error.message : "Could not load earlier messages.");
+    } finally {
+      if (scope === projectionScopeRef.current) setProjectionLoadingEarlier(false);
+    }
+  };
+
   return (
     <>
     <InboxThreadView
@@ -910,6 +1023,16 @@ export function ResidentDirectChatPane({
       subtitle={email || undefined}
       avatarName={displayName}
       messages={messages}
+      beforeMessages={projectionSummaries.some((resident) => projectionPages[resident.projectionId!]?.nextCursor) || projectionError ? (
+        <div className="flex flex-wrap justify-center gap-2 py-2">
+          {projectionSummaries.map((resident, index) => projectionPages[resident.projectionId!]?.nextCursor ? (
+            <button key={resident.projectionId} type="button" className="rounded-lg px-3 py-1.5 text-sm text-primary disabled:opacity-50" disabled={projectionLoadingEarlier} onClick={() => void loadEarlierProjection(resident.projectionId!)}>
+              {projectionLoadingEarlier ? "Loading…" : projectionSummaries.length > 1 ? `Load earlier texts ${index + 1}` : "Load earlier texts"}
+            </button>
+          ) : null)}
+          {projectionError ? <span role="alert" className="text-sm text-danger">{projectionError}</span> : null}
+        </div>
+      ) : undefined}
       threadKey={`direct-${email}`}
       scrollMode="pane"
       onBack={onBack}
@@ -917,6 +1040,23 @@ export function ResidentDirectChatPane({
       emptyLabel="No messages yet. Send the first message below."
       composer={
         <>
+          {smsUiEnabled && projectionSummaries.length > 1 ? (
+            <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-sm">
+              <FieldSingleSelect
+                label="Text line"
+                value={selectedProjectionId ?? ""}
+                onChange={(next) => setSelectedProjectionId(next || null)}
+                placeholder="Choose a conversation"
+                dataAttr="direct-chat-text-line"
+                wrapperClassName="min-w-0 flex-1"
+                options={projectionSummaries.map((resident, index) => {
+                  const preview = resident.messages?.[0];
+                  const line = preview?.direction === "inbound" ? preview.toPhone : preview?.fromPhone;
+                  return { value: resident.projectionId!, label: `${resident.counterpartyRole ?? "Text"} · ${line || `Line ${index + 1}`}${resident.sendDisabled ? " · history only" : ""}` };
+                })}
+              />
+            </div>
+          ) : null}
           {scheduledCards ? (
             <div
               className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"

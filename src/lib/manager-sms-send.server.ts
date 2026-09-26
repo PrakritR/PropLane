@@ -5,6 +5,7 @@ import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dis
 import { normalizeE164 } from "@/lib/phone-e164";
 import { track } from "@/lib/analytics/posthog";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
+import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 
 type SendResult = { body: Record<string, unknown>; status: number };
 function response(body: Record<string, unknown>, init?: { status: number }): SendResult {
@@ -22,6 +23,8 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   text?: string;
   residentUserId?: string | null;
   conversationKey?: string | null;
+  /** Filled only by the authorized projection detail route. */
+  selectedConversation?: ManagerSmsResidentConversation;
 }): Promise<SendResult> {
   const body = args;
   if (args.scopeManagerIds && !args.scopeManagerIds.length) {
@@ -44,7 +47,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
       { status: 400 },
     );
 
-  const conversations = await fetchManagerSmsConversations(
+  const conversations = args.selectedConversation ? null : await fetchManagerSmsConversations(
     db,
     args.actorUserId,
     { provisionWorkNumber: false, visibility: "edit", ...(args.scopeManagerIds ? { scopeManagerIdsOverride: args.scopeManagerIds } : {}) },
@@ -54,13 +57,13 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   // One phone can be two threads. When the client says which one it is replying
   // into, honour that — otherwise a reply typed in the prospect thread gets
   // stamped `resident` (or vice versa) and lands in the other conversation.
-  const match = replyKey
-    ? conversations.residents.find((r) => r.conversationKey === replyKey)
-    : conversations.residents.find((r) => {
+  const match = args.selectedConversation ?? (replyKey
+    ? conversations?.residents.find((r) => r.conversationKey === replyKey)
+    : conversations?.residents.find((r) => {
         const phoneDigits = String(r.phone ?? "").replace(/\D/g, "");
         if (phoneDigits && (phoneDigits === toDigits || phoneDigits.endsWith(toDigits.slice(-10)))) return true;
         return Boolean(body.residentUserId && r.residentUserId === body.residentUserId);
-      });
+      }));
 
   if (!match) {
     return response(
@@ -86,6 +89,9 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   // The server-resolved conversation also owns manager/co-manager scope.
   const ownerManagerUserId =
     String(match.ownerManagerUserId ?? args.actorUserId).trim() || args.actorUserId;
+  if (args.selectedConversation && (!match.workLineId || match.sendDisabled)) {
+    return response({ error: "This conversation cannot be sent from an active work number." }, { status: 409 });
+  }
   if (ownerManagerUserId !== args.actorUserId) {
     const editScope = await resolveSmsScopeManagerIds(
       db,
@@ -116,6 +122,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
         .digest("hex")}`;
   const result = await enqueueOwnerSms({
     managerUserId: ownerManagerUserId,
+    selectedWorkLineId: args.selectedConversation ? match.workLineId : null,
     actorUserId: args.actorUserId,
     recipientPhone: matchedPhone,
     recipientEmail: match?.residentEmail ?? null,

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import { resolveSmsDeletePhone } from "@/lib/communication-inbox-filters";
-import { deleteManagerSmsConversationClient } from "@/lib/manager-sms-conversations-client";
+import { deleteManagerSmsConversationClient, updateManagerSmsConversationStateClient } from "@/lib/manager-sms-conversations-client";
 import {
   archivePersistedInboxThreads,
   clearPersistedInboxThread,
@@ -50,7 +50,7 @@ export function useUnifiedCommunicationBulk({
   onSelectionCleared?: () => void;
   onSmsArchiveChange?: () => void;
   /** Phone + conversation key for each SMS row, so Delete can call the SMS route. */
-  smsTargets?: Array<{ conversationId: string; phone: string; conversationKey: string | null }>;
+  smsTargets?: Array<{ conversationId: string; phone: string; conversationKey: string | null; projectionId?: string | null; stateVersion?: number | null; archived?: boolean }>;
   onSmsDeleted?: () => void;
   showToast?: (message: string) => void;
   /** Preview/from/subject restored after Clear PropLane Assistant. */
@@ -126,7 +126,7 @@ export function useUnifiedCommunicationBulk({
   const archiveRows = useCallback(
     async (rows: SelectedRow[], clearSelectionAfter = true) => {
       const emailIds = rows.filter((row) => row.channel === "email").map((row) => row.threadId);
-      const smsIds = rows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+      const smsIds = [...new Set(rows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
 
       if (emailIds.length > 0) {
         const { ok, next } = await archivePersistedInboxThreads(storageKey, emailIds);
@@ -139,7 +139,14 @@ export function useUnifiedCommunicationBulk({
 
       if (smsIds.length > 0) {
         try {
-          for (const id of smsIds) await archiveManagerSmsConversation(id);
+          for (const id of smsIds) {
+            const target = smsTargets.find((entry) => entry.conversationId === id);
+            if (target?.projectionId) {
+              if (!Number.isSafeInteger(target.stateVersion)) throw new Error("Conversation state is unavailable.");
+              const result = await updateManagerSmsConversationStateClient({ projectionId: target.projectionId, action: "archive", expectedVersion: target.stateVersion! });
+              if (!result.ok) throw new Error("Could not archive text conversations. Refresh and retry.");
+            } else await archiveManagerSmsConversation(id);
+          }
           onSmsArchiveChange?.();
         } catch {
           showToast("Could not archive text conversations. Try again.");
@@ -151,7 +158,7 @@ export function useUnifiedCommunicationBulk({
       if (clearSelectionAfter) clearAfterBulk();
       return true;
     },
-    [clearAfterBulk, onEmailThreadsChange, onSmsArchiveChange, showToast, storageKey],
+    [clearAfterBulk, onEmailThreadsChange, onSmsArchiveChange, showToast, smsTargets, storageKey],
   );
 
   const handleArchive = useCallback(async () => {
@@ -169,7 +176,7 @@ export function useUnifiedCommunicationBulk({
 
   const handleRestore = useCallback(async () => {
     const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
-    const smsIds = selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+    const smsIds = [...new Set(selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
 
     if (emailIds.length > 0) {
       const { ok, next } = await restorePersistedInboxThreads(storageKey, emailIds);
@@ -181,7 +188,14 @@ export function useUnifiedCommunicationBulk({
     }
 
     try {
-      for (const id of smsIds) await restoreManagerSmsConversation(id);
+      for (const id of smsIds) {
+        const target = smsTargets.find((entry) => entry.conversationId === id);
+        if (target?.projectionId) {
+          if (!Number.isSafeInteger(target.stateVersion)) throw new Error("Conversation state is unavailable.");
+          const result = await updateManagerSmsConversationStateClient({ projectionId: target.projectionId, action: "restore", expectedVersion: target.stateVersion! });
+          if (!result.ok) throw new Error("Could not restore text conversations. Refresh and retry.");
+        } else await restoreManagerSmsConversation(id);
+      }
     } catch {
       showToast("Could not restore text conversations. Try again.");
       return;
@@ -196,6 +210,7 @@ export function useUnifiedCommunicationBulk({
     onSmsArchiveChange,
     selectedRows,
     showToast,
+    smsTargets,
     storageKey,
   ]);
 
@@ -274,6 +289,7 @@ export function useUnifiedCommunicationBulk({
       const result = await deleteManagerSmsConversationClient({
         phone,
         conversationKey: target?.conversationKey ?? id,
+        ...(target?.projectionId ? { projectionId: target.projectionId } : {}),
       });
       if (!result.ok || result.partial) {
         smsFailed += 1;
