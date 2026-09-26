@@ -560,13 +560,18 @@ export async function renderPortalSection(
   }
 
   if (kind === "admin" && section === "properties") {
-    if (tabParts?.length) notFound();
-    return <AdminPropertiesClient />;
+    // A property row's record page is `/admin/properties/<adminRefId>` (C163)
+    // — one detail segment, decoded and handed to the client for lookup.
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminPropertiesClient detailId={detailId} />;
   }
 
   if (kind === "admin" && section === "axis-users") {
-    if (tabParts?.length) notFound();
-    return <AdminAxisUsersClient />;
+    // An account row's record page is `/admin/axis-users/<kind>-<id>` (C165).
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminAxisUsersClient detailId={detailId} />;
   }
 
   if (kind === "admin" && section === "billing") {
@@ -575,10 +580,12 @@ export async function renderPortalSection(
   }
 
   if (kind === "admin" && section === "test-accounts") {
-    if (tabParts?.length) notFound();
+    // A workspace row's record page is `/admin/test-accounts/<workspaceId>` (C168).
+    if ((tabParts?.length ?? 0) > 1) notFound();
     if (!isTestWorkspaceFeatureEnabled()) notFound();
     await requireTrustedTestWorkspaceOperator().catch(() => notFound());
-    return <AdminTestWorkspacesClient />;
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminTestWorkspacesClient detailId={detailId} />;
   }
 
   if (kind === "admin" && section === "leases") {
