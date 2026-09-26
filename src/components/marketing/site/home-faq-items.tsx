@@ -28,7 +28,7 @@ export const HOME_FAQ_ITEMS: SiteFaqItem[] = [
   },
   {
     q: "How much does it cost?",
-    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and Communication, for up to 20 homes). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, for up to 120 homes). A year up front is two months free.`,
+    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (leases and Communication, for up to 20 residents — empty beds are free). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, for up to 120 residents). A year up front is two months free.`,
   },
   {
     q: "Do I need a credit card to try it?",

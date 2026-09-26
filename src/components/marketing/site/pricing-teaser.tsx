@@ -16,21 +16,22 @@ import { cn } from "@/lib/utils";
  * per-door billing.
  */
 const TIER_LINE: Record<PlanTierId, string> = {
-  free: `${RATE_CARD.free.includedDoors} homes · no card`,
-  pro: `${RATE_CARD.pro.includedDoors} homes included · residents, leases, Communication`,
-  business: `${RATE_CARD.business.includedDoors} homes included · unlimited co-managers`,
+  free: `${RATE_CARD.free.includedDoors} residents · no card`,
+  pro: `${RATE_CARD.pro.includedDoors} residents included · leases, Communication`,
+  business: `${RATE_CARD.business.includedDoors} residents included · unlimited co-managers`,
 };
 
 /**
- * The extra-door rate, one tier below its included count. `null` on Free
+ * The extra-resident rate, one tier below its included count. `null` on Free
  * because it has no overage rate at all (`RATE_CARD.free.perExtraDoorMonthlyCents`
  * is `null`, a hard cap, not a $0 price) — see the rate card's own doc comment.
- * Copy says "home", never "door" (captain 2026-09-25) — the underlying unit
- * and RATE_CARD's numbers are unchanged, wording only.
+ * Copy says "resident", never "door" or "home" (captain's per-current-resident
+ * billing decision, 2026-09-25 — empty beds free) — the underlying field and
+ * RATE_CARD's numbers are unchanged, wording only.
  */
 function extraDoorLine(tier: "pro" | "business"): string {
   const cents = RATE_CARD[tier].perExtraDoorMonthlyCents;
-  return `+${formatRateCardUsd(cents ?? 0)}/mo per extra home`;
+  return `+${formatRateCardUsd(cents ?? 0)}/mo per extra resident`;
 }
 
 const TIER_EXTRA_DOOR_LINE: Record<PlanTierId, string | null> = {
@@ -104,7 +105,7 @@ export function SitePricingTeaser() {
       <SiteIntro
         eyebrow="Pricing"
         id="site-pricing-title"
-        title={`Free for one home. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors} homes. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
+        title={`Free for your first resident. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors} residents. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
         lede="No card to start."
         align="center"
       />
