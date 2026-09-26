@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LIFECYCLE_BEAT_MESSAGE_SOURCE,
   type LifecycleBeatMessage,
@@ -27,20 +27,18 @@ import { cn } from "@/lib/utils";
  * redesign" contract. A perspective the real feature does not involve gets no
  * tab at all — a tab that can never do anything is a dead click.
  *
- * Scope note: this row set covers the SAME real product surfaces the mock
- * plan itemized, but a few perspectives named in the original spec have no
- * clean, always-populated `/demo` equivalent today and are intentionally
- * dropped rather than shown broken or invented:
- * - Tours' prospect/resident perspective — booking a tour is a pre-account,
- *   anonymous flow `/demo` has no signed-out "prospect" mode for; the seeded
- *   `/demo` resident is already a leased tenant.
- * - Applications' resident perspective — same reason (the seeded resident
- *   already has an approved application; there is no mid-application
- *   prospect identity to sign in as).
- * Both rows show Manager only until a prospect-facing demo mode exists.
+ * Scope note: Tours and Applications' "Prospect" perspective is NOT a live
+ * `/demo` iframe. Booking a tour or applying is a pre-account, anonymous
+ * flow — `/demo`'s one resident identity is already a leased tenant, so
+ * there is no signed-in session to deep-link into for Jamie P.'s side of
+ * either story. Both render a small static, token-accurate phone frame
+ * (real Tailwind tokens/primitives, no PL.state.db, no network) that steps
+ * through the same 4 beats the postMessage-scripted perspectives use, kept
+ * in sync with `demo-lifecycle-scenarios.ts`'s copy for the same rows.
  */
 
-type Perspective = {
+type IframePerspective = {
+  kind: "iframe";
   id: DemoPortalRole;
   label: string;
   role: DemoPortalRole;
@@ -51,6 +49,17 @@ type Perspective = {
   path: string;
 };
 
+type StaticPerspective = {
+  kind: "static";
+  id: "prospect";
+  label: string;
+  device: "phone";
+  /** One JSX frame per beat (0-3) — the phone-bezel body only, no chrome. */
+  beats: ReactNode[];
+};
+
+type Perspective = IframePerspective | StaticPerspective;
+
 type LifecycleStep = {
   id: string;
   kicker: string;
@@ -59,6 +68,86 @@ type LifecycleStep = {
   linkLabel: string;
   perspectives: Perspective[];
 };
+
+/** A slot chip for the prospect tour-booking beats. */
+function SlotChip({ label, selected }: { label: string; selected: boolean }) {
+  return (
+    <span
+      className={cn(
+        "rounded-lg border px-2.5 py-1.5 text-[11px] font-bold",
+        selected ? "border-primary bg-primary text-white" : "border-border bg-card text-foreground",
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Prospect (Jamie P.) tour-booking beats — no /demo equivalent exists for an anonymous, pre-account visitor; see the file's own scope note. */
+function toursProspectBeats(): ReactNode[] {
+  const listingCard = (
+    <div className="mb-3 overflow-hidden rounded-xl border border-border">
+      <div className="flex h-14 items-center justify-center bg-[var(--pl-surface-muted)] text-muted">Fremont Studio</div>
+      <div className="px-2.5 py-2">
+        <p className="text-[11.5px] font-bold text-foreground">Fremont Studio</p>
+        <p className="text-[10px] text-muted">$1,400/mo · Studio</p>
+      </div>
+    </div>
+  );
+  const heading = <p className="mb-2 text-[11px] font-bold text-foreground">Book a tour</p>;
+  return [
+    <div key={0}>{listingCard}{heading}<div className="grid grid-cols-2 gap-1.5"><SlotChip label="Sat 2:00 PM" selected={false} /><SlotChip label="Sun 10:00 AM" selected={false} /></div></div>,
+    <div key={1}>{listingCard}{heading}<div className="grid grid-cols-2 gap-1.5"><SlotChip label="Sat 2:00 PM" selected /><SlotChip label="Sun 10:00 AM" selected={false} /></div></div>,
+    <div key={2} className="pt-6 text-center">
+      <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-primary/10 text-primary">✓</div>
+      <p className="text-[12px] font-bold text-foreground">Tour requested</p>
+      <p className="mt-1 text-[10.5px] text-muted">Sat, 2:00 PM · Pending</p>
+    </div>,
+    <div key={3} className="pt-6 text-center">
+      <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-[#e8f7ee] text-[#15803d]">✓</div>
+      <p className="text-[12px] font-bold text-foreground">Tour confirmed</p>
+      <p className="mt-1 text-[10.5px] text-muted">Sat, 2:00 PM · Reminder set for Friday</p>
+    </div>,
+  ];
+}
+
+/** Prospect (Jamie P.) application beats — same scope note as tours above. */
+function applicationsProspectBeats(): ReactNode[] {
+  const header = (idx: number) => (
+    <div className="mb-3">
+      <p className="mb-2 text-[11px] font-bold text-foreground">Apply — Fremont Studio</p>
+      <div className="flex items-center gap-1">
+        {["Profile", "Documents", "Fee", "Submit"].map((s, i) => (
+          <span key={s} className={cn("h-1.5 flex-1 rounded-full", i <= idx ? "bg-primary" : "bg-border")} />
+        ))}
+      </div>
+    </div>
+  );
+  const docRow = (label: string, done: boolean) => (
+    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
+      <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md text-[10px]", done ? "bg-[#e8f7ee] text-[#15803d]" : "bg-[var(--pl-surface-muted)] text-muted")}>
+        {done ? "✓" : "…"}
+      </span>
+      <span className="text-[11px] font-semibold text-foreground">{label}</span>
+    </div>
+  );
+  return [
+    <div key={0}>{header(1)}{docRow("Photo ID", true)}{docRow("Proof of income", false)}</div>,
+    <div key={1}>{header(1)}{docRow("Photo ID", true)}{docRow("Proof of income", true)}</div>,
+    <div key={2}>
+      {header(2)}
+      <div className="flex items-center justify-between rounded-lg border border-border px-2.5 py-2">
+        <span className="text-[11px] font-semibold text-foreground">Application fee</span>
+        <span className="text-[11px] font-bold text-foreground">$50</span>
+      </div>
+    </div>,
+    <div key={3} className="pt-6 text-center">
+      <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-[#e8f7ee] text-[#15803d]">✓</div>
+      <p className="text-[12px] font-bold text-foreground">Application submitted</p>
+      <p className="mt-1 text-[10.5px] text-muted">Fremont Studio · $50 paid</p>
+    </div>,
+  ];
+}
 
 const STEPS: LifecycleStep[] = [
   {
@@ -72,7 +161,8 @@ const STEPS: LifecycleStep[] = [
     ],
     linkLabel: "Try tour scheduling",
     perspectives: [
-      { id: "manager", label: "Manager", role: "manager", section: "tours", tab: "upcoming", device: "desktop", path: "/portal/tours/upcoming" },
+      { kind: "static", id: "prospect", label: "Prospect", device: "phone", beats: toursProspectBeats() },
+      { kind: "iframe", id: "manager", label: "Manager", role: "manager", section: "tours", tab: "upcoming", device: "desktop", path: "/portal/tours/upcoming" },
     ],
   },
   {
@@ -86,7 +176,8 @@ const STEPS: LifecycleStep[] = [
     ],
     linkLabel: "See applications in PropLane",
     perspectives: [
-      { id: "manager", label: "Manager", role: "manager", section: "applications", device: "desktop", path: "/portal/applications/pending" },
+      { kind: "static", id: "prospect", label: "Prospect", device: "phone", beats: applicationsProspectBeats() },
+      { kind: "iframe", id: "manager", label: "Manager", role: "manager", section: "applications", device: "desktop", path: "/portal/applications/pending" },
     ],
   },
   {
@@ -100,8 +191,9 @@ const STEPS: LifecycleStep[] = [
     ],
     linkLabel: "See leasing in PropLane",
     perspectives: [
-      { id: "manager", label: "Manager", role: "manager", section: "leases", device: "desktop", path: "/portal/leases" },
+      { kind: "iframe", id: "manager", label: "Manager", role: "manager", section: "leases", device: "desktop", path: "/portal/leases" },
       {
+        kind: "iframe",
         id: "resident",
         label: "Resident",
         role: "resident",
@@ -123,9 +215,9 @@ const STEPS: LifecycleStep[] = [
     ],
     linkLabel: "See payments in PropLane",
     perspectives: [
-      { id: "resident", label: "Resident", role: "resident", section: "payments", tab: "overdue", device: "phone", path: "/resident/payments" },
-      { id: "manager", label: "Manager", role: "manager", section: "payments", tab: "overdue", device: "desktop", path: "/portal/payments/incoming/overdue" },
-      { id: "vendor", label: "Vendor", role: "vendor", section: "dashboard", device: "phone", path: "/vendor/dashboard" },
+      { kind: "iframe", id: "resident", label: "Resident", role: "resident", section: "payments", tab: "overdue", device: "phone", path: "/resident/payments" },
+      { kind: "iframe", id: "manager", label: "Manager", role: "manager", section: "payments", tab: "overdue", device: "desktop", path: "/portal/payments/incoming/overdue" },
+      { kind: "iframe", id: "vendor", label: "Vendor", role: "vendor", section: "dashboard", device: "phone", path: "/vendor/dashboard" },
     ],
   },
   {
@@ -139,14 +231,14 @@ const STEPS: LifecycleStep[] = [
     ],
     linkLabel: "See maintenance in PropLane",
     perspectives: [
-      { id: "resident", label: "Resident", role: "resident", section: "services", tab: "scheduled", device: "phone", path: "/resident/services" },
-      { id: "manager", label: "Manager", role: "manager", section: "services", tab: "work-orders", device: "desktop", path: "/portal/services" },
-      { id: "vendor", label: "Vendor", role: "vendor", section: "work-orders", tab: "upcoming", device: "phone", path: "/vendor/work-orders" },
+      { kind: "iframe", id: "resident", label: "Resident", role: "resident", section: "services", tab: "scheduled", device: "phone", path: "/resident/services" },
+      { kind: "iframe", id: "manager", label: "Manager", role: "manager", section: "services", tab: "work-orders", device: "desktop", path: "/portal/services" },
+      { kind: "iframe", id: "vendor", label: "Vendor", role: "vendor", section: "work-orders", tab: "upcoming", device: "phone", path: "/vendor/work-orders" },
     ],
   },
 ];
 
-function demoSrc(p: Perspective): string {
+function demoSrc(p: IframePerspective): string {
   const params = new URLSearchParams({ role: p.role, section: p.section });
   if (p.tab) params.set("tab", p.tab);
   return `/demo?${params.toString()}`;
@@ -175,18 +267,35 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-/** Desktop app window (browser-chrome-lite bar) or phone bezel around the real, interactive `/demo` iframe. */
+/** Desktop app window (browser-chrome-lite bar) or phone bezel — around the
+ * real, interactive `/demo` iframe for an "iframe" perspective, or a small
+ * static, token-accurate body for a "static" one (see the file's scope note). */
 function DeviceFrame({
   perspective,
   label,
   kicker,
+  beat,
   iframeRef,
 }: {
   perspective: Perspective;
   label: string;
   kicker: string;
+  beat: number;
   iframeRef: (el: HTMLIFrameElement | null) => void;
 }) {
+  if (perspective.kind === "static") {
+    return (
+      <div className="mx-auto w-[236px] shrink-0 rounded-[2.1rem] border-[7px] border-foreground/90 bg-foreground/90 shadow-[0_22px_46px_-16px_rgba(15,23,42,0.4)]">
+        <div className="flex h-[478px] w-full flex-col overflow-hidden rounded-[1.5rem] bg-background">
+          <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5">
+            <span className="text-[9.5px] font-bold text-muted">‹</span>
+            <span className="truncate text-[9.5px] font-semibold text-muted">prop-lane.space/listings/fremont-studio</span>
+          </div>
+          <div className="flex-1 overflow-hidden p-3">{perspective.beats[beat % perspective.beats.length]}</div>
+        </div>
+      </div>
+    );
+  }
   const src = demoSrc(perspective);
   const title = `PropLane ${label} — ${kicker}`;
   if (perspective.device === "desktop") {
@@ -232,7 +341,9 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const multiplePerspectives = step.perspectives.length > 1;
 
+  const active = step.perspectives[activeIdx] ?? step.perspectives[0]!;
   const postBeat = useCallback((nextBeat: number) => {
+    if (active.kind !== "iframe") return;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
     const message: LifecycleBeatMessage = { source: LIFECYCLE_BEAT_MESSAGE_SOURCE, scenario: step.id, beat: nextBeat };
@@ -241,7 +352,7 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
     } catch {
       /* the iframe hasn't finished loading yet — the next tick retries */
     }
-  }, [step.id]);
+  }, [step.id, active]);
 
   // Scripted beats: advance every ~1.8s (never under reduced motion or while
   // paused); after BEATS_PER_PERSPECTIVE beats, rotate to the next
@@ -270,8 +381,6 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
     const id = window.setTimeout(() => postBeat(beat), 150);
     return () => window.clearTimeout(id);
   }, [beat, activeIdx, postBeat]);
-
-  const active = step.perspectives[activeIdx] ?? step.perspectives[0]!;
 
   const copyCell = (
     <div>
@@ -355,6 +464,7 @@ function LifecycleRow({ step, flip }: { step: LifecycleStep; flip: boolean }) {
         perspective={active}
         label={active.label}
         kicker={step.kicker}
+        beat={beat}
         iframeRef={(el) => {
           iframeRef.current = el;
         }}
