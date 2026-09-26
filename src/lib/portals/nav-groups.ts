@@ -82,8 +82,10 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "workspace", label: "Workspace", sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
-  { id: "operations", label: "Operations", sections: ["communication"] },
+  // "jobs" (C152/C153 Invited/Open bidding) precedes "work-orders" (Services,
+  // the assigned-job flow) the same way it precedes it in the portal registry.
+  { id: "work", label: "Work", sections: ["jobs", "work-orders", "calendar"] },
+  { id: "operations", label: "Operations", sections: ["communication", "reviews"] },
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 
