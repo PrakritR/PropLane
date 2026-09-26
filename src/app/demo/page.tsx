@@ -39,13 +39,17 @@ function readRole(value: string | undefined): DemoPortalRole | undefined {
 export default async function DemoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ role?: string; section?: string }>;
+  searchParams: Promise<{ role?: string; section?: string; tab?: string }>;
 }) {
   const params = await searchParams;
   return (
     <>
       <DemoResetScroll />
-      <DemoManagerShell initialRole={readRole(params.role)} initialSection={params.section} />
+      <DemoManagerShell
+        initialRole={readRole(params.role)}
+        initialSection={params.section}
+        initialTab={params.tab}
+      />
     </>
   );
 }

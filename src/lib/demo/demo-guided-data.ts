@@ -30,7 +30,7 @@
 import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
-import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import type { LeasePipelineRow, LeaseSignature } from "@/lib/lease-pipeline-storage";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import type { ManagerPromotionRow } from "@/lib/promotion-flyer";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
@@ -132,9 +132,17 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
   const residentEmail = CANONICAL_DEMO_RESIDENT_EMAIL;
   const residentName = CANONICAL_DEMO_RESIDENT_NAME;
 
+  // `adminPublishLive: true` on every seeded property matters beyond the
+  // public listing surface: `demo-admin-property-inventory.ts`'s
+  // `readAdminPropertyRows(bucket 2 "live")` — which `pro-dashboard-
+  // portfolio.tsx`'s "Your properties" panel and the occupancy calc both
+  // read — filters `readScopedExtraListings()` down to exactly this flag.
+  // Without it these three showed "No properties yet." / "Occupancy 0%"
+  // despite being fully seeded everywhere else.
   const properties: MockProperty[] = [
     {
       id: "demo-prop-alder",
+      adminPublishLive: true,
       title: "Alder House",
       buildingId: "demo-prop-alder",
       buildingName: "Alder House",
@@ -152,6 +160,7 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     },
     {
       id: "demo-prop-maple",
+      adminPublishLive: true,
       title: "Maple Duplex",
       buildingId: "demo-prop-maple",
       buildingName: "Maple Duplex",
@@ -169,6 +178,7 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     },
     {
       id: "demo-prop-fremont",
+      adminPublishLive: true,
       title: "Fremont Studio",
       buildingId: "demo-prop-fremont",
       buildingName: "Fremont Studio",
@@ -197,26 +207,46 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     { propertyId: "demo-prop-fremont", propertyLabel: "Fremont Studio", unit: "Fremont Studio", rent: 1400, email: "sample.resident.fremont@example.com", name: "Sample Resident", userId: null },
   ] as const;
 
-  const leases: LeasePipelineRow[] = RESIDENTS.map((r, i) => ({
-    id: `demo-lease-${r.propertyId}`,
-    residentName: r.name,
-    residentEmail: r.email,
-    residentUserId: r.userId,
-    managerUserId,
-    propertyId: r.propertyId,
-    unit: r.unit,
-    stageLabel: i === 0 ? "Resident signature pending countersign" : "Fully signed",
-    status: i === 0 ? "Resident Signature Pending" : "Fully Signed",
-    updated: isoDate(daysAgo(60 - i)),
-    updatedAtIso: daysAgo(60 - i).toISOString(),
-    signedAtIso: i === 0 ? undefined : daysAgo(60 - i).toISOString(),
-    fullySignedAt: i === 0 ? undefined : daysAgo(60 - i).toISOString(),
-    bucket: i === 0 ? "resident" : "signed",
-    pdfVersion: 1,
-    notes: "",
-    signedRentLabel: `$${r.rent.toLocaleString()}/mo`,
-    thread: [],
-  }));
+  const leases: LeasePipelineRow[] = RESIDENTS.map((r, i) => {
+    // The normalized read (`computeLeasePipelineRows`) derives status from the
+    // actual `managerSignature`/`residentSignature` payloads, not from the
+    // `status` string below — a lease claiming "Fully Signed" with both
+    // signatures left `null` gets silently recomputed back to "Manager
+    // Signature Pending" (and never counts as occupied), which is what made
+    // Occupancy read 0% and "leases wait for your signature" show 2 despite
+    // this data's own stated intent. Maple and Fremont are the settled,
+    // already-occupied tenancies in this story — give them both signatures.
+    const executed = i > 0;
+    const signedAt = daysAgo(60 - i).toISOString();
+    const managerSignature: LeaseSignature | null = executed
+      ? { name: "Test Manager", signedAtIso: signedAt, role: "manager" }
+      : null;
+    const residentSignature: LeaseSignature | null = executed
+      ? { name: r.name, signedAtIso: signedAt, role: "resident" }
+      : null;
+    return {
+      id: `demo-lease-${r.propertyId}`,
+      residentName: r.name,
+      residentEmail: r.email,
+      residentUserId: r.userId,
+      managerUserId,
+      propertyId: r.propertyId,
+      unit: r.unit,
+      stageLabel: i === 0 ? "Resident signature pending countersign" : "Fully signed",
+      status: i === 0 ? "Resident Signature Pending" : "Fully Signed",
+      updated: isoDate(daysAgo(60 - i)),
+      updatedAtIso: daysAgo(60 - i).toISOString(),
+      signedAtIso: executed ? signedAt : undefined,
+      fullySignedAt: executed ? signedAt : undefined,
+      managerSignature,
+      residentSignature,
+      bucket: i === 0 ? "resident" : "signed",
+      pdfVersion: 1,
+      notes: "",
+      signedRentLabel: `$${r.rent.toLocaleString()}/mo`,
+      thread: [],
+    };
+  });
 
   const rentProfiles: RecurringRentProfile[] = RESIDENTS.map((r) => ({
     id: `demo-rentprofile-${r.propertyId}`,
@@ -352,6 +382,10 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       scheduled: "Thu 10:00 AM – 12:00 PM",
       scheduledAtIso: new Date(Date.now() + 2 * DAY_MS).toISOString(),
       cost: "$140.00",
+      // Matches the accepted bid below — Pacific Plumbing IS the assigned
+      // vendor here, so the manager's own work-order detail shows "Vendor:
+      // Pacific Plumbing" instead of "Not assigned" on an already-scheduled job.
+      vendorName: "Pacific Plumbing",
       residentName,
       residentEmail,
     },

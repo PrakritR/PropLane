@@ -58,15 +58,22 @@ test.describe("Public home", () => {
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
-  test("the audience switch changes the screen beside it", async ({ page }) => {
+  test("the lifecycle section shows every stage with a live perspective switch", async ({ page }) => {
     await page.goto("/");
-    const section = page.locator("#who-its-for");
+    const section = page.locator("#lifecycle");
     await section.scrollIntoViewIfNeeded();
-    await expect(section.getByRole("tab", { name: /managers/i })).toHaveAttribute("aria-selected", "true");
-    await section.getByRole("tab", { name: /residents/i }).click();
-    await expect(section.getByRole("link", { name: /for residents/i })).toBeVisible();
-    await section.getByRole("tab", { name: /vendors/i }).click();
-    await expect(section.getByRole("link", { name: /for vendors/i })).toHaveAttribute("href", "/vendors");
+    await expect(section.getByRole("heading", { name: /from first tour to fixed faucet/i })).toBeVisible();
+    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Maintenance"]) {
+      await expect(section.getByText(kicker, { exact: true }).first()).toBeVisible();
+    }
+    // Leasing is the first row with more than one perspective — switching
+    // tabs swaps which /demo deep link the row's frame embeds.
+    const leasingRow = page.locator('[data-lifecycle-row="leasing"]');
+    const residentTab = leasingRow.getByRole("tab", { name: /resident/i });
+    await expect(residentTab).toBeVisible();
+    await residentTab.click();
+    await expect(residentTab).toHaveAttribute("aria-selected", "true");
+    await expect(leasingRow.locator("iframe")).toHaveAttribute("src", /\/demo\?role=resident&section=lease/);
   });
 
   test("nothing overflows sideways on a phone", async ({ browser }) => {

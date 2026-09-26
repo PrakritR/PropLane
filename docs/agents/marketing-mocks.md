@@ -3,10 +3,25 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+## The home page's lifecycle rows ARE the product, not a mock of it
+
+`src/components/marketing/site/lifecycle-rows.tsx` ("From first tour to fixed
+faucet.", captain 2026-09-25) is the one place on the marketing site that
+doesn't need this file's copy-accuracy discipline at all: each row's demo is a
+real, interactive `<iframe>` deep-linked into `/demo?role=&section=&tab=` (see
+`docs/agents/demo-sandbox.md`), so it renders the actual portal component with
+the actual bundled Seattle Homes data — there is no separate copy to drift.
+When a row's perspective shows stale or empty content, the bug is in the
+`/demo` sandbox or the real portal panel, never in this file's own markup.
+Adding a row or a perspective means finding a real, always-populated
+`/demo?role=&section=` deep link first (verify it in a browser before wiring
+it) — a perspective with no clean populated view gets no tab at all, per that
+file's own docstring, rather than a hand-drawn stand-in.
+
 ## Marketing mocks must use portal-accurate copy
 
-Every product mock on the marketing site — the homepage Applications panel
-(`landing-applications-pipeline.tsx`), the ops task rows in
+Every OTHER hand-drawn product mock on the marketing site — the homepage
+Applications panel (`landing-applications-pipeline.tsx`), the ops task rows in
 `landing-home-sections.tsx`, the guide art under `public/marketing/` — depicts
 a screen a manager can actually open. Marketing-only slang that no portal
 surface ships ("lease packet", "lease draft") reads as a fake product and has

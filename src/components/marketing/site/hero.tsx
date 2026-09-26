@@ -60,7 +60,7 @@ export function SiteHero() {
             <AppStoreBadge dataAttr="home-hero-app-store" />
           </div>
           <p className="mt-4 text-[13px] text-muted">
-            Free for {RATE_CARD.free.includedDoors} doors · No card · Web and iPhone
+            Free for {RATE_CARD.free.includedDoors} residents · No card · Web and iPhone
           </p>
         </div>
       </div>

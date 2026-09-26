@@ -311,6 +311,10 @@ export function ResidentPaymentsPanel({
   const [rentReportingError, setRentReportingError] = useState<string | null>(null);
 
   const loadRentReporting = useCallback(async () => {
+    // Rent reporting to credit bureaus is a real Stripe-adjacent partner
+    // integration — never reachable from a signed-out /demo visitor, and the
+    // Seattle Homes sandbox doesn't model an enrollment either way.
+    if (isDemoModeActive()) return;
     try {
       const response = await fetch("/api/resident/rent-reporting", { credentials: "include", cache: "no-store" });
       const body = (await response.json()) as Partial<RentReportingCardState> & { error?: string };

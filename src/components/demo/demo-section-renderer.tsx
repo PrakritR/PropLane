@@ -42,12 +42,18 @@ const loading = () => (
 // Manager / pro panels
 const ManagerDashboard = dynamic(() => import("@/components/portal/pro-dashboard").then((m) => m.ManagerDashboard), { ssr: false, loading });
 const ManagerProperties = dynamic(() => import("@/components/portal/pro-properties").then((m) => m.ManagerProperties), { ssr: false, loading });
+const ManagerTours = dynamic(() => import("@/components/portal/pro-tours").then((m) => m.ManagerTours), { ssr: false, loading });
 const ManagerApplications = dynamic(() => import("@/components/portal/pro-applications").then((m) => m.ManagerApplications), { ssr: false, loading });
 const ManagerResidents = dynamic(() => import("@/components/portal/pro-residents").then((m) => m.ManagerResidents), { ssr: false, loading });
 const ManagerLeases = dynamic(() => import("@/components/portal/pro-leases").then((m) => m.ManagerLeases), { ssr: false, loading });
 const ManagerPayments = dynamic(() => import("@/components/portal/pro-payments").then((m) => m.ManagerPayments), { ssr: false, loading });
 const ManagerTaskList = dynamic(() => import("@/components/portal/pro-task-list").then((m) => m.ManagerTaskList), { ssr: false, loading });
-const ManagerInbox = dynamic(() => import("@/components/portal/pro-inbox").then((m) => m.ManagerInbox), { ssr: false, loading });
+// The SAME Communication wrapper the real portal's section map renders
+// (src/lib/render-portal-section.tsx) — not the bare inbox panel above, which
+// stayed a legacy path here (Unopened/Opened/Sent/Trash tabs the real portal
+// retired). Keeps `/demo` from drifting into a second, hand-maintained
+// Communication surface.
+const ManagerCommunication = dynamic(() => import("@/components/portal/pro-communication").then((m) => m.ManagerCommunication), { ssr: false, loading });
 const DemoImportReviewPanel = dynamic(() => import("@/components/demo/demo-import-review-panel").then((m) => m.DemoImportReviewPanel), { ssr: false, loading });
 const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/pro-all-services-panel").then((m) => m.ManagerAllServicesPanel), { ssr: false, loading });
 const ManagerFinancesPanel = dynamic(() => import("@/components/portal/pro-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
@@ -67,7 +73,9 @@ const ResidentApplicationsPanel = dynamic(() => import("@/components/portal/resi
 const ResidentLeasePanel = dynamic(() => import("@/components/portal/resident-lease-panel").then((m) => m.ResidentLeasePanel), { ssr: false, loading });
 const ResidentPaymentsPanel = dynamic(() => import("@/components/portal/resident-payments-panel").then((m) => m.ResidentPaymentsPanel), { ssr: false, loading });
 const ResidentServicesPanel = dynamic(() => import("@/components/portal/resident-services-panel").then((m) => m.ResidentServicesPanel), { ssr: false, loading });
-const ResidentInboxPanel = dynamic(() => import("@/components/portal/resident-inbox-panel").then((m) => m.ResidentInboxPanel), { ssr: false, loading });
+// Same reasoning as ManagerCommunication above — the real resident section
+// map renders this wrapper, never the bare panel.
+const ResidentCommunication = dynamic(() => import("@/components/portal/resident-communication").then((m) => m.ResidentCommunication), { ssr: false, loading });
 const ResidentDocumentsPanel = dynamic(() => import("@/components/portal/resident-documents-panel").then((m) => m.ResidentDocumentsPanel), { ssr: false, loading });
 const ResidentProfilePanel = dynamic(() => import("@/components/portal/resident-profile-panel").then((m) => m.ResidentProfilePanel), { ssr: false, loading });
 
@@ -75,7 +83,9 @@ const ResidentProfilePanel = dynamic(() => import("@/components/portal/resident-
 const VendorDashboard = dynamic(() => import("@/components/portal/vendor-dashboard").then((m) => m.VendorDashboard), { ssr: false, loading });
 const VendorWorkOrdersPanel = dynamic(() => import("@/components/portal/vendor-work-orders-panel").then((m) => m.VendorWorkOrdersPanel), { ssr: false, loading });
 const VendorCalendarPanel = dynamic(() => import("@/components/portal/vendor-calendar-panel").then((m) => m.VendorCalendarPanel), { ssr: false, loading });
-const VendorInboxPanel = dynamic(() => import("@/components/portal/vendor-inbox-panel").then((m) => m.VendorInboxPanel), { ssr: false, loading });
+// Same reasoning as ManagerCommunication above — the real vendor section map
+// renders this wrapper, never the bare panel.
+const VendorCommunication = dynamic(() => import("@/components/portal/vendor-communication").then((m) => m.VendorCommunication), { ssr: false, loading });
 const VendorPaymentsPanel = dynamic(() => import("@/components/portal/vendor-payments-panel").then((m) => m.VendorPaymentsPanel), { ssr: false, loading });
 const VendorFinancesPanel = dynamic(() => import("@/components/portal/vendor-finances-panel").then((m) => m.VendorFinancesPanel), { ssr: false, loading });
 const VendorDocumentsPanel = dynamic(() => import("@/components/portal/vendor-documents-panel").then((m) => m.VendorDocumentsPanel), { ssr: false, loading });
@@ -126,7 +136,7 @@ export function DemoSectionRenderer({
         return <VendorCalendarPanel />;
       case "inbox":
       case "communication":
-        return <VendorInboxPanel tabId={tabId} />;
+        return <VendorCommunication />;
       case "financials":
         return <VendorFinancesPanel tabId={tabId ?? "income"} basePath="/vendor" />;
       case "payments":
@@ -146,6 +156,13 @@ export function DemoSectionRenderer({
         return <ManagerDashboard displayName={managerDisplayName} />;
       case "properties":
         return <ManagerProperties />;
+      case "tours":
+        return (
+          <ManagerTours
+            bucket={tabId === "upcoming" || tabId === "past" ? tabId : "pending"}
+            basePath={basePath}
+          />
+        );
       // Not a sidebar nav item (matches the real /portal/properties/import,
       // reached from a button on Properties, not its own nav entry) — a
       // deep-link-only section for the home page's "Switching" embed.
@@ -174,7 +191,7 @@ export function DemoSectionRenderer({
         );
       case "inbox":
       case "communication":
-        return <ManagerInbox tabId={tabId} />;
+        return <ManagerCommunication />;
       case "financials":
         return <ManagerFinancesPanel tabId={tabId} basePath={basePath} />;
       case "documents":
@@ -237,8 +254,12 @@ export function DemoSectionRenderer({
       return <ResidentApplicationsPanel applyMode={tab === "apply"} />;
     case "lease":
       // ResidentLeasePanel renders its own "Lease" page shell; wrapping it in a
-      // second shell would stack the header twice.
-      return <ResidentLeasePanel />;
+      // second shell would stack the header twice. `?tab=<leaseId>` deep-links
+      // straight to that lease's own detail/sign view (the real route's
+      // `leaseDetailId`) — otherwise the bare list only shows already-signed
+      // document snapshots, which a lease still awaiting a signature has none
+      // of yet.
+      return <ResidentLeasePanel leaseDetailId={tab ?? undefined} />;
     case "payments":
       // Payments is Charges-only now — no sub-tabs to forward.
       return <ResidentPaymentsPanel />;
@@ -248,7 +269,7 @@ export function DemoSectionRenderer({
       return <ResidentServicesPanel basePath={basePath} />;
     case "inbox":
     case "communication":
-      return <ResidentInboxPanel tabId={tabId} />;
+      return <ResidentCommunication residentUserId={DEMO_RESIDENT_USER_ID} />;
     case "documents":
       // `tabId` here already comes from the same section metadata
       // (`resident-sections.ts`'s `DOCUMENTS_TABS`, now bucket ids), so

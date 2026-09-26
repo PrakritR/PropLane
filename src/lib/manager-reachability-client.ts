@@ -1,11 +1,24 @@
 "use client";
 
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ManagerReachabilityLines } from "@/lib/manager-reachability-for-resident";
 import { formatManagerMessagingPhone } from "@/lib/sms/manager-messaging-number";
 import { trimmedText } from "@/lib/trimmed-text";
 
+/**
+ * The Seattle Homes sandbox's own reachability lines — never fetched for
+ * real from `/demo` (both routes below are auth-gated, and a signed-in
+ * visitor previewing `/demo` in the same browser must never see their OWN
+ * real number/email surfaced on a public sandbox page).
+ */
+const DEMO_REACHABILITY_LINES: ManagerReachabilityLines = {
+  workPhoneLabel: "(206) 555-0100",
+  assistantEmail: "seattlehomes@proplane.chat",
+};
+
 /** Load the logged-in manager's work SMS line and assistant email for welcome previews. */
 export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReachabilityLines> {
+  if (isDemoModeActive()) return DEMO_REACHABILITY_LINES;
   try {
     const [numberRes, emailRes] = await Promise.all([
       fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
