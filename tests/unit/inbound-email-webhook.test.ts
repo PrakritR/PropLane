@@ -30,7 +30,7 @@ const RECEIVED_PAYLOAD = {
     email_id: "56761188-7520-42d8-8898-ff6fc54ce618",
     created_at: "2026-07-23T10:00:00.000Z",
     from: "Jane Prospect <jane@example.com>",
-    to: ["support@prop-lane.space"],
+    to: ["support@proplane.ai"],
     subject: "Question about a listing",
     text: "Hi, is the downtown unit still available?",
   },
@@ -126,7 +126,7 @@ describe("parseInboundEmailWebhook", () => {
       emailId: "56761188-7520-42d8-8898-ff6fc54ce618",
       fromEmail: "jane@example.com",
       fromName: "Jane Prospect",
-      toEmails: ["support@prop-lane.space"],
+      toEmails: ["support@proplane.ai"],
       subject: "Question about a listing",
     });
   });
@@ -236,7 +236,7 @@ const PARSED: ParsedInboundEmail = {
   emailId: "abc-123",
   fromEmail: "jane@example.com",
   fromName: "Jane Prospect",
-  toEmails: ["support@prop-lane.space"],
+  toEmails: ["support@proplane.ai"],
   subject: "Hello",
   receivedAt: "2026-07-23T10:00:00.000Z",
   text: "inline body so no network fetch is attempted",

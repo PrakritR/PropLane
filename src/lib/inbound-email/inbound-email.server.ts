@@ -1,7 +1,7 @@
 /**
  * Inbound support email → admin portal inbox.
  *
- * Mail sent to the public support address (support@prop-lane.space) is routed to
+ * Mail sent to the public support address (support@proplane.ai) is routed to
  * Resend Inbound, which POSTs an `email.received` webhook to
  * `/api/webhooks/email/inbound`. That route verifies the Svix signature and hands
  * the parsed metadata here. We turn it into a `portal_inbox_thread_records` row

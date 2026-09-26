@@ -156,7 +156,7 @@ export const STORY_PORTAL_LABELS = {
 };
 
 const CHANNEL_CHIP: Record<Channel, string> = { "In-app": "IN-APP", Email: "EMAIL", Text: "TEXT" };
-const SENDING_AS: Record<Channel, string> = { "In-app": "Sending as PropLane", Email: "Sending as you@prop-lane.space", Text: "Sending as (206) 555-0100" };
+const SENDING_AS: Record<Channel, string> = { "In-app": "Sending as PropLane", Email: "Sending as you@proplane.ai", Text: "Sending as (206) 555-0100" };
 
 function Avatar({ initials, vendor, className }: { initials: string; vendor?: boolean; className?: string }) {
   return (
@@ -581,7 +581,7 @@ export function SiteStory() {
             <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
             <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
             <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
-            <span className="ml-2 rounded-md bg-card px-2.5 py-0.5">prop-lane.space/portal/{active === "queue" ? "dashboard" : "communication"}</span>
+            <span className="ml-2 rounded-md bg-card px-2.5 py-0.5">proplane.ai/portal/{active === "queue" ? "dashboard" : "communication"}</span>
           </div>
           {INBOX_PANES.map((p) => (
             <div key={p.id} className="site-story-pane" hidden={active !== p.id}>

@@ -47,7 +47,7 @@ describe("reply-address", () => {
 
   it("finds the token among several To addresses", () => {
     const address = buildReplyAddress(SENDER, RECIPIENT)!;
-    expect(parseReplyAddress(["support@prop-lane.space", address], RECIPIENT)).toEqual({
+    expect(parseReplyAddress(["support@proplane.ai", address], RECIPIENT)).toEqual({
       ownerUserId: SENDER,
     });
   });
