@@ -9,12 +9,19 @@ import { isContactInboxThreadId } from "@/lib/communication-resident-placeholder
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
-export function CommunicationRowActions({ row, bulk, archived, emailThreads, manager = false }: {
+export function CommunicationRowActions({ row, bulk, archived, emailThreads, manager = false, onArchivePlaceholder }: {
   row: UnifiedInboxListItem;
   bulk: ReturnType<typeof useUnifiedCommunicationBulk>;
   archived: boolean;
   emailThreads: PersistedInboxThread[];
   manager?: boolean;
+  /**
+   * Archives a resident-directory placeholder row (see `isPlaceholderRow`
+   * below) by creating its real, already-archived thread
+   * (`archivePlaceholderContactThread`). Omitted where placeholder archiving
+   * is not wired up — that row then offers no actions, same as before.
+   */
+  onArchivePlaceholder?: (threadId: string) => void;
 }) {
   const members = [...new Set([row.key, ...(row.memberKeys ?? [])])].map(parseUnifiedInboxKey);
   // Archive and restore are for ordinary conversations. PropLane Assistant
@@ -26,13 +33,17 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   // "No actions available." while the header could still archive it. The
   // mutations only send the ids the list actually holds.
   // A resident-directory placeholder row (`buildResidentPlaceholderInboxItems`)
-  // has no stored conversation at all — nothing exists server-side to archive,
-  // and letting Archive run on it was a silent no-op that still toasted
-  // "Archived." while the row never moved (PRP resurrection sweep). Offer no
-  // actions on it rather than a false success.
+  // has no stored conversation at all — Archive on it creates one (see
+  // `onArchivePlaceholder`) rather than running the ordinary bulk mutation,
+  // which used to silently no-op while still toasting "Archived." (PRP
+  // resurrection sweep).
   const isPlaceholderRow = members.some(
     (member) => member?.channel === "email" && isContactInboxThreadId(member.threadId),
   );
+  const placeholderArchive =
+    isPlaceholderRow && onArchivePlaceholder ? (
+      <Button variant="outline" onClick={() => onArchivePlaceholder(row.threadId)}>Archive</Button>
+    ) : null;
   const permitted = !isPlaceholderRow && members.every((member) => {
     if (!member) return false;
     return member.channel !== "sms" || manager;
@@ -65,13 +76,15 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
     <RecordActionContext.Provider value={{
       scope: `${archived}:${row.key}`,
       clear: bulk.selection.clearSelection,
-      actions: permitted && (archiveOrRestore || canEdit || canClearAssistant) ? <>
-        {archiveOrRestore}
-        {canClearAssistant ? (
-          <Button variant="danger" data-record-action-id="delete" onClick={() => void bulk.handleClearAssistant(row)}>Clear</Button>
-        ) : null}
-        {canEdit ? <Button variant="outline" data-record-action-id="edit" onClick={bulk.openEdit}>Edit</Button> : null}
-      </> : null,
+      actions: placeholderArchive
+        ? <>{placeholderArchive}</>
+        : permitted && (archiveOrRestore || canEdit || canClearAssistant) ? <>
+            {archiveOrRestore}
+            {canClearAssistant ? (
+              <Button variant="danger" data-record-action-id="delete" onClick={() => void bulk.handleClearAssistant(row)}>Clear</Button>
+            ) : null}
+            {canEdit ? <Button variant="outline" data-record-action-id="edit" onClick={bulk.openEdit}>Edit</Button> : null}
+          </> : null,
     }}>
       <RecordActionMenu label={row.name} activate={() => bulk.selection.toggleSelected(row.key)} />
     </RecordActionContext.Provider>

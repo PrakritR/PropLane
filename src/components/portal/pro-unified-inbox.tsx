@@ -70,6 +70,7 @@ import {
   buildResidentPlaceholderInboxItems,
   parseContactInboxThreadId,
 } from "@/lib/communication-resident-placeholders";
+import { archivePlaceholderContactThread } from "@/lib/communication-inbox-thread-mutations";
 import {
   threadPassesCommunicationFilters,
   type CommunicationThreadFilters,
@@ -853,7 +854,10 @@ export function ManagerUnifiedInbox({
   const occupiedResidentEmails = useMemo(() => {
     const occupied = new Set<string>();
     for (const row of filteredEmail) {
-      if (row.folder === "trash") continue;
+      // An ARCHIVED email thread still occupies the contact — once a
+      // placeholder is archived it becomes a real (trashed) thread, and the
+      // placeholder must stop showing on Active rather than existing
+      // alongside its own now-real archived conversation.
       const email = row.email?.trim().toLowerCase();
       if (email) occupied.add(email);
     }
@@ -1008,6 +1012,30 @@ export function ManagerUnifiedInbox({
       clearCommunicationThreadUrl(threadListHref());
     },
   });
+
+  /**
+   * Archive a resident-directory placeholder row (no stored conversation at
+   * all) — the row itself carries no persisted identity, so resolve the
+   * underlying contact from the directory and create its archived thread
+   * (`archivePlaceholderContactThread`). Optimistic: `emailThreads` updates
+   * immediately from the function's own optimistic commit; a failure rolls
+   * back and toasts, matching every other archive action.
+   */
+  const handleArchivePlaceholder = useCallback(
+    async (threadId: string) => {
+      const contactId = parseContactInboxThreadId(threadId);
+      const contact = contactId ? filterContacts?.find((c) => c.id === contactId) : undefined;
+      if (!contact) return;
+      const { ok, next } = await archivePlaceholderContactThread(MANAGER_INBOX_STORAGE_KEY, contact);
+      if (!ok) {
+        appUi?.showToast("Could not archive conversation.");
+        return;
+      }
+      setEmailThreads(next);
+      appUi?.showToast("Archived.");
+    },
+    [appUi, filterContacts],
+  );
 
   const selection = useMemo(
     () => (initialListReady && selectedKey ? parseUnifiedInboxKey(selectedKey) : null),
@@ -1263,7 +1291,7 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
-              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager />}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}

@@ -129,6 +129,24 @@ describe("manager SMS archive storage", () => {
     expect([...loadManagerSmsArchivedIds()]).toEqual(["other-key"]);
   });
 
+  it("ignores a poll response already in flight when Archive was clicked, then trusts a later one", async () => {
+    let finishArchive!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishArchive = resolve; }));
+    const pending = archiveManagerSmsConversation(key);
+
+    // A poll response built before this click lands — applying it would
+    // visibly bounce the row back to Active for up to the poll interval.
+    mirrorManagerSmsArchivedFromServer([{ conversationKey: key, archived: false }]);
+    expect(loadManagerSmsArchivedIds().has(key)).toBe(true);
+
+    finishArchive(new Response(null, { status: 204 }));
+    await pending;
+
+    // Settled — a genuinely later poll is trusted again.
+    mirrorManagerSmsArchivedFromServer([{ conversationKey: key, archived: false }]);
+    expect(loadManagerSmsArchivedIds().has(key)).toBe(false);
+  });
+
   it("adds every member key, not just the primary conversationKey, when archived", () => {
     mirrorManagerSmsArchivedFromServer([
       { conversationKey: "primary-key", memberKeys: ["primary-key", "alias-key"], archived: true },

@@ -31,6 +31,16 @@ export function persistManagerSmsArchivedIds(ids: Set<string>): void {
 }
 
 /**
+ * Ids with an archive/restore request currently in flight. A poll response
+ * that was already underway when the manager clicked Archive/Restore carries
+ * stale server truth (it was built before the PATCH landed) — without this,
+ * `mirrorManagerSmsArchivedFromServer` would apply that stale answer and
+ * visibly bounce the row back for up to the 20-second poll interval. Cleared
+ * on settle (success OR failure) so a genuinely later poll is trusted again.
+ */
+const pendingRequestIds = new Set<string>();
+
+/**
  * Optimistic (PLAN B3): flip the local flag immediately — Promise.all-ed calls
  * for several rows must feel instant — then roll back on failure. The
  * rollback removes/re-adds only THIS id (never a stale full-set snapshot), so
@@ -43,6 +53,7 @@ export async function archiveManagerSmsConversation(conversationId: string): Pro
   const optimistic = loadManagerSmsArchivedIds();
   optimistic.add(id);
   persistManagerSmsArchivedIds(optimistic);
+  pendingRequestIds.add(id);
   try {
     const response = await fetch("/api/manager/tour-follow-ups", {
       method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
@@ -54,6 +65,8 @@ export async function archiveManagerSmsConversation(conversationId: string): Pro
     rolledBack.delete(id);
     persistManagerSmsArchivedIds(rolledBack);
     throw error;
+  } finally {
+    pendingRequestIds.delete(id);
   }
 }
 
@@ -63,6 +76,7 @@ export async function restoreManagerSmsConversation(conversationId: string): Pro
   const optimistic = loadManagerSmsArchivedIds();
   optimistic.delete(id);
   persistManagerSmsArchivedIds(optimistic);
+  pendingRequestIds.add(id);
   try {
     const response = await fetch("/api/manager/tour-follow-ups", {
       method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
@@ -74,6 +88,8 @@ export async function restoreManagerSmsConversation(conversationId: string): Pro
     rolledBack.add(id);
     persistManagerSmsArchivedIds(rolledBack);
     throw error;
+  } finally {
+    pendingRequestIds.delete(id);
   }
 }
 
@@ -89,16 +105,19 @@ export function isManagerSmsConversationArchived(conversationId: string): boolea
  * different member id) must never be read as "the server says restore it" —
  * that resurrected an archived conversation on the very next 20-second poll.
  * Only a row this response explicitly reports with `archived: false` clears a
- * locally-archived id.
+ * locally-archived id. An id with an archive/restore request currently in
+ * flight (`pendingRequestIds`) is skipped entirely — that response was built
+ * before this tab's own click landed, and applying it bounced the row back
+ * for up to one poll interval.
  */
 export function mirrorManagerSmsArchivedFromServer(
   residents: Array<{ conversationKey?: string | null; memberKeys?: string[] | null; archived?: boolean }>,
 ): void {
   const next = loadManagerSmsArchivedIds();
   for (const row of residents) {
-    const ids = [row.conversationKey?.trim(), ...(row.memberKeys ?? []).map((key) => key.trim())].filter(
-      (id): id is string => Boolean(id),
-    );
+    const ids = [row.conversationKey?.trim(), ...(row.memberKeys ?? []).map((key) => key.trim())]
+      .filter((id): id is string => Boolean(id))
+      .filter((id) => !pendingRequestIds.has(id));
     if (ids.length === 0) continue;
     if (row.archived) {
       for (const id of ids) next.add(id);

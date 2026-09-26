@@ -1,6 +1,7 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { MANAGER_INBOX_STORAGE_KEY } from "@/lib/portal-inbox-storage";
+import { contactArchiveThreadId } from "@/lib/communication-resident-placeholders";
 import {
   deleteInboxThreadIds,
   changePersistedInboxThreadFolders,
@@ -14,6 +15,62 @@ function inferPreviousFolder(thread: PersistedInboxThread): "inbox" | "sent" {
   if (thread.previousFolder) return thread.previousFolder;
   if (/^(sent_|msg_|welcome_)/.test(thread.id)) return "sent";
   return "inbox";
+}
+
+/**
+ * Archive a resident-directory placeholder (a contact with no stored
+ * conversation at all) by creating an empty, already-archived thread row for
+ * it — through the SAME authorized create path every other thread mutation
+ * here already uses (`upsertPersistedInboxRows` → `POST
+ * /api/portal-inbox-threads` action "upsert", which sets `owner_user_id` to
+ * the authenticated caller when the row is new): no new table, column, or
+ * route. `previousFolder: "sent"` means the ordinary `restorePersistedInboxThreads`
+ * (unchanged) returns it to a normal empty "sent" thread on Restore. The
+ * thread id is namespaced under `CONTACT_ARCHIVE_THREAD_PREFIX` — distinct
+ * from the placeholder's own synthetic id — so it is never mistaken for the
+ * still-unpersisted placeholder once it exists for real.
+ */
+export async function archivePlaceholderContactThread(
+  storageKey: string,
+  contact: { id: string; email: string; name?: string },
+): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+  const email = contact.email.trim().toLowerCase();
+  const contactId = contact.id.trim();
+  if (!email || !contactId) return { ok: true, next: loadPersistedInbox(storageKey, []) };
+
+  const prev = loadPersistedInbox(storageKey, []);
+  const id = contactArchiveThreadId(contactId);
+  if (prev.some((thread) => thread.id === id)) return { ok: true, next: prev };
+
+  const label = contact.name?.trim() || email;
+  const row: PersistedInboxThread = {
+    id,
+    folder: "trash",
+    previousFolder: "sent",
+    from: label,
+    email,
+    subject: label,
+    preview: "",
+    body: "",
+    time: "",
+    unread: false,
+    messages: [],
+  };
+  const next = [row, ...prev];
+
+  if (isDemoModeActive()) {
+    stagePersistedInboxRows(storageKey, next);
+    return { ok: true, next };
+  }
+  // Optimistic (PLAN B3): upsertPersistedInboxRows commits this to memory
+  // immediately, ahead of the network call settling; roll back to `prev` on
+  // failure rather than leaving the optimistic row stuck in memory.
+  const ok = await upsertPersistedInboxRows(storageKey, [row], next);
+  if (!ok) {
+    stagePersistedInboxRows(storageKey, prev);
+    return { ok: false, next: prev };
+  }
+  return { ok: true, next };
 }
 
 function expandInboxMutationIds(prev: PersistedInboxThread[], ids: string[]): Set<string> {
