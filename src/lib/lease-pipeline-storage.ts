@@ -41,7 +41,16 @@ import {
   renderLeaseSectionEdit,
   type LeaseSectionEdit,
 } from "@/lib/lease-section-text";
-import { appendLeaseTermsRiderToPdf, mergeUploadedLeasePdfWithSignatures } from "@/lib/lease-pdf-signing";
+import {
+  appendLeaseTermsRiderToPdf,
+  appendSignaturePageToPdfBytes,
+  bytesToDataUrl,
+  buildLeaseBodyTextPdf,
+  dataUrlToBytes,
+  getLeasePdfBaseDataUrl,
+  htmlToPlainTextParagraphs,
+  mergeUploadedLeasePdfWithSignatures,
+} from "@/lib/lease-pdf-signing";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
 import {
   downloadDataUrl,
@@ -1568,6 +1577,38 @@ export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerL
     resident: rows.filter((r) => r.bucket === "resident").length,
     signed: rows.filter((r) => r.bucket === "signed" && r.status !== "Fully Signed").length,
     completed: rows.filter((r) => r.status === "Fully Signed").length,
+  };
+}
+
+export type LeasePipelineProgressSegment = {
+  id: ManagerLeaseTab;
+  count: number;
+  /** Percentage of the whole pipeline this stage occupies, 0–100. */
+  pct: number;
+};
+
+export type LeasePipelineProgress = {
+  total: number;
+  signed: number;
+  segments: LeasePipelineProgressSegment[];
+};
+
+/**
+ * Total-progress summary across the four lease pipeline stages (C245/U027):
+ * the tabs already show each stage's own count, but nothing said how many
+ * leases are stuck at each stage relative to the whole pipeline. `null` when
+ * there is nothing to summarize — an empty bar communicates nothing.
+ */
+export function computeLeasePipelineProgress(
+  counts: Record<ManagerLeaseTab, number>,
+  order: ManagerLeaseTab[] = ["manager", "resident", "signed", "completed"],
+): LeasePipelineProgress | null {
+  const total = order.reduce((sum, id) => sum + counts[id], 0);
+  if (total === 0) return null;
+  return {
+    total,
+    signed: counts.completed,
+    segments: order.map((id) => ({ id, count: counts[id], pct: (counts[id] / total) * 100 })),
   };
 }
 
@@ -3340,6 +3381,57 @@ export function runLeaseDownload(row: LeasePipelineRow, showToast: (message: str
 /** @deprecated Use {@link downloadLeaseFromRow} — kept for callers that still name this “print”. */
 export async function printLeaseAsPdf(row: LeasePipelineRow): Promise<PortalDownloadResult> {
   return downloadLeaseFromRow(row);
+}
+
+/**
+ * C064: "Export" is a NEW, distinct action from the plain Download above — a
+ * real PDF that always ends with the signature/audit certificate page
+ * (`buildLeaseSignaturePagePdf`: who signed, when, the document fingerprint,
+ * template/jurisdiction, consent), regardless of whether the lease's own
+ * document is an uploaded PDF or a PropLane-generated one. Only offered once
+ * the lease has SOME signature (`leaseClaimsExecution`) — an unsigned lease
+ * has nothing yet to attest.
+ *
+ * For an uploaded PDF, the base is the ORIGINAL bytes (never the copy that
+ * signing may have already merged a certificate into), so Export always adds
+ * exactly one certificate page. For a generated lease there is no source PDF
+ * to build on, so the body is paginated from the SAME rendered HTML the
+ * manager and resident already see (markup stripped, nothing reworded), with
+ * its own inline signature block removed first so the one real certificate
+ * page is not duplicated.
+ */
+export async function buildLeaseExportWithAuditPdf(row: LeasePipelineRow): Promise<Uint8Array | null> {
+  if (!leaseClaimsExecution(row)) return null;
+  const pdfBase = getLeasePdfBaseDataUrl(row);
+  if (pdfBase) {
+    return appendSignaturePageToPdfBytes(dataUrlToBytes(pdfBase), row);
+  }
+  const html = getLeaseDocumentHtml(row);
+  if (!html) return null;
+  const withoutInlineSignatureBlock = html.replace(
+    /<!-- axis-signatures:start -->[\s\S]*?<!-- axis-signatures:end -->/g,
+    "",
+  );
+  const bodyBytes = await buildLeaseBodyTextPdf(htmlToPlainTextParagraphs(withoutInlineSignatureBlock));
+  return appendSignaturePageToPdfBytes(bodyBytes, row);
+}
+
+export async function exportLeaseWithAuditPdf(row: LeasePipelineRow): Promise<PortalDownloadResult> {
+  if (typeof window === "undefined") return "failed";
+  const current =
+    leaseRowCarriesDocumentBytes(row) || !leaseRowHasDocument(row)
+      ? row
+      : ((await ensureLeaseDocumentLoaded(row.id, undefined, row)) ?? row);
+  const bytes = await buildLeaseExportWithAuditPdf(current);
+  if (!bytes) return "failed";
+  return downloadDataUrl(bytesToDataUrl(bytes), `PropLane-Lease-Export-${leaseDownloadBaseName(current)}.pdf`);
+}
+
+export function runLeaseExport(row: LeasePipelineRow, showToast: (message: string) => void): void {
+  void exportLeaseWithAuditPdf(row).then((result) => {
+    const message = portalDownloadToastMessage(result, "lease");
+    if (message) showToast(message);
+  });
 }
 
 export function dedupeLeasePipelineRows(rows: LeasePipelineRow[]): LeasePipelineRow[] {

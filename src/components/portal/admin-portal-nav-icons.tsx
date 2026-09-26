@@ -62,6 +62,8 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   financials: BarChart3,
   services: Wrench,
   "work-orders": Wrench,
+  // Vendor Jobs board (C152/C153) — Invited/Open tabs onto a vendor's own bids.
+  jobs: ListTodo,
   vendors: Truck,
   inbox: Inbox,
   communication: MessagesSquare,

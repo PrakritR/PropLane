@@ -106,6 +106,35 @@ export function signedDocumentHashesDiverge(row: LeasePipelineRow): boolean {
   return Boolean(resident && manager && resident !== manager);
 }
 
+export type LeaseAuditTrailFact = { label: string; value: string };
+
+/**
+ * The audit-trail facts worth showing a manager for this lease (C066) — who
+ * signed, when, and the document fingerprint — derived entirely from fields
+ * that already exist on the row; the hash was already computed but never
+ * rendered anywhere. `null` when there is nothing yet to show (an unsigned,
+ * un-fingerprinted row), so a caller can hide the section entirely rather
+ * than render an empty one.
+ */
+export function leaseAuditTrailFacts(row: LeasePipelineRow): LeaseAuditTrailFact[] | null {
+  const fingerprint = documentFingerprintLabel(row.documentSha256);
+  const managerFingerprint = documentFingerprintLabel(row.managerSignature?.documentSha256);
+  const residentFingerprint = documentFingerprintLabel(row.residentSignature?.documentSha256);
+  if (!fingerprint && !managerFingerprint && !residentFingerprint && !row.templateVersion && !row.executedJurisdiction) {
+    return null;
+  }
+  const facts: LeaseAuditTrailFact[] = [];
+  if (fingerprint) facts.push({ label: "Document fingerprint", value: fingerprint });
+  if (signedDocumentHashesDiverge(row)) {
+    if (managerFingerprint) facts.push({ label: "Manager signed fingerprint", value: managerFingerprint });
+    if (residentFingerprint) facts.push({ label: "Resident signed fingerprint", value: residentFingerprint });
+    facts.push({ label: "Fingerprint warning", value: "The two parties signed different documents." });
+  }
+  if (row.templateVersion) facts.push({ label: "Template", value: row.templateVersion });
+  if (row.executedJurisdiction) facts.push({ label: "Jurisdiction", value: row.executedJurisdiction });
+  return facts;
+}
+
 /**
  * Pure signature predicate, defined here rather than in the storage module so
  * server routes can enforce the immutability rule without importing 1700 lines

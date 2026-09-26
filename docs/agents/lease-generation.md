@@ -604,6 +604,95 @@ charges stay.
   That is correct (nothing was executed through the portal), but it means a
   present signature does not imply a present fingerprint.
 
+### Export: a real signed-document-with-audit-page PDF (C064, Sep 2026)
+
+**Export** is a NEW action, distinct from the plain **Download** section
+action next to it: Download hands back the lease's own document as-is
+(uploaded PDF, or the generated HTML file); Export always produces a real PDF
+that ends with the certificate page (`buildLeaseSignaturePagePdf` — who
+signed, when, the document fingerprint, template/jurisdiction, consent),
+regardless of document mode. Owner: `buildLeaseExportWithAuditPdf`
+(`lease-pipeline-storage.ts`), `appendSignaturePageToPdfBytes` /
+`buildLeaseBodyTextPdf` / `htmlToPlainTextParagraphs` (`lease-pdf-signing.ts`).
+
+- Only offered once the lease carries some signature (`leaseClaimsExecution`)
+  — an unsigned lease has nothing yet to attest, so `buildLeaseExportWithAuditPdf`
+  returns `null` and the UI does not show the action.
+- For an uploaded PDF, the base is the row's **ORIGINAL** bytes
+  (`getLeasePdfBaseDataUrl`'s `originalDataUrl ?? dataUrl`), never the copy
+  signing may have already merged a certificate into — Export always adds
+  exactly one certificate page, never two.
+- For a PropLane-generated (HTML) lease there is no source PDF to build on, so
+  the body is paginated from the SAME rendered HTML the manager and resident
+  already see, with markup stripped by `htmlToPlainTextParagraphs` (never
+  reworded) and its own inline `<!-- axis-signatures:start/end -->` block
+  removed first so the one real certificate page is not duplicated.
+- UI: `LeasePrimaryHeaderActions`' `onExport` (lease record header icons and
+  the list's single-select bulk bar), wired through `runLeaseExport` /
+  `exportLeaseWithAuditPdf`.
+
+### Audit trail: who signed, when, and the fingerprint (C066, Sep 2026)
+
+`leaseAuditTrailFacts` (`lease-execution-evidence.ts`) is the pure derivation
+— it was already computing the hash but nothing rendered it. `null` when the
+row has nothing yet to attest (unsigned). Rendered in two places, both inside
+files this agent owns:
+
+- The lease-document tab, right under the existing Signatures facts
+  (`renderLeaseAuditTrailFacts`, `pro-leases-pipeline-panel.tsx`).
+- An "Audit trail" card on the lease record's Overview, mirroring the shape of
+  the existing "Signatures" card.
+
+**Known gap, flagged rather than worked around:** the item's own language
+("Overview, document viewer, and an Audit trail") reads as three siblings —
+i.e. a dedicated Audit trail TAB — which needs a new tab id registered in the
+shared `record-sections.ts` lease-kind entry. That file is explicitly
+off-limits to this workstream (shared shell registry); the content above is
+the real, complete audit trail, just reachable from Overview/the document tab
+rather than its own tab until the shell owner adds the id.
+
+### Answers section: every clause's answer, by section (C281, Ida Cares lease-first, Sep 2026)
+
+`leaseFirstAnswersBySection` (`leasing/lease-first-signing-document.ts`) groups
+`signingTemplateSnapshot`'s clauses by their `section`, in source order
+(reusing the same `sectionsInOrder` helper `buildLeaseFirstSigningHtml`
+already uses), and reads each one's recorded `signingAnswers` value —
+`"Not yet initialed"` for an unanswered `initials` clause, `"—"` for any
+other unanswered type, never a guess. `null`/absent only when the row is not
+a lease-first row at all (`signingTemplateSnapshot` unset).
+
+Rendered as one card per section (`ReviewSection`/`ReviewRow`, reused from
+`pro-application-readonly-review.tsx` — same shape as the Applications record
+page's own "Application form" section) on the lease document tab
+(`renderLeaseAnswersSection`, `pro-leases-pipeline-panel.tsx`), plus a
+condensed "Answers" card on Overview linking there. Same known gap as Audit
+trail above: a dedicated Answers TAB (matching Applications' own
+`application-form` tab) needs a new id in the shared `record-sections.ts`
+lease-kind entry, off-limits to this workstream.
+
+### The PDF-import pipeline now classifies real sections (C282, Sep 2026)
+
+`mapLeaseTemplatePdfImport` (`lease-template-pdf-import.ts`) previously
+produced one flat, unclassified list of clauses per imported PDF — the
+section grouping Settings → Forms → License agreement showed for Ida Cares
+existed only because that seed's `section` values were hand-authored. A real
+manager import got no sections at all. `looksLikeSectionHeader` (same file)
+is now a deterministic heading heuristic — a roman-numeral heading ("I.
+Fees") or a short (<= 8 words, <= 60 characters), unpunctuated line — that
+assigns every clause after it to that section until the next one, the exact
+"I. Fees" … "VIII. House rules" shape the Ida Cares seed already uses. The
+license-agreement editor and viewer (`pro-lease-questions-editor-modal.tsx`'s
+`sectionGroups`, `leaseFirstAnswersBySection`) needed no changes: both already
+grouped by whatever `field.section` held, which is exactly why the hand-authored
+seed rendered correctly before this fix.
+
+Not a legal-document parser: an unusually styled source PDF can still
+misclassify a heading, or miss one, in either direction — documented as a
+deliberate, bounded limitation in the module's own docstring rather than
+something this heuristic can eliminate. The manager's existing per-question
+section field in the review editor is the correction path for a
+misclassified line, same as any other imported field value.
+
 # Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
 
 A lease signed on paper or in another tool is filed from the Leases tab: upload the

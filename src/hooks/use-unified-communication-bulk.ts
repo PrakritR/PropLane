@@ -8,6 +8,8 @@ import {
   archivePersistedInboxThreads,
   clearPersistedInboxThread,
   deletePersistedInboxThreadsForever,
+  previewArchivedInboxThreads,
+  previewRestoredInboxThreads,
   restorePersistedInboxThreads,
 } from "@/lib/communication-inbox-thread-mutations";
 import {
@@ -127,10 +129,20 @@ export function useUnifiedCommunicationBulk({
     async (rows: SelectedRow[], clearSelectionAfter = true) => {
       const emailIds = rows.filter((row) => row.channel === "email").map((row) => row.threadId);
       const smsIds = rows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+      const previousEmailThreads = emailThreads;
+
+      // Optimistic (PLAN B3): move every selected row immediately — the
+      // persistence below runs after, and a failure rolls this exact render
+      // back and shows the same error toast the old wait-first path used.
+      if (emailIds.length > 0) {
+        const { changed, next } = previewArchivedInboxThreads(emailThreads, emailIds);
+        if (changed.length > 0) onEmailThreadsChange(next);
+      }
 
       if (emailIds.length > 0) {
         const { ok, next } = await archivePersistedInboxThreads(storageKey, emailIds);
         if (!ok) {
+          onEmailThreadsChange(previousEmailThreads);
           showToast("Could not archive conversations.");
           return false;
         }
@@ -138,12 +150,21 @@ export function useUnifiedCommunicationBulk({
       }
 
       if (smsIds.length > 0) {
-        try {
-          for (const id of smsIds) await archiveManagerSmsConversation(id);
-          onSmsArchiveChange?.();
-        } catch {
-          showToast("Could not archive text conversations. Try again.");
-          return false;
+        // Every SMS row archives in parallel — a sequential loop made
+        // archiving several text conversations at once needlessly slow.
+        const results = await Promise.allSettled(smsIds.map((id) => archiveManagerSmsConversation(id)));
+        onSmsArchiveChange?.();
+        const failed = results.filter((result) => result.status === "rejected").length;
+        if (failed > 0) {
+          if (failed === smsIds.length && emailIds.length === 0) {
+            showToast("Could not archive text conversations. Try again.");
+            return false;
+          }
+          showToast(
+            `Archived ${smsIds.length - failed} text conversation${smsIds.length - failed === 1 ? "" : "s"}. Couldn't archive ${failed}.`,
+          );
+          if (clearSelectionAfter) clearAfterBulk();
+          return true;
         }
       }
 
@@ -151,7 +172,7 @@ export function useUnifiedCommunicationBulk({
       if (clearSelectionAfter) clearAfterBulk();
       return true;
     },
-    [clearAfterBulk, onEmailThreadsChange, onSmsArchiveChange, showToast, storageKey],
+    [clearAfterBulk, emailThreads, onEmailThreadsChange, onSmsArchiveChange, showToast, storageKey],
   );
 
   const handleArchive = useCallback(async () => {
@@ -170,28 +191,47 @@ export function useUnifiedCommunicationBulk({
   const handleRestore = useCallback(async () => {
     const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
     const smsIds = selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId);
+    const previousEmailThreads = emailThreads;
+
+    // Optimistic (PLAN B3) — see archiveRows above.
+    if (emailIds.length > 0) {
+      const { changed, next } = previewRestoredInboxThreads(emailThreads, emailIds);
+      if (changed.length > 0) onEmailThreadsChange(next);
+    }
 
     if (emailIds.length > 0) {
       const { ok, next } = await restorePersistedInboxThreads(storageKey, emailIds);
       if (!ok) {
+        onEmailThreadsChange(previousEmailThreads);
         showToast("Could not restore conversations.");
         return;
       }
       onEmailThreadsChange(next);
     }
 
-    try {
-      for (const id of smsIds) await restoreManagerSmsConversation(id);
-    } catch {
-      showToast("Could not restore text conversations. Try again.");
-      return;
+    if (smsIds.length > 0) {
+      // Parallel, like archive — see archiveRows above.
+      const results = await Promise.allSettled(smsIds.map((id) => restoreManagerSmsConversation(id)));
+      onSmsArchiveChange?.();
+      const failed = results.filter((result) => result.status === "rejected").length;
+      if (failed === smsIds.length && emailIds.length === 0) {
+        showToast("Could not restore text conversations. Try again.");
+        return;
+      }
+      if (failed > 0) {
+        showToast(
+          `Restored ${smsIds.length - failed} text conversation${smsIds.length - failed === 1 ? "" : "s"}. Couldn't restore ${failed}.`,
+        );
+        clearAfterBulk();
+        return;
+      }
     }
-    if (smsIds.length > 0) onSmsArchiveChange?.();
 
     showToast("Restored.");
     clearAfterBulk();
   }, [
     clearAfterBulk,
+    emailThreads,
     onEmailThreadsChange,
     onSmsArchiveChange,
     selectedRows,

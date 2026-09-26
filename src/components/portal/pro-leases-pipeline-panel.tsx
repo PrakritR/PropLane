@@ -63,6 +63,7 @@ import {
   leaseAwaitingManagerCountersign,
   UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
   runLeaseDownload,
+  runLeaseExport,
   sendLeaseBackToManager,
   sendLeaseToResident,
   hasBothLeaseSignatures,
@@ -78,7 +79,13 @@ import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { attachLibraryLeaseDocumentAndParse, retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
 import { LeaseAttachFromLibraryModal } from "@/components/portal/lease-attach-from-library-modal";
-import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import {
+  documentFingerprintLabel,
+  leaseAllowsSignedPdfUpload,
+  leaseAuditTrailFacts,
+  leaseCanBeMarkedSignedOffPlatform,
+  leaseClaimsExecution,
+} from "@/lib/lease-execution-evidence";
 import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
 import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
@@ -86,6 +93,8 @@ import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { leaseFirstAnswersBySection } from "@/lib/leasing/lease-first-signing-document";
+import { ReviewRow, ReviewSection } from "@/components/portal/pro-application-readonly-review";
 
 async function reviewHtmlSha256(html: string): Promise<string> {
   if (!globalThis.crypto?.subtle) throw new Error("Secure review hashing is unavailable.");
@@ -547,6 +556,11 @@ export function ManagerLeasesPipelinePanel({
     runLeaseDownload(row, showToast);
   };
 
+  /** C064: Export — a real signed-document-with-audit-page PDF, distinct from plain Download. */
+  const onExport = (row: LeasePipelineRow) => {
+    runLeaseExport(row, showToast);
+  };
+
   const openSendLeasePreview = (row: LeasePipelineRow) => {
     const residentEmail = row.residentEmail.trim().toLowerCase();
     if (!residentEmail || !residentAccountEmails.has(residentEmail)) {
@@ -822,6 +836,7 @@ export function ManagerLeasesPipelinePanel({
           btnClass={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
           row={row}
           downloadDataAttr="lease-download"
+          exportDataAttr="lease-export"
           signManagerDataAttr="lease-manager-sign"
           signingReminderDataAttr="lease-signing-reminder"
           deleteDataAttr="lease-delete"
@@ -829,6 +844,7 @@ export function ManagerLeasesPipelinePanel({
           moveToManagerReviewDataAttr="lease-move-manager-review"
           editLeaseDataAttr="lease-edit"
           onDownload={() => onDownload(row)}
+          onExport={() => onExport(row)}
           onSignManager={() => onManagerSign(row)}
           onSigningReminder={() => openLeaseSigningReminderPreview(row)}
           signingReminderBusy={reminderBusyForRow === row.id}
@@ -895,6 +911,51 @@ export function ManagerLeasesPipelinePanel({
       />
     </div>
   );
+
+  /**
+   * C066: who signed, when, and the document fingerprint — the hash was
+   * already computed (`row.documentSha256`, per-signature `documentSha256`)
+   * but never rendered to the manager. No dedicated "Audit trail" tab exists
+   * (that needs a new id in the shared `record-sections.ts` registry, owned
+   * by the shell workstream); this is the real audit content, placed in the
+   * lease document tab right under Signatures, and mirrored as its own
+   * Overview card below.
+   */
+  const renderLeaseAuditTrailFacts = (row: LeasePipelineRow) => {
+    const facts = leaseAuditTrailFacts(row);
+    if (!facts) return null;
+    return (
+      <div className="px-3 pb-4 sm:px-4" data-attr="lease-audit-trail-facts">
+        {facts.map((fact) => (
+          <LeaseFact key={fact.label} label={fact.label} value={fact.value} />
+        ))}
+      </div>
+    );
+  };
+
+  /**
+   * C281 (Ida Cares lease-first): Answers section — one card per
+   * license-agreement section, in source order, same shape as the
+   * Applications record page's own "Application form" section. Only a
+   * lease-first row carries `signingTemplateSnapshot`; an ordinary
+   * application-driven lease has nothing to show here.
+   */
+  const renderLeaseAnswersSection = (row: LeasePipelineRow) => {
+    if (!row.signingTemplateSnapshot) return null;
+    const sections = leaseFirstAnswersBySection(row.signingTemplateSnapshot, row.signingAnswers);
+    if (!sections.length) return null;
+    return (
+      <div className="grid grid-cols-1 gap-3 px-3 pb-4 sm:px-4 xl:grid-cols-2" data-attr="lease-answers-section">
+        {sections.map(({ section, facts }) => (
+          <ReviewSection key={section} title={section} data-attr={`lease-answers-section-${section}`}>
+            {facts.map((fact) => (
+              <ReviewRow key={fact.key} k={fact.label} v={fact.value} />
+            ))}
+          </ReviewSection>
+        ))}
+      </div>
+    );
+  };
 
   const renderLeaseAmendmentsBody = (row: LeasePipelineRow) => {
     if (row.pendingRenewal) {
@@ -1249,6 +1310,8 @@ export function ManagerLeasesPipelinePanel({
           {renderLeaseRowDetail(detailRow)}
           {renderLeaseTermsFacts(detailRow)}
           {renderLeaseSignaturesFacts(detailRow)}
+          {renderLeaseAuditTrailFacts(detailRow)}
+          {renderLeaseAnswersSection(detailRow)}
           {renderLeaseAmendmentsBody(detailRow)}
         </>
       ) : activeTab === "payments" ? (
@@ -1308,6 +1371,58 @@ export function ManagerLeasesPipelinePanel({
               rows: [],
               emptyLabel: "No payments linked yet",
             },
+            // C066: who signed, when, and the document fingerprint — the
+            // audit trail already computed but never surfaced. Only shown
+            // once there is something to attest.
+            ...(leaseClaimsExecution(detailRow)
+              ? [
+                  {
+                    id: "audit-trail",
+                    title: "Audit trail",
+                    action: {
+                      label: "Lease document",
+                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document"),
+                    },
+                    rows: [
+                      {
+                        label: "Manager",
+                        value: detailRow.managerSignature
+                          ? `${detailRow.managerSignature.name} · ${detailRow.managerSignature.signedAtIso}`
+                          : "Not signed",
+                      },
+                      {
+                        label: "Resident",
+                        value: detailRow.residentSignature
+                          ? `${detailRow.residentSignature.name} · ${detailRow.residentSignature.signedAtIso}`
+                          : "Not signed",
+                      },
+                      {
+                        label: "Fingerprint",
+                        value: documentFingerprintLabel(detailRow.documentSha256) ?? "—",
+                      },
+                    ],
+                  },
+                ]
+              : []),
+            // C281 (Ida Cares lease-first): the resident's per-clause
+            // answers, one section = one card's worth of rows here (the full
+            // per-section breakdown is on the Lease document tab).
+            ...(detailRow.signingTemplateSnapshot
+              ? [
+                  {
+                    id: "answers",
+                    title: "Answers",
+                    action: {
+                      label: "Lease document",
+                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document"),
+                    },
+                    rows: leaseFirstAnswersBySection(detailRow.signingTemplateSnapshot, detailRow.signingAnswers)
+                      .flatMap((section) => section.facts)
+                      .slice(0, 6)
+                      .map((fact) => ({ label: fact.label, value: fact.value })),
+                  },
+                ]
+              : []),
           ],
         })
       );
@@ -1436,6 +1551,19 @@ export function ManagerLeasesPipelinePanel({
                   onClick={() => onDownload(singleSelectedLeaseRow)}
                 >
                   Download
+                </Button>
+              ) : null}
+              {singleSelectedLeaseRow &&
+              hasLeaseDocument(singleSelectedLeaseRow) &&
+              leaseClaimsExecution(singleSelectedLeaseRow) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-export"
+                  onClick={() => onExport(singleSelectedLeaseRow)}
+                >
+                  Export
                 </Button>
               ) : null}
               {singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow) ? (

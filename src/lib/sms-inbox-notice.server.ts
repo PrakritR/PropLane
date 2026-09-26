@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
+import { buildConversationKey, SMS_COUNTERPARTY_ROLES } from "@/lib/sms-conversation-identity";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
@@ -63,15 +64,45 @@ export async function upsertManagerInboxNotice(
     const messages = Array.isArray(row.messages) ? row.messages as { id: string }[] : [];
     if (row.rootMessageId === messageId || messages.some((m) => m.id === messageId)) return;
     const updatedAt = new Date(Math.max(Date.now(), Date.parse(prior.updated_at) + 1)).toISOString();
+    // Only a genuinely INBOUND turn (no explicit `folder`, or `folder:
+    // "inbox"`) may reopen an archived notice — an outbound append
+    // (`folder: "sent"`, e.g. the manager's own relayed text) must never
+    // un-archive it. Forcing "inbox" on every append here regardless of
+    // direction resurrected an archived SMS conversation on its next
+    // outbound turn (captain resurrection sweep).
+    const inbound = args.folder !== "sent";
+    const reopens = inbound && row.folder === "trash";
     const { data: updated, error: updateError } = await db.from("portal_inbox_thread_records")
-      .update({ row_data: { ...row, folder: "inbox", preview: incoming.preview,
+      .update({ row_data: { ...row, folder: inbound ? "inbox" : (row.folder ?? "inbox"), preview: incoming.preview,
         time: stamp, unread: Boolean(row.unread) || incoming.unread,
         messages: [...messages, { id: messageId, from: args.from, body: args.body,
           at: stamp, outbound: args.folder === "sent" }] }, updated_at: updatedAt })
       .eq("id", threadId).eq("owner_user_id", args.managerUserId)
       .eq("scope", MANAGER_INBOX_SCOPE).eq("updated_at", prior.updated_at).select("id");
     if (updateError) throw new Error("Could not append the SMS inbox notice.");
-    if (updated?.length) return;
+    if (updated?.length) {
+      // Both archive stores move together: the notice's OWN `row_data.folder`
+      // (above) and the separate SMS-conversation view's
+      // `manager_tour_followup_controls.archived` (read by
+      // fetchManagerSmsConversations / mirrorManagerSmsArchivedFromServer).
+      // Leaving the controls flag `true` after a genuine reopen kept that
+      // conversation showing in Archived while its own notice thread had
+      // already returned to Active. The exact role is not known at this
+      // layer, so every role variant of this phone's conversation key is
+      // cleared — a plain UPDATE...WHERE never inserts a row, so a role that
+      // never had a control row is an inert no-op.
+      if (reopens && phone) {
+        const keys = SMS_COUNTERPARTY_ROLES.map((role) =>
+          buildConversationKey({ ownerManagerUserId: args.managerUserId, role, counterpartyPhone: phone }),
+        );
+        await db.from("manager_tour_followup_controls")
+          .update({ archived: false, updated_at: now.toISOString() })
+          .eq("manager_user_id", args.managerUserId)
+          .in("conversation_key", keys)
+          .eq("archived", true);
+      }
+      return;
+    }
   }
   throw new Error("SMS inbox conversation is busy; retry delivery.");
 }

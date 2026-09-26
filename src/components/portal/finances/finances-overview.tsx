@@ -7,6 +7,8 @@ import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-s
 import { useEffect, useMemo, useState } from "react";
 
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
+import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
+import { paymentListHref } from "@/lib/portal-detail-routes";
 import {
   HOUSEHOLD_CHARGES_EVENT,
   householdChargeDueDate,
@@ -327,6 +329,22 @@ export function ManagerFinancesOverview({
   propertyOptions: ManagerPropertyFilterOption[];
 }) {
   const [tick, setTick] = useState(0);
+  // C255: the Money-in -> Money-out actions below stay dark until BOTH
+  // WORKSPACE_CONNECT_ENABLED and the PropLane balance itself are on — see
+  // /api/portal/proplane-balance's `workspaceConnectEnabled` field.
+  const [balanceEligible, setBalanceEligible] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/portal/proplane-balance", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { enabled?: boolean; workspaceConnectEnabled?: boolean } | null) => {
+        if (!cancelled) setBalanceEligible(Boolean(data?.enabled && data?.workspaceConnectEnabled));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Stamp the clock once per mount (and per refresh) so a render never reads
   // Date.now() and two renders in one tick agree on the window.
   const [nowMs, setNowMs] = useState(0);
@@ -543,6 +561,38 @@ export function ManagerFinancesOverview({
           dataAttr="finances-kpi-deposits"
         />
       </div>
+
+      {balanceEligible ? (
+        // C255: Pay vendors and Plan & credit are the two balance-SPENDING
+        // actions the redesign wants to encourage, so they get equal-weight
+        // cards; Withdraw is real (it opens the same balance/withdraw modal
+        // used elsewhere) but deliberately sits below them in a lighter,
+        // unbordered row rather than a third same-weight card.
+        <div className="grid gap-3 sm:grid-cols-2" data-attr="finances-balance-actions">
+          <Link
+            href={paymentListHref(basePath, "outgoing", "pending")}
+            className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
+            data-attr="finances-balance-action-pay-vendors"
+          >
+            <span className="text-sm font-semibold text-foreground">Pay vendors</span>
+            <ArrowRight className="size-4 text-muted" aria-hidden />
+          </Link>
+          <Link
+            href="/portal/profile?tab=billing"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
+            data-attr="finances-balance-action-plan-credit"
+          >
+            <span className="text-sm font-semibold text-foreground">Plan &amp; credit</span>
+            <ArrowRight className="size-4 text-muted" aria-hidden />
+          </Link>
+          <div
+            className="rounded-xl bg-accent/20 px-4 py-2.5 sm:col-span-2"
+            data-attr="finances-balance-action-withdraw"
+          >
+            <ProplaneBalanceCard portal="manager" variant="subordinate" />
+          </div>
+        </div>
+      ) : null}
 
       <Card title="Recent activity" action={{ label: "Income", href: `${basePath}/financials/income` }} dataAttr="finances-overview-activity">
         {model.activity.length === 0 ? (

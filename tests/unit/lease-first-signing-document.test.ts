@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLeaseFirstSigningHtml,
+  leaseFirstAnswersBySection,
   leaseFirstInitialsProgress,
   resolveManagerFilledSigningAnswers,
   PROPLANE_TERMS_RIDER_TITLE,
@@ -105,5 +106,32 @@ describe("leaseFirstInitialsProgress", () => {
   it("ignores a blank/whitespace-only stored answer as unanswered", () => {
     const progress = leaseFirstInitialsProgress(config(), { la_ack_1: "  " });
     expect(progress).toEqual({ answered: 0, total: 2 });
+  });
+});
+
+describe("leaseFirstAnswersBySection", () => {
+  it("groups every clause's answer by section, in source order (C281)", () => {
+    const sections = leaseFirstAnswersBySection(config(), {
+      la_ack_1: "JR",
+      la_fee_monthly: "$900",
+    });
+    expect(sections.map((s) => s.section)).toEqual(["Acknowledgements", "I. Fees", "VII. Agreement authorization"]);
+    const acknowledgements = sections[0]!;
+    expect(acknowledgements.facts).toEqual([
+      { key: "la_ack_1", label: "I understand this is not a lease.", value: "JR" },
+      { key: "la_ack_2", label: "I understand utilities are included.", value: "Not yet initialed" },
+    ]);
+  });
+
+  it("reads an unanswered non-initials field as an em dash, never a guess", () => {
+    const sections = leaseFirstAnswersBySection(config(), {});
+    const fees = sections.find((s) => s.section === "I. Fees")!;
+    expect(fees.facts.every((f) => f.value === "—")).toBe(true);
+  });
+
+  it("never invents a value the resident did not actually answer", () => {
+    const sections = leaseFirstAnswersBySection(config(), { la_ack_1: "  " });
+    const ack1 = sections[0]!.facts.find((f) => f.key === "la_ack_1")!;
+    expect(ack1.value).toBe("Not yet initialed");
   });
 });

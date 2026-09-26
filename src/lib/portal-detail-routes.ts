@@ -627,6 +627,34 @@ export function parseVendorWorkOrderListTab(raw: string | undefined | null): Ven
   return DEFAULT_VENDOR_WORK_ORDER_TAB;
 }
 
+/**
+ * Vendor Jobs board tabs (C152/C153): additive to Services, never a
+ * replacement — Invited surfaces the jobs a manager has opened for this
+ * vendor's own bid (today's single-vendor-at-a-time `biddingOpen` flag,
+ * docs/agents/vendor-portal.md Phase 2). Open is a placeholder: a genuine
+ * cross-workspace marketplace browse has no backing data model yet
+ * (work_order_bids only ever has rows for the currently-assigned vendor).
+ */
+export const VENDOR_JOBS_LIST_TABS = ["invited", "open"] as const;
+export type VendorJobsListTabId = (typeof VENDOR_JOBS_LIST_TABS)[number];
+export const DEFAULT_VENDOR_JOBS_TAB: VendorJobsListTabId = "invited";
+
+export const VENDOR_JOBS_LIST_TAB_LABELS: Record<VendorJobsListTabId, string> = {
+  invited: "Invited",
+  open: "Open",
+};
+
+export function parseVendorJobsListTab(raw: string | undefined | null): VendorJobsListTabId {
+  if (raw && (VENDOR_JOBS_LIST_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorJobsListTabId;
+  }
+  return DEFAULT_VENDOR_JOBS_TAB;
+}
+
+export function vendorJobsListHref(basePath: string, tab: VendorJobsListTabId = DEFAULT_VENDOR_JOBS_TAB): string {
+  return `${basePath}/jobs/${tab}`;
+}
+
 export function vendorWorkOrderListHref(
   basePath: string,
   tab: VendorWorkOrderListTabId = DEFAULT_VENDOR_WORK_ORDER_TAB,
