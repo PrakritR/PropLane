@@ -1148,20 +1148,46 @@ export function InboxListSegmentTabs({
   value,
   onChange,
   counts,
+  interceptNavigation = false,
 }: {
   commBase: string;
   value: InboxListSegment;
   onChange?: (segment: Extract<InboxListSegment, "active" | "archived">) => void;
   counts?: { active?: number; archived?: number };
+  /**
+   * Update client state instead of a full route navigation on a plain left
+   * click (no modifier key, not opening in a new tab) — used by the manager
+   * unified inbox so Active/Archived switches instantly with no remount
+   * (PLAN B1). Resident/vendor callers omit this and keep ordinary
+   * navigation.
+   */
+  interceptNavigation?: boolean;
 }) {
   const selected = value === "archived" ? "archived" : "active";
   return (
     <div
       data-attr="inbox-list-segments"
       onClick={(event) => {
-        const href = (event.target as HTMLElement).closest("a")?.getAttribute("href") ?? "";
-        if (href.endsWith("/archived")) onChange?.("archived");
-        else if (href.endsWith("/active")) onChange?.("active");
+        const anchor = (event.target as HTMLElement).closest("a");
+        const href = anchor?.getAttribute("href") ?? "";
+        const nextSegment: "active" | "archived" | null = href.endsWith("/archived")
+          ? "archived"
+          : href.endsWith("/active")
+            ? "active"
+            : null;
+        if (!nextSegment) return;
+        if (
+          interceptNavigation &&
+          anchor &&
+          event.button === 0 &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+        }
+        onChange?.(nextSegment);
       }}
     >
       <DestinationNav

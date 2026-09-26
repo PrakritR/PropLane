@@ -156,6 +156,28 @@ describe("SMS inbox durable append", () => {
     expect(rows.get(target.id)!.row_data.aiDraft).toBeUndefined();
   });
 
+  /**
+   * Regression for the captain resurrection sweep, item 2: appending a turn
+   * used to force `folder: "inbox"` regardless of direction, so even the
+   * MANAGER's own outbound relay text (`folder: "sent"`) un-archived a
+   * notice thread the manager had just archived. Only a genuinely inbound
+   * append (no `folder`, i.e. the default) may reopen it.
+   */
+  it("preserves an archived notice's folder on an outbound append, and only an inbound append reopens it", async () => {
+    const { db, rows } = memoryDb();
+    await upsertManagerInboxNotice(db, args);
+    const target = [...rows.values()][0]!;
+    rows.set(target.id, { ...target, row_data: { ...target.row_data, folder: "trash" } });
+
+    await upsertManagerInboxNotice(db, { ...args, folder: "sent", body: "Outbound reply", messageId: "sid-out" });
+    expect(rows.get(target.id)!.row_data.folder).toBe("trash");
+    expect((rows.get(target.id)!.row_data.messages as unknown[])).toHaveLength(1);
+
+    await upsertManagerInboxNotice(db, { ...args, body: "Inbound again", messageId: "sid-in-2" });
+    expect(rows.get(target.id)!.row_data.folder).toBe("inbox");
+    expect((rows.get(target.id)!.row_data.messages as unknown[])).toHaveLength(2);
+  });
+
   it("archives all historical phone members but never another owner's rows", async () => {
     const { db, rows } = memoryDb();
     await upsertManagerInboxNotice(db, args);

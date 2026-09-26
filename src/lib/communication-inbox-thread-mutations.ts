@@ -33,14 +33,18 @@ function threadMatchesMutationIds(thread: PersistedInboxThread, ids: Set<string>
   return (thread.sourceThreadIds ?? []).some((id) => ids.has(id));
 }
 
-export async function archivePersistedInboxThreads(
-  storageKey: string,
+/**
+ * Pure preview of what `archivePersistedInboxThreads` would change, with no
+ * storage I/O — shared by the mutation itself and by callers (the bulk hook)
+ * that want to render the optimistic result immediately, before the
+ * persistence below confirms it (PLAN B3).
+ */
+export function previewArchivedInboxThreads(
+  prev: PersistedInboxThread[],
   ids: string[],
-): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+): { changed: PersistedInboxThread[]; next: PersistedInboxThread[] } {
   const clean = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
-  if (clean.length === 0) return { ok: true, next: loadPersistedInbox(storageKey, []) };
-
-  const prev = loadPersistedInbox(storageKey, []);
+  if (clean.length === 0) return { changed: [], next: prev };
   const matchIds = expandInboxMutationIds(prev, clean);
   const changed: PersistedInboxThread[] = [];
   const next = prev.map((thread) => {
@@ -57,44 +61,16 @@ export async function archivePersistedInboxThreads(
     changed.push(updated);
     return updated;
   });
-
-  if (changed.length === 0) return { ok: true, next: prev };
-  if (isDemoModeActive()) {
-    stagePersistedInboxRows(storageKey, next);
-    return { ok: true, next };
-  }
-  const noticeIds = new Set<string>();
-  if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
-    for (const thread of changed) {
-      if (!smsNoticeIdentity(thread)) continue;
-      for (const id of [thread.id, ...(thread.sourceThreadIds ?? [])]) noticeIds.add(id);
-      try {
-        const response = await fetch("/api/manager/tour-follow-ups", {
-          method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inboxThreadId: thread.id, action: "archive" }),
-        });
-        if (!response.ok) return { ok: false, next: prev };
-      } catch {
-        return { ok: false, next: prev };
-      }
-    }
-  }
-  const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
-  if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "archive"))) {
-    return { ok: false, next: prev };
-  }
-  stagePersistedInboxRows(storageKey, next);
-  return { ok: true, next };
+  return { changed, next };
 }
 
-export async function restorePersistedInboxThreads(
-  storageKey: string,
+/** Pure preview counterpart of {@link previewArchivedInboxThreads} for restore. */
+export function previewRestoredInboxThreads(
+  prev: PersistedInboxThread[],
   ids: string[],
-): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+): { changed: PersistedInboxThread[]; next: PersistedInboxThread[] } {
   const clean = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
-  if (clean.length === 0) return { ok: true, next: loadPersistedInbox(storageKey, []) };
-
-  const prev = loadPersistedInbox(storageKey, []);
+  if (clean.length === 0) return { changed: [], next: prev };
   const matchIds = expandInboxMutationIds(prev, clean);
   const changed: PersistedInboxThread[] = [];
   const next = prev.map((thread) => {
@@ -109,12 +85,68 @@ export async function restorePersistedInboxThreads(
     changed.push(updated);
     return updated;
   });
+  return { changed, next };
+}
 
+export async function archivePersistedInboxThreads(
+  storageKey: string,
+  ids: string[],
+): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+  const prev = loadPersistedInbox(storageKey, []);
+  const { changed, next } = previewArchivedInboxThreads(prev, ids);
   if (changed.length === 0) return { ok: true, next: prev };
   if (isDemoModeActive()) {
     stagePersistedInboxRows(storageKey, next);
     return { ok: true, next };
   }
+  // Optimistic (PLAN B3): move the rows immediately. Every failure branch
+  // below rolls this back to `prev` before reporting `ok: false`, so a caller
+  // that also renders `next` right away never needs a second write to see
+  // the failure state.
+  stagePersistedInboxRows(storageKey, next);
+  const matchIds = expandInboxMutationIds(prev, ids.map((id) => id.trim()).filter(Boolean));
+  const noticeIds = new Set<string>();
+  if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
+    for (const thread of changed) {
+      if (!smsNoticeIdentity(thread)) continue;
+      for (const id of [thread.id, ...(thread.sourceThreadIds ?? [])]) noticeIds.add(id);
+      try {
+        const response = await fetch("/api/manager/tour-follow-ups", {
+          method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inboxThreadId: thread.id, action: "archive" }),
+        });
+        if (!response.ok) {
+          stagePersistedInboxRows(storageKey, prev);
+          return { ok: false, next: prev };
+        }
+      } catch {
+        stagePersistedInboxRows(storageKey, prev);
+        return { ok: false, next: prev };
+      }
+    }
+  }
+  const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
+  if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "archive"))) {
+    stagePersistedInboxRows(storageKey, prev);
+    return { ok: false, next: prev };
+  }
+  return { ok: true, next };
+}
+
+export async function restorePersistedInboxThreads(
+  storageKey: string,
+  ids: string[],
+): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+  const prev = loadPersistedInbox(storageKey, []);
+  const { changed, next } = previewRestoredInboxThreads(prev, ids);
+  if (changed.length === 0) return { ok: true, next: prev };
+  if (isDemoModeActive()) {
+    stagePersistedInboxRows(storageKey, next);
+    return { ok: true, next };
+  }
+  // Optimistic (PLAN B3) — see archivePersistedInboxThreads above.
+  stagePersistedInboxRows(storageKey, next);
+  const matchIds = expandInboxMutationIds(prev, ids.map((id) => id.trim()).filter(Boolean));
   const noticeIds = new Set<string>();
   if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
     for (const thread of changed) {
@@ -125,17 +157,21 @@ export async function restorePersistedInboxThreads(
           method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ inboxThreadId: thread.id, action: "restore" }),
         });
-        if (!response.ok) return { ok: false, next: prev };
+        if (!response.ok) {
+          stagePersistedInboxRows(storageKey, prev);
+          return { ok: false, next: prev };
+        }
       } catch {
+        stagePersistedInboxRows(storageKey, prev);
         return { ok: false, next: prev };
       }
     }
   }
   const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
   if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "restore"))) {
+    stagePersistedInboxRows(storageKey, prev);
     return { ok: false, next: prev };
   }
-  stagePersistedInboxRows(storageKey, next);
   return { ok: true, next };
 }
 
