@@ -134,6 +134,10 @@ const PUBLIC_SUBMISSION_KEYS = [
   "houseRulesText",
   "amenitiesText",
   "housePhotoDataUrls",
+  // Whole-house walkthrough video. Only ever published as an http(s) storage
+  // URL — see `publicMediaUrl` in `publicSubmission` below; a `data:` URL is
+  // stripped rather than reaching an anonymous caller.
+  "houseVideoDataUrl",
   "floorPlanByLabel",
   "propertyFloorPlanDataUrl",
   "quickFacts",
@@ -315,6 +319,11 @@ const PUBLIC_HOUSE_DEFAULT_PRICE_KEYS = [
   "weeklyRentPrice",
 ] as const satisfies readonly (keyof ListingHouseDefaults)[];
 
+/** An http(s) URL, or `undefined` — a `data:` URL (or anything else) never reaches an anonymous caller. */
+function publicMediaUrl(value: unknown): string | undefined {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim()) ? value : undefined;
+}
+
 function moneyText(raw: unknown): string {
   return String(raw ?? "")
     .replace(/^\$/, "")
@@ -410,8 +419,15 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
   const houseDefaults = charged.houseDefaults
     ? pick(charged.houseDefaults as ListingHouseDefaults, PUBLIC_HOUSE_DEFAULT_PRICE_KEYS)
     : undefined;
+  // Pull `houseVideoDataUrl` back out of the generic pick so a `data:` URL —
+  // never expected in practice now that uploads land in storage, but not a
+  // security boundary this projection may assume — is dropped rather than
+  // published, same as every other media field's public-only contract.
+  const { houseVideoDataUrl: rawHouseVideoDataUrl, ...picked } = pick(charged, PUBLIC_SUBMISSION_KEYS);
+  const houseVideoDataUrl = publicMediaUrl(rawHouseVideoDataUrl);
   return {
-    ...pick(charged, PUBLIC_SUBMISSION_KEYS),
+    ...picked,
+    ...(houseVideoDataUrl ? { houseVideoDataUrl } : {}),
     ...(Array.isArray(charged.propertyApplicationTemplates)
       ? { propertyApplicationTemplates: charged.propertyApplicationTemplates.map(publicPropertyApplicationTemplate) }
       : {}),
