@@ -45,14 +45,13 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  // `/demo` is a real page again (src/app/demo/page.tsx) — the home page's
-  // Codex-style hero embeds it live in an iframe (site/codex-hero-window.tsx).
-  // Only a deeper sub-path (no `/demo/[section]` route exists) still bounces,
-  // now to the sandbox itself rather than back to the marketing page — kept
-  // in sync with next.config.ts's `/demo/:path+` redirect.
-  if (path.startsWith("/demo/") && path !== "/demo/") {
+  // Captain 2026-09-26: "remove live demo no need" — the public site no
+  // longer embeds or links the running `/demo` sandbox, so the whole route
+  // bounces home. Kept in sync with next.config.ts's `/demo` + `/demo/:path+`
+  // redirects; see docs/agents/demo-sandbox.md.
+  if (path === "/demo" || path.startsWith("/demo/")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/demo";
+    url.pathname = "/";
     return stampCrawlPolicy(request, NextResponse.redirect(url));
   }
   if (path === "/dashboard" || path === "/dashboard/") {

@@ -3,20 +3,27 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
-## The home page's lifecycle rows ARE the product, not a mock of it
+## The home page's product rows reuse REAL portal components, statically
 
-`src/components/marketing/site/lifecycle-rows.tsx` ("From first tour to fixed
-faucet.", captain 2026-09-25) is the one place on the marketing site that
-doesn't need this file's copy-accuracy discipline at all: each row's demo is a
-real, interactive `<iframe>` deep-linked into `/demo?role=&section=&tab=` (see
-`docs/agents/demo-sandbox.md`), so it renders the actual portal component with
-the actual bundled Seattle Homes data — there is no separate copy to drift.
-When a row's perspective shows stale or empty content, the bug is in the
-`/demo` sandbox or the real portal panel, never in this file's own markup.
-Adding a row or a perspective means finding a real, always-populated
-`/demo?role=&section=` deep link first (verify it in a browser before wiring
-it) — a perspective with no clean populated view gets no tab at all, per that
-file's own docstring, rather than a hand-drawn stand-in.
+Captain 2026-09-26: "remove live demo no need" — `src/components/marketing/
+site/lifecycle-rows.tsx` ("From first tour to fixed faucet.") and the
+"Switching" import section (`switch-steps.tsx`) no longer embed a live
+`<iframe src="/demo">`. Each row's product panel now renders the REAL portal
+presentational components (the record-list surface, its rows, the sidebar
+shell, the import review card) fed static "Seattle Homes" fixture props —
+never a hand-drawn lookalike, and never a network request or auth dependency.
+This file's copy-accuracy discipline applies here same as everywhere else:
+when you add or change a row, open the real component you're reusing and
+match its labels, tab names, and row anatomy exactly (see the table below and
+each component's own doc comment for its fixture source).
+
+A row's panel is interactive but never persists: tabs switch between
+different fixture row sets, search filters the fixture rows client-side,
+`⋯` menus open, and a primary action opens the real modal/sheet with default
+values — but Save/Send/Approve only closes it and shows the real toast, since
+there is no server to write to. If a panel's real component fetches internally
+(session, workspace, or data hooks), build a thin static wrapper around its
+purely presentational pieces instead of trying to mount the whole page tree.
 
 ## Marketing mocks must use portal-accurate copy
 

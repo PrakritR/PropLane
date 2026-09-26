@@ -58,22 +58,26 @@ test.describe("Public home", () => {
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
-  test("the lifecycle section shows every stage with a live perspective switch", async ({ page }) => {
+  // Captain 2026-09-26: redesigned around static, fixture-fed real portal
+  // panels (no live /demo iframe, no perspective switch — see
+  // docs/agents/marketing-mocks.md). Each row's own in-panel TABS (Pending/
+  // Upcoming/Past, etc.) still switch which fixture rows render.
+  test("the lifecycle section shows every stage as a real, tabbed product panel", async ({ page }) => {
     await page.goto("/");
     const section = page.locator("#lifecycle");
     await section.scrollIntoViewIfNeeded();
-    await expect(section.getByRole("heading", { name: /from first tour to fixed faucet/i })).toBeVisible();
-    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Maintenance"]) {
+    await expect(section.getByRole("heading", { name: /the best way to run a rental/i })).toBeVisible();
+    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Services"]) {
       await expect(section.getByText(kicker, { exact: true }).first()).toBeVisible();
     }
-    // Leasing is the first row with more than one perspective — switching
-    // tabs swaps which /demo deep link the row's frame embeds.
+    await expect(section.locator("iframe")).toHaveCount(0);
+
+    // Leasing's own in-panel tabs swap which fixture rows render.
     const leasingRow = page.locator('[data-lifecycle-row="leasing"]');
-    const residentTab = leasingRow.getByRole("tab", { name: /resident/i });
-    await expect(residentTab).toBeVisible();
-    await residentTab.click();
-    await expect(residentTab).toHaveAttribute("aria-selected", "true");
-    await expect(leasingRow.locator("iframe")).toHaveAttribute("src", /\/demo\?role=resident&section=lease/);
+    await expect(leasingRow.getByText("Dana Reyes")).toBeVisible();
+    await leasingRow.getByRole("tab", { name: "Signed" }).click();
+    await expect(leasingRow.getByText("Test Resident")).toBeVisible();
+    await expect(leasingRow.getByText("Dana Reyes")).toHaveCount(0);
   });
 
   test("nothing overflows sideways on a phone", async ({ browser }) => {

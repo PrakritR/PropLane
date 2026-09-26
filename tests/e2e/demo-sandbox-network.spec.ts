@@ -1,18 +1,17 @@
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * `/demo` and the home page's embeds of it must never hit a real, auth-gated
- * data API — they render from ONE bundled, deterministic "Seattle Homes"
- * dataset (`buildDemoIdleSnapshot()` in `src/lib/demo/demo-guided-data.ts`;
- * see `docs/agents/demo-sandbox.md`). This is a regression guard for that
- * contract, not a general network-purity test: analytics/telemetry and the
- * two demo-safe routes below are allowed, everything else under `/api/` is
- * not.
+ * Captain 2026-09-26: "remove live demo no need" — the public site no
+ * longer embeds or links the running `/demo` sandbox anywhere. `/demo` and
+ * every `/demo/*` sub-path now redirect to `/` (`next.config.ts`,
+ * `src/middleware.ts`); the home page's product panels
+ * (`site/lifecycle-rows.tsx`, `site/switch-steps.tsx`,
+ * `site/codex-hero-window.tsx`) render the real portal presentational
+ * components fed static fixtures instead of a live `<iframe src="/demo">`.
+ * This replaces the old iframe/postMessage network-purity spec — see
+ * `docs/agents/demo-sandbox.md`.
  */
-const ALLOWED_API_PATTERNS = [
-  /^\/api\/demo\//, // the public, read-only, bundled-data-only demo routes
-  /^\/api\/agent\/demo-chat/, // the sandboxed assistant endpoint, demo-scoped
-];
+const ALLOWED_API_PATTERNS = [/^\/api\/agent\/demo-chat/];
 
 function isBannedApiRequest(url: string): boolean {
   let pathname: string;
@@ -21,11 +20,12 @@ function isBannedApiRequest(url: string): boolean {
   } catch {
     return false;
   }
-  if (!pathname.startsWith("/api/")) return false;
+  if (!pathname.startsWith("/api/") && !pathname.startsWith("/demo")) return false;
+  if (pathname.startsWith("/demo")) return true; // never requested at all any more
   return !ALLOWED_API_PATTERNS.some((re) => re.test(pathname));
 }
 
-async function collectBannedApiRequests(page: Page, act: () => Promise<void>): Promise<string[]> {
+async function collectBannedRequests(page: Page, act: () => Promise<void>): Promise<string[]> {
   const banned: string[] = [];
   const onRequest = (req: { url: () => string }) => {
     const url = req.url();
@@ -34,7 +34,6 @@ async function collectBannedApiRequests(page: Page, act: () => Promise<void>): P
   page.on("request", onRequest);
   try {
     await act();
-    // Let any post-load effects (e.g. a hook's useEffect) fire before we stop listening.
     await page.waitForTimeout(1500);
   } finally {
     page.off("request", onRequest);
@@ -42,19 +41,19 @@ async function collectBannedApiRequests(page: Page, act: () => Promise<void>): P
   return banned;
 }
 
-test.describe("/demo sandbox never calls a real data API", () => {
-  for (const role of ["manager", "resident", "vendor"] as const) {
-    test(`role=${role} dashboard fires no banned /api/ request`, async ({ page }) => {
-      const banned = await collectBannedApiRequests(page, async () => {
-        await page.goto(`/demo?role=${role}&section=dashboard`);
-        await page.waitForLoadState("networkidle").catch(() => undefined);
-      });
-      expect(banned, `banned requests: ${banned.join(", ")}`).toEqual([]);
-    });
-  }
+test.describe("/demo is retired from the public site", () => {
+  test("/demo redirects home", async ({ page }) => {
+    await page.goto("/demo");
+    await expect(page).toHaveURL(/\/$/);
+  });
 
-  test("home page's /demo embeds fire no banned /api/ request", async ({ page }) => {
-    const banned = await collectBannedApiRequests(page, async () => {
+  test("/demo/anything redirects home", async ({ page }) => {
+    await page.goto("/demo/role/manager");
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test("home page fires no /demo and no banned /api/ request", async ({ page }) => {
+    const banned = await collectBannedRequests(page, async () => {
       await page.goto("/");
       await page.locator("#lifecycle").scrollIntoViewIfNeeded();
       await page.waitForTimeout(1000);
@@ -62,36 +61,33 @@ test.describe("/demo sandbox never calls a real data API", () => {
     expect(banned, `banned requests: ${banned.join(", ")}`).toEqual([]);
   });
 
-  test("manager dashboard shows populated Seattle Homes numbers, not an empty state", async ({ page }) => {
-    await page.goto("/demo?role=manager&section=dashboard");
-    const main = page.locator("main");
-    await expect(main.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    // The seeded portfolio's applications/leases/payments all read non-zero —
-    // regression guard for the class of bug this part fixed (a real number
-    // reading as "0"/"nothing yet" despite the bundle holding real rows).
-    await expect(main.getByText(/applications ready/i).first()).toBeVisible();
-    // Occupancy and "Your properties" read from a SEPARATE store
-    // (AdminPropertyRow/`adminPublishLive`) than the rest of the bundle —
-    // its own regression guard, since it silently showed 0%/"No properties
-    // yet" even while every other panel on this same page was populated.
-    await expect(main.getByText(/^0%$/)).toHaveCount(0);
-    await expect(main.getByText("No properties yet.")).toHaveCount(0);
-    await expect(main.getByText("Alder House").first()).toBeVisible();
-    await expect(main.getByText("Maple Duplex").first()).toBeVisible();
-    await expect(main.getByText("Fremont Studio").first()).toBeVisible();
-    await expect(main.getByText("Phone number not set up")).toHaveCount(0);
+  test("hero renders the populated static dashboard panel", async ({ page }) => {
+    await page.goto("/");
+    const hero = page.locator(".codex-hero-window");
+    await expect(hero.getByText("Occupancy").first()).toBeVisible();
+    await expect(hero.getByText("67%").first()).toBeVisible();
+    await expect(hero.getByText("Alder House").first()).toBeVisible();
   });
 
-  test("vendor Services shows the seeded scheduled job, not every bucket at 0", async ({ page }) => {
-    await page.goto("/demo?role=vendor&section=work-orders");
-    const main = page.locator("main");
-    await expect(main.getByRole("link", { name: /current.*1 item/i })).toBeVisible();
+  test("each lifecycle row renders a filled, non-empty product panel", async ({ page }) => {
+    await page.goto("/");
+    for (const [id, expectedText] of [
+      ["tours", "Fremont Studio"],
+      ["applications", "Sample Applicant"],
+      ["leasing", "Dana Reyes"],
+      ["payments", "September rent"],
+      ["services", "Kitchen faucet drip"],
+    ] as const) {
+      const row = page.locator(`[data-lifecycle-row="${id}"]`);
+      await row.scrollIntoViewIfNeeded();
+      await expect(row.getByText(expectedText).first()).toBeVisible();
+    }
   });
 
-  test("resident lease record shows the seeded lease awaiting signature", async ({ page }) => {
-    await page.goto("/demo?role=resident&section=lease&tab=demo-lease-demo-prop-alder");
-    const main = page.locator("main");
-    await expect(main.getByRole("button", { name: /^sign$/i })).toBeVisible();
-    await expect(main.getByText(/resident signature pending/i).first()).toBeVisible();
+  test("the switching section renders the real import review panel", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("#site-switch-heading").scrollIntoViewIfNeeded();
+    await expect(page.getByRole("heading", { level: 1, name: "Review what the agent found" })).toBeVisible();
+    await expect(page.getByText("Dana Reyes").first()).toBeVisible();
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
-import { DemoRouteSlice } from "@/components/marketing/site/demo-route-slice";
+import { ImportReviewPanel } from "@/components/marketing/site/product-mock/panels";
+import { ProductPanelBackdrop } from "@/components/marketing/site/product-mock/shared";
 import { SiteCtaPair, SiteEyebrow, SiteIntro, SiteSection } from "@/components/marketing/site/primitives";
 
 type SwitchStep = { eyebrow: string; title: string; body: string };
@@ -24,14 +25,15 @@ const STEPS: SwitchStep[] = [
 ];
 
 /**
- * A scaled slice of the REAL `/portal/properties/import` Review step —
- * `/demo?role=manager&section=import`, not a hand-drawn replica of it
- * (captain 2026-09-25: "NOTHING like the real portal"). The real three-step
- * flow is Upload → Review → Create (never the 5-step "match columns" wizard
- * this section used to invent); `/demo`'s import view renders that same
- * `PortfolioImportReviewStep` fed a bundled sample rent roll
- * (`demo-import-sample.ts`) — no upload, no network, no real write, ever.
- * See `docs/agents/portfolio-import.md`.
+ * Captain 2026-09-26: redesigned in the same Codex-style row as the
+ * lifecycle rows below it — a compact left text column (the three steps,
+ * condensed) beside the real `/portal/properties/import` Review step
+ * (`PortfolioImportReviewStep`, fed the bundled sample rent roll
+ * `demo-import-sample.ts`), desktop web UI only. No live `/demo` iframe, no
+ * Manager/Resident/Vendor switch, no phone frame — see
+ * `docs/agents/portfolio-import.md` and `docs/agents/marketing-mocks.md`.
+ * The real three-step flow is Upload → Review → Create (never the 5-step
+ * "match columns" wizard this section used to invent).
  */
 export function SiteSwitchSteps() {
   return (
@@ -42,22 +44,20 @@ export function SiteSwitchSteps() {
         title="Up and running without starting over."
         lede="Your properties, units and residents come with you. Here's what switching to PropLane looks like."
       />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-2 lg:items-start">
-        <div className="min-w-0">
-          <div className="space-y-8">
-            {STEPS.map((step) => (
-              <div key={step.title} className="border-t border-border pt-5">
-                <SiteEyebrow className="mb-2">{step.eyebrow}</SiteEyebrow>
-                <h3 className="text-[19px] font-bold leading-snug tracking-tight text-foreground">{step.title}</h3>
-                <p className="mt-2 text-[14.5px] leading-relaxed text-muted">{step.body}</p>
-              </div>
-            ))}
-          </div>
-          <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-8" />
+      <div className="grid grid-cols-1 items-stretch gap-8 lg:grid-cols-[minmax(0,0.34fr)_minmax(0,0.66fr)] lg:gap-10">
+        <div className="flex flex-col justify-center gap-5">
+          {STEPS.map((step) => (
+            <div key={step.title} className="border-t border-border pt-4 first:border-t-0 first:pt-0">
+              <SiteEyebrow className="mb-1.5">{step.eyebrow}</SiteEyebrow>
+              <h3 className="text-[16.5px] font-bold leading-snug tracking-tight text-foreground">{step.title}</h3>
+              <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{step.body}</p>
+            </div>
+          ))}
+          <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-1" />
         </div>
-        <div className="mx-auto w-full min-w-0 max-w-[540px] lg:mr-0">
-          <DemoRouteSlice role="manager" section="import" height={620} label="Properties → Import review" />
-        </div>
+        <ProductPanelBackdrop className="h-[340px] sm:h-[440px] lg:h-[500px]">
+          <ImportReviewPanel />
+        </ProductPanelBackdrop>
       </div>
     </SiteSection>
   );

@@ -24,18 +24,22 @@ describe("SiteSwitchSteps", () => {
   it("renders all three real step titles", () => {
     render(<SiteSwitchSteps />);
     expect(screen.getByRole("heading", { name: "Import your portfolio" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Review what the agent found" })).toBeInTheDocument();
+    // "Review what the agent found" is the step's own h3 title AND the real
+    // review panel's own h1 heading (both real, deliberately duplicated —
+    // see the next test), so this one asserts by count rather than by role.
+    expect(screen.getAllByText("Review what the agent found").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("heading", { name: "Create it, invite when you're ready" })).toBeInTheDocument();
   });
 
-  // Captain 2026-09-25: the review step is a real /demo slice, not a
-  // hand-drawn replica of it — assert the deep-link, not invented copy.
-  it("embeds the real /demo Properties -> Import review screen, not a hand-drawn replica", () => {
+  // Captain 2026-09-26: "remove live demo no need" — the review step is now
+  // the REAL `PortfolioImportReviewStep` fed the bundled sample rent roll,
+  // never a live `/demo` iframe. Assert there is no iframe and the real
+  // review screen's own copy renders.
+  it("renders the real Properties -> Import review screen statically, never a /demo iframe", () => {
     render(<SiteSwitchSteps />);
-    const iframe = document.querySelector("iframe");
-    expect(iframe).toBeInTheDocument();
-    expect(iframe?.getAttribute("src")).toBe("/demo?role=manager&section=import");
-    expect(iframe).toHaveAttribute("tabindex", "-1");
+    expect(document.querySelector("iframe")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Review what the agent found" })).toBeInTheDocument();
+    expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
   it("is imported and rendered by the home page", () => {
