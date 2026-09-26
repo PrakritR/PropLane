@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { assertCatalogShape, applyReviewedMigrations, parseOptions, reviewedMigrations, runTransaction, NEW_TABLES, NEW_INDEXES, COLUMNS, POLICIES, INDEXES, FOREIGN_KEYS, NEW_TABLE_CONSTRAINTS, KEY_CHECK_DEFINITIONS, BID_LINK_BASELINE } from "../../scripts/sms-upstream-ten-gap-migrations.mjs";
+import { assertCatalogShape, applyReviewedMigrations, parseOptions, reviewedMigrations, runTransaction, NEW_TABLES, NEW_INDEXES, COLUMNS, POLICIES, INDEXES, FOREIGN_KEYS, NEW_TABLE_CONSTRAINTS, KEY_CHECK_DEFINITIONS, BID_LINK_BASELINES } from "../../scripts/sms-upstream-ten-gap-migrations.mjs";
 
 const migrations = reviewedMigrations();
 
@@ -77,7 +77,7 @@ function appliedSnapshot() {
 
 test("postflight refuses policy, index, FK and column drift", () => {
   const state = appliedSnapshot();
-  assert.doesNotThrow(() => assertCatalogShape(state, migrations, true));
+  assert.doesNotThrow(() => assertCatalogShape(state, migrations, true, "staging"));
   for (const [mutate, error] of [
     [(s) => { s.tables.manager_vendor_preferences.policies[0].qual = "true"; }, /policy mismatch/],
     [(s) => { s.indexes.proplane_balance_withdrawal_claim_unique.unique = false; }, /index state/],
@@ -89,7 +89,7 @@ test("postflight refuses policy, index, FK and column drift", () => {
   ]) {
     const drifted = structuredClone(state);
     mutate(drifted);
-    assert.throws(() => assertCatalogShape(drifted, migrations, true), error);
+    assert.throws(() => assertCatalogShape(drifted, migrations, true, "staging"), error);
   }
 });
 
@@ -98,25 +98,40 @@ test("preflight requires exact earlier ledger provenance for an existing bid lin
   state.columns["work_order_bids.open_listing_id"] = { type: "uuid", default: null, notNull: false };
   state.indexes.work_order_bids_open_listing_idx = { kind: "i", valid: true, ready: true, table: "work_order_bids", unique: false, keys: ["open_listing_id"], predicate: null, method: "btree" };
   state.fks.work_order_bids_open_listing_id_fkey = { table: "work_order_bids", keys: ["open_listing_id"], target: "work_order_open_listings", targetKeys: ["id"], delete: "n", validated: true };
-  assert.throws(() => assertCatalogShape(state, migrations, false), /column already exists/);
-  state.ledger = [{ version: BID_LINK_BASELINE.version, name: BID_LINK_BASELINE.name, statements: ["forged statement"] }];
-  assert.throws(() => assertCatalogShape(state, migrations, false), /ledger identity differs/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /column already exists/);
+  state.ledger = [{ version: BID_LINK_BASELINES.staging.version, name: BID_LINK_BASELINES.staging.name, statements: ["forged statement"] }];
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /ledger identity differs/);
   state.ledger = [];
   delete state.indexes.work_order_bids_open_listing_idx;
-  assert.throws(() => assertCatalogShape(state, migrations, false), /column already exists/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /column already exists/);
+});
+
+test("bid-link provenance uses exact target version and rejects cross-target or changed statements", () => {
+  const state = absentSnapshot();
+  state.columns["work_order_bids.open_listing_id"] = { type: "uuid", default: null, notNull: false };
+  state.indexes.work_order_bids_open_listing_idx = { kind: "i", valid: true, ready: true, table: "work_order_bids", unique: false, keys: ["open_listing_id"], predicate: null, method: "btree" };
+  state.fks.work_order_bids_open_listing_id_fkey = { table: "work_order_bids", keys: ["open_listing_id"], target: "work_order_open_listings", targetKeys: ["id"], delete: "n", validated: true };
+  // The source statement is held by the database ledger, not a repository file.
+  // These negative cases still prove the target/version boundary before catalog acceptance.
+  state.ledger = [{ version: BID_LINK_BASELINES.production.version, name: BID_LINK_BASELINES.production.name, statements: ["forged statement"] }];
+  assert.throws(() => assertCatalogShape(state, migrations, false, "production"), /ledger identity differs/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /ledger identity differs/);
+  state.ledger[0].version = BID_LINK_BASELINES.staging.version;
+  assert.throws(() => assertCatalogShape(state, migrations, false, "production"), /ledger identity differs/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "unknown"), /Exact target required/);
 });
 
 test("preflight refuses partial ledger and partial catalog", () => {
   const state = absentSnapshot();
-  assert.doesNotThrow(() => assertCatalogShape(state, migrations, false));
+  assert.doesNotThrow(() => assertCatalogShape(state, migrations, false, "staging"));
   state.ledger.push({ version: migrations[0].version, name: migrations[0].name, statements: [migrations[0].sql] });
-  assert.throws(() => assertCatalogShape(state, migrations, false), /ledger partly/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /ledger partly/);
   state.ledger = [];
   state.tables.vendor_reviews = { exists: true };
-  assert.throws(() => assertCatalogShape(state, migrations, false), /table state/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /table state/);
   state.tables.vendor_reviews = { exists: false };
   state.columns["portal_workspaces.payout_mode"] = { type: "text" };
-  assert.throws(() => assertCatalogShape(state, migrations, false), /column already exists/);
+  assert.throws(() => assertCatalogShape(state, migrations, false, "staging"), /column already exists/);
 });
 
 test("a failed SQL statement prevents its ledger insert and all later migrations", async () => {
@@ -129,7 +144,7 @@ test("a failed SQL statement prevents its ledger insert and all later migrations
 test("transaction refuses an unavailable migration lock and rolls back", async () => {
   const calls = [];
   const client = { async query(sql) { calls.push(sql); return sql.includes("pg_try_advisory_xact_lock") ? { rows: [{ acquired: false }] } : { rows: [] }; } };
-  await assert.rejects(runTransaction(client, migrations, true), /lock unavailable/);
+  await assert.rejects(runTransaction(client, migrations, true, undefined, "staging"), /lock unavailable/);
   assert.equal(calls.at(-1), "rollback");
   assert.ok(!calls.includes("commit"));
 });

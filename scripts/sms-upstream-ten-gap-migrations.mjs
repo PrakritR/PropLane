@@ -20,9 +20,9 @@ const ENTRIES = Object.freeze([
   ["20260925220000", "workspace_stripe_connect", "f8c9a86650b45120929f70fa07ea6999835358a5cd07e50fdcf740a17e0b69f8"],
   ["20260925231000", "work_order_bids_open_listing_link", "e31fbb59e2927a4e157e39e6cef8eb4a097cc0ce691cb9ec7254513e2eaae711"],
 ]);
-export const BID_LINK_BASELINE = Object.freeze({
-  version: "20260926070144", name: "work_order_open_listings",
-  statementHash: "2a8e04b1dea9d892b92ce3a5c84a4e4cb7b7f4a3a41fda427c1c8c891ea111e9",
+export const BID_LINK_BASELINES = Object.freeze({
+  staging: Object.freeze({ version: "20260926070144", name: "work_order_open_listings", statementHash: "2a8e04b1dea9d892b92ce3a5c84a4e4cb7b7f4a3a41fda427c1c8c891ea111e9" }),
+  production: Object.freeze({ version: "20260926070149", name: "work_order_open_listings", statementHash: "2a8e04b1dea9d892b92ce3a5c84a4e4cb7b7f4a3a41fda427c1c8c891ea111e9" }),
 });
 export const NEW_TABLES = ["vendor_reviews", "proplane_balance_accounts", "proplane_balance_entries", "lease_document_library", "manager_vendor_preferences", "workspace_debit_consents"];
 const PREREQUISITES = ["vendor_business_profiles", "vendor_invoices", "portal_workspaces", "portal_work_order_records", "manager_vendor_records", "work_order_bids", "work_order_open_listings"];
@@ -183,9 +183,12 @@ function expectedBody(sql) {
   return match[1];
 }
 
-function assertLedgerRows(rows, migrations, applied) {
-  const baselineRows = rows.filter((row) => row.version === BID_LINK_BASELINE.version || row.name === BID_LINK_BASELINE.name);
-  if (baselineRows.length && (baselineRows.length !== 1 || baselineRows[0].version !== BID_LINK_BASELINE.version || baselineRows[0].name !== BID_LINK_BASELINE.name || !Array.isArray(baselineRows[0].statements) || baselineRows[0].statements.length !== 1 || sha256(baselineRows[0].statements[0]) !== BID_LINK_BASELINE.statementHash)) throw new Error("Earlier bid-link ledger identity differs from reviewed statement");
+function assertLedgerRows(rows, migrations, applied, target) {
+  const baseline = BID_LINK_BASELINES[target];
+  if (!baseline) throw new Error("Exact target required for bid-link provenance");
+  const baselineVersions = Object.values(BID_LINK_BASELINES).map((entry) => entry.version);
+  const baselineRows = rows.filter((row) => baselineVersions.includes(row.version) || row.name === baseline.name);
+  if (baselineRows.length && (baselineRows.length !== 1 || baselineRows[0].version !== baseline.version || baselineRows[0].name !== baseline.name || !Array.isArray(baselineRows[0].statements) || baselineRows[0].statements.length !== 1 || sha256(baselineRows[0].statements[0]) !== baseline.statementHash)) throw new Error("Earlier bid-link ledger identity differs from reviewed statement");
   const tenRows = rows.filter((row) => !baselineRows.includes(row));
   if (!applied && tenRows.length) throw new Error("Ten-gap ledger partly or fully present");
   if (applied && (tenRows.length !== migrations.length || migrations.some((m) => {
@@ -195,8 +198,8 @@ function assertLedgerRows(rows, migrations, applied) {
   return baselineRows.length === 1;
 }
 
-export function assertCatalogShape(snapshot, migrations, applied) {
-  const earlierBidLink = assertLedgerRows(snapshot.ledger, migrations, applied);
+export function assertCatalogShape(snapshot, migrations, applied, target) {
+  const earlierBidLink = assertLedgerRows(snapshot.ledger, migrations, applied, target);
   for (const name of PREREQUISITES) if (!snapshot.tables[name]?.exists) throw new Error(`Prerequisite table missing: ${name}`);
   for (const name of NEW_TABLES) {
     const table = snapshot.tables[name];
@@ -259,7 +262,7 @@ export function assertCatalogShape(snapshot, migrations, applied) {
 }
 
 async function snapshot(client, migrations) {
-  const versions = [...migrations.map((m) => m.version), BID_LINK_BASELINE.version], names = [...migrations.map((m) => m.name), BID_LINK_BASELINE.name];
+  const versions = [...migrations.map((m) => m.version), ...Object.values(BID_LINK_BASELINES).map((entry) => entry.version)], names = [...migrations.map((m) => m.name), BID_LINK_BASELINES.staging.name];
   const ledger = (await client.query("select version,name,statements from supabase_migrations.schema_migrations where version=any($1::text[]) or name=any($2::text[]) order by version", [versions, names])).rows;
   const tableNames = [...new Set([...PREREQUISITES, ...NEW_TABLES])];
   const tables = Object.fromEntries(tableNames.map((name) => [name, { exists: false }]));
@@ -317,15 +320,15 @@ async function snapshot(client, migrations) {
   return { ledger, tables, columns, indexes, functions, fks, constraints };
 }
 
-export async function checkCatalog(client, migrations, applied) {
+export async function checkCatalog(client, migrations, applied, target) {
   const state = await snapshot(client, migrations);
-  assertCatalogShape(state, migrations, applied);
+  assertCatalogShape(state, migrations, applied, target);
   return sha256(JSON.stringify(state));
 }
 
-async function readOnly(client, migrations, applied) {
+async function readOnly(client, migrations, applied, target) {
   await client.query("begin read only");
-  try { await client.query("set local role postgres"); return await checkCatalog(client, migrations, applied); }
+  try { await client.query("set local role postgres"); return await checkCatalog(client, migrations, applied, target); }
   finally { await client.query("rollback").catch(() => undefined); }
 }
 
@@ -342,7 +345,7 @@ export async function applyReviewedMigrations(client, migrations) {
   }
 }
 
-export async function runTransaction(client, migrations, commit, expectedBeforeFingerprint) {
+export async function runTransaction(client, migrations, commit, expectedBeforeFingerprint, target) {
   await client.query("begin");
   let commitAttempted = false;
   try {
@@ -351,10 +354,10 @@ export async function runTransaction(client, migrations, commit, expectedBeforeF
     await client.query("set local statement_timeout='30s'");
     const lock = (await client.query("select pg_try_advisory_xact_lock(20260925000000::bigint) acquired")).rows[0];
     if (!lock?.acquired) throw new Error("Ten-gap migration lock unavailable");
-    const beforeFingerprint = await checkCatalog(client, migrations, false);
+    const beforeFingerprint = await checkCatalog(client, migrations, false, target);
     if (expectedBeforeFingerprint && beforeFingerprint !== expectedBeforeFingerprint) throw new Error("Target catalog changed between preflight and locked operation");
     await applyReviewedMigrations(client, migrations);
-    await checkCatalog(client, migrations, true);
+    await checkCatalog(client, migrations, true, target);
     if (commit) { commitAttempted = true; await client.query("commit"); }
     else await client.query("rollback");
     return beforeFingerprint;
@@ -376,11 +379,11 @@ async function main() {
   let client = await connect(config);
   try {
     if (args.phase === "postflight") {
-      const catalogFingerprint = await readOnly(client, migrations, true);
+      const catalogFingerprint = await readOnly(client, migrations, true, args.target);
       console.log(JSON.stringify({ target: args.target, targetRef, phase: args.phase, catalogFingerprint, verified: true }));
       return;
     }
-    const beforeFingerprint = await readOnly(client, migrations, false);
+    const beforeFingerprint = await readOnly(client, migrations, false, args.target);
     if (args.phase === "preflight") {
       console.log(JSON.stringify({ target: args.target, targetRef, phase: args.phase, beforeFingerprint, migrations: migrations.map(({ version, hash }) => ({ version, hash })), ready: true }));
       return;
@@ -391,15 +394,15 @@ async function main() {
       if ((statSync(args.backupFile).mode & 0o777) !== 0o600) throw new Error("Backup permissions differ from 0600");
       backupHash = await hashFile(args.backupFile);
     }
-    await runTransaction(client, migrations, args.phase === "apply", beforeFingerprint);
+    await runTransaction(client, migrations, args.phase === "apply", beforeFingerprint, args.target);
     if (args.phase === "rehearsal") {
-      await readOnly(client, migrations, false);
+      await readOnly(client, migrations, false, args.target);
       console.log(JSON.stringify({ target: args.target, targetRef, phase: args.phase, beforeFingerprint, rolledBack: true }));
       return;
     }
     await client.end();
     client = await connect(config);
-    const catalogFingerprint = await readOnly(client, migrations, true);
+    const catalogFingerprint = await readOnly(client, migrations, true, args.target);
     console.log(JSON.stringify({ target: args.target, targetRef, phase: args.phase, beforeFingerprint, backupFile: args.backupFile, backupHash, catalogFingerprint, outcome: "committed_and_verified" }));
   } finally { await client.end().catch(() => undefined); }
 }
