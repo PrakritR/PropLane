@@ -28,10 +28,14 @@ describe("SiteSwitchSteps", () => {
     expect(screen.getByRole("heading", { name: "Create it, invite when you're ready" })).toBeInTheDocument();
   });
 
-  it("renders the real review step's summary line and create button copy in the mock", () => {
+  // Captain 2026-09-25: the review step is a real /demo slice, not a
+  // hand-drawn replica of it — assert the deep-link, not invented copy.
+  it("embeds the real /demo Properties -> Import review screen, not a hand-drawn replica", () => {
     render(<SiteSwitchSteps />);
-    expect(screen.getByText("rent-roll.xlsx")).toBeInTheDocument();
-    expect(screen.getByText("Create 4…")).toBeInTheDocument();
+    const iframe = document.querySelector("iframe");
+    expect(iframe).toBeInTheDocument();
+    expect(iframe?.getAttribute("src")).toBe("/demo?role=manager&section=import");
+    expect(iframe).toHaveAttribute("tabindex", "-1");
   });
 
   it("is imported and rendered by the home page", () => {

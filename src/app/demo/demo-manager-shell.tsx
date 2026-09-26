@@ -97,6 +97,19 @@ function portalDefinitionFor(role: DemoPortalRole): PortalDefinition {
   return proPortal;
 }
 
+/** Sections `DemoSectionRenderer` can render for a role that are NOT one of
+ * that role's sidebar nav items — e.g. manager "import" (the real
+ * `/portal/properties/import`, reached from a button on Properties, never
+ * its own nav entry) — but are still valid `?section=` deep-links. */
+const EXTRA_DEEP_LINK_SECTIONS: Partial<Record<DemoPortalRole, string[]>> = {
+  manager: ["import"],
+};
+
+function isValidDemoSection(role: DemoPortalRole, section: string): boolean {
+  if (portalDefinitionFor(role).sections.some((s) => s.section === section)) return true;
+  return (EXTRA_DEEP_LINK_SECTIONS[role] ?? []).includes(section);
+}
+
 /**
  * The real avatar-menu "Switch to Resident/Property portal" entry
  * (`PortalRoleSwitcher`) needs a live, authenticated `GET
@@ -251,7 +264,7 @@ export function DemoManagerShell({
 
   const [portalRole, setPortalRole] = useState<DemoPortalRole>(initialRole);
   const [section, setSection] = useState(() =>
-    portalDefinitionFor(initialRole).sections.some((s) => s.section === initialSection) ? initialSection : "dashboard",
+    isValidDemoSection(initialRole, initialSection) ? initialSection : "dashboard",
   );
   const [tab, setTab] = useState<string | null>(null);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);

@@ -48,6 +48,7 @@ const ManagerLeases = dynamic(() => import("@/components/portal/pro-leases").the
 const ManagerPayments = dynamic(() => import("@/components/portal/pro-payments").then((m) => m.ManagerPayments), { ssr: false, loading });
 const ManagerTaskList = dynamic(() => import("@/components/portal/pro-task-list").then((m) => m.ManagerTaskList), { ssr: false, loading });
 const ManagerInbox = dynamic(() => import("@/components/portal/pro-inbox").then((m) => m.ManagerInbox), { ssr: false, loading });
+const DemoImportReviewPanel = dynamic(() => import("@/components/demo/demo-import-review-panel").then((m) => m.DemoImportReviewPanel), { ssr: false, loading });
 const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/pro-all-services-panel").then((m) => m.ManagerAllServicesPanel), { ssr: false, loading });
 const ManagerFinancesPanel = dynamic(() => import("@/components/portal/pro-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
 const ManagerDocumentsPanel = dynamic(() => import("@/components/portal/pro-documents-panel").then((m) => m.ManagerDocumentsPanel), { ssr: false, loading });
@@ -145,6 +146,11 @@ export function DemoSectionRenderer({
         return <ManagerDashboard displayName={managerDisplayName} />;
       case "properties":
         return <ManagerProperties />;
+      // Not a sidebar nav item (matches the real /portal/properties/import,
+      // reached from a button on Properties, not its own nav entry) — a
+      // deep-link-only section for the home page's "Switching" embed.
+      case "import":
+        return <DemoImportReviewPanel />;
       case "calendar":
         return <PortalCalendar portal="manager" initialUserId={managerUserId} />;
       case "applications":
