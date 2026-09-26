@@ -29,11 +29,20 @@ vi.mock("@/components/providers/app-ui-provider", () => {
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [], vendors: [], ready: true }),
 }));
-vi.mock("@/lib/demo-admin-scheduling", () => ({
-  formatRangeLabel: (start: string, end: string) => `${start}–${end}`,
-  syncScheduleRecordsFromServer: () => Promise.resolve(true),
-  formatAvailabilitySlotLabel: (slot: number) => `slot ${slot}`,
-}));
+vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
+  // portal-calendar-panels.tsx (rendered under manager-tour-availability-modal
+  // in this component's tree) also imports SLOTS_PER_DAY and other real
+  // constants/helpers directly — a mock that only covers these three named
+  // functions throws "no export is defined" deep in that panel instead of
+  // failing this file's own assertions.
+  const actual = await importOriginal<typeof import("@/lib/demo-admin-scheduling")>();
+  return {
+    ...actual,
+    formatRangeLabel: (start: string, end: string) => `${start}–${end}`,
+    syncScheduleRecordsFromServer: () => Promise.resolve(true),
+    formatAvailabilitySlotLabel: (slot: number) => `slot ${slot}`,
+  };
+});
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/demo-property-pipeline")>();
   return { ...actual, syncPropertyPipelineFromServer: () => Promise.resolve(true) };
