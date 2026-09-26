@@ -1,5 +1,6 @@
 "use client";
 
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -379,7 +380,10 @@ export function ManagerTours({
   const [proposalBusy, setProposalBusy] = useState(false);
 
   const loadTourProposals = useCallback(async () => {
-    if (scopedPropertyId) {
+    // The Seattle Homes sandbox seeds tours directly (`demo-guided-data.ts`'s
+    // `schedule`), never through the separate tour-inquiry-proposal flow —
+    // never fetch this auth-gated route from `/demo`.
+    if (scopedPropertyId || isDemoModeActive()) {
       setTourProposals([]);
       return;
     }

@@ -75,6 +75,7 @@ import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { residentTourDetailHref, residentTourListHref } from "@/lib/portal-detail-routes";
 import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { residentTourBucketForView, sortResidentTourViews } from "@/lib/resident-tour-list";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
 import {
@@ -529,6 +530,13 @@ export function ResidentDashboard({
 
   useEffect(() => {
     if (!clientReady || !email) return;
+    // `/demo`'s Tours row isn't part of the seeded Seattle Homes resident
+    // story (Dana Reyes is already leased) — never fetch this auth-gated
+    // route from the sandbox.
+    if (isDemoModeActive()) {
+      setTours([]);
+      return;
+    }
     let alive = true;
     void (async () => {
       try {
