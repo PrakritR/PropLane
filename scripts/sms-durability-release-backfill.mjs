@@ -8,10 +8,10 @@ import { pathToFileURL } from "node:url";
 import { SMS_RELEASE_TARGETS, sha256 } from "./sms-durability-release-manifest.mjs";
 import { runBackfill, isCleanCutoverInventory } from "./backfill-sms-projection.mjs";
 
-export const BACKFILL_HASH = "c6a3c61c993b45354a7a9c69377e81b64d3323311f82eac15831c27b7aba6924";
+export const BACKFILL_HASH = "93715b94134330ffb7dcfe25428f9c4266e6e79f172b7867a5ed50987d45eb57";
 const CURSORS = {
-  staging: "/private/tmp/sms-staging-20260926-reviewed-c6a3c61c-cursor.json",
-  production: "/private/tmp/sms-production-20260926-reviewed-c6a3c61c-cursor.json",
+  staging: "/private/tmp/sms-staging-20260926-reviewed-93715b94-cursor.json",
+  production: "/private/tmp/sms-production-20260926-reviewed-93715b94-cursor.json",
 };
 
 export function bindCursor(options) {

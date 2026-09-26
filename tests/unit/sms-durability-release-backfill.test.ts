@@ -9,7 +9,7 @@ describe("SMS release backfill wrapper", () => {
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(BACKFILL_HASH);
   });
   it("uses fresh target-specific cursors and rejects an old or cross-target cursor", () => {
-    const options = args(["--target", "staging", "--cursor-file", "/private/tmp/sms-staging-20260926-reviewed-c6a3c61c-cursor.json"]);
+    const options = args(["--target", "staging", "--cursor-file", "/private/tmp/sms-staging-20260926-reviewed-93715b94-cursor.json"]);
     expect(() => bindCursor(options)).not.toThrow();
     expect(() => bindCursor({ ...options, cursorFile: "/private/tmp/sms-staging-20260925-cursor.json" })).toThrow();
     expect(() => bindCursor({ ...options, target: "production" })).toThrow();

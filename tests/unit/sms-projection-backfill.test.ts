@@ -131,6 +131,11 @@ describe("SMS projection backfill safety", () => {
     const candidate = { sourceTable: "manager_sms_messages", providerLookupId: sid };
     expect(eventMatchesStored(existing, event)).toBe(false);
     expect(isExactInboundMirrorOfOriginal(existing, event, candidate)).toBe(true);
+    const ingressOriginal = { ...existing, source_ref: { ...existing.source_ref, table: "prospect_sms_ingress" } };
+    expect(isExactInboundMirrorOfOriginal(ingressOriginal, event, { ...candidate, sourceSubtype: "automated" })).toBe(true);
+    expect(isExactInboundMirrorOfOriginal(ingressOriginal, event, candidate)).toBe(false);
+    expect(isExactInboundMirrorOfOriginal({ ...ingressOriginal, body: "changed" }, event,
+      { ...candidate, sourceSubtype: "automated" })).toBe(false);
     expect(isExactInboundMirrorOfOriginal({ ...existing, body: "changed" }, event, candidate)).toBe(false);
     expect(isExactInboundMirrorOfOriginal({ ...existing, owner_manager_user_id: "other" }, event, candidate)).toBe(false);
     expect(isExactInboundMirrorOfOriginal(existing, { ...event, fromPhone: "+14155550124" }, candidate)).toBe(false);

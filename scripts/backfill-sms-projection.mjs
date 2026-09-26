@@ -231,7 +231,8 @@ export function isExactInboundMirrorOfOriginal(existing, event, candidate, { his
   const providerSid = existing.source_ref?.providerEventId;
   return candidate.sourceTable === "manager_sms_messages"
     && event.direction === "inbound"
-    && existing.source_ref?.table === "inbound_sms_log"
+    && (existing.source_ref?.table === "inbound_sms_log"
+      || (existing.source_ref?.table === "prospect_sms_ingress" && candidate.sourceSubtype === "automated"))
     && typeof providerSid === "string" && /^(?:SM|MM)[0-9a-fA-F]{32}$/.test(providerSid)
     && providerSid === candidate.providerLookupId
     && providerSid === event.sourceRef?.providerEventId
