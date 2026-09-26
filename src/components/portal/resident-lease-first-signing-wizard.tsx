@@ -31,6 +31,7 @@ import {
 } from "@/lib/lease-pipeline-storage";
 
 const AUTHORIZATION_SECTION_RE = /authoriz|signature/i;
+const INVITE_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 type ClauseStep = { kind: "clause"; id: string; title: string; fields: ManagerCustomApplicationField[] };
 type ReviewStep = { kind: "review" };
@@ -121,6 +122,68 @@ function ClauseInitialsRow({
 }
 
 /**
+ * C278 — the Sign step's optional representative / legal representative /
+ * personal-guarantee fields are invite-by-email: the resident enters that
+ * person's email (stored as the field's answer, same as any other typed
+ * field) and sends them a one-way informational notice
+ * (`/api/resident/lease-signer-invite`). There is no portal access, account,
+ * or second signature for the invited party — the notice only tells them
+ * they were named.
+ */
+function InviteSignerRow({
+  field,
+  value,
+  onChange,
+  onSend,
+  sending,
+  sent,
+  error,
+}: {
+  field: ManagerCustomApplicationField;
+  value: string;
+  onChange: (next: string) => void;
+  onSend: () => void;
+  sending: boolean;
+  sent: boolean;
+  error?: string;
+}) {
+  const emailLooksValid = INVITE_EMAIL_RE.test(value.trim());
+  return (
+    <div className="rounded-xl border border-border bg-card p-4" data-attr={`lease-sign-invite-${field.key}`}>
+      <label htmlFor={`lease-sign-invite-email-${field.key}`} className="text-sm font-semibold text-foreground">
+        {field.label}
+      </label>
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          id={`lease-sign-invite-email-${field.key}`}
+          type="email"
+          inputMode="email"
+          placeholder="email@example.com"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          data-attr={`lease-sign-invite-email-input-${field.key}`}
+          className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!emailLooksValid || sending}
+          onClick={onSend}
+          data-attr={`lease-sign-invite-send-${field.key}`}
+        >
+          {sending ? "Sending…" : sent ? "Invited" : "Send invite"}
+        </Button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-xs text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Which phase (if any) of the lease-first signing flow this row is in, so the
  * parent panel can suppress its generic document-preview/sign UI while this
  * wizard owns the screen. `null` = not a lease-first row with an imported
@@ -153,6 +216,10 @@ export function ResidentLeaseFirstSigningWizard({
   const [beginning, setBeginning] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>(() => ({ ...(row.signingAnswers ?? {}) }));
+  // C278 — per-field invite state for the Sign step's optional invite-by-email fields.
+  const [inviteSending, setInviteSending] = useState<string | null>(null);
+  const [invited, setInvited] = useState<Set<string>>(new Set());
+  const [inviteErrors, setInviteErrors] = useState<Record<string, string>>({});
 
   const notYetBegun = row.leaseFirst === true && row.bucket === "manager" && row.status === "Draft";
   const inProgress =
@@ -219,6 +286,31 @@ export function ResidentLeaseFirstSigningWizard({
     updateLeasePipelineRow(row.id, { signingAnswers: next });
   };
 
+  const sendSignerInvite = async (field: ManagerCustomApplicationField) => {
+    const inviteEmail = answerFor(field).trim();
+    if (!inviteEmail) return;
+    setInviteSending(field.key);
+    setInviteErrors((prev) => ({ ...prev, [field.key]: "" }));
+    try {
+      const res = await fetch("/api/resident/lease-signer-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leaseId: row.id, roleLabel: field.label, inviteEmail }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setInviteErrors((prev) => ({ ...prev, [field.key]: payload.error || "Could not send the invite." }));
+        return;
+      }
+      setInvited((prev) => new Set(prev).add(field.key));
+      showToast(`Invite sent to ${inviteEmail}`);
+    } catch {
+      setInviteErrors((prev) => ({ ...prev, [field.key]: "Could not send the invite. Try again." }));
+    } finally {
+      setInviteSending(null);
+    }
+  };
+
   const stepFields = step.kind === "clause" ? step.fields : step.kind === "sign" ? step.inviteFields : [];
   const missingRequired =
     step.kind === "clause" &&
@@ -242,6 +334,19 @@ export function ResidentLeaseFirstSigningWizard({
             data-attr="lease-first-review-document"
             dangerouslySetInnerHTML={{ __html: row.generatedHtml ?? "" }}
           />
+        ) : step.kind === "sign" ? (
+          stepFields.map((field) => (
+            <InviteSignerRow
+              key={field.key}
+              field={field}
+              value={answerFor(field)}
+              onChange={(next) => { setAnswer(field.key, next); setInvited((prev) => { if (!prev.has(field.key)) return prev; const next2 = new Set(prev); next2.delete(field.key); return next2; }); }}
+              onSend={() => void sendSignerInvite(field)}
+              sending={inviteSending === field.key}
+              sent={invited.has(field.key)}
+              error={inviteErrors[field.key]}
+            />
+          ))
         ) : (
           stepFields.map((field) =>
             field.type === "initials" ? (

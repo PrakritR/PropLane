@@ -42,6 +42,30 @@ Coverage: `tests/unit/resident-lease-visible-when-slim.test.ts`,
 `lease-sign-awaits-server.test.ts`, `lease-signature-hash-guard.test.ts`,
 `lease-first-draft.test.ts`.
 
+## Lease-first Sign step — optional signers are invite-by-email, not typed text (C278)
+
+`ResidentLeaseFirstSigningWizard`'s "Sign" step keeps the required primary
+signature off this wizard entirely (it hands off to the real signing path via
+`onReachedSign`), and renders every OTHER field from the imported template's
+"authorization" section (representative / legal representative / personal
+guarantee) as an invite-by-email row: an email input plus a "Send invite"
+button, not a plain typed-text question. The resident's typed value (the third
+party's email) still saves through the wizard's existing `signingAnswers`
+write — no new column, no new table.
+
+"Send invite" posts to `POST /api/resident/lease-signer-invite`, which
+resolves the resident actor the same way `report-lease-issue` does, then calls
+`sendLeaseSignerInvite` (`src/lib/lease-signer-invite.server.ts`): verifies the
+caller owns the lease, that it is genuinely on the lease-first Sign step
+(`leaseFirst`, `bucket: "resident"`, `status: "Resident Signature Pending"`,
+no `residentSignature` yet), then sends ONE plain, one-way notice email
+through the existing `postResendEmail` transport. The invited party never
+gets portal access, an account, or a way to sign — the email exists purely to
+tell them they were named, matching "no new auth surface."
+
+Coverage: `tests/unit/lease-signer-invite.test.ts`,
+`tests/unit/resident-lease-first-signing-wizard-invite.test.ts`.
+
 ## PDF import review and signing
 
 The private original PDF remains the source for both lease and application imports. The shared server parser records page spans, form widgets, a source SHA-256, and unresolved pages. A bounded local OCR pass handles up to four image-only pages. A manager must resolve every reported import issue before publishing an application template or confirming a converted lease. The PDF is served through the owner-scoped private document route, never a public object URL.
