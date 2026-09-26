@@ -385,29 +385,17 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       consultationVisitAt: null,
       amountCents: 14000,
       materialsCents: 0,
-      proposedTime: "Thu 10:00 AM – 12:00 PM",
+      proposedTime: new Date(Date.now() + 2 * DAY_MS).toISOString(),
       note: "Standard faucet cartridge replacement.",
       status: "accepted",
       createdAt: daysAgo(3).toISOString(),
       updatedAt: daysAgo(2).toISOString(),
     },
-    {
-      id: "demo-bid-maple-heat",
-      workOrderId: "demo-wo-maple-heat",
-      vendorUserId: "demo-vendor-pacific-plumbing",
-      vendorDirectoryId: "demo-vendor-pacific-plumbing",
-      vendorName: "Pacific Plumbing",
-      vendorEmail: "pacific.plumbing@example.com",
-      quoteMode: "after_consultation",
-      consultationVisitAt: new Date(Date.now() + DAY_MS).toISOString(),
-      amountCents: null,
-      materialsCents: 0,
-      proposedTime: null,
-      note: "Needs a look before quoting — could be the water heater.",
-      status: "submitted",
-      createdAt: daysAgo(1).toISOString(),
-      updatedAt: daysAgo(1).toISOString(),
-    },
+    // The Maple Duplex work order stays unbid on purpose (a second bid row
+    // for the same vendor in one upsert batch collides downstream in the DB
+    // writer — "ON CONFLICT DO UPDATE command cannot affect row a second
+    // time" — not worth a second synthetic vendor just to avoid it). An
+    // open, un-bid "No hot water" job is its own real state to show.
   ];
 
   // Three tours this week, across all three properties.
