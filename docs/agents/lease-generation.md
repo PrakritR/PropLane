@@ -595,6 +595,26 @@ regardless of document mode. Owner: `buildLeaseExportWithAuditPdf`
   the list's single-select bulk bar), wired through `runLeaseExport` /
   `exportLeaseWithAuditPdf`.
 
+### Audit trail: who signed, when, and the fingerprint (C066, Sep 2026)
+
+`leaseAuditTrailFacts` (`lease-execution-evidence.ts`) is the pure derivation
+— it was already computing the hash but nothing rendered it. `null` when the
+row has nothing yet to attest (unsigned). Rendered in two places, both inside
+files this agent owns:
+
+- The lease-document tab, right under the existing Signatures facts
+  (`renderLeaseAuditTrailFacts`, `pro-leases-pipeline-panel.tsx`).
+- An "Audit trail" card on the lease record's Overview, mirroring the shape of
+  the existing "Signatures" card.
+
+**Known gap, flagged rather than worked around:** the item's own language
+("Overview, document viewer, and an Audit trail") reads as three siblings —
+i.e. a dedicated Audit trail TAB — which needs a new tab id registered in the
+shared `record-sections.ts` lease-kind entry. That file is explicitly
+off-limits to this workstream (shared shell registry); the content above is
+the real, complete audit trail, just reachable from Overview/the document tab
+rather than its own tab until the shell owner adds the id.
+
 # Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
 
 A lease signed on paper or in another tool is filed from the Leases tab: upload the

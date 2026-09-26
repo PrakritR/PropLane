@@ -80,7 +80,9 @@ import { attachLibraryLeaseDocumentAndParse, retryUploadedLeaseParse, uploadAndP
 import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
 import { LeaseAttachFromLibraryModal } from "@/components/portal/lease-attach-from-library-modal";
 import {
+  documentFingerprintLabel,
   leaseAllowsSignedPdfUpload,
+  leaseAuditTrailFacts,
   leaseCanBeMarkedSignedOffPlatform,
   leaseClaimsExecution,
 } from "@/lib/lease-execution-evidence";
@@ -908,6 +910,27 @@ export function ManagerLeasesPipelinePanel({
     </div>
   );
 
+  /**
+   * C066: who signed, when, and the document fingerprint — the hash was
+   * already computed (`row.documentSha256`, per-signature `documentSha256`)
+   * but never rendered to the manager. No dedicated "Audit trail" tab exists
+   * (that needs a new id in the shared `record-sections.ts` registry, owned
+   * by the shell workstream); this is the real audit content, placed in the
+   * lease document tab right under Signatures, and mirrored as its own
+   * Overview card below.
+   */
+  const renderLeaseAuditTrailFacts = (row: LeasePipelineRow) => {
+    const facts = leaseAuditTrailFacts(row);
+    if (!facts) return null;
+    return (
+      <div className="px-3 pb-4 sm:px-4" data-attr="lease-audit-trail-facts">
+        {facts.map((fact) => (
+          <LeaseFact key={fact.label} label={fact.label} value={fact.value} />
+        ))}
+      </div>
+    );
+  };
+
   const renderLeaseAmendmentsBody = (row: LeasePipelineRow) => {
     if (row.pendingRenewal) {
       return (
@@ -1261,6 +1284,7 @@ export function ManagerLeasesPipelinePanel({
           {renderLeaseRowDetail(detailRow)}
           {renderLeaseTermsFacts(detailRow)}
           {renderLeaseSignaturesFacts(detailRow)}
+          {renderLeaseAuditTrailFacts(detailRow)}
           {renderLeaseAmendmentsBody(detailRow)}
         </>
       ) : activeTab === "payments" ? (
@@ -1320,6 +1344,39 @@ export function ManagerLeasesPipelinePanel({
               rows: [],
               emptyLabel: "No payments linked yet",
             },
+            // C066: who signed, when, and the document fingerprint — the
+            // audit trail already computed but never surfaced. Only shown
+            // once there is something to attest.
+            ...(leaseClaimsExecution(detailRow)
+              ? [
+                  {
+                    id: "audit-trail",
+                    title: "Audit trail",
+                    action: {
+                      label: "Lease document",
+                      href: leaseDetailHref(listBasePath ?? "/portal", tab, detailRow.id, "lease-document"),
+                    },
+                    rows: [
+                      {
+                        label: "Manager",
+                        value: detailRow.managerSignature
+                          ? `${detailRow.managerSignature.name} · ${detailRow.managerSignature.signedAtIso}`
+                          : "Not signed",
+                      },
+                      {
+                        label: "Resident",
+                        value: detailRow.residentSignature
+                          ? `${detailRow.residentSignature.name} · ${detailRow.residentSignature.signedAtIso}`
+                          : "Not signed",
+                      },
+                      {
+                        label: "Fingerprint",
+                        value: documentFingerprintLabel(detailRow.documentSha256) ?? "—",
+                      },
+                    ],
+                  },
+                ]
+              : []),
           ],
         })
       );
