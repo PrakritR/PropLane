@@ -9,13 +9,14 @@ type Row = { id: string; owner_user_id: string; scope: string; thread_type: stri
 function memoryDb() {
   const rows = new Map<string, Row>();
   const db = { from() {
-    const filters: [string, unknown][] = [];
+    const filters: ((r: Row) => boolean)[] = [];
     let operation = "read";
     let value: Partial<Row> = {};
     let single = false;
     const q = {
       select: () => q, order: () => q, range: () => q,
-      eq(key: string, expected: unknown) { filters.push([key, expected]); return q; },
+      eq(key: string, expected: unknown) { filters.push((r) => r[key as keyof Row] === expected); return q; },
+      in(key: string, expected: unknown[]) { filters.push((r) => expected.includes(r[key as keyof Row])); return q; },
       upsert(row: Row) { operation = "insert"; value = row; return q; },
       update(row: Partial<Row>) { operation = "update"; value = row; return q; },
       single() { single = true; return q; },
@@ -26,7 +27,7 @@ function memoryDb() {
             rows.set(value.id!, structuredClone(value as Row));
             return { data: [{ id: value.id }], error: null };
           }
-          const found = [...rows.values()].filter((r) => filters.every(([k, v]) => r[k as keyof Row] === v));
+          const found = [...rows.values()].filter((r) => filters.every((f) => f(r)));
           if (operation === "update") for (const row of found) rows.set(row.id, structuredClone({ ...row, ...value }));
           return { data: structuredClone(single ? found[0] : found), error: null };
         }).then(resolve, reject);
