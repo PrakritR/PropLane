@@ -1,17 +1,23 @@
 "use client";
 
-import { ChevronDown, Settings } from "lucide-react";
+import { Check, ChevronDown, CreditCard, HelpCircle, Settings } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useSyncExternalStore } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { track } from "@/lib/analytics/track-client";
@@ -33,6 +39,7 @@ import {
   subscribeAxisAssistantOpen,
 } from "@/lib/axis-assistant/open-store";
 import type { PortalKind } from "@/lib/portal-types";
+import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 
 /**
  * The full-height assistant rail is the desktop destination for the top-bar
@@ -64,6 +71,9 @@ export function PortalTopBar({
   email: string | null;
 }) {
   const router = useRouter();
+  const workspaces = useWorkspaces();
+  const { showToast } = useAppUi();
+  const isWorkspacePortal = kind === "pro" || kind === "manager";
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   const assistantOpen = useSyncExternalStore(
     subscribeAxisAssistantOpen,
@@ -183,6 +193,41 @@ export function PortalTopBar({
             Settings
           </DropdownMenuItem>
 
+          {isWorkspacePortal ? (
+            <DropdownMenuItem
+              data-attr="portal-top-bar-billing"
+              onSelect={(event) => {
+                event.preventDefault();
+                router.push(MANAGER_PLAN_PORTAL_URL);
+              }}
+            >
+              <CreditCard aria-hidden />
+              Billing &amp; plan
+            </DropdownMenuItem>
+          ) : null}
+
+          {isWorkspacePortal && workspaces && workspaces.workspaces.length > 1 ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger data-attr="portal-top-bar-switch-workspace">
+                Switch workspace
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {workspaces.workspaces.map((workspace) => (
+                  <DropdownMenuItem
+                    key={workspace.id}
+                    data-attr="portal-top-bar-workspace-item"
+                    onSelect={() => {
+                      void workspaces.select(workspace.id).catch((e) => showToast(e.message));
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                    {workspace.id === workspaces.active?.id && <Check className="h-4 w-4" aria-hidden />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ) : null}
+
           {DARK_MODE_ENABLED ? (
             <div className="flex items-center justify-between gap-3 px-3 py-2">
               <span className="text-[13.5px] font-medium text-foreground">Appearance</span>
@@ -193,6 +238,13 @@ export function PortalTopBar({
           <div className="px-1">
             <PortalRoleSwitcher currentKind={kind} />
           </div>
+
+          <DropdownMenuItem asChild>
+            <Link href="/support" data-attr="portal-top-bar-help">
+              <HelpCircle aria-hidden />
+              Help
+            </Link>
+          </DropdownMenuItem>
 
           <DropdownMenuSeparator />
 
