@@ -131,6 +131,7 @@ export const DELETE_ORDER = [
   "prospect_tour_bookings",
   "prospect_tour_google_calendar_cleanup",
   "prospect_tour_google_calendar_create_intents",
+  "google_calendar_pending_changes",
   "tour_slot_reservations",
   "prospect_tour_scheduling_state",
   "agent_messages",
