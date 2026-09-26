@@ -53,11 +53,11 @@ const TIER_CTA: Record<PlanTierId, string> = {
  * simply drops that row rather than inventing one.
  */
 const TEASER_COMPARE_LABELS = [
-  "Doors included",
-  "Extra door price",
+  "Residents included",
+  "Extra resident price",
   "Residents & services",
   "Work number, texting & calls",
-  "AI drafts in the inbox",
+  "AI drafts in Communication",
   "Priority admin support",
 ];
 
@@ -105,7 +105,7 @@ export function SitePricingTeaser() {
       <SiteIntro
         eyebrow="Pricing"
         id="site-pricing-title"
-        title={`Free for your first resident. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors} residents. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
+        title={`Free for up to ${RATE_CARD.free.includedDoors} residents. ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo for up to ${RATE_CARD.pro.includedDoors}. ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo for up to ${RATE_CARD.business.includedDoors}.`}
         lede="No card to start."
         align="center"
       />

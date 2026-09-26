@@ -43,8 +43,16 @@ import { PortfolioPropertiesSection, type PortfolioPropertyCardData } from "@/co
 import { PortfolioImportReviewStep } from "@/components/portal/portfolio-import/review-step";
 import { DEMO_IMPORT_SAMPLE } from "@/lib/demo/demo-import-sample";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import {
+  InboxComposer,
+  InboxConversationRow,
+  InboxThreadView,
+  InboxTwoPane,
+} from "@/components/portal/portal-inbox-ui";
 import {
   APPLICATION_ROWS,
+  COMM_CONVERSATIONS,
   DASHBOARD_ATTENTION,
   DASHBOARD_KPIS,
   DASHBOARD_PROPERTIES,
@@ -54,12 +62,13 @@ import {
   SERVICE_ROWS,
   TOUR_ROWS,
   type ApplicationFixtureRow,
+  type CommConversationFixture,
   type LeaseFixtureRow,
   type PaymentFixtureRow,
   type ServiceFixtureRow,
   type TourFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
-import { FixtureField, FixtureSheet, FixtureTabs, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 
 /** The real kebab: `RowSelectCheckbox` only renders `RecordActionMenu` when
  * the enclosing surface got `bulkActions` — two static, no-op actions is
@@ -112,7 +121,14 @@ export function ToursPanel() {
         <ManagerPortalPageShell title="Tours">
           <PortalListControlStack
             variant="command"
-            destinationRow={<FixtureTabs tabs={TOUR_TABS.map((t) => ({ ...t, count: counts[t.id] }))} active={bucket} onChange={setBucket} />}
+            destinationRow={
+              <LocalDestinationNav
+                appearance="command"
+                items={TOUR_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+                activeId={bucket}
+                onChange={(id) => setBucket(id as TourFixtureRow["bucket"])}
+              />
+            }
             search={{ value: search, onChange: setSearch, placeholder: "Search tours" }}
             actions={
               <>
@@ -208,7 +224,14 @@ export function ApplicationsPanel() {
         <ManagerPortalPageShell title="Applications">
           <PortalListControlStack
             variant="command"
-            destinationRow={<FixtureTabs tabs={APPLICATION_TABS.map((t) => ({ ...t, count: counts[t.id] }))} active={bucket} onChange={setBucket} />}
+            destinationRow={
+              <LocalDestinationNav
+                appearance="command"
+                items={APPLICATION_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+                activeId={bucket}
+                onChange={(id) => setBucket(id as ApplicationFixtureRow["bucket"])}
+              />
+            }
             search={{ value: search, onChange: setSearch, placeholder: "Search applications" }}
             actions={
               <>
@@ -326,7 +349,14 @@ export function LeasesPanel() {
           </div>
           <PortalListControlStack
             variant="command"
-            destinationRow={<FixtureTabs tabs={LEASE_TABS.map((t) => ({ ...t, count: counts[t.id] }))} active={bucket} onChange={setBucket} />}
+            destinationRow={
+              <LocalDestinationNav
+                appearance="command"
+                items={LEASE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+                activeId={bucket}
+                onChange={(id) => setBucket(id as LeaseFixtureRow["bucket"])}
+              />
+            }
             search={{ value: search, onChange: setSearch, placeholder: "Search leases" }}
             actions={<PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />}
           />
@@ -403,7 +433,14 @@ export function PaymentsPanel() {
         <ManagerPortalPageShell title="Payments">
           <PortalListControlStack
             variant="command"
-            destinationRow={<FixtureTabs tabs={PAYMENT_TABS.map((t) => ({ ...t, count: counts[t.id], alert: t.id === "overdue" && counts[t.id] > 0 }))} active={bucket} onChange={setBucket} />}
+            destinationRow={
+              <LocalDestinationNav
+                appearance="command"
+                items={PAYMENT_TABS.map((t) => ({ ...t, count: counts[t.id], alert: t.id === "overdue" && counts[t.id] > 0 }))}
+                activeId={bucket}
+                onChange={(id) => setBucket(id as PaymentFixtureRow["bucket"])}
+              />
+            }
             search={{ value: search, onChange: setSearch, placeholder: "Search payments" }}
             actions={<PortalIconAction icon={Download} label="Export" onClick={() => show("Export")} />}
           />
@@ -477,7 +514,14 @@ export function ServicesPanel() {
         <ManagerPortalPageShell title="Services">
           <PortalListControlStack
             variant="command"
-            destinationRow={<FixtureTabs tabs={SERVICE_TABS.map((t) => ({ ...t, count: counts[t.id] }))} active={state} onChange={setState} />}
+            destinationRow={
+              <LocalDestinationNav
+                appearance="command"
+                items={SERVICE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+                activeId={state}
+                onChange={(id) => setState(id as ServiceFixtureRow["state"])}
+              />
+            }
             search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
             actions={<PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />}
           />
@@ -531,7 +575,7 @@ export function DashboardPanel() {
   }));
 
   return (
-    <ProductWindow path="/portal/dashboard" fill contentHeight={640}>
+    <ProductWindow path="/portal/dashboard" nativeHeight={900}>
       <PortalSidebarFixture active="dashboard" />
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
         <p className="mb-3 text-[15px] font-bold text-foreground">Welcome back</p>
@@ -558,7 +602,7 @@ export function ImportReviewPanel() {
   const { show, node: toastNode } = useFixtureToast();
 
   return (
-    <ProductWindow path="/portal/properties/import" width={820}>
+    <ProductWindow path="/portal/properties/import" nativeWidth={1100} nativeHeight={760}>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-card">
         <PortfolioImportReviewStep
           proposal={proposal}
@@ -575,6 +619,95 @@ export function ImportReviewPanel() {
           onSkipToggle={() => show("Updated")}
           onContinue={() => show(`Created ${proposal.summary.residents}…`)}
         />
+      </div>
+      {toastNode}
+    </ProductWindow>
+  );
+}
+
+/* ───────────────────────────── Communication ───────────────────────────── */
+
+const COMM_TABS = [
+  { id: "active" as const, label: "Active" },
+  { id: "archived" as const, label: "Archived" },
+];
+
+export function CommunicationPanel() {
+  const [segment, setSegment] = useState<"active" | "archived">("active");
+  const activeConversations = useMemo(() => COMM_CONVERSATIONS.filter((c) => c.segment === "active"), []);
+  const [selectedId, setSelectedId] = useState(activeConversations[0]!.id);
+  const [draft, setDraft] = useState("");
+  const [sent, setSent] = useState<Record<string, { id: string; author: string; body: string; at: string; direction: "outbound" }[]>>({});
+  const { show, node: toastNode } = useFixtureToast();
+
+  const counts = useMemo(() => {
+    const c = { active: 0, archived: 0 };
+    for (const conv of COMM_CONVERSATIONS) c[conv.segment] += 1;
+    return c;
+  }, []);
+  const visible = COMM_CONVERSATIONS.filter((c) => c.segment === segment);
+  const selected: CommConversationFixture | undefined = COMM_CONVERSATIONS.find((c) => c.id === selectedId) ?? visible[0];
+  const messages = selected ? [...selected.messages, ...(sent[selected.id] ?? [])] : [];
+
+  function send() {
+    if (!draft.trim() || !selected) return;
+    setSent((m) => ({
+      ...m,
+      [selected.id]: [...(m[selected.id] ?? []), { id: `local-${(m[selected.id]?.length ?? 0) + 1}`, author: "You", body: draft, at: "Just now", direction: "outbound" }],
+    }));
+    setDraft("");
+    show("Sent");
+  }
+
+  return (
+    <ProductWindow path="/portal/communication/active" nativeHeight={780}>
+      <PortalSidebarFixture active="communication" counts={{ communication: counts.active }} />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <ManagerPortalPageShell title="Communication" viewportFillBody>
+          <InboxTwoPane
+            threadOpen
+            fillParent
+            panes="split"
+            list={
+              <div className="flex h-full flex-col">
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                  <LocalDestinationNav
+                    appearance="command"
+                    items={COMM_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+                    activeId={segment}
+                    onChange={(id) => setSegment(id as "active" | "archived")}
+                  />
+                  <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {visible.map((c) => (
+                    <InboxConversationRow
+                      key={c.id}
+                      name={c.name}
+                      subtitle={c.subtitle}
+                      preview={c.preview}
+                      time={c.time}
+                      unread={c.unread}
+                      selected={c.id === selected?.id}
+                      onOpen={() => setSelectedId(c.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            }
+            thread={
+              selected ? (
+                <InboxThreadView
+                  title={selected.name}
+                  subtitle={selected.subtitle}
+                  avatarName={selected.name}
+                  messages={messages}
+                  composer={<InboxComposer value={draft} onChange={setDraft} onSubmit={send} placeholder="Write a reply…" dataAttr="comm-panel-composer" />}
+                />
+              ) : null
+            }
+          />
+        </ManagerPortalPageShell>
       </div>
       {toastNode}
     </ProductWindow>

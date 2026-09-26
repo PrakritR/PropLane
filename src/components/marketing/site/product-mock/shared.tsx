@@ -6,84 +6,116 @@
  *
  * `ProductPanelBackdrop` is the soft blue/violet gradient panel from the
  * Codex reference layout; `ProductWindow` is the floating app window inside
- * it, cropped at the panel's bottom edge by `overflow: hidden` (see
- * `.pm-backdrop`/`.pm-window` in `site.css` for the responsive scale).
+ * it. Integrator review (2026-09-26) found the first pass cropped the
+ * window's own RIGHT edge mid-word at a fixed pixel width — `ProductWindow`
+ * now renders its content at a real desktop width (1280px by default) and
+ * scales the whole window down with `transform: scale()` to fit the panel's
+ * actual width, so nothing is ever cropped sideways; only the panel's own
+ * `overflow: hidden` bottom edge crops a taller window, exactly like a real
+ * browser window showing the top of a longer page.
+ *
  * `PortalSidebarFixture` renders the REAL portal nav structure — `proPortal`'s
- * own sections, grouped by the REAL `groupNavItems`/`PORTAL_NAV_GROUPS` — as
+ * own sections, grouped by the REAL `groupNavItems`/`PORTAL_NAV_GROUPS`, each
+ * with its REAL icon (`PortalNavIcon`, `admin-portal-nav-icons.tsx`) — as
  * static, non-fetching chrome. The real `PortalSidebar` component cannot be
  * dropped in as-is: it hard-depends on `usePortalSession()`
  * (Supabase `auth.getSession()`) and `usePortalNavCounts()` (a live fetch +
  * 60s poll), so this is a thin, real-data wrapper around it rather than the
  * component itself — see the investigation this pass ran before writing it.
+ *
+ * Tab switching inside a panel uses the REAL `LocalDestinationNav`
+ * (`@/components/ui/destination-nav`, `appearance="command"`) — the exact
+ * underlined-text-tab-with-count-chip look the real Tours/Applications/
+ * Leases/Payments/Services pages render, never a hand-drawn filled pill.
  */
 
-import { type ReactNode, useState } from "react";
-import { Home, LayoutGrid, type LucideIcon } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import { groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 import { cn } from "@/lib/utils";
 
-export function ProductPanelBackdrop({ children, className }: { children: ReactNode; className?: string }) {
+export function ProductPanelBackdrop({
+  children,
+  className,
+  mirror = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** A left-side panel (a flipped row) mirrors the gradient's highlight so it
+   * still reads as "coming from the panel", not a fixed light source that
+   * disagrees with which side the window is on. */
+  mirror?: boolean;
+}) {
   return (
     <div className={cn("pm-backdrop relative overflow-hidden rounded-[28px]", className)}>
-      <div aria-hidden className="pm-backdrop-wash" />
+      <div aria-hidden className={cn("pm-backdrop-wash", mirror && "pm-backdrop-wash--mirror")} />
       {children}
     </div>
   );
 }
 
+function useContainerScale(nativeWidth: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const w = el.clientWidth;
+      if (w > 0) setScale(w / nativeWidth);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [nativeWidth]);
+  return { ref, scale };
+}
+
 /**
  * The floating app window — desktop chrome bar + content, rendered at a
- * fixed, realistic desktop width (sidebar + list) and cropped by the
- * backdrop's `overflow: hidden` on narrower panels/viewports rather than
- * scaled — "panel scales down, horizontal crop ok" (captain 2026-09-26).
+ * real desktop width (`nativeWidth`) and scaled with CSS `transform` to fit
+ * whatever width the panel actually has, so the whole page width is always
+ * visible — only the bottom can crop (via the panel's own overflow).
  */
 export function ProductWindow({
   path,
   children,
-  width = 840,
-  contentHeight = 560,
-  fill = false,
+  nativeWidth = 1280,
+  nativeHeight = 820,
 }: {
   path: string;
   children: ReactNode;
-  width?: number | string;
-  contentHeight?: number;
-  /** Stretch to fill the backdrop (minus a fixed margin) instead of a fixed width — the hero's much larger frame. */
-  fill?: boolean;
+  /** The real desktop viewport width this window renders at before scaling down. */
+  nativeWidth?: number;
+  /** The real page height before scaling — taller than the visible panel on purpose; the extra crops at the bottom. */
+  nativeHeight?: number;
 }) {
+  const { ref, scale } = useContainerScale(nativeWidth);
   return (
-    <div
-      className={cn(
-        "pm-window absolute left-6 top-6 sm:left-10 sm:top-10",
-        fill && "right-6 sm:right-10",
-      )}
-      style={fill ? undefined : { width }}
-    >
-      <div className="overflow-hidden rounded-t-2xl border border-black/[0.06] bg-card shadow-[0_50px_100px_-40px_rgba(15,23,42,0.45)]">
-        <div className="flex items-center gap-1.5 border-b border-border bg-[var(--pl-surface-muted)] px-3.5 py-2.5">
+    <div ref={ref} className="pm-window absolute inset-x-6 top-6 sm:inset-x-10 sm:top-10" style={{ height: nativeHeight * scale }}>
+      <div
+        className="flex origin-top-left flex-col overflow-hidden rounded-t-2xl border border-black/[0.06] bg-card shadow-[0_50px_100px_-40px_rgba(15,23,42,0.45)]"
+        style={{ width: nativeWidth, height: nativeHeight, transform: `scale(${scale})` }}
+      >
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-[var(--pl-surface-muted)] px-3.5 py-2.5">
           <i className="h-2.5 w-2.5 rounded-full bg-border" aria-hidden />
           <i className="h-2.5 w-2.5 rounded-full bg-border" aria-hidden />
           <i className="h-2.5 w-2.5 rounded-full bg-border" aria-hidden />
           <span className="ml-2 truncate rounded-md bg-card px-2.5 py-1 text-[12px] text-muted">proplane.ai{path}</span>
         </div>
-        <div className="flex w-full" style={{ height: contentHeight }}>
-          {children}
-        </div>
+        <div className="flex min-h-0 w-full flex-1">{children}</div>
       </div>
     </div>
   );
 }
 
-const SIDEBAR_SECTION_ICON: Record<string, LucideIcon> = {
-  dashboard: Home,
-  properties: LayoutGrid,
-};
-
 /**
- * Real nav labels and grouping (`proPortal.sections`, `groupNavItems`), a
- * fixed static "Seattle Homes" workspace name, and one active item — no
- * session, no fetch, no counts beyond the static ones a panel passes in.
+ * Real nav labels, grouping and icons (`proPortal.sections`, `groupNavItems`,
+ * `PortalNavIcon`), a fixed static "Seattle Homes" workspace name, and one
+ * active item — no session, no fetch, no counts beyond the static ones a
+ * panel passes in.
  */
 export function PortalSidebarFixture({
   active,
@@ -97,7 +129,7 @@ export function PortalSidebarFixture({
     proPortal.sections.filter((s) => s.section !== "app" && s.section !== "bugs-feedback"),
   );
   return (
-    <aside className="flex w-[220px] shrink-0 flex-col gap-4 border-r border-border bg-[var(--pl-surface-muted)] px-3 py-4">
+    <aside className="flex w-[240px] shrink-0 flex-col gap-4 border-r border-border bg-[var(--pl-surface-muted)] px-3 py-4">
       <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-left">
         <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-bold text-white">
           S
@@ -114,7 +146,6 @@ export function PortalSidebarFixture({
               <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-[0.06em] text-muted">{group.label}</p>
             ) : null}
             {group.items.map((item) => {
-              const Icon = SIDEBAR_SECTION_ICON[item.section];
               const isActive = item.section === active;
               const count = counts[item.section];
               return (
@@ -125,7 +156,7 @@ export function PortalSidebarFixture({
                     isActive ? "bg-primary/[0.1] text-primary" : "text-foreground/80",
                   )}
                 >
-                  {Icon ? <Icon className="size-4 shrink-0" aria-hidden /> : <span className="size-4 shrink-0" />}
+                  <PortalNavIcon section={item.section} active={isActive} className="size-4 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   {count != null ? (
                     <span
@@ -144,53 +175,6 @@ export function PortalSidebarFixture({
         ))}
       </nav>
     </aside>
-  );
-}
-
-/** One tab strip, local state only — never a routed `<Link>` (this is a
- * marketing panel, not a real page: a real `href` would navigate away). */
-export function FixtureTabs<T extends string>({
-  tabs,
-  active,
-  onChange,
-}: {
-  tabs: { id: T; label: string; count?: number; alert?: boolean }[];
-  active: T;
-  onChange: (id: T) => void;
-}) {
-  return (
-    <div role="tablist" className="flex flex-wrap gap-1">
-      {tabs.map((tab) => {
-        const on = tab.id === active;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            aria-label={tab.label}
-            onClick={() => onChange(tab.id)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-bold transition-colors",
-              on ? "bg-primary text-white" : "bg-[var(--pl-surface-muted)] text-muted hover:text-foreground",
-            )}
-          >
-            <span aria-hidden>{tab.label}</span>
-            {tab.count != null ? (
-              <span
-                aria-hidden
-                className={cn(
-                  "grid h-4 min-w-4 place-items-center rounded-full px-1 text-[9.5px] font-bold",
-                  on ? "bg-white/25 text-white" : tab.alert ? "bg-red-100 text-red-700" : "bg-border text-muted",
-                )}
-              >
-                {tab.count}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

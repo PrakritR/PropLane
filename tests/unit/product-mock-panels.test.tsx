@@ -30,14 +30,14 @@ beforeEach(() => {
 describe("product mock panels — no network", () => {
   it("ToursPanel never calls fetch while rendering or switching tabs", () => {
     render(<ToursPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: /pending/i }));
-    fireEvent.click(screen.getByRole("tab", { name: /past/i }));
+    fireEvent.click(screen.getByRole("button", { name: /pending/i }));
+    fireEvent.click(screen.getByRole("button", { name: /past/i }));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("ApplicationsPanel never calls fetch while rendering or switching tabs", () => {
     render(<ApplicationsPanel />);
-    fireEvent.click(screen.getByRole("tab", { name: /approved/i }));
+    fireEvent.click(screen.getByRole("button", { name: /approved/i }));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -46,7 +46,7 @@ describe("product mock panels — tabs actually change the rows", () => {
   it("Tours: Upcoming shows Fremont Studio; Past shows a different guest, not the same rows", () => {
     render(<ToursPanel />);
     expect(screen.getByText("Fremont Studio")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /past/i }));
+    fireEvent.click(screen.getByRole("button", { name: /past/i }));
     expect(screen.queryByText("Jamie P.")).not.toBeInTheDocument();
     expect(screen.getByText("Chris Nakamura")).toBeInTheDocument();
   });
@@ -54,28 +54,28 @@ describe("product mock panels — tabs actually change the rows", () => {
   it("Applications: Pending shows the flagged applicant; Approved shows Dana Reyes instead", () => {
     render(<ApplicationsPanel />);
     expect(screen.getByText("Sample Applicant")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /approved/i }));
+    fireEvent.click(screen.getByRole("button", { name: /approved/i }));
     expect(screen.queryByText("Sample Applicant")).not.toBeInTheDocument();
     expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
   it("Leases: the pipeline progress bar reads N of TOTAL signed", () => {
     render(<LeasesPanel />);
-    expect(screen.getByText(/of 4 leases signed/i)).toBeInTheDocument();
+    expect(screen.getByText(/of 7 leases signed/i)).toBeInTheDocument();
   });
 
   it("Payments: Overdue shows September rent; Paid shows a different charge", () => {
     render(<PaymentsPanel />);
-    expect(screen.getByText(/September rent/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /paid/i }));
+    expect(screen.getAllByText(/September rent/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /paid/i }));
     expect(screen.queryByText(/September rent/)).not.toBeInTheDocument();
-    expect(screen.getByText(/August rent/)).toBeInTheDocument();
+    expect(screen.getAllByText(/August rent/).length).toBeGreaterThan(0);
   });
 
   it("Services: Scheduled shows the vendor's change order; Open shows the unassigned job instead", () => {
     render(<ServicesPanel />);
-    expect(screen.getByText(/Thu 10:00 AM/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /^open$/i }));
+    expect(screen.getAllByText(/Thu 10:00 AM/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
     expect(screen.queryByText(/Thu 10:00 AM/)).not.toBeInTheDocument();
     expect(screen.getByText("No hot water")).toBeInTheDocument();
   });

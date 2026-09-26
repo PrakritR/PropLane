@@ -4,6 +4,7 @@ import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteEyebrow, SiteHeading, SiteSection } from "@/components/marketing/site/primitives";
 import {
   ApplicationsPanel,
+  CommunicationPanel,
   LeasesPanel,
   PaymentsPanel,
   ServicesPanel,
@@ -76,6 +77,14 @@ const ROWS: LifecycleRowDef[] = [
     linkLabel: "See services in PropLane",
     panel: () => <ServicesPanel />,
   },
+  {
+    id: "communication",
+    kicker: "Communication",
+    headline: "Every message, in one inbox — never three.",
+    body: "Prospects, residents and vendors land in the same thread list. Reply in-app, by email or by text from one composer, and the record it's about is one click away.",
+    linkLabel: "See Communication in PropLane",
+    panel: () => <CommunicationPanel />,
+  },
 ];
 
 function LifecycleRow({ row, flip }: { row: LifecycleRowDef; flip: boolean }) {
@@ -95,7 +104,9 @@ function LifecycleRow({ row, flip }: { row: LifecycleRowDef; flip: boolean }) {
   );
 
   const panelCell = (
-    <ProductPanelBackdrop className="h-[300px] sm:h-[400px] lg:h-[460px]">{row.panel()}</ProductPanelBackdrop>
+    <ProductPanelBackdrop mirror={flip} className="h-[300px] sm:h-[400px] lg:h-[460px]">
+      {row.panel()}
+    </ProductPanelBackdrop>
   );
 
   return (
@@ -103,25 +114,24 @@ function LifecycleRow({ row, flip }: { row: LifecycleRowDef; flip: boolean }) {
       data-lifecycle-row={row.id}
       className={cn(
         "grid items-stretch gap-8 border-t border-border py-10 sm:gap-10 lg:py-14",
-        "grid-cols-1 lg:grid-cols-[minmax(0,0.34fr)_minmax(0,0.66fr)]",
+        "grid-cols-1",
+        // The grid TRACK WIDTHS themselves have to swap with `flip`, not just
+        // which cell sits in which DOM order — reusing the same
+        // narrow-then-wide track list for every row (with only `order-*`
+        // swapping which child renders where) left every row's wide track on
+        // the right regardless of `flip` (captain's screenshot: every panel
+        // on the right). Phone: always text first, then panel — `order-1`/
+        // `order-2` below the `lg:` breakpoint never change with `flip`.
+        flip ? "lg:grid-cols-[minmax(0,0.66fr)_minmax(0,0.34fr)]" : "lg:grid-cols-[minmax(0,0.34fr)_minmax(0,0.66fr)]",
       )}
     >
-      {flip ? (
-        <>
-          <div className="order-2 lg:order-2">{panelCell}</div>
-          <div className="order-1 lg:order-1">{textCell}</div>
-        </>
-      ) : (
-        <>
-          <div className="order-1">{textCell}</div>
-          <div className="order-2">{panelCell}</div>
-        </>
-      )}
+      <div className={cn("order-1", flip ? "lg:order-2" : "lg:order-1")}>{textCell}</div>
+      <div className={cn("order-2", flip ? "lg:order-1" : "lg:order-2")}>{panelCell}</div>
     </div>
   );
 }
 
-/** "The best way to run a rental." — the five product rows (see file docstring). */
+/** "The best way to run a rental." — the six product rows (see file docstring). */
 export function SiteLifecycleRows() {
   return (
     <SiteSection id="lifecycle" ariaLabelledBy="site-lifecycle-title">

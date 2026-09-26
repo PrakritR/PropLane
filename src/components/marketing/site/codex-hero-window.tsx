@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardPanel } from "@/components/marketing/site/product-mock/panels";
+import { HERO_ACTIVITY_EVENTS } from "@/components/marketing/site/product-mock/fixtures";
 
 function CloseIcon({ className }: { className?: string }) {
   return (
@@ -10,21 +11,6 @@ function CloseIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
-/**
- * One event in the hero's activity stream — the same Seattle Homes story the
- * static dashboard panel beside it renders (Jamie P., Pacific Plumbing, Dana
- * Reyes; see `product-mock/fixtures.ts`), never invented, so the two never
- * disagree.
- */
-type HeroActivityEvent = { title: string; detail: string; tag: string };
-
-const HERO_ACTIVITY_EVENTS: HeroActivityEvent[] = [
-  { title: "Pacific Plumbing dispatched to Maple Duplex", detail: "No hot water · Thu 10–12 · resident notified", tag: "Done" },
-  { title: "Tour booked with Jamie P.", detail: "Fremont Studio · Sat 2:00 PM", tag: "Confirmed" },
-  { title: "Rent paid — $3,200", detail: "Test Resident · Alder House · autopay", tag: "Paid" },
-  { title: "Application approved", detail: "Dana Reyes · Alder House", tag: "Approved" },
-];
 
 const HERO_ACTIVITY_INTERVAL_MS = 4200;
 
@@ -77,7 +63,6 @@ function CodexHeroActivityCard({ onDismiss }: { onDismiss: () => void }) {
       </p>
       <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · {event.title}</p>
       <p className="text-[11px] text-[#4a4e56]">{event.detail}</p>
-      <p className="mt-2 text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted">Sample data</p>
     </div>
   );
 }

@@ -67,7 +67,7 @@ test.describe("Public home", () => {
     const section = page.locator("#lifecycle");
     await section.scrollIntoViewIfNeeded();
     await expect(section.getByRole("heading", { name: /the best way to run a rental/i })).toBeVisible();
-    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Services"]) {
+    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Services", "Communication"]) {
       await expect(section.getByText(kicker, { exact: true }).first()).toBeVisible();
     }
     await expect(section.locator("iframe")).toHaveCount(0);
@@ -75,8 +75,8 @@ test.describe("Public home", () => {
     // Leasing's own in-panel tabs swap which fixture rows render.
     const leasingRow = page.locator('[data-lifecycle-row="leasing"]');
     await expect(leasingRow.getByText("Dana Reyes")).toBeVisible();
-    await leasingRow.getByRole("tab", { name: "Signed" }).click();
-    await expect(leasingRow.getByText("Test Resident")).toBeVisible();
+    await leasingRow.getByRole("button", { name: /signed/i }).click();
+    await expect(leasingRow.getByText("Liam Foster")).toBeVisible();
     await expect(leasingRow.getByText("Dana Reyes")).toHaveCount(0);
   });
 

@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} doors, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} doors included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} doors included). 14-day trial, no card required.`,
+  description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} residents, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} residents included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} residents included). 14-day trial, no card required.`,
 };
 
 const CTA_BASE = MANAGER_GET_STARTED_HREF;
@@ -60,7 +60,7 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
     return {
       heading: "What's included",
       items: [
-        { text: `${RATE_CARD.free.includedDoors} doors`, included: true },
+        { text: `${RATE_CARD.free.includedDoors} residents`, included: true },
         { text: "Applications & tour scheduling", included: true },
         { text: "Rent collection & charges", included: true },
         { text: "In-app inbox & email", included: true },
@@ -74,9 +74,9 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
     return {
       heading: "Everything in Free, plus",
       items: [
-        { text: `${RATE_CARD.pro.includedDoors} doors included, then ${perDoor("pro")}/door`, included: true },
+        { text: `${RATE_CARD.pro.includedDoors} residents included, then ${perDoor("pro")}/resident`, included: true },
         { text: "Residents, leases & services", included: true },
-        { text: "AI drafts in the inbox", included: true },
+        { text: "AI drafts in Communication", included: true },
         { text: "Unlimited co-managers", included: true },
         { text: "1 work number — texting & calls", included: true },
         { text: `${credit("pro")}/mo communication credit`, included: true },
@@ -87,7 +87,7 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
   return {
     heading: "Everything in Pro, plus",
     items: [
-      { text: `${RATE_CARD.business.includedDoors} doors included, then ${perDoor("business")}/door`, included: true },
+      { text: `${RATE_CARD.business.includedDoors} residents included, then ${perDoor("business")}/resident`, included: true },
       { text: "Unlimited co-managers, per-module access", included: true },
       { text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`, included: true },
       { text: `${credit("business")}/mo communication credit`, included: true },
@@ -104,7 +104,7 @@ const CREDIT_PACKS_TEXT = (() => {
 const FAQ: SiteFaqItem[] = [
   {
     q: "Is the free tier actually free?",
-    a: `Yes. $0, no card, ${RATE_CARD.free.includedDoors} doors, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.`,
+    a: `Yes. $0, no card, ${RATE_CARD.free.includedDoors} residents, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.`,
   },
   {
     q: "Do I need a credit card to try Pro or Business?",
@@ -304,7 +304,7 @@ function MobileStickyCta() {
       className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-3 border-t border-border bg-card/95 px-4 py-2.5 backdrop-blur-md md:hidden [html[data-native]_&]:pb-[max(0.625rem,env(safe-area-inset-bottom))]"
       data-attr="pricing-sticky-cta"
     >
-      <p className="flex-1 text-[12.5px] text-muted">Free for {RATE_CARD.free.includedDoors} doors, no card.</p>
+      <p className="flex-1 text-[12.5px] text-muted">Free for {RATE_CARD.free.includedDoors} residents, no card.</p>
       <Link href={TIER_CTA.free.href} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
         Get started
       </Link>
@@ -347,7 +347,7 @@ export default async function PricingPage({
       <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
         <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
           <SiteHeading as="h1" id="pricing-title">
-            Free for {RATE_CARD.free.includedDoors} doors.
+            Free for {RATE_CARD.free.includedDoors} residents.
             <br />
             <span className="text-primary">Pay when the portfolio earns it.</span>
           </SiteHeading>

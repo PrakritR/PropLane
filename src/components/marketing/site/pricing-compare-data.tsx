@@ -28,7 +28,11 @@ export const COMPARE: CompareGroup[] = [
     group: "Homes & team",
     rows: [
       {
-        label: "Doors included",
+        // Captain: copy never says "doors" — price is per resident
+        // (`docs/agents/...`, proplane-billing-per-actual-resident). The
+        // field names on RATE_CARD stay as-is (an internal API name change is
+        // a separate, larger piece of work); only the user-facing label changed.
+        label: "Residents included",
         cells: [
           String(RATE_CARD.free.includedDoors),
           String(RATE_CARD.pro.includedDoors),
@@ -36,7 +40,7 @@ export const COMPARE: CompareGroup[] = [
         ],
       },
       {
-        label: "Extra door price",
+        label: "Extra resident price",
         cells: [
           "—",
           `${formatRateCardUsd(RATE_CARD.pro.perExtraDoorMonthlyCents ?? 0)}/mo`,
@@ -78,7 +82,7 @@ export const COMPARE: CompareGroup[] = [
         ],
       },
       { label: "AI assistant in the portal", cells: [YES, YES, YES] },
-      { label: "AI drafts in the inbox", cells: [NO, YES, YES] },
+      { label: "AI drafts in Communication", cells: [NO, YES, YES] },
     ],
   },
   {
