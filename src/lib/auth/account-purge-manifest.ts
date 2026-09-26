@@ -245,6 +245,15 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // C152 open marketplace listing. No vendor-owned column: a listing has no
+    // vendor identity of its own until a bid (work_order_bids, classified
+    // above) is accepted — the listing itself just disappears with the
+    // manager's own work order.
+    table: "work_order_open_listings",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "work_order_reference_counters",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

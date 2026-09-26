@@ -237,20 +237,42 @@ bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other
 portal table in this codebase.
 
-**Jobs board (C152/C153) — additive to Services, not a marketplace.** A
+**Jobs board (C152/C153) — Invited plus a real cross-workspace marketplace.** A
 separate `/vendor/jobs` section (`src/components/portal/vendor-jobs-panel.tsx`)
-lists the same `biddingOpen` rows Services already tracks, under Invited /
-Open tabs. Invited is real: `isInvitedJob()` reuses the existing single-vendor
-`biddingOpen` flag and the vendor's own `work_order_bids` row (still
-`submitted`, not yet `accepted`/`declined`) — Submit bid / Withdraw bid post
-to the same `/api/portal/work-order-bids` route Services already uses. Open is
-a placeholder only: there is no cross-workspace marketplace data model today
-(`work_order_bids` only ever has rows for the currently-assigned vendor, and
-RLS scopes both sides to their own `user_id`) — building a genuine "browse
-every workspace's open jobs matching my trades" board needs a new table, not
-just a new tab. Services' own Potential/Current/Past classification
-(`vendor-work-order-tabs.ts`) is unchanged; Jobs is a second, purely additive
-view onto the same rows.
+has Invited and Open tabs, both additive to Services. Invited is the original
+single-vendor flow: `isInvitedJob()` reuses the existing `biddingOpen` flag and
+the vendor's own `work_order_bids` row (still `submitted`, not yet
+`accepted`/`declined`). Open is the genuine marketplace: a `work_order_open_listings`
+table (`supabase/migrations/20260925230000_work_order_open_listings.sql`)
+carries ONLY the fields safe to show any vendor on any workspace — trade/category,
+city/area, a manager-authored `description` (never the work order's own
+`title`, which may name the resident), desired timeframe, and an optional
+budget range. RLS is read-only on both sides (`work_order_open_listings_vendor_read`:
+any authenticated vendor may `SELECT` a row with `status = 'open'`;
+`work_order_open_listings_manager_read`: a manager may `SELECT` their own row
+regardless of status) — no INSERT/UPDATE/DELETE grant to `anon` or
+`authenticated` at all, matching the `work_order_bids` precedent. Every real
+write goes through `POST /api/portal/work-order-open-listings`
+(`src/lib/work-order-open-listings.server.ts`), which re-derives the work
+order's `manager_user_id` server-side rather than trusting a client id.
+
+Bidding on an open listing reuses the SAME `work_order_bids` table and
+`/api/portal/work-order-bids` route Invited uses, unchanged —
+`resolveVendorWorkOrderAccess` (`src/lib/work-order-bids.server.ts`) now also
+admits any vendor once `work_order_open_listings` has an `open` row for that
+work order, not just a vendor the manager specifically offered the job to.
+Because that vendor may have never worked for this manager before,
+`ensureVendorDirectoryIdForManager` auto-creates a minimal
+`manager_vendor_records` row from the vendor's OWN public business profile
+(never from the work order's private fields) the first time they bid, so
+accepting their bid can assign them through the existing accept path exactly
+like any other vendor. Accepting a bid best-effort closes the open listing too
+(`closeOpenListingBestEffort`) — the job stops soliciting new bids the moment
+it's assigned. Bid submission is rate-limited per vendor
+(`work-order-bid-submit:<vendorUserId>`, 20/hour) since the marketplace makes
+it reachable from every workspace, not just one manager's own roster.
+Services' own Potential/Current/Past classification (`vendor-work-order-tabs.ts`)
+is unchanged; Jobs is a second, purely additive view onto the same rows.
 
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 

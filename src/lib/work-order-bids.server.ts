@@ -21,6 +21,8 @@ import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server
 import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { rateLimit } from "@/lib/rate-limit";
+import { closeOpenListingBestEffort, hasOpenListing } from "@/lib/work-order-open-listings.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -119,11 +121,18 @@ async function resolveVendorWorkOrderAccess(
       isOfferedVendor = Boolean(offerByDirectory?.length);
     }
   }
+  // C152: an open marketplace listing admits ANY vendor, not just one this
+  // manager specifically offered the job to — this is the one door
+  // `work_order_open_listings` opens into the existing single-vendor bid flow.
+  let isOpenListingVendor = false;
   if (!isAssignedVendor && !isOfferedVendor) {
+    isOpenListingVendor = await hasOpenListing(db, workOrderId);
+  }
+  if (!isAssignedVendor && !isOfferedVendor && !isOpenListingVendor) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
-  if (!rowData.biddingOpen) {
+  if (!rowData.biddingOpen && !isOpenListingVendor) {
     const { data: pendingBid } = await db
       .from("work_order_bids")
       .select("quote_mode, amount_cents, consultation_visit_at, status")
@@ -140,6 +149,55 @@ async function resolveVendorWorkOrderAccess(
     }
   }
   return { ok: true, access: { managerUserId: workOrder.manager_user_id as string, rowData } };
+}
+
+/**
+ * Resolve — or, for a cross-workspace open-marketplace bid, create — the
+ * `manager_vendor_records` row linking this vendor to this manager. An
+ * invited/offered vendor already has one (an offer targets an existing
+ * directory row); a marketplace vendor bidding on a manager they have never
+ * worked for does not, so `acceptWorkOrderBid`'s vendor-name/assignment
+ * resolution would otherwise silently fail to attribute the win. Built ONLY
+ * from the vendor's OWN public business profile / account — never from the
+ * work order's private resident/property fields — mirroring
+ * `POST /api/manager/vendor-directory/add`'s directory-linking shape.
+ */
+async function ensureVendorDirectoryIdForManager(db: Db, vendorUserId: string, managerUserId: string): Promise<string | null> {
+  const { data: existing } = await db
+    .from("manager_vendor_records")
+    .select("id")
+    .eq("vendor_user_id", vendorUserId)
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  const [{ data: profile }, { data: biz }] = await Promise.all([
+    db.from("profiles").select("full_name, email, phone").eq("id", vendorUserId).maybeSingle(),
+    db.from("vendor_business_profiles").select("business_name, work_email, work_phone, trades").eq("user_id", vendorUserId).maybeSingle(),
+  ]);
+  const trades = Array.isArray(biz?.trades) ? (biz?.trades as string[]) : [];
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const row = {
+    id,
+    managerUserId,
+    name: (biz?.business_name as string | null | undefined)?.trim() || (profile?.full_name as string | null | undefined)?.trim() || "Vendor",
+    trade: trades[0] ?? "",
+    trades: trades.length ? trades : undefined,
+    phone: (biz?.work_phone as string | null | undefined)?.trim() || (profile?.phone as string | null | undefined)?.trim() || "",
+    email: (biz?.work_email as string | null | undefined)?.trim() || (profile?.email as string | null | undefined)?.trim() || "",
+    notes: "",
+    active: true,
+    catalogId: `open-marketplace-${vendorUserId}`,
+    vendorUserId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { error } = await db
+    .from("manager_vendor_records")
+    .insert({ id, manager_user_id: managerUserId, vendor_user_id: vendorUserId, row_data: row, updated_at: now });
+  if (error) return null;
+  return id;
 }
 
 export async function submitWorkOrderBid(
@@ -167,6 +225,14 @@ export async function submitWorkOrderBid(
     return { ok: false, status: 400, error: "Enter a valid proposed date/time." };
   }
 
+  // Cross-workspace bid submission is spammable (any vendor, any open listing,
+  // any workspace) in a way an invited/offered bid never was — throttle per
+  // vendor regardless of path.
+  const limited = await rateLimit(`work-order-bid-submit:${actor.userId}`, 20, 60 * 60 * 1000);
+  if (!limited.ok) {
+    return { ok: false, status: 429, error: "Too many bids submitted — try again in a bit." };
+  }
+
   const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
   if (!access.ok) return access;
 
@@ -180,17 +246,12 @@ export async function submitWorkOrderBid(
     return { ok: false, status: 403, error: "This bid has already been resolved." };
   }
 
-  const { data: vendorDirectoryRow } = await db
-    .from("manager_vendor_records")
-    .select("id")
-    .eq("vendor_user_id", actor.userId)
-    .eq("manager_user_id", access.access.managerUserId)
-    .maybeSingle();
+  const vendorDirectoryId = await ensureVendorDirectoryIdForManager(db, actor.userId, access.access.managerUserId);
 
   const record = {
     work_order_id: workOrderId,
     vendor_user_id: actor.userId,
-    vendor_directory_id: (vendorDirectoryRow?.id as string | undefined) ?? null,
+    vendor_directory_id: vendorDirectoryId,
     manager_user_id: access.access.managerUserId,
     quote_mode: (existing?.quote_mode as QuoteMode | undefined) ?? "upfront",
     consultation_visit_at: existing?.consultation_visit_at ?? null,
@@ -494,6 +555,10 @@ export async function acceptWorkOrderBid(
       .from("portal_work_order_records")
       .update({ vendor_user_id: record.vendor_user_id, row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
       .eq("id", record.work_order_id);
+
+    // C152: assignment closes the marketplace listing too, if one is open —
+    // the job is no longer looking for bids from anyone else.
+    await closeOpenListingBestEffort(db, record.work_order_id);
 
     const propertyLabel = rowData.propertyName || "";
     const unit = rowData.unit || "";
