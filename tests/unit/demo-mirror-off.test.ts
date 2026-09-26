@@ -1,16 +1,18 @@
 /**
- * The `/demo` sandbox has TWO data sources: the static "Seattle Homes"
- * snapshot in `demo-guided-data.ts` and the `/api/demo/portal-snapshot`
- * mirror of the canonical `@test.proplane.local` accounts' real DB rows
- * (captain 2026-09-25 — both back on, see `demo-mirror-flag.ts`).
+ * `/demo` renders from ONE bundled, deterministic dataset — the static
+ * "Seattle Homes" snapshot in `demo-guided-data.ts`. The
+ * `/api/demo/portal-snapshot` mirror of the canonical `@test.proplane.local`
+ * accounts' real DB rows is permanently OFF (captain 2026-09-25, see
+ * `demo-mirror-flag.ts`): this file's name is once again accurate.
  *
- * Despite the filename (kept so history/blame stays attached), this file now
- * asserts the OPPOSITE of "off": the mirror flag is on, the static fallback
- * is populated, and seeding the canonical portfolio writes real rows — with
- * one invariant unchanged and still the point of the file: seeding that
- * portfolio must never upsert the two deployment-wide schedule singletons
- * unless a caller opts in, because those singletons hold every OTHER
- * account's real prospect tour requests too.
+ * `seedCanonicalDemoPortfolio` itself is NOT retired — it is the shared
+ * seeder other QA workflows still use to populate the canonical
+ * manager/resident/vendor `@test.proplane.local` accounts outside of
+ * `/demo` — so its own write-shape tests below stay, unchanged, alongside
+ * the one invariant that has always been the point of this file: seeding
+ * that portfolio must never upsert the two deployment-wide schedule
+ * singletons unless a caller opts in, because those singletons hold every
+ * OTHER account's real prospect tour requests too.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,8 +29,8 @@ import { seedCanonicalDemoPortfolio } from "@/lib/demo/canonical-demo-portfolio-
 import { CANONICAL_DEMO_RESIDENT_EMAIL, CANONICAL_DEMO_VENDOR_EMAIL } from "@/lib/demo/demo-canonical-accounts";
 
 describe("demo portal mirror flag", () => {
-  it("is on, so the sandbox may serve the canonical accounts' real rows", () => {
-    expect(DEMO_PORTAL_MIRROR_ENABLED).toBe(true);
+  it("is permanently off, so /demo never reads or writes a real row", () => {
+    expect(DEMO_PORTAL_MIRROR_ENABLED).toBe(false);
   });
 
   it("falls through to the Seattle Homes static snapshot, not an empty one", () => {
