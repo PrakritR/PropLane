@@ -22,6 +22,7 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { FinancesExportMenu, type FinancesExportItem } from "@/components/portal/finances/finances-export-menu";
 import { CalendarClock, CalendarPlus, MessageSquare, Settings, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -35,7 +36,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -351,6 +352,7 @@ export function ManagerTours({
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const { userId, ready: authReady } = useManagerUserId();
   const { reminders: tourReminders, reload: reloadTourReminders } = useScheduledTourReminders();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
@@ -572,6 +574,21 @@ export function ManagerTours({
     </PortalFilterSortSheet>
   );
 
+  // C026/C032 — CSV + PDF export of the visible tab, respecting the same
+  // property filters and search the list itself is currently applying. The
+  // server route re-derives ownership/workspace scope; these query params are
+  // only "what to show", never "who may see it".
+  const toursExportItems: FinancesExportItem[] = useMemo(() => {
+    const params = new URLSearchParams({ bucket });
+    if (effectivePropertyFilters.length > 0) params.set("propertyIds", effectivePropertyFilters.join(","));
+    if (tourSearch.trim()) params.set("q", tourSearch.trim());
+    const base = `/api/portal/tours-export?${params.toString()}`;
+    return [
+      { id: "csv", label: "Export CSV", href: `${base}&format=csv`, dataAttr: "tours-export-csv" },
+      { id: "pdf", label: "Export PDF", href: `${base}&format=pdf`, dataAttr: "tours-export-pdf" },
+    ];
+  }, [bucket, effectivePropertyFilters, tourSearch]);
+
   const activeFilterChips =
     !scopedPropertyId && propertyFilters.length > 0 ? (
       <PortalActiveFilterChips
@@ -620,6 +637,41 @@ export function ManagerTours({
       body: buildTourRequestRemovedTenantBody(ctx),
     });
   }, []);
+
+  /**
+   * The record header's one-click decline (C029/C030, recommended build: a
+   * quick generic confirm from the header; the row ⋯ / bulk bar keeps the
+   * editable reason-message flow above via `openDeclinePreview`). No message
+   * preview, no skip-messaging toggle — a plain "are you sure", then the
+   * guest gets the same default removal notice `openDeclinePreview` sends.
+   */
+  const quickDeclineFromHeader = useCallback(
+    async (row: ManagerTourRow) => {
+      if (!isPendingInquiry(row)) return;
+      const ok = await confirm({
+        title: "Decline tour",
+        description: `Decline ${row.guestName || "this prospect"}'s tour request for ${row.whenLabel}? They'll be notified.`,
+        confirmLabel: "Decline",
+        tone: "danger",
+        dataAttr: "tour-detail-decline-confirm",
+      });
+      if (!ok) return;
+      const ctx = buildTourNotifyContext(row);
+      const result = await deletePartnerInquiryFromServer(row.sourceId, {
+        notifyTenant: true,
+        subject: TOUR_REQUEST_REMOVED_TENANT_SUBJECT,
+        body: buildTourRequestRemovedTenantBody(ctx),
+      });
+      if (!result.ok) {
+        showToast(result.error ?? "Could not decline tour request.");
+        return;
+      }
+      await refresh();
+      navigate(listHrefForBucket(bucket));
+      showToast("Tour declined and guest notified.");
+    },
+    [confirm, refresh, navigate, bucket, showToast],
+  );
 
   const openCancelPreview = useCallback((rows: ManagerTourRow[]) => {
     const eligible = rows.filter(isUpcomingPlanned);
@@ -1634,7 +1686,7 @@ export function ManagerTours({
       }
       if (actionId === "decline") {
         if (detailRow.bucket === "pending" && detailRow.source === "inquiry") {
-          openDeclinePreview([detailRow]);
+          void quickDeclineFromHeader(detailRow);
           return;
         }
         if (isPendingProposal(detailRow)) {
@@ -1763,12 +1815,18 @@ export function ManagerTours({
         actions={
           <>
             {filterSheet}
+            <FinancesExportMenu items={toursExportItems} />
             <PortalIconAction
               icon={CalendarPlus}
               label="Add availability"
               data-attr="tours-add-availability-open"
               onClick={() => setAvailabilityOpen(true)}
-              disabled={!authReady || scopedPropertyIds.length === 0}
+              // Not gated on `!authReady`: the sibling "Share tour link"
+              // action beside it (below) never was, and pre-disabling on a
+              // transient session check — rather than the real "no listed
+              // property yet" reason — read as a permanently broken button
+              // for that brief window (night UX sweep).
+              disabled={scopedPropertyIds.length === 0}
             />
             <PortalIconAction
               icon={Settings}
@@ -1788,7 +1846,7 @@ export function ManagerTours({
         primary={
           <PortalPrimaryIconAction
             label="Add tour"
-            disabled={!authReady || scopedPropertyIds.length === 0}
+            disabled={scopedPropertyIds.length === 0}
             data-attr="tours-add-open"
             onClick={() => setAddTourOpen(true)}
           />
@@ -1828,7 +1886,7 @@ export function ManagerTours({
                         {
                           label: "Schedule tour",
                           onClick: () => setAddTourOpen(true),
-                          disabled: !authReady || scopedPropertyIds.length === 0,
+                          disabled: scopedPropertyIds.length === 0,
                           reason: scopedPropertyIds.length === 0 ? "List a property first — tours are booked against a listing." : undefined,
                           dataAttr: "tours-list-add",
                         },

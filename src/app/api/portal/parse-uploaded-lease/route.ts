@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { getReportsAuthContext } from "@/lib/reports/auth";
 import { parseUploadedLeasePdfBytes, dataUrlToPdfBytes } from "@/lib/uploaded-lease-parse.server";
+import { UnsafePdfImportError } from "@/lib/pdf-import/pdf-source.server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 /** Mirrors the 3.5 MB cap `managerUploadLeasePdf` enforces, plus base64 overhead. */
 const MAX_DATA_URL_CHARS = 5 * 1024 * 1024;
@@ -55,8 +57,12 @@ export async function POST(req: Request) {
   try {
     const parse = await parseUploadedLeasePdfBytes({ bytes: dataUrlToPdfBytes(dataUrl), fileName });
     return NextResponse.json({ parse });
-  } catch (err) {
-    console.error("parse-uploaded-lease: unexpected failure", err);
+  } catch (error) {
+    if (error instanceof UnsafePdfImportError) {
+      return NextResponse.json({ error: "PDF contains active or unsupported content and cannot be imported." }, { status: 422 });
+    }
+    // Parser exceptions may include PDF metadata or extracted fragments. Keep
+    // the request log content-free; the client only needs a safe failure.
     return NextResponse.json({ error: "Could not parse that lease PDF." }, { status: 500 });
   }
 }

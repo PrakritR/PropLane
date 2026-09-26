@@ -14,12 +14,12 @@ import {
   syncPropertyPipelineFromServer,
   buildMockPropertyFromDraft,
 } from "@/lib/demo-property-pipeline";
-// Import the event name from the cycle-free leaf module, NOT from
-// demo-property-pipeline: this module reads it at eval time (in
-// MANAGER_PORTFOLIO_REFRESH_EVENTS below), and the property-pipeline import
-// cycle would otherwise hit its TDZ. See property-pipeline-events.ts.
-import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
-import { MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
+// Event names come from the cycle-free leaf module (evaluated in
+// MANAGER_PORTFOLIO_REFRESH_EVENTS below). Importing them from
+// demo-property-pipeline or manager-applications-storage would re-enter those
+// cycles and hit a TDZ during production collectPageData. See property-pipeline-events.ts.
+import { MANAGER_APPLICATIONS_EVENT, PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
+import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readProRelationships, syncProRelationshipsFromServer } from "@/lib/pro-relationships";
 import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
 import {

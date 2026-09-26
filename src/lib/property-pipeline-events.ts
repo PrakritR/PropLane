@@ -16,6 +16,9 @@
 export const PROPERTY_PIPELINE_EVENT = "axis-property-pipeline";
 export const PRO_RELATIONSHIPS_EVENT = "axis-pro-relationships";
 
+/** Dispatched when manager application rows change in the portal store. */
+export const MANAGER_APPLICATIONS_EVENT = "axis:manager-applications";
+
 /**
  * Marks the dispatch that a SERVER SYNC makes after it has already written the
  * fresh snapshot into the local store.

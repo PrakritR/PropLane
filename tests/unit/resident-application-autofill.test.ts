@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   autofillProfileIsEmpty,
   mergeAutofillIntoWizardState,
+  mergeAuthenticatedApplicantIdentity,
   pickAutofillProfileFromApplication,
 } from "@/lib/rental-application/resident-application-autofill";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
@@ -44,5 +45,18 @@ describe("resident-application-autofill", () => {
     expect(merged.employer).toBe("Acme Co");
     expect(merged.leaseStart).toBe("");
     expect(autofillProfileIsEmpty({})).toBe(true);
+  });
+
+  it("fills only blank answers and keeps applicant edits", () => {
+    const current = { ...createInitialRentalWizardState(), fullLegalName: "Applicant typed", phone: "", email: "" };
+    const merged = mergeAutofillIntoWizardState(current, { fullLegalName: "Old answer", phone: "2065550100" });
+    expect(merged.fullLegalName).toBe("Applicant typed");
+    expect(merged.phone).toBe("2065550100");
+    const identity = mergeAuthenticatedApplicantIdentity(merged, {
+      fullLegalName: "Account name", phone: "2065550199", email: "account@example.com",
+    });
+    expect(identity.fullLegalName).toBe("Applicant typed");
+    expect(identity.phone).toBe("2065550100");
+    expect(identity.email).toBe("account@example.com");
   });
 });

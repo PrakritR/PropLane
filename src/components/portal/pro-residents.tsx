@@ -1,6 +1,7 @@
 "use client";
 
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
+import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -196,7 +197,7 @@ import {
   leaseAllowsManagerGeneratedBodyEdits,
   leasePipelineRowsForManagerResident,
   LEASE_PIPELINE_EVENT,
-  confirmUploadedLeaseParse,
+  confirmUploadedLeaseParseOnServer,
   leaseNeedsUploadedLeaseReviewAction,
   leaseLandlordNameWarning,
   leaseSendGateBlocker,
@@ -476,6 +477,7 @@ export function ManagerResidents({
   } | null>(null);
   const [leaseSendBusy, setLeaseSendBusy] = useState(false);
   const [signingLease, setSigningLease] = useState<LeasePipelineRow | null>(null);
+  const [signingLeaseError, setSigningLeaseError] = useState<string | null>(null);
   const [welcomeEmailBusyForResident, setWelcomeEmailBusyForResident] = useState<string | null>(null);
   const [welcomePreviewFor, setWelcomePreviewFor] = useState<ActiveResident | null>(null);
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
@@ -2513,8 +2515,9 @@ export function ManagerResidents({
 
   async function handleManagerModalSign(signatureName: string, consentVersion: string) {
     if (!signingLease) return false;
-    const ok = await managerSignLease(signingLease.id, signatureName.trim(), userId, consentVersion);
-    if (ok) {
+    setSigningLeaseError(null);
+    const result = await managerSignLease(signingLease.id, signatureName.trim(), userId, consentVersion);
+    if (result.ok) {
       setLeaseTick((n) => n + 1);
       showToast(
         hasBothLeaseSignatures({
@@ -2527,7 +2530,8 @@ export function ManagerResidents({
       setSigningLease(null);
       return true;
     } else {
-      showToast("Could not sign lease.");
+      // Signing waits for the server: the modal stays open and shows why.
+      setSigningLeaseError(result.error);
       return false;
     }
   }
@@ -3509,7 +3513,11 @@ export function ManagerResidents({
           signerName=""
           signerRoleLabel="Manager / authorized agent name"
           onSign={handleManagerModalSign}
-          onClose={() => setSigningLease(null)}
+          onClose={() => {
+            setSigningLease(null);
+            setSigningLeaseError(null);
+          }}
+          error={signingLeaseError}
         />
       ) : null}
       {editResidentLeaseId && residentLeaseRows.find((row) => row.id === editResidentLeaseId) ? (
@@ -3541,19 +3549,24 @@ export function ManagerResidents({
           row={importReviewLease}
           parse={importReviewLease.uploadedLeaseParse}
           onClose={() => setImportReviewLeaseId(null)}
-          onConfirm={({ overrides, note }) => {
-            const result = confirmUploadedLeaseParse(importReviewLease.id, {
+          onConfirm={async ({ overrides, note, useConverted, convertedHtml, convertedHtmlSha256, resolvedSourceIssueCodes }) => {
+            const result = await confirmUploadedLeaseParseOnServer(importReviewLease.id, {
               managerUserId: userId,
               overrides: overrides as Partial<Record<UploadedLeaseFieldKey, string>>,
               note,
+              useConverted,
+              convertedHtml,
+              convertedHtmlSha256,
+              resolvedSourceIssueCodes,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not confirm the imported lease.");
               return;
             }
+            track("lease_import_reviewed", { lease_id: importReviewLease.id, import_kind: "uploaded_pdf", artifact_mode: useConverted ? "converted" : "original_pdf" });
             setLeaseTick((n) => n + 1);
             setImportReviewLeaseId(null);
-            showToast("Imported lease confirmed. It can now be sent for signature.");
+            showToast(`Imported lease confirmed. ${useConverted ? "The converted version" : "The original PDF"} can now be sent for signature.`);
           }}
           onRetryRead={async () => {
             const result = await retryUploadedLeaseParse(importReviewLease.id, userId);

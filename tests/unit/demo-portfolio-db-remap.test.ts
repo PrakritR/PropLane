@@ -22,9 +22,10 @@ const ctx = {
 };
 
 /**
- * The `/demo` sandbox ships with an EMPTY idle snapshot, so the remap rules are
- * exercised against a hand-built snapshot shaped like a curated portfolio would
- * be — same synthetic demo scope ids the seeder has to rewrite.
+ * `buildDemoIdleSnapshot()` now ships the real Seattle Homes portfolio
+ * (captain 2026-09-25), but the remap rules below are still exercised against
+ * a small hand-built fixture with the exact synthetic demo scope ids the
+ * seeder has to rewrite, for a tighter, easier-to-read assertion surface.
  */
 function fixtureSnapshot(): DemoDataSnapshot {
   const base = buildDemoIdleSnapshot();
@@ -148,10 +149,14 @@ describe("remapDemoSnapshotForDb", () => {
     expect(json.includes(`"${DEMO_VENDOR_USER_ID}"`)).toBe(false);
   });
 
-  it("passes the shipped (empty) idle snapshot through without error", () => {
+  it("passes the shipped Seattle Homes idle snapshot through without error", () => {
     const snapshot = remapDemoSnapshotForDb(buildDemoIdleSnapshot(), ctx);
-    expect(snapshot.properties).toEqual([]);
-    expect(snapshot.applications).toEqual([]);
-    expect(snapshot.charges).toEqual([]);
+    expect(snapshot.properties.length).toBeGreaterThan(0);
+    expect(snapshot.applications.length).toBeGreaterThan(0);
+    expect(snapshot.charges.length).toBeGreaterThan(0);
+    // Remapped onto the ctx ids passed in above, not the synthetic demo ones.
+    for (const property of snapshot.properties) {
+      expect(property.managerUserId).toBe(ctx.managerUserId);
+    }
   });
 });

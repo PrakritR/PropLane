@@ -62,12 +62,32 @@ export function isReservedMailboxLocal(local: string): boolean {
   return RESERVED_MAILBOX_LOCALS.has(local.trim().toLowerCase());
 }
 
+/** Legacy work-email domains still accepted on inbound during the @proplane.ai cutover. */
+const LEGACY_ASSISTANT_EMAIL_DOMAINS = ["prop-lane.space"] as const;
+
 export function assistantEmailDomain(): string {
   return (
     process.env.ASSISTANT_EMAIL_DOMAIN?.trim() ||
     process.env.INBOUND_EMAIL_DOMAIN?.trim() ||
-    "prop-lane.space"
+    "proplane.ai"
   ).toLowerCase();
+}
+
+/**
+ * Domains outbound minting uses the primary {@link assistantEmailDomain}; inbound
+ * also accepts legacy domains so mail to old addresses is not dropped mid-cutover.
+ */
+export function assistantEmailAcceptedDomains(): string[] {
+  const primary = assistantEmailDomain();
+  const fromEnv = (process.env.ASSISTANT_EMAIL_LEGACY_DOMAINS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set([primary, ...LEGACY_ASSISTANT_EMAIL_DOMAINS, ...fromEnv])];
+}
+
+function isAcceptedAssistantEmailDomain(domain: string): boolean {
+  return assistantEmailAcceptedDomains().includes(domain.trim().toLowerCase());
 }
 
 /** Legacy plus-addressed assistant mailbox (still accepted for inbound). */
@@ -75,7 +95,7 @@ export function assistantEmailAddress(token: string): string {
   return `${ASSISTANT_LOCAL_PREFIX}+${token}@${assistantEmailDomain()}`;
 }
 
-/** Shareable work address: assist-jane-smith@prop-lane.space */
+/** Shareable work address: my-workspace@proplane.ai (or a custom local). */
 export function assistantMailboxAddress(mailboxLocal: string): string {
   return `${mailboxLocal.trim().toLowerCase()}@${assistantEmailDomain()}`;
 }
@@ -88,7 +108,7 @@ export function extractAssistantEmailToken(addresses: string[]): string | null {
     if (at <= 0) continue;
     const local = email.slice(0, at);
     const domain = email.slice(at + 1);
-    if (domain !== assistantEmailDomain()) continue;
+    if (!isAcceptedAssistantEmailDomain(domain)) continue;
     const plus = local.indexOf("+");
     if (plus === -1) continue;
     const prefix = local.slice(0, plus);
@@ -116,7 +136,7 @@ export function extractAssistantMailboxLocal(addresses: string[]): string | null
     if (at <= 0) continue;
     const local = email.slice(0, at);
     const domain = email.slice(at + 1);
-    if (domain !== assistantEmailDomain()) continue;
+    if (!isAcceptedAssistantEmailDomain(domain)) continue;
     if (local.includes("+")) continue;
     if (isReservedMailboxLocal(local)) continue;
     if (isValidMailboxLocal(local)) return local;

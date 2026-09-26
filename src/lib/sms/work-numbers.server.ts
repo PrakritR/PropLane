@@ -107,7 +107,7 @@ export type WorkNumberMutationResult =
   | {
       ok: false;
       error: string;
-      code: "not_authorized" | "cap_exceeded" | "already_assigned" | "not_found";
+      code: "not_authorized" | "cap_exceeded" | "already_assigned" | "not_found" | "setup_locked";
     };
 
 /**
@@ -117,74 +117,29 @@ export type WorkNumberMutationResult =
  * workspace AND already own a workspace that holds the number (sharing OUT
  * your own line, never someone else's).
  */
+/**
+ * Cross-workspace sharing is retired: each workspace owns at most one work
+ * number, provisioned for that workspace. Legacy `workspace_work_numbers`
+ * share rows can still be cleared with `unassignNumber`.
+ */
 export async function assignNumberToWorkspace(
-  db: SupabaseClient,
-  actorUserId: string,
-  opts: { numberId: string; workspaceId: string },
+  _db: SupabaseClient,
+  _actorUserId: string,
+  _opts: { numberId: string; workspaceId: string },
 ): Promise<WorkNumberMutationResult> {
-  const numberId = cleanId(opts.numberId);
-  const workspaceId = cleanId(opts.workspaceId);
-  const actor = cleanId(actorUserId);
-  if (!numberId || !workspaceId || !actor) {
-    return { ok: false, error: "Number and workspace are required.", code: "not_found" };
-  }
-
-  const destination = await loadWorkspaceById(db, workspaceId);
-  if (!destination || destination.ownerUserId !== actor) {
-    return { ok: false, error: "You cannot assign a number to that workspace.", code: "not_authorized" };
-  }
-
-  const { data: holderRows, error: holderError } = await db
-    .from("workspace_work_numbers")
-    .select("workspace_id")
-    .eq("number_id", numberId);
-  if (holderError) return { ok: false, error: "Could not verify this number.", code: "not_found" };
-  const holderWorkspaceIds = [...new Set((holderRows ?? []).map((r) => cleanId(r.workspace_id)).filter(Boolean))];
-  if (holderWorkspaceIds.length === 0) {
-    return { ok: false, error: "That number does not exist.", code: "not_found" };
-  }
-  if (holderWorkspaceIds.includes(workspaceId)) {
-    return { ok: false, error: "This workspace already has that number.", code: "already_assigned" };
-  }
-
-  // Re-derive authorization from the join table, not the caller's say-so: the
-  // actor must already OWN one of the workspaces currently holding this
-  // number, otherwise they are sharing a line that is not theirs.
-  const { data: ownedHolders } = await db
-    .from("portal_workspaces")
-    .select("id")
-    .in("id", holderWorkspaceIds)
-    .eq("owner_user_id", actor);
-  if (!ownedHolders || ownedHolders.length === 0) {
-    return { ok: false, error: "You cannot share a number you do not hold.", code: "not_authorized" };
-  }
-
-  const { data: existingHolds } = await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", workspaceId);
-  if ((existingHolds?.length ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
-    return { ok: false, error: "A workspace can hold at most 1 work number.", code: "cap_exceeded" };
-  }
-
-  const { error: insertError } = await db
-    .from("workspace_work_numbers")
-    .insert({ workspace_id: workspaceId, number_id: numberId, is_primary: false });
-  if (insertError) {
-    const message = String(insertError.message ?? "");
-    if (message.includes("at most 2") || message.includes("at most 1")) {
-      return { ok: false, error: "A workspace can hold at most 1 work number.", code: "cap_exceeded" };
-    }
-    if ((insertError as { code?: string }).code === "23505") {
-      return { ok: false, error: "This workspace already has that number.", code: "already_assigned" };
-    }
-    return { ok: false, error: "Could not assign this number.", code: "not_found" };
-  }
-  return { ok: true };
+  return {
+    ok: false,
+    error: "A work number belongs to one workspace. Request a number for that workspace instead of sharing one.",
+    code: "not_authorized",
+  };
 }
 
 /**
  * Remove a number from a workspace. Only the workspace's own owner may change
- * its numbers. Unassigning the last number a workspace holds is allowed — the
- * workspace simply has none, same as before any number was set up. The
- * number itself is never deleted; it may still be held by another workspace.
+ * its numbers. A workspace's own set-up number (primary / home) can never be
+ * removed — Setup is permanent for that workspace. Legacy shared-in holds
+ * (`is_primary` false) may still be cleared so the list can shed retired
+ * cross-workspace shares.
  */
 export async function unassignNumber(
   db: SupabaseClient,
@@ -210,7 +165,22 @@ export async function unassignNumber(
   if (!existing) {
     return { ok: false, error: "This workspace does not hold that number.", code: "not_found" };
   }
+
   const wasPrimary = Boolean(existing.is_primary);
+  const { data: homeRow } = await db
+    .from("manager_sms_numbers")
+    .select("id, workspace_id")
+    .eq("id", numberId)
+    .maybeSingle();
+  const isHomeForWorkspace = cleanId(homeRow?.workspace_id) === workspaceId;
+  if (wasPrimary || isHomeForWorkspace) {
+    return {
+      ok: false,
+      error: "A work number cannot be removed once this workspace has set it up.",
+      code: "setup_locked",
+    };
+  }
+
   const { error } = await db
     .from("workspace_work_numbers")
     .delete()
@@ -218,25 +188,6 @@ export async function unassignNumber(
     .eq("number_id", numberId);
   if (error) return { ok: false, error: "Could not remove this number.", code: "not_found" };
 
-  // Removing the HOME copy of a number that another workspace still shares in
-  // leaves that number with no primary holder. Promote the earliest remaining
-  // holder so outbound resolution keeps a deterministic primary.
-  if (wasPrimary) {
-    const { data: remaining } = await db
-      .from("workspace_work_numbers")
-      .select("workspace_id, created_at")
-      .eq("number_id", numberId)
-      .order("created_at", { ascending: true })
-      .limit(1);
-    const next = remaining?.[0];
-    if (next) {
-      await db
-        .from("workspace_work_numbers")
-        .update({ is_primary: true })
-        .eq("workspace_id", next.workspace_id)
-        .eq("number_id", numberId);
-    }
-  }
   return { ok: true };
 }
 
@@ -258,25 +209,17 @@ export type ProvisionForWorkspaceResult =
       ok: false;
       error: string;
       state: "failed";
-      code: "not_authorized" | "cap_exceeded" | "budget_exceeded" | "second_number_via_share_only";
+      code: "not_authorized" | "cap_exceeded" | "budget_exceeded";
     };
 
 /**
  * Provision a work number for a workspace, gated by the account-wide
  * included + `extra_work_number` add-on budget and by this workspace's own
- * 2-number cap.
+ * 1-number cap.
  *
- * `manager_sms_numbers` keeps ONE row per home workspace (unique index,
- * untouched by the join-table migration — the money-guarded Twilio purchase
- * state machine in manager-number-provisioning.server.ts is keyed on it and is
- * out of scope for this change). So a workspace that already has its own home
- * number cannot buy a second one through this path: a genuine second number
- * for that workspace must be SHARED IN from a sibling workspace via
- * `assignNumberToWorkspace`, not purchased twice into the same home slot.
- * Documented departure — the plan's "Add number · $5/mo" row shown on a
- * workspace that already has one is intentionally refused here rather than
- * silently faking a second purchase or altering the money-guarded state
- * machine; see the build report for the recommended follow-up.
+ * `manager_sms_numbers` keeps ONE row per home workspace (unique index). A
+ * workspace that already has its home number cannot buy another through this
+ * path — each workspace gets exactly one work number.
  */
 export async function provisionNumberForWorkspace(
   db: SupabaseClient,
@@ -306,9 +249,9 @@ export async function provisionNumberForWorkspace(
   if (existingHome?.id) {
     return {
       ok: false,
-      error: "This workspace already has its own number. Share a number in from another workspace instead of buying a second one.",
+      error: "This workspace already has its work number.",
       state: "failed",
-      code: "second_number_via_share_only",
+      code: "cap_exceeded",
     };
   }
 

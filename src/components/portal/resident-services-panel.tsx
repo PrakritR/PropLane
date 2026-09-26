@@ -5,7 +5,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
-import { recordSections } from "@/lib/portals/record-sections";
+import { recordSections, type RecordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { residentServiceDetailHref, type ResidentServiceDetailTabId } from "@/lib/portal-detail-routes";
@@ -83,6 +83,12 @@ import {
   type ServiceRowState,
   type UnifiedServiceRow,
 } from "@/lib/unified-service-rows";
+import {
+  RESIDENT_SERVICE_TAB_LABELS,
+  RESIDENT_SERVICE_TAB_ORDER,
+  residentServiceTab,
+  type ResidentServiceTab,
+} from "@/lib/resident-services-tabs";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -95,12 +101,10 @@ import {
 
 const EMPTY_SERVICE_OPTIONS: ManagerListingServiceOption[] = [];
 
-const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
-  { id: "open", label: "Open" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "done", label: "Done" },
-  { id: "declined", label: "Declined" },
-];
+const SERVICE_STATE_TABS: { id: ResidentServiceTab; label: string }[] = RESIDENT_SERVICE_TAB_ORDER.map((id) => ({
+  id,
+  label: RESIDENT_SERVICE_TAB_LABELS[id],
+}));
 
 function unifiedServiceRowKey(row: Pick<UnifiedServiceRow, "kind" | "id">): string {
   return `${row.kind}::${row.id}`;
@@ -556,7 +560,7 @@ export function ResidentServicesPanel({
   const session = usePortalSession();
   const catalogScopeKey = useSyncExternalStore(subscribePropertyCatalogScope, propertyCatalogScopeKey, () => "server");
 
-  const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
+  const [serviceStateFilter, setServiceStateFilter] = useState<ResidentServiceTab>("open");
   const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
   const { selectedIds, toggleSelected, clearSelection, setSelectedIds } = usePortalRowSelection(serviceStateFilter);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -787,13 +791,17 @@ export function ResidentServicesPanel({
     [sortedRequests, myRows],
   );
 
-  const serviceStateCounts = useMemo(
-    () => countServiceRowsByState(unifiedServiceRows),
-    [unifiedServiceRows],
-  );
+  const serviceStateCounts = useMemo(() => {
+    const byState = countServiceRowsByState(unifiedServiceRows);
+    const counts: Record<ResidentServiceTab, number> = { open: 0, scheduled: 0, done: 0 };
+    for (const id of Object.keys(byState) as ServiceRowState[]) {
+      counts[residentServiceTab(id)] += byState[id];
+    }
+    return counts;
+  }, [unifiedServiceRows]);
 
   const filteredUnifiedRows = useMemo(
-    () => unifiedServiceRows.filter((row) => row.state === serviceStateFilter),
+    () => unifiedServiceRows.filter((row) => residentServiceTab(row.state) === serviceStateFilter),
     [unifiedServiceRows, serviceStateFilter],
   );
 
@@ -1194,7 +1202,6 @@ export function ResidentServicesPanel({
     const parsed = parseUnifiedServiceRowKey(serviceId);
     const activeTab: ResidentServiceDetailTabId = serviceDetailTab ?? "overview";
     const backHref = `${basePath}/services`;
-    const sections = recordSections("resident", "service", { basePath });
 
     const req = parsed?.kind === "add-on" ? (serviceRequestById.get(parsed.id) ?? null) : null;
     const row = parsed?.kind === "maintenance" ? (workOrderById.get(parsed.id) ?? null) : null;
@@ -1204,6 +1211,36 @@ export function ResidentServicesPanel({
     }
 
     const recordLabel = req?.offerName ?? row?.title ?? "Service";
+
+    // C135: the Vendor tab only appears once a vendor has actually been
+    // assigned to this service — the same "tabs disappear when empty"
+    // pattern used elsewhere in this app. Add-on requests never carry a
+    // vendor assignee (assignableKindsFor("service") is team-only), so this
+    // is always false for `req` and only ever true for a maintenance work
+    // order (`row`).
+    const assignedVendorName = row?.vendorName?.trim() || "";
+    const hasAssignedVendor = assignedVendorName !== "";
+    const baseSections = recordSections("resident", "service", { basePath });
+    const sections: RecordSections = hasAssignedVendor
+      ? {
+          ...baseSections,
+          groups: baseSections.groups.map((group) =>
+            group.label === "Service"
+              ? {
+                  ...group,
+                  items: [
+                    ...group.items,
+                    {
+                      id: "vendor",
+                      label: "Vendor",
+                      href: (recordId: string) => residentServiceDetailHref(basePath, recordId, "vendor"),
+                    },
+                  ],
+                }
+              : group,
+          ),
+        }
+      : baseSections;
 
     const onHeaderAction = (actionId: string) => {
       if (actionId === "message") {
@@ -1266,6 +1303,23 @@ export function ResidentServicesPanel({
             <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="resident-service-photos-empty" />
           </div>
         )
+      ) : activeTab === "vendor" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="resident-service-vendor">
+          {hasAssignedVendor ? (
+            <>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Vendor</p>
+              <p className="mt-1 text-sm font-medium text-foreground">{assignedVendorName}</p>
+              {row?.vendorAssignedAt ? (
+                <>
+                  <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">Assigned</p>
+                  <p className="mt-1 text-sm text-foreground">{formatDate(row.vendorAssignedAt)}</p>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <PortalListEmptyCard title="No vendor assigned yet" workspaceAware={false} dataAttr="resident-service-vendor-empty" />
+          )}
+        </div>
       ) : activeTab === "communication" ? (
         renderRecordSection("communication", {
           role: "resident",
@@ -1572,7 +1626,7 @@ export function ResidentServicesPanel({
               dataAttr: `resident-services-status-${id}`,
             }))}
             activeId={serviceStateFilter}
-            onChange={(id) => setServiceStateFilter(id as ServiceRowState)}
+            onChange={(id) => setServiceStateFilter(id as ResidentServiceTab)}
             ariaLabel="Service status"
             appearance="command"
             className="w-full"

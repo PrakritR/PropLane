@@ -9,11 +9,14 @@
  */
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { track } from "@/lib/analytics/track-client";
 import {
+  managerAttachLibraryLeaseDocument,
   managerUploadLeasePdf,
   readLeasePipeline,
   saveUploadedLeaseParse,
 } from "@/lib/lease-pipeline-storage";
+import type { LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
 import {
   failedUploadedLeaseParse,
   normalizeUploadedLeaseParse,
@@ -63,8 +66,53 @@ export async function uploadAndParseLeasePdf(
   file: File,
   managerUserId?: string | null,
 ): Promise<UploadAndParseResult> {
+  track("lease_import_started", { lease_id: rowId, import_kind: "uploaded_pdf" });
   const uploaded = await managerUploadLeasePdf(rowId, file, managerUserId);
-  if (!uploaded.ok) return { ok: false, error: uploaded.error };
+  if (!uploaded.ok) {
+    track("lease_import_failed", { lease_id: rowId, reason_code: "upload_failed" });
+    return { ok: false, error: uploaded.error };
+  }
+  if (isDemoModeActive()) return { ok: true, parse: null };
+
+  const row = readLeasePipeline(managerUserId).find((r) => r.id === rowId);
+  const dataUrl = row?.managerUploadedPdf?.originalDataUrl ?? row?.managerUploadedPdf?.dataUrl ?? "";
+  if (!dataUrl) {
+    track("lease_import_failed", { lease_id: rowId, reason_code: "source_missing" });
+    return { ok: true, parse: null };
+  }
+
+  let parse: UploadedLeaseParse;
+  try {
+    parse = await parseUploadedLeaseDataUrl({ dataUrl, fileName: file.name });
+  } catch (err) {
+    parse = failedUploadedLeaseParse(file.name, err instanceof Error ? err.message : "Could not read that lease PDF.");
+  }
+  if (parse.status === "failed") track("lease_import_failed", { lease_id: rowId, reason_code: "parse_failed" });
+  const saved = saveUploadedLeaseParse(rowId, parse, managerUserId);
+  if (!saved.ok) {
+    track("lease_import_failed", { lease_id: rowId, reason_code: "reading_store_failed" });
+    return { ok: true, saveError: saved.error ?? "The imported reading could not be stored." };
+  }
+  return { ok: true, parse };
+}
+
+/**
+ * Attach a workspace lease-library document and structure it in one step —
+ * the library sibling of `uploadAndParseLeasePdf` (night/custom-lease, item
+ * 1). Carries over the entry's signature-field placements (item 2/3) via
+ * `managerAttachLibraryLeaseDocument`.
+ */
+export async function attachLibraryLeaseDocumentAndParse(
+  rowId: string,
+  entry: LeaseDocumentLibraryEntry,
+  managerUserId?: string | null,
+): Promise<UploadAndParseResult> {
+  const attached = await managerAttachLibraryLeaseDocument(
+    rowId,
+    { id: entry.id, url: entry.url, fileName: entry.fileName, fields: entry.fields },
+    managerUserId,
+  );
+  if (!attached.ok) return { ok: false, error: attached.error };
   if (isDemoModeActive()) return { ok: true, parse: null };
 
   const row = readLeasePipeline(managerUserId).find((r) => r.id === rowId);
@@ -73,9 +121,9 @@ export async function uploadAndParseLeasePdf(
 
   let parse: UploadedLeaseParse;
   try {
-    parse = await parseUploadedLeaseDataUrl({ dataUrl, fileName: file.name });
+    parse = await parseUploadedLeaseDataUrl({ dataUrl, fileName: entry.fileName });
   } catch (err) {
-    parse = failedUploadedLeaseParse(file.name, err instanceof Error ? err.message : "Could not read that lease PDF.");
+    parse = failedUploadedLeaseParse(entry.fileName, err instanceof Error ? err.message : "Could not read that lease PDF.");
   }
   const saved = saveUploadedLeaseParse(rowId, parse, managerUserId);
   if (!saved.ok) return { ok: true, saveError: saved.error ?? "The imported reading could not be stored." };
@@ -99,6 +147,7 @@ export async function retryUploadedLeaseParse(
   managerUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string; parse?: UploadedLeaseParse }> {
   if (isDemoModeActive()) return { ok: false, error: "Reading an uploaded lease is disabled in the demo." };
+  track("lease_import_started", { lease_id: rowId, import_kind: "retry_read" });
   const row = readLeasePipeline(managerUserId).find((r) => r.id === rowId);
   const upload = row?.managerUploadedPdf;
   const dataUrl = upload?.originalDataUrl ?? upload?.dataUrl ?? "";
@@ -116,6 +165,7 @@ export async function retryUploadedLeaseParse(
       err instanceof Error ? err.message : "Could not read that lease PDF.",
     );
   }
+  if (parse.status === "failed") track("lease_import_failed", { lease_id: rowId, reason_code: "parse_failed" });
   const saved = saveUploadedLeaseParse(rowId, parse, managerUserId);
   if (!saved.ok) return { ok: false, error: saved.error ?? "The imported reading could not be stored." };
   return { ok: true, parse };

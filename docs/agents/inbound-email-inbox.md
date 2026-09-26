@@ -268,8 +268,14 @@ The code is ready; these steps must be done in the Resend dashboard + DNS:
    already set (used to fetch the email body). Until the secret is set, every
    manager work email reports "Assigned — replies off" and is hidden from
    residents and listings — the address can send but nothing can reach it.
-   Work addresses live at `ASSISTANT_EMAIL_DOMAIN` (default `prop-lane.space`,
-   the root), so the MX in step 1 must cover that domain, not only `support@`.
+   Work addresses live at `ASSISTANT_EMAIL_DOMAIN` (default `proplane.ai`,
+   dual-accepting legacy `prop-lane.space` on inbound during cutover via
+   `assistantEmailAcceptedDomains()`). Each owned workspace auto-mints one
+   address as `{workspace-slug}@proplane.ai` on Messaging GET and on workspace
+   create (`ensureOwnedWorkspaceAssistantEmails`); the owner may still Edit.
+   Prefer a subdomain for support MX so existing root-domain MX for other mail
+   is untouched; the MX in step 1 must cover the work-email domain, not only
+   `support@`.
 
 4. **Conversation replies (optional).** Add the reply subdomain (e.g.
    `in.prop-lane.space`) to Resend **Receiving** with its own MX record, and set

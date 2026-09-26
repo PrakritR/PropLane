@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
+import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /property management\s*that runs itself/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^propLane$/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /start free/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /book a demo/i }).first()).toBeVisible();
   });
@@ -15,7 +16,7 @@ test.describe("Public home", () => {
     await expect(nav.getByRole("link", { name: /^why proplane$/i }).first()).toHaveAttribute("href", "/why-proplane");
   });
 
-  test("FAQ answers every question ahead of the closing CTA", async ({ page }) => {
+  test("FAQ answers every question and closes the page", async ({ page }) => {
     await page.goto("/");
 
     const faq = page.getByRole("region", { name: "Questions, answered", exact: true });
@@ -41,21 +42,19 @@ test.describe("Public home", () => {
     await faq.getByText("Is there a free plan?", { exact: true }).click();
     await expect(faq.getByText(/free is \$0 with no card/i)).toBeVisible();
 
-    // The board sits above the closing CTA.
-    const ctaTop = await page
-      .getByRole("region", { name: "Get started", exact: true })
-      .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
-    const faqBottom = await faq.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
-    expect(faqBottom).toBeLessThanOrEqual(ctaTop);
+    // No separate closing CTA band on home (captain 2026-09-25, src/app/(public)/page.tsx):
+    // the pricing teaser and hero's own "Start free" already carry the ask, so the FAQ
+    // is deliberately the last section on the page.
+    await expect(page.getByRole("region", { name: "Get started", exact: true })).toHaveCount(0);
   });
 
   test("pricing teaser reads the three plans from the tier table", async ({ page }) => {
     await page.goto("/");
     const pricing = page.locator("#pricing");
     await pricing.scrollIntoViewIfNeeded();
-    await expect(pricing.getByText("$0", { exact: true })).toBeVisible();
-    await expect(pricing.getByText("$20", { exact: true })).toBeVisible();
-    await expect(pricing.getByText("$200", { exact: true })).toBeVisible();
+    for (const tier of MANAGER_PLAN_TIERS) {
+      await expect(pricing.getByText(tier.id === "free" ? "$0" : tier.monthly.headline, { exact: true })).toBeVisible();
+    }
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 

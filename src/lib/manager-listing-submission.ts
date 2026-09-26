@@ -1021,6 +1021,18 @@ export type ManagerListingSubmissionV1 = {
   quickFacts: ManagerQuickFactRow[];
   /** Resident-facing service request options for this property. */
   serviceRequestOptions?: ManagerListingServiceOption[];
+  /**
+   * Whether this listing's rental application follows the workspace-wide
+   * template or keeps its own independent question set. Absent (legacy) or
+   * "custom" = use this listing's own `customApplicationFields` /
+   * `disabledStandardApplicationKeys` / `applicationConfigMode` triplet below
+   * exactly as before this field existed. "workspace" = defer to the
+   * workspace's saved application-form template
+   * (`WorkspaceApplicationFormTemplate`, `rental-application/workspace-application-form.ts`)
+   * when one has been saved; falls back to this listing's own triplet when no
+   * workspace template exists yet. See `resolveEffectiveApplicationForm`.
+   */
+  applicationFormSource?: "workspace" | "custom";
   /** Manager-defined application questions applicants answer for this listing (array order is display order). */
   customApplicationFields?: ManagerCustomApplicationField[];
   /** Built-in application questions the manager removed for this listing. */
@@ -1262,7 +1274,8 @@ export type ManagerCustomApplicationFieldType =
   | "phone"
   | "email"
   | "photos"
-  | "file";
+  | "file"
+  | "initials";
 
 /**
  * Every type `normalizeCustomApplicationFields` accepts as valid stored data —
@@ -1286,6 +1299,7 @@ export const CUSTOM_APPLICATION_FIELD_TYPES: readonly ManagerCustomApplicationFi
   "email",
   "photos",
   "file",
+  "initials",
 ];
 
 /** Types the manager question-type picker offers for a NEW or edited question. */
@@ -1305,6 +1319,7 @@ export const CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS: readonly {
   { id: "email", label: "Email" },
   { id: "checkbox", label: "Checkbox" },
   { id: "file", label: "File" },
+  { id: "initials", label: "Initials" },
 ];
 
 /**
@@ -1359,6 +1374,24 @@ export type ManagerCustomApplicationField = {
   standardKey?: string;
   /** Manager-authored help text shown under the question label. Absent when unset. */
   description?: string;
+  /**
+   * Show this question only when another CUSTOM question in the same form
+   * (`fieldKey`, its `key`) currently holds a specific answer (`equals`).
+   * Absent = always shown. Only refers to sibling custom questions (never a
+   * built-in standard field) so evaluation only ever needs the custom-answer
+   * list already threaded through the wizard and server validation — see
+   * `isCustomFieldHiddenByCondition` in `rental-application/custom-fields.ts`.
+   * A hidden question is never required and never blocks submit.
+   */
+  showIf?: { fieldKey: string; equals: string };
+  /**
+   * Who answers this question. Absent/`"resident"` (the default, and every
+   * question that existed before this field) is answered by the applicant or
+   * resident, exactly as today. `"manager"` means the manager (not the
+   * resident) supplies the value — a renderer showing this question to a
+   * resident must render it read-only rather than as an editable control.
+   */
+  filledBy?: "resident" | "manager";
 };
 
 const CUSTOM_APPLICATION_FIELD_TYPES_SET = new Set<string>(CUSTOM_APPLICATION_FIELD_TYPES);
@@ -1432,6 +1465,19 @@ export function normalizeCustomApplicationFields(
     const section =
       typeof o.section === "string" && RENTAL_APPLICATION_SECTION_IDS.has(o.section) ? o.section : undefined;
     const description = typeof o.description === "string" && o.description.trim() ? o.description.trim() : undefined;
+    const showIfRaw = o.showIf;
+    const showIf =
+      showIfRaw &&
+      typeof showIfRaw === "object" &&
+      typeof (showIfRaw as { fieldKey?: unknown }).fieldKey === "string" &&
+      (showIfRaw as { fieldKey: string }).fieldKey.trim() &&
+      typeof (showIfRaw as { equals?: unknown }).equals === "string"
+        ? {
+            fieldKey: (showIfRaw as { fieldKey: string }).fieldKey.trim(),
+            equals: (showIfRaw as { equals: string }).equals,
+          }
+        : undefined;
+    const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
     out.push({
       id,
       key,
@@ -1442,6 +1488,8 @@ export function normalizeCustomApplicationFields(
       section,
       standardKey,
       description,
+      showIf,
+      filledBy,
     });
   }
   return out;
@@ -2554,6 +2602,11 @@ function normalizeManagerListingSubmissionV1Base(
     quickFacts,
     customFees,
     serviceRequestOptions,
+    applicationFormSource:
+      (sub as { applicationFormSource?: unknown }).applicationFormSource === "workspace" ||
+      (sub as { applicationFormSource?: unknown }).applicationFormSource === "custom"
+        ? ((sub as { applicationFormSource: "workspace" | "custom" }).applicationFormSource)
+        : undefined,
     customApplicationFields: normalizeCustomApplicationFields(
       (sub as { customApplicationFields?: unknown }).customApplicationFields,
     ),

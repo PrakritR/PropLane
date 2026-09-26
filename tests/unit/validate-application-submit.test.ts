@@ -10,6 +10,7 @@ import {
 } from "@/lib/rental-application/validate-application-submit";
 import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
+import { createPropertyApplicationTemplate, applicationTemplateQuestionConfigFromSlice, publishApplicationTemplateQuestionDraft } from "@/lib/property-application-templates";
 
 function createFullApplicationListingSubmission() {
   return {
@@ -96,6 +97,25 @@ describe("validate-application-submit", () => {
     }
   });
 
+  it.each(["6", "20", "2x", "1.5"])("rejects a forged occupant count outside the live 1–5 choices: %s", (occupancyCount) => {
+    const result = validateResidentApplicationSubmit({
+      application: { ...validSubmittedApplication(), occupancyCount },
+      property: { id: "prop-1", listingSubmission: createDefaultListingSubmission() },
+      inProgress: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fieldErrors.occupancyCount).toMatch(/between 1 and 5/);
+  });
+
+  it("accepts the highest occupant count offered by the live control", () => {
+    const result = validateResidentApplicationSubmit({
+      application: { ...validSubmittedApplication(), occupancyCount: "5" },
+      property: { id: "prop-1", listingSubmission: createDefaultListingSubmission() },
+      inProgress: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("requires enabled fields before accepting a submitted application", () => {
     const application = validSubmittedApplication();
     application.fullLegalName = "";
@@ -110,6 +130,21 @@ describe("validate-application-submit", () => {
     }
   });
 
+  it.each(["fullLegalName", "phone", "email"] as const)("rejects blank %s even with a forged optional published identity", (key) => {
+    const field = STANDARD_APPLICATION_FIELD_CATALOG.find((item) => item.wizardFormKeys.includes(key))!;
+    const template = {
+      ...createPropertyApplicationTemplate({ kind: "long-term" }),
+      publishedQuestionConfig: {
+        ...applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [field.standardKey], customApplicationFields: [{ id: key, key: field.standardKey, standardKey: field.standardKey, label: field.label, type: "text", required: false, options: [], section: "personal" }], applicationConfigMode: "custom" }),
+        version: 1,
+      },
+    };
+    const application = { ...validSubmittedApplication(), applicationTemplateId: template.id, applicationTemplateVersion: 1, [key]: "" };
+    const result = validateResidentApplicationSubmit({ application, property: { id: "prop-1", listingSubmission: { ...createDefaultListingSubmission(), propertyApplicationTemplates: [template] } }, inProgress: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fieldErrors[key]).toBeTruthy();
+  });
+
   it("returns the same field-level error used by step validation", () => {
     const application = validSubmittedApplication();
     application.fullLegalName = "";
@@ -121,6 +156,80 @@ describe("validate-application-submit", () => {
       expect(result.step).toBe(2);
       expect(result.fieldErrors.fullLegalName).toBe("Full name is required.");
     }
+  });
+
+  it("honors a published required override for a mapped built-in on submit", () => {
+    const dateOfBirth = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Date of birth")!;
+    const template = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Optional date" }),
+      draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({
+        disabledStandardApplicationKeys: [],
+        applicationConfigMode: "custom",
+        customApplicationFields: [{
+          id: "dob-override", key: dateOfBirth.standardKey, standardKey: dateOfBirth.standardKey,
+          label: "Birth date", type: "date", required: false, options: [], section: "personal",
+        }],
+      }),
+    });
+    const application = validSubmittedApplication();
+    application.dateOfBirth = "";
+    application.applicationTemplateId = template.id;
+    application.applicationTemplateVersion = 1;
+    const result = validateResidentApplicationSubmit({
+      application,
+      property: { id: "prop-1", listingSubmission: { ...createDefaultListingSubmission(), propertyApplicationTemplates: [template] } },
+      inProgress: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("validates a populated optional phone while allowing it blank", () => {
+    const field = STANDARD_APPLICATION_FIELD_CATALOG.find((item) => item.label === "Current landlord name & phone")!;
+    const template = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Optional landlord contact" }),
+      draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [], applicationConfigMode: "custom", customApplicationFields: [{ id: "landlord-override", key: field.standardKey, standardKey: field.standardKey, label: field.label, type: "text", required: false, options: [], section: "current_address" }] }),
+    });
+    const property = { id: "prop-1", listingSubmission: { ...createFullApplicationListingSubmission(), propertyApplicationTemplates: [template] } };
+    const blank = { ...validSubmittedApplication(), applicationTemplateId: template.id, applicationTemplateVersion: 1, currentLandlordPhone: "" };
+    expect(validateResidentApplicationSubmit({ application: blank, property, inProgress: false }).ok).toBe(true);
+    const malformed = { ...blank, currentLandlordPhone: "123" };
+    const result = validateResidentApplicationSubmit({ application: malformed, property, inProgress: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fieldErrors.currentLandlordPhone).toMatch(/complete phone/);
+  });
+
+  it("rejects malformed populated optional money while allowing it blank", () => {
+    const field = STANDARD_APPLICATION_FIELD_CATALOG.find((item) => item.label === "Monthly / annual income")!;
+    const template = publishApplicationTemplateQuestionDraft({ ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [], applicationConfigMode: "custom", customApplicationFields: [{ id: "income-override", key: field.standardKey, standardKey: field.standardKey, label: field.label, type: "number", required: false, options: [], section: "employment" }] }) });
+    const property = { id: "prop-1", listingSubmission: { ...createFullApplicationListingSubmission(), propertyApplicationTemplates: [template] } };
+    const blank = { ...validSubmittedApplication(), applicationTemplateId: template.id, applicationTemplateVersion: 1, monthlyIncome: "", otherIncome: "100" };
+    expect(validateResidentApplicationSubmit({ application: blank, property, inProgress: false }).ok).toBe(true);
+    const malformed = { ...blank, monthlyIncome: "abc" };
+    const result = validateResidentApplicationSubmit({ application: malformed, property, inProgress: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fieldErrors.monthlyIncome).toMatch(/valid monthly/);
+  });
+
+  it("uses the same mapped built-in override in the server persistence gate", async () => {
+    const dateOfBirth = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Date of birth")!;
+    const template = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Server optional date" }),
+      draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({
+        disabledStandardApplicationKeys: [], applicationConfigMode: "custom",
+        customApplicationFields: [{ id: "dob-server", key: dateOfBirth.standardKey, standardKey: dateOfBirth.standardKey, label: "Birth date", type: "date", required: false, options: [], section: "personal" }],
+      }),
+    });
+    const application = validSubmittedApplication();
+    application.dateOfBirth = "";
+    application.applicationTemplateId = template.id;
+    application.applicationTemplateVersion = 1;
+    const property = { id: "prop-1", listingSubmission: { ...createDefaultListingSubmission(), propertyApplicationTemplates: [template] } };
+    const result = await validateResidentApplicationRowForPersistence({
+      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { property_data: property }, error: null }) }) }) }),
+    } as never, {
+      id: "PROPLANE-PINNED1", name: "Jordan Lee", email: application.email, property: "Test", propertyId: "prop-1", stage: "Submitted", bucket: "pending", detail: "Submitted", application,
+    });
+    expect(result.ok).toBe(true);
   });
 
   it("blocks a required manager question attached to the Review step", () => {

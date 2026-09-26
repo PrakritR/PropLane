@@ -13,7 +13,7 @@ const PRE_LEASE_RESIDENT_SECTIONS = [
   { label: "Applications", path: "/resident/applications" },
   { label: "Lease", path: "/resident/lease" },
   { label: "Payments", path: "/resident/payments" },
-  { label: "Inbox", path: "/resident/communication/active" },
+  { label: "Communication", path: "/resident/communication/active" },
   { label: "Documents", path: "/resident/documents/application" },
 ] as const;
 

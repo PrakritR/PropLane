@@ -12,11 +12,13 @@ import {
 } from "@/components/portal/payment-schedule-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   normalizeManagerAutomationSettings,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
 import {
   DEFAULT_REMINDER_SETTINGS,
   normalizeReminderSettings,
@@ -291,6 +293,7 @@ function ResidentPaymentReminderSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<ManagerAutomationSettings | null>(null);
 
@@ -303,10 +306,9 @@ function ResidentPaymentReminderSettingsPanel({
           if (!cancelled) setSettings(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
           return;
         }
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        if (!res.ok) throw new Error("Could not load payment settings.");
-        const body = (await res.json()) as { settings: ManagerAutomationSettings };
-        if (!cancelled) setSettings(normalizeManagerAutomationSettings(body.settings));
+        if (!userId) return;
+        const loaded = await loadManagerAutomationSettingsCached(userId);
+        if (!cancelled) setSettings(normalizeManagerAutomationSettings(loaded.settings));
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load payment settings.");
       } finally {
@@ -316,7 +318,7 @@ function ResidentPaymentReminderSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, userId]);
 
   return (
     <div className={hidden ? "hidden" : undefined} aria-hidden={hidden}>

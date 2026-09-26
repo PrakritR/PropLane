@@ -247,6 +247,16 @@ describe("POST /api/manager-applications — resident submit attribution", () =>
     expect(UPSERTS[0].row_data.managerUserId).toBe(OWNER);
   });
 
+  it("does not let an applicant file a supposedly manager-signed lease", async () => {
+    const res = await submit(residentRow({
+      manuallyAdded: true,
+      manualResidentDetails: { signedLeaseDataUrl: "data:application/pdf;base64,Zm9yZ2Vk" },
+    }));
+    expect(res.status).toBe(200);
+    expect(UPSERTS[0]?.row_data.manuallyAdded).toBe(false);
+    expect(UPSERTS[0]?.row_data.manualResidentDetails).toBeUndefined();
+  });
+
   it("ignores a forged managerUserId in the request body", async () => {
     const res = await submit(residentRow({ managerUserId: VICTIM }));
 

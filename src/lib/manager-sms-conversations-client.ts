@@ -3,7 +3,26 @@
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 
-const readers = new Map<string, ReturnType<typeof createCoalescedRefresher<Response>>>();
+/**
+ * `createCoalescedRefresher` only coalesces CONCURRENT calls — it holds no
+ * TTL of its own, so an unforced caller arriving after the previous fetch
+ * already settled starts a brand new request regardless of how recently that
+ * was. `use-portal-nav-counts.ts` polls this reader every 60s AND on every
+ * mount, and the unified inbox / communication panel each read it too — Night
+ * QA found /api/manager/sms-conversations landing in the top-5-slowest calls
+ * on 7 of 10 manager routes. Add that missing TTL here so callers within the
+ * window share one result; `force: true` (e.g. right after sending/deleting a
+ * message) still always starts a fresh fetch, same guarantee as before.
+ */
+const SMS_CONVERSATIONS_TTL_MS = 20_000;
+
+type SmsConversationsEntry = {
+  reader: ReturnType<typeof createCoalescedRefresher<Response>>;
+  lastResponse: Response | null;
+  fetchedAt: number;
+};
+
+const readers = new Map<string, SmsConversationsEntry>();
 
 function smsReaderCacheKey(viewerId: string, workspaceId?: string | null): string {
   const viewer = String(viewerId ?? "").trim();
@@ -32,6 +51,18 @@ export function invalidateManagerSmsConversationsClient(
 
 onPortalSessionViewerChange(() => invalidateManagerSmsConversationsClient());
 
+/**
+ * Test-only reset hook: `invalidateManagerSmsConversationsClient()` with no
+ * args already clears every reader, but a test file that mounts the
+ * component fresh per `it()` (a static top-level import, so `vi.resetModules()`
+ * cannot give it a new copy of this module) needs an explicit way to drop the
+ * TTL cache between tests instead of loosening an assertion that a mount
+ * fetches fresh. Call this from `beforeEach`/`afterEach`, not app code.
+ */
+export function resetManagerSmsConversationsClientCacheForTests(): void {
+  invalidateManagerSmsConversationsClient();
+}
+
 /** The inbox and composer share a directory read; every consumer owns its body. */
 export async function loadManagerSmsConversationsClient(
   viewerId: string,
@@ -39,14 +70,24 @@ export async function loadManagerSmsConversationsClient(
   workspaceId?: string | null,
 ): Promise<Response> {
   const cacheKey = smsReaderCacheKey(viewerId, workspaceId);
-  let reader = readers.get(cacheKey);
-  if (!reader) {
-    reader = createCoalescedRefresher(() =>
-      fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" }),
-    );
-    readers.set(cacheKey, reader);
+  let entry = readers.get(cacheKey);
+  if (!entry) {
+    entry = {
+      reader: createCoalescedRefresher(() =>
+        fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" }),
+      ),
+      lastResponse: null,
+      fetchedAt: 0,
+    };
+    readers.set(cacheKey, entry);
   }
-  return (await reader.run(force)).clone();
+  if (!force && entry.lastResponse && Date.now() - entry.fetchedAt < SMS_CONVERSATIONS_TTL_MS) {
+    return entry.lastResponse.clone();
+  }
+  const res = await entry.reader.run(force);
+  entry.lastResponse = res;
+  entry.fetchedAt = Date.now();
+  return res.clone();
 }
 
 /** Irreversible hard-delete of one SMS conversation the viewer can see. */

@@ -7,6 +7,7 @@ import { getReportsAuthContext } from "@/lib/reports/auth";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const ALLOWED_KINDS = new Set<PropertyLeaseTemplateKind>(["short-term", "long-term", "time-based", "custom"]);
 
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
   const docUrl = `/api/portal/lease-template?path=${encodeURIComponent(path)}`;
 
   try {
-    const { html, parsed } = await parseLeasePdfBuffer({
+    const { html, parsed, sourceSha256, sourceIssues, coverage } = await parseLeasePdfBuffer({
       bytes,
       docName: fileName,
       docUrl,
@@ -61,9 +62,12 @@ export async function POST(req: Request) {
       html,
       inferredKind: parsed.inferredKind,
       sectionCount: parsed.sections.length,
+      sourceSha256,
+      sourceIssues,
+      coverage,
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Could not parse that lease PDF.";
-    return NextResponse.json({ error: message }, { status: 422 });
+  } catch {
+    // PDF/parser exceptions can contain document metadata or extracted text.
+    return NextResponse.json({ error: "Could not parse that lease PDF." }, { status: 422 });
   }
 }

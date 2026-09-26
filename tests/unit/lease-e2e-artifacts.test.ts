@@ -26,6 +26,10 @@ import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/ge
 import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import { snapshotJordanLee } from "@/data/manager-application-snapshots";
+import { mapApplicationPdfImport, applicationImportMappingToDraft } from "@/lib/rental-application/application-pdf-import";
+import { applicationTemplateQuestionConfigFromSlice, createPropertyApplicationTemplate, publishApplicationTemplateQuestionDraft } from "@/lib/property-application-templates";
+import { validateResidentApplicationSubmit } from "@/lib/rental-application/validate-application-submit";
 
 const MANAGER_ID = "mgr-e2e";
 const OUT = process.env.LEASE_ARTIFACT_DIR ?? "";
@@ -148,6 +152,42 @@ beforeEach(() => {
 });
 
 describe("lease documents: generation, formatting and ledger agreement", () => {
+  it("submits a published PDF-imported application, approves charges, and creates its lease", () => {
+    const pid = "e2e-imported-application";
+    const mapping = mapApplicationPdfImport({
+      fileName: "manager-application.pdf", sourceSha256: "f".repeat(64), coverage: { extractedCharacters: 90, representedCharacters: 90, complete: true }, issues: [],
+      pages: [{ pageNumber: 1, formFields: [], issues: [], blocks: [
+        { text: "Property: ____", start: 0, end: 14 },
+        { text: "Room choices: ____", start: 15, end: 33 },
+        { text: "Lease term: ____", start: 34, end: 49 },
+        { text: "Lease start date: ____", start: 50, end: 72 },
+        { text: "Credit & background check consent: ____", start: 73, end: 113 },
+        { text: "Favorite shared activity: ____", start: 114, end: 144 },
+      ] }],
+    });
+    const draft = applicationImportMappingToDraft(mapping);
+    expect(draft.disabledStandardApplicationKeys).toEqual([]);
+    const template = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Imported form" }),
+      draftQuestionConfig: { ...applicationTemplateQuestionConfigFromSlice(draft), importProvenance: { unresolvedCount: 0 } },
+    });
+    const property = seedListing(pid, PLACES.seattle, room({ monthlyRent: 825 }), { propertyApplicationTemplates: [template] });
+    const app: RentalWizardFormState = {
+      ...snapshotJordanLee(), propertyId: pid, roomChoice1: `${pid}${LISTING_ROOM_CHOICE_SEP}room-1`, roomChoice2: "",
+      leaseStart: "2027-10-01", leaseEnd: "2028-09-30", dateSigned: "2026-09-24",
+      applicationTemplateId: template.id, applicationTemplateVersion: 1,
+      customFieldAnswers: [{ key: "favorite-shared-activity", label: "Favorite shared activity", type: "text", section: "additional", value: "Cooking" }],
+    };
+    expect(validateResidentApplicationSubmit({ application: app, property, inProgress: false })).toEqual({ ok: true });
+    const email = "imported-applicant@example.com";
+    removeResidentHouseholdPaymentData(email);
+    recordApprovedApplicationCharges(applicantRow(pid, email, app), MANAGER_ID, true, { leaseExecuted: true });
+    expect(ledgerLines(email).length).toBeGreaterThan(0);
+    const body = html(app);
+    expect(body).toContain("Jordan Lee");
+    expect(body).toContain("2027");
+    expect(body).toContain("$825");
+  });
   it("Seattle long-term produces a complete, ordered residential lease", () => {
     const pid = "e2e-seattle-long";
     seedListing(pid, PLACES.seattle, room({ monthlyRent: 825, utilitiesEstimate: "175" }), {

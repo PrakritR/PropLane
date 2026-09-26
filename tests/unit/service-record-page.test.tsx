@@ -73,17 +73,32 @@ describe("service record page (work order)", () => {
     expect(document.body.textContent).not.toMatch(/work order/i);
   });
 
-  it("an open work order shows Assign vendor, Schedule and Delete — never a dead Close", () => {
+  it("an unassigned open work order shows Assign vendor and Delete, but not Schedule (C247)", () => {
     render(
       <AppUiProvider>
         <ManagerWorkOrdersPanel allRows={[row({ bucket: "open" })]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
       </AppUiProvider>,
     );
     expect(document.querySelector('[data-attr="record-header-action-assign-vendor"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="record-header-action-schedule"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="record-header-action-delete"]')).not.toBeNull();
+    // Nothing to schedule a visit for yet — offering it on an unassigned service is a dead click.
+    expect(document.querySelector('[data-attr="record-header-action-schedule"]')).toBeNull();
     // Nothing to close yet — dropped rather than shown as a dead "Coming soon".
     expect(document.querySelector('[data-attr="record-header-action-close"]')).toBeNull();
+  });
+
+  it("an open work order with a vendor assigned shows Schedule (C247)", () => {
+    render(
+      <AppUiProvider>
+        <ManagerWorkOrdersPanel
+          allRows={[row({ bucket: "open", vendorId: "v-1", vendorName: "Acme Plumbing" })]}
+          bucket="open"
+          workOrderId="wo-1"
+          listBasePath="/portal"
+        />
+      </AppUiProvider>,
+    );
+    expect(document.querySelector('[data-attr="record-header-action-schedule"]')).not.toBeNull();
   });
 
   it("a scheduled work order shows Close (mark complete) in the header", () => {

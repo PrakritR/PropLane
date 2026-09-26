@@ -231,7 +231,11 @@ export function ProPortalSettingsModal({
     }
   }, [flushPendingSaves, onClose, tab]);
 
-  const showPropertyPicker = !(isFormAutomationTab(tab) && editorPane === "form");
+  // C027/C205: Tour settings (notice, auto-confirm, reminders) are account-
+  // wide — TourSettingsPanel's own fetches take no property/workspace scope
+  // — so the property scope bar rendered here for every other tab was a
+  // picker that visibly moved but changed nothing underneath it.
+  const showPropertyPicker = !(isFormAutomationTab(tab) && editorPane === "form") && tab !== "tours";
 
   return (
     <SettingsPropertyScopeProvider

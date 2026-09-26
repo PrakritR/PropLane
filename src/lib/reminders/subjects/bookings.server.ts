@@ -1,11 +1,17 @@
 /**
  * Bookings → the reminder queue.
  *
- * A "booking" on the Bookings page is a dated STAY from one of two sources, and
- * both are swept here so the one Settings switch governs both:
+ * A "booking" on the Bookings page is a dated STAY from one of three sources,
+ * and all three are swept here so the one Settings switch governs each:
  *
- *  - an imported channel range on `external_calendar_connections` (Airbnb), and
- *  - a PropLane lease's move-in on `portal_lease_pipeline_records`.
+ *  - an imported channel range on `external_calendar_connections` (Airbnb),
+ *  - a PropLane lease's move-in on `portal_lease_pipeline_records`, and
+ *  - a room-date block on `portal_schedule_records` (BUILD-WAVE2 C211) — a
+ *    manager's own hand-added booking, a linked-sheet import, or a channel
+ *    stay filed from a manager calendar rather than an iCal connection. This
+ *    third source was the one the check-in reminder never read: "Bookings
+ *    → Update from sheet" and "Add booking" both write here, but this file
+ *    swept only the two sources above until now.
  *
  * The anchor is CHECK-IN, not when the booking arrived — a manager preparing a
  * room needs the lead time counted back from the day someone walks in.
@@ -16,7 +22,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { roomBlockSummary } from "@/lib/channel-calendar/property-bookings";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
+import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -60,7 +68,7 @@ function stayLabel(startKey: string, endKey: string | null): string {
   return `${fmt(startKey)} – ${fmt(endKey)}`;
 }
 
-type Stay = {
+export type Stay = {
   managerUserId: string;
   subjectId: string;
   checkInKey: string;
@@ -76,7 +84,7 @@ function str(row: Record<string, unknown>, key: string): string | null {
 }
 
 /** Imported channel ranges. One row per linked room, ranges inside it. */
-async function channelStays(db: SupabaseClient): Promise<Stay[]> {
+export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
   const { data, error } = await db
     .from("external_calendar_connections")
     .select("id, manager_user_id, property_id, room_id, label, provider, imported_ranges")
@@ -116,7 +124,7 @@ async function channelStays(db: SupabaseClient): Promise<Stay[]> {
 }
 
 /** PropLane's own stays — a signed lease's move-in date. */
-async function leaseStays(db: SupabaseClient): Promise<Stay[]> {
+export async function leaseStays(db: SupabaseClient): Promise<Stay[]> {
   const { data, error } = await db
     .from("portal_lease_pipeline_records")
     .select("manager_user_id, row_data")
@@ -147,9 +155,60 @@ async function leaseStays(db: SupabaseClient): Promise<Stay[]> {
   return stays;
 }
 
+/**
+ * Hand-added bookings, linked-sheet imports, and manager-filed channel stays
+ * — every `portal_schedule_records` row of type `room_date_block` that names
+ * a guest, one way or another (BUILD-WAVE2 C211). A plain "these dates are
+ * closed" block with no name attached is not a stay anyone is checking into,
+ * so it is left out — same distinction `bookingVisualSource` already draws
+ * between a block and a hold.
+ */
+export async function roomDateBlockStays(db: SupabaseClient): Promise<Stay[]> {
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("id, manager_user_id, property_id, row_data")
+    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+    .limit(MAX_ROWS);
+  if (error) throw error;
+
+  const stays: Stay[] = [];
+  for (const raw of data ?? []) {
+    const row = raw as Record<string, unknown>;
+    const managerUserId = str(row, "manager_user_id");
+    const id = str(row, "id");
+    if (!managerUserId || !id) continue;
+    const rowData = (row.row_data && typeof row.row_data === "object" ? row.row_data : {}) as Record<string, unknown>;
+    if (hasSmsTestProvenance(rowData)) continue;
+    const checkIn = str(rowData, "checkIn");
+    const checkOutExclusive = str(rowData, "checkOut");
+    if (!checkIn || !checkOutExclusive) continue;
+    const residentName = str(rowData, "residentName");
+    const reason = str(rowData, "reason") ?? "";
+    const isChannelImport = reason.toLowerCase() === "airbnb" || reason.toLowerCase() === "booking";
+    // A block with neither a name nor a channel-import reason is just closed
+    // dates — nobody to remind anyone about.
+    if (!residentName && !isChannelImport) continue;
+    stays.push({
+      managerUserId,
+      subjectId: `block:${id}`,
+      checkInKey: checkIn,
+      // `checkOutKey` reads as the literal day the guest leaves everywhere
+      // else in `Stay` (a lease's `leaseEnd` is the move-out date, not the
+      // last night) — the stored block is EXCLUSIVE checkout already
+      // (`exclusiveCheckoutAfterLastNight` in sheet-sync, "Add booking"'s own
+      // checkout field), so it needs no adjustment here.
+      checkOutKey: checkOutExclusive,
+      guestName: roomBlockSummary({ reason, residentName: residentName ?? undefined }),
+      propertyId: str(row, "property_id"),
+      propertyLabel: str(row, "property_id") ?? "your listing",
+    });
+  }
+  return stays;
+}
+
 export async function sweepBookingReminders(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
-  const stays = [...(await channelStays(db)), ...(await leaseStays(db))];
+  const stays = [...(await channelStays(db)), ...(await leaseStays(db)), ...(await roomDateBlockStays(db))];
   if (stays.length === 0) return 0;
 
   const managerIds = [...new Set(stays.map((stay) => stay.managerUserId))];

@@ -210,9 +210,20 @@ function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFil
   return rows.filter((r) => propertyFilters.includes(applicationRowPropertyId(r)));
 }
 
+/**
+ * Same "withdrawn leaves Pending" reclassification as {@link tabForRow} (see
+ * below), so the tab COUNT badges never disagree with the LIST each tab
+ * actually renders — a withdrawn application used to inflate "Pending" both
+ * ways, cluttering the count and the list with a row the resident closed out
+ * and the manager can take no action on.
+ */
 function countByBucket(rows: DemoApplicantRow[]) {
   const c = { pending: 0, approved: 0, rejected: 0 };
   for (const r of rows) {
+    if (r.bucket === "pending" && isWithdrawnApplicationRow(r)) {
+      c.rejected += 1;
+      continue;
+    }
     c[r.bucket] += 1;
   }
   return c;
@@ -229,9 +240,19 @@ function countByBucket(rows: DemoApplicantRow[]) {
  */
 type ManagerApplicationTabId = ApplicationListTabId;
 
-/** Which tab a row belongs to for DISPLAY — never confuse with `row.bucket`. */
+/**
+ * Which tab a row belongs to for DISPLAY — never confuse with `row.bucket`.
+ * A withdrawn row keeps `bucket: "pending"` in storage (the resident's own
+ * closeout, not a manager decision), but showing it in the manager's Pending
+ * queue implied it still needed review, and it can never be approved
+ * (`isApprovableApplicationRow` already excludes it). It reads under
+ * Rejected instead — the closest existing "no action needed" tab — where
+ * `applicationDecisionStatusLabel` already renders "Withdrawn" rather than
+ * "Rejected" so it stays distinguishable from a real manager rejection.
+ */
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   if (row.bucket !== "pending") return row.bucket;
+  if (isWithdrawnApplicationRow(row)) return "rejected";
   return isInProgressApplicationRow(row) ? "incomplete" : "pending";
 }
 

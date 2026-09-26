@@ -9,6 +9,7 @@ import {
 import { isLegitimateEmail } from "@/lib/email-address";
 import { isCompletePhoneNumber } from "@/lib/phone-number-field";
 import { applicationWizardStepForSection, RENTAL_APPLICATION_SECTIONS } from "./application-sections";
+import { resolveListingApplicationFields } from "./application-field-catalog";
 import type { ApplicationPhotoAttachment, RentalCustomFieldAnswer } from "./types";
 
 /** Error-map key for a custom question (RentalWizardErrors is a flat string map). */
@@ -21,10 +22,22 @@ export function customFieldErrorKey(fieldKey: string): string {
  * and for properties set to the standard Axis application.
  */
 export function listingCustomApplicationFields(
-  sub: { customApplicationFields?: unknown; applicationConfigMode?: unknown } | null | undefined,
+  sub: { customApplicationFields?: unknown; applicationConfigMode?: unknown; questionDisplayOrder?: string[] } | null | undefined,
 ): ManagerCustomApplicationField[] {
   if (listingUsesStandardApplication(sub)) return [];
-  return normalizeCustomApplicationFields(sub?.customApplicationFields).filter((f) => !f.standardKey);
+  return resolveListingApplicationFields(sub, normalizeCustomApplicationFields)
+    .filter((field) => !field.isStandard)
+    .map((field) => ({
+      id: field.id,
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      options: [...field.options],
+      section: field.section,
+      description: field.description,
+      standardKey: field.standardKey,
+    }));
 }
 
 /** Custom questions asked on a given applicant wizard step (section-tagged; untagged → Additional details). */
@@ -106,6 +119,25 @@ export function customFieldAnswerValue(
 }
 
 /**
+ * True when `field.showIf` names another custom question whose current
+ * answer does not match — the applicant wizard skips rendering it and
+ * {@link validateCustomFieldAnswers} never requires it. Absent `showIf` (or a
+ * `fieldKey` with no matching sibling answer yet) is never hidden by this
+ * check alone — an unanswered condition reads as "" against `equals`, which
+ * simply does not match a non-empty `equals`, so the question stays hidden
+ * until its condition is actually satisfied (the common case: "show only
+ * after the gating question is answered Yes").
+ */
+export function isCustomFieldHiddenByCondition(
+  field: ManagerCustomApplicationField,
+  answers: RentalCustomFieldAnswer[] | undefined,
+): boolean {
+  const condition = field.showIf;
+  if (!condition || !condition.fieldKey) return false;
+  return customFieldAnswerValue(answers, condition.fieldKey) !== condition.equals;
+}
+
+/**
  * Set one answer, snapshotting the question's label/type/section alongside the
  * value. Keeps answer order aligned with the question order the applicant saw.
  */
@@ -133,6 +165,7 @@ export function validateCustomFieldAnswers(
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const field of fields) {
+    if (isCustomFieldHiddenByCondition(field, answers)) continue;
     const value = customFieldAnswerValue(answers, field.key).trim();
     if (field.type === "checkbox") {
       if (field.required && value !== "yes") {
@@ -150,8 +183,11 @@ export function validateCustomFieldAnswers(
       // The raw string value is JSON (often "[]"), never blank for a "nothing
       // picked" answer, so required-ness has to check the decoded selections
       // rather than the generic `if (!value)` below.
-      if (field.required && parseMultiSelectAnswer(customFieldAnswerValue(answers, field.key)).length === 0) {
+      const selections = parseMultiSelectAnswer(customFieldAnswerValue(answers, field.key));
+      if (field.required && selections.length === 0) {
         errors[customFieldErrorKey(field.key)] = `${field.label} is required.`;
+      } else if (selections.some((selection) => !field.options.includes(selection))) {
+        errors[customFieldErrorKey(field.key)] = "Choose only the listed options.";
       }
       continue;
     }
@@ -185,6 +221,11 @@ export function validateCustomFieldAnswers(
     }
     if (field.type === "phone" && !isCompletePhoneNumber(value)) {
       errors[customFieldErrorKey(field.key)] = "Enter a valid phone number.";
+    }
+    // Like `text`, required-ness is covered by the generic `if (!value)` check
+    // above — this only adds the length cap: initials are a mark, not a name.
+    if (field.type === "initials" && value.length > 6) {
+      errors[customFieldErrorKey(field.key)] = "Keep initials short (6 characters or fewer).";
     }
     if (field.type === "select" && field.options.length > 0 && !field.options.includes(value)) {
       errors[customFieldErrorKey(field.key)] = "Choose one of the listed options.";

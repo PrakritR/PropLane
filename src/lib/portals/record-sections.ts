@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Send,
   Share2,
+  Star,
   Trash2,
   Upload,
   UserMinus,
@@ -172,6 +173,8 @@ type KindDef = {
    * here falls back to `headerActions`.
    */
   sectionActions?: Record<string, RecordHeaderAction[]>;
+  /** Communication is part of the shared trio for every kind except where explicitly opted out (C229: a property's own conversations live only on the portal-wide Communication page now). Defaults to true when omitted. */
+  hasCommunication?: boolean;
   hasDocuments: boolean;
   hasActivity: boolean;
   href: (ctx: RecordSectionContext) => (recordId: string, tab: string) => string;
@@ -199,7 +202,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "copy", label: "Copy", icon: Copy },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    hasDocuments: true,
+    // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
+    // Documents rail items are removed — conversations and files live only on
+    // the portal-wide Communication/Documents pages now.
+    hasCommunication: false,
+    hasDocuments: false,
     hasActivity: true,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
@@ -345,9 +352,14 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "archive", label: "Archive", icon: Archive },
     ],
     sectionActions: {
+      // C049 (studio decision): "Request more info" had no real handler
+      // anywhere in the app — dropped rather than shipped as a dead action.
+      // (This whole `sectionActions` map is currently unread by
+      // PortalRecordSectionChrome — the application record's real header
+      // dock is `renderApplicationRowActions` in pro-applications.tsx — so
+      // this never rendered either way; removed for hygiene.)
       "application-form": [
         { id: "approve", label: "Approve", icon: CheckCircle2 },
-        { id: "request-info", label: "Request more info", icon: Mail },
         { id: "download", label: "Download", icon: Download },
         { id: "print", label: "Print", icon: Printer },
       ],
@@ -425,6 +437,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
       { id: "schedule", label: "Schedule", icon: Calendar },
       { id: "close", label: "Close", icon: CheckCircle2 },
+      // Only rendered once the service is completed and a vendor is assigned
+      // (gated in pro-work-orders-panel.tsx's headerActions filter).
+      { id: "review", label: "Leave a review", icon: Star },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
@@ -492,6 +507,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "overview", label: "Overview" },
         { id: "services", label: "Services" },
         { id: "invoices", label: "Invoices" },
+        { id: "reviews", label: "Reviews" },
       ] },
     ],
     headerActions: [
@@ -857,9 +873,10 @@ export function recordSections(
     }))
     .filter((group) => group.items.length > 0);
 
-  const trioItems: RecordSectionItem[] = [
-    { id: "communication", label: "Communication", href: (recordId: string) => hrefFor(recordId, "communication") },
-  ];
+  const trioItems: RecordSectionItem[] = [];
+  if (def.hasCommunication !== false) {
+    trioItems.push({ id: "communication", label: "Communication", href: (recordId: string) => hrefFor(recordId, "communication") });
+  }
   if (def.hasDocuments) {
     trioItems.push({ id: "documents", label: "Documents", href: (recordId: string) => hrefFor(recordId, "documents") });
   }
@@ -868,7 +885,9 @@ export function recordSections(
   }
   // No group label: Communication/Documents/Activity read as universal record
   // chrome, not a labeled category the way "Money" or "People" are.
-  groups.push({ label: "", items: trioItems });
+  if (trioItems.length > 0) {
+    groups.push({ label: "", items: trioItems });
+  }
 
   const headerActions =
     (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions;

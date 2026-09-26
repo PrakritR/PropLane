@@ -7,21 +7,21 @@ const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 test.describe("Resident login and application flow", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("public apply page loads with required fields", async ({ page }) => {
+  test("public apply page shows account gate without guest continue", async ({ page }) => {
     await page.goto("/rent/apply?propertyId=mgr-test-fir");
-    await page.getByRole("button", { name: /continue without an account/i }).click();
-    await expect(page.getByRole("heading", { name: /rental application/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /create your resident account/i })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByText(/applying as part of a group/i)).toBeVisible();
+    await expect(page.getByRole("link", { name: /create account/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /continue without an account/i })).toHaveCount(0);
   });
 
-  test("public tours-contact page loads with form", async ({ page }) => {
+  test("public tours-contact page shows account gate without guest continue", async ({ page }) => {
     await page.goto(e2eToursContactUrl());
-    await expect(page.getByRole("heading", { name: /schedule tour/i })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: /schedule as a guest/i }).click();
-    await expect(page.getByRole("searchbox").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("button", { name: /^continue$/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour/i })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: /schedule as a guest/i })).toHaveCount(0);
   });
 
   test("resident can sign in and reach dashboard", async ({ page }) => {

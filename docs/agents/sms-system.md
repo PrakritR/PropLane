@@ -15,9 +15,11 @@ the flow by text. Tools, prompts, and the origin rule:
 Settings → Communication → Channels (`ManagerMessagingSettingsPanel` in
 `src/components/portal/pro-messaging-settings-panel.tsx`) is the one list: a
 row per work number per workspace plus the work email row, each with a ⋯ menu
-for its actions (PLAN-0920-1530). Every number's status word comes from
-`src/lib/sms/work-number-status.ts`; the email row's inline rename and its
-actions live in `src/components/portal/pro-assistant-email-settings-panel.tsx`
+for its actions (PLAN-0920-1530). Each workspace holds at most **one** work
+number and **one** work email — cross-workspace "Use in another workspace"
+sharing is refused (`assignNumberToWorkspace`). Every number's status word
+comes from `src/lib/sms/work-number-status.ts`; the email row's inline rename
+and its actions live in `src/components/portal/pro-assistant-email-settings-panel.tsx`
 (`ManagerAssistantEmailChannelRow`), composed into the same list.
 
 ## Work-order reference routing
@@ -51,10 +53,13 @@ A work number belongs to a **workspace** — a `portal_workspaces` row — and
 every workspace the switcher can land on has its own: `manager_sms_numbers`
 is keyed on `workspace_id` (unique), `manager_user_id` is the workspace's
 owner, and an owner with three workspaces may hold three lines
-(`20260916000000_work_identity_per_workspace.sql`). "Workspace" here is never
-"owner plus co-manager links": an account that owns no houses but still
-carries an accepted link somewhere is the owner of its own, empty workspace
-and sees NO number there — never the inviter's (that was the Sep 15 2026 bug).
+(`20260916000000_work_identity_per_workspace.sql`). **Once a workspace has
+set up its number, that number cannot be removed** (UI + `unassignNumber`
+refuse with `setup_locked`); only legacy shared-in join rows may be cleared.
+"Workspace" here is never "owner plus co-manager links": an account that owns
+no houses but still carries an accepted link somewhere is the owner of its
+own, empty workspace and sees NO number there — never the inviter's (that was
+the Sep 15 2026 bug).
 
 `resolveActiveWorkspace` (`src/lib/workspaces/active.server.ts`) is the one
 answer to "which workspace does this request mean": the cookie's selection if
@@ -94,12 +99,11 @@ through it or through the workspace-keyed helpers in
 The work EMAIL follows the identical rule — one address per workspace, held by
 its owner. See `docs/agents/inbound-email-inbox.md` "One work email per WORKSPACE".
 
-**A workspace may hold up to 2 numbers (part 3, Sep 2026).** `workspace_work_numbers`
-is the many-to-many join table and the only truth for "which numbers does this
-workspace hold" — `manager_sms_numbers.workspace_id` stays each number's fixed
-HOME placement, untouched. A shared number's thread is ONE thread, visible and
-sendable from every holding workspace (`conversation-visibility.server.ts`,
-`resolveOwnerSendNumberRow`). Manage assignment only through
+**A workspace holds at most 1 work number.** `workspace_work_numbers` is the
+join table and the only truth for "which numbers does this workspace hold" —
+`manager_sms_numbers.workspace_id` stays each number's fixed HOME placement.
+Cross-workspace "Use in another workspace" sharing is refused
+(`assignNumberToWorkspace`). Manage assignment only through
 `src/lib/sms/work-numbers.server.ts` and `PATCH /api/manager/messaging-number`,
 never by writing the join table directly.
 
@@ -370,6 +374,34 @@ manager inbox immediately after `persistClawInboundSms`, and a send refusal
 after that still returns `ok: true` so Twilio does not drop the receipt.
 `resolveOwnedWorkNumber` also falls back to a unique phone match when the row
 is not yet attached to `TWILIO_MESSAGING_SERVICE_SID`.
+
+⚠️ **Twilio does not retry our 5xx. PropLane recovers claimed inbound itself.**
+Twilio's default webhook retry policy is connect/TLS failure only (`rp=ct`), and
+provisioned URLs carry no `#rp=` fragment, so a 503 "retry later" after
+`claim_sms_inbound` used to be permanent silence (Sep 25 2026, 408 line:
+error 11200, receipt stuck `processing`). Now:
+
+- `/api/twilio/inbound` does pre-claim checks only, passes `inbound_payload`
+  to `claim_sms_inbound` (written in the same statement as the claim), then
+  calls `runClaimedInbound`
+  (`src/lib/sms/inbound-pipeline.server.ts`). That boundary turns any throw
+  into a `retryable` receipt; nothing after the claim may escape as a bare 500.
+- `/api/cron/sms-inbound-recovery` (every minute, `vercel.json`) reruns `retryable` receipts,
+  and `processing` receipts whose lease expired more than 60s ago (the lease
+  equals the webhook's `maxDuration`), through the same pipeline: max 5 attempts
+  (`attempt_count`, counted by `claim_sms_inbound`), 24h window. Prepared
+  replies are resent rather than regenerated, and agent turns are keyed on the MessageSid.
+- The sweeper replays only payloads stamped with its own `VERCEL_ENV` (staging
+  runs on a production clone), honours the protected-account shield, retries
+  when the work number cannot be resolved, and drops only when the line now
+  belongs to another workspace.
+- A trigger clears `inbound_payload` once the receipt completes. Receipts
+  without a payload (before this change) are never replayed.
+- Failures before the claim (workspace, rate-limit store, receipt read) rely
+  on Twilio's own retry. Inbound webhooks carry `#rp=ct,5xx&rc=2`
+  (`withInboundRetryPolicy`, set at provisioning; existing numbers via
+  `scripts/twilio-apply-inbound-retry-policy.mjs`). The fragment is unsigned,
+  so signature validation strips it. Twilio retries share a 15s budget.
 
 ## Prospect SMS scheduling and follow-up
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
@@ -16,8 +16,6 @@ import { BROWSE_IDS_PARAM, parseBrowseIdsParam } from "@/lib/manager-property-li
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import {
-  hasPublicApplyGuestContinue,
-  markPublicApplyGuestContinue,
   publicApplyGateKey,
   publicApplyReturnPath,
   resolvePublicApplyView,
@@ -29,7 +27,7 @@ function publicApplyResumeLinkActive(searchParams: { get(name: string): string |
 }
 
 /**
- * Public guest apply surface — account recommended, not required.
+ * Public apply surface — a resident account is required (PLAN-0924-1421).
  *
  * `signedInNonResident` is resolved on the server (authoritative role check):
  * a signed-in manager/vendor is offered a separate resident account rather than
@@ -108,35 +106,11 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
 
   const resumeFromEmailLink = useMemo(() => publicApplyResumeLinkActive(searchParams), [searchParams]);
 
-  const [guestBypass, setGuestBypass] = useState(false);
-  const [guestContinuedInSession, setGuestContinuedInSession] = useState(false);
-
-  useEffect(() => {
-    if (!applyGateKey) {
-      setGuestContinuedInSession(false);
-      return;
-    }
-    setGuestContinuedInSession(hasPublicApplyGuestContinue(applyGateKey));
-  }, [applyGateKey]);
-
-  useEffect(() => {
-    if (!resumeFromEmailLink || !applyGateKey) return;
-    markPublicApplyGuestContinue(applyGateKey);
-    setGuestBypass(true);
-  }, [applyGateKey, resumeFromEmailLink]);
-
-  const continueAsGuest = useCallback(() => {
-    if (applyGateKey) markPublicApplyGuestContinue(applyGateKey);
-    setGuestBypass(true);
-  }, [applyGateKey]);
-
-  const guestContinue = !applyGateKey || guestBypass || guestContinuedInSession || resumeFromEmailLink;
-
   const view = resolvePublicApplyView({
     gateKey: applyGateKey,
-    guestContinue,
     signedInNonResident,
     hasResidentRole: false,
+    resumeFromEmailLink,
   });
 
   // A multi-home share now opens the wizard on the FIRST property with the rest
@@ -155,14 +129,12 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
         <div className="mt-8">
           {view === "signed-in-create-resident" ? (
             <SignedInResidentAccountPrompt
-              gateKey={applyGateKey}
               applyReturnPath={applyReturnPath}
               propertyTitle={
                 portfolioProperties.length === 1
                   ? portfolioProperties[0]?.title?.trim()
                   : `${portfolioProperties.length} homes`
               }
-              onContinueGuest={continueAsGuest}
             />
           ) : view === "account-prompt" ? (
             <PublicApplyAccountPrompt
@@ -173,7 +145,6 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
                   ? portfolioProperties[0]?.title?.trim()
                   : `${portfolioProperties.length} homes`
               }
-              onContinueGuest={continueAsGuest}
             />
           ) : portfolioProperties.length === 0 ? (
             <ManagerLinkGate
@@ -200,18 +171,12 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
       {view === "signed-in-create-resident" ? (
-        <SignedInResidentAccountPrompt
-          gateKey={applyGateKey}
-          applyReturnPath={applyReturnPath}
-          propertyTitle={propertyTitle}
-          onContinueGuest={continueAsGuest}
-        />
+        <SignedInResidentAccountPrompt applyReturnPath={applyReturnPath} propertyTitle={propertyTitle} />
       ) : view === "account-prompt" ? (
         <PublicApplyAccountPrompt
           gateKey={applyGateKey}
           applyReturnPath={applyReturnPath}
           propertyTitle={propertyTitle}
-          onContinueGuest={continueAsGuest}
         />
       ) : !applicationsAvailable ? (
         <ApplicationUnavailableContactManager

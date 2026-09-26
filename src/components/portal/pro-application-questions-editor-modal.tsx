@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
+import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
+import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
@@ -31,10 +33,8 @@ import {
 import {
   addListingApplicationField,
   applicationConfigForVariant,
-  canMoveCustomApplicationField,
   customApplicationConfigWithAllStandardQuestions,
   mergeApplicationConfigForVariant,
-  moveCustomApplicationField,
   moveCustomApplicationFieldToSection,
   patchListingApplicationField,
   reenableListingApplicationField,
@@ -42,6 +42,7 @@ import {
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
+  NEVER_DISABLED_STANDARD_KEY_SET,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -53,11 +54,22 @@ import {
 } from "@/lib/rental-application/application-question-packs";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import {
+  applicationDraftReviewFingerprint,
+  applicationFormVariantForTemplate,
+  applicationTemplateQuestionPublishGate,
+  applicationTemplateQuestionConfigFromSlice,
   createPropertyApplicationTemplate,
+  draftQuestionConfigForTemplate,
   withPropertyApplicationTemplatesExplicit,
   updatePropertyApplicationTemplate,
+  type ApplicationTemplateQuestionConfig,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
+import {
+  applyEffectiveApplicationForm,
+  workspaceApplicationFormIsConfigured,
+  type WorkspaceApplicationFormTemplate,
+} from "@/lib/rental-application/workspace-application-form";
 
 /** Question sections start collapsed; managers expand the ones they need. */
 function collapsedApplicationSections(): Set<string> {
@@ -136,6 +148,13 @@ function submissionForNewCustomApplication(sub: ManagerListingSubmissionV1): Man
   return {
     ...sub,
     ...mergeApplicationConfigForVariant("standard", customApplicationConfigWithAllStandardQuestions()),
+    // A brand-new named application is always freshly authored content, so
+    // it must stay fully editable regardless of whether this listing
+    // otherwise follows the workspace form — never open ADD read-only.
+    // (`applicationFormSource` is the listing-wide flag; the "Workspace
+    // form" / "Custom for this listing" picker still lets the manager
+    // switch it back once the template exists.)
+    applicationFormSource: "custom",
   };
 }
 
@@ -162,6 +181,8 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose,
   onSaved,
   showToast,
+  autoImportFile = null,
+  onAutoImportConsumed,
 }: {
   open: boolean;
   title?: string;
@@ -196,6 +217,17 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose: () => void;
   onSaved: () => void;
   showToast: (m: string) => void;
+  /**
+   * "+ Add → Upload PDF" in one step: the caller already created and saved a
+   * real (empty) template — `applicationTemplate` is never null here — and
+   * hands the just-picked PDF through so this modal can run the same import
+   * `importPdf` already runs for an existing template, once, automatically,
+   * the first time it opens with a template + a pending file. The caller
+   * clears this after one render (`onAutoImportConsumed`) so re-opening the
+   * same template later never re-imports on its own.
+   */
+  autoImportFile?: File | null;
+  onAutoImportConsumed?: () => void;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -213,10 +245,42 @@ export function ManagerApplicationQuestionsEditorModal({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The workspace-wide application-form template (Settings → Application
+  // form), fetched once per open so this listing's "Workspace form" /
+  // "Custom for this listing" pick can show what it currently means and copy
+  // it onto the listing exactly once when the manager switches to Custom.
+  const [workspaceForm, setWorkspaceForm] = useState<WorkspaceApplicationFormTemplate | null>(null);
+  const [workspaceFormLoaded, setWorkspaceFormLoaded] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
+  const [importedQuestionDraft, setImportedQuestionDraft] = useState<ApplicationTemplateQuestionConfig | null>(null);
+  const [importIssues, setImportIssues] = useState<Array<{ pageNumber: number | null; code: string; message: string }>>([]);
+  const [resolvedImportIssueIndexes, setResolvedImportIssueIndexes] = useState<number[]>([]);
+  const [compareView, setCompareView] = useState<"original" | "form">("form");
+  const [reviewingSource, setReviewingSource] = useState(false);
+  const [questionDisplayOrder, setQuestionDisplayOrder] = useState<string[]>([]);
+  const initializedEditorRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const baseSub = templateEditorMode === "add" ? submissionForNewCustomApplication(sub) : sub;
+    if (!open) {
+      initializedEditorRef.current = null;
+      return;
+    }
+    const editorKey = `${applicationPreviewPropertyId ?? "portfolio"}:${templateEditorMode ?? "listing"}:${applicationTemplate?.id ?? "new"}:${initialVariant}`;
+    if (initializedEditorRef.current === editorKey) return;
+    initializedEditorRef.current = editorKey;
+    const templateDraft = applicationTemplate ? draftQuestionConfigForTemplate(applicationTemplate) : null;
+    const baseSub = templateEditorMode === "add"
+      ? submissionForNewCustomApplication(sub)
+      : templateDraft
+        ? { ...sub, ...mergeApplicationConfigForVariant(applicationFormVariantForTemplate(applicationTemplate!), templateDraft) }
+        : sub;
+    setQuestionDisplayOrder(
+      templateDraft?.questionDisplayOrder?.slice() ??
+      applicationConfigForVariant(baseSub, initialVariant).questionDisplayOrder ??
+      [],
+    );
     setLocalSub(baseSub);
     setVariant(templateEditorMode === "add" ? "standard" : initialVariant);
     setTemplateLabel(applicationTemplate?.label ?? "");
@@ -229,12 +293,99 @@ export function ManagerApplicationQuestionsEditorModal({
     setDirty(templateEditorMode === "add");
     setSaving(false);
     setSaveError(null);
-  }, [open, sub, initialVariant, templateEditorMode, applicationTemplate]);
+    setOriginalPdfPath(applicationTemplate?.draftQuestionConfig?.importProvenance?.sourcePath ?? null);
+    setImportedQuestionDraft(applicationTemplate?.draftQuestionConfig?.importProvenance ? applicationTemplate.draftQuestionConfig : null);
+    setImportIssues(applicationTemplate?.draftQuestionConfig?.importProvenance?.issues ?? []);
+    setResolvedImportIssueIndexes(applicationTemplate?.draftQuestionConfig?.importProvenance?.resolvedIssueIndexes ?? []);
+    setCompareView("form");
+  }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
+
+  // The real Applications tab (`pro-property-application-questions-panel.tsx`)
+  // always opens this modal with a `templateEditorMode` — every row is a
+  // named `PropertyApplicationTemplate` (Long-term / Short-term / Co-signer),
+  // even for the ordinary single-listing edit path. `applicationFormSource`
+  // is a LISTING-wide flag (all three variants switch together), not a
+  // per-template one, so it must stay reachable in that mode too — only a
+  // genuinely ambiguous multi-property BULK edit excludes it (`isBulkSave`).
+  useEffect(() => {
+    if (!open || isBulkSave) {
+      setWorkspaceForm(null);
+      setWorkspaceFormLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    setWorkspaceFormLoaded(false);
+    fetch("/api/portal/application-form")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { template?: WorkspaceApplicationFormTemplate } | null) => {
+        if (cancelled) return;
+        const template = data?.template;
+        setWorkspaceForm(template && workspaceApplicationFormIsConfigured(template) ? template : null);
+        setWorkspaceFormLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceFormLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isBulkSave]);
+
+  // Absent = "workspace" (follows the workspace template by default, see
+  // `resolveEffectiveApplicationForm`); "custom" keeps this listing's own
+  // triplet independent. Switching TO custom copies the workspace form onto
+  // the listing ONCE, right now — the same "one-time copy, nothing stored as
+  // a standing link" shape as "Same as Room X" (`listing-wizard-defaults.md`).
+  const applicationFormSource: "workspace" | "custom" = localSub.applicationFormSource === "custom" ? "custom" : "workspace";
+  const setApplicationFormSource = (next: "workspace" | "custom") => {
+    if (next === applicationFormSource) return;
+    setLocalSub((prev) => {
+      if (next === "custom" && workspaceForm) {
+        return {
+          ...prev,
+          applicationFormSource: "custom",
+          customApplicationFields: workspaceForm.customApplicationFields,
+          disabledStandardApplicationKeys: workspaceForm.disabledStandardApplicationKeys,
+          applicationConfigMode: workspaceForm.applicationConfigMode,
+          shortTermCustomApplicationFields: workspaceForm.shortTermCustomApplicationFields,
+          shortTermDisabledStandardApplicationKeys: workspaceForm.shortTermDisabledStandardApplicationKeys,
+          shortTermApplicationConfigMode: workspaceForm.shortTermApplicationConfigMode,
+          cosignerCustomApplicationFields: workspaceForm.cosignerCustomApplicationFields,
+          cosignerDisabledStandardApplicationKeys: workspaceForm.cosignerDisabledStandardApplicationKeys,
+          cosignerApplicationConfigMode: workspaceForm.cosignerApplicationConfigMode,
+        };
+      }
+      return { ...prev, applicationFormSource: next };
+    });
+    setDirty(true);
+  };
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
+
+  const canEditBuiltIn = (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order"): boolean => {
+    if (!field.isStandard) return true;
+    const key = field.standardKey ?? "";
+    if (variant === "cosigner") {
+      if (action === "order") return false;
+      if (key === "personal-date-of-birth" || key === "personal-social-security-number") return true;
+      return action === "label" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email");
+    }
+    if (action === "order" && (field.section === "household" || field.section === "property")) return false;
+    if (action === "label" && field.section === "household") return false;
+    // C195: SSN, ID and income join the identity trio in never being
+    // removable — screening/charges/leases read them directly and a manager
+    // hiding one breaks approval with no error at disable-time. Unlike the
+    // identity trio, only removal is locked here: label and required stay
+    // editable (income in particular is meant to stay optional).
+    if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
+    if (action !== "order" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) {
+      return action === "label";
+    }
+    return true;
+  };
 
   const handleDelete = async () => {
     if (!showDelete || !onDelete) return;
@@ -242,18 +393,48 @@ export function ManagerApplicationQuestionsEditorModal({
     onDelete();
   };
 
+  // While this listing follows the workspace template, DISPLAY (fields,
+  // preview) resolves from the workspace's questions, not the listing's own
+  // (currently inactive) triplet — `renderSection` below shows that resolved
+  // set read-only rather than the editable builder, so nothing here writes
+  // an edit that the next render would silently discard.
+  const effectiveSubForDisplay = useMemo(
+    () => (applicationFormSource === "workspace" ? applyEffectiveApplicationForm(localSub, workspaceForm) : localSub),
+    [localSub, workspaceForm, applicationFormSource],
+  );
+
   // The config slice for the form the manager is editing.
   // top-level triplet; short-term reads its own, defaulting to PropLane's
   // curated short-term question set until edited. Edits to one never touch the
   // other.
-  const configSlice = useMemo(() => applicationConfigForVariant(localSub, variant), [localSub, variant]);
+  const configSlice = useMemo(() => ({
+    ...applicationConfigForVariant(effectiveSubForDisplay, variant),
+    questionDisplayOrder,
+  }), [effectiveSubForDisplay, questionDisplayOrder, variant]);
 
   // `normalizeCustomApplicationFieldsForEditor` (not the plain normalizer) keeps
   // an in-progress row with an empty label or no options yet — it must stay
   // visible IN PLACE while the manager is still filling it in, not vanish on
   // every re-render before Save.
   const applicationFields = useMemo(
-    () => resolveListingApplicationFields(configSlice, normalizeCustomApplicationFieldsForEditor),
+    () => {
+      const configured = resolveListingApplicationFields(configSlice, normalizeCustomApplicationFieldsForEditor);
+      const structural = resolveListingApplicationFields(
+        { ...configSlice, questionDisplayOrder: undefined },
+        normalizeCustomApplicationFieldsForEditor,
+      );
+      const configuredPosition = new Map(configured.map((field, index) => [field.id, index]));
+      const structuralPosition = new Map(structural.map((field, index) => [field.id, index]));
+      return structural.toSorted((left, right) => {
+        const section = left.section ?? "additional";
+        if (section !== (right.section ?? "additional")) {
+          return (structuralPosition.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (structuralPosition.get(right.id) ?? Number.MAX_SAFE_INTEGER);
+        }
+        const customQuestionsStayAfterBuiltIns = section === "household" || section === "property" || section === "review";
+        if (customQuestionsStayAfterBuiltIns && left.isStandard !== right.isStandard) return left.isStandard ? -1 : 1;
+        return (configuredPosition.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (configuredPosition.get(right.id) ?? Number.MAX_SAFE_INTEGER);
+      });
+    },
     [configSlice],
   );
   const disabledFields = useMemo(
@@ -329,7 +510,14 @@ export function ManagerApplicationQuestionsEditorModal({
 
   // Apply an edit to LOCAL state only — nothing is persisted until Save.
   const applySlice = (nextSlice: ApplicationConfigSlice): void => {
+    if (nextSlice.questionDisplayOrder) setQuestionDisplayOrder(nextSlice.questionDisplayOrder);
     setLocalSub((prev) => ({ ...prev, ...mergeApplicationConfigForVariant(variant, nextSlice) }));
+    setImportedQuestionDraft((previous) =>
+      previous?.importProvenance && (previous.importProvenance.unresolvedCount ?? 0) === 0
+        ? { ...previous, importProvenance: { ...previous.importProvenance, unresolvedCount: 1 } }
+        : previous,
+    );
+    setResolvedImportIssueIndexes([]);
     setDirty(true);
   };
 
@@ -347,7 +535,11 @@ export function ManagerApplicationQuestionsEditorModal({
         : nextSlice,
     );
 
-  const commitSave = async () => {
+  const commitSave = async ({ publish = false }: { publish?: boolean } = {}) => {
+    if (publish && isBulkSave) {
+      setSaveError("Publish each property's application separately.");
+      return;
+    }
     if (isTemplateEditor) {
       const trimmed = templateLabel.trim();
       if (!trimmed) {
@@ -392,22 +584,75 @@ export function ManagerApplicationQuestionsEditorModal({
       if (templateEditorMode === "add") {
         nextTemplates = [
           ...templates,
-          createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
+          {
+            ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
+            draftQuestionConfig: {
+              ...applicationTemplateQuestionConfigFromSlice(applicationConfigForVariant(sanitizedSub, "standard")),
+              questionDisplayOrder: applicationFields.map((field) => field.id),
+            },
+          },
         ];
       } else {
+        const templateVariant = applicationFormVariantForTemplate(applicationTemplate!);
         nextTemplates = updatePropertyApplicationTemplate(templates, applicationTemplate!.id, {
           label: trimmed,
+          draftQuestionConfig: {
+            ...applicationTemplateQuestionConfigFromSlice(
+              applicationConfigForVariant(sanitizedSub, templateVariant),
+              importedQuestionDraft ?? draftQuestionConfigForTemplate(applicationTemplate!),
+            ),
+            questionDisplayOrder: configSlice.questionDisplayOrder,
+          },
         });
       }
-      const merged = withPropertyApplicationTemplatesExplicit(sanitizedSub, nextTemplates);
+      // Template edits must not mutate the listing-wide legacy triplet. That
+      // triplet remains the fallback for templates created before versioning.
+      let publishTarget: PropertyApplicationTemplate | null = null;
+      if (publish) {
+        const target = nextTemplates.find((template) =>
+          template.id === applicationTemplate?.id || (templateEditorMode === "add" && template.label === trimmed),
+        );
+        if (!target) {
+          setSaving(false);
+          setSaveError("Could not prepare this application for publishing.");
+          return;
+        }
+        const gate = applicationTemplateQuestionPublishGate(target);
+        if (!gate.ok) {
+          setSaving(false);
+          setSaveError(gate.reason);
+          return;
+        }
+        publishTarget = target;
+      }
+      const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
       const okSaved = await onPersistSubmission(merged, {
-        message: templateEditorMode === "add" ? "Application added." : "Application saved.",
+        message: publish ? "Application draft saved." : templateEditorMode === "add" ? "Application added." : "Application saved.",
       });
-      setSaving(false);
       if (!okSaved) {
+        setSaving(false);
         setSaveError("Could not save. Your changes are still here — try again.");
         return;
       }
+      if (publish && publishTarget && applicationPreviewPropertyId) {
+        const response = await fetch("/api/portal/application-template-import", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            propertyId: applicationPreviewPropertyId,
+            templateId: publishTarget.id,
+            expectedPublishedVersion: applicationTemplate?.publishedQuestionConfig?.version ?? 0,
+          }),
+        });
+        const result = await response.json().catch(() => null) as { error?: string; template?: PropertyApplicationTemplate } | null;
+        if (!response.ok || !result?.template) {
+          setSaving(false);
+          setDirty(false);
+          setSaveError(result?.error || "The draft was saved, but it could not be published. Try again.");
+          return;
+        }
+      }
+      setSaving(false);
       setSaveError(null);
       setDirty(false);
       onSaved();
@@ -434,6 +679,122 @@ export function ManagerApplicationQuestionsEditorModal({
     onClose();
   };
 
+  const importPdf = async (file: File) => {
+    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
+    setImporting(true);
+    try {
+      const body = new FormData();
+      body.set("propertyId", applicationPreviewPropertyId);
+      body.set("templateId", applicationTemplate.id);
+      body.set("file", file);
+      const response = await fetch("/api/portal/application-template-import", { method: "POST", body });
+      const result = await response.json().catch(() => null) as { error?: string; draft?: ApplicationTemplateQuestionConfig; source?: { path?: string }; issues?: Array<{ pageNumber: number | null; code: string; message: string }> } | null;
+      if (!response.ok || !result) throw new Error(result?.error || "Could not import the application PDF.");
+      setOriginalPdfPath(result.source?.path ?? null);
+      setImportIssues(result.issues ?? []);
+      setResolvedImportIssueIndexes([]);
+      if (result.draft) {
+        setImportedQuestionDraft(result.draft);
+        setQuestionDisplayOrder(result.draft.questionDisplayOrder ?? []);
+        setLocalSub((previous) => ({
+          ...previous,
+          ...mergeApplicationConfigForVariant(applicationFormVariantForTemplate(applicationTemplate), result.draft!),
+        }));
+        setDirty(true);
+      }
+      showToast(result.issues?.length ? "Imported as a draft. Resolve the flagged source issues before publishing." : "Imported application draft saved.");
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Could not import the application PDF.");
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  };
+
+  // "+ Add → Upload PDF" in one step: the caller already created and saved
+  // the (empty) template before opening this modal, so `applicationTemplate`
+  // is already real — run the same import the manual "Import PDF" button
+  // runs, once, then land on Preview where the source comparison and any
+  // flagged issues live. Guarded by a ref (not state) so this can never
+  // re-fire from an unrelated re-render while `autoImportFile` is still set.
+  const autoImportRanRef = useRef(false);
+  useEffect(() => {
+    if (!open || !autoImportFile || autoImportRanRef.current) return;
+    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
+    autoImportRanRef.current = true;
+    // The state updates below happen once the import network call settles,
+    // not synchronously in the effect body — an async completion callback,
+    // the same shape `importPdf`'s own button handler already uses.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void importPdf(autoImportFile).then(() => {
+      setStepIdx(workspaceSteps.length - 1);
+      onAutoImportConsumed?.();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, autoImportFile, applicationTemplate, applicationPreviewPropertyId, isBulkSave]);
+
+  const reviewImportedSource = async () => {
+    if (!applicationTemplate || !applicationPreviewPropertyId || !templates || !onPersistSubmission || isBulkSave) return;
+    const currentDraft = importedQuestionDraft ?? draftQuestionConfigForTemplate(applicationTemplate);
+    const sourceSha256 = currentDraft?.importProvenance?.sourceSha256;
+    if (!currentDraft?.importProvenance?.sourcePath || !sourceSha256) {
+      setSaveError("The imported source is unavailable. Import it again before comparing.");
+      return;
+    }
+    if (importIssues.some((issue) => issue.code === "unreadable_page")) {
+      setSaveError("Some PDF pages could not be read. Upload a clearer PDF before publishing.");
+      return;
+    }
+    if (resolvedImportIssueIndexes.length !== importIssues.length) {
+      setSaveError("Resolve each listed PDF issue before confirming the application.");
+      return;
+    }
+    setReviewingSource(true);
+    setSaveError(null);
+    const draftQuestionConfig = applicationTemplateQuestionConfigFromSlice(configSlice, currentDraft);
+    const nextTemplates = updatePropertyApplicationTemplate(templates, applicationTemplate.id, { draftQuestionConfig });
+    const saved = await onPersistSubmission(withPropertyApplicationTemplatesExplicit(sub, nextTemplates), {
+      message: "Application draft saved.",
+    });
+    if (!saved) {
+      setReviewingSource(false);
+      setSaveError("Could not save the draft before source review. Try again.");
+      return;
+    }
+    const draftFingerprint = applicationDraftReviewFingerprint(draftQuestionConfig);
+    const metaResponse = await fetch(`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&meta=1`, { cache: "no-store" });
+    const meta = await metaResponse.json().catch(() => null) as { draftFingerprint?: string; revision?: string } | null;
+    if (!metaResponse.ok || !meta?.revision || meta.draftFingerprint !== draftFingerprint) {
+      setReviewingSource(false);
+      setSaveError("The application draft changed. Compare it again before publishing.");
+      return;
+    }
+    const response = await fetch("/api/portal/application-template-import", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ propertyId: applicationPreviewPropertyId, templateId: applicationTemplate.id, sourceSha256, draftFingerprint, expectedRevision: meta.revision, resolvedIssueIndexes: resolvedImportIssueIndexes }),
+    });
+    const result = await response.json().catch(() => null) as {
+      error?: string;
+      draft?: ApplicationTemplateQuestionConfig;
+    } | null;
+    setReviewingSource(false);
+    if (!response.ok || !result?.draft) {
+      setSaveError(result?.error || "Could not confirm the source comparison. Compare again before publishing.");
+      return;
+    }
+    const reviewedTemplates = updatePropertyApplicationTemplate(nextTemplates, applicationTemplate.id, {
+      draftQuestionConfig: result.draft,
+    });
+    const reviewedSubmission = withPropertyApplicationTemplatesExplicit(sub, reviewedTemplates);
+    setLocalSub({ ...reviewedSubmission, ...mergeApplicationConfigForVariant(variant, result.draft) });
+    setQuestionDisplayOrder(result.draft.questionDisplayOrder ?? []);
+    setImportedQuestionDraft(result.draft);
+    setImportIssues(result.draft.importProvenance?.issues ?? []);
+    setDirty(false);
+    showToast("Imported PDF comparison confirmed.");
+  };
+
   const jump = (index: number) => {
     setStepIdx(index);
     const id = workspaceSteps[index]?.id;
@@ -443,15 +804,20 @@ export function ManagerApplicationQuestionsEditorModal({
   };
 
   const removeField = (field: ResolvedApplicationField) => {
+    if (!canEditBuiltIn(field, "visibility")) return;
     applyEditedSlice(removeListingApplicationField(configSlice, field));
   };
 
   const reenableField = (field: ResolvedApplicationField) => {
-    if (!field.standardKey) return;
+    if (!field.standardKey || !canEditBuiltIn(field, "visibility")) return;
     applyEditedSlice(reenableListingApplicationField(configSlice, field.standardKey));
   };
 
   const patchField = (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => {
+    if ((patch.label !== undefined && !canEditBuiltIn(field, "label")) ||
+      (patch.required !== undefined && !canEditBuiltIn(field, "required")) ||
+      (patch.options !== undefined && field.isStandard && field.options.length > 0) ||
+      (patch.type !== undefined && variant === "cosigner" && !field.isStandard && (patch.type === "file" || patch.type === "photos"))) return;
     applyEditedSlice(patchListingApplicationField(configSlice, field, patch));
   };
 
@@ -465,13 +831,26 @@ export function ManagerApplicationQuestionsEditorModal({
   };
 
   const canMoveField = (field: ResolvedApplicationField, direction: "up" | "down"): boolean => {
-    if (field.isStandard) return false;
-    return canMoveCustomApplicationField(configSlice, field.id, direction, normalizeCustomApplicationFieldsForEditor);
+    if (!canEditBuiltIn(field, "order")) return false;
+    const index = applicationFields.findIndex((candidate) => candidate.id === field.id);
+    const neighbor = applicationFields[index + (direction === "up" ? -1 : 1)];
+    if (!neighbor || (neighbor.section ?? "additional") !== (field.section ?? "additional")) return false;
+    const section = field.section ?? "additional";
+    const customQuestionsStayAfterBuiltIns = section === "household" || section === "property" || section === "review";
+    if (customQuestionsStayAfterBuiltIns && field.isStandard !== neighbor.isStandard) return false;
+    if (!canEditBuiltIn(neighbor, "order")) return false;
+    return true;
   };
 
   const moveField = (field: ResolvedApplicationField, direction: "up" | "down"): void => {
-    if (field.isStandard) return;
-    applyEditedSlice(moveCustomApplicationField(configSlice, field.id, direction, normalizeCustomApplicationFieldsForEditor));
+    if (!canMoveField(field, direction)) return;
+    const index = applicationFields.findIndex((candidate) => candidate.id === field.id);
+    const neighbor = applicationFields[index + (direction === "up" ? -1 : 1)];
+    if (!neighbor || (neighbor.section ?? "additional") !== (field.section ?? "additional")) return;
+    const orderedIds = applicationFields.map((candidate) => candidate.id);
+    const nextIndex = index + (direction === "up" ? -1 : 1);
+    [orderedIds[index], orderedIds[nextIndex]] = [orderedIds[nextIndex], orderedIds[index]];
+    applyEditedSlice({ ...configSlice, questionDisplayOrder: orderedIds });
   };
 
   const moveFieldToSection = (field: ResolvedApplicationField, sectionId: RentalApplicationSectionId): void => {
@@ -568,6 +947,25 @@ export function ManagerApplicationQuestionsEditorModal({
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
     const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
+    if (applicationFormSource === "workspace" && workspaceForm && !isBulkSave) {
+      return (
+        <div data-attr={`application-section-toggle-${sectionId}`} className="space-y-3">
+          <p className="text-sm text-muted">
+            Following the workspace application form. Pick &quot;Custom for this listing&quot; above to edit this
+            listing&apos;s own questions.
+          </p>
+          {sectionQuestions.length === 0 ? (
+            <p className="text-sm text-muted">No questions in this section.</p>
+          ) : (
+            <ApplicationSectionPreviewPane
+              section={RENTAL_APPLICATION_SECTIONS.find((s) => s.id === sectionId) ?? null}
+              fields={sectionQuestions}
+              applicationPreviewPropertyId={applicationPreviewPropertyId}
+            />
+          )}
+        </div>
+      );
+    }
     return (
       <div data-attr={`application-section-toggle-${sectionId}`}>
         {sectionQuestions.length === 0 && sectionDisabled.length === 0 ? (
@@ -588,11 +986,32 @@ export function ManagerApplicationQuestionsEditorModal({
             onMoveField={moveField}
             onMoveFieldToSection={moveFieldToSection}
             canMoveField={canMoveField}
+            canEditBuiltIn={canEditBuiltIn}
+            blockedCustomTypes={variant === "cosigner" ? ["file", "photos"] : []}
           />
         )}
       </div>
     );
   };
+
+  // Rendered on whichever entry step is actually present — the real
+  // Applications tab always opens this modal in `templateEditorMode` (step
+  // "name"), never the plain "form" step; both render it so it is reachable
+  // either way. `applicationFormSource` is listing-wide, not per-template.
+  const applicationFormSourcePicker =
+    !isBulkSave && workspaceFormLoaded ? (
+      <FieldSingleSelect
+        label="Application form"
+        labelClassName={WIZARD_LABEL_CLASS}
+        value={applicationFormSource}
+        dataAttr="application-form-source"
+        options={[
+          { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
+          { value: "custom", label: "Custom for this listing" },
+        ]}
+        onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
+      />
+    ) : null;
 
   const previewBody = (
     <div className="space-y-3">
@@ -733,6 +1152,7 @@ export function ManagerApplicationQuestionsEditorModal({
               data-attr="property-application-name"
             />
             {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
+            {applicationFormSourcePicker}
           </StepColumn>
         ) : null}
         {stepId === "form" ? (
@@ -745,6 +1165,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 </button>
               }
             />
+            {applicationFormSourcePicker}
             <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label="Application form">
               {APPLICATION_FORM_VARIANTS.map((v) => {
                 const active = variant === v.id;
@@ -782,6 +1203,148 @@ export function ManagerApplicationQuestionsEditorModal({
           <StepColumn>
             <StepHeading title="Preview" />
             {previewBody}
+            {originalPdfPath && applicationTemplate && applicationPreviewPropertyId ? (
+              <div className="space-y-2" data-attr="application-import-compare">
+                <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1 md:hidden" role="group" aria-label="Imported application comparison">
+                  {(["original", "form"] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      aria-pressed={compareView === view}
+                      onClick={() => setCompareView(view)}
+                      className={`min-h-11 flex-1 rounded-full px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${compareView === view ? "bg-card text-foreground" : "text-muted"}`}
+                    >
+                      {view === "original" ? "Original" : "Form"}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <iframe
+                    title="Original imported application PDF"
+                    className={`h-[34rem] w-full rounded-xl border border-border ${compareView === "original" ? "block" : "hidden md:block"}`}
+                    src={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
+                  />
+                  <div className={`${compareView === "form" ? "block" : "hidden md:block"} h-[34rem] overflow-y-auto rounded-xl border border-border bg-card p-3`}>
+                    {variant === "cosigner" ? <CosignerApplyFlow
+                      onBack={() => {}}
+                      previewMode
+                      embedded
+                      showToast={showToast}
+                      applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
+                      previewConfig={configSlice}
+                    /> : <RentalApplicationWizard
+                      showToast={showToast}
+                      mode="manager"
+                      layout="embedded"
+                      linkedPropertyId={applicationPreviewPropertyId}
+                      linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
+                      templatePreviewVariant={variant}
+                      templatePreview
+                      templatePreviewSubmission={{
+                        ...localSub,
+                        ...mergeApplicationConfigForVariant(variant, configSlice),
+                      }}
+                    />}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {applicationPreviewPropertyId && !originalPdfPath ? (
+              <div className="rounded-2xl border border-border bg-card p-3" data-attr="application-full-wizard-preview">
+                {variant === "cosigner" ? <CosignerApplyFlow
+                  onBack={() => {}}
+                  previewMode
+                  embedded
+                  showToast={showToast}
+                  applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
+                  previewConfig={configSlice}
+                /> : <RentalApplicationWizard
+                  showToast={showToast}
+                  mode="manager"
+                  layout="embedded"
+                  linkedPropertyId={applicationPreviewPropertyId}
+                  linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
+                  templatePreviewVariant={variant}
+                  templatePreview
+                  templatePreviewSubmission={{
+                    ...localSub,
+                    ...mergeApplicationConfigForVariant(variant, configSlice),
+                  }}
+                />}
+              </div>
+            ) : null}
+            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave ? (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void importPdf(file);
+                  }}
+                />
+                <Button type="button" variant="outline" className="rounded-full" disabled={importing} onClick={() => importInputRef.current?.click()}>
+                  {importing ? "Importing…" : "Import PDF"}
+                </Button>
+                {originalPdfPath ? (
+                  <a
+                    className="inline-flex min-h-[44px] items-center rounded-full border border-border px-4 text-sm font-semibold"
+                    href={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Original PDF
+                  </a>
+                ) : null}
+                {(importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    disabled={reviewingSource || importing || saving}
+                    onClick={() => void reviewImportedSource()}
+                    data-attr="application-import-source-review"
+                  >
+                    {reviewingSource ? "Saving comparison…" : "Compare and confirm PDF"}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {importIssues.length > 0 ? (
+              <ul className="space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
+                {importIssues.map((issue, index) => (
+                  <li key={`${issue.code}-${issue.pageNumber ?? "document"}-${index}`}>
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        disabled={issue.code === "unreadable_page"}
+                        checked={resolvedImportIssueIndexes.includes(index)}
+                        onChange={(event) => setResolvedImportIssueIndexes((previous) =>
+                          event.target.checked ? [...previous, index] : previous.filter((item) => item !== index)
+                        )}
+                        aria-label={`Resolved PDF issue ${index + 1}`}
+                      />
+                      <span>{issue.pageNumber ? `Page ${issue.pageNumber}: ` : "Document: "}{issue.message}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {isTemplateEditor && !isBulkSave ? (
+              <Button
+                type="button"
+                variant="primary"
+                className="rounded-full"
+                disabled={saving || hasFieldErrors || !templateLabel.trim()}
+                data-attr="application-questions-publish"
+                onClick={() => void commitSave({ publish: true })}
+              >
+                Publish application
+              </Button>
+            ) : null}
           </StepColumn>
         ) : null}
       </AddWorkspace>

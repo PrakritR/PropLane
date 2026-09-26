@@ -1,5 +1,9 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import {
+  leaseIntakeFromApplication,
+  mergeApplicationAutofillIntoLeaseApp,
+} from "@/lib/leasing/lease-application-field-map";
 
 export type ApplicationPersonalFields = Pick<
   RentalWizardFormState,
@@ -31,6 +35,7 @@ export function resolveApplicationPersonalFields(
 /**
  * Merge latest application answers into a lease snapshot.
  * Keeps amended lease dates from the pipeline row when they differ from the application record.
+ * Shared identity/term/room fields flow through the allowlisted lease↔application map.
  */
 export function enrichApplicationForLease(
   appRow: Pick<
@@ -42,14 +47,26 @@ export function enrichApplicationForLease(
 ): Partial<RentalWizardFormState> | undefined {
   if (!freshFromApplication && !existingLeaseApp) return undefined;
   if (!freshFromApplication) return existingLeaseApp;
-  if (!existingLeaseApp) return { ...freshFromApplication, ...resolveApplicationPersonalFields(appRow) };
+  if (!existingLeaseApp) {
+    const personal = resolveApplicationPersonalFields(appRow);
+    return mergeApplicationAutofillIntoLeaseApp(
+      { ...freshFromApplication, ...personal },
+      freshFromApplication,
+    );
+  }
 
   const personal = resolveApplicationPersonalFields(appRow, existingLeaseApp);
   const amendedDates =
     Boolean(existingLeaseApp.leaseEnd?.trim()) && existingLeaseApp.leaseEnd !== freshFromApplication.leaseEnd;
 
+  const mapped = mergeApplicationAutofillIntoLeaseApp(existingLeaseApp, {
+    ...freshFromApplication,
+    ...personal,
+  });
+
   return {
     ...freshFromApplication,
+    ...mapped,
     ...personal,
     leaseStart:
       amendedDates && existingLeaseApp.leaseStart?.trim()
@@ -64,4 +81,11 @@ export function enrichApplicationForLease(
         ? existingLeaseApp.leaseTerm
         : freshFromApplication.leaseTerm,
   };
+}
+
+/** Seed `leaseIntake` from an approved application when opening/generating a lease. */
+export function leaseIntakeSeedFromApprovedApplication(
+  application: Partial<RentalWizardFormState> | null | undefined,
+): ReturnType<typeof leaseIntakeFromApplication> {
+  return leaseIntakeFromApplication(application);
 }

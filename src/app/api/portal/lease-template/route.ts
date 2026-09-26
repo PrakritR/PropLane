@@ -11,8 +11,10 @@ import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submissio
 import { rateLimit } from "@/lib/rate-limit";
 import { getReportsAuthContext } from "@/lib/reports/auth";
 import { residentHasApprovedResidency, resolveResidentFilingScope } from "@/lib/resident-manager-scope";
+import { assertSettingsScopeOwned } from "@/lib/scope/settings-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { assertSafePdfForImport } from "@/lib/pdf-import/pdf-source.server";
 
 export const runtime = "nodejs";
 
@@ -157,6 +159,23 @@ async function leaseDocumentEmbedsTemplate(
 }
 
 /**
+ * Is this path a workspace lease-library entry (`lease_document_library`) the
+ * caller can reach? A library entry is not yet attached to any property or
+ * lease — the two checks above find nothing for it — so a co-manager picking
+ * a colleague's uploaded library document needs its OWN branch: workspace
+ * access (owner or a co-manager holding the "leases" grant), re-derived
+ * server-side the same way every other per-workspace settings read is
+ * (`assertSettingsScopeOwned`), never trusted from the request.
+ */
+async function libraryReferencesTemplate(db: ServiceClient, userId: string, path: string): Promise<boolean> {
+  const { data } = await db.from("lease_document_library").select("workspace_id").eq("storage_path", path).maybeSingle();
+  const workspaceId = data?.workspace_id ? String(data.workspace_id) : null;
+  if (!workspaceId) return false;
+  const access = await assertSettingsScopeOwned(db, userId, { workspaceId }, { module: "leases", level: "read" });
+  return access.ok;
+}
+
+/**
  * May this signed-in user read this template? Checked by RELATIONSHIP, not by
  * portal role, so a multi-role account (a manager who also rents somewhere) is
  * judged on each relationship it actually holds:
@@ -164,6 +183,7 @@ async function leaseDocumentEmbedsTemplate(
  *   - the owning manager or an assigned co-manager of a property referencing it
  *   - the approved resident of such a property
  *   - either party to a lease document that already embeds it
+ *   - a workspace lease-library entry the caller's workspace access reaches
  */
 async function canReadLeaseTemplate(
   db: ServiceClient,
@@ -173,7 +193,8 @@ async function canReadLeaseTemplate(
 ): Promise<boolean> {
   if (path.split("/")[0] === userId) return true;
   if (await accessiblePropertyReferencesTemplate(db, userId, email, path)) return true;
-  return leaseDocumentEmbedsTemplate(db, userId, email, path);
+  if (await leaseDocumentEmbedsTemplate(db, userId, email, path)) return true;
+  return libraryReferencesTemplate(db, userId, path);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +265,8 @@ export async function POST(req: Request) {
     if (file.size === 0 || file.size > LEASE_TEMPLATE_MAX_BYTES) {
       return NextResponse.json({ error: "Lease template is too large. Keep it under 8 MB." }, { status: 400 });
     }
+    try { await assertSafePdfForImport(new Uint8Array(await file.arrayBuffer())); }
+    catch { return NextResponse.json({ error: "PDF contains active or unsupported content and cannot be uploaded." }, { status: 422 }); }
 
     // The folder is the AUTHENTICATED user's id, never a name from the request —
     // it is what the read path treats as ownership.

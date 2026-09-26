@@ -7,7 +7,6 @@ import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { BUSINESS_MAX_PROPERTIES, FREE_MAX_PROPERTIES, PRO_MAX_PROPERTIES } from "@/lib/manager-access";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteFaq, type SiteFaqItem } from "@/components/marketing/site/faq";
@@ -23,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: `PropLane pricing: free for one home, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo. 14-day trial, no card required.`,
+  description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} doors, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} doors included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} doors included). 14-day trial, no card required.`,
 };
 
 const CTA_BASE = MANAGER_GET_STARTED_HREF;
@@ -44,16 +43,23 @@ const TIER_TAGLINE: Record<PlanTierId, string> = {
 /**
  * What each card lists. "Everything in X, plus" — a tier repeats nothing the
  * one before it already said, so the difference between two plans is the
- * whole list, not a diff a buyer has to run in their head. Caps come from
- * `manager-access` and the credit from `allowances`, never retyped.
+ * whole list, not a diff a buyer has to run in their head. Door counts and
+ * per-door overage come from `RATE_CARD` — the one enforced source of truth
+ * (see its doc comment) — never the legacy, informational-only
+ * `FREE_MAX_PROPERTIES`/`PRO_MAX_PROPERTIES`/`BUSINESS_MAX_PROPERTIES`
+ * constants in `manager-access.ts`, which that file's own comment says not to
+ * read as an enforced limit. Co-managers are unlimited on Pro and Business
+ * (`manager-plan-tiers.ts`'s "unlimited co-managers" copy); only Free's door
+ * cap is a hard limit. Credit comes from `allowances`, never retyped.
  */
 function tierIncludes(id: PlanTierId): { heading: string; items: { text: string; included: boolean }[] } {
   const credit = (t: PlanTierId) => formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS[t]!);
+  const perDoor = (t: "pro" | "business") => formatRateCardUsd(RATE_CARD[t].perExtraDoorMonthlyCents ?? 0);
   if (id === "free") {
     return {
       heading: "What's included",
       items: [
-        { text: `${FREE_MAX_PROPERTIES} property listing`, included: true },
+        { text: `${RATE_CARD.free.includedDoors} doors`, included: true },
         { text: "Applications & tour scheduling", included: true },
         { text: "Rent collection & charges", included: true },
         { text: "In-app inbox & email", included: true },
@@ -67,10 +73,10 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
     return {
       heading: "Everything in Free, plus",
       items: [
-        { text: `Up to ${PRO_MAX_PROPERTIES} property listings`, included: true },
+        { text: `${RATE_CARD.pro.includedDoors} doors included, then ${perDoor("pro")}/door`, included: true },
         { text: "Residents, leases & services", included: true },
         { text: "AI drafts in the inbox", included: true },
-        { text: "Up to 2 co-managers", included: true },
+        { text: "Unlimited co-managers", included: true },
         { text: "1 work number — texting & calls", included: true },
         { text: `${credit("pro")}/mo communication credit`, included: true },
         { text: "Manager may cover processing fees", included: true },
@@ -80,8 +86,8 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
   return {
     heading: "Everything in Pro, plus",
     items: [
-      { text: `Up to ${BUSINESS_MAX_PROPERTIES} property listings`, included: true },
-      { text: "Up to 20 co-managers, per-module access", included: true },
+      { text: `${RATE_CARD.business.includedDoors} doors included, then ${perDoor("business")}/door`, included: true },
+      { text: "Unlimited co-managers, per-module access", included: true },
       { text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`, included: true },
       { text: `${credit("business")}/mo communication credit`, included: true },
       { text: "Priority admin support", included: true },
@@ -97,7 +103,7 @@ const CREDIT_PACKS_TEXT = (() => {
 const FAQ: SiteFaqItem[] = [
   {
     q: "Is the free tier actually free?",
-    a: "Yes. $0, no card, one listing, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.",
+    a: `Yes. $0, no card, ${RATE_CARD.free.includedDoors} doors, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.`,
   },
   {
     q: "Do I need a credit card to try Pro or Business?",
@@ -196,8 +202,23 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
   {
     group: "Homes & team",
     rows: [
-      { label: "Property listings", cells: [String(FREE_MAX_PROPERTIES), String(PRO_MAX_PROPERTIES), String(BUSINESS_MAX_PROPERTIES)] },
-      { label: "Co-managers", cells: [NO, "2", "20"] },
+      {
+        label: "Doors included",
+        cells: [
+          String(RATE_CARD.free.includedDoors),
+          String(RATE_CARD.pro.includedDoors),
+          String(RATE_CARD.business.includedDoors),
+        ],
+      },
+      {
+        label: "Extra door price",
+        cells: [
+          "—",
+          `${formatRateCardUsd(RATE_CARD.pro.perExtraDoorMonthlyCents ?? 0)}/mo`,
+          `${formatRateCardUsd(RATE_CARD.business.perExtraDoorMonthlyCents ?? 0)}/mo`,
+        ],
+      },
+      { label: "Co-managers", cells: [NO, "Unlimited", "Unlimited"] },
       { label: "Workspaces", cells: ["1", "1", String(WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces)] },
       { label: "Per-module access for co-managers", cells: [NO, YES, YES] },
     ],
@@ -340,7 +361,7 @@ export default async function PricingPage({
       <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
         <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
           <SiteHeading as="h1" id="pricing-title">
-            Free for one home.
+            Free for {RATE_CARD.free.includedDoors} doors.
             <br />
             <span className="text-primary">Pay when the portfolio earns it.</span>
           </SiteHeading>

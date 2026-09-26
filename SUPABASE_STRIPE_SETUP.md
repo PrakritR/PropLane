@@ -77,8 +77,10 @@ Sign-in Google OAuth (above) is separate from **Calendar sync**. Each manager co
 
 1. In Google Cloud Console, create or reuse an OAuth 2.0 **Web application** client.
 2. Enable the **Google Calendar API** for the same project: APIs & Services → Library → search “Google Calendar API” → **Enable**. (Without this, connect succeeds but event sync fails.)
-3. Add **Authorized redirect URIs** (use the port you open in the browser — each port needs its own URI unless `GOOGLE_CALENDAR_REDIRECT_ORIGIN` is set):
-   - `http://localhost:3010/api/portal/google-calendar/callback` (Cursor 1)
+3. Add **Authorized redirect URIs** (use the port you open in the browser — each port needs its own URI unless `GOOGLE_CALENDAR_REDIRECT_ORIGIN` is set to one allowlisted origin that is also running):
+   - `http://localhost:3004/api/portal/google-calendar/callback` (Cursor 1 review port)
+   - `http://localhost:3004/api/portal/gmail-payments/callback`
+   - `http://localhost:3010/api/portal/google-calendar/callback` (legacy Cursor 1 / shared redirect origin)
    - `http://localhost:3010/api/portal/gmail-payments/callback` (Gmail payment tracking — same port as calendar when using redirect override)
    - `http://localhost:3009/api/portal/google-calendar/callback` (prakrit integration)
    - `http://localhost:3009/api/portal/gmail-payments/callback`

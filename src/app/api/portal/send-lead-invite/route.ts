@@ -10,6 +10,7 @@ import {
 import {
   buildManagerApplyUrl,
   buildManagerBrowseUrl,
+  buildManagerLeaseSignUrl,
   buildManagerListingUrl,
   buildManagerPortfolioApplyUrl,
   buildManagerPortfolioTourUrl,
@@ -17,6 +18,8 @@ import {
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
+import { managerMayFileLeaseUnderProperty } from "@/lib/auth/manager-lease-scope";
+import { createLeaseFirstDraft } from "@/lib/leasing/lease-first-draft.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
 import {
@@ -81,7 +84,15 @@ export async function POST(req: Request) {
     }
 
     const kind =
-      body.kind === "tour" ? "tour" : body.kind === "listing" ? "listing" : body.kind === "apply" ? "apply" : null;
+      body.kind === "tour"
+        ? "tour"
+        : body.kind === "listing"
+          ? "listing"
+          : body.kind === "apply"
+            ? "apply"
+            : body.kind === "lease"
+              ? "lease"
+              : null;
     const viaSms = body.viaSms === true;
     const viaEmail = body.viaEmail !== false;
     const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
@@ -95,7 +106,7 @@ export async function POST(req: Request) {
     const note = typeof body.note === "string" ? body.note.trim() : "";
     const rentalType = body.rentalType === "short_term" ? "short_term" : "standard";
 
-    if (!kind) return NextResponse.json({ error: "kind must be apply, tour, or listing." }, { status: 400 });
+    if (!kind) return NextResponse.json({ error: "kind must be apply, tour, listing, or lease." }, { status: 400 });
     if (!viaEmail && !viaSms) {
       return NextResponse.json({ error: "Choose email, SMS, or both." }, { status: 400 });
     }
@@ -107,6 +118,7 @@ export async function POST(req: Request) {
     }
 
     // Listing, apply, and tour sends may include several properties at once.
+    // Lease invites are single-property (create-account → /resident/lease).
     // Normalize both shapes (array or legacy scalar) into a deduped id list; the
     // room selector only applies to a single-property apply send.
     const rawIds = Array.isArray(body.propertyIds)
@@ -131,6 +143,13 @@ export async function POST(req: Request) {
       );
     }
     const effectiveIds = requestedIds;
+
+    if (kind === "lease" && effectiveIds.length !== 1) {
+      return NextResponse.json(
+        { error: "Send lease to sign supports one property at a time." },
+        { status: 400 },
+      );
+    }
 
     const svc = createSupabaseServiceRoleClient();
     if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
@@ -181,6 +200,35 @@ export async function POST(req: Request) {
     const listing = primary.listing;
     const origin = appOrigin();
 
+    // Part 3 hotfix (defect 4): "Send lease to sign" used to only email a
+    // create-account link — no lease row existed, so the Lease tab stayed
+    // locked for the new signup and the manager's Leases list showed nothing.
+    // Create the real draft BEFORE sending anything, so a failure here never
+    // leaves the prospect holding a link to a lease that does not exist.
+    if (kind === "lease") {
+      if (!to) {
+        return NextResponse.json({ error: "A resident email is required to send a lease to sign." }, { status: 400 });
+      }
+      const leaseScope = await managerMayFileLeaseUnderProperty(svc, user.id, propertyId);
+      if (!leaseScope.ok) {
+        return NextResponse.json({ error: leaseScope.error }, { status: 500 });
+      }
+      if (!leaseScope.allowed && leaseScope.propertyExists) {
+        return NextResponse.json({ error: "You cannot file a lease under this property." }, { status: 403 });
+      }
+      const draft = await createLeaseFirstDraft(svc, {
+        managerUserId: user.id,
+        propertyId,
+        roomChoice: listingRoomId || roomName || null,
+        name: prospectName,
+        email: to,
+        phone: phone || null,
+      });
+      if (!draft.ok) {
+        return NextResponse.json({ error: draft.error }, { status: 500 });
+      }
+    }
+
     const propertyTitle = isMultiListing || isMultiApply
       ? `${authorized.length} homes`
       : isPortfolioTour
@@ -207,6 +255,12 @@ export async function POST(req: Request) {
         ? buildManagerPortfolioTourUrl(origin, authorizedIds)
         : kind === "tour"
           ? tourUrl
+          : kind === "lease"
+            ? buildManagerLeaseSignUrl(origin, {
+                propertyId,
+                email: to || undefined,
+                fullName: prospectName || undefined,
+              })
           : applyUrl;
     const listingSummary =
       kind === "listing" && !isMultiListing && listing

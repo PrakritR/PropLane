@@ -94,3 +94,17 @@ also fire it client-side), `vendor_invoice_approved` / `vendor_invoice_rejected`
 `payout_setup_completed` (client, via `PortalStripeConnectPanel`'s opt-in
 `analyticsScope="vendor"` prop — the manager panel omits it so its analytics are
 unchanged).
+
+**Pay from PropLane balance (night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off).**
+`POST /api/vendor/invoices/[id]/pay-from-balance` moves an approved/scheduled
+invoice's total from the manager's PropLane balance to the vendor's, entirely
+inside the ledger (no Stripe call), then marks the invoice `paid` with
+`paid_from: "balance"` — the historical Stripe-Checkout "Approve + Pay" path
+(`work-order-approve-pay.server.ts`) is unchanged and still writes
+`paid_from: null`/`"stripe"`. Reuses `findBlockingVendorPayout` (the same
+double-pay guard `approve-pay` uses) when the invoice is tied to a work order.
+Insufficient balance answers 422 with the shortfall; the client falls back to
+the existing card-funded path. No manager-facing "review this invoice" screen
+calls this route yet — none exists in the app today (the decision route itself
+has zero UI call sites); wiring a button is deferred to whoever builds that
+screen. See `.lavish/night/build-vendor-pay.md` and `src/lib/proplane-balance/`.

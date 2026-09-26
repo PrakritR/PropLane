@@ -111,7 +111,7 @@ describe("the bug: an empty owned workspace never shows another workspace's line
     const { emails } = await resolveWorkspaceWorkEmails(db as never, prakrit);
     expect(emails.map((e) => [e.workspaceId, e.address])).toEqual([
       [PRAKRIT_WS, null],
-      [AMBIKA_WS, "assist-ambika-mago@prop-lane.space"],
+      [AMBIKA_WS, "assist-ambika-mago@proplane.ai"],
     ]);
   });
 });
@@ -149,17 +149,44 @@ describe("a manager can set up a line and an address in each workspace they own"
         { id: PRAKRIT_WS2, owner_user_id: prakrit, name: "Seattle rentals", is_default: false, created_at: "2026-03-01" },
       ],
     });
-    const mine = { id: PRAKRIT_WS, ownerUserId: prakrit, owned: true, isDefault: true };
-    const second = { id: PRAKRIT_WS2, ownerUserId: prakrit, owned: true, isDefault: false };
+    const mine = { id: PRAKRIT_WS, ownerUserId: prakrit, owned: true, isDefault: true, name: "My workspace" };
+    const second = { id: PRAKRIT_WS2, ownerUserId: prakrit, owned: true, isDefault: false, name: "Seattle rentals" };
     const a = await ensureManagerAssistantEmail(db as never, prakrit, mine);
     const b = await ensureManagerAssistantEmail(db as never, prakrit, second);
     expect(a.workspaceId).toBe(PRAKRIT_WS);
     expect(b.workspaceId).toBe(PRAKRIT_WS2);
     expect(a.address).not.toBe(b.address);
+    expect(a.address).toBe("my-workspace@proplane.ai");
+    expect(b.address).toBe("seattle-rentals@proplane.ai");
     await expect(
       ensureManagerAssistantEmail(db as never, prakrit, { id: AMBIKA_WS, ownerUserId: ambika, owned: false, isDefault: true }),
     ).rejects.toBeInstanceOf(WorkspaceNotOwnedError);
     expect(await resolveWorkspaceWorkEmail(db as never, prakrit, PRAKRIT_WS2)).toMatchObject({ address: b.address });
+  });
+
+  it("ensureOwnedWorkspaceAssistantEmails mints a distinct slug per owned workspace", async () => {
+    const db = seed({
+      portal_workspaces: [
+        { id: AMBIKA_WS, owner_user_id: ambika, name: "Ambika's workspace", is_default: true, created_at: "2026-01-01" },
+        { id: PRAKRIT_WS, owner_user_id: prakrit, name: "Axis Housing", is_default: true, created_at: "2026-02-01" },
+        { id: PRAKRIT_WS2, owner_user_id: prakrit, name: "9 Rooms", is_default: false, created_at: "2026-03-01" },
+        { id: "ws-prakrit-3", owner_user_id: prakrit, name: "Capitol Hill", is_default: false, created_at: "2026-04-01" },
+      ],
+    });
+    const { ensureOwnedWorkspaceAssistantEmails } = await import(
+      "@/lib/manager-assistant-email/manager-assistant-email.server"
+    );
+    const result = await ensureOwnedWorkspaceAssistantEmails(db as never, prakrit);
+    expect(result.minted).toBe(3);
+    const { emails } = await resolveWorkspaceWorkEmails(db as never, prakrit);
+    const owned = emails.filter((e) => e.owned);
+    expect(owned.map((e) => e.address).sort()).toEqual([
+      "9-rooms@proplane.ai",
+      "axis-housing@proplane.ai",
+      "capitol-hill@proplane.ai",
+    ]);
+    // Second call is a no-op — no duplicate rows.
+    await expect(ensureOwnedWorkspaceAssistantEmails(db as never, prakrit)).resolves.toEqual({ minted: 0 });
   });
 
   it("the legacy per-user read means the owner's DEFAULT workspace's row", async () => {
@@ -275,7 +302,7 @@ describe("a conversation about no house shows in the workspace whose line carrie
     workspaceByLine: new Map([
       ["2065550001", new Set([PRAKRIT_WS])],
       ["2065550002", new Set([PRAKRIT_WS2])],
-      ["assist-seattle@prop-lane.space", new Set([PRAKRIT_WS2])],
+      ["assist-seattle@proplane.ai", new Set([PRAKRIT_WS2])],
     ]),
   });
 
@@ -286,7 +313,7 @@ describe("a conversation about no house shows in the workspace whose line carrie
   });
 
   it("an email to the second workspace's address does the same", () => {
-    const input = { ownerId: prakrit, houseIds: [], lines: ["Assist-Seattle@prop-lane.space"] };
+    const input = { ownerId: prakrit, houseIds: [], lines: ["Assist-Seattle@proplane.ai"] };
     expect(conversationVisible(scope(PRAKRIT_WS2), input)).toBe(true);
     expect(conversationVisible(scope(PRAKRIT_WS), input)).toBe(false);
   });
@@ -298,8 +325,8 @@ describe("a conversation about no house shows in the workspace whose line carrie
   });
 });
 
-describe("a real join-table read: a shared number's thread shows in both holders", () => {
-  it("resolveCommunicationScope maps a shared line to every holding workspace, from the real table", async () => {
+describe("a real join-table read: legacy shared-in holds do not place the thread in the borrower workspace", () => {
+  it("resolveCommunicationScope places the line only on the home workspace", async () => {
     const db = seed({
       portal_workspaces: [
         { id: PRAKRIT_WS, owner_user_id: prakrit, name: "My workspace", is_default: true, created_at: "2026-02-01" },
@@ -317,6 +344,8 @@ describe("a real join-table read: a shared number's thread shows in both holders
     const sharedScope = await resolveCommunicationScope(db as never, prakrit, "read", { selectedWorkspaceId: PRAKRIT_WS2 });
     const input = { ownerId: prakrit, houseIds: [], lines: ["+1 (206) 555-0001"] };
     expect(conversationVisible(homeScope, input)).toBe(true);
-    expect(conversationVisible(sharedScope, input)).toBe(true);
+    // Cross-workspace number sharing is retired — the borrower workspace does
+    // not inherit the home line for Communication placement.
+    expect(conversationVisible(sharedScope, input)).toBe(false);
   });
 });

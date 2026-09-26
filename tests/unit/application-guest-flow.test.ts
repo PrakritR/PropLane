@@ -11,7 +11,6 @@ import {
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   hasPublicApplyGuestContinue,
-  markPublicApplyGuestContinue,
   publicApplySignInHref,
 } from "@/lib/rental-application/public-apply-session";
 
@@ -71,16 +70,17 @@ describe("public apply session", () => {
     );
   });
 
-  it("tracks guest continue per property", () => {
-    const store = new Map<string, string>();
+  // PLAN-0924-1421 removed guest apply. A session key written before the gate
+  // closed must not reopen it.
+  it("never reports guest continue, even with a stale session key", () => {
+    const store = new Map<string, string>([["proplane_apply_guest_continue:prop-guest", "1"]]);
     vi.stubGlobal("window", {
       sessionStorage: {
         setItem: (k: string, v: string) => store.set(k, v),
         getItem: (k: string) => store.get(k) ?? null,
       },
     });
-    markPublicApplyGuestContinue("prop-guest");
-    expect(hasPublicApplyGuestContinue("prop-guest")).toBe(true);
+    expect(hasPublicApplyGuestContinue("prop-guest")).toBe(false);
     expect(hasPublicApplyGuestContinue("other")).toBe(false);
     vi.unstubAllGlobals();
   });

@@ -2,12 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { AddResidentRoleButton } from "@/components/marketing/add-resident-role-button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
-  hasProspectGuestContinue,
-  markProspectGuestContinue,
   prospectCreateAccountHref,
   prospectSignInHref,
   type ProspectActionKind,
@@ -21,28 +18,31 @@ import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofil
 
 const COPY: Record<
   ProspectActionKind,
-  { eyebrow: string; title: string; body: (listing: string) => string; guestLabel: string }
+  { eyebrow: string; title: string; body: (listing: string) => string }
 > = {
   apply: {
     eyebrow: "Before you apply",
     title: "Create your resident account",
     body: (listing) =>
-      `We recommend a resident account for ${listing} — create one and apply from your portal, where you can track your application, messages, and payments. Already have an account? Sign in. Or apply as a guest and we'll email setup instructions to the address you use.`,
-    guestLabel: "Continue without an account",
+      `A resident account is required to apply for ${listing}. Create one and apply from your portal, where you track your application, messages, and payments. Already have an account? Sign in.`,
   },
   tour: {
     eyebrow: "Before you schedule",
     title: "Create your resident account",
     body: (listing) =>
-      `Track your tour for ${listing} in the resident portal — create an account to see updates and message your manager in one place. Already have an account? Sign in. Or continue as a guest and we'll ask again after your request is sent.`,
-    guestLabel: "Schedule as a guest",
+      `A resident account is required to schedule a tour of ${listing}. Create one to see tour updates and message your manager in one place. Already have an account? Sign in.`,
   },
   message: {
     eyebrow: "Before you send",
     title: "Create your resident account",
     body: (listing) =>
-      `Read manager replies about ${listing} in PropLane Communication — create a resident account to keep the conversation in one place. Already have an account? Sign in. Or send as a guest and we'll ask again after your message is sent.`,
-    guestLabel: "Send as a guest",
+      `A resident account is required to message your manager about ${listing}. Create one to keep replies in PropLane Communication. Already have an account? Sign in.`,
+  },
+  lease: {
+    eyebrow: "Before you sign",
+    title: "Create your resident account to sign your lease",
+    body: (listing) =>
+      `A resident account is required to sign your lease for ${listing}. Create one to review the document, sign it, and pay from your portal. Already have an account? Sign in.`,
   },
 };
 
@@ -58,31 +58,27 @@ function gateSecondaryBtnClass() {
   return "inline-flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-full border border-border px-5 text-[15px] font-semibold text-foreground hover:bg-accent/30 sm:px-6";
 }
 
-/** Guest account gate before tour, message, or apply on a public listing link. */
+/**
+ * Account gate before tour, message, apply, or lease signature on a public
+ * listing link. An account is required (PLAN-0924-1421) — there is no guest
+ * path out of this gate.
+ */
 export function ProspectGuestAccountGate({
   action,
   gateKey,
   returnPath,
   propertyTitle,
-  onContinueGuest,
 }: {
   action: ProspectActionKind;
   gateKey: string;
   returnPath: string;
   propertyTitle?: string;
-  onContinueGuest: () => void;
 }) {
   const [resolved, setResolved] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
-  const [guestChosen, setGuestChosen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    if (hasProspectGuestContinue(gateKey)) {
-      setGuestChosen(true);
-      setResolved(true);
-      return;
-    }
     void (async () => {
       try {
         const supabase = createSupabaseBrowserClient();
@@ -100,16 +96,10 @@ export function ProspectGuestAccountGate({
     };
   }, [gateKey]);
 
-  if (!resolved || signedIn || guestChosen) return null;
+  if (!resolved || signedIn) return null;
 
   const listing = propertyTitle?.trim() || "this home";
   const copy = COPY[action];
-
-  const continueAsGuest = () => {
-    markProspectGuestContinue(gateKey);
-    setGuestChosen(true);
-    onContinueGuest();
-  };
 
   return (
     <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
@@ -132,15 +122,6 @@ export function ProspectGuestAccountGate({
           Sign in
         </Link>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        className="mt-2.5 min-h-[44px] w-full rounded-full text-[15px] font-semibold text-muted"
-        data-attr={`prospect-${action}-continue-guest`}
-        onClick={continueAsGuest}
-      >
-        {copy.guestLabel}
-      </Button>
     </div>
   );
 }
@@ -228,25 +209,27 @@ export function ProspectResidentPortalMessagePrompt({
   );
 }
 
-/** Signed-in manager/vendor — add a resident account before tour, message, or apply. */
+/** Signed-in manager/vendor — add a resident account before tour, message, apply, or lease. */
 export function ProspectSignedInResidentGate({
   action,
-  gateKey,
   returnPath,
   propertyTitle,
-  onContinueGuest,
 }: {
   action: ProspectActionKind;
-  gateKey: string;
   returnPath: string;
   propertyTitle?: string;
-  onContinueGuest: () => void;
 }) {
   const autofill = useProspectContactAutofill();
   const listing = propertyTitle?.trim() || "this home";
 
   const actionLabel =
-    action === "apply" ? "apply" : action === "tour" ? "schedule your tour" : "send your message";
+    action === "apply"
+      ? "apply"
+      : action === "tour"
+        ? "schedule your tour"
+        : action === "lease"
+          ? "sign your lease"
+          : "send your message";
 
   return (
     <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
@@ -265,18 +248,6 @@ export function ProspectSignedInResidentGate({
           className={gatePrimaryBtnClass()}
           dataAttr={`signed-in-prospect-${action}-create-account`}
         />
-        <Button
-          type="button"
-          variant="outline"
-          className={`${gateSecondaryBtnClass()} mt-0`}
-          data-attr={`signed-in-prospect-${action}-continue-guest`}
-          onClick={() => {
-            markProspectGuestContinue(gateKey);
-            onContinueGuest();
-          }}
-        >
-          {action === "apply" ? "Apply as a guest instead" : action === "tour" ? "Schedule as a guest" : "Send as a guest"}
-        </Button>
       </div>
     </div>
   );

@@ -16,12 +16,15 @@ export const adminPortal: PortalDefinition = {
     // the URL. Archived and Scheduled are toggles in the header, where they can
     // carry a count. The legacy `/communication/inbox/<tab>` paths still
     // resolve — a bookmark that lands nowhere is worse than a redundant one.
-    { section: "communication", label: "Inbox", tabs: [] },
+    // Labeled "Communication" to match the manager portal's own nav (it was
+    // "Inbox" here only).
+    { section: "communication", label: "Communication", tabs: [] },
     { section: "axis-users", label: "Accounts", tabs: [] },
     { section: "test-accounts", label: "Test accounts", tabs: [] },
-    // Billing is a LENS on those same accounts - plan, caps, fees and usage - not a second place
-    // to administer one. Opening a row opens the Accounts editor.
-    { section: "billing", label: "Billing", tabs: [] },
+    // Billing merged into Accounts (captain: "combine Billing and Accounts") -
+    // plan, caps, complimentary status and comms credit all live on the
+    // account record page now. No separate nav row; the `/admin/billing` URL
+    // still resolves (render-portal-section.tsx), to a one-line redirect card.
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
@@ -40,8 +43,10 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Properties", path: "/admin/properties" },
   { label: "Meetings", path: "/admin/events" },
-  { label: "Inbox", path: "/admin/communication" },
+  { label: "Communication", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
+  // Billing is off the nav (merged into Accounts) but the URL must keep
+  // resolving — a bookmark that 404s is worse than a redundant redirect card.
   { label: "Billing", path: "/admin/billing" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Settings", path: "/admin/profile" },

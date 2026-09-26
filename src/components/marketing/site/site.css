@@ -1,78 +1,96 @@
 /* Public site — section styles that Tailwind utilities cannot express (positioned art, keyframes). Imported by the components that use them. */
 
-/* ───────────── home hero — "Night blue" (site/hero.tsx) ───────────── */
-.site-hero-glow {
+/* ───────────── home hero — Codex-style, light (site/hero.tsx, site/codex-hero-window.tsx) ─────────────
+   The wash: three soft diagonal periwinkle→violet radial glows on the hero's
+   white/lavender base (captain 2026-09-25, light-mode pass) — heavily blurred
+   so they read as a soft gradient backdrop, not distinct blobs. */
+.codex-hero-wash {
   position: absolute;
   border-radius: 9999px;
-  filter: blur(70px);
   pointer-events: none;
+  filter: blur(50px);
 }
-.site-hero-glow-a {
-  width: 640px;
-  height: 640px;
-  left: -180px;
-  top: -280px;
-  background: #2863f0;
-  opacity: 0.55;
+.codex-hero-wash-a {
+  left: -220px;
+  top: -260px;
+  width: 760px;
+  height: 760px;
+  background: radial-gradient(circle, rgba(90, 140, 255, 0.55) 0%, rgba(90, 140, 255, 0) 70%);
 }
-.site-hero-glow-b {
-  width: 560px;
-  height: 560px;
-  right: -160px;
-  top: 40px;
-  background: #5a8cff;
-  opacity: 0.3;
+.codex-hero-wash-b {
+  right: -260px;
+  top: -180px;
+  width: 820px;
+  height: 820px;
+  background: radial-gradient(circle, rgba(154, 156, 245, 0.5) 0%, rgba(154, 156, 245, 0) 70%);
 }
-.site-hero-grain {
+.codex-hero-phone {
   position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-  background-size: 22px 22px;
-  pointer-events: none;
-}
-.site-hero-browser {
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
-  background: #fff;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-  /* Bleed: the page below hides the bottom of the frame. */
-  margin-bottom: -1px;
-  margin-top: -12px;
-  max-height: 520px;
-}
-.site-hero-phone {
-  position: absolute;
-  right: -72px;
-  bottom: 36px;
+  right: -16px;
+  bottom: -24px;
   z-index: 3;
-  width: 178px;
+  width: 200px;
+  height: 433px;
   overflow: hidden;
-  border: 6px solid #111;
-  border-radius: 28px;
+  border: 7px solid #111;
+  border-radius: 32px;
   background: #fff;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 30px 70px -18px rgba(15, 23, 42, 0.45);
 }
-.site-hero-draft {
+/* The bring-it-back chip, same spot the phone itself sits — a small round
+   pill so it never reads as another dashboard control. */
+.codex-hero-phone-chip {
   position: absolute;
-  left: -18px;
-  top: 34%;
+  right: -16px;
+  bottom: -24px;
+  z-index: 3;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  border: none;
+  background: #111;
+  color: #fff;
+  box-shadow: 0 14px 30px -10px rgba(15, 23, 42, 0.5);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.codex-hero-phone-chip:hover { transform: scale(1.06); }
+.codex-hero-activity-card {
+  position: absolute;
+  left: -16px;
+  top: 36%;
   z-index: 3;
   width: 250px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 12px;
   background: #fff;
-  padding: 10px 12px;
-  box-shadow: 0 14px 34px rgba(8, 9, 11, 0.28);
+  padding: 10px 30px 10px 12px;
+  box-shadow: 0 20px 45px -18px rgba(15, 23, 42, 0.28);
+}
+@media (max-width: 1023px) {
+  .codex-hero-activity-card { width: 200px; left: -10px; padding: 8px 26px 8px 10px; }
 }
 @media (max-width: 767px) {
-  .site-hero-browser { max-height: 300px; margin-top: 0; }
-  .site-hero-phone { width: 118px; right: -20px; bottom: 10px; border-width: 4px; border-radius: 20px; }
-  .site-hero-draft { display: none; }
+  /* Phone: the card stays, small — only the phone mockup (hidden via the
+     `lg:block` wrapper in codex-hero-window.tsx) goes away. */
+  .codex-hero-activity-card { width: 168px; left: -6px; top: 30%; padding: 7px 24px 7px 9px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .site-hero-phone, .site-hero-draft { animation: site-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-  .site-hero-draft { animation-delay: 0.15s; }
+  .codex-hero-phone, .codex-hero-activity-card, .codex-hero-phone-chip { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .codex-hero-activity-card { animation-delay: 0.15s; }
+}
+@keyframes codex-hero-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.codex-hero-wash-c {
+  left: 12%;
+  top: 140px;
+  width: 620px;
+  height: 620px;
+  background: radial-gradient(circle, rgba(124, 127, 242, 0.35) 0%, rgba(124, 127, 242, 0) 72%);
 }
 @keyframes site-hero-rise {
   from { opacity: 0; transform: translateY(14px); }
@@ -110,7 +128,7 @@
 }
 .site-story-inbox {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 190px minmax(0, 1fr);
   height: 520px;
   font-size: 12px;
 }

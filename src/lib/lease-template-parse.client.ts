@@ -5,6 +5,9 @@ export type ParseLeasePdfResult = {
   html: string;
   inferredKind: PropertyLeaseTemplateKind;
   sectionCount: number;
+  sourceSha256: string;
+  sourceIssues: Array<{ pageNumber: number | null; code: string; message: string }>;
+  coverage: { extractedCharacters: number; representedCharacters: number; complete: boolean };
 };
 
 export async function parseUploadedLeasePdf(args: {

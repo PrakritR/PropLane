@@ -65,6 +65,21 @@ export type ResidentApplicationAutofillProfile = Pick<
   (typeof RESIDENT_APPLICATION_AUTOFILL_KEYS)[number]
 >;
 
+export type AuthenticatedApplicantIdentity = Pick<RentalWizardFormState, "fullLegalName" | "phone" | "email">;
+
+export function mergeAuthenticatedApplicantIdentity(
+  current: RentalWizardFormState,
+  identity: Partial<AuthenticatedApplicantIdentity>,
+): RentalWizardFormState {
+  const next = { ...current };
+  for (const key of ["fullLegalName", "phone", "email"] as const) {
+    const incoming = identity[key]?.trim();
+    if (!incoming || next[key].trim()) continue;
+    next[key] = incoming;
+  }
+  return next;
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -99,7 +114,15 @@ export function mergeAutofillIntoWizardState(
     if (incoming === undefined || incoming === null) continue;
     if (typeof incoming === "string" && !incoming.trim()) continue;
     if (Array.isArray(incoming) && incoming.length === 0) continue;
-    (next as Record<string, unknown>)[key] = incoming;
+    const currentValue = next[key];
+    const currentBlank =
+      currentValue === undefined ||
+      currentValue === null ||
+      (typeof currentValue === "string" && !currentValue.trim()) ||
+      (Array.isArray(currentValue) && currentValue.length === 0);
+    // Autofill may fill a missing answer only. A value the applicant has typed
+    // is always authoritative, including a value restored from a draft.
+    if (currentBlank) (next as Record<string, unknown>)[key] = incoming;
   }
   return next;
 }

@@ -78,6 +78,12 @@ vi.mock("@/lib/supabase/service", () => ({
       if (table === "manager_automation_settings") {
         return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
       }
+      // N037's reconcile reads this to find the owner's default workspace
+      // before copying its application form onto the listing — none exists
+      // in this fixture set, so the reconcile cleanly no-ops.
+      if (table === "portal_workspaces") {
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+      }
       if (table !== "manager_property_records") throw new Error(`unexpected table: ${table}`);
       return {
         // One flexible builder serves three different callers against this table: the existing-row

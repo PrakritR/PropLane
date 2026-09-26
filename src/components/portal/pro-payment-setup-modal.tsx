@@ -74,6 +74,12 @@ export function ManagerPaymentSetupPanel({
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
   const [canEditBankAccount, setCanEditBankAccount] = useState(true);
+  // Distinct from canEditBankAccount: a co-manager with NEITHER read nor edit
+  // on `bankAccount` (e.g. the "Leasing" role, which never grants it) must
+  // never see the owner's payout readiness/balance/identity state at all —
+  // "empty permissions = no access" (docs/agents/co-manager-access.md), not
+  // just "no editing".
+  const [canViewBankAccount, setCanViewBankAccount] = useState(true);
   const [isCoManagerForPayout, setIsCoManagerForPayout] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [propertyFeePayers, setPropertyFeePayers] = useState<Record<string, ServiceFeePayer | null>>({});
@@ -151,17 +157,20 @@ export function ManagerPaymentSetupPanel({
         demo?: boolean;
         message?: string;
         canEditBankAccount?: boolean;
+        canViewBankAccount?: boolean;
         isCoManagerForPayout?: boolean;
         error?: string;
       };
       if (!res.ok) {
         setCanEditBankAccount(false);
+        setCanViewBankAccount(body.canViewBankAccount !== false);
         setIsCoManagerForPayout(body.isCoManagerForPayout === true);
         setStripeState("unknown");
         setPayoutsReady(false);
         return;
       }
       setCanEditBankAccount(body.canEditBankAccount !== false);
+      setCanViewBankAccount(true);
       setIsCoManagerForPayout(body.isCoManagerForPayout === true);
       const nextState = stripeSetupStateFromStatus(body);
       setStripeState(nextState);
@@ -566,30 +575,45 @@ export function ManagerPaymentSetupPanel({
 
       {section !== "fee" ? (
         <>
-          <button
-            type="button"
-            onClick={openPayouts}
-            data-testid="payment-setup-stripe-card"
-            data-attr="manager-payment-stripe-link"
-            className="flex w-full items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition hover:border-primary/30"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <span className="text-sm font-semibold text-foreground">Payouts</span>
+          {isCoManagerForPayout && !canViewBankAccount ? (
+            <div
+              className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 opacity-70"
+              data-testid="payment-setup-stripe-card-locked"
+              data-attr="manager-payment-stripe-link-locked"
+            >
+              <CreditCard className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+              <span className="text-sm text-muted">
+                Payout details belong to the property owner — you do not have access to this section.
+              </span>
             </div>
-            <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-muted">
-              {payoutsRowState}
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </span>
-          </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={openPayouts}
+                data-testid="payment-setup-stripe-card"
+                data-attr="manager-payment-stripe-link"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition hover:border-primary/30"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+                  <span className="text-sm font-semibold text-foreground">Payouts</span>
+                </div>
+                <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-muted">
+                  {payoutsRowState}
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </span>
+              </button>
 
-          {isCoManagerForPayout ? (
-            <p className="text-xs leading-relaxed text-muted">
-              {canEditBankAccount
-                ? "You are updating the property owner's payout bank account."
-                : "Payout bank details belong to the property owner."}
-            </p>
-          ) : null}
+              {isCoManagerForPayout ? (
+                <p className="text-xs leading-relaxed text-muted">
+                  {canEditBankAccount
+                    ? "You are updating the property owner's payout bank account."
+                    : "Payout bank details belong to the property owner."}
+                </p>
+              ) : null}
+            </>
+          )}
         </>
       ) : null}
 

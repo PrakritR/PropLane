@@ -6,7 +6,7 @@ import {
   validateCosignerSignerAppIdInput,
 } from "@/lib/rental-application/cosigner-signer-link";
 
-export async function fetchCosignerSignerLinkPreview(signerAppId: string): Promise<CosignerSignerLinkPreview> {
+export async function fetchCosignerSignerLinkPreview(signerAppId: string, templateId?: string, templateVersion?: number): Promise<CosignerSignerLinkPreview> {
   const validated = validateCosignerSignerAppIdInput(signerAppId);
   if (!validated.ok) {
     return { ok: false, code: "invalid_id", message: validated.message };
@@ -22,6 +22,10 @@ export async function fetchCosignerSignerLinkPreview(signerAppId: string): Promi
   }
 
   const q = new URLSearchParams({ signerAppId: validated.normalized });
+  if (templateId && Number.isSafeInteger(templateVersion)) {
+    q.set("templateId", templateId);
+    q.set("templateVersion", String(templateVersion));
+  }
   const res = await fetch(`/api/public/cosigner-signer-link?${q.toString()}`);
   const body = (await res.json().catch(() => null)) as CosignerSignerLinkPreview | null;
   if (!body || typeof body !== "object" || !("ok" in body)) {

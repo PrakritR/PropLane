@@ -28,6 +28,37 @@ export function buildManagerApplyUrl(origin: string, params: ManagerApplyLinkPar
   return `${base}${path}`;
 }
 
+export type ManagerLeaseSignLinkParams = {
+  propertyId?: string;
+  email?: string;
+  fullName?: string;
+  phone?: string;
+};
+
+/**
+ * Lease-to-sign invite: create-account (or the same next for sign-in from the
+ * email copy) landing on `/resident/lease`, optionally scoped to a property.
+ */
+export function buildManagerLeaseSignHref(params?: ManagerLeaseSignLinkParams): string {
+  const propertyId = params?.propertyId?.trim() ?? "";
+  const next = propertyId
+    ? `/resident/lease?propertyId=${encodeURIComponent(propertyId)}`
+    : "/resident/lease";
+  const q = new URLSearchParams({ mode: "create", role: "resident", next });
+  const email = params?.email?.trim().toLowerCase();
+  if (email) q.set("email", email);
+  const fullName = params?.fullName?.trim();
+  if (fullName) q.set("name", fullName);
+  const phone = params?.phone?.trim();
+  if (phone) q.set("phone", phone);
+  return `/auth/create-account?${q.toString()}`;
+}
+
+export function buildManagerLeaseSignUrl(origin: string, params?: ManagerLeaseSignLinkParams): string {
+  const base = origin.replace(/\/$/, "");
+  return `${base}${buildManagerLeaseSignHref(params)}`;
+}
+
 export function buildTourContactHref(
   propertyId: string,
   opts?: { next?: string },

@@ -8,6 +8,7 @@ import type {
   ManagerSubscriptionTier,
   ResidentPortalAccessState,
 } from "@/lib/resident-portal-access-types";
+import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 
 export type { ManagerSubscriptionTier, ResidentPortalAccessState } from "@/lib/resident-portal-access-types";
 export { residentPortalHomePath } from "@/lib/resident-portal-nav";
@@ -29,6 +30,7 @@ function emptyAccessState(managerSubscriptionTier: ManagerSubscriptionTier): Res
     isBookingResidency: false,
     fullPortalAccess: false,
     managerSubscriptionTier,
+    pipelineOrder: "application_then_lease",
   };
 }
 
@@ -165,6 +167,36 @@ export async function loadResidentManagerAttestedTenancy(
   });
 }
 
+/**
+ * The lease-first draft `createLeaseFirstDraft` creates from "Send lease to
+ * sign" before any application exists (Part 3 hotfix, defect 4). A brand new
+ * lease-first signup has no application and no tour — without this, they
+ * would resolve to NO manager and `isPreLeaseResident: false`, leaving the
+ * Lease tab locked on the exact record it was just created to unlock.
+ */
+async function loadResidentLeaseFirstDraft(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  email: string,
+  managerUserId?: string | null,
+): Promise<{ managerUserId: string; propertyId: string | null } | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+  let query = db
+    .from("portal_lease_pipeline_records")
+    .select("row_data, manager_user_id, property_id")
+    .eq("resident_email", normalizedEmail);
+  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+  const { data } = await query.order("updated_at", { ascending: false });
+  for (const record of data ?? []) {
+    const row = record.row_data as Record<string, unknown> | null;
+    if (row?.leaseFirst !== true) continue;
+    const mgr = typeof record.manager_user_id === "string" ? record.manager_user_id.trim() : "";
+    if (!mgr) continue;
+    return { managerUserId: mgr, propertyId: typeof record.property_id === "string" ? record.property_id : null };
+  }
+  return null;
+}
+
 export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return false;
@@ -289,8 +321,46 @@ const loadResidentPortalAccessStateCached = cache(
     if (userId) {
       hasTourLink = await residentHasTourLinks(db, userId, email);
     }
+    // A brand-new lease-first signup (Part 3 hotfix, defect 4) has no
+    // application and no tour, so without this lookup they would resolve to
+    // no manager at all and stay locked out of the exact lease their invite
+    // was just created to unlock.
+    const leaseFirstDraft =
+      !hasSubmittedApplication && !leaseAccessUnlocked
+        ? await loadResidentLeaseFirstDraft(db, email, managerUserId)
+        : null;
     const isPreLeaseResident =
-      roleOk && !leaseAccessUnlocked && (hasTourLink || hasSubmittedApplication || applicationApproved);
+      roleOk &&
+      !leaseAccessUnlocked &&
+      (hasTourLink || hasSubmittedApplication || applicationApproved || Boolean(leaseFirstDraft));
+
+    let pipelineOrder: ResidentPortalAccessState["pipelineOrder"] = "application_then_lease";
+    const pipelineManagerId =
+      managerUserId ??
+      leaseFirstDraft?.managerUserId ??
+      (await (async () => {
+        if (!userId) return null;
+        const { data: profile } = await db.from("profiles").select("manager_id").eq("id", userId).maybeSingle();
+        // Prefer a real owner id from an owned application row when available.
+        const { data: owned } = await db
+          .from("manager_application_records")
+          .select("manager_user_id")
+          .eq("resident_email", email)
+          .limit(1)
+          .maybeSingle();
+        const fromApp = typeof owned?.manager_user_id === "string" ? owned.manager_user_id.trim() : "";
+        if (fromApp) return fromApp;
+        void profile;
+        return null;
+      })());
+    if (pipelineManagerId) {
+      try {
+        const pipeline = await loadLeasingPipeline(db, pipelineManagerId);
+        pipelineOrder = pipeline.pipelineOrder;
+      } catch {
+        /* keep default */
+      }
+    }
 
     return {
       roleOk,
@@ -308,6 +378,7 @@ const loadResidentPortalAccessStateCached = cache(
       isBookingResidency,
       fullPortalAccess: leaseSigned,
       managerSubscriptionTier,
+      pipelineOrder,
     };
   },
 );

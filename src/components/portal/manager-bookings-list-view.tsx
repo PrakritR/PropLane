@@ -3,6 +3,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
@@ -99,21 +100,10 @@ export function ManagerBookingsListView({
       dataAttr="bookings-list-panel"
     >
       {loading ? (
-        <div className="space-y-0">
-          {Array.from({ length: 3 }, (_, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-3 border-b border-border/50 px-3 py-4"
-              aria-hidden
-            >
-              <div className="h-4 w-4 shrink-0 rounded bg-muted/40" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="h-3.5 w-32 rounded bg-muted/50" />
-                <div className="h-3 w-48 max-w-full rounded bg-muted/30" />
-              </div>
-            </div>
-          ))}
-        </div>
+        // Same shimmering skeleton every other list uses (AXI night sweep
+        // area 2b) — this row used to be its own static grey blocks with no
+        // shimmer, reading as broken rather than "still loading."
+        <ListSkeleton rows={3} />
       ) : (
         entries.map((entry) => {
           const key = bookingEntryKey(entry);

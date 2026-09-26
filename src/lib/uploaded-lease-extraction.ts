@@ -118,6 +118,10 @@ export type UploadedLeaseReview = {
    * (`uploadedLeaseNeedsManagerConfirmation`).
    */
   confirmedDocumentSha256?: string | null;
+  /** Hash of the exact converted HTML the manager reviewed, when choosing it to sign. */
+  confirmedConvertedHtmlSha256?: string | null;
+  /** Source issue codes the manager resolved by editing the exact converted HTML. */
+  resolvedSourceIssueCodes?: string[];
   /**
    * The OTHER half of what was confirmed: a fingerprint of the lease record's
    * own terms at confirm time (`leaseRecordFingerprint`).
@@ -161,6 +165,13 @@ export type UploadedLeaseParse = {
   sections: UploadedLeaseSection[];
   fields: UploadedLeaseField[];
   failureReason?: string | null;
+  /** Source extraction diagnostics. Missing on legacy parses, which remain original-PDF only. */
+  sourceIssues?: Array<{ pageNumber: number | null; code: string; message: string }>;
+  sourceCoverage?: {
+    extractedCharacters: number;
+    representedCharacters: number;
+    complete: boolean;
+  };
   review: UploadedLeaseReview;
 };
 
@@ -585,19 +596,31 @@ export function buildUploadedLeaseParse(args: {
   fileName: string;
   sourceSha256: string | null;
   extractedAtIso: string;
+  sourceIssues?: Array<{ pageNumber: number | null; code: string; message: string }>;
+  sourceCoverage?: UploadedLeaseParse["sourceCoverage"];
 }): UploadedLeaseParse {
   const doc = joinLeasePages(args.pages);
   if (!doc.text.trim()) {
-    return failedUploadedLeaseParse(
+    return {
+      ...failedUploadedLeaseParse(
       args.fileName,
       "No text could be read from this PDF. It may be a scan or an image-only export — review the original document instead.",
-    );
+      ),
+      sourceSha256: args.sourceSha256,
+      sourceIssues: args.sourceIssues,
+      sourceCoverage: args.sourceCoverage,
+    };
   }
   if (doc.text.length > MAX_EXTRACTABLE_CHARS) {
-    return failedUploadedLeaseParse(
+    return {
+      ...failedUploadedLeaseParse(
       args.fileName,
       `This document is ${doc.text.length.toLocaleString()} characters, past the ${MAX_EXTRACTABLE_CHARS.toLocaleString()} limit for structuring. It was not shortened — review the original document instead.`,
-    );
+      ),
+      sourceSha256: args.sourceSha256,
+      sourceIssues: args.sourceIssues,
+      sourceCoverage: args.sourceCoverage,
+    };
   }
   const sections = splitLeasePagesIntoSections(doc);
   assertSectionsPartition(doc, sections);
@@ -611,6 +634,8 @@ export function buildUploadedLeaseParse(args: {
     extractedAtIso: args.extractedAtIso,
     sections,
     fields: extractLeaseFields(doc),
+    sourceIssues: args.sourceIssues,
+    sourceCoverage: args.sourceCoverage,
     review: { status: "needs_review" },
   };
 }
@@ -684,6 +709,25 @@ export function uploadedLeaseReviewIsConfirmed(parse: UploadedLeaseParse | null 
   return !uploadedLeaseNeedsManagerConfirmation(parse);
 }
 
+/** One conversion policy for the review surface, confirmation, and send gate. */
+export function uploadedLeaseConversionBlocker(
+  parse: UploadedLeaseParse | null | undefined,
+  resolvedCodes: readonly string[] = [],
+): string | null {
+  if (!parse?.sourceSha256 || !parse.sourceCoverage?.complete) return "The original PDF has incomplete extraction coverage.";
+  if (parse.status === "pending") return "The original PDF is still being read.";
+  const unresolved = (parse.sourceIssues ?? []).filter((issue) => !resolvedCodes.includes(uploadedLeaseSourceIssueKey(issue)));
+  if (unresolved.length) return "Resolve every source-page issue against the original PDF before using the converted lease.";
+  if (parse.status !== "parsed" && !(parse.status === "failed" && (parse.sourceIssues ?? []).some((issue) => issue.code === "unreadable_page"))) {
+    return "This PDF could not be safely converted. Use the original PDF.";
+  }
+  return null;
+}
+
+export function uploadedLeaseSourceIssueKey(issue: { pageNumber: number | null; code: string }): string {
+  return `${issue.pageNumber ?? 0}:${issue.code}`;
+}
+
 export function confirmedUploadedLeaseReview(
   review: UploadedLeaseReview,
   by: {
@@ -693,6 +737,9 @@ export function confirmedUploadedLeaseReview(
     note?: string | null;
     /** The `sourceSha256` of the parse being confirmed; null when it has none. */
     documentSha256?: string | null;
+    /** SHA-256 of the exact converted HTML approved for signature. */
+    convertedHtmlSha256?: string | null;
+    resolvedSourceIssueCodes?: string[];
     /** Fingerprint of the record's terms at confirm time; null when unknown. */
     recordFingerprint?: string | null;
   },
@@ -704,6 +751,8 @@ export function confirmedUploadedLeaseReview(
     confirmedByName: by.name ?? null,
     confirmedAtIso: by.atIso,
     confirmedDocumentSha256: by.documentSha256 ?? null,
+    confirmedConvertedHtmlSha256: by.convertedHtmlSha256 ?? null,
+    resolvedSourceIssueCodes: [...new Set(by.resolvedSourceIssueCodes ?? [])].filter((code) => typeof code === "string").slice(0, 120),
     confirmedRecordFingerprint: by.recordFingerprint ?? null,
     note: by.note?.trim() || null,
   };
@@ -874,6 +923,34 @@ export function normalizeUploadedLeaseParse(raw: unknown): UploadedLeaseParse | 
     sections,
     fields,
     failureReason: typeof r.failureReason === "string" ? r.failureReason : null,
+    sourceIssues: Array.isArray(r.sourceIssues)
+      ? r.sourceIssues.flatMap((rawIssue) => {
+          if (!rawIssue || typeof rawIssue !== "object") return [];
+          const issue = rawIssue as Record<string, unknown>;
+          if (
+            !(issue.pageNumber === null || Number.isInteger(issue.pageNumber)) ||
+            typeof issue.code !== "string" ||
+            typeof issue.message !== "string"
+          ) return [];
+          return [{
+            pageNumber: issue.pageNumber as number | null,
+            code: issue.code.slice(0, 80),
+            message: issue.message.slice(0, 500),
+          }];
+        })
+      : undefined,
+    sourceCoverage:
+      r.sourceCoverage && typeof r.sourceCoverage === "object"
+        ? {
+            extractedCharacters: Number.isFinite(r.sourceCoverage.extractedCharacters)
+              ? Math.max(0, Number(r.sourceCoverage.extractedCharacters))
+              : 0,
+            representedCharacters: Number.isFinite(r.sourceCoverage.representedCharacters)
+              ? Math.max(0, Number(r.sourceCoverage.representedCharacters))
+              : 0,
+            complete: r.sourceCoverage.complete === true,
+          }
+        : undefined,
     review: {
       status: reviewRaw.status === "confirmed" ? "confirmed" : "needs_review",
       confirmedByUserId: typeof reviewRaw.confirmedByUserId === "string" ? reviewRaw.confirmedByUserId : null,
@@ -883,6 +960,13 @@ export function normalizeUploadedLeaseParse(raw: unknown): UploadedLeaseParse | 
         typeof reviewRaw.confirmedDocumentSha256 === "string" && /^[0-9a-f]{64}$/.test(reviewRaw.confirmedDocumentSha256)
           ? reviewRaw.confirmedDocumentSha256
           : null,
+      confirmedConvertedHtmlSha256:
+        typeof reviewRaw.confirmedConvertedHtmlSha256 === "string" && /^[0-9a-f]{64}$/.test(reviewRaw.confirmedConvertedHtmlSha256)
+          ? reviewRaw.confirmedConvertedHtmlSha256
+          : null,
+      resolvedSourceIssueCodes: Array.isArray(reviewRaw.resolvedSourceIssueCodes)
+        ? [...new Set(reviewRaw.resolvedSourceIssueCodes.filter((code) => typeof code === "string").map((code) => code.slice(0, 80)))].slice(0, 120)
+        : [],
       confirmedRecordFingerprint:
         typeof reviewRaw.confirmedRecordFingerprint === "string" && reviewRaw.confirmedRecordFingerprint.trim()
           ? reviewRaw.confirmedRecordFingerprint

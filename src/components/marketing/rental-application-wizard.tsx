@@ -26,7 +26,9 @@ import {
 import { fetchApplicationFeePreview, type ApplicationFeePreview } from "@/lib/rental-application/application-fee-preview-client";
 import {
   latestAutofillProfileFromLocalRows,
+  mergeAuthenticatedApplicantIdentity,
   mergeAutofillIntoWizardState,
+  type AuthenticatedApplicantIdentity,
   type ResidentApplicationAutofillProfile,
 } from "@/lib/rental-application/resident-application-autofill";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -50,10 +52,14 @@ import {
 } from "@/lib/rental-application/lease-terms";
 import {
   clearRentalWizardDraft,
+  completeRentalVariantRestore,
   loadPublicApplyResumeAxisId,
   loadRentalWizardDraft,
   loadRentalWizardDraftAxisId,
+  loadRentalVariantDraft,
+  rememberRentalVariantAxisId,
   rememberPublicApplyResumeAxisId,
+  rememberRentalVariantDraft,
   saveRentalWizardDraft,
   saveRentalWizardDraftAxisId,
 } from "@/lib/rental-application/drafts";
@@ -75,7 +81,6 @@ import {
   isInProgressApplicationRow,
   markApplicationSubmitInitiated,
   shouldSyncInProgressDraft,
-  switchApplicationTargetProperty,
   syncInProgressApplicationRow,
   targetMatchesApplication,
   type ApplicationRequestTarget,
@@ -97,11 +102,13 @@ import {
 } from "@/lib/rental-application/lease-dates";
 import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
 import { normalizePersistedWizardStep } from "@/lib/rental-application/wizard-step-schema";
-import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   activeApplicationWizardSteps,
   applicationConfigForVariant,
+  type ApplicationFormVariant,
 } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
@@ -173,6 +180,10 @@ export type RentalApplicationWizardProps = {
    * drafts, syncing rows, or submitting.
    */
   templatePreview?: boolean;
+  /** Current editor draft, including changes that have not been saved or published. */
+  templatePreviewSubmission?: ManagerListingSubmissionV1;
+  /** Form variant being previewed, including the standalone co-signer form. */
+  templatePreviewVariant?: ApplicationFormVariant;
   /** Pre-select long-term vs short-term when `linkedPropertyId` is set without URL params. */
   linkedRentalType?: "standard" | "short_term";
 };
@@ -332,6 +343,8 @@ export function RentalApplicationWizard({
   onManagerCancel,
   managerActionBusy = false,
   templatePreview = false,
+  templatePreviewSubmission,
+  templatePreviewVariant,
   linkedRentalType,
 }: RentalApplicationWizardProps) {
   return (
@@ -352,6 +365,8 @@ export function RentalApplicationWizard({
         onManagerCancel={onManagerCancel}
         managerActionBusy={managerActionBusy}
         templatePreview={templatePreview}
+        templatePreviewSubmission={templatePreviewSubmission}
+        templatePreviewVariant={templatePreviewVariant}
         linkedRentalType={linkedRentalType}
       />
     </Suspense>
@@ -370,6 +385,8 @@ function RentalApplicationWizardInner({
   onManagerCancel,
   managerActionBusy = false,
   templatePreview = false,
+  templatePreviewSubmission,
+  templatePreviewVariant,
   linkedRentalType,
 }: RentalApplicationWizardProps) {
   const searchParams = useSearchParams();
@@ -446,6 +463,11 @@ function RentalApplicationWizardInner({
   const [applicationAxisId, setApplicationAxisId] = useState(
     () => loadRentalWizardDraftAxisId()?.trim() ?? "",
   );
+  const variantRestoreRef = useRef("");
+  const restoreSequenceRef = useRef(0);
+  const previousPropertyFormRef = useRef<RentalWizardFormState | null>(null);
+  const requestPropertyTargetRef = useRef<(patch: Partial<RentalWizardFormState>) => void>(() => {});
+  const [variantRestorePending, setVariantRestorePending] = useState(false);
   const ensureApplicationId = useCallback(() => {
     const id = ensureRentalWizardAxisId();
     setApplicationAxisId((prev) => (prev === id ? prev : id));
@@ -519,12 +541,29 @@ function RentalApplicationWizardInner({
   const activeSteps = useMemo(() => {
     void extrasTick;
     const prop = form.propertyId.trim() ? getPropertyById(form.propertyId.trim()) : undefined;
-    const listingSub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
+    const listingSub = templatePreview && templatePreviewSubmission
+      ? templatePreviewSubmission
+      : prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
+    const config = templatePreview && templatePreviewSubmission
+      ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType))
+      : applicationConfigForApplicant(listingSub, applicationRentalTypeFor(form.rentalType), form.applicationTemplateId, form.applicationTemplateVersion).config;
     return activeApplicationWizardSteps(
-      applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType)),
+      config,
       normalizeCustomApplicationFields,
     );
-  }, [form.propertyId, form.rentalType, extrasTick]);
+  }, [form.propertyId, form.rentalType, form.applicationTemplateId, form.applicationTemplateVersion, extrasTick, templatePreview, templatePreviewSubmission, templatePreviewVariant]);
+
+  useEffect(() => {
+    const propertyId = form.propertyId.trim();
+    if (!propertyId || form.applicationTemplateId || templatePreview || variantRestoreRef.current) return;
+    const submission = getPropertyById(propertyId)?.listingSubmission;
+    if (!submission || submission.v !== 1) return;
+    const resolved = applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType));
+    if (!resolved.templateId || !resolved.templateVersion) return;
+    setForm((previous) => previous.applicationTemplateId
+      ? previous
+      : { ...previous, applicationTemplateId: resolved.templateId, applicationTemplateVersion: resolved.templateVersion });
+  }, [form.propertyId, form.rentalType, form.applicationTemplateId, extrasTick, templatePreview]);
   const nextActiveStep = useCallback(
     (from: number) => nextActiveWizardStep(activeSteps, from),
     [activeSteps],
@@ -792,7 +831,13 @@ function RentalApplicationWizardInner({
         const res = await fetch("/api/portal/resident-application-autofill", { credentials: "include" });
         if (cancelled) return;
         if (res.ok) {
-          const data = (await res.json()) as { profile?: Partial<ResidentApplicationAutofillProfile> | null };
+          const data = (await res.json()) as {
+            profile?: Partial<ResidentApplicationAutofillProfile> | null;
+            identity?: Partial<AuthenticatedApplicantIdentity>;
+          };
+          if (data.identity) {
+            setForm((prev) => mergeAuthenticatedApplicantIdentity(prev, data.identity!));
+          }
           setSavedAutofillProfile(data.profile ?? local);
           return;
         }
@@ -888,17 +933,17 @@ function RentalApplicationWizardInner({
     // edits, so a later write from it would silently revert the on-screen
     // instance's fresher data the next time either instance reloads that
     // draft — the "room never lands on the application row" half of the bug.
-    if (!draftReady || !isOnScreen()) return;
+    if (!draftReady || !isOnScreen() || variantRestoreRef.current) return;
     saveRentalWizardDraft(form);
   }, [draftReady, form, templatePreview, isOnScreen]);
 
   useEffect(() => {
     if (templatePreview) return;
-    if (!draftReady || !isOnScreen()) return;
+    if (!draftReady || !isOnScreen() || variantRestoreRef.current) return;
     // Wait for reconciliation to confirm this target before minting an axis id
     // or writing anything to the server — otherwise a fresh page load can sync
     // a brand-new row before the async lookup below finds the real match.
-    if (mode === "portal" && isReconcilingTarget) return;
+    if ((mode === "portal" && isReconcilingTarget) || variantRestorePending) return;
     const email = (mode === "portal" || mode === "manager" ? sessionEmail ?? form.email : form.email).trim();
     const pid = form.propertyId.trim();
     if (!shouldSyncInProgressDraft({ email, propertyId: pid })) return;
@@ -950,7 +995,7 @@ function RentalApplicationWizardInner({
     }, 2000);
 
     return () => window.clearTimeout(timer);
-  }, [draftReady, form, mode, sessionEmail, templatePreview, isReconcilingTarget, isOnScreen, step, maxStepReached]);
+  }, [draftReady, form, mode, sessionEmail, templatePreview, isReconcilingTarget, variantRestorePending, isOnScreen, step, maxStepReached]);
 
   useEffect(() => {
     if (templatePreview) return;
@@ -992,8 +1037,9 @@ function RentalApplicationWizardInner({
       const hit = findInProgressRowForTarget(inProgress, target);
       if (hit?.application) {
         // An in-progress application already exists for this exact target — resume it.
-        saveRentalWizardDraftAxisId(hit.id);
+        completeRentalVariantRestore({ ...createInitialRentalWizardState(), ...hit.application, email });
         saveRentalWizardDraft({ ...createInitialRentalWizardState(), ...hit.application, email });
+        saveRentalWizardDraftAxisId(hit.id);
         setForm({ ...createInitialRentalWizardState(), ...hit.application, email });
         // The server confirmed this target IS an existing application, so we can
         // resume the resident's exact position even though the synchronous
@@ -1121,8 +1167,9 @@ function RentalApplicationWizardInner({
         ...hit.application,
         ...(email ? { email } : {}),
       };
-      saveRentalWizardDraftAxisId(hit.id);
+      completeRentalVariantRestore(restored);
       saveRentalWizardDraft(restored);
+      saveRentalWizardDraftAxisId(hit.id);
       setForm(restored);
         const persistedStep = parsePersistedWizardStep(hit.application.wizardStep, hit.application.wizardStepSchema);
         const persistedMax = parsePersistedWizardStep(
@@ -1161,24 +1208,7 @@ function RentalApplicationWizardInner({
 
     queueMicrotask(() => {
       setForm((prev) => {
-        let base: RentalWizardFormState = prev;
-        if (prev.propertyId.trim() && prev.propertyId.trim() !== pid) {
-          const email = (sessionEmail ?? prev.email).trim().toLowerCase();
-          const switched = switchApplicationTargetProperty({
-            previousPropertyId: prev.propertyId,
-            nextPropertyId: pid,
-            inProgressRows: email.includes("@")
-              ? applicationsForResidentEmail(email).filter(isInProgressApplicationRow)
-              : [],
-          });
-          if (switched?.resumedApplication) {
-            base = {
-              ...createInitialRentalWizardState(),
-              ...switched.resumedApplication,
-              email: prev.email || switched.resumedApplication.email || "",
-            };
-          }
-        }
+        const base: RentalWizardFormState = prev;
 
         const opts = getRoomOptionsForProperty(pid, { includeUnavailable: true }).filter((o) => o.value);
         // Entire-home listings apply for the whole place — never pre-select a
@@ -1206,7 +1236,7 @@ function RentalApplicationWizardInner({
             ? `+1${phoneDigits}`
             : prev.phone;
 
-        const rentalType = shortTermFromLink
+        const rentalType: RentalWizardFormState["rentalType"] = shortTermFromLink
           ? "short_term"
           : prev.rentalType === "short_term"
             ? "standard"
@@ -1221,7 +1251,7 @@ function RentalApplicationWizardInner({
         const leaseTerm = shortTermFromLink
           ? (prev.leaseTerm || SHORT_TERM_LEASE_TERM)
           : prev.leaseTerm || soleListingTerm;
-        return {
+        const next = {
           ...base,
           propertyId: pid,
           bundleId,
@@ -1231,9 +1261,19 @@ function RentalApplicationWizardInner({
           roomChoice1: bundleReplacesRooms ? "" : room1 || base.roomChoice1,
           roomChoice2: "",
           roomChoice3: "",
-          // A restored draft may hold answers for a different listing's questions.
-          ...(base.propertyId && base.propertyId !== pid ? { customFieldAnswers: [] } : {}),
         };
+        if (prev.propertyId.trim() && prev.propertyId.trim() !== pid) {
+          queueMicrotask(() => requestPropertyTargetRef.current({
+            propertyId: pid,
+            rentalType,
+            bundleId,
+            phone,
+            leaseTerm,
+            roomChoice1: next.roomChoice1,
+          }));
+          return prev;
+        }
+        return next;
       });
     });
   }, [draftReady, extrasTick, linkedPropertyIdProp, linkedRentalType, listingPrefillKey, searchParams, sessionEmail]);
@@ -1290,29 +1330,174 @@ function RentalApplicationWizardInner({
       let merged: RentalWizardFormState = { ...f, ...p };
       if ("propertyId" in p) {
         const nextPid = (p.propertyId ?? "").trim();
-        const prevPid = f.propertyId.trim();
-        if (nextPid && prevPid && nextPid !== prevPid) {
-          const email = (sessionEmail ?? f.email).trim().toLowerCase();
-          const switched = switchApplicationTargetProperty({
-            previousPropertyId: prevPid,
-            nextPropertyId: nextPid,
-            inProgressRows: email.includes("@")
-              ? applicationsForResidentEmail(email).filter(isInProgressApplicationRow)
-              : [],
-          });
-          if (switched?.resumedApplication) {
-            merged = {
-              ...createInitialRentalWizardState(),
-              ...switched.resumedApplication,
-              ...merged,
-              email: f.email || switched.resumedApplication.email || "",
-            };
-          }
+        if (!nextPid && f.propertyId.trim()) {
+          if (!variantRestoreRef.current) rememberRentalVariantDraft(f);
+          previousPropertyFormRef.current = f;
+          variantRestoreRef.current = `choosing-property:${++restoreSequenceRef.current}`;
+          queueMicrotask(() => setVariantRestorePending(true));
+          return { ...f, propertyId: "" };
+        }
+        const priorForm = previousPropertyFormRef.current ?? f;
+        const prevPid = priorForm.propertyId.trim();
+        if (nextPid && prevPid && (nextPid !== prevPid || variantRestoreRef.current)) {
+          if (nextPid !== prevPid && !variantRestoreRef.current) rememberRentalVariantDraft(priorForm);
+          previousPropertyFormRef.current = null;
+          const rentalType = String(p.rentalType ?? priorForm.rentalType);
+          const cached = applicationsForResidentEmail((sessionEmail ?? priorForm.email).trim().toLowerCase())
+            .filter(isInProgressApplicationRow)
+            .find((row) => row.application?.propertyId === nextPid && String(row.application.rentalType ?? "standard") === rentalType);
+          const saved = loadRentalVariantDraft(nextPid, rentalType) ?? (cached ? { axisId: cached.id } : undefined);
+          const restoreToken = `${nextPid}:${rentalType}:${++restoreSequenceRef.current}`;
+          variantRestoreRef.current = restoreToken;
+          queueMicrotask(() => setVariantRestorePending(true));
+          const email = (sessionEmail ?? priorForm.email).trim().toLowerCase();
+          void (async () => {
+            let hit: DemoApplicantRow | undefined;
+            let lookupFailed = false;
+            try {
+              const token = saved?.axisId ? getApplicationSetupToken(saved.axisId) : null;
+              if (mode === "public" && saved?.axisId && token) {
+                const res = await fetch("/api/portal/application-resume", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ id: saved.axisId, token }),
+                });
+                if (res.ok) hit = ((await res.json()) as { row?: DemoApplicantRow }).row;
+                else if (res.status !== 403 && res.status !== 404) lookupFailed = true;
+              }
+              if (!hit && !lookupFailed) {
+                const res = await fetch("/api/manager-applications?scope=self", { credentials: "include" });
+                if (!res.ok) {
+                  lookupFailed = Boolean(saved?.axisId) || (res.status !== 401 && res.status !== 403);
+                } else {
+                  const rows = ((await res.json()) as { rows?: DemoApplicantRow[] }).rows ?? [];
+                  hit = rows.find((row) => row.id === saved?.axisId && isInProgressApplicationRow(row))
+                    ?? rows.find((row) => isInProgressApplicationRow(row) && row.application?.propertyId === nextPid && String(row.application.rentalType ?? "standard") === rentalType && row.email?.trim().toLowerCase() === email);
+                }
+              }
+            } catch { lookupFailed = true; }
+            if (variantRestoreRef.current !== restoreToken) return;
+            if (lookupFailed || (hit && (!hit.application || !isInProgressApplicationRow(hit) || hit.application.propertyId !== nextPid || String(hit.application.rentalType ?? "standard") !== rentalType))) {
+              setErrors((previous) => ({ ...previous, _general: "This saved application could not be restored. Select the property again to retry." }));
+              return;
+            }
+            if (hit?.application) {
+              const recovered = { ...createInitialRentalWizardState(), ...hit.application };
+              completeRentalVariantRestore(recovered);
+              saveRentalWizardDraft(recovered);
+              saveRentalWizardDraftAxisId(hit.id);
+              setApplicationAxisId(hit.id);
+              setForm(recovered);
+            } else {
+              // This target has just been authorized as fresh. Resolve its
+              // published template before putting the draft anywhere that an
+              // autosave can observe. The normal pin effect intentionally
+              // stays dormant while a restore is pending, so relying on it
+              // here would briefly persist an unpinned application.
+              const submission = getPropertyById(nextPid)?.listingSubmission;
+              const templatePin = submission?.v === 1
+                ? applicationConfigForApplicant(submission, applicationRentalTypeFor(rentalType))
+                : undefined;
+              const fresh = {
+                ...createInitialRentalWizardState(),
+                email: priorForm.email,
+                fullLegalName: priorForm.fullLegalName,
+                phone: priorForm.phone,
+                propertyId: nextPid,
+                rentalType: rentalType as RentalWizardFormState["rentalType"],
+                bundleId: p.bundleId ?? "",
+                roomChoice1: p.roomChoice1 ?? "",
+                leaseTerm: p.leaseTerm ?? "",
+                ...(templatePin?.templateId && templatePin.templateVersion
+                  ? {
+                      applicationTemplateId: templatePin.templateId,
+                      applicationTemplateVersion: templatePin.templateVersion,
+                    }
+                  : {}),
+              };
+              const axisId = makeNewApplicationId();
+              saveRentalWizardDraft(fresh);
+              saveRentalWizardDraftAxisId(axisId);
+              setApplicationAxisId(axisId);
+              setForm(fresh);
+            }
+            variantRestoreRef.current = "";
+            setVariantRestorePending(false);
+            setErrors((previous) => { const next = { ...previous }; delete next._general; return next; });
+          })();
+          return {
+            ...createInitialRentalWizardState(),
+            email: priorForm.email,
+            fullLegalName: priorForm.fullLegalName,
+            phone: priorForm.phone,
+            propertyId: nextPid,
+            rentalType: rentalType as RentalWizardFormState["rentalType"],
+          };
         }
       }
-      // Custom application answers belong to one listing — drop them if the property changes.
-      if ("propertyId" in p && (p.propertyId ?? "") !== f.propertyId && !("customFieldAnswers" in p)) {
-        merged.customFieldAnswers = [];
+      // Template pins are variant-specific. A stay-type transition starts a
+      // new form target and lets the resolver select that variant's current
+      // publication; edits within one stay type keep their historical pin.
+      if ("rentalType" in p && p.rentalType !== f.rentalType) {
+        // Any older property or variant response belongs to a different target.
+        const wasRestoring = Boolean(variantRestoreRef.current);
+        variantRestoreRef.current = "";
+        if (!wasRestoring) rememberRentalVariantDraft(f);
+        const restored = loadRentalVariantDraft(merged.propertyId, String(p.rentalType));
+        const axisId = restored?.axisId ?? makeNewApplicationId();
+        rememberRentalVariantAxisId(merged.propertyId, String(p.rentalType), axisId);
+        queueMicrotask(() => setApplicationAxisId(axisId));
+        merged.customFieldAnswers = restored?.customFieldAnswers ?? [];
+        merged.applicationTemplateId = restored?.applicationTemplateId;
+        merged.applicationTemplateVersion = restored?.applicationTemplateVersion;
+        if (restored?.serverOnly) {
+          merged = {
+            ...createInitialRentalWizardState(),
+            propertyId: merged.propertyId,
+            rentalType: merged.rentalType,
+            email: (sessionEmail ?? f.email).trim(),
+          };
+          // A reload retains only this record reference. Hold autosave until
+          // the server proves its target and returns its answers and pin.
+          const restoreToken = `${merged.propertyId}:${String(p.rentalType)}:${++restoreSequenceRef.current}`;
+          variantRestoreRef.current = restoreToken;
+          queueMicrotask(() => setVariantRestorePending(true));
+          void (async () => {
+            let hit: DemoApplicantRow | undefined;
+            try {
+              if (mode === "public") {
+                const token = getApplicationSetupToken(axisId);
+                if (token) {
+                  const res = await fetch("/api/portal/application-resume", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: axisId, token }),
+                  });
+                  if (res.ok) hit = ((await res.json()) as { row?: DemoApplicantRow }).row;
+                }
+              } else {
+                const res = await fetch("/api/manager-applications?scope=self", { credentials: "include" });
+                if (res.ok) hit = ((await res.json()) as { rows?: DemoApplicantRow[] }).rows?.find((row) => row.id === axisId);
+              }
+            } catch { /* visible retry error below */ }
+            if (variantRestoreRef.current !== restoreToken) return;
+            if (!hit?.application || !isInProgressApplicationRow(hit) || hit.application.propertyId !== merged.propertyId || hit.application.rentalType !== p.rentalType) {
+              setErrors((previous) => ({ ...previous, _general: "This saved application could not be restored. Try switching stay types again." }));
+              return;
+            }
+            const recovered = { ...createInitialRentalWizardState(), ...hit.application };
+            completeRentalVariantRestore(recovered);
+            saveRentalWizardDraft(recovered);
+            saveRentalWizardDraftAxisId(hit.id);
+            setForm(recovered);
+            variantRestoreRef.current = "";
+            setVariantRestorePending(false);
+            setErrors((previous) => { const next = { ...previous }; delete next._general; return next; });
+          })();
+        } else {
+          variantRestoreRef.current = "";
+          queueMicrotask(() => setVariantRestorePending(false));
+        }
       }
       if ("leaseStart" in p) merged.leaseStart = normalizeIsoDateInput(p.leaseStart);
       if ("leaseEnd" in p) merged.leaseEnd = p.leaseEnd ? normalizeIsoDateInput(p.leaseEnd) : "";
@@ -1340,6 +1525,9 @@ function RentalApplicationWizardInner({
       return next;
     });
   }, [sessionEmail]);
+  useEffect(() => {
+    requestPropertyTargetRef.current = patchForm;
+  }, [patchForm]);
 
   const setPhoneMasked = useCallback((key: keyof RentalWizardFormState, next: string) => {
     setForm((f) => ({ ...f, [key]: next }));
@@ -1377,7 +1565,10 @@ function RentalApplicationWizardInner({
   }, [maxStepReached]);
 
   const validateAllPrior = useCallback(() => {
-    const property = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+    const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+    const property = storedProperty && templatePreview && templatePreviewSubmission
+      ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
+      : storedProperty;
     const result = validateResidentApplicationSubmit({
       application: form,
       property,
@@ -1396,7 +1587,7 @@ function RentalApplicationWizardInner({
       ),
     );
     return false;
-  }, [form, setStep, showToast]);
+  }, [form, setStep, showToast, templatePreview, templatePreviewSubmission]);
 
   const applicationFeeGate = useMemo(() => {
     void chargeTick;
@@ -2141,7 +2332,16 @@ function RentalApplicationWizardInner({
 
   const handleContinue = () => {
     if (templatePreview) {
-      if (!validateAllPrior()) return;
+      const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+      const previewProperty = storedProperty && templatePreviewSubmission
+        ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
+        : storedProperty;
+      const previewErrors = validateRentalWizardStep(step, form, { property: previewProperty, configOverride: templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
+      if (countValidationErrors(previewErrors) > 0) {
+        setErrors(previewErrors);
+        showToast("Please review the highlighted fields before continuing.");
+        return;
+      }
       const next = nextActiveStep(step);
       if (next > step) {
         setStep(next);
@@ -2284,7 +2484,11 @@ function RentalApplicationWizardInner({
         }
       }
 
-      const e = validateRentalWizardStep(step, form);
+      const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+      const previewProperty = storedProperty && templatePreview && templatePreviewSubmission
+        ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
+        : storedProperty;
+      const e = validateRentalWizardStep(step, form, { property: previewProperty, configOverride: templatePreview && templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
       setErrors(e);
       if (countValidationErrors(e) > 0) {
         showToast("Please fix the highlighted fields before continuing.");
@@ -2448,6 +2652,9 @@ function RentalApplicationWizardInner({
                 step={step}
                 form={form}
                 errors={errors}
+                applicationConfigOverride={templatePreview && templatePreviewSubmission
+                  ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType))
+                  : undefined}
                 mode={mode}
                 propertyOptions={propertyOptions}
                 propertyLocked={
@@ -2488,6 +2695,17 @@ function RentalApplicationWizardInner({
                 onApplySavedAutofill={handleApplySavedAutofill}
               />
             </div>
+
+            {variantRestorePending ? (
+              <p role="status" className="mt-4 text-sm text-muted">
+                {errors._general || "Restoring your saved application…"}
+              </p>
+            ) : null}
+            {variantRestorePending && errors._general ? (
+              <Button type="button" onClick={() => patchForm({ propertyId: form.propertyId })}>
+                Retry restore
+              </Button>
+            ) : null}
 
             {autosaveFailed ? (
               <p
@@ -2530,6 +2748,7 @@ function RentalApplicationWizardInner({
                 onClick={handleContinue}
                 disabled={
                   submitting ||
+                  variantRestorePending ||
                   (mode === "manager" && managerActionBusy) ||
                   (step === 11 &&
                     (applicationFeeGate.listingUnavailable || applicationFeeGate.feePreviewFailed))

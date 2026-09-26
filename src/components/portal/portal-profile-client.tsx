@@ -12,9 +12,11 @@ import {
   ClipboardCheck,
   CreditCard,
   FileText,
+  Folder,
   Home,
   KeyRound,
   Landmark,
+  ListChecks,
   Lock,
   MessageSquareText,
   MessagesSquare,
@@ -36,6 +38,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
+import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -72,8 +75,10 @@ import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
+import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
@@ -130,7 +135,7 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
  * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
  * `workspace-only` variant — no properties picker.
  */
-export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications"]);
+export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications", "applicationForm", "leaseDocuments"]);
 
 /** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -164,7 +169,9 @@ export type SettingsGroupId =
   | "account"
   | "properties"
   | "applications"
+  | "applicationForm"
   | "lease"
+  | "leaseDocuments"
   | "tours"
   | "resident"
   | "payments"
@@ -462,7 +469,15 @@ export function PortalProfileClient({
     if (variant === "manager") {
       list.push(
         { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
+        {
+          id: "applicationForm",
+          label: "Application form",
+          description: "The rental application questions every listing asks by default.",
+          icon: ListChecks,
+          group: "Portfolio",
+        },
         { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
+        { id: "leaseDocuments", label: "Lease documents", description: "Uploaded lease PDFs a property or lease can reuse.", icon: Folder, group: "Portfolio" },
         { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
         { id: "resident", label: "Residents", description: "Resident settings for this workspace.", icon: Home, group: "Portfolio" },
       );
@@ -689,13 +704,15 @@ export function PortalProfileClient({
       case "preferences":
         return (
           <>
-            <PortalSettingsSection title="Appearance">
-              <PortalSettingsGroup>
-                <PortalSettingsRow label="Theme">
-                  <ThemeToggle className="shrink-0" />
-                </PortalSettingsRow>
-              </PortalSettingsGroup>
-            </PortalSettingsSection>
+            {DARK_MODE_ENABLED ? (
+              <PortalSettingsSection title="Appearance">
+                <PortalSettingsGroup>
+                  <PortalSettingsRow label="Theme">
+                    <ThemeToggle className="shrink-0" />
+                  </PortalSettingsRow>
+                </PortalSettingsGroup>
+              </PortalSettingsSection>
+            ) : null}
             <AssistantDisplaySetting />
             <AssistantCustomInstructionsSetting role={variant} />
           </>
@@ -718,8 +735,12 @@ export function PortalProfileClient({
             embedded
           />
         );
+      case "applicationForm":
+        return <ManagerApplicationFormSettings />;
       case "spreadsheets":
         return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
+      case "leaseDocuments":
+        return <LeaseDocumentLibraryPanel />;
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
     }

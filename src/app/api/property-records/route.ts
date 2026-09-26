@@ -20,8 +20,10 @@ import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.
 import { doorCountForListing } from "@/lib/billing/door-count";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
+import { reconcileListingApplicationFormOnWrite } from "@/lib/listing-application-form-write.server";
 import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
+import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
 import {
   buildAllModulesGrant,
   coManagerModuleAllowed,
@@ -197,7 +199,7 @@ export async function POST(req: Request) {
     // server-read value, never on body.managerUserId (which a caller controls).
     const { data: existing, error: existingError } = await db
       .from("manager_property_records")
-      .select("manager_user_id, status, row_data, property_data")
+      .select("manager_user_id, status, row_data, property_data, updated_at")
       .eq("id", id)
       .maybeSingle();
     // A FAILED read is not an absent row. Falling through would answer 404 on a
@@ -413,10 +415,12 @@ export async function POST(req: Request) {
       if (existingRowData && OPERATIONS_SETTINGS_KEY in existingRowData) {
         sanitizedRowData[OPERATIONS_SETTINGS_KEY] = existingRowData[OPERATIONS_SETTINGS_KEY];
       }
-      rowDataForWrite0 = sanitizedRowData;
+      rowDataForWrite0 = preserveServerOwnedApplicationVersions(sanitizedRowData, existing?.row_data);
     }
-    const propertyDataForWrite0 =
-      body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);
+    const propertyDataForWrite0 = preserveServerOwnedApplicationVersions(
+      body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null),
+      existing?.property_data,
+    );
 
     /*
      * Who pays the processing fee is re-derived HERE, from the server's own
@@ -429,11 +433,22 @@ export async function POST(req: Request) {
      * listing forever, with no grant recorded anywhere. The browser now stores
      * intent; this decides.
      */
-    const { rowData: rowDataForWrite, propertyData: propertyDataForWrite } =
+    const { rowData: rowDataForFeeWrite, propertyData: propertyDataForFeeWrite } =
       await reconcileListingServiceFeeOnWrite(db, {
         ownerUserId: managerUserIdForWrite,
         rowData: rowDataForWrite0,
         propertyData: propertyDataForWrite0,
+      });
+    // N037: a listing that follows the workspace application form (the
+    // default) gets the workspace's CURRENT question set baked onto its own
+    // stored submission on every save — see
+    // `reconcileListingApplicationFormOnWrite` for why this can't be a live
+    // read. A listing on `applicationFormSource: "custom"` is untouched.
+    const { rowData: rowDataForWrite, propertyData: propertyDataForWrite } =
+      await reconcileListingApplicationFormOnWrite(db, {
+        ownerUserId: managerUserIdForWrite,
+        rowData: rowDataForFeeWrite,
+        propertyData: propertyDataForFeeWrite,
       });
 
     const newWorkspaceId = !existing ? createWorkspaceId : undefined;
@@ -496,8 +511,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const { error } = await db.from("manager_property_records").upsert(
-      {
+    const recordForWrite = {
         id,
         ...(newWorkspaceId ? { workspace_id: newWorkspaceId } : {}),
         manager_user_id: managerUserIdForWrite,
@@ -507,9 +521,23 @@ export async function POST(req: Request) {
         edit_request_note:
           body.editRequestNote !== undefined ? body.editRequestNote : null,
         updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
+      };
+    const hasApplicationTemplates = [propertyDataForWrite, existing?.property_data, rowDataForWrite, existing?.row_data].some((data) => {
+      if (!data || typeof data !== "object") return false;
+      const submission = (data as { listingSubmission?: { propertyApplicationTemplates?: unknown } }).listingSubmission;
+      return Array.isArray(submission?.propertyApplicationTemplates) && submission.propertyApplicationTemplates.length > 0;
+    });
+    const writeResult = hasApplicationTemplates && existing
+      ? await db.from("manager_property_records")
+        .update(recordForWrite)
+        .eq("id", id)
+        .eq("updated_at", existing.updated_at)
+        .select("id")
+      : await db.from("manager_property_records").upsert(recordForWrite, { onConflict: "id" });
+    const { error } = writeResult;
+    if (hasApplicationTemplates && existing && !error && !writeResult.data?.length) {
+      return NextResponse.json({ error: "Property changed while you were editing. Reload and try again." }, { status: 409 });
+    }
     if (error) {
       // A check violation is the database REFUSING the write on a rule it can
       // explain ("Assigned room no longer exists.", "Move-out date precedes

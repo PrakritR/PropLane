@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
@@ -13,6 +14,7 @@ import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access"
 import { autoFileLeaseDocument, type AutoFileLeaseRow } from "@/lib/documents/document-auto-file-hooks.server";
 import {
   introducesUntrustedLeaseDocument,
+  leaseClaimsExecution,
   leaseAllowsManagerDocumentEdits,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
@@ -22,10 +24,27 @@ import {
   leaseSignatureRoleForgedBy,
   leaseSignatureWriteRefusal,
   rowHasAnySignature,
+  effectiveLeaseDocumentMode,
 } from "@/lib/lease-execution-evidence";
-import { leaseBodyMatchesManagerFiledLease } from "@/lib/lease-manager-filed-document.server";
+import {
+  confirmedUploadedLeaseReview,
+  normalizeUploadedLeaseParse,
+  uploadedLeaseConversionBlocker,
+  uploadedLeaseSourceIssueKey,
+  uploadedLeaseNeedsManagerConfirmation,
+} from "@/lib/uploaded-lease-extraction";
+import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { newSignatureHashMismatch } from "@/lib/lease-signature-hash-guard";
+import { parseUploadedLeasePdfBytes } from "@/lib/uploaded-lease-parse.server";
+import { assertSafePdfForImport, parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
+import { leaseBodyMatchesManagerFiledLease, managerFiledLeaseScopeForNewRow } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
-import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { LEASE_TEMPLATE_BUCKET, leaseTemplateObjectPath } from "@/lib/lease-template-storage";
+import { hasBothLeaseSignatures, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { loadLeasingPipelineState, resolveLeasingPipelineForProperty } from "@/lib/leasing-pipeline-preferences";
+import { buildLeaseFirstSigningHtml, resolveManagerFilledSigningAnswers, type LeaseFirstFeeContext } from "@/lib/leasing/lease-first-signing-document";
 import {
   projectLeasePipelineListRow,
   restoreOmittedLeaseDocument,
@@ -43,7 +62,47 @@ function residentIdentityFilter(user: { id?: string | null; email?: string | nul
   ]);
 }
 
+function sha256Hex(value: Uint8Array | string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function pdfDataUrlSha256(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const base64 = value.slice(value.indexOf(",") + 1);
+  if (!base64 || !/^data:application\/pdf(?:;[^,]*)?,/i.test(value)) return null;
+  try {
+    return sha256Hex(Buffer.from(base64, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+function pdfDataUrlBytes(value: string): Uint8Array | null {
+  if (!/^data:application\/pdf(?:;[^,]*)?,/i.test(value)) return null;
+  const base64 = value.slice(value.indexOf(",") + 1);
+  if (!base64) return null;
+  try {
+    return new Uint8Array(Buffer.from(base64, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+async function verifyLeaseTemplateSource(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  url: string | null | undefined,
+  expectedOwnerId: string,
+): Promise<{ path: string; sha256: string; bytes: Uint8Array } | null> {
+  const path = leaseTemplateObjectPath(url);
+  if (!path || path.split("/")[0] !== expectedOwnerId) return null;
+  const { data, error } = await db.storage.from(LEASE_TEMPLATE_BUCKET).download(path);
+  if (error || !data) return null;
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  return { path, sha256: sha256Hex(bytes), bytes };
+}
+
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type RecordUser = { id: string; email?: string | null; name?: string | null; role: string };
 
@@ -273,10 +332,11 @@ type LeaseRecordForRead = LeaseScopeRecord & {
 };
 
 function rowFromLeaseRecord(record: LeaseScopeRecord): Record<string, unknown> {
-  return (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<
+  const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<
     string,
     unknown
   >;
+  return { ...row, reviewRevision: (record as LeaseScopeRecord & { updated_at?: string | null }).updated_at ?? null };
 }
 
 async function viewerMayReadLeaseRecord(
@@ -360,12 +420,327 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review" | "begin_lease_first_signing";
       id?: string;
+      leaseId?: string;
+      acknowledgeTermsRiderConflicts?: boolean;
+      uploadedReview?: {
+        overrides?: Record<string, unknown>;
+        note?: string | null;
+        useConverted?: boolean;
+        convertedHtml?: string;
+        resolvedSourceIssueCodes?: string[];
+        expectedRevision?: string | null;
+        viewedSourceSha256?: string;
+        viewedConvertedHtmlSha256?: string | null;
+        viewedRecordFingerprint?: string;
+      };
+      expectedReview?: { revision?: string | null; sourceSha256?: string; finalHtmlSha256?: string; recordFingerprint?: string };
       ids?: unknown[];
       row?: Record<string, unknown>;
       rows?: Record<string, unknown>[];
     };
+
+    if (body.action === "confirm_template_placement_review") {
+      if (ctx.user.role === "resident") return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const leaseId = body.leaseId?.trim() ?? "";
+      if (!leaseId) return NextResponse.json({ error: "Lease id required." }, { status: 400 });
+      const { data, error } = await ctx.db
+        .from("portal_lease_pipeline_records")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data, updated_at")
+        .eq("id", leaseId)
+        .limit(1);
+      if (error) return NextResponse.json({ error: "Could not load lease review." }, { status: 500 });
+      const record = (data ?? [])[0] as (LeaseScopeRecord & StoredLeaseScopeColumns & { row_data?: Record<string, unknown>; updated_at?: string | null }) | undefined;
+      if (!record || (ctx.user.role !== "admin" && !(await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record, "edit")))) {
+        return NextResponse.json({ error: "Lease not found." }, { status: 404 });
+      }
+      const row = normalizeRow(record.row_data ?? {}) as unknown as LeasePipelineRow;
+      if (
+        effectiveLeaseDocumentMode(row) !== "imported-converted" ||
+        !row.templateImportReview ||
+        !row.generatedHtml ||
+        rowHasAnySignature(row) ||
+        row.status !== "Manager Review"
+      ) return NextResponse.json({ error: "This lease is not ready for imported-template review." }, { status: 409 });
+      if (body.acknowledgeTermsRiderConflicts !== true) {
+        return NextResponse.json({ error: "Review and acknowledge any differences in the appended PropLane Terms Rider." }, { status: 409 });
+      }
+      if (row.templateImportReview.issueCodes.includes("unreadable_page") && !row.templateImportReview.resolvedIssueCodes.includes("unreadable_page")) {
+        return NextResponse.json({ error: "Transcribe unreadable source pages in the converted template first." }, { status: 409 });
+      }
+      const source = await verifyLeaseTemplateSource(ctx.db, row.templateDocumentUrl ?? "", record.manager_user_id ?? "");
+      if (!source || source.sha256 !== row.templateImportReview.sourceSha256) {
+        return NextResponse.json({ error: "The original lease template no longer matches its reviewed source." }, { status: 409 });
+      }
+      let parsedSource;
+      try {
+        parsedSource = await parsePdfForImport({ bytes: source.bytes, fileName: row.templateDocumentName ?? "lease.pdf" });
+      } catch {
+        return NextResponse.json({ error: "The original lease template could not be read. Reimport it before sending." }, { status: 409 });
+      }
+      const actualIssueCodes = parsedSource.issues.map((issue) => issue.code).sort();
+      const recordedIssueCodes = [...row.templateImportReview.issueCodes].sort();
+      if (
+        parsedSource.sourceSha256 !== source.sha256 ||
+        !parsedSource.coverage.complete ||
+        JSON.stringify(actualIssueCodes) !== JSON.stringify(recordedIssueCodes) ||
+        parsedSource.coverage.extractedCharacters !== row.templateImportReview.extractedCharacters ||
+        parsedSource.coverage.representedCharacters !== row.templateImportReview.representedCharacters
+      ) return NextResponse.json({ error: "The source reading changed. Reimport and review the original lease template." }, { status: 409 });
+      const sanitizedHtml = sanitizeLeaseDocumentHtml(row.generatedHtml);
+      if (sanitizedHtml !== row.generatedHtml) {
+        return NextResponse.json({ error: "The placement lease changed during review. Reopen it and compare the current version." }, { status: 409 });
+      }
+      if (
+        body.expectedReview?.revision !== (record.updated_at ?? null) ||
+        body.expectedReview.sourceSha256 !== source.sha256 ||
+        body.expectedReview.finalHtmlSha256 !== sha256Hex(sanitizedHtml) ||
+        body.expectedReview.recordFingerprint !== leaseRecordFingerprint({
+          residentName: row.residentName,
+          leaseStart: row.application?.leaseStart ?? null,
+          leaseEnd: row.application?.leaseEnd ?? null,
+          rentLabel: row.signedRentLabel ?? null,
+        })
+      ) return NextResponse.json({ error: "The lease changed during review. Reopen the comparison." }, { status: 409 });
+      const templatePlacementReview = {
+        sourceSha256: source.sha256,
+        sourcePath: source.path,
+        finalHtmlSha256: sha256Hex(sanitizedHtml),
+        templateVersion: row.templateImportReview.templateVersion,
+        reviewedAtIso: new Date().toISOString(),
+        confirmedByUserId: ctx.user.id,
+        riderConflictAcknowledged: true,
+      };
+      const nextRow = { ...row, templatePlacementReview };
+      let updateReview = ctx.db
+        .from("portal_lease_pipeline_records")
+        .update({ row_data: nextRow, updated_at: new Date().toISOString() })
+        .eq("id", leaseId)
+        .eq("manager_user_id", record.manager_user_id);
+      updateReview = record.updated_at
+        ? updateReview.eq("updated_at", record.updated_at)
+        : updateReview.is("updated_at", null);
+      const { data: updatedRows, error: updateError } = await updateReview.select("id");
+      if (updateError) return NextResponse.json({ error: "Could not save the lease review." }, { status: 500 });
+      if (!updatedRows?.length) return NextResponse.json({ error: "The lease changed during review. Reopen it and compare the current version." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: nextRow });
+    }
+
+    if (body.action === "confirm_uploaded_lease_review") {
+      if (ctx.user.role === "resident") return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const leaseId = body.leaseId?.trim() ?? "";
+      if (!leaseId) return NextResponse.json({ error: "Lease id required." }, { status: 400 });
+      const { data, error } = await ctx.db
+        .from("portal_lease_pipeline_records")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data, updated_at")
+        .eq("id", leaseId)
+        .limit(1);
+      if (error) return NextResponse.json({ error: "Could not load lease review." }, { status: 500 });
+      const record = (data ?? [])[0] as (LeaseScopeRecord & StoredLeaseScopeColumns & { row_data?: Record<string, unknown>; updated_at?: string | null }) | undefined;
+      if (!record || (ctx.user.role !== "admin" && !(await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record, "edit")))) {
+        return NextResponse.json({ error: "Lease not found." }, { status: 404 });
+      }
+      const row = normalizeRow(record.row_data ?? {}) as unknown as LeasePipelineRow;
+      const storedParse = normalizeUploadedLeaseParse(row.uploadedLeaseParse);
+      const pdf = row.managerUploadedPdf;
+      if (!storedParse || !pdf?.dataUrl || rowHasAnySignature(row) || row.status !== "Manager Review") {
+        return NextResponse.json({ error: "This uploaded lease is not ready for review." }, { status: 409 });
+      }
+      const sourceDataUrl = pdf.originalDataUrl ?? pdf.dataUrl;
+      const sourceSha256 = pdfDataUrlSha256(sourceDataUrl);
+      if (!sourceSha256 || sourceSha256 !== storedParse.sourceSha256) {
+        return NextResponse.json({ error: "The imported reading does not match the original PDF." }, { status: 409 });
+      }
+      const recordFingerprint = leaseRecordFingerprint({
+        residentName: row.residentName,
+        leaseStart: row.application?.leaseStart ?? null,
+        leaseEnd: row.application?.leaseEnd ?? null,
+        rentLabel: row.signedRentLabel ?? null,
+      });
+      const viewedHtmlSha256 = body.uploadedReview?.useConverted
+        ? sha256Hex(sanitizeLeaseDocumentHtml(body.uploadedReview.convertedHtml?.trim() ?? "") ?? "")
+        : null;
+      if (
+        body.uploadedReview?.expectedRevision !== (record.updated_at ?? null) ||
+        body.uploadedReview.viewedSourceSha256 !== sourceSha256 ||
+        body.uploadedReview.viewedConvertedHtmlSha256 !== viewedHtmlSha256 ||
+        body.uploadedReview.viewedRecordFingerprint !== recordFingerprint
+      ) return NextResponse.json({ error: "The lease changed during review. Reopen the comparison." }, { status: 409 });
+      const parse = await parseUploadedLeasePdfBytes({
+        bytes: new Uint8Array(Buffer.from(sourceDataUrl.slice(sourceDataUrl.indexOf(",") + 1), "base64")),
+        fileName: pdf.fileName,
+        nowIso: storedParse.extractedAtIso ?? undefined,
+      });
+      if (parse.sourceSha256 !== sourceSha256) {
+        return NextResponse.json({ error: "The imported reading does not match the original PDF." }, { status: 409 });
+      }
+      if (body.uploadedReview?.useConverted) {
+        const blocker = uploadedLeaseConversionBlocker(parse, body.uploadedReview.resolvedSourceIssueCodes ?? []);
+        if (blocker || !body.uploadedReview.convertedHtml?.trim()) return NextResponse.json({ error: blocker ?? "The converted lease is empty." }, { status: 409 });
+      }
+      const convertedHtml = body.uploadedReview?.useConverted
+        ? sanitizeLeaseDocumentHtml(body.uploadedReview.convertedHtml?.trim() ?? "")
+        : row.generatedHtml ?? null;
+      const convertedHtmlSha256 = body.uploadedReview?.useConverted && convertedHtml
+        ? sha256Hex(convertedHtml)
+        : null;
+      const knownSourceIssueCodes = new Set((parse.sourceIssues ?? []).map(uploadedLeaseSourceIssueKey));
+      const resolvedSourceIssueCodes = body.uploadedReview?.useConverted
+        ? [...new Set((body.uploadedReview.resolvedSourceIssueCodes ?? []).filter((value): value is string => typeof value === "string" && knownSourceIssueCodes.has(value)))].slice(0, 120)
+        : [];
+      const overrides: Record<string, string> = {};
+      const knownFieldKeys = new Set<string>(parse.fields.map((field) => field.key));
+      for (const [key, value] of Object.entries(body.uploadedReview?.overrides ?? {})) {
+        if (knownFieldKeys.has(key) && typeof value === "string" && value.trim()) overrides[key] = value.trim().slice(0, 500);
+      }
+      const reviewedAtIso = new Date().toISOString();
+      const review = confirmedUploadedLeaseReview(
+        { ...parse.review, overrides: Object.keys(overrides).length ? overrides : undefined },
+        {
+          userId: ctx.user.id,
+          name: ctx.user.name,
+          atIso: reviewedAtIso,
+          note: body.uploadedReview?.note,
+          documentSha256: sourceSha256,
+          convertedHtmlSha256,
+          resolvedSourceIssueCodes,
+          recordFingerprint,
+        },
+      );
+      const nextRow = {
+        ...row,
+        generatedHtml: convertedHtml,
+        documentMode: body.uploadedReview?.useConverted ? "imported-converted" : "original-pdf",
+        versionNumber: body.uploadedReview?.useConverted && convertedHtml !== row.generatedHtml ? (row.versionNumber ?? row.pdfVersion ?? 1) + 1 : row.versionNumber,
+        pdfVersion: body.uploadedReview?.useConverted && convertedHtml !== row.generatedHtml ? (row.versionNumber ?? row.pdfVersion ?? 1) + 1 : row.pdfVersion,
+        generatedAtIso: body.uploadedReview?.useConverted && convertedHtml !== row.generatedHtml ? reviewedAtIso : row.generatedAtIso,
+        managerDocumentEditedAtIso: body.uploadedReview?.useConverted && convertedHtml !== row.generatedHtml ? reviewedAtIso : row.managerDocumentEditedAtIso,
+        uploadedLeaseParse: { ...parse, review },
+        uploadedLeaseReviewReceipt: {
+          sourceSha256,
+          documentSha256: sourceSha256,
+          convertedHtmlSha256,
+          resolvedSourceIssueCodes,
+          reviewedAtIso,
+          confirmedByUserId: ctx.user.id,
+        },
+      };
+      let updateReview = ctx.db
+        .from("portal_lease_pipeline_records")
+        .update({ row_data: nextRow, updated_at: reviewedAtIso })
+        .eq("id", leaseId)
+        .eq("manager_user_id", record.manager_user_id);
+      updateReview = record.updated_at
+        ? updateReview.eq("updated_at", record.updated_at)
+        : updateReview.is("updated_at", null);
+      const { data: updatedRows, error: updateError } = await updateReview.select("id");
+      if (updateError) return NextResponse.json({ error: "Could not save the lease review." }, { status: 500 });
+      if (!updatedRows?.length) return NextResponse.json({ error: "The lease changed during review. Reopen it and compare the current version." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: nextRow });
+    }
+
+    if (body.action === "begin_lease_first_signing") {
+      // Ida Cares lease-first (PLAN-0925, C274-C287): the resident-triggered
+      // transition from a `createLeaseFirstDraft` marker row (`bucket:
+      // "manager", status: "Draft", leaseFirst: true`, no document yet) into
+      // the same `bucket: "resident", status: "Resident Signature Pending"`
+      // state every other lease type already reaches before a resident can
+      // sign — see `residentSignLease` in `lease-pipeline-storage.ts`. Only a
+      // resident may call this, only on their OWN draft, and the document is
+      // generated entirely server-side from the property's PUBLISHED (never
+      // draft) lease template — nothing in the request body becomes document
+      // content, so this cannot be used to smuggle arbitrary lease text the
+      // way `introducesUntrustedLeaseDocument` guards the generic upsert path.
+      if (ctx.user.role !== "resident") return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const leaseId = body.leaseId?.trim() ?? "";
+      if (!leaseId) return NextResponse.json({ error: "Lease id required." }, { status: 400 });
+      const { data, error } = await ctx.db
+        .from("portal_lease_pipeline_records")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data, updated_at")
+        .eq("id", leaseId)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: "Could not load your lease." }, { status: 500 });
+      const record = data as (StoredLeaseScopeColumns & { id: string; row_data?: Record<string, unknown>; updated_at?: string | null }) | null;
+      const ownsRecord =
+        record &&
+        ((record.resident_user_id && record.resident_user_id === ctx.user.id) ||
+          (record.resident_email && record.resident_email.trim().toLowerCase() === ctx.user.email));
+      if (!record || !ownsRecord) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const row = normalizeLeasePipelineRow(record.row_data ?? {});
+      if (row.leaseFirst !== true || row.bucket !== "manager" || row.status !== "Draft" || row.generatedHtml || hasBothLeaseSignatures(row) || row.residentSignature || row.managerSignature) {
+        return NextResponse.json({ error: "This lease is not ready to begin signing." }, { status: 409 });
+      }
+      const managerUserId = record.manager_user_id ?? row.managerUserId ?? "";
+      const propertyId = record.property_id ?? row.propertyId ?? "";
+      if (!managerUserId || !propertyId) return NextResponse.json({ error: "This lease has no property on file." }, { status: 409 });
+      const { data: propertyRecord, error: propertyError } = await ctx.db
+        .from("manager_property_records")
+        .select("property_data")
+        .eq("id", propertyId)
+        .eq("manager_user_id", managerUserId)
+        .maybeSingle();
+      if (propertyError || !propertyRecord) return NextResponse.json({ error: "This property is no longer available." }, { status: 404 });
+      const propertyData = propertyRecord.property_data as { listingSubmission?: unknown; buildingName?: string; title?: string } | null;
+      const rawSubmission = propertyData?.listingSubmission;
+      if (!rawSubmission || typeof rawSubmission !== "object") {
+        return NextResponse.json({ error: "This property has no lease template configured." }, { status: 409 });
+      }
+      // Trusted, already-shaped JSON at rest (same trust level `ownedTemplate` in
+      // `lease-template-import/route.ts` uses for its own `submission` read) —
+      // not raw/unknown user input, so a direct cast rather than the
+      // caller-shape `normalizeManagerListingSubmissionV1` (which expects an
+      // already-typed `ManagerListingSubmissionV1`, not `unknown`).
+      const sub = rawSubmission as ManagerListingSubmissionV1;
+      const pipelineState = await loadLeasingPipelineState(ctx.db, managerUserId);
+      const pipelinePrefs = resolveLeasingPipelineForProperty(pipelineState, propertyId);
+      const templateId = pipelinePrefs.defaultLeaseTemplateId;
+      const templates = readPropertyLeaseTemplates(sub);
+      const template = templateId ? templates.find((t) => t.id === templateId) : undefined;
+      const publishedConfig = template?.publishedQuestionConfig;
+      if (!template || !publishedConfig) {
+        return NextResponse.json({ error: "This property has no published lease-first template configured." }, { status: 409 });
+      }
+      const roomChoice = (row.roomChoice ?? "").trim();
+      const listingRoomId = roomChoice.includes("::") ? roomChoice.split("::")[1] : undefined;
+      const room = listingRoomId ? sub.rooms.find((r) => r.id === listingRoomId) : undefined;
+      const fees: LeaseFirstFeeContext = {
+        monthlyRent: room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : null,
+        dailyRent: room?.dailyRentPrice && room.dailyRentPrice > 0 ? room.dailyRentPrice : null,
+        moveInFeeLabel: null,
+      };
+      const propertyLabel = propertyData?.buildingName ?? propertyData?.title ?? sub.buildingName ?? "";
+      const generatedHtml = buildLeaseFirstSigningHtml(publishedConfig, {
+        propertyLabel,
+        fees,
+        documentTitle: template.label,
+      });
+      const managerAnswers = resolveManagerFilledSigningAnswers(publishedConfig, fees);
+      const iso = new Date().toISOString();
+      const nextRow: LeasePipelineRow = {
+        ...row,
+        leaseTemplateId: template.id,
+        signingTemplateSnapshot: publishedConfig,
+        signingAnswers: { ...(row.signingAnswers ?? {}), ...managerAnswers },
+        generatedHtml,
+        generatedAtIso: iso,
+        documentMode: "proplane-generated",
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        updatedAtIso: iso,
+        updated: iso,
+      };
+      let updateBegin = ctx.db
+        .from("portal_lease_pipeline_records")
+        .update({ row_data: nextRow, updated_at: iso })
+        .eq("id", leaseId)
+        .eq("manager_user_id", managerUserId);
+      updateBegin = record.updated_at ? updateBegin.eq("updated_at", record.updated_at) : updateBegin.is("updated_at", null);
+      const { data: beganRows, error: beginError } = await updateBegin.select("id");
+      if (beginError) return NextResponse.json({ error: "Could not start signing." }, { status: 500 });
+      if (!beganRows?.length) return NextResponse.json({ error: "This lease changed. Reload and try again." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: normalizeRow(nextRow) });
+    }
 
     if (body.action === "delete" || body.action === "deleteIds") {
       const ids =
@@ -378,19 +753,42 @@ export async function POST(req: Request) {
       if (ctx.user.role === "resident") {
         return NextResponse.json({ error: "Residents cannot delete lease records." }, { status: 403 });
       }
+      const executedIds: string[] = [];
       for (const id of ids) {
         const { data: existing } = await ctx.db
           .from("portal_lease_pipeline_records")
-          .select("id, manager_user_id, property_id")
+          .select("id, manager_user_id, property_id, row_data")
           .eq("id", id)
           .limit(1);
-        const record = (existing ?? [])[0] as LeaseScopeRecord | undefined;
+        const record = (existing ?? [])[0] as (LeaseScopeRecord & { row_data?: Record<string, unknown> }) | undefined;
         if (!record) continue;
         if (ctx.user.role !== "admin") {
           const allowed = await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record, "delete");
           if (!allowed) continue;
         }
+        // A fully executed lease is legal evidence: permanently deleting the row
+        // destroys the signed document and both signatures with no way to recover
+        // them, and unlike a routine save (guarded above by
+        // `wipesExecutedLeaseWithoutSupersedeIntent`) a DELETE has no "supersede"
+        // shape to exempt. Refuse rather than archive-by-accident; the manager
+        // still has void/renew for a lease they no longer want active.
+        const storedRow = (record.row_data ?? {}) as LeasePipelineRow;
+        if (leaseClaimsExecution(storedRow)) {
+          executedIds.push(id);
+          continue;
+        }
         await ctx.db.from("portal_lease_pipeline_records").delete().eq("id", id);
+      }
+      // Bulk (`deleteIds`) callers today are fire-and-forget local-cache cleanup
+      // (e.g. purging an application's draft leases) and do not inspect this
+      // body, so a single executed id never blocks the rest of the batch — but
+      // the refusal is still real: `refused` lists every id whose row survives.
+      if (executedIds.length > 0) {
+        return NextResponse.json({
+          ok: true,
+          refused: executedIds,
+          error: "This lease is executed and cannot be deleted. Void or renew it instead.",
+        });
       }
       return NextResponse.json({ ok: true });
     }
@@ -521,6 +919,20 @@ export async function POST(req: Request) {
       // both deserve to surface. Admins are not exempt; the point is that the
       // executed text cannot change, not that only strangers may not change it.
       const storedRow = existingRecord?.row_data as LeasePipelineRow | undefined;
+      const submittedPdf = normalized.managerUploadedPdf as LeasePipelineRow["managerUploadedPdf"];
+      const priorPdf = storedRow?.managerUploadedPdf;
+      for (const field of ["dataUrl", "originalDataUrl"] as const) {
+        const submittedBytes = submittedPdf?.[field];
+        const previousBytes = priorPdf?.[field];
+        if (typeof submittedBytes !== "string" || !submittedBytes || submittedBytes === previousBytes) continue;
+        const decoded = pdfDataUrlBytes(submittedBytes);
+        if (!decoded) return NextResponse.json({ error: "Uploaded lease must be a valid PDF data URL." }, { status: 400 });
+        try {
+          await assertSafePdfForImport(decoded);
+        } catch {
+          return NextResponse.json({ error: "This PDF contains active content and cannot be stored as a lease." }, { status: 400 });
+        }
+      }
       // A list-shaped client row has filenames only. Putting those bytes
       // back here means an ordinary save cannot 409 as a document replacement
       // and cannot empty the stored PDF.
@@ -529,6 +941,125 @@ export async function POST(req: Request) {
           string,
           unknown
         >;
+        normalized.templatePlacementReview = storedRow.templatePlacementReview ?? null;
+        // Imported-template provenance is server-owned once the row exists. A
+        // body edit invalidates its placement receipt below, but it cannot turn
+        // an imported lease into a generated lease by clearing client fields.
+        // A new source/template must enter through an explicit import flow.
+        if (storedRow.templateImportReview) {
+          const requestedReview = (normalizeRow(row) as unknown as LeasePipelineRow).templateImportReview;
+          const provenanceChanged =
+            !requestedReview ||
+            requestedReview.sourceSha256 !== storedRow.templateImportReview.sourceSha256 ||
+            requestedReview.templateVersion !== storedRow.templateImportReview.templateVersion ||
+            row.templateDocumentUrl !== storedRow.templateDocumentUrl ||
+            row.documentMode !== storedRow.documentMode;
+          if (provenanceChanged) {
+            return NextResponse.json({ error: "Imported lease provenance can only change through a reviewed import transition." }, { status: 409 });
+          }
+          normalized.templateImportReview = storedRow.templateImportReview;
+          normalized.templateDocumentUrl = storedRow.templateDocumentUrl ?? null;
+          normalized.templateVersion = storedRow.templateVersion ?? null;
+          if (
+            !storedRow.managerUploadedPdf?.dataUrl &&
+            !storedRow.uploadedLeaseParse &&
+            ((normalized.managerUploadedPdf as LeasePipelineRow["managerUploadedPdf"] | null | undefined)?.dataUrl ||
+              (normalized.managerUploadedPdf as LeasePipelineRow["managerUploadedPdf"] | null | undefined)?.originalDataUrl)
+          ) {
+            return NextResponse.json({ error: "A reusable template placement cannot be replaced by uploaded lease bytes." }, { status: 409 });
+          }
+        } else {
+          normalized.templateImportReview = null;
+          normalized.templatePlacementReview = null;
+        }
+        // For the same uploaded bytes, omission/null is not a way to remove the
+        // server's parse and its review state. Replacing the PDF requires a new
+        // parse to be present with that upload.
+        const storedPdf = storedRow.managerUploadedPdf;
+        const nextPdf = normalized.managerUploadedPdf as LeasePipelineRow["managerUploadedPdf"];
+        const storedOriginal = storedPdf?.originalDataUrl ?? storedPdf?.dataUrl ?? null;
+        const nextOriginal = nextPdf?.originalDataUrl ?? nextPdf?.dataUrl ?? null;
+        const sameUploadedSource = Boolean(storedOriginal && nextOriginal === storedOriginal && nextPdf?.dataUrl === storedPdf?.dataUrl);
+        const storedParse = normalizeUploadedLeaseParse(storedRow.uploadedLeaseParse);
+        const incomingParse = normalizeUploadedLeaseParse(normalized.uploadedLeaseParse);
+        const importedSource = Boolean(storedOriginal && (storedParse || storedRow.uploadedLeaseReviewReceipt || storedRow.documentMode === "imported-converted"));
+        if (importedSource && !nextOriginal) {
+          return NextResponse.json({ error: "An imported lease source cannot be removed through this save path." }, { status: 409 });
+        }
+        if (importedSource && !sameUploadedSource) {
+          // A genuinely new PDF may be uploaded while the lease is unsigned and
+          // in manager review. Its review starts over; the client cannot carry
+          // the old receipt or downgrade the old source into a generated lease.
+          if (
+            ctx.user.role === "resident" ||
+            rowHasAnySignature(storedRow) ||
+            storedRow.fullySignedAt ||
+            normalized.status !== "Manager Review" ||
+            !nextPdf?.dataUrl || nextPdf.originalDataUrl !== nextPdf.dataUrl ||
+            !incomingParse || incomingParse.review.status === "confirmed" ||
+            (incomingParse.sourceSha256 && incomingParse.sourceSha256 !== pdfDataUrlSha256(nextOriginal))
+          ) return NextResponse.json({ error: "A new uploaded lease requires an unsigned manager-review replacement and fresh reading." }, { status: 409 });
+          normalized.documentMode = "original-pdf";
+        }
+        if (importedSource && sameUploadedSource) {
+          if (normalized.documentMode !== storedRow.documentMode) {
+            return NextResponse.json({ error: "The imported lease mode can only change through a reviewed transition." }, { status: 409 });
+          }
+          normalized.managerUploadedPdf = storedPdf;
+        }
+        if (sameUploadedSource && storedParse && !uploadedLeaseNeedsManagerConfirmation(storedParse)) {
+          // Once confirmed, the reading and its human decision are server-owned.
+          normalized.uploadedLeaseParse = storedParse;
+        } else if (incomingParse) {
+          // A browser may save a fresh unconfirmed parse, but cannot claim a
+          // review happened. The separate action below issues the receipt.
+          normalized.uploadedLeaseParse = {
+            ...incomingParse,
+            review: {
+              ...incomingParse.review,
+              status: "needs_review",
+              confirmedByUserId: null,
+              confirmedByName: null,
+              confirmedAtIso: null,
+              confirmedDocumentSha256: null,
+              confirmedConvertedHtmlSha256: null,
+              resolvedSourceIssueCodes: [],
+              confirmedRecordFingerprint: null,
+            },
+          };
+        } else if (sameUploadedSource && storedParse) {
+          normalized.uploadedLeaseParse = storedParse;
+        }
+        const receipt = storedRow.uploadedLeaseReviewReceipt;
+        const bodyStillReviewed =
+          normalized.generatedHtml === storedRow.generatedHtml &&
+          normalized.documentMode === storedRow.documentMode;
+        normalized.uploadedLeaseReviewReceipt = sameUploadedSource && bodyStillReviewed ? receipt ?? null : null;
+        if (sameUploadedSource && storedParse && !normalized.uploadedLeaseParse) {
+          normalized.uploadedLeaseParse = storedParse;
+        }
+      } else {
+        // Placement receipts are issued only by the dedicated confirmation
+        // action below; a generic create cannot plant one for a later send.
+        normalized.templatePlacementReview = null;
+        normalized.uploadedLeaseReviewReceipt = null;
+        const incomingParse = normalizeUploadedLeaseParse(normalized.uploadedLeaseParse);
+        if (incomingParse) {
+          normalized.uploadedLeaseParse = {
+            ...incomingParse,
+            review: {
+              ...incomingParse.review,
+              status: "needs_review",
+              confirmedByUserId: null,
+              confirmedByName: null,
+              confirmedAtIso: null,
+              confirmedDocumentSha256: null,
+              confirmedConvertedHtmlSha256: null,
+              resolvedSourceIssueCodes: [],
+              confirmedRecordFingerprint: null,
+            },
+          };
+        }
       }
       if (storedRow && replacesSignedLeaseDocument(storedRow, normalized as unknown as LeasePipelineRow)) {
         return NextResponse.json(
@@ -541,6 +1072,65 @@ export async function POST(req: Request) {
         const executionStripRefusal = leaseExecutionStripRefusal(storedRow, normalized as unknown as LeasePipelineRow);
         if (executionStripRefusal) {
           return NextResponse.json({ error: executionStripRefusal }, { status: 409 });
+        }
+      }
+
+      if (
+        normalized.status === "Fully Signed" &&
+        storedRow?.status !== "Fully Signed" &&
+        (!normalized.fullySignedAt || !hasBothLeaseSignatures(normalized as LeasePipelineRow))
+      ) {
+        return NextResponse.json({ error: "A fully signed lease requires both parties' signatures." }, { status: 409 });
+      }
+
+      // A new row has no prior document or signing state to compare with. An
+      // executed first write is valid only for the PDF already filed by this
+      // manager on an application. Otherwise a client could create a forged
+      // fully signed lease and have it auto-filed in the same request.
+      let filedFirstWriteScope: { managerUserId: string; residentEmail: string; propertyId: string | null } | null = null;
+      if (
+        !storedRow &&
+        (leaseClaimsExecution(normalized as LeasePipelineRow) || normalized.externallySignedLease === true || normalized.status === "Fully Signed")
+      ) {
+        const candidatePdf = normalized.managerUploadedPdf as LeasePipelineRow["managerUploadedPdf"];
+        const body = {
+          html: typeof normalized.generatedHtml === "string" ? normalized.generatedHtml : null,
+          pdf: leaseDocumentBody(normalized as unknown as LeasePipelineRow).pdf,
+        };
+        const shapeMatchesOnboarding =
+          normalized.externallySignedLease === true &&
+          Boolean(normalized.fullySignedAt) &&
+          hasBothLeaseSignatures(normalized as LeasePipelineRow) &&
+          effectiveLeaseDocumentMode(normalized as LeasePipelineRow) === "original-pdf" &&
+          normalized.id === `lease_app_${normalized.axisId}` &&
+          (!candidatePdf?.originalDataUrl || candidatePdf.originalDataUrl === candidatePdf.dataUrl);
+        if (shapeMatchesOnboarding && (ctx.user.role === "manager" || ctx.user.role === "resident")) {
+          filedFirstWriteScope = await managerFiledLeaseScopeForNewRow(
+            ctx.db,
+            typeof normalized.axisId === "string" ? normalized.axisId : null,
+            { role: ctx.user.role, id: ctx.user.id, email: ctx.user.email },
+            body,
+          );
+        }
+        if (!filedFirstWriteScope) {
+          return NextResponse.json(
+            { error: "A new executed lease must match the signed PDF filed by its manager." },
+            { status: 409 },
+          );
+        }
+        const submittedResidentEmail = String(normalized.residentEmail ?? "").trim().toLowerCase();
+        const submittedPropertyId = String(normalized.propertyId ?? "").trim();
+        if (
+          (submittedResidentEmail && submittedResidentEmail !== filedFirstWriteScope.residentEmail) ||
+          (submittedPropertyId && submittedPropertyId !== (filedFirstWriteScope.propertyId ?? ""))
+        ) {
+          return NextResponse.json({ error: "Lease scope must match the filed application." }, { status: 409 });
+        }
+        if (ctx.user.role === "manager") {
+          // The application is linked by verified email. A client-supplied
+          // UUID must not create a second resident reader of the signed PDF,
+          // including through row_data on a later manager sync.
+          normalized = { ...normalized, residentUserId: null };
         }
       }
 
@@ -562,7 +1152,12 @@ export async function POST(req: Request) {
           ctx.db,
           storedRow?.axisId,
           existingRecord?.manager_user_id,
-          leaseDocumentBody(normalized as unknown as LeasePipelineRow),
+          {
+            // The signable mode hides auxiliary HTML from leaseDocumentBody.
+            // An external PDF filing is PDF-only, including its stored row.
+            html: typeof normalized.generatedHtml === "string" ? normalized.generatedHtml : null,
+            pdf: leaseDocumentBody(normalized as unknown as LeasePipelineRow).pdf,
+          },
         ));
 
       // The signature itself, same reasoning as the document-body rule above.
@@ -582,6 +1177,17 @@ export async function POST(req: Request) {
       // and it does not cover a write that adds signatures WITHOUT introducing the document
       // they attest to: that is the sign-before-send shape this guard exists to refuse.
       const filesCorroboratedExternalLease = introducesDocumentClaimingExecution && !untrustedDocument;
+      if (
+        storedRow &&
+        normalized.externallySignedLease === true &&
+        storedRow.externallySignedLease !== true &&
+        (!filesCorroboratedExternalLease || !leaseClaimsExecution(normalized as LeasePipelineRow))
+      ) {
+        return NextResponse.json(
+          { error: "An off-platform signed lease must use the verified signed-PDF filing." },
+          { status: 409 },
+        );
+      }
       if (storedRow && !filesCorroboratedExternalLease) {
         const signatureRefusal = leaseSignatureWriteRefusal(
           storedRow,
@@ -607,13 +1213,171 @@ export async function POST(req: Request) {
             { status: 403 },
           );
         }
+
+        // Part 3 hotfix (defect 3): a NEW signature's reported hash must match
+        // what the SERVER actually has stored — the document the signer was
+        // shown when they opened it — not merely be present. Without this, a
+        // client that hashed a stale or slim local copy (the resident's list
+        // row carries no bytes at all) could record a signature over a
+        // document that was never what the party actually saw.
+        if (
+          newSignatureHashMismatch(storedRow, normalized as unknown as LeasePipelineRow, sha256Hex)
+        ) {
+          return NextResponse.json(
+            { error: "This lease changed after you opened it. Reload it and sign again." },
+            { status: 409 },
+          );
+        }
       }
 
       // P4's signature check above is authoritative once signing begins. These two
       // companion checks close the earlier window: a document must not be replaced
       // after the lease left manager review, even before the first signature lands.
-      const nextRow = normalized as unknown as LeasePipelineRow;
+      let nextRow = normalized as unknown as LeasePipelineRow;
       const documentChanged = Boolean(storedRow && leaseDocumentBodyChanged(storedRow, nextRow));
+      if (documentChanged && nextRow.templateImportReview) {
+        nextRow = { ...nextRow, templatePlacementReview: null };
+        normalized = nextRow as unknown as Record<string, unknown>;
+      }
+      if (
+        documentChanged &&
+        effectiveLeaseDocumentMode(nextRow) === "imported-converted" &&
+        nextRow.uploadedLeaseParse
+      ) {
+        const priorReviewAt = storedRow?.uploadedLeaseParse?.review.confirmedAtIso ?? null;
+        const currentReview = nextRow.uploadedLeaseParse.review;
+        const explicitReview = Boolean(
+          currentReview.status === "confirmed" &&
+          currentReview.confirmedAtIso &&
+          currentReview.confirmedAtIso !== priorReviewAt &&
+          currentReview.confirmedConvertedHtmlSha256,
+        );
+        if (!explicitReview) {
+          nextRow = {
+            ...nextRow,
+            uploadedLeaseParse: {
+              ...nextRow.uploadedLeaseParse,
+              review: {
+                ...currentReview,
+                status: "needs_review",
+                confirmedAtIso: null,
+                confirmedDocumentSha256: null,
+                confirmedConvertedHtmlSha256: null,
+                resolvedSourceIssueCodes: [],
+              },
+            },
+          };
+          normalized = nextRow as unknown as Record<string, unknown>;
+        }
+      }
+
+      // A sent imported lease needs a server-checked review of the exact source
+      // and, for converted mode, the exact sanitized HTML offered for signature.
+      // The browser gate is a convenience; row_data arrives from the client.
+      const sendingToResident = ctx.user.role !== "resident" && nextRow.status === "Resident Signature Pending";
+      const hasUploadedSource = Boolean(nextRow.managerUploadedPdf?.dataUrl);
+      // Both uploaded lease PDFs and converted reusable templates use the
+      // "imported-converted" document mode. The stored template provenance is
+      // authoritative: a reusable placement has a server-owned import review
+      // and private template URL, but no uploaded lease bytes or parse. Do not
+      // route that case through the uploaded-source receipt gate below.
+      const storedReusableTemplatePlacement = Boolean(
+        storedRow?.templateImportReview &&
+        storedRow.templateDocumentUrl &&
+        !storedRow.managerUploadedPdf?.dataUrl &&
+        !storedRow.uploadedLeaseParse,
+      );
+      const needsUploadedReview = sendingToResident && !storedReusableTemplatePlacement && Boolean(
+        storedRow?.uploadedLeaseParse || storedRow?.uploadedLeaseReviewReceipt ||
+        (storedRow?.documentMode === "imported-converted" && !storedRow.templateImportReview) ||
+        (hasUploadedSource && (effectiveLeaseDocumentMode(nextRow) === "imported-converted" || nextRow.uploadedLeaseParse))
+      );
+      if (needsUploadedReview) {
+        const parse = nextRow.uploadedLeaseParse;
+        const receipt = storedRow?.uploadedLeaseReviewReceipt;
+        const sourceSha256 = pdfDataUrlSha256(
+          nextRow.managerUploadedPdf?.originalDataUrl ?? nextRow.managerUploadedPdf?.dataUrl,
+        );
+        const confirmedByAuthorizedManager = Boolean(
+          receipt &&
+          UUID_RE.test(receipt.confirmedByUserId) &&
+          existingRecord &&
+          await managerCanAccessLeaseRecord(ctx.db, receipt.confirmedByUserId, existingRecord, "edit"),
+        );
+        const expectedConvertedSha256 = effectiveLeaseDocumentMode(nextRow) === "imported-converted" && nextRow.generatedHtml
+          ? sha256Hex(sanitizeLeaseDocumentHtml(nextRow.generatedHtml) ?? "")
+          : null;
+        const recordFingerprint = leaseRecordFingerprint({
+          residentName: nextRow.residentName,
+          leaseStart: nextRow.application?.leaseStart ?? null,
+          leaseEnd: nextRow.application?.leaseEnd ?? null,
+          rentLabel: nextRow.signedRentLabel ?? null,
+        });
+        if (
+          !parse ||
+          uploadedLeaseNeedsManagerConfirmation(parse) ||
+          !receipt ||
+          !confirmedByAuthorizedManager ||
+          !sourceSha256 ||
+          receipt.sourceSha256 !== sourceSha256 ||
+          receipt.documentSha256 !== sourceSha256 ||
+          receipt.convertedHtmlSha256 !== expectedConvertedSha256 ||
+          parse.review.confirmedDocumentSha256 !== sourceSha256 ||
+          parse.review.confirmedConvertedHtmlSha256 !== expectedConvertedSha256 ||
+          parse.review.confirmedByUserId !== receipt.confirmedByUserId ||
+          parse.review.confirmedRecordFingerprint !== recordFingerprint ||
+          !Array.isArray(receipt.resolvedSourceIssueCodes) ||
+          receipt.resolvedSourceIssueCodes.some((code) => !parse.review.resolvedSourceIssueCodes?.includes(code))
+        ) {
+          return NextResponse.json({ error: "Review the imported lease before sending it for signature." }, { status: 409 });
+        }
+        if (!parse.sourceSha256 || sourceSha256 !== parse.sourceSha256) {
+          return NextResponse.json({ error: "The imported reading does not match the original PDF." }, { status: 409 });
+        }
+        if (effectiveLeaseDocumentMode(nextRow) === "imported-converted") {
+          if (!nextRow.generatedHtml || uploadedLeaseConversionBlocker(parse, parse.review.resolvedSourceIssueCodes ?? [])) {
+            return NextResponse.json({ error: "The converted lease has unresolved source pages." }, { status: 409 });
+          }
+        }
+      }
+      if (
+        ctx.user.role !== "resident" &&
+        nextRow.status === "Resident Signature Pending" &&
+        Boolean(storedRow?.templateImportReview || nextRow.templateImportReview || nextRow.documentMode === "imported-converted" && nextRow.templateDocumentUrl)
+      ) {
+        if (!storedRow?.templateImportReview || nextRow.documentMode !== "imported-converted" || !nextRow.templateImportReview) {
+          return NextResponse.json({ error: "The imported lease template review is missing or the selected signable version changed." }, { status: 409 });
+        }
+        if (
+          nextRow.templateImportReview.sourceSha256 !== storedRow.templateImportReview.sourceSha256 ||
+          nextRow.templateImportReview.convertedHtmlSha256 !== storedRow.templateImportReview.convertedHtmlSha256 ||
+          nextRow.templateImportReview.templateVersion !== storedRow.templateImportReview.templateVersion ||
+          nextRow.templateDocumentUrl !== storedRow.templateDocumentUrl
+        ) return NextResponse.json({ error: "The imported lease template changed. Review the current version before sending." }, { status: 409 });
+        const receipt = storedRow?.templatePlacementReview;
+        const source = await verifyLeaseTemplateSource(ctx.db, storedRow.templateDocumentUrl, existingRecord?.manager_user_id ?? "");
+        const reviewerAuthorized = Boolean(
+          receipt &&
+          UUID_RE.test(receipt.confirmedByUserId) &&
+          existingRecord &&
+          await managerCanAccessLeaseRecord(ctx.db, receipt.confirmedByUserId, existingRecord, "edit"),
+        );
+        if (
+          !receipt ||
+          !reviewerAuthorized ||
+          !source ||
+          source.path !== receipt.sourcePath ||
+          source.sha256 !== receipt.sourceSha256 ||
+          source.sha256 !== nextRow.templateImportReview.sourceSha256 ||
+          receipt.templateVersion !== nextRow.templateImportReview.templateVersion ||
+          !receipt.riderConflictAcknowledged ||
+          receipt.finalHtmlSha256 !== sha256Hex(sanitizeLeaseDocumentHtml(nextRow.generatedHtml ?? "") ?? "")
+        ) {
+          return NextResponse.json({ error: "Review the original template and final placement lease before sending it for signature." }, { status: 409 });
+        }
+        nextRow = { ...nextRow, templatePlacementReview: receipt };
+        normalized = nextRow as unknown as Record<string, unknown>;
+      }
 
       // PRP-385: a Draft stub that clears signatures + body must NEVER overwrite
       // an executed lease. Renew/void set pendingRenewal, signedLeaseSnapshots, or Voided.
@@ -778,7 +1542,14 @@ export async function POST(req: Request) {
           scope = candidate;
         }
       } else if (ctx.user.role === "resident") {
-        scope = ownResidentScope(ctx.user);
+        scope = filedFirstWriteScope
+          ? {
+              manager_user_id: filedFirstWriteScope.managerUserId,
+              resident_user_id: asUuidOrNull(ctx.user.id),
+              resident_email: filedFirstWriteScope.residentEmail,
+              property_id: filedFirstWriteScope.propertyId,
+            }
+          : ownResidentScope(ctx.user);
       } else {
         // Naming ANOTHER person as the resident is a manager capability. The
         // branch is otherwise merely "not admin, not resident", which a vendor
@@ -792,10 +1563,36 @@ export async function POST(req: Request) {
             { status: 403 },
           );
         }
-        const named = clientNamedScope(normalized);
+        const named = filedFirstWriteScope
+          ? {
+              ...clientNamedScope(normalized),
+              resident_user_id: null,
+              resident_email: filedFirstWriteScope.residentEmail,
+              property_id: filedFirstWriteScope.propertyId,
+            }
+          : clientNamedScope(normalized);
         const refusal = await refuseUnownedProperty(named.property_id, null);
         if (refusal) return refusal;
         scope = { ...named, manager_user_id: ctx.user.id };
+      }
+
+      if (
+        existingRecord && storedRow &&
+        (
+          leaseClaimsExecution(storedRow) || storedRow.status === "Fully Signed" || storedRow.externallySignedLease === true ||
+          leaseClaimsExecution(normalized as LeasePipelineRow) || normalized.status === "Fully Signed" || normalized.externallySignedLease === true
+        )
+      ) {
+        const signedScope = storedScopeColumns(existingRecord);
+        if (
+          scope.manager_user_id !== signedScope.manager_user_id ||
+          scope.resident_user_id !== signedScope.resident_user_id ||
+          scope.resident_email !== signedScope.resident_email ||
+          scope.property_id !== signedScope.property_id
+        ) {
+          return NextResponse.json({ error: "A signed lease cannot be moved to another resident or property." }, { status: 409 });
+        }
+        scope = signedScope;
       }
 
       // Keyed by id, last wins: `previouslySigned` is read from the pre-batch

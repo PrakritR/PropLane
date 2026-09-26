@@ -35,20 +35,38 @@ import { SettingsGroupSourceTag, scopeTagLabel } from "@/components/portal/setti
 import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
 import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
 import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
-import { ServiceRequestAutomationRows, ServiceVendorAutomationRows } from "@/components/portal/service-automation-settings-section";
+import {
+  ServiceRequestAutomationRows,
+  ServiceVendorAutomationRows,
+  useServiceAutomationSettings,
+} from "@/components/portal/service-automation-settings-section";
+import { DEFAULT_SERVICE_AUTOMATION_SETTINGS } from "@/lib/service-automation-settings";
+import { RESIDENT_MAINTENANCE_CATEGORY_LABELS } from "@/lib/work-order-taxonomy";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
+  DEFAULT_LEASING_PIPELINE,
+  normalizeLeasingPipelinePreferences,
+  type LeasingPipelinePreferences,
+  type PipelineOrder,
+} from "@/lib/leasing-pipeline-preferences";
+import {
+  DEFAULT_MANAGER_APPLICATION_SETTINGS,
+  type ApplicationFeeChargePolicy,
+  type ManagerApplicationSettings,
+} from "@/lib/manager-application-settings";
+import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
   cacheShowUpcomingChargesSetting,
   normalizeManagerAutomationSettings,
-  normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   MANAGER_COMMUNICATION_SEND_VIA_SECTIONS,
   deliverViaFromManagerSettings,
@@ -67,14 +85,7 @@ import {
 import { DEFAULT_MANAGER_TOUR_SETTINGS, type ManagerTourSettings } from "@/lib/manager-tour-settings";
 import { tourNoticeDaysLabel } from "@/lib/tour-notice-labels";
 import { normalizeTourNoticeDays } from "@/lib/tour-slot-math";
-import { fillTourReminderTemplate } from "@/lib/tour-reminder";
-
-import {
-  ReminderMessagePreviewCard,
-  ReminderMessageUpdateModal,
-  ReminderSendViaField,
-  TourReminderTimingSelect,
-} from "@/components/portal/reminder-settings-shared";
+import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
@@ -96,7 +107,6 @@ import {
   type PaymentListingLateFeeHandle,
 } from "@/components/portal/payment-late-fee-settings";
 import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
-import { ReminderTypePicker } from "@/components/portal/reminder-type-picker";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
@@ -107,17 +117,6 @@ import {
   useFlushSettingsAutosaveOnUnmount,
   useReportSettingsSaveStatus,
 } from "@/components/portal/settings-save-status-context";
-
-const TOUR_PREVIEW_CONTEXT = {
-  guestName: "Alex Prospect",
-  propertyTitle: "5257 Brooklyn Avenue Northeast",
-  tourTime: "Aug 15, 2026 at 10:00 AM",
-  managerName: "Your team",
-  instructions: "Meet at the front door. Text when you arrive.",
-};
-
-const TOUR_PLACEHOLDERS =
-  "Placeholders: {guestName}, {propertyTitle}, {tourTime}, {managerName}, {instructions}";
 
 function SettingsFormJumpRow({
   detailTab,
@@ -143,18 +142,17 @@ function SettingsFormJumpRow({
   );
 }
 
+/**
+ * WS4 (PLAN-0925 Part 5, C191): the Tour settings modal keeps only booking
+ * rules (notice required, auto-confirm, tour times). Guest/manager tour
+ * reminder timing, channels and wording are no longer edited here — they
+ * ship on the shipped defaults, same as every other automated message — so
+ * the dirty-check snapshot only ever needs to track the one field this panel
+ * still writes.
+ */
 function tourAutomationSnapshot(settings: ManagerAutomationSettings) {
-  const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
-    settings.tourReminderMinutesBeforeList,
-    settings.tourReminderMinutesBefore,
-  );
   return {
     proposeTourConfirmations: settings.proposeTourConfirmations,
-    tourReminderMinutesBeforeList: minutesBeforeList,
-    tourReminderDeliverViaEmail: settings.tourReminderDeliverViaEmail,
-    tourReminderDeliverViaSms: settings.tourReminderDeliverViaSms,
-    tourReminderDeliverViaInbox: settings.tourReminderDeliverViaInbox,
-    tourReminder: settings.templates.tourReminder,
   };
 }
 
@@ -278,6 +276,10 @@ export function ApplicationsSettingsPanel({
   reminderFormRef,
   showFormLink = false,
   source,
+  applicationSettings = DEFAULT_MANAGER_APPLICATION_SETTINGS,
+  onApplicationSettingsChange,
+  leasingPipeline = DEFAULT_LEASING_PIPELINE,
+  onLeasingPipelineChange,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -299,6 +301,10 @@ export function ApplicationsSettingsPanel({
   showFormLink?: boolean;
   /** The `source` the host's `manager-application-settings` GET resolved to, for the Handling tag. */
   source?: SettingsResolutionSource | null;
+  applicationSettings?: ManagerApplicationSettings;
+  onApplicationSettingsChange?: (next: ManagerApplicationSettings) => void;
+  leasingPipeline?: LeasingPipelinePreferences;
+  onLeasingPipelineChange?: (next: LeasingPipelinePreferences) => void;
 }) {
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
   const hasSelection = selectedIds.length > 0;
@@ -308,9 +314,93 @@ export function ApplicationsSettingsPanel({
   const hasSingleSelection = selectedIds.length === 1;
   const disabled = loading || saving;
   const scope = useSettingsPropertyScope();
-
+  const feeDollars =
+    applicationSettings.applicationFeeCents == null
+      ? ""
+      : (applicationSettings.applicationFeeCents / 100).toFixed(
+          applicationSettings.applicationFeeCents % 100 === 0 ? 0 : 2,
+        );
   return (
     <div className="space-y-6">
+      <PortalSettingsSection
+        title="Application system"
+        action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Pipeline order">
+            <FieldSingleSelect
+              label="Pipeline order"
+              hideLabel
+              value={leasingPipeline.pipelineOrder}
+              disabled={disabled || !onLeasingPipelineChange}
+              options={[
+                { value: "application_then_lease", label: "Application first → then lease" },
+                { value: "lease_then_application", label: "Lease first → then application" },
+              ]}
+              onChange={(next) =>
+                onLeasingPipelineChange?.({
+                  ...leasingPipeline,
+                  pipelineOrder: next as PipelineOrder,
+                })
+              }
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Application required">
+            <PortalSettingsToggle
+              checked={leasingPipeline.requireApplication}
+              onChange={(next) => onLeasingPipelineChange?.({ ...leasingPipeline, requireApplication: next })}
+              label="Application required"
+              disabled={disabled || !onLeasingPipelineChange}
+              dataAttr="leasing-pipeline-require-application"
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Application cost">
+            <input
+              id="manager-application-fee"
+              type="text"
+              inputMode="decimal"
+              aria-label="Application cost"
+              className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
+              value={feeDollars}
+              disabled={disabled || !onApplicationSettingsChange}
+              placeholder="50"
+              data-attr="manager-application-settings-fee"
+              onChange={(e) => {
+                const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
+                if (raw === "") {
+                  onApplicationSettingsChange?.({ ...applicationSettings, applicationFeeCents: null });
+                  return;
+                }
+                const dollars = Number(raw);
+                if (!Number.isFinite(dollars)) return;
+                onApplicationSettingsChange?.({
+                  ...applicationSettings,
+                  applicationFeeCents: Math.round(dollars * 100),
+                });
+              }}
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Charge policy">
+            <FieldSingleSelect
+              label="Charge policy"
+              hideLabel
+              value={applicationSettings.applicationFeeChargePolicy}
+              disabled={disabled || !onApplicationSettingsChange}
+              options={[
+                { value: "first_only", label: "First submission only" },
+                { value: "every_time", label: "Every new application" },
+              ]}
+              onChange={(next) =>
+                onApplicationSettingsChange?.({
+                  ...applicationSettings,
+                  applicationFeeChargePolicy: next as ApplicationFeeChargePolicy,
+                })
+              }
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
       <PortalSettingsSection
         title="Handling"
         action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
@@ -368,6 +458,22 @@ export function ApplicationsSettingsPanel({
             submissions are approved without a manual review step.
           </p>
         ) : null}
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Questions" action={<SettingsGroupSourceTag namespace="manager-application-settings" />}>
+        <PortalSettingsGroup>
+          {showFormLink ? (
+            <SettingsFormJumpRow
+              detailTab="application"
+              propertyId={selectedIds[0]}
+              propertyOptions={propertyOptions}
+            />
+          ) : (
+            <PortalSettingsRow label="Form questions">
+              <span className="text-sm text-muted">Open a house → Form to edit questions</span>
+            </PortalSettingsRow>
+          )}
+        </PortalSettingsGroup>
       </PortalSettingsSection>
 
       <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
@@ -662,6 +768,8 @@ export function LeaseSettingsPanel({
   reminderFormRef,
   showFormLink = false,
   source,
+  leasingPipeline = DEFAULT_LEASING_PIPELINE,
+  onLeasingPipelineChange,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -675,6 +783,8 @@ export function LeaseSettingsPanel({
   showFormLink?: boolean;
   /** The `source` the host's `manager-application-settings` GET resolved to, for the Documents tag. */
   source?: SettingsResolutionSource | null;
+  leasingPipeline?: LeasingPipelinePreferences;
+  onLeasingPipelineChange?: (next: LeasingPipelinePreferences) => void;
 }) {
   const disabled = loading || saving;
   const scope = useSettingsPropertyScope();
@@ -690,9 +800,48 @@ export function LeaseSettingsPanel({
       meta: "Send the generated lease for signature when it is ready.",
     },
   ];
-
+  const signingFeeDollars =
+    leasingPipeline.leaseSigningFeeCents == null
+      ? ""
+      : (leasingPipeline.leaseSigningFeeCents / 100).toFixed(
+          leasingPipeline.leaseSigningFeeCents % 100 === 0 ? 0 : 2,
+        );
   return (
     <div className="space-y-6">
+      <PortalSettingsSection
+        title="Lease system"
+        action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Lease signing cost">
+            <input
+              id="manager-lease-signing-fee"
+              type="text"
+              inputMode="decimal"
+              aria-label="Lease signing cost"
+              className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
+              value={signingFeeDollars}
+              disabled={disabled || !onLeasingPipelineChange}
+              placeholder="0"
+              data-attr="manager-lease-signing-fee"
+              onChange={(e) => {
+                const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
+                if (raw === "") {
+                  onLeasingPipelineChange?.({ ...leasingPipeline, leaseSigningFeeCents: null });
+                  return;
+                }
+                const dollars = Number(raw);
+                if (!Number.isFinite(dollars)) return;
+                onLeasingPipelineChange?.({
+                  ...leasingPipeline,
+                  leaseSigningFeeCents: Math.round(dollars * 100),
+                });
+              }}
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
       <PortalSettingsSection
         title="Documents"
         action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
@@ -769,6 +918,42 @@ export function LeaseSettingsPanel({
   );
 }
 
+/**
+ * C133: which repair categories residents may request, workspace-wide. Backed by
+ * the same `serviceAutomation` settings row as every other Services knob
+ * (`disabledRepairCategories`), so it autosaves and inherits property → workspace →
+ * account exactly like the rows around it. An empty/absent value means every
+ * category stays enabled — the additive default.
+ */
+function ServiceCategoriesAutomationRow() {
+  const { settings, patch } = useServiceAutomationSettings();
+  const disabled = settings === null;
+  const value = settings ?? DEFAULT_SERVICE_AUTOMATION_SETTINGS;
+  const disabledSet = new Set(value.disabledRepairCategories);
+  const enabledCategories = RESIDENT_MAINTENANCE_CATEGORY_LABELS.filter((category) => !disabledSet.has(category));
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label="Repair categories residents can request">
+        <CheckboxMultiSelect
+          label="Repair categories"
+          hideLabel
+          variant="cell"
+          className="w-56"
+          options={RESIDENT_MAINTENANCE_CATEGORY_LABELS.map((category) => ({ value: category, label: category }))}
+          selected={enabledCategories}
+          onChange={(nextEnabled) => {
+            const nextEnabledSet = new Set(nextEnabled);
+            const nextDisabled = RESIDENT_MAINTENANCE_CATEGORY_LABELS.filter((category) => !nextEnabledSet.has(category));
+            void patch({ disabledRepairCategories: nextDisabled });
+          }}
+          disabled={disabled}
+          dataAttr="service-automation-repair-categories"
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
+  );
+}
+
 export function ServicesSettingsPanel({
   teamMembers,
   onFooterReady,
@@ -784,6 +969,9 @@ export function ServicesSettingsPanel({
 
   return (
     <PortalSettingsSections>
+      <PortalSettingsSection title="Service types" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
+        <ServiceCategoriesAutomationRow />
+      </PortalSettingsSection>
       <PortalSettingsSection title="Requests" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
         <ServiceRequestAutomationRows />
         <AutomationRuleRows
@@ -831,6 +1019,7 @@ export function ServicesSettingsPanel({
 function AutoMessageAssigneeRow() {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const [value, setValue] = useState<boolean | null>(null);
 
@@ -841,11 +1030,10 @@ function AutoMessageAssigneeRow() {
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS.autoMessageAssignee);
         return;
       }
+      if (!userId) return;
       try {
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
-        if (!res.ok) throw new Error("Could not load service settings.");
-        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings).autoMessageAssignee);
+        const loaded = await loadManagerAutomationSettingsCached(userId);
+        if (!cancelled) setValue(normalizeManagerAutomationSettings(loaded.settings).autoMessageAssignee);
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load service settings.");
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS.autoMessageAssignee);
@@ -854,7 +1042,7 @@ function AutoMessageAssigneeRow() {
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, userId]);
 
   const flip = async (next: boolean) => {
     const previous = value;
@@ -872,6 +1060,7 @@ function AutoMessageAssigneeRow() {
       const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not save service settings.");
       setValue(normalizeManagerAutomationSettings(body.settings).autoMessageAssignee);
+      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save service settings.";
@@ -1080,23 +1269,45 @@ function TourNoticeStepper({
   );
 }
 
+/** "9:00 AM" for a 30-minute slot index (0 = midnight), the same grid `tour-slot-math.ts` counts in. */
+function formatTourSlotClock(slot: number): string {
+  const totalMinutes = Math.max(0, slot) * 30;
+  const hours24 = Math.floor(totalMinutes / 60) % 24;
+  const minutes = totalMinutes % 60;
+  const period = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
+/**
+ * WS4 (PLAN-0925 Part 5, C191, recommended option): the Tour settings modal
+ * after the notifications cleanup keeps exactly three booking rules — notice
+ * required, auto-confirm, and the default tour-hours window — and nothing
+ * about HOW a reminder is timed, worded or delivered, which now ships on the
+ * shipped defaults like every other automated message (see
+ * `WhatProplaneSends` for the read-only list).
+ */
 export function TourSettingsPanel({
   onSaved,
   onFooterReady,
   formRef,
-  teamMembers = [],
-  managerReminderFormRef,
+  propertyOptions = [],
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   formRef?: React.Ref<TourSettingsHandle>;
-  teamMembers?: WorkAssignmentTeamMember[];
-  managerReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  propertyOptions?: { id: string; label: string }[];
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  const { userId: managerUserId } = useManagerUserId();
+  const { propertyId: scopePropertyId, propertyIds: scopePropertyIds, workspaceId: scopeWorkspaceId, reportSource } = useSettingsPropertyScope();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [source, setSource] = useState<SettingsResolutionSource | null>(null);
   const [saving, setSaving] = useState(false);
   const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
   const [automation, setAutomation] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
@@ -1104,13 +1315,19 @@ export function TourSettingsPanel({
   const [savedAutomationSnapshot, setSavedAutomationSnapshot] = useState(() =>
     tourAutomationSnapshot(DEFAULT_MANAGER_AUTOMATION_SETTINGS),
   );
-  const [messageModalOpen, setMessageModalOpen] = useState(false);
-  const [tourReminderType, setTourReminderType] = useState<"guest" | "manager">("guest");
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    // Same 15s-timeout-then-retry shape as `ManagerPortalAutomationSettingsPanel`
+    // (the "Reminders panel next to it" the plan compares this against) —
+    // before this, neither request here had a timeout at all, so a stalled
+    // network left the panel on "Loading…" forever with no way out.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
     (async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         if (demo) {
           if (!cancelled) {
@@ -1121,40 +1338,60 @@ export function TourSettingsPanel({
           }
           return;
         }
-        const [tourRes, autoRes] = await Promise.all([
-          fetch("/api/portal/manager-tour-settings", { credentials: "include", cache: "no-store" }),
-          fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
+        if (!userId) return;
+        // The property/workspace picker above this panel (`SettingsScopeBar`)
+        // used to be decorative here: neither fetch read it, so switching
+        // property never changed what loaded or what a save touched. Both
+        // calls now carry the same scope params every other settings route
+        // resolves against (house override → workspace row → account row).
+        const params = new URLSearchParams();
+        if (scopePropertyId) params.set("propertyId", scopePropertyId);
+        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
+        const query = params.toString() ? `?${params.toString()}` : "";
+        // The automation-settings half goes through the shared cache (N032) —
+        // several Settings-modal panels want this same read on one mount, and
+        // it is keyed on the same workspace/property scope this query carries.
+        // It has no abort signal of its own; a stall there does not stop the
+        // tour-settings fetch's own 15s timeout below from unsticking this
+        // panel, and the cached read still lands (and populates the cache)
+        // once it resolves.
+        const [tourRes, loadedAuto] = await Promise.all([
+          fetch(`/api/portal/manager-tour-settings${query}`, { credentials: "include", cache: "no-store", signal: controller.signal }),
+          loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, propertyId: scopePropertyId }),
         ]);
-        const tourBody = (await tourRes.json().catch(() => ({}))) as { settings?: ManagerTourSettings; error?: string };
-        const autoBody = (await autoRes.json().catch(() => ({}))) as {
-          settings?: ManagerAutomationSettings;
+        const tourBody = (await tourRes.json().catch(() => ({}))) as {
+          settings?: ManagerTourSettings;
           error?: string;
+          source?: SettingsResolutionSource;
         };
         if (!tourRes.ok) throw new Error(tourBody.error ?? "Could not load tour settings.");
-        if (!autoRes.ok) throw new Error(autoBody.error ?? "Could not load automation settings.");
         if (!cancelled) {
           const nextTour = tourBody.settings ?? DEFAULT_MANAGER_TOUR_SETTINGS;
-          const nextAutomation = autoBody.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS;
+          const nextAutomation = loadedAuto.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS;
           setTourSettings(nextTour);
           setAutomation(nextAutomation);
           setSavedTourSettings(nextTour);
           setSavedAutomationSnapshot(tourAutomationSnapshot(nextAutomation));
+          setSource(tourBody.source ?? null);
+          reportSource("manager-tour-settings", tourBody.source);
+          reportSource("automation-settings", loadedAuto.source);
         }
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not load calendar settings.");
+        if (!cancelled) {
+          const timedOut = e instanceof DOMException && e.name === "AbortError";
+          setLoadError(timedOut ? "This is taking longer than expected." : e instanceof Error ? e.message : "Could not load calendar settings.");
+        }
       } finally {
+        clearTimeout(timer);
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
     };
-  }, [demo, showToast]);
-
-  const templatePreview = useMemo(
-    () => fillTourReminderTemplate(automation.templates.tourReminder, TOUR_PREVIEW_CONTEXT),
-    [automation.templates.tourReminder],
-  );
+  }, [demo, showToast, userId, reloadKey, reportSource, scopePropertyId, scopeWorkspaceId]);
 
   const isDirty = useMemo(() => {
     if (loading) return false;
@@ -1165,26 +1402,6 @@ export function TourSettingsPanel({
   }, [automation, loading, savedAutomationSnapshot, savedTourSettings, tourSettings]);
 
   const save = useCallback(async (options?: { silent?: boolean }) => {
-    const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
-      automation.tourReminderMinutesBeforeList,
-      automation.tourReminderMinutesBefore,
-    );
-    if (minutesBeforeList.length === 0) {
-      const message = "Choose at least one tour reminder timing.";
-      showToast(message);
-      reportSaveStatus({ type: "failure", reason: message });
-      return false;
-    }
-    if (
-      automation.tourReminderDeliverViaInbox === false &&
-      automation.tourReminderDeliverViaEmail === false &&
-      automation.tourReminderDeliverViaSms !== true
-    ) {
-      const message = "Choose at least one channel under Reminders → Send via.";
-      showToast(message);
-      reportSaveStatus({ type: "failure", reason: message });
-      return false;
-    }
     setSaving(true);
     reportSaveStatus({ type: "start" });
     try {
@@ -1194,6 +1411,10 @@ export function TourSettingsPanel({
         reportSaveStatus({ type: "success" });
         return true;
       }
+      const scopeBody = {
+        ...(scopePropertyId ? { propertyId: scopePropertyId } : {}),
+        ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
+      };
       // `keepalive` on both: a hard page unload (a real reload/close, not a same-app route
       // change) can abort an ordinary in-flight fetch before it lands — exactly the write the
       // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send.
@@ -1202,23 +1423,19 @@ export function TourSettingsPanel({
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(tourSettings),
+          body: JSON.stringify({ ...tourSettings, ...scopeBody }),
           keepalive: true,
         }),
         fetch("/api/portal/automation-settings", {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            proposeTourConfirmations: automation.proposeTourConfirmations,
-            tourReminderEnabled: true,
-            tourReminderMinutesBefore: Math.min(...minutesBeforeList),
-            tourReminderMinutesBeforeList: minutesBeforeList,
-            tourReminderDeliverViaEmail: automation.tourReminderDeliverViaEmail,
-            tourReminderDeliverViaSms: automation.tourReminderDeliverViaSms,
-            tourReminderDeliverViaInbox: automation.tourReminderDeliverViaInbox,
-            templates: { tourReminder: automation.templates.tourReminder },
-          }),
+          // Only the one booking rule this panel still edits. Reminder
+          // timing/channel/template fields are intentionally left out of the
+          // patch — the route merges onto the CURRENT stored blob, so
+          // whatever is already there (or the shipped default) keeps
+          // tracking rather than being silently overwritten every autosave.
+          body: JSON.stringify({ proposeTourConfirmations: automation.proposeTourConfirmations, ...scopeBody }),
           keepalive: true,
         }),
       ]);
@@ -1238,7 +1455,7 @@ export function TourSettingsPanel({
     } finally {
       setSaving(false);
     }
-  }, [automation, demo, onSaved, reportSaveStatus, showToast, tourSettings]);
+  }, [automation, demo, onSaved, reportSaveStatus, scopePropertyId, scopeWorkspaceId, showToast, tourSettings]);
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
@@ -1277,15 +1494,40 @@ export function TourSettingsPanel({
   // one level up.
   useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
+  if (loadError) {
+    return (
+      <div className="py-6">
+        <p className="text-sm text-muted">{loadError}</p>
+        <Button
+          variant="outline"
+          className="mt-3"
+          data-attr="tour-settings-retry"
+          onClick={() => {
+            setLoadError(null);
+            setLoading(true);
+            setReloadKey((k) => k + 1);
+          }}
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
   const disabled = saving;
   const noticeDays = normalizeTourNoticeDays(tourSettings.tourNoticeDays);
+  const tourTimesLabel = `${formatTourSlotClock(tourSettings.defaultTourStartSlot ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourStartSlot!)}–${formatTourSlotClock(tourSettings.defaultTourEndSlotExclusive ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourEndSlotExclusive!)}`;
+  const availabilityPropertyLabel = propertyOptions.find((option) => option.id === scopePropertyId)?.label;
 
   return (
     <>
       <div className="space-y-6">
-        <PortalSettingsSection title="Booking">
+        <PortalSettingsSection
+          title="Booking"
+          action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
+        >
           <PortalSettingsGroup>
             <PortalSettingsRow
               label="Notice required"
@@ -1308,114 +1550,31 @@ export function TourSettingsPanel({
                 dataAttr="manager-tour-auto-confirm-proposals"
               />
             </PortalSettingsRow>
+            <PortalSettingsRow label="Tour times">
+              <button
+                type="button"
+                className="text-sm font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                data-attr="manager-tour-times-edit"
+                disabled={disabled}
+                onClick={() => setAvailabilityOpen(true)}
+              >
+                {tourTimesLabel} ›
+              </button>
+            </PortalSettingsRow>
           </PortalSettingsGroup>
-        </PortalSettingsSection>
-
-        <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
-          <div className="space-y-4">
-            <ReminderTypePicker
-              value={tourReminderType}
-              options={[
-                {
-                  value: "guest",
-                  label: "Guest tour reminders",
-                },
-                {
-                  value: "manager",
-                  label: "Your tour reminders",
-                },
-              ]}
-              onChange={setTourReminderType}
-              dataAttr="tour-reminder-type"
-            />
-            {tourReminderType === "guest" ? (
-              <div className="space-y-3">
-                <TourReminderTimingSelect
-                  minutesBeforeList={normalizeTourReminderMinutesBeforeList(
-                    automation.tourReminderMinutesBeforeList,
-                    automation.tourReminderMinutesBefore,
-                  )}
-                  onChangeMinutesList={(minutesBeforeList) =>
-                    setAutomation((prev) => ({
-                      ...prev,
-                      tourReminderMinutesBeforeList: minutesBeforeList,
-                      tourReminderMinutesBefore: minutesBeforeList.length
-                        ? Math.min(...minutesBeforeList)
-                        : prev.tourReminderMinutesBefore,
-                    }))
-                  }
-                />
-                <ReminderSendViaField
-                  showProplaneChannel
-                  viaInbox={automation.tourReminderDeliverViaInbox !== false}
-                  viaEmail={automation.tourReminderDeliverViaEmail !== false}
-                  viaSms={automation.tourReminderDeliverViaSms === true}
-                  smsLabel="SMS (when guest opted in)"
-                  onChange={({ viaEmail, viaSms, viaInbox }) =>
-                    setAutomation((prev) => ({
-                      ...prev,
-                      tourReminderDeliverViaInbox: viaInbox !== false,
-                      tourReminderDeliverViaEmail: viaEmail,
-                      tourReminderDeliverViaSms: viaSms,
-                    }))
-                  }
-                  dataAttr="tour-reminder-send-via"
-                />
-                <ReminderMessagePreviewCard
-                  subject={templatePreview.subject}
-                  body={templatePreview.body}
-                  onUpdate={() => setMessageModalOpen(true)}
-                  dataAttr="tour-reminder-update-message"
-                />
-              </div>
-            ) : (
-              <ManagerReminderRuleSettingsPanel
-                kind="tour"
-                audienceMode="manager"
-                teamMembers={teamMembers}
-                formRef={managerReminderFormRef}
-              />
-            )}
-          </div>
-        </PortalSettingsSection>
-
-        <PortalSettingsSection title="Requests and follow-ups">
-          <AutomationRuleRows
-            rows={[
-              { kind: "tour_request_unanswered" },
-              { kind: "tour_request_reoffer" },
-              { kind: "tour_no_show_manager" },
-            ]}
-          />
-        </PortalSettingsSection>
-
-        <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
-          <AutomatedMessagesList area="tours" />
         </PortalSettingsSection>
       </div>
 
       <TourInterestSettings />
 
-      <ReminderMessageUpdateModal
-        open={messageModalOpen}
-        onClose={() => setMessageModalOpen(false)}
-        subject={automation.templates.tourReminder.subject}
-        body={automation.templates.tourReminder.body}
-        recipient={TOUR_PREVIEW_CONTEXT.guestName}
-        viaInbox={automation.tourReminderDeliverViaInbox !== false}
-        viaEmail={automation.tourReminderDeliverViaEmail !== false}
-        viaSms={automation.tourReminderDeliverViaSms === true}
-        smsLabel="SMS (when guest opted in)"
-        placeholders={TOUR_PLACEHOLDERS}
-        onSave={({ subject, body, viaInbox, viaEmail, viaSms }) => {
-          setAutomation((prev) => ({
-            ...prev,
-            templates: { ...prev.templates, tourReminder: { subject, body } },
-            tourReminderDeliverViaInbox: viaInbox,
-            tourReminderDeliverViaEmail: viaEmail,
-            tourReminderDeliverViaSms: viaSms,
-          }));
-        }}
+      <ManagerTourAvailabilityModal
+        open={availabilityOpen}
+        onClose={() => setAvailabilityOpen(false)}
+        managerUserId={managerUserId}
+        propertyId={scopePropertyId || null}
+        propertyLabel={availabilityPropertyLabel}
+        propertyOptions={propertyOptions}
+        showToast={showToast}
       />
     </>
   );
@@ -1609,6 +1768,7 @@ export function CommunicationSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const scope = useSettingsPropertyScope();
   const [loading, setLoading] = useState(true);
@@ -1644,12 +1804,9 @@ export function CommunicationSettingsPanel({
           }
           return;
         }
-        const params = new URLSearchParams();
-        if (scopePropertyId) params.set("propertyId", scopePropertyId);
-        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
-        const query = params.toString() ? `?${params.toString()}` : "";
-        const [settingsRes, numberRes, emailRes] = await Promise.all([
-          fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
+        if (!userId) return;
+        const [loadedAuto, numberRes, emailRes] = await Promise.all([
+          loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, propertyId: scopePropertyId }),
           fetch(
             scopeWorkspaceId
               ? `/api/manager/messaging-number?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
@@ -1663,14 +1820,12 @@ export function CommunicationSettingsPanel({
             { credentials: "include", cache: "no-store" },
           ).catch(() => null),
         ]);
-        if (!settingsRes.ok) throw new Error("Could not load communication settings.");
-        const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings; source?: SettingsResolutionSource };
-        const nextSettings = normalizeManagerAutomationSettings(body.settings);
+        const nextSettings = normalizeManagerAutomationSettings(loadedAuto.settings);
         if (!cancelled) {
           setDraft(nextSettings);
           setSavedSnapshot(JSON.stringify(nextSettings));
-          setSource(body.source ?? null);
-          scope.reportSource("automation-settings", body.source);
+          setSource(loadedAuto.source);
+          scope.reportSource("automation-settings", loadedAuto.source);
         }
         if (!cancelled) {
           const status =
@@ -1704,7 +1859,7 @@ export function CommunicationSettingsPanel({
     // during this same effect, and its own reference is derived from `sources` state that this
     // very call updates, so listing `scope` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo, showToast, scopePropertyId, scopeWorkspaceId]);
+  }, [demo, showToast, scopePropertyId, scopeWorkspaceId, userId]);
 
   const isDirty = useMemo(() => JSON.stringify(draft) !== savedSnapshot, [draft, savedSnapshot]);
 
@@ -2018,6 +2173,7 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const [value, setValue] = useState<ManagerAutomationSettings[K] | null>(null);
 
@@ -2028,11 +2184,10 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
         if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
         return;
       }
+      if (!userId) return;
       try {
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
-        if (!res.ok) throw new Error("Could not load settings.");
-        const loaded = normalizeManagerAutomationSettings(body.settings);
+        const loadedAuto = await loadManagerAutomationSettingsCached(userId);
+        const loaded = normalizeManagerAutomationSettings(loadedAuto.settings);
         cacheShowUpcomingChargesSetting(loaded.showUpcomingCharges);
         if (!cancelled) setValue(loaded[field]);
       } catch (e) {
@@ -2043,7 +2198,7 @@ function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
     return () => {
       cancelled = true;
     };
-  }, [demo, field, showToast]);
+  }, [demo, field, showToast, userId]);
 
   const change = async (raw: string) => {
     const next = parse(raw);

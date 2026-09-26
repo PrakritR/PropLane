@@ -242,32 +242,29 @@ sibling `allowMultiplePropertyApplications` is likewise inert —
 properties/rooms and blocks only an exact same-property + same-room PENDING
 duplicate. Coverage: `tests/unit/application-policy.test.ts`.
 
-**The application fee is configured ONCE per manager, in Application settings —
-NOT per listing** (captain decision, 2026-07-26: "manager sets cost of
-application in application rather than in the property listing"). The
-manager-level value lives on `manager_automation_settings.row_data.applicationSettings`
+**The application fee is configured ONCE per manager, in Application system
+settings — NOT on listing Pricing** (PLAN-0924-1254; earlier captain decision
+2026-07-26). The manager-level value lives on
+`manager_automation_settings.row_data.applicationSettings`
 (`src/lib/manager-application-settings.ts`, `GET/PATCH
-/api/portal/manager-application-settings`) and is surfaced under the manager's
-**Applications** section ("Application fee" → `ManagerApplicationSettingsModal`,
-alongside the fee-waiver codes so fee + waiver live together). The same row also
-carries `applicationFeeChargePolicy` (above) and an optional manager-level
-pay-by-other channel (`applicationFeeOtherEnabled` /
-`applicationFeeOtherInstructions`); a listing that still sets its own legacy
-`applicationFeeOther*` fields wins over it
-(`resolveApplicationFeeOtherInstructions`). Source-of-truth
-rule (`effectiveApplicationFeeCents`): a configured manager-level fee is
-authoritative for EVERY listing (including an explicit `0` = free); until the
-manager saves one it is `null` and the resolver GRANDFATHERS each listing's
-stored `applicationFee`, so no live listing silently changes what it charges on
-deploy. The settings modal pre-fills a non-persisted *suggestion* (the mode of
-the manager's existing per-listing fees, `suggestedManagerApplicationFeeCents`)
-so the first save is an explicit, previewed consolidation — never a silent bulk
-change. New listings no longer carry a per-listing fee field. There is
-deliberately NO data migration moving fees off listings (avoids a second prod
-migration and any silent charge change); the move is a resolver + config change.
-Coverage: `tests/unit/manager-application-settings.test.ts` (the money-critical
-override + grandfather + free-fee cases) and
-`tests/unit/application-fee-inline-checkout.test.ts` (embedded-by-default).
+/api/portal/manager-application-settings`) and is surfaced under Settings →
+**Applications → Application system** (cost + charge policy), alongside promo
+waiver codes under Handling. Source-of-truth rule
+(`effectiveApplicationFeeCents`): the Application system fee is authoritative
+for EVERY listing (including an explicit `0` = free); listing
+`applicationFee` fields are ignored. Until the manager saves a value it is
+`null` and the resolver uses the legacy $50 default. Pricing no longer
+edits the fee. Coverage: `tests/unit/manager-application-settings.test.ts`
+and `tests/unit/application-fee-inline-checkout.test.ts`.
+
+**Pipeline order and lease signing fee** live on
+`manager_automation_settings.row_data.leasingPipeline`
+(`src/lib/leasing-pipeline-preferences.ts`): application↔lease order,
+required flags, and optional Stripe lease signing fee (each signer pays).
+Lease-first unlocks resident Lease before application approval; send-gate
+skips the approved-application check. Coverage:
+`tests/unit/leasing-pipeline-preferences.test.ts`,
+`tests/unit/lease-signing-fee.test.ts`.
 
 **A holding deposit is never collected AUTOMATICALLY during the application.**
 It used to be tracked as a pending `holding_deposit` household charge the moment
@@ -302,6 +299,24 @@ normalization + plan transitions), `tests/unit/stripe-axis-ach-checkout.test.ts`
 (the params actually sent to Stripe for each fee-payer: line items,
 `application_fee_amount`, `transfer_data` destination, no `on_behalf_of`), and
 `tests/unit/stripe-ledger-fees.test.ts` (fee attribution).
+
+**A third funding model exists behind a flag: the PropLane balance ledger
+(night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off).** When on,
+`createHouseholdChargeCheckout` passes `fundingModel: "platform_ledger"` to
+`createAxisAchCheckoutSession` — the ONE new branch in that builder — instead
+of resolving a destination account: no `transfer_data`, no
+`application_fee_amount`, no `platform_hold` metadata; the charge lands on the
+platform outright (separate charges and transfers). The resident-facing fee
+math (`residentServiceFeeBreakdown`) is byte-identical either way — only where
+the settled money goes changes. The `checkout.session.completed` webhook
+credits `manager_payout_cents` as a PENDING entry in the manager's PropLane
+balance (`src/lib/proplane-balance/household-charge-credit.server.ts`),
+available once Stripe's own balance-transaction `available_on` passes. Nothing
+else (application fees, vendor-invoice-pay checkout, autopay) ever requests
+this funding model, and with the flag off `createHouseholdChargeCheckout`
+resolves the SAME destination-or-hold path it always has. See
+`.lavish/night/build-vendor-pay.md` for the full architecture and the
+switch-on checklist.
 
 **The destination is per-manager when they are ready.**
 `resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
@@ -664,3 +679,12 @@ wherever the resident already receives payment notices per their preferences.
 
 Coverage: `tests/unit/resident-autopay.test.ts`,
 `tests/unit/resident-payments-autopay.test.tsx`.
+
+**A resident's `manager_id` is not guaranteed to be a valid UUID** (a legacy or
+corrupt fixture row is a real case, not just theoretical — it 500'd every
+`/resident/move-in` load until fixed). `resolveResidentAutopayHousehold`
+treats Postgres's `22P02 invalid input syntax for type uuid` the same as an
+empty result — no valid manager link means no autopay household — rather than
+letting the raw DB error bubble up as a 500. Any new query keyed on a
+resident's `manager_id`/`resident_user_id` should do the same rather than
+assume the column always holds a well-formed id.

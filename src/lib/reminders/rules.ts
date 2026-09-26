@@ -474,7 +474,10 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
   },
   work_order: {
     kind: "work_order",
-    label: "Work orders",
+    // Never "work order" in user-facing copy (AGENTS.md — there are no
+    // "work orders" in the product, only services); this label is the visit
+    // reminder a resident/manager/vendor gets before a maintenance visit.
+    label: "Maintenance visit reminder",
     anchorLabel: "the maintenance visit",
     counterpartyLabel: "resident",
   },

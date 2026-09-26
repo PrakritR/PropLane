@@ -4,8 +4,6 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { useWorkspaces } from "@/components/portal/workspace-provider";
-import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import {
   PortalSettingsField,
   PortalSettingsGroup,
@@ -25,6 +23,8 @@ import { WORK_CONTACT_ANNOUNCE_EVENT } from "@/lib/work-contact-announce";
 
 const ENDPOINT = "/api/manager/assistant-email";
 const ADDRESS_CHECK_DEBOUNCE_MS = 400;
+
+type WorkspaceEmailEntry = NonNullable<ManagerAssistantEmailStatus["workspaces"]>[number];
 
 /** The Availability row's value, in the same vocabulary `checkWorkspaceAssistantMailboxLocal` uses. */
 function addressAvailabilityLabel(
@@ -57,6 +57,21 @@ export function workEmailStatusLabel(status: ManagerAssistantEmailStatus): strin
   }
 }
 
+/** Per-workspace status word for Channels (overall entitlement/env from the account status). */
+function workspaceEmailStatusLabel(
+  address: string | null,
+  status: ManagerAssistantEmailStatus,
+): string {
+  if (!address) {
+    if (status.state === "storage_unavailable") return "Setup unavailable";
+    if (!status.canRequest && status.planTier === "free") return "Not available on your plan";
+    return "Not set up";
+  }
+  if (status.canUse) return "Ready";
+  if (!status.sendingAvailable || !status.receivingAvailable) return "Assigned — replies off";
+  return "Assigned — paused on your plan";
+}
+
 /**
  * The "Who can write in" row.
  *
@@ -73,49 +88,36 @@ export function workEmailAudienceLabel(status: ManagerAssistantEmailStatus): str
 }
 
 /**
- * The Channels row for the work email (PLAN-0920-1530). One row, one ⋯ menu
- * (Copy address · Share with residents · Rename) — the old standalone "Work
- * email" card, its Availability/Status/Who-can-write-in fields, and the
- * bottom read-only copy box are gone; every fact it carried now lives either
- * on this row or in Settings → Communication → Automation (`workEmailAudienceLabel`,
- * read by `CommunicationSettingsPanel`).
+ * Channels work-email rows (PLAN-0924-1454): one row per owned workspace,
+ * address auto-minted as `{slug}@proplane.ai`. Filter matches the numbers list.
  */
-export function ManagerAssistantEmailChannelRow() {
+export function ManagerAssistantEmailChannelRow({
+  filterWorkspaceId = "all",
+}: {
+  /** `"all"` or a workspace id — same vocabulary as the Channels number filter. */
+  filterWorkspaceId?: string;
+}) {
   const { showToast } = useAppUi();
   const router = useRouter();
-  const workspaces = useWorkspaces();
-  const scope = useSettingsPropertyScope();
-  const workspaceName = scope.workspaceId
-    ? workspaces?.workspaces.find((workspace) => workspace.id === scope.workspaceId)?.name
-    : undefined;
-  const emailUrl = scope.workspaceId
-    ? `${ENDPOINT}?workspaceId=${encodeURIComponent(scope.workspaceId)}`
-    : ENDPOINT;
-  const workspaceBody = useMemo(
-    () => (scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
-    [scope.workspaceId],
-  );
   const [status, setStatus] = useState<ManagerAssistantEmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // The custom-local-part editor (owner branch only). `addressLocal`/`addressDomain`
-  // are the current SAVED address, split for the input + fixed suffix.
-  const addressLocal = status?.address ? status.address.split("@")[0] ?? "" : "";
-  const addressDomain = status?.address ? status.address.split("@")[1] ?? "" : "";
+  const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null);
   const [localInput, setLocalInput] = useState("");
   const [addressCheck, setAddressCheck] = useState<MailboxLocalCheckResult | null>(null);
   const [checkingAddress, setCheckingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
-  /** Rename is opened from the row's ⋯ menu rather than always being live. */
-  const [renaming, setRenaming] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
+    // Drop sticky sibling addresses while the next GET (which also auto-mints) runs.
+    setStatus(null);
     try {
-      const res = await fetch(emailUrl, { credentials: "include", cache: "no-store", signal });
+      const res = await fetch(ENDPOINT, { credentials: "include", cache: "no-store", signal });
       const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
         error?: string;
       };
@@ -127,32 +129,33 @@ export function ManagerAssistantEmailChannelRow() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [emailUrl]);
+  }, []);
 
-  // The address belongs to the settings-bar workspace; read again on a pick.
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal));
     return () => controller.abort();
   }, [load]);
 
-  const copyAddress = useCallback(async () => {
-    const address = status?.address;
-    if (!address) return;
-    const ok = await copyTextToClipboard(address);
-    showToast(ok ? "Work email copied." : "Could not copy address.");
-  }, [showToast, status?.address]);
+  const visibleEmails = useMemo(() => {
+    const entries = status?.workspaces ?? [];
+    if (filterWorkspaceId === "all" || !filterWorkspaceId) return entries;
+    return entries.filter((e) => e.workspaceId === filterWorkspaceId);
+  }, [status?.workspaces, filterWorkspaceId]);
 
-  // The saved local part is the source of truth; resync the editable input
-  // whenever it changes (initial load, workspace switch, a completed save).
+  const renamingEntry = visibleEmails.find((e) => e.workspaceId === renamingWorkspaceId) ?? null;
+  const renamingAddress = renamingEntry?.address?.trim() || "";
+  const addressLocal = renamingAddress ? renamingAddress.split("@")[0] ?? "" : "";
+  const addressDomain = renamingAddress ? renamingAddress.split("@")[1] ?? "" : "";
+
   useEffect(() => {
+    if (!renamingWorkspaceId) return;
     setLocalInput(addressLocal);
     setAddressCheck(null);
-  }, [addressLocal]);
+  }, [renamingWorkspaceId, addressLocal]);
 
-  // Debounced availability check as the manager types a new local part.
   useEffect(() => {
-    if (!status?.address) return;
+    if (!renamingWorkspaceId || !renamingAddress) return;
     const trimmed = localInput.trim().toLowerCase();
     if (!trimmed || trimmed === addressLocal) {
       setAddressCheck(null);
@@ -167,7 +170,11 @@ export function ManagerAssistantEmailChannelRow() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "check_address", local: trimmed, ...workspaceBody }),
+          body: JSON.stringify({
+            action: "check_address",
+            local: trimmed,
+            workspaceId: renamingWorkspaceId,
+          }),
           signal: controller.signal,
         });
         const body = (await res.json().catch(() => null)) as MailboxLocalCheckResult | null;
@@ -183,7 +190,7 @@ export function ManagerAssistantEmailChannelRow() {
       clearTimeout(handle);
       controller.abort();
     };
-  }, [localInput, addressLocal, status?.address, workspaceBody]);
+  }, [localInput, addressLocal, renamingWorkspaceId, renamingAddress]);
 
   const canSaveAddress =
     !savingAddress &&
@@ -192,6 +199,7 @@ export function ManagerAssistantEmailChannelRow() {
     addressCheck.state === "available";
 
   const saveAddress = useCallback(async () => {
+    if (!renamingWorkspaceId) return;
     const trimmed = localInput.trim().toLowerCase();
     setSavingAddress(true);
     setError(null);
@@ -200,7 +208,11 @@ export function ManagerAssistantEmailChannelRow() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set_address", local: trimmed, ...workspaceBody }),
+        body: JSON.stringify({
+          action: "set_address",
+          local: trimmed,
+          workspaceId: renamingWorkspaceId,
+        }),
       });
       const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
         error?: string;
@@ -210,31 +222,18 @@ export function ManagerAssistantEmailChannelRow() {
       }
       setStatus(body);
       setAddressCheck(null);
-      if (body.address) {
-        setRenaming(false);
-        showToast(
-          `Work email changed to ${body.address}. Mail to the old address no longer reaches you.`,
-        );
+      setRenamingWorkspaceId(null);
+      const next = body.workspaces?.find((w) => w.workspaceId === renamingWorkspaceId)?.address;
+      if (next) {
+        showToast(`Work email changed to ${next}. Mail to the old address no longer reaches you.`);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not change your work email.");
     } finally {
       setSavingAddress(false);
     }
-  }, [localInput, showToast, workspaceBody]);
+  }, [localInput, renamingWorkspaceId, showToast]);
 
-  /**
-   * Settle an unverified plan by itself, instead of behind a button. Reading
-   * the billing source needs no human judgement, and the account that saw
-   * "Check eligibility" was a new one with no stored entitlement row — the
-   * least likely to know what the button was for.
-   *
-   * It cannot become a billing ping: the server gates on the ABSENCE of that
-   * row, throttles the endpoint to three calls a minute, and writes a row on
-   * every resolved outcome; the ref holds this to a single attempt per mount.
-   * Later plan changes arrive through the Stripe and RevenueCat webhooks,
-   * which reconcile the same entitlement.
-   */
   const settleAttemptedRef = useRef(false);
   const entitlementUnverified = status
     ? assistantEmailEntitlementIsUnverified(status.entitlement)
@@ -249,7 +248,7 @@ export function ManagerAssistantEmailChannelRow() {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "refresh_eligibility", ...workspaceBody }),
+          body: JSON.stringify({ action: "refresh_eligibility" }),
         });
         if (!res.ok) return;
         const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus;
@@ -266,23 +265,24 @@ export function ManagerAssistantEmailChannelRow() {
   }, [entitlementUnverified]);
 
   const postAction = useCallback(
-    async (action: "request_address" | "refresh_eligibility") => {
+    async (action: "request_address" | "refresh_eligibility", workspaceId?: string) => {
       setPendingAction(action === "refresh_eligibility" ? "refresh" : "request");
+      setPendingWorkspaceId(workspaceId ?? null);
       setError(null);
       try {
         const res = await fetch(ENDPOINT, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action, ...workspaceBody }),
+          body: JSON.stringify({
+            action,
+            ...(workspaceId ? { workspaceId } : {}),
+          }),
         });
         const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
           error?: string;
         };
         if (!res.ok) {
-          // A refusal still carries the updated status (e.g. an address that
-          // already existed). Apply it so the button reflects what the server
-          // will actually accept next.
           if (body && typeof body === "object" && "entitlement" in body) setStatus(body);
           throw new Error(
             body.error ??
@@ -294,20 +294,26 @@ export function ManagerAssistantEmailChannelRow() {
         setStatus(body);
         if (action === "refresh_eligibility") {
           showToast("Work email eligibility refreshed.");
-        } else if (body.address) {
-          showToast(
-            body.canUse
-              ? "Your PropLane work email is ready."
-              : "Work email assigned. Replies are off for this workspace.",
-          );
+        } else {
+          const minted = workspaceId
+            ? body.workspaces?.find((w) => w.workspaceId === workspaceId)?.address
+            : body.address;
+          if (minted) {
+            showToast(
+              body.canUse
+                ? "Your PropLane work email is ready."
+                : "Work email assigned. Replies are off for this workspace.",
+            );
+          }
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Could not update work email settings.");
       } finally {
         setPendingAction(null);
+        setPendingWorkspaceId(null);
       }
     },
-    [showToast, workspaceBody],
+    [showToast],
   );
 
   if (loading && !status) {
@@ -333,195 +339,223 @@ export function ManagerAssistantEmailChannelRow() {
 
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = assistantEmailEntitlementIsUnverified(status.entitlement);
+  const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
 
-  // One work email per workspace. A co-manager reads the owner's address here —
-  // nothing to request, no plan upsell. A legacy address of their own
-  // (requested before addresses were workspace-owned) is named so they know it
-  // is being retired, but it is never the address this panel leads with.
-  // Mirrors the work number card's co-manager branch line for line.
+  // Co-manager: read-only owner addresses for the workspaces they can see.
   if (isCoManager) {
-    const workspace = status.workspaceEmail ?? null;
-    const workspaceAddress = workspace?.address?.trim() || "";
-    const owner = workspace?.ownerName?.trim() || "your workspace owner";
-    const legacyOwnAddress =
-      status.address && status.address !== workspaceAddress ? status.address : "";
-    return (
-      <PortalSettingsSection
-        title="Work email"
-      >
-        <PortalSettingsGroup>
-          <PortalSettingsField
-            label="Workspace email"
-            value={workspaceAddress || "Not set up yet"}
-            action={
-              workspaceAddress ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="min-h-10 px-3 text-xs"
-                  onClick={async () => {
-                    const ok = await copyTextToClipboard(workspaceAddress);
-                    showToast(ok ? "Work email copied." : "Could not copy address.");
-                  }}
-                  data-attr="assistant-email-copy"
-                >
-                  Copy
-                </Button>
-              ) : undefined
-            }
-          />
-          <PortalSettingsField label="Status" value={workspaceAddress ? "Ready" : "Waiting on setup"} />
-          <PortalSettingsField label="Managed by" value={owner} />
-          <div className="space-y-4 px-4 py-4">
-            {workspaceAddress ? (
-              <div className="flex items-start gap-2 text-sm text-foreground">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-                <p>
-                  Ready. Replies you send in Communication go out from this address with your name
-                  on them, and you can email it from your PropLane profile email to talk to PropLane
-                  Assistant about the houses assigned to you.
-                </p>
-              </div>
-            ) : (
-              <div
-                className="flex items-start gap-2 text-sm text-muted"
-                data-attr="assistant-email-workspace-address-missing"
-              >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <p>
-                  {owner} hasn&apos;t set up a work email for this workspace. Once they do in
-                  Settings → Messaging, it appears here — there is nothing for you to request.
-                </p>
-              </div>
-            )}
-            {legacyOwnAddress ? (
-              <p className="text-xs text-muted" data-attr="assistant-email-legacy-own-address">
-                {legacyOwnAddress} was set up for you before addresses became shared per workspace.
-                Mail to it now reaches this workspace&apos;s inbox, and it will be retired.
+    const shared = visibleEmails.filter((e) => !e.owned);
+    if (shared.length === 0) {
+      return (
+        <PortalSettingsSection title="Work email">
+          <PortalSettingsGroup>
+            <div
+              className="flex items-start gap-2 px-4 py-4 text-sm text-muted"
+              data-attr="assistant-email-workspace-address-missing"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p>
+                Your workspace owner hasn&apos;t set up a work email yet. Once they do in
+                Settings → Messaging, it appears here.
               </p>
-            ) : null}
+            </div>
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
+      );
+    }
+    return (
+      <>
+        {shared.map((entry) => {
+          const address = entry.address?.trim() || "";
+          return (
+            <ChannelRow
+              key={entry.workspaceId}
+              icon={Mail}
+              channel={<>{address || "Work email"}</>}
+              workspace={entry.workspaceName}
+              status={address ? "Ready" : "Waiting on setup"}
+              menu={
+                address ? (
+                  <ChannelRowMenu
+                    label={`${address} actions`}
+                    items={[
+                      {
+                        key: "copy",
+                        label: "Copy address",
+                        onClick: () => {
+                          void copyTextToClipboard(address).then((ok) =>
+                            showToast(ok ? "Work email copied." : "Could not copy address."),
+                          );
+                        },
+                      },
+                    ]}
+                    dataAttr="channel-email-menu"
+                  />
+                ) : undefined
+              }
+              dataAttr="channel-row-email"
+            />
+          );
+        })}
+        {shared.some((e) => e.address) ? (
+          <div className="flex items-start gap-2 border-b border-border/70 px-4 py-3 text-sm text-foreground last:border-0">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <p>
+              Replies you send in Communication go out from the workspace owner&apos;s address
+              with your name on them.
+            </p>
           </div>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
+        ) : null}
+      </>
     );
   }
 
-  const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
-
-  // One ⋯ menu covers every action the old card spread across four buttons
-  // (Copy, Save, Request, View plans, Refresh eligibility, Refresh status,
-  // Tell residents). Only the actions this exact state can actually take are
-  // offered — never a disabled item with no explanation, since a row has no
-  // room for one.
-  const menuItems: ChannelRowMenuItem[] = [];
-  if (status.address) {
-    menuItems.push({ key: "copy", label: "Copy address", onClick: () => void copyAddress() });
-    if (status.canUse) {
-      menuItems.push({
-        key: "share",
-        label: "Share with residents",
-        onClick: () => window.dispatchEvent(new CustomEvent(WORK_CONTACT_ANNOUNCE_EVENT)),
-      });
-    }
-    menuItems.push({
-      key: "rename",
-      label: "Rename",
-      onClick: () => {
-        setLocalInput(addressLocal);
-        setAddressCheck(null);
-        setRenaming(true);
-      },
-    });
-  } else if (status.canRequest) {
-    menuItems.push({
-      key: "request",
-      label: pendingAction === "request" ? "Requesting…" : "Request work email",
-      disabled: pendingAction !== null,
-      onClick: () => void postAction("request_address"),
-    });
-  }
-  if (planMessage && !unverifiedEntitlement) {
-    menuItems.push({
-      key: "view-plan",
-      label: "View plans",
-      onClick: () => router.push("/portal/profile?tab=billing"),
-    });
-  } else if (!status.address && !status.canRequest && !status.entitlement.eligible && !unverifiedEntitlement) {
-    menuItems.push({
-      key: "refresh-eligibility",
-      label: pendingAction === "refresh" ? "Checking…" : "Refresh eligibility",
-      disabled: pendingAction !== null,
-      onClick: () => void postAction("refresh_eligibility"),
-    });
-  }
-  if (
-    status.state === "assigned_send_off" ||
-    status.state === "assigned_plan_hold" ||
-    status.state === "storage_unavailable"
-  ) {
-    menuItems.push({
-      key: "refresh-status",
-      label: loading ? "Checking…" : "Refresh status",
-      disabled: loading,
-      onClick: () => void load(),
-    });
-  }
-
-  const channel = renaming ? (
-    <span className="contents" data-attr="assistant-email-rename-row">
-      <Input
-        aria-label="Work email address"
-        data-attr="assistant-email-local"
-        value={localInput}
-        onChange={(event) => setLocalInput(event.target.value.toLowerCase())}
-        disabled={savingAddress}
-        spellCheck={false}
-        autoComplete="off"
-        autoCapitalize="off"
-        maxLength={32}
-        className="w-36 min-w-[7rem] shrink-0 py-1.5 text-[13px] font-semibold"
-      />
-      <span className="shrink-0 text-[13.5px] font-semibold text-muted">@{addressDomain}</span>
-      <Button
-        type="button"
-        variant="ghost"
-        className="min-h-9 shrink-0 px-2.5 text-xs"
-        disabled={savingAddress}
-        onClick={() => {
-          setRenaming(false);
-          setLocalInput(addressLocal);
-          setAddressCheck(null);
-        }}
-        data-attr="assistant-email-rename-cancel"
-      >
-        Cancel
-      </Button>
-      <Button
-        type="button"
-        className="min-h-9 shrink-0 px-2.5 text-xs"
-        disabled={!canSaveAddress}
-        loading={savingAddress}
-        onClick={() => saveAddress()}
-        data-attr="assistant-email-save"
-      >
-        Save
-      </Button>
-    </span>
-  ) : (
-    <>{status.address ?? "Work email"}</>
-  );
+  const rows: WorkspaceEmailEntry[] =
+    visibleEmails.length > 0
+      ? visibleEmails.filter((e) => e.owned)
+      : status.workspace
+        ? [
+            {
+              workspaceId: status.workspace.id,
+              workspaceName: status.workspace.name,
+              owned: status.workspace.owned,
+              isDefault: status.workspace.isDefault,
+              ownerName: null,
+              address: status.address,
+            },
+          ]
+        : [];
 
   return (
     <>
-      <ChannelRow
-        icon={Mail}
-        channel={channel}
-        channelWrap={renaming}
-        workspace={workspaceName ?? "This workspace"}
-        status={renaming ? addressAvailabilityLabel(addressCheck, checkingAddress) : workEmailStatusLabel(status)}
-        menu={renaming ? undefined : <ChannelRowMenu label="Work email actions" items={menuItems} dataAttr="channel-email-menu" />}
-        dataAttr="channel-row-email"
-      />
+      {rows.map((entry) => {
+        const address = entry.address?.trim() || "";
+        const isRenaming = renamingWorkspaceId === entry.workspaceId;
+        const menuItems: ChannelRowMenuItem[] = [];
+        if (address) {
+          menuItems.push({
+            key: "copy",
+            label: "Copy address",
+            onClick: () => {
+              void copyTextToClipboard(address).then((ok) =>
+                showToast(ok ? "Work email copied." : "Could not copy address."),
+              );
+            },
+          });
+          if (status.canUse) {
+            menuItems.push({
+              key: "share",
+              label: "Share with residents",
+              onClick: () => window.dispatchEvent(new CustomEvent(WORK_CONTACT_ANNOUNCE_EVENT)),
+            });
+          }
+          menuItems.push({
+            key: "edit",
+            label: "Edit",
+            onClick: () => {
+              setRenamingWorkspaceId(entry.workspaceId);
+              setLocalInput(address.split("@")[0] ?? "");
+              setAddressCheck(null);
+            },
+          });
+        } else if (status.canRequest) {
+          menuItems.push({
+            key: "setup",
+            label:
+              pendingAction === "request" && pendingWorkspaceId === entry.workspaceId
+                ? "Setting up…"
+                : "Setup",
+            disabled: pendingAction !== null,
+            onClick: () => void postAction("request_address", entry.workspaceId),
+          });
+        }
+        if (planMessage && !unverifiedEntitlement && !address) {
+          menuItems.push({
+            key: "view-plan",
+            label: "View plans",
+            onClick: () => router.push("/portal/profile?tab=billing"),
+          });
+        } else if (
+          !address &&
+          !status.canRequest &&
+          !status.entitlement.eligible &&
+          !unverifiedEntitlement
+        ) {
+          menuItems.push({
+            key: "refresh-eligibility",
+            label: pendingAction === "refresh" ? "Checking…" : "Refresh eligibility",
+            disabled: pendingAction !== null,
+            onClick: () => void postAction("refresh_eligibility", entry.workspaceId),
+          });
+        }
+
+        const channel = isRenaming ? (
+          <span className="contents" data-attr="assistant-email-rename-row">
+            <Input
+              aria-label="Work email address"
+              data-attr="assistant-email-local"
+              value={localInput}
+              onChange={(event) => setLocalInput(event.target.value.toLowerCase())}
+              disabled={savingAddress}
+              spellCheck={false}
+              autoComplete="off"
+              autoCapitalize="off"
+              maxLength={32}
+              className="w-36 min-w-[7rem] shrink-0 py-1.5 text-[13px] font-semibold"
+            />
+            <span className="shrink-0 text-[13.5px] font-semibold text-muted">@{addressDomain}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-9 shrink-0 px-2.5 text-xs"
+              disabled={savingAddress}
+              onClick={() => {
+                setRenamingWorkspaceId(null);
+                setAddressCheck(null);
+              }}
+              data-attr="assistant-email-rename-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="min-h-9 shrink-0 px-2.5 text-xs"
+              disabled={!canSaveAddress}
+              loading={savingAddress}
+              onClick={() => saveAddress()}
+              data-attr="assistant-email-save"
+            >
+              Save
+            </Button>
+          </span>
+        ) : (
+          <>{address || "Work email"}</>
+        );
+
+        return (
+          <ChannelRow
+            key={entry.workspaceId}
+            icon={Mail}
+            channel={channel}
+            channelWrap={isRenaming}
+            workspace={entry.workspaceName}
+            status={
+              isRenaming
+                ? addressAvailabilityLabel(addressCheck, checkingAddress)
+                : workspaceEmailStatusLabel(address || null, status)
+            }
+            menu={
+              isRenaming ? undefined : (
+                <ChannelRowMenu
+                  label={`${address || entry.workspaceName} work email actions`}
+                  items={menuItems}
+                  dataAttr="channel-email-menu"
+                />
+              )
+            }
+            dataAttr="channel-row-email"
+          />
+        );
+      })}
       {error ? (
         <div className="border-b border-border/70 px-4 py-2 text-xs font-medium text-danger last:border-0" role="alert">
           {error}

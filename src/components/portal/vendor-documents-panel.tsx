@@ -1,19 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FileText } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Download, Eye, FileText, Trash2, Upload } from "lucide-react";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import {
-  PORTAL_DETAIL_BTN,
-  PORTAL_DETAIL_BTN_PRIMARY,
-  PortalTableDetailActions,
-} from "@/components/portal/portal-data-table";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -253,35 +248,31 @@ export function VendorDocumentsPanel({
     }
   };
 
+  // Icon-only row actions (C162) — matches the shared-document rows below
+  // rather than the old labeled "Upload PDF"/"View"/"Download"/"Remove" buttons.
   const renderRowActions = (kind: VendorDocumentKind, doc: VendorDocumentRecord | undefined) => {
     const busy = uploadingKind === kind;
     return (
-      <PortalTableDetailActions>
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN_PRIMARY}
+      <div className="flex items-center gap-1">
+        <PortalIconAction
+          icon={Upload}
+          label={busy ? "Uploading…" : doc ? "Replace PDF" : "Upload PDF"}
           disabled={busy}
           data-attr={`vendor-documents-upload-${kind}`}
           onClick={() => fileRefs.current[kind]?.click()}
-        >
-          {busy ? "Uploading…" : doc ? "Replace PDF" : "Upload PDF"}
-        </Button>
+        />
         {doc ? (
           <>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
+            <PortalIconAction
+              icon={Eye}
+              label={previewKind === kind ? "Hide preview" : "View"}
+              active={previewKind === kind}
               data-attr={`vendor-documents-view-${kind}`}
               onClick={() => setPreviewKind((cur) => (cur === kind ? null : kind))}
-            >
-              {previewKind === kind ? "Hide preview" : "View"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
+            />
+            <PortalIconAction
+              icon={Download}
+              label="Download"
               data-attr={`vendor-documents-download-${kind}`}
               onClick={() => {
                 if (demo) {
@@ -290,18 +281,14 @@ export function VendorDocumentsPanel({
                 }
                 triggerDocumentDownload(doc.url, doc.fileName);
               }}
-            >
-              Download
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_DETAIL_BTN} text-danger`}
+            />
+            <PortalIconAction
+              icon={Trash2}
+              label="Remove"
+              tone="danger"
               data-attr={`vendor-documents-remove-${kind}`}
               onClick={() => removeDocument(kind)}
-            >
-              Remove
-            </Button>
+            />
           </>
         ) : null}
         <input
@@ -317,7 +304,7 @@ export function VendorDocumentsPanel({
             if (file) void uploadFile(kind, file);
           }}
         />
-      </PortalTableDetailActions>
+      </div>
     );
   };
 
@@ -365,8 +352,13 @@ export function VendorDocumentsPanel({
         }
         primary={
           source !== "managers" ? (
+            // Same upload-cloud glyph as manager Documents' primary action
+            // (`pro-documents-panel.tsx`) — this used to fall back to the
+            // default plain "+", a different icon language for the identical
+            // "add a document" action (AXI night sweep area 2h).
             <PortalPrimaryIconAction
-              label="Upload"
+              icon={Upload}
+              label={portalListAddPrimaryLabel("document")}
               data-attr="vendor-documents-add"
               onClick={() => setUploadOpen(true)}
             />
@@ -381,7 +373,7 @@ export function VendorDocumentsPanel({
           dataAttr="vendor-documents-access-denied-banner"
         />
       ) : loading || sharedLoading ? (
-        <p className="text-sm font-semibold text-foreground">Loading documents…</p>
+        <ListSkeleton rows={4} showLeading={false} />
       ) : (
         <PortalRecordListSurface
           isEmpty={visibleRowCount === 0}
@@ -391,7 +383,7 @@ export function VendorDocumentsPanel({
             tone: listSearch.trim() ? "muted" : "default",
             actions: listSearch.trim() || !includesMine
               ? []
-              : [{ label: "Upload", onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
+              : [{ label: portalListAddPrimaryLabel("document"), onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
             clear: listSearch.trim()
               ? {
                   label: "Clear search",
@@ -401,7 +393,7 @@ export function VendorDocumentsPanel({
               : undefined,
           }}
           add={includesMine ? {
-            ariaLabel: "Upload document",
+            ariaLabel: portalListAddPrimaryLabel("document"),
             onClick: () => setUploadOpen(true),
             dataAttr: "vendor-documents-list-add",
           } : undefined}

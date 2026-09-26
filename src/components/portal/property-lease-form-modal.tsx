@@ -35,9 +35,16 @@ import {
   type PropertyLeaseDocumentMode,
   type PropertyLeaseSource,
 } from "@/lib/property-lease-source";
-import { parseUploadedLeasePdf } from "@/lib/lease-template-parse.client";
+import { parseUploadedLeasePdf, type ParseLeasePdfResult } from "@/lib/lease-template-parse.client";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { track } from "@/lib/analytics/track-client";
+
+async function sha256Text(value: string): Promise<string> {
+  if (!globalThis.crypto?.subtle) throw new Error("Secure import review is unavailable.");
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 /** The lease-term choices an applicant can make, as "Applies to" boxes. */
 const LEASE_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
@@ -120,6 +127,11 @@ export function PropertyLeaseFormModal({
   const [htmlOverride, setHtmlOverride] = useState("");
   const [templateUploading, setTemplateUploading] = useState(false);
   const [parsingLease, setParsingLease] = useState(false);
+  const [importSource, setImportSource] = useState<Pick<ParseLeasePdfResult, "sourceSha256" | "sourceIssues" | "coverage"> | null>(null);
+  const [importSourceReviewed, setImportSourceReviewed] = useState(false);
+  const [transcribedUnreadableSourcePages, setTranscribedUnreadableSourcePages] = useState(false);
+  const [importReviewError, setImportReviewError] = useState<string | null>(null);
+  const [mobileTemplateTab, setMobileTemplateTab] = useState<"original" | "converted">("converted");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
@@ -175,7 +187,7 @@ export function PropertyLeaseFormModal({
   const editorHtml = htmlOverride.trim() || baselineHtml;
   const displayHtml = useMemo(() => stripDisclosureReviewFromLeaseHtml(editorHtml), [editorHtml]);
   const noticeHtml = editorHtml;
-  const showLeaseEditor = documentMode !== "upload" || Boolean(editorHtml.trim());
+  const showLeaseEditor = documentMode !== "upload" || Boolean(htmlOverride.trim());
 
   useEffect(() => {
     if (!open) return;
@@ -191,6 +203,17 @@ export function PropertyLeaseFormModal({
       setDocumentMode(documentModeFromLease(templateSource, templateKind));
       setDraft(templateDraftFields);
       setHtmlOverride(template.leaseTemplateHtmlOverride?.trim() ?? "");
+      setImportSource(template.leaseTemplateImportReview ? {
+        sourceSha256: template.leaseTemplateImportReview.sourceSha256,
+        sourceIssues: template.leaseTemplateImportReview.issueCodes.map((code) => ({ pageNumber: null, code, message: "Previously reviewed source issue." })),
+        coverage: {
+          extractedCharacters: template.leaseTemplateImportReview.extractedCharacters,
+          representedCharacters: template.leaseTemplateImportReview.representedCharacters,
+          complete: template.leaseTemplateImportReview.issueCodes.length === 0,
+        },
+      } : null);
+      setImportSourceReviewed(Boolean(template.leaseTemplateImportReview));
+      setTranscribedUnreadableSourcePages(Boolean(template.leaseTemplateImportReview?.resolvedIssueCodes?.includes("unreadable_page")));
       return;
     }
     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
@@ -199,6 +222,9 @@ export function PropertyLeaseFormModal({
     const applied = applyPropertyLeaseDocumentMode("proplane_long_term");
     setDraft((d) => ({ ...d, ...applied.draftFields }));
     setHtmlOverride("");
+    setImportSource(null);
+    setImportSourceReviewed(false);
+    setTranscribedUnreadableSourcePages(false);
   }, [open, mode, template]);
 
   useEffect(() => {
@@ -213,6 +239,10 @@ export function PropertyLeaseFormModal({
   const handleDocumentModeChange = (next: PropertyLeaseDocumentMode) => {
     setError(null);
     setHtmlOverride("");
+    setImportSource(null);
+    setImportSourceReviewed(false);
+    setTranscribedUnreadableSourcePages(false);
+    setImportReviewError(null);
     const applied = applyPropertyLeaseDocumentMode(next);
     setDocumentMode(next);
     setKind(applied.kind);
@@ -227,23 +257,32 @@ export function PropertyLeaseFormModal({
       (dataUrl, fileName) => {
         setError(null);
         setHtmlOverride("");
+        setImportSource(null);
+        setImportSourceReviewed(false);
+        setTranscribedUnreadableSourcePages(false);
+        setImportReviewError(null);
         setDraft((d) => ({ ...d, leaseTemplateDocUrl: dataUrl, leaseTemplateDocName: fileName }));
         if (dataUrl.startsWith("data:")) {
           showToast("Lease uploaded. Parsing runs after save in demo mode.");
           return;
         }
         setParsingLease(true);
+        track("lease_import_started", { import_kind: "property_template" });
         void parseUploadedLeasePdf({ url: dataUrl, fileName, kind })
           .then((result) => {
-            setHtmlOverride(result.html);
+            setImportSource({ sourceSha256: result.sourceSha256, sourceIssues: result.sourceIssues, coverage: result.coverage });
+            if (!result.sourceIssues.some((issue) => issue.code === "unreadable_page")) setHtmlOverride(result.html);
             if (mode === "add") {
               setKind(result.inferredKind);
             }
             showToast(
-              `Lease parsed into PropPlane format (${result.sectionCount} section${result.sectionCount === 1 ? "" : "s"}).`,
+              result.sourceIssues.length
+                ? `Lease read with ${result.sourceIssues.length} page review issue${result.sourceIssues.length === 1 ? "" : "s"}. Compare and resolve them before saving the converted version.`
+                : `Lease parsed into PropLane format (${result.sectionCount} section${result.sectionCount === 1 ? "" : "s"}).`,
             );
           })
           .catch((err) => {
+            track("lease_import_failed", { import_kind: "property_template", reason_code: "parse_failed" });
             console.error("property-lease-form-modal: parse failed", err);
             showToast(err instanceof Error ? err.message : "Could not parse that lease PDF.");
           })
@@ -273,7 +312,36 @@ export function PropertyLeaseFormModal({
       return;
     }
 
+    const resolvedHtml = resolveHtmlOverrideToSave();
+    const unreadableSourcePage = importSource?.sourceIssues.some((issue) => issue.code === "unreadable_page");
+    if (documentMode === "upload" && resolvedHtml && unreadableSourcePage && !transcribedUnreadableSourcePages) {
+      setImportReviewError("Transcribe every unreadable source page into the converted document, then confirm that resolution.");
+      return;
+    }
+    if (documentMode === "upload" && resolvedHtml && importSource && !importSourceReviewed) {
+      setImportReviewError("Compare the full converted document with the original PDF, resolve every listed issue, and confirm before saving.");
+      return;
+    }
+
     const trimmedLabel = label.trim() || typeMeta?.defaultLabel || "Lease";
+    let leaseTemplateImportReview = template?.leaseTemplateImportReview;
+    if (documentMode === "upload" && resolvedHtml && importSource && importSourceReviewed) {
+      try {
+        leaseTemplateImportReview = {
+          sourceSha256: importSource.sourceSha256,
+          convertedHtmlSha256: await sha256Text(resolvedHtml),
+          reviewedAtIso: new Date().toISOString(),
+          templateVersion: `${template?.id ?? "new"}@${(template?.updatedAt ?? new Date().toISOString())}`,
+          issueCodes: importSource.sourceIssues.map((issue) => issue.code),
+          resolvedIssueCodes: unreadableSourcePage && transcribedUnreadableSourcePages ? ["unreadable_page"] : [],
+          extractedCharacters: importSource.coverage.extractedCharacters,
+          representedCharacters: importSource.coverage.representedCharacters,
+        };
+      } catch (err) {
+        setImportReviewError(err instanceof Error ? err.message : "Could not verify the converted lease.");
+        return;
+      }
+    }
     const leaseFields = {
       leaseConfigMode: draft.leaseConfigMode ?? "standard",
       leaseCustomKind:
@@ -286,6 +354,7 @@ export function PropertyLeaseFormModal({
       leaseTemplateDocUrl: draft.leaseTemplateDocUrl ?? null,
       leaseTemplateDocName: draft.leaseTemplateDocName ?? "",
       leaseTemplateHtmlOverride: resolveHtmlOverrideToSave(),
+      leaseTemplateImportReview: resolvedHtml ? leaseTemplateImportReview : undefined,
     };
 
     setSaving(true);
@@ -301,9 +370,13 @@ export function PropertyLeaseFormModal({
             leaseTemplateDocName: leaseFields.leaseTemplateDocName,
           }),
           leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
+          leaseTemplateImportReview: leaseFields.leaseTemplateImportReview,
         };
         const next = [...(templates ?? []), created];
         if (!(await Promise.resolve(onSave(next)))) return;
+        if (leaseFields.leaseTemplateImportReview) {
+          track("lease_import_reviewed", { template_id: created.id, import_kind: "property_template", artifact_mode: "converted" });
+        }
         showToast("Lease added.");
         dismiss();
         return;
@@ -325,6 +398,9 @@ export function PropertyLeaseFormModal({
         ...leaseFields,
       });
       if (!(await Promise.resolve(onSave(next)))) return;
+      if (leaseFields.leaseTemplateImportReview) {
+        track("lease_import_reviewed", { template_id: template.id, import_kind: "property_template", artifact_mode: "converted" });
+      }
       showToast("Lease saved.");
       dismiss();
     } finally {
@@ -333,6 +409,10 @@ export function PropertyLeaseFormModal({
   };
 
   const save = () => {
+    if (documentMode === "upload" && htmlOverride.trim() && importSource && !importSourceReviewed) {
+      setImportReviewError("Compare the full converted document with the original PDF and confirm before saving.");
+      return;
+    }
     if (showLeaseEditor && propertyLeaseNeedsAssistantReview(noticeHtml)) {
       setSaveReviewOpen(true);
       return;
@@ -536,6 +616,49 @@ export function PropertyLeaseFormModal({
           ) : null}
           {showLeaseEditor ? (
             <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
+              {importSource ? (
+                <section className="rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200" data-attr="property-lease-import-review">
+                  <p className="font-semibold">Compare the converted lease with its original</p>
+                  {importSource.sourceIssues.length ? (
+                    <ul className="mt-2 space-y-1.5">
+                      {importSource.sourceIssues.map((issue, index) => (
+                        <li key={`${issue.code}-${issue.pageNumber ?? "doc"}-${index}`}>
+                          {issue.pageNumber ? <strong>Page {issue.pageNumber}: </strong> : null}
+                          {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="mt-1">No extraction issues were detected. Check every page and field before saving.</p>}
+                  {importSource.sourceIssues.some((issue) => issue.code === "unreadable_page") ? (
+                    <label className="mt-3 flex items-start gap-2 font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={transcribedUnreadableSourcePages}
+                        onChange={(event) => {
+                          setTranscribedUnreadableSourcePages(event.target.checked);
+                          setImportSourceReviewed(event.target.checked);
+                          setImportReviewError(null);
+                        }}
+                      />
+                      I transcribed every unreadable source page in the converted lease.
+                    </label>
+                  ) : (
+                    <label className="mt-3 flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={importSourceReviewed}
+                        onChange={(event) => {
+                          setImportSourceReviewed(event.target.checked);
+                          setImportReviewError(null);
+                        }}
+                        data-attr="property-lease-import-confirm"
+                      />
+                      <span>I compared the whole converted document with the original PDF and accounted for every listed issue.</span>
+                    </label>
+                  )}
+                  {importReviewError ? <p role="alert" className="mt-2 text-rose-700">{importReviewError}</p> : null}
+                </section>
+              ) : null}
               <PropertyLeaseDocumentNotice html={noticeHtml} />
               {saveReviewOpen ? (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
@@ -556,13 +679,52 @@ export function PropertyLeaseFormModal({
                   </p>
                 </div>
               ) : null}
-              <LeaseHtmlDirectEditor
-                className="min-h-[min(380px,50vh)] flex-1"
-                html={displayHtml}
-                baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
-                onChange={(next) => setHtmlOverride(next)}
-                showPersistBar={false}
-              />
+              {importSource ? (
+                <div className="space-y-3" data-attr="property-lease-source-compare">
+                  <div className="flex gap-2 lg:hidden" role="group" aria-label="Lease template comparison">
+                    {(["original", "converted"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        aria-pressed={mobileTemplateTab === tab}
+                        onClick={() => setMobileTemplateTab(tab)}
+                        className="min-h-11 rounded-md border border-border px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                      >
+                        {tab === "original" ? "Original" : "Converted"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <section className={`${mobileTemplateTab === "original" ? "block" : "hidden"} lg:block`}>
+                      <h3 className="mb-2 text-sm font-semibold">Original PDF</h3>
+                      {draft.leaseTemplateDocUrl ? (
+                        <iframe title="Original lease template PDF" src={draft.leaseTemplateDocUrl} className="h-[min(380px,50vh)] w-full rounded-lg border border-border" />
+                      ) : <p className="rounded-lg border border-border p-4 text-sm">Original PDF is not available.</p>}
+                    </section>
+                    <section className={`${mobileTemplateTab === "converted" ? "block" : "hidden"} lg:block`}>
+                      <h3 className="mb-2 text-sm font-semibold">Converted lease</h3>
+                      <LeaseHtmlDirectEditor
+                        className="min-h-[min(380px,50vh)]"
+                        html={displayHtml}
+                        baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
+                        onChange={(next) => {
+                          setHtmlOverride(next);
+                          setImportSourceReviewed(false);
+                        }}
+                        showPersistBar={false}
+                      />
+                    </section>
+                  </div>
+                </div>
+              ) : (
+                <LeaseHtmlDirectEditor
+                  className="min-h-[min(380px,50vh)] flex-1"
+                  html={displayHtml}
+                  baselineHtml={stripDisclosureReviewFromLeaseHtml(baselineHtml)}
+                  onChange={setHtmlOverride}
+                  showPersistBar={false}
+                />
+              )}
             </div>
           ) : documentMode === "upload" && !draft.leaseTemplateDocUrl ? (
             <p className="mt-3 text-sm text-foreground">Upload a PDF to parse it into PropLane format.</p>

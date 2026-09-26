@@ -68,3 +68,16 @@ portal, and identity while the household reads as one unit.
 - The listing-side `ManagerBundleRow` (grouped rooms at one price, applicant's
   `bundleId`) and group applications (`groupId`) are linked when both are present —
   use `src/lib/bundle-group/` for reconciliation, split math, and joint lease helpers.
+- **A withdrawn application keeps `bucket: "pending"` in storage**
+  (`isWithdrawnApplicationRow`, keyed on `withdrawnAt`) — withdrawal is never a
+  fourth bucket. Every reader that treats "pending" as "still needs a manager
+  decision" must exclude it explicitly: `residentApplicationSubmitBlocked`
+  (`src/lib/rental-application/application-policy.ts`) mirrors the server's own
+  `findDuplicateApplication` (`duplicate-application.server.ts`) in excluding a
+  withdrawn row from the "you already have a pending application for this
+  property and room" check, so a returning applicant can genuinely start
+  fresh after withdrawing. `tabForRow`/`countByBucket`
+  (`src/components/portal/pro-applications.tsx`) route a withdrawn row to the
+  Rejected tab for DISPLAY only (`applicationDecisionStatusLabel` still shows
+  "Withdrawn", never "Rejected") — it never clutters the manager's Pending
+  queue implying a decision is still owed.

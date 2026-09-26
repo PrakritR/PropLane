@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Button } from "@/components/ui/button";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
@@ -162,9 +162,12 @@ export function ManagerDocumentsPanel({
   >([{ id: "", label: "All", count: 0 }]);
   const libraryRef = useRef<ManagerDocumentLibraryHandle>(null);
 
+  // C061: an upload from the Leases folder defaults into "Lease" — Applications
+  // has no library category of its own (application-attached documents are a
+  // separate system), and Other already reads its own active filter.
   const openDocumentUpload = useCallback(() => {
-    libraryRef.current?.openUpload();
-  }, []);
+    libraryRef.current?.openUpload(tabId === "leases" ? "lease" : undefined);
+  }, [tabId]);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
@@ -531,7 +534,7 @@ export function ManagerDocumentsPanel({
   ) : isLeasingDocumentsTab || isOtherDocumentsTab ? (
     <PortalPrimaryIconAction
       icon={Upload}
-      label="Upload document"
+      label={portalListAddPrimaryLabel("document")}
       onClick={openDocumentUpload}
       data-attr="documents-upload-top"
     />

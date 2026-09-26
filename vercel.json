@@ -50,6 +50,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/sms-inbound-recovery",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/manager-attention-digest",
       "schedule": "0 14 * * *"
     },
@@ -75,11 +79,19 @@
     },
     {
       "path": "/api/cron/sync-manager-sheets",
-      "schedule": "0 15 * * *"
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/bookings-today-digest",
+      "schedule": "10 15 * * *"
     },
     {
       "path": "/api/cron/sync-channel-calendars",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-proplane-balance",
+      "schedule": "15 8 * * *"
     }
   ]
 }

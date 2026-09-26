@@ -2047,6 +2047,10 @@ export function PortalCalendarPanels({
     (dateStr: string): string => {
       const openCount = openSlotCountForDate(dateStr);
       const eventCount = scheduledMeetings.filter((meeting) => meeting.dateStr === dateStr).length;
+      // A day with nothing to count — no open availability and nothing
+      // booked — shows nothing rather than "0 open" repeated under every
+      // cell of an empty calendar (AXI night sweep area 2j).
+      if (openCount === 0 && eventCount === 0) return "";
       if (canEditAvailability) {
         return eventCount > 0 ? `${openCount} open · ${eventCount} booked` : `${openCount} open`;
       }

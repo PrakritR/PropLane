@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PDF import implementation handoff · 24 September 2026</title><style>
+  :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#17251f;background:#f8f8f4}body{max-width:1050px;margin:0 auto;padding:36px 24px 80px;line-height:1.5}h1{font-size:clamp(30px,5vw,48px);line-height:1.08;letter-spacing:-.04em;margin:0 0 12px}h2{font-size:22px;margin:34px 0 10px}p{margin:8px 0 14px}.lead{font-size:19px;color:#42534b;max-width:760px}.badge{display:inline-block;padding:5px 10px;border-radius:99px;background:#fff0cf;color:#624600;font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.card{background:white;border:1px solid #dce4dd;border-radius:14px;padding:18px}.card h3{margin:0 0 7px}.card p{margin:0}.warn{border-left:4px solid #c8751e;padding:10px 16px;background:#fff8ec}table{border-collapse:collapse;width:100%;background:white}th,td{text-align:left;vertical-align:top;border:1px solid #dce4dd;padding:9px 11px}th{background:#eef4ee}code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:.91em;overflow-wrap:anywhere}ul{padding-left:22px}li{margin:6px 0}a{color:#126d50}small{color:#52675a}
+</style></head><body>
+<span class="badge">Implementation handoff · review required</span>
+<h1>Lease and application PDF import</h1>
+<p class="lead">Implemented the reviewed draft, comparison, publish, and signable-artifact paths on <code>agent/assistant-chrome-polish</code>. This is not release-ready: a complete typecheck, build, and browser import/signing pass remain open.</p>
+<p><strong>Baseline:</strong> <code>1ed462b1aa17b33fc3b4d094ef3e27dc6601da8f</code>. No migration, commit, push, deployment, or production write was made. Existing unrelated dirty files were left alone.</p>
+
+<h2>What changed</h2><div class="grid">
+<div class="card"><h3>Source and extraction</h3><p>Private PDF bytes are parsed server-side with source SHA-256, page spans, fillable fields, issue coverage, and bounded local OCR for up to four scanned pages. Disguised or active-content PDFs are rejected.</p></div>
+<div class="card"><h3>Application templates</h3><p>Import creates an unpublished, editable draft. Managers compare the original with a full applicant wizard preview of unsaved changes, resolve issues, and publish a version. In-progress applicants pin their published version. Imported nonidentity questions preserve source order as custom fields; typed placement and consent fields remain canonical.</p></div>
+<div class="card"><h3>Lease templates</h3><p>Managers can choose reviewed converted HTML or the legacy original PDF. A converted property template becomes the placement artifact with a separate PropLane Terms Rider. Source clauses remain in the base document. Manager confirmation compares the source PDF with the final artifact, acknowledges rider conflicts, and persists a server-issued source/final-HTML receipt. Send rechecks both hashes.</p></div>
+</div>
+
+<h2>Code and fixtures</h2><ul>
+<li>Shared parser and OCR: <code>src/lib/pdf-import/pdf-source.server.ts</code>, <code>next.config.ts</code>, <code>package.json</code>, <code>package-lock.json</code>; PDF fixtures under <code>tests/fixtures/portfolio-import/</code>.</li>
+<li>Application route, mapping, versioning and validation: <code>src/app/api/portal/application-template-import/route.ts</code>, <code>src/lib/rental-application/application-pdf-import.ts</code>, <code>application-template-config.ts</code>, <code>src/lib/property-application-templates.ts</code>, application field catalog, public projection, autofill, and the manager/applicant wizard components.</li>
+<li>Lease parse, review, generation and execution: <code>src/app/api/portal-lease-pipeline/route.ts</code>, lease PDF parse routes, <code>src/lib/lease-pipeline-storage.ts</code>, <code>generated-lease.ts</code>, property lease templates, execution evidence, uploaded lease extraction/formatting, and their manager/resident modals.</li>
+<li>Focused tests: <code>tests/unit/application-template-import*.test.ts</code>, <code>pdf-import-source.test.ts</code>, <code>lease-pipeline-route-signed-document.test.ts</code>, <code>lease-e2e-artifacts.test.ts</code>, submit validation, autofill, and wizard preview tests. Architecture note updated in <code>docs/agents/lease-generation.md</code>.</li>
+</ul>
+
+<h2>Validation record</h2><table><thead><tr><th>Command or check</th><th>Exit / evidence</th></tr></thead><tbody>
+<tr><td>Node runtime</td><td><code>22.23.0</code> used for validation; the host default is 23.7.0.</td></tr>
+<tr><td><code>npx vitest run</code> on seven integration-focused specs, <code>--maxWorkers=1</code></td><td>Exit 0; 72 tests passed. Includes clean scan OCR, fillable PDF, imported published application through submit validation, approval charge creation, and generated lease.</td></tr>
+<tr><td>Lease worker: 13 focused specs</td><td>Exit 0; 162 tests passed, including owner scope, source mismatch, CAS race, send bypass, and original-PDF regression.</td></tr>
+<tr><td><code>npx eslint --quiet</code> on 13 integration files; lease worker lint on 25 owned files; <code>git diff --check</code></td><td>Exit 0 for each.</td></tr>
+<tr><td><code>npx tsc --noEmit --pretty false</code></td><td>Exit 134 on Node's default 2 GB heap. With a 4 GB heap, exit 2 and surfaced lease typing errors, which were corrected. The final rerun was stopped at 18% free memory (exit 130); no <code>tsc</code> child remained. A clean full typecheck is not established.</td></tr>
+<tr><td><code>npm run test:seed</code></td><td>Exit 1: local <code>.env.test</code> Stripe test key was rejected by Stripe (401). No secret was changed.</td></tr>
+<tr><td><code>npm run seed:akhil</code></td><td>Exit 0 against dev/test project <code>emstjswhotsnyksqhqyf</code>: three properties, six applications, six leases, 36 charges.</td></tr>
+<tr><td><code>npm run sandbox:pin -- 3000</code>; <code>npm run sandbox:open -- /portal/properties/all/mgr-akhil-fremont/application</code></td><td>Exit 0. Review URL: <code>http://localhost:3000/portal/properties/all/mgr-akhil-fremont/application</code>. Task-owned server was stopped after QA.</td></tr>
+<tr><td><code>npx graphify hook-rebuild</code></td><td>Exit 1: npm could not determine an executable. The installed Python <code>graphify</code> CLI also rejects <code>hook-rebuild</code> (exit 1). Graph metadata remains stale; it was not committed.</td></tr>
+</tbody></table>
+
+<h2>Browser evidence</h2><p>In an isolated Playwright session, signed in as the seeded Akhil manager, opened the three-house workspace, Fremont Craftsman, and its property Application tab. The page showed the long-term, short-term, and co-signer forms. Opened the application editor and its Preview navigation. The full imported-PDF upload, publish, live applicant completion, converted lease review, and sign/send were not driven in the browser.</p>
+<p class="warn">The first authenticated Application page load timed out after 60 seconds during a cold Next dev run. Server logs showed this route and unrelated manager APIs taking roughly four minutes with cold compilation and concurrent requests. After restarting the task server, unauthenticated HEAD completed in 2.68 seconds, authenticated navigation completed in roughly eight seconds, and a later route request logged 200 in 1.96 seconds. The delay did not reproduce, but the cause is not proven. This remains a performance risk.</p>
+
+<h2>Open acceptance and operational risks</h2><ul>
+<li>OCR is bounded to four image-only pages per PDF. Larger scans remain unresolved and cannot auto-publish. A clean one-page scan fixture passed; multi-page and poor-quality scans need live QA.</li>
+<li>A complete typecheck and build were not obtained on this 8 GB laptop. Do not treat focused tests as a release gate.</li>
+<li>End-to-end browser proof of import, issue resolution, publish, applicant completion, final lease comparison, and signature is still required. The dev/test seed path without Stripe succeeds; the full test seed needs a valid Stripe test credential.</li>
+<li>Source order is preserved for imported custom prompts in the Additional details step. Structural built-ins stay in their required steps; their position can differ from the PDF and is surfaced as an import issue.</li>
+<li>Import lifecycle analytics are limited to coarse IDs, modes, and reason codes. Additional funnel instrumentation can follow acceptance QA without exposing document text.</li>
+</ul>
+
+<h2>Next actions</h2><ol>
+<li>Run an independent security and behavior review of the private source route, server receipt, legacy PDF signing, applicant version pin, and source-preserving conversion.</li>
+<li>Run a clean whole-project typecheck, lint/build, and one bounded unit suite on a machine with sufficient headroom. The last type corrections have focused lint and tests, but no completed typecheck.</li>
+<li>With dev/test data, create a new property application template, upload the scanned and fillable fixtures, compare the unsaved full preview, resolve/publish, submit as an applicant, approve, then generate/review/send a converted property lease. Verify signed bytes and source privacy. Keep the task server only while testing.</li>
+<li>Repair the local graphify executable or use the repository's current TypeScript graphify package to run <code>hook-rebuild</code> and portable-check before proposing graph artifacts.</li>
+</ol>
+<p><small>Prepared 24 September 2026. This report intentionally records the incomplete gates rather than a release recommendation.</small></p>
+</body></html>

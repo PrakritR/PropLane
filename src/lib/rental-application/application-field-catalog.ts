@@ -94,23 +94,23 @@ const STANDARD_FIELD_TYPE_MAP: Record<string, StandardFieldConfig> = {
   "personal:Phone": { type: "text" },
   "personal:Email": { type: "text" },
   "current_address:Street, city, state, ZIP": { type: "text" },
-  "current_address:Current landlord name & phone": { type: "text" },
-  "current_address:Move-in / move-out dates": { type: "date" },
-  "current_address:Reason for leaving": { type: "text" },
+  "current_address:Current landlord name & phone": { type: "text", required: false },
+  "current_address:Move-in / move-out dates": { type: "date", required: false },
+  "current_address:Reason for leaving": { type: "text", required: false },
   "previous_address:Street, city, state, ZIP": { type: "text" },
-  "previous_address:Previous landlord name & phone": { type: "text" },
-  "previous_address:Move-in / move-out dates": { type: "date" },
-  "previous_address:Reason for leaving": { type: "text" },
+  "previous_address:Previous landlord name & phone": { type: "text", required: false },
+  "previous_address:Move-in / move-out dates": { type: "date", required: false },
+  "previous_address:Reason for leaving": { type: "text", required: false },
   "employment:Employer & employer address": { type: "text" },
-  "employment:Supervisor name & phone": { type: "text" },
-  "employment:Job title & employment start": { type: "text" },
-  "employment:Monthly / annual income": { type: "number" },
+  "employment:Supervisor name & phone": { type: "text", required: false },
+  "employment:Job title & employment start": { type: "text", required: false },
+  "employment:Monthly / annual income": { type: "number", required: false },
   "employment:Proof of income (pay stub, etc.)": { type: "file", required: false },
-  "employment:Other income": { type: "number" },
+  "employment:Other income": { type: "number", required: false },
   "references:Reference 1 — name, relationship, phone": { type: "text" },
-  "references:Reference 2 — name, relationship, phone": { type: "text" },
+  "references:Reference 2 — name, relationship, phone": { type: "text", required: false },
   "additional:Number of occupants": { type: "select", options: OCCUPANCY_OPTIONS },
-  "additional:Pets": { type: "text" },
+  "additional:Pets": { type: "text", required: false },
   "additional:Eviction history": { type: "select", options: YES_NO_OPTIONS },
   "additional:Bankruptcy history": { type: "select", options: YES_NO_OPTIONS },
   "additional:Criminal history": { type: "select", options: YES_NO_OPTIONS },
@@ -153,6 +153,34 @@ export const STANDARD_APPLICATION_FIELD_CATALOG: readonly StandardApplicationFie
       };
     }),
   );
+
+/** Identity is collected exactly once on every applicant form and cannot be disabled. */
+export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) =>
+    field.section === "personal" &&
+    (field.label === "Full legal name" || field.label === "Phone" || field.label === "Email"),
+).map((field) => field.standardKey);
+
+const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KEYS);
+
+/**
+ * Screening, charges and leases read these built-ins directly — disabling one
+ * breaks approval or billing later with no error at disable-time (studio
+ * decision C195: "built-in questions stay locked; custom ones are free").
+ * Superset of {@link REQUIRED_IDENTITY_STANDARD_KEYS}: name/phone/email (always
+ * required, see above) plus SSN, ID and income — but unlike the identity trio
+ * these keep their own catalog `required` default (income in particular stays
+ * optional, so an unemployed applicant can still submit). This set only ever
+ * blocks REMOVING the question, never its required-ness.
+ */
+export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) =>
+    REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
+    (field.section === "personal" && (field.label === "Social Security number" || field.label === "Driver's license / ID")) ||
+    (field.section === "employment" && field.label === "Monthly / annual income"),
+).map((field) => field.standardKey);
+
+export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_KEYS);
 
 const CATALOG_BY_KEY = new Map(
   STANDARD_APPLICATION_FIELD_CATALOG.map((def) => [def.standardKey, def] as const),
@@ -221,9 +249,14 @@ export type ApplicationConfigSlice = {
   disabledStandardApplicationKeys: string[];
   customApplicationFields: ManagerCustomApplicationField[];
   applicationConfigMode: "standard" | "custom";
+  /** A template-owned order shared by built-in overrides and custom fields. */
+  questionDisplayOrder?: string[];
 };
 
 type VariantConfigSource = {
+  questionDisplayOrder?: unknown;
+  shortTermQuestionDisplayOrder?: unknown;
+  cosignerQuestionDisplayOrder?: unknown;
   disabledStandardApplicationKeys?: unknown;
   customApplicationFields?: unknown;
   applicationConfigMode?: unknown;
@@ -236,17 +269,39 @@ type VariantConfigSource = {
 };
 
 function asStringArray(value: unknown): string[] {
+  // Only the identity trio (name/phone/email) is force-kept here — a
+  // pre-existing defense-in-depth against a forged disabled-keys list, not
+  // where C195's SSN/ID/income lock lives. That lock is enforced once, at
+  // the manager-facing mutation (`removeListingApplicationField`'s
+  // editor-remove action); filtering the wider NEVER_DISABLED set here too
+  // also reverses PropLane's own short-term curated default, which
+  // legitimately disables SSN/ID/income by design.
   return Array.isArray(value)
-    ? value.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+    ? value.filter(
+        (k): k is string =>
+          typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k),
+      )
     : [];
 }
 
 function asCustomFields(value: unknown): ManagerCustomApplicationField[] {
-  return Array.isArray(value) ? (value as ManagerCustomApplicationField[]) : [];
+  return Array.isArray(value) ? (value as ManagerCustomApplicationField[]).map((field) => {
+    const def = field.standardKey ? CATALOG_BY_KEY.get(field.standardKey) : undefined;
+    const normalized = def && def.options.length > 0
+      ? { ...field, options: [...def.options] }
+      : field;
+    return field.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey)
+      ? { ...normalized, required: true }
+      : normalized;
+  }) : [];
 }
 
 function asConfigMode(value: unknown): "standard" | "custom" {
   return value === "custom" ? "custom" : "standard";
+}
+
+function asDisplayOrder(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : undefined;
 }
 
 /** Keys left on by the retired four-question long-term default (commit 663844e7). */
@@ -270,7 +325,13 @@ export function isLegacyFourQuestionApplicationDefault(
 ): boolean {
   if (!sub || sub.applicationConfigMode === "custom") return false;
   if (asCustomFields(sub.customApplicationFields).length > 0) return false;
-  const disabled = new Set(asStringArray(sub.disabledStandardApplicationKeys));
+  // Recognize the historical stored shape before stripping today's required
+  // identity fields. Those older rows disabled name, phone, and email too.
+  const disabled = new Set(
+    Array.isArray(sub.disabledStandardApplicationKeys)
+      ? sub.disabledStandardApplicationKeys.filter((key): key is string => typeof key === "string" && key.trim().length > 0)
+      : [],
+  );
   if (disabled.size === 0) return false;
   const enabled = STANDARD_APPLICATION_FIELD_CATALOG.filter((def) => !disabled.has(def.standardKey));
   if (enabled.length !== LEGACY_FOUR_QUESTION_ENABLED_STANDARD_KEYS.size) return false;
@@ -296,12 +357,14 @@ export function applicationConfigForVariant(
         disabledStandardApplicationKeys: asStringArray(sub.cosignerDisabledStandardApplicationKeys),
         customApplicationFields: asCustomFields(sub.cosignerCustomApplicationFields),
         applicationConfigMode: "custom",
+        questionDisplayOrder: asDisplayOrder(sub.cosignerQuestionDisplayOrder),
       };
     }
     return {
       disabledStandardApplicationKeys: [...COSIGNER_DEFAULT_DISABLED_STANDARD_KEYS],
       customApplicationFields: asCustomFields(sub?.cosignerCustomApplicationFields),
       applicationConfigMode: "standard",
+      questionDisplayOrder: asDisplayOrder(sub?.cosignerQuestionDisplayOrder),
     };
   }
   if (variant !== "short_term") {
@@ -327,6 +390,7 @@ export function applicationConfigForVariant(
       disabledStandardApplicationKeys: storedDisabled,
       customApplicationFields: storedCustom,
       applicationConfigMode: asConfigMode(sub?.applicationConfigMode),
+      questionDisplayOrder: asDisplayOrder(sub?.questionDisplayOrder),
     };
   }
   if (sub?.shortTermApplicationConfigMode === "custom") {
@@ -334,6 +398,7 @@ export function applicationConfigForVariant(
       disabledStandardApplicationKeys: asStringArray(sub.shortTermDisabledStandardApplicationKeys),
       customApplicationFields: asCustomFields(sub.shortTermCustomApplicationFields),
       applicationConfigMode: "custom",
+      questionDisplayOrder: asDisplayOrder(sub.shortTermQuestionDisplayOrder),
     };
   }
   // Unconfigured short-term form → curated default question set.
@@ -341,6 +406,7 @@ export function applicationConfigForVariant(
     disabledStandardApplicationKeys: [...SHORT_TERM_DEFAULT_DISABLED_STANDARD_KEYS],
     customApplicationFields: asCustomFields(sub?.shortTermCustomApplicationFields),
     applicationConfigMode: "standard",
+    questionDisplayOrder: asDisplayOrder(sub?.shortTermQuestionDisplayOrder),
   };
 }
 
@@ -361,12 +427,16 @@ export function mergeApplicationConfigForVariant(
   cosignerDisabledStandardApplicationKeys?: string[];
   cosignerCustomApplicationFields?: ManagerCustomApplicationField[];
   cosignerApplicationConfigMode?: "standard" | "custom";
+  questionDisplayOrder?: string[];
+  shortTermQuestionDisplayOrder?: string[];
+  cosignerQuestionDisplayOrder?: string[];
 } {
   if (variant === "cosigner") {
     return {
       cosignerDisabledStandardApplicationKeys: slice.disabledStandardApplicationKeys,
       cosignerCustomApplicationFields: slice.customApplicationFields,
       cosignerApplicationConfigMode: slice.applicationConfigMode,
+      cosignerQuestionDisplayOrder: slice.questionDisplayOrder,
     };
   }
   if (variant !== "short_term") {
@@ -374,12 +444,14 @@ export function mergeApplicationConfigForVariant(
       disabledStandardApplicationKeys: slice.disabledStandardApplicationKeys,
       customApplicationFields: slice.customApplicationFields,
       applicationConfigMode: slice.applicationConfigMode,
+      questionDisplayOrder: slice.questionDisplayOrder,
     };
   }
   return {
     shortTermDisabledStandardApplicationKeys: slice.disabledStandardApplicationKeys,
     shortTermCustomApplicationFields: slice.customApplicationFields,
     shortTermApplicationConfigMode: slice.applicationConfigMode,
+    shortTermQuestionDisplayOrder: slice.questionDisplayOrder,
   };
 }
 
@@ -408,8 +480,10 @@ function mergeStandardWithOverride(
     id: override.id || base.id,
     label: override.label.trim() || base.label,
     type: override.type ?? base.type,
-    required: override.required ?? base.required,
-    options: override.type === "select" && override.options.length > 0 ? [...override.options] : base.options,
+    required: REQUIRED_IDENTITY_STANDARD_KEY_SET.has(def.standardKey) ? true : override.required ?? base.required,
+    options: def.options.length > 0
+      ? [...def.options]
+      : override.type === "select" && override.options.length > 0 ? [...override.options] : base.options,
   };
 }
 
@@ -439,6 +513,7 @@ export function resolveListingApplicationFields(
     | {
         disabledStandardApplicationKeys?: unknown;
         customApplicationFields?: unknown;
+        questionDisplayOrder?: unknown;
       }
     | null
     | undefined,
@@ -446,7 +521,7 @@ export function resolveListingApplicationFields(
 ): ResolvedApplicationField[] {
   const disabled = new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
       : [],
   );
   const saved = normalizeSaved(sub?.customApplicationFields);
@@ -459,13 +534,31 @@ export function resolveListingApplicationFields(
     (def) => mergeStandardWithOverride(def, overridesByKey.get(def.standardKey)),
   );
 
-  return [
+  const resolved = [
     ...standardRows,
     ...customOnly.map((f) => ({
       ...f,
       isStandard: false,
     })),
   ];
+  const displayOrder = Array.isArray((sub as ApplicationConfigSlice | null)?.questionDisplayOrder)
+    ? (sub as ApplicationConfigSlice).questionDisplayOrder!
+    : [];
+  if (displayOrder.length === 0) return resolved;
+  const position = new Map(displayOrder.map((id, index) => [id, index]));
+  return resolved.toSorted((left, right) => (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
+/** Required policy for built-ins follows the same override rows as the editor. */
+export function isWizardFormFieldRequired(
+  slice: ApplicationConfigSlice | null | undefined,
+  formKey: string,
+): boolean {
+  if (!isWizardFormFieldEnabled(slice, formKey)) return false;
+  const field = resolveListingApplicationFields(slice, (raw) => asCustomFields(raw)).find((candidate) =>
+    candidate.standardKey && applicationFieldCatalogDef(candidate.standardKey)?.wizardFormKeys.includes(formKey),
+  );
+  return field?.required ?? true;
 }
 
 /** Built-in questions currently turned OFF for a listing/variant (for the manager re-add UI). */
@@ -577,6 +670,7 @@ export function patchListingApplicationField(
   applicationConfigMode: "standard" | "custom";
 } {
   const nextField: ResolvedApplicationField = { ...field, ...patch };
+  if (nextField.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(nextField.standardKey)) nextField.required = true;
   const disabled = [...(sub.disabledStandardApplicationKeys ?? [])];
   let saved = [...(sub.customApplicationFields ?? [])];
 
@@ -612,6 +706,20 @@ export function removeListingApplicationField(
   customApplicationFields: ManagerCustomApplicationField[];
   applicationConfigMode: "standard" | "custom";
 } {
+  // Identity (name/phone/email) establishes the applicant record; SSN, ID,
+  // and income are read directly by screening and billing — C195 locks a
+  // manager out of removing any of them via the editor, on every variant
+  // that reaches this function (long-term and co-signer editors both do;
+  // the short-term form's own curated default is set directly in
+  // `applicationConfigForVariant` and never goes through this function, so
+  // it is unaffected and keeps hiding SSN/income exactly as before).
+  if (field.standardKey && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey)) {
+    return {
+      disabledStandardApplicationKeys: [...(sub.disabledStandardApplicationKeys ?? [])],
+      customApplicationFields: [...(sub.customApplicationFields ?? [])],
+      applicationConfigMode: sub.applicationConfigMode ?? "standard",
+    };
+  }
   const disabled = [...(sub.disabledStandardApplicationKeys ?? [])];
   let saved = [...(sub.customApplicationFields ?? [])];
 
@@ -672,7 +780,7 @@ function disabledStandardKeysSet(
 ): Set<string> {
   return new Set(
     Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0 && !REQUIRED_IDENTITY_STANDARD_KEY_SET.has(k))
       : [],
   );
 }

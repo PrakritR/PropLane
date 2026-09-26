@@ -2,8 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
+import { effectiveLeaseDocumentMode } from "@/lib/lease-execution-evidence";
 import {
+  uploadedLeaseConversionBlocker,
+  uploadedLeaseSourceIssueKey,
   resolvedFieldValue,
   uploadedLeaseReviewIsConfirmed,
   uploadedLeaseWasNeverRead,
@@ -12,13 +18,21 @@ import {
   type UploadedLeaseParse,
 } from "@/lib/uploaded-lease-extraction";
 import { leaseDocumentMismatches, leaseMismatchAcknowledgementGap } from "@/lib/lease-document-mismatch";
+import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
 import {
   LEASE_MOVE_BACK_TO_REVIEW_MESSAGE,
   leaseAllowsManagerDocumentEdits,
   leaseCanBeSentForSignature,
   leaseRecordTerms,
 } from "@/lib/lease-pipeline-storage";
-import { buildUploadedLeaseProplaneHtml } from "@/lib/uploaded-lease-proplane-format";
+import { buildUploadedLeaseSignableHtml } from "@/lib/uploaded-lease-proplane-format";
+
+async function sha256Html(html: string): Promise<string> {
+  if (!globalThis.crypto?.subtle) throw new Error("Secure review hashing is unavailable. Choose the original PDF.");
+  const bytes = new TextEncoder().encode(html);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 /**
  * Manager review of a parsed upload — the human step between machine extraction
@@ -47,18 +61,6 @@ const STATUS_COPY: Record<UploadedLeaseField["status"], { label: string; tone: s
     help: "Not found in the document. Left blank rather than assumed.",
   },
 };
-
-function placementFor(row: LeasePipelineRow) {
-  return {
-    residentName: row.residentName,
-    residentEmail: row.residentEmail,
-    unit: row.unit,
-    leaseTerm: row.application?.leaseTerm ?? null,
-    leaseStart: row.application?.leaseStart ?? null,
-    leaseEnd: row.application?.leaseEnd ?? null,
-    rentLabel: row.signedRentLabel ?? null,
-  };
-}
 
 /**
  * A stable description of WHAT the manager is being asked to attest to.
@@ -139,7 +141,18 @@ export function UploadedLeaseReviewModal({
   row: LeasePipelineRow;
   parse: UploadedLeaseParse;
   onClose: () => void;
-  onConfirm: (args: { overrides: Partial<Record<UploadedLeaseFieldKey, string>>; note: string }) => Promise<void> | void;
+  onConfirm: (args: {
+    overrides: Partial<Record<UploadedLeaseFieldKey, string>>;
+    note: string;
+    useConverted: boolean;
+    convertedHtml?: string;
+    convertedHtmlSha256?: string | null;
+    resolvedSourceIssueCodes?: string[];
+    expectedRevision?: string | null;
+    viewedSourceSha256?: string;
+    viewedConvertedHtmlSha256?: string | null;
+    viewedRecordFingerprint?: string;
+  }) => Promise<void> | void;
   /** Re-read the PDF already on the row. Never confirms; the review stays open. */
   onRetryRead?: () => Promise<void> | void;
 }) {
@@ -194,6 +207,19 @@ export function UploadedLeaseReviewModal({
   // click with nothing re-affirmed.
   const [attested, setAttested] = useState(confirmed);
   const [tab, setTab] = useState<"terms" | "document">("terms");
+  const [convertedDraft, setConvertedDraft] = useState<string | null>(null);
+  const [resolvedIssueKeys, setResolvedIssueKeys] = useState<string[]>([]);
+  const [useConverted, setUseConverted] = useState(() => effectiveLeaseDocumentMode(row) === "imported-converted");
+  const [documentSubject, setDocumentSubject] = useState(`${parse.sourceSha256 ?? "legacy"}:${row.id}`);
+  const nextDocumentSubject = `${parse.sourceSha256 ?? "legacy"}:${row.id}`;
+  if (documentSubject !== nextDocumentSubject) {
+    setDocumentSubject(nextDocumentSubject);
+    setConvertedDraft(null);
+    setResolvedIssueKeys([]);
+    setUseConverted(true);
+  }
+  const [mobileDocumentTab, setMobileDocumentTab] = useState<"original" | "converted">("converted");
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   // Reset everything the manager staged whenever what they are attesting to
   // changes. Done during render (React's documented "adjust state when props
@@ -219,13 +245,52 @@ export function UploadedLeaseReviewModal({
     parse.review.confirmedAtIso ? ` on ${new Date(parse.review.confirmedAtIso).toLocaleString()}` : ""
   }.`;
 
-  const previewHtml = useMemo(() => {
-    const withDrafts: UploadedLeaseParse = {
-      ...parse,
-      review: { ...parse.review, overrides: { ...(parse.review.overrides ?? {}), ...drafts } },
-    };
-    return buildUploadedLeaseProplaneHtml({ parse: withDrafts, placement: placementFor(row) });
-  }, [parse, drafts, row]);
+  const convertedBaseline =
+    row.documentMode === "imported-converted" && row.generatedHtml
+      ? row.generatedHtml
+      : buildUploadedLeaseSignableHtml(parse);
+  const convertedHtml = parse.status === "failed" && convertedDraft
+    ? `<html><body><h1>Reviewed lease transcription</h1>${convertedDraft.split(/\n\s*\n/).map((paragraph) => `<p>${paragraph.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char).replace(/\n/g, "<br>")}</p>`).join("")}</body></html>`
+    : convertedDraft ?? convertedBaseline;
+  const conversionBlocker = uploadedLeaseConversionBlocker(parse, resolvedIssueKeys);
+  const conversionAvailable = !conversionBlocker && Boolean(parse.sections.length || (parse.status === "failed" && convertedDraft?.trim()));
+  const viewedRecordFingerprint = leaseRecordFingerprint(leaseRecordTerms(row));
+
+  const confirmReview = async () => {
+    setConfirmError(null);
+    if (useConverted) {
+      if (!conversionAvailable) {
+        setConfirmError(conversionBlocker ?? "Add the transcribed source text before choosing the converted lease.");
+        return;
+      }
+      try {
+        const sanitizedHtml = sanitizeLeaseDocumentHtml(convertedHtml);
+        if (!sanitizedHtml) throw new Error("The converted lease is empty after document safety checks.");
+        const convertedHtmlSha256 = await sha256Html(sanitizedHtml);
+        await onConfirm({
+          overrides: drafts,
+          note,
+          useConverted,
+          convertedHtml: sanitizedHtml,
+          convertedHtmlSha256,
+          resolvedSourceIssueCodes: resolvedIssueKeys,
+          expectedRevision: row.reviewRevision,
+          viewedSourceSha256: parse.sourceSha256 ?? undefined,
+          viewedConvertedHtmlSha256: convertedHtmlSha256,
+          viewedRecordFingerprint,
+        });
+      } catch (err) {
+        setConfirmError(err instanceof Error ? err.message : "Could not verify the converted document.");
+      }
+      return;
+    }
+    await onConfirm({ overrides: drafts, note, useConverted: false,
+      expectedRevision: row.reviewRevision,
+      viewedSourceSha256: parse.sourceSha256 ?? undefined,
+      viewedConvertedHtmlSha256: null,
+      viewedRecordFingerprint,
+    });
+  };
 
   const setDraft = (key: UploadedLeaseFieldKey, value: string) =>
     setDrafts((d) => ({ ...d, [key]: value }));
@@ -290,8 +355,8 @@ export function UploadedLeaseReviewModal({
       : null;
     const confirmAction = {
       label: "Confirm and allow signing",
-      onClick: () => onConfirm({ overrides: {}, note }),
-      disabled: !attested,
+      onClick: confirmReview,
+      disabled: !attested || (useConverted && !conversionAvailable),
       dataAttr: "uploaded-lease-confirm",
     };
     // Nothing left to attest to (still reading, or already confirmed): the
@@ -345,6 +410,28 @@ export function UploadedLeaseReviewModal({
                 : null}
             </p>
           </div>
+          {!stillReading && !confirmed && parse.sourceIssues?.some((issue) => issue.code === "unreadable_page") ? (
+            <div className="space-y-3" data-attr="uploaded-lease-manual-transcription">
+              <label className="block font-semibold" htmlFor="uploaded-lease-transcription">Transcribe the unreadable pages</label>
+              <textarea id="uploaded-lease-transcription" rows={10} value={convertedDraft ?? ""}
+                onChange={(event) => { setConvertedDraft(event.target.value); setAttested(false); }}
+                className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" />
+              {parse.sourceIssues.filter((issue) => issue.code === "unreadable_page").map((issue, index) => {
+                const key = uploadedLeaseSourceIssueKey(issue);
+                return <label key={`${key}-${index}`} className="flex items-start gap-2">
+                  <input type="checkbox" checked={resolvedIssueKeys.includes(key)} onChange={(event) => {
+                    setResolvedIssueKeys((current) => event.target.checked ? [...current, key] : current.filter((item) => item !== key));
+                    setAttested(false);
+                  }} />
+                  <span>Page {issue.pageNumber}: I transcribed this page and compared it with the original PDF.</span>
+                </label>;
+              })}
+              <label className="flex items-start gap-2"><input type="checkbox" checked={useConverted}
+                disabled={!conversionAvailable} onChange={(event) => { setUseConverted(event.target.checked); setAttested(false); }} />
+                <span>Use the reviewed transcription as the signable lease</span></label>
+            </div>
+          ) : null}
+          {confirmError ? <p role="alert">{confirmError}</p> : null}
           {stillReading || confirmed ? null : (
             <>
               <label className="flex items-start gap-2 text-sm text-foreground">
@@ -383,14 +470,74 @@ export function UploadedLeaseReviewModal({
           ? { label: "Done", onClick: onClose }
           : {
               label: "Confirm and allow signing",
-              onClick: () => onConfirm({ overrides: drafts, note }),
-              disabled: !attested,
+              onClick: confirmReview,
+              disabled: !attested || (useConverted && !conversionAvailable),
               dataAttr: "uploaded-lease-confirm",
             }
       }
       secondaryAction={null}
     >
       <div className="space-y-4">
+        {!confirmed ? (
+          <fieldset className="rounded-xl border border-border px-4 py-3 text-sm" data-attr="uploaded-lease-signable-version">
+            <legend className="px-1 font-semibold">Version sent for signature</legend>
+            <label className="flex items-start gap-2 py-1">
+              <input
+                type="radio"
+                name="uploaded-lease-document-mode"
+                checked={useConverted}
+                disabled={!conversionAvailable}
+                onChange={() => setUseConverted(true)}
+              />
+              <span>Use the converted lease after comparing and editing it</span>
+            </label>
+            <label className="flex items-start gap-2 py-1">
+              <input
+                type="radio"
+                name="uploaded-lease-document-mode"
+                checked={!useConverted}
+                onChange={() => setUseConverted(false)}
+              />
+              <span>Use the original PDF unchanged</span>
+            </label>
+            {confirmError ? <p role="alert" className="mt-2 text-rose-700">{confirmError}</p> : null}
+          </fieldset>
+        ) : (
+          <p className="rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm" data-attr="uploaded-lease-selected-mode">
+            {effectiveLeaseDocumentMode(row) === "imported-converted"
+              ? "The reviewed converted lease is the version offered for signature. The original PDF remains available for comparison."
+              : "The unchanged original PDF is the version offered for signature."}
+          </p>
+        )}
+        {parse.sourceIssues?.length ? (
+          <section
+            className="rounded-xl border border-amber-300 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+            data-attr="uploaded-lease-source-issues"
+          >
+            <p className="font-semibold">Source pages need a closer read</p>
+            <ul className="mt-2 space-y-1.5">
+              {parse.sourceIssues.map((issue, index) => (
+                <li key={`${issue.code}-${issue.pageNumber ?? "doc"}-${index}`}>
+                  {issue.pageNumber ? <strong>Page {issue.pageNumber}: </strong> : null}
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2">
+              Compare each page with the original PDF before confirming. The extracted wording stays editable, and the original remains unchanged.
+            </p>
+          </section>
+        ) : null}
+        {!confirmed ? parse.sourceIssues?.map((issue, index) => {
+          const key = uploadedLeaseSourceIssueKey(issue);
+          return <label key={`${key}-${index}`} className="flex items-start gap-2 rounded-xl border border-amber-300 px-4 py-3 text-sm" data-attr="uploaded-lease-resolve-source-issue">
+            <input type="checkbox" checked={resolvedIssueKeys.includes(key)} onChange={(event) => {
+              setResolvedIssueKeys((current) => event.target.checked ? [...current, key] : current.filter((item) => item !== key));
+              setAttested(false);
+            }} className="mt-1" />
+            <span>Page {issue.pageNumber ?? "source"}: I compared this issue with the original and accounted for it in the converted lease.</span>
+          </label>;
+        }) : null}
         {supersededCause ? (
           <p
             className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
@@ -565,12 +712,55 @@ export function UploadedLeaseReviewModal({
             </table>
           </div>
         ) : (
-          <iframe
-            title="Imported lease in PropLane format"
-            srcDoc={previewHtml}
-            sandbox="allow-same-origin"
-            className="h-[52vh] w-full rounded-xl border border-border bg-white"
-          />
+          <div className="space-y-3" data-attr="uploaded-lease-compare">
+            <div className="flex gap-2 lg:hidden" role="group" aria-label="Lease comparison">
+              {(["original", "converted"] as const).map((documentTab) => (
+                <button
+                  key={documentTab}
+                  type="button"
+                  aria-pressed={mobileDocumentTab === documentTab}
+                  onClick={() => setMobileDocumentTab(documentTab)}
+                  className="min-h-11 rounded-md border border-border px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  {documentTab === "original" ? "Original" : "Converted"}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <section className={`${mobileDocumentTab === "original" ? "block" : "hidden"} lg:block`}>
+                <h3 className="mb-2 text-sm font-semibold">Original PDF</h3>
+                {row.managerUploadedPdf?.dataUrl ? (
+                  <UploadedLeasePdfPreview
+                    dataUrl={row.managerUploadedPdf.originalDataUrl ?? row.managerUploadedPdf.dataUrl}
+                    title="Original uploaded lease PDF"
+                    fileName={parse.sourceFileName}
+                    className="h-[52vh]"
+                  />
+                ) : (
+                  <p className="rounded-lg border border-border p-4 text-sm">Original PDF is not available in this view.</p>
+                )}
+              </section>
+              <section className={`${mobileDocumentTab === "converted" ? "block" : "hidden"} lg:block`}>
+                <h3 className="mb-2 text-sm font-semibold">Converted document</h3>
+                {conversionAvailable ? (
+                  <LeaseHtmlDirectEditor
+                    className="h-[52vh]"
+                    html={convertedHtml}
+                    baselineHtml={convertedBaseline}
+                    onChange={(next) => {
+                      setConvertedDraft(next);
+                      setAttested(false);
+                    }}
+                    showPersistBar={false}
+                  />
+                ) : (
+                  <p className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+                    A source page could not be read, so the converted document is unavailable. Transcribe that page or use the original PDF.
+                  </p>
+                )}
+              </section>
+            </div>
+          </div>
         )}
 
         {row.managerUploadedPdf?.dataUrl ? (
@@ -580,7 +770,7 @@ export function UploadedLeaseReviewModal({
             data-attr="uploaded-lease-open-original"
             className="inline-block text-sm font-semibold text-primary underline"
           >
-            Download the original PDF — unchanged, and still the document that gets signed
+            Download the original PDF — unchanged and available for comparison
           </a>
         ) : null}
 
@@ -596,8 +786,8 @@ export function UploadedLeaseReviewModal({
               />
               <span>
                 {mismatches.length > 0
-                  ? "I have compared this against the original PDF. I accept the differences listed above, and this is the lease I intend to send for signature."
-                  : "I have compared this against the original PDF. The terms above are correct and this is the lease I intend to send for signature."}
+                  ? `I have compared this against the original PDF. I accept the differences listed above, and this is the ${useConverted ? "converted lease" : "original PDF"} I intend to send for signature.`
+                  : `I have compared this against the original PDF. The terms above are correct and this is the ${useConverted ? "converted lease" : "original PDF"} I intend to send for signature.`}
               </span>
             </label>
             <textarea

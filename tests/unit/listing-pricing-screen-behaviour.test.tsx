@@ -104,57 +104,29 @@ describe("Pricing puts payment setup first", () => {
     expect(document.querySelector('[data-attr="listing-v2-price-move-in-fee"]')).toBeNull();
   });
 
-  it("asks for the application fee and waiver code exactly once, with no Manage codes link", () => {
+  it("does not ask for an application fee on Pricing (fee lives under Application system)", () => {
     openPricing();
-    // Both used to appear here AND on Advanced — and the Advanced copies wrote
-    // the raw input, so letters typed there were stored as the fee.
     const labels = Array.from(document.querySelectorAll("[aria-label]")).map((l) => l.getAttribute("aria-label") ?? "");
     const count = (re: RegExp) => labels.filter((t) => re.test(t)).length;
 
-    expect(count(/^Application fee$/)).toBe(1);
-    expect(count(/^Waiver code/)).toBe(1);
-    // The retired second copy carried this exact label.
-    expect(count(/^Application fee waive code/)).toBe(0);
+    expect(count(/^Application fee$/)).toBe(0);
+    expect(count(/^Waiver code/)).toBe(0);
+    expect(count(/^Charge an application fee$/)).toBe(0);
+    expect(document.querySelector('[data-attr="listing-v2-application-fee-on"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-application-fee-rows"]')).toBeNull();
     expect(screen.queryByText(/Manage codes/)).toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-manage-waiver-codes"]')).toBeNull();
   });
 
-  it("prices the application fee per lease type behind one checkbox; blank rows follow the one amount", () => {
-    let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
-
-    expect(screen.queryByLabelText("Month to month application fee")).toBeNull();
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-application-fee-split"]')!);
-    // One row per lease type the listing offers, each following the one amount.
-    const mtm = screen.getByLabelText("Month to month application fee") as HTMLInputElement;
-    expect(screen.getByLabelText("Long-term application fee")).toBeTruthy();
-    expect(screen.getByLabelText("Custom application fee")).toBeTruthy();
-    expect(mtm.value).toBe("");
-    expect(mtm.placeholder).toBe("50");
-
-    fireEvent.change(mtm, { target: { value: "25" } });
-    expect(latest?.applicationFeeByLeaseType).toEqual({ "Month-to-Month": "25" });
-    expect(latest?.applicationFee).toBe("50");
-
-    // Untick: every per-type amount goes and one fee applies again.
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-application-fee-split"]')!);
-    expect(latest?.applicationFeeByLeaseType).toBeUndefined();
+  it("keeps the Applications card for form knobs only (no fee split controls)", () => {
+    openPricing();
+    expect(document.querySelector('[data-attr="listing-v2-applications-card"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-v2-application-fee-split"]')).toBeNull();
     expect(screen.queryByLabelText("Month to month application fee")).toBeNull();
   });
 
-  it("the application-fee switch off blanks the fee and hides its rows", () => {
-    let latest: ManagerListingSubmissionV1 | null = null;
-    render(<Editor onChange={(s) => (latest = s)} />);
-    const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
-    const toggle = document.querySelector('[data-attr="listing-v2-application-fee-on"]') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
-    fireEvent.click(toggle);
-    expect(latest?.applicationFee).toBe("");
-    expect(latest?.applicationFeeWaiverCode).toBe("");
-    expect(latest?.applicationFeeByLeaseType).toBeUndefined();
+  it("has no application-fee switch on Pricing", () => {
+    openPricing();
+    expect(document.querySelector('[data-attr="listing-v2-application-fee-on"]')).toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-application-fee-rows"]')).toBeNull();
   });
 });
@@ -439,14 +411,6 @@ describe("partial months", () => {
     fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Parking" } });
     fireEvent.change(screen.getByLabelText("Parking amount for Room A"), { target: { value: "60" } });
   };
-  const pickSameAs = (who: string, sourceId: string) => {
-    const trigger = screen.getByRole("button", { name: `Same as for ${who}` });
-    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-    const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector(`[data-field-select-option-value="${sourceId}"]`)!;
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  };
-
   it("asks on the lease types that can start mid-month, never on Month-to-Month", () => {
     render(<DryEditor />);
     goPricing();
@@ -489,7 +453,7 @@ describe("partial months", () => {
     expect(screen.queryByLabelText("Rent per day for Room A")).toBeNull();
   });
 
-  it("Same as Room X copies partial-month settings onto the other room", () => {
+  it("keeps each room's partial-month settings independent", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<DryEditor onChange={(s) => (latest = s)} />);
     goPricing();
@@ -498,9 +462,13 @@ describe("partial months", () => {
     fireEvent.change(screen.getByLabelText("Rent per day for Room A"), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: "Close Room A prices" }));
     openPriceCard("Room B");
-    pickSameAs("Room B", "r1");
+    expect(roomTick()?.checked).toBe(true);
+    fireEvent.click(roomTick()!);
+    fireEvent.change(screen.getByLabelText("Rent per day for Room B"), { target: { value: "50" } });
+    expect(latest!.rooms.find((r) => r.id === "r1")!.prorateMethod).toBe("daily_rate");
+    expect(latest!.rooms.find((r) => r.id === "r1")!.dailyRentRate).toBe(40);
     expect(latest!.rooms.find((r) => r.id === "r2")!.prorateMethod).toBe("daily_rate");
-    expect(latest!.rooms.find((r) => r.id === "r2")!.dailyRentRate).toBe(40);
+    expect(latest!.rooms.find((r) => r.id === "r2")!.dailyRentRate).toBe(50);
   });
 
   it("the whole place asks the same way, and only while utilities are above $0", () => {

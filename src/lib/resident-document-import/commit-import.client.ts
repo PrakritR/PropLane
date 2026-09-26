@@ -20,6 +20,7 @@ import { residentAccountCreationUrl } from "@/lib/resident-welcome-email";
 import type { ResidentDocumentImportReview } from "@/lib/resident-document-import/types";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
 import { buildApplicationRow } from "@/lib/resident-document-import/build-application-row";
+import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
 export async function commitResidentDocumentImport(args: {
   parse: ParsedResidentDocument;
@@ -29,6 +30,15 @@ export async function commitResidentDocumentImport(args: {
   propertyLabel: string;
   managerName?: string;
 }): Promise<{ ok: true; applicationId: string; leaseId?: string } | { ok: false; error: string }> {
+  if (args.review.residentMode === "existing") {
+    const existing = readManagerApplicationRows().find((candidate) =>
+      candidate.id === args.review.existingApplicationId &&
+      (!args.managerUserId || !candidate.managerUserId || candidate.managerUserId === args.managerUserId),
+    );
+    if (!existing || existing.email?.trim().toLowerCase() !== args.review.fields.tenantEmail?.trim().toLowerCase()) {
+      return { ok: false, error: "The resident email changed. Select the matching resident again before importing." };
+    }
+  }
   const row = buildApplicationRow(args);
   if (!row.email?.trim()) return { ok: false, error: "A resident email is required." };
 

@@ -29,6 +29,16 @@ function capacitorDevOrigins(): string[] {
 }
 
 const nextConfig: NextConfig = {
+  // Native canvas binaries must load through Node rather than Turbopack's ESM chunks.
+  serverExternalPackages: ["@napi-rs/canvas"],
+  // PDF imports run OCR from bundled language data. Keep the trained model in
+  // the three serverless parse routes; runtime never downloads document data.
+  outputFileTracingIncludes: {
+    "/api/portal/parse-uploaded-lease": ["./node_modules/@tesseract.js-data/eng/4.0.0/**/*"],
+    "/api/portal/parse-lease-pdf": ["./node_modules/@tesseract.js-data/eng/4.0.0/**/*"],
+    "/api/portal/application-template-import": ["./node_modules/@tesseract.js-data/eng/4.0.0/**/*"],
+    "/api/portal-lease-pipeline": ["./node_modules/@tesseract.js-data/eng/4.0.0/**/*"],
+  },
   env: {
     // Baked at build time — keeps SSR and client in sync for demo gating. Default on;
     // set NEXT_PUBLIC_AXIS_PUBLIC_DEMO_ENABLED=false in Vercel to hide /demo surfaces.
@@ -104,8 +114,13 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
-      { source: "/demo", destination: "/", permanent: false },
-      { source: "/demo/:path*", destination: "/", permanent: false },
+      // `/demo` is a real page again (src/app/demo/page.tsx) — the home page's
+      // Codex hero embeds it live in an iframe (site/codex-hero-window.tsx).
+      // Only unknown sub-paths (no `/demo/[section]` route exists) still bounce,
+      // now to the working sandbox itself rather than back to the marketing page.
+      // `:path+` (one or more) — NOT `:path*` — or this also matches the bare
+      // `/demo` path with an empty capture and redirects it to itself forever.
+      { source: "/demo/:path+", destination: "/demo", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a

@@ -12,12 +12,15 @@ const MANAGER = "manager-payload-preservation";
 const PROPERTY_ID = "mgr-payload-preservation";
 const STORED_ROW_DATA = { marker: "owned-e2e-fixture", workspaceId: "workspace-1" };
 const STORED_PROPERTY_DATA = { id: PROPERTY_ID, title: "Stored listing" };
+const updateResult = vi.fn();
+const update = vi.fn(() => ({ eq: () => ({ eq: () => ({ select: updateResult }) }) }));
 
 let existing = {
   manager_user_id: MANAGER,
   status: "live",
   row_data: STORED_ROW_DATA as unknown,
   property_data: STORED_PROPERTY_DATA as unknown,
+  updated_at: "2026-09-24T00:00:00.000Z",
 };
 let upserts: Record<string, unknown>[] = [];
 
@@ -40,15 +43,24 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: existing, error: null }) }),
-      }),
-      upsert: async (row: Record<string, unknown>) => {
-        upserts.push(row);
-        return { error: null };
-      },
-    }),
+    from: (table: string) => {
+      // N037's reconcile reads this to find the owner's default workspace
+      // before copying its application form onto the listing — none exists
+      // in this fixture set, so the reconcile cleanly no-ops.
+      if (table === "portal_workspaces") {
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+      }
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: existing, error: null }) }),
+        }),
+        update,
+        upsert: async (row: Record<string, unknown>) => {
+          upserts.push(row);
+          return { error: null };
+        },
+      };
+    },
   }),
 }));
 
@@ -67,8 +79,10 @@ beforeEach(() => {
     status: "live",
     row_data: STORED_ROW_DATA,
     property_data: STORED_PROPERTY_DATA,
+    updated_at: "2026-09-24T00:00:00.000Z",
   };
   upserts = [];
+  updateResult.mockResolvedValue({ data: [{ id: PROPERTY_ID }], error: null });
   getUser.mockResolvedValue({ data: { user: { id: MANAGER } } });
 });
 
@@ -126,5 +140,44 @@ describe("POST /api/property-records omitted payload preservation", () => {
     expect(response.status).toBe(200);
     expect(upserts).toHaveLength(1);
     expect(upserts[0]).toMatchObject({ row_data: null, property_data: null });
+  });
+
+  it("retains published application history on explicit null and conditionally writes the saved revision", async () => {
+    const { createPropertyApplicationTemplate, applicationTemplateQuestionConfigFromSlice, publishApplicationTemplateQuestionDraft } = await import("@/lib/property-application-templates");
+    const template = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term" }),
+      draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [], customApplicationFields: [], applicationConfigMode: "custom" }),
+    });
+    existing.property_data = { listingSubmission: { propertyApplicationTemplates: [template] } };
+    const response = await post({ action: "upsert", id: PROPERTY_ID, status: "live", propertyData: null });
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledOnce();
+    expect(upserts).toHaveLength(0);
+    const saved = update.mock.calls[0]?.[0] as { property_data?: { listingSubmission?: { propertyApplicationTemplates?: unknown[] } } };
+    expect(saved.property_data?.listingSubmission?.propertyApplicationTemplates).toEqual([template]);
+  });
+
+  it("returns a conflict when a protected-template save loses the revision race", async () => {
+    const { createPropertyApplicationTemplate, applicationTemplateQuestionConfigFromSlice, publishApplicationTemplateQuestionDraft } = await import("@/lib/property-application-templates");
+    const template = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term" }),
+      draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [], customApplicationFields: [], applicationConfigMode: "custom" }),
+    });
+    existing.property_data = { listingSubmission: { propertyApplicationTemplates: [template] } };
+    updateResult.mockResolvedValue({ data: [], error: null });
+    const response = await post({ action: "upsert", id: PROPERTY_ID, status: "live", propertyData: {} });
+    expect(response.status).toBe(409);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("also conditionally writes when a legacy row_data submission holds the protected template", async () => {
+    const { createPropertyApplicationTemplate, applicationTemplateQuestionConfigFromSlice, publishApplicationTemplateQuestionDraft } = await import("@/lib/property-application-templates");
+    const template = publishApplicationTemplateQuestionDraft({ ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [], customApplicationFields: [], applicationConfigMode: "custom" }) });
+    existing.row_data = { listingSubmission: { propertyApplicationTemplates: [template] } };
+    updateResult.mockResolvedValue({ data: [], error: null });
+    const response = await post({ action: "upsert", id: PROPERTY_ID, status: "live", rowData: { marker: "fresh" } });
+    expect(response.status).toBe(409);
+    expect(update).toHaveBeenCalledOnce();
+    expect(upserts).toHaveLength(0);
   });
 });

@@ -21,7 +21,7 @@
 // agreed to it — on a lease. These tests drive the real component through the
 // real prop transition and assert the box comes back unticked.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import {
   buildUploadedLeaseParse,
@@ -29,6 +29,8 @@ import {
   type UploadedLeaseParse,
 } from "@/lib/uploaded-lease-extraction";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { leaseRecordTerms } from "@/lib/lease-pipeline-storage";
 
 const PAGES = [
   [
@@ -104,6 +106,20 @@ afterEach(() => {
 });
 
 describe("uploaded lease attestation carryover", () => {
+  it("submits the exact displayed source, revision, and record terms for confirmation", async () => {
+    const onConfirm = vi.fn();
+    const r = { ...row(), reviewRevision: "2026-09-24T00:00:00.000Z" };
+    render(<UploadedLeaseReviewModal open row={r} parse={parsedParse()} onClose={() => {}} onConfirm={onConfirm} />);
+    fireEvent.click(attestBox()!);
+    fireEvent.click(confirmBtn()!);
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledOnce());
+    expect(onConfirm.mock.calls[0]![0]).toMatchObject({
+      expectedRevision: r.reviewRevision,
+      viewedSourceSha256: SHA_A,
+      viewedConvertedHtmlSha256: null,
+      viewedRecordFingerprint: leaseRecordFingerprint(leaseRecordTerms(r)),
+    });
+  });
   it("unticks the attestation when a failed parse is retried into a parsed one", () => {
     const { rerender } = renderModal(failedUploadedLeaseParse("northgate-lease.pdf", "Scanned image only."));
 

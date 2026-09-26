@@ -41,6 +41,17 @@ vendor Communication components (`pro-unified-inbox.tsx`,
 clickable chip on a thread that carries a `recordRef`, using
 `recordRoutePath()` to build the record's route.
 
+`RecordCommunicationSection` (`src/components/portal/record-communication-section.tsx`,
+the record-page Communication tab) reads the SAME persisted inbox cache every
+other Communication surface does, via `loadPersistedInbox` — synchronous, and
+empty on a cold page load until `syncPersistedInboxFromServer` completes at
+least once. That gap used to render the confident "No messages about this X
+yet" empty state before the real thread had even been fetched, so reloading
+the exact same conversation intermittently "had no messages" depending on
+network timing. `initialSyncDone` distinguishes "still checking" from
+"checked, and there really is nothing" — the empty label only ever reflects
+the completed sync's own answer. See `tests/unit/record-communication-section.test.tsx`.
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
@@ -470,3 +481,14 @@ window is a no-op) and the manager notification. Rules for adding a channel:
 
 Coverage: `tests/unit/inbound-message-intent.test.ts` (the classification table
 is the spec), `tests/unit/inbound-message-workflows.test.ts`.
+
+**`loadManagerSmsConversationsClient` (`src/lib/manager-sms-conversations-client.ts`)
+now has a TTL, not just in-flight coalescing.** `createCoalescedRefresher`
+only dedupes CONCURRENT callers; it holds no cache of the settled result, so
+an unforced caller arriving after the previous fetch already resolved used to
+start a brand-new request regardless of how recently that was — the sidebar's
+60s nav-count poll plus the inbox/composer reading the same directory made
+`/api/manager/sms-conversations` one of the slowest calls on most manager
+routes. A 20s TTL now sits in front of the refresher; `force: true` (e.g.
+after a send/delete) still always starts a fresh fetch. Any new caller should
+go through this client rather than calling the route directly.

@@ -18,8 +18,8 @@ import { mergeApplicationLeaseDatesIntoResidentRow } from "@/lib/resident-lease-
 import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import {
   activeApplicationWizardSteps,
-  applicationConfigForVariant,
 } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { maskSsnInput } from "@/lib/rental-application/masks";
 import {
@@ -103,10 +103,10 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
     const prop = pid ? getPropertyById(pid) : undefined;
     const listingSub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
     return activeApplicationWizardSteps(
-      applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType)),
+      applicationConfigForApplicant(listingSub, applicationRentalTypeFor(form.rentalType), form.applicationTemplateId, form.applicationTemplateVersion).config,
       normalizeCustomApplicationFields,
     ).filter((s) => s <= EDIT_STEP_COUNT);
-  }, [extrasTick, form.propertyId, form.rentalType, row.application?.propertyId, row.propertyId]);
+  }, [extrasTick, form.propertyId, form.rentalType, form.applicationTemplateId, form.applicationTemplateVersion, row.application?.propertyId, row.propertyId]);
   const firstActiveStep = activeSteps[0] ?? 1;
   const lastActiveStep = activeSteps[activeSteps.length - 1] ?? EDIT_STEP_COUNT;
   const nextActiveStep = useCallback(
