@@ -587,6 +587,14 @@ is how a moved resident got two "Rent — October" rows at two prices.
 
 Coverage: `tests/unit/lease-signed-terms.test.ts`.
 
+**UI location (C145):** saved payment methods and the autopay card live in
+Settings › Account, alongside sign out (`ResidentPaymentMethodsSettingsCard`,
+`resident-payment-methods-settings-card.tsx`) — not in the Payments list,
+which keeps owning charge history and the per-charge Pay flow. A declined
+autopay run's "Pay now" routes to `/resident/payments?pay=<chargeId>`, the
+same shortcut the dashboard's Balance due uses (C248) to open the pay
+confirmation directly.
+
 ## Autopay: one run per charge, the SAME builder and fee resolver as a manual payment (PLAN-0920-1051 Wave 1)
 
 Autopay covers **recurring charges only** — `rent` and `utilities`
