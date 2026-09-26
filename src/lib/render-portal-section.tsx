@@ -43,7 +43,6 @@ import { ResidentProfileSection } from "@/components/portal/resident-profile-sec
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
-import { VendorJobsPanel } from "@/components/portal/vendor-jobs-panel";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
@@ -398,6 +397,13 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "tasks") {
+    redirect(`${def.basePath}/work-orders/pending`);
+  }
+
+  // Jobs was folded into Services — every /vendor/jobs* URL (any tab, any
+  // depth) redirects to the Potential tab, which already lists every invited
+  // job (`vendorWorkOrderTab`'s `biddingOpen` bucket).
+  if (kind === "vendor" && section === "jobs") {
     redirect(`${def.basePath}/work-orders/pending`);
   }
 
@@ -1657,19 +1663,6 @@ export async function renderPortalSection(
     if (tabParts?.length) notFound();
     const { profile } = await getEffectiveSessionForPortal("vendor");
     return <VendorDashboard displayName={profile?.full_name?.trim() || "there"} />;
-  }
-
-  if (kind === "vendor" && section === "jobs") {
-    const { parseVendorJobsListTab, DEFAULT_VENDOR_JOBS_TAB, VENDOR_JOBS_LIST_TABS, vendorJobsListHref } = await import(
-      "@/lib/portal-detail-routes"
-    );
-    if (!tabParts?.length) {
-      redirect(vendorJobsListHref(def.basePath, DEFAULT_VENDOR_JOBS_TAB));
-    }
-    const raw = tabParts[0]!;
-    if (!(VENDOR_JOBS_LIST_TABS as readonly string[]).includes(raw)) notFound();
-    if (tabParts.length > 1) notFound();
-    return <VendorJobsPanel tabId={parseVendorJobsListTab(raw)} />;
   }
 
   if (kind === "vendor" && section === "work-orders") {
