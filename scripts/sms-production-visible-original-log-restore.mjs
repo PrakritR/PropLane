@@ -23,6 +23,14 @@ export const RESTORE_PREDICATE_LOCK_TABLES = Object.freeze([
   "portal_inbox_thread_records",
   "portal_workspaces",
   "sms_relay_messages",
+  "sms_projection_aliases",
+  "sms_projection_ambiguous_aliases",
+  "sms_projection_conversations",
+  "sms_projection_cutover",
+  "sms_projection_deleted_events",
+  "sms_projection_pending",
+  "sms_projection_turns",
+  "sms_projection_view_state",
 ]);
 export async function lockRestorePredicates(client) {
   for (const table of RESTORE_PREDICATE_LOCK_TABLES) {
@@ -36,6 +44,17 @@ const consentPhoneKey = (value) => {
   return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
 };
 function fail(message) { throw new Error(message); }
+
+const EMPTY_PROJECTION_TABLES = RESTORE_PREDICATE_LOCK_TABLES.filter((table) => table.startsWith("sms_projection_") && table !== "sms_projection_cutover");
+export async function assertRestoreProjectionPristine(client) {
+  const counts = EMPTY_PROJECTION_TABLES.map((table) => `(select count(*) from public.${table}) as ${table}`).join(",");
+  const result = await client.query(`select (select ready from public.sms_projection_cutover where singleton=true) cutover_ready,${counts}`);
+  const row = result.rows[0];
+  if (result.rowCount !== 1 || row?.cutover_ready !== false ||
+      EMPTY_PROJECTION_TABLES.some((table) => Number(row[table]) !== 0)) {
+    fail("Production projection is not empty with cutover disabled; review before restoration");
+  }
+}
 
 function options(argv) {
   const out = { phase: "preflight", authorized: false };
@@ -85,8 +104,7 @@ function evidence() {
 
 async function assertState(client, originals, { restored, lock }) {
   const sids = [...originals.keys()].sort();
-  const projection = await client.query("select to_regclass('public.sms_projection_turns') is null turns_absent, to_regclass('public.sms_projection_deleted_events') is null tombstones_absent");
-  if (!projection.rows[0].turns_absent || !projection.rows[0].tombstones_absent) fail("Production projection state changed; review before restoration");
+  await assertRestoreProjectionPristine(client);
   const sources = await client.query(`select i.source_message_id sid,i.manager_user_id owner,i.body,i.channel,i.burst_revision,
       i.test_actor_user_id,i.test_session_id,b.id burst_id,b.manager_user_id burst_owner,
       b.counterparty_phone_e164,b.counterparty_role,b.channel burst_channel,b.reply_from_number,b.reply_transport,
