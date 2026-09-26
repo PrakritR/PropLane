@@ -435,7 +435,7 @@ export function PromotionForm({
           className="mt-1"
           value={draft.contact}
           onChange={(e) => setDraft((d) => ({ ...d, contact: e.target.value }))}
-          placeholder="leasing@prop-lane.space · (206) 555-0142"
+          placeholder="leasing@proplane.ai · (206) 555-0142"
         />
       </div>
       <div>
