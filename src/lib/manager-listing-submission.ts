@@ -1392,6 +1392,14 @@ export type ManagerCustomApplicationField = {
    * resident must render it read-only rather than as an editable control.
    */
   filledBy?: "resident" | "manager";
+  /**
+   * True when this question is a red-flagged emphasis clause (C276) — set
+   * from a PDF import's own detected fill color (`lease-template-pdf-import.ts`'s
+   * `isPredominantlyRed`), never guessed from text. Manager-editable in the
+   * lease question review editor for a misread. Absent/false = ordinary
+   * (unflagged) question, the default for every field that predates this.
+   */
+  flagged?: boolean;
 };
 
 const CUSTOM_APPLICATION_FIELD_TYPES_SET = new Set<string>(CUSTOM_APPLICATION_FIELD_TYPES);
@@ -1478,6 +1486,7 @@ export function normalizeCustomApplicationFields(
           }
         : undefined;
     const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
+    const flagged = o.flagged === true ? true : undefined;
     out.push({
       id,
       key,
@@ -1490,6 +1499,7 @@ export function normalizeCustomApplicationFields(
       description,
       showIf,
       filledBy,
+      flagged,
     });
   }
   return out;

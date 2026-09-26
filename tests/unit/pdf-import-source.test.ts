@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
+import { classifyFillColorHex, parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
 import { parseUploadedLeasePdfBytes } from "@/lib/uploaded-lease-parse.server";
 import { parseLeasePdfBuffer } from "@/lib/lease-pdf-parse.server";
 import { uploadedLeaseConversionBlocker, uploadedLeaseSourceIssueKey } from "@/lib/uploaded-lease-extraction";
-import { PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString, StandardFonts, cmyk, grayscale, rgb } from "pdf-lib";
 
 const fixture = (name: string) =>
   new Uint8Array(readFileSync(join(process.cwd(), "tests/fixtures/portfolio-import", name)));
@@ -129,5 +129,75 @@ describe("PDF source import", () => {
     const link = pdf.context.obj({ Type: PDFName.of("Annot"), Subtype: PDFName.of("Link"), Rect: [0, 0, 20, 20], A: { S: PDFName.of("JavaScript"), JS: PDFString.of("app.alert('x')") } });
     page.node.set(PDFName.of("Annots"), pdf.context.obj([pdf.context.register(link)]));
     await expect(parseUploadedLeasePdfBytes({ bytes: await pdf.save(), fileName: "unsafe.pdf" })).rejects.toThrow(/active|unsupported/);
+  });
+});
+
+describe("PDF source import — fill color extraction (C276)", () => {
+  it("classifies a small palette from raw hex: black/gray default, true red red, blue other", () => {
+    expect(classifyFillColorHex("#000000")).toBe("default");
+    expect(classifyFillColorHex("#666666")).toBe("default");
+    expect(classifyFillColorHex("#cc0d0d")).toBe("red");
+    expect(classifyFillColorHex("#ff0000")).toBe("red");
+    expect(classifyFillColorHex("#e53935")).toBe("red");
+    expect(classifyFillColorHex("#1155cc")).toBe("other");
+    expect(classifyFillColorHex("#0a8a3f")).toBe("other");
+    expect(classifyFillColorHex("not-a-color")).toBe("default");
+  });
+
+  it("marks a red-filled line as a red colorRun and leaves black lines untagged, without changing the plain text", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([400, 200]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("Black clause text here.", { x: 20, y: 150, size: 14, font, color: rgb(0, 0, 0) });
+    page.drawText("This is a RED flagged rule.", { x: 20, y: 100, size: 14, font, color: rgb(0.8, 0.05, 0.05) });
+    page.drawText("More black text after.", { x: 20, y: 50, size: 14, font, color: rgb(0, 0, 0) });
+    const bytes = await pdf.save();
+
+    const source = await parsePdfForImport({ bytes, fileName: "colored-lease.pdf" });
+    const [pageOne] = source.pages;
+    expect(pageOne?.text).toBe("Black clause text here.\nThis is a RED flagged rule.\nMore black text after.");
+
+    const runs = pageOne?.colorRuns ?? [];
+    expect(runs).toHaveLength(1);
+    const run = runs[0]!;
+    expect(run.color).toBe("red");
+    expect(pageOne!.text.slice(run.start, run.end)).toBe("This is a RED flagged rule.");
+
+    // Additive: the existing plain-text/offset contract is untouched.
+    expect(pageOne!.blocks.map((block) => block.text).join("")).toBe(pageOne!.text);
+  });
+
+  it("merges a red rule spanning several lines into one colorRun", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([400, 200]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("This entire rule is red", { x: 20, y: 150, size: 14, font, color: rgb(0.8, 0.05, 0.05) });
+    page.drawText("and spans two full lines.", { x: 20, y: 130, size: 14, font, color: rgb(0.8, 0.05, 0.05) });
+    const bytes = await pdf.save();
+
+    const source = await parsePdfForImport({ bytes, fileName: "multiline-red.pdf" });
+    const pageOne = source.pages[0]!;
+    expect(pageOne.text).toBe("This entire rule is red\nand spans two full lines.");
+    expect(pageOne.colorRuns).toHaveLength(1);
+    expect(pageOne.text.slice(pageOne.colorRuns[0]!.start, pageOne.colorRuns[0]!.end)).toBe(pageOne.text);
+  });
+
+  it("normalizes gray and CMYK fills the same way as RGB, with no red colorRun for either", async () => {
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([400, 200]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("Gray body text.", { x: 20, y: 150, size: 14, font, color: grayscale(0.4) });
+    page.drawText("Blue emphasis text.", { x: 20, y: 100, size: 14, font, color: cmyk(1, 0.5, 0, 0) });
+    const bytes = await pdf.save();
+
+    const source = await parsePdfForImport({ bytes, fileName: "gray-cmyk.pdf" });
+    const pageOne = source.pages[0]!;
+    expect(pageOne.colorRuns.some((run) => run.color === "red")).toBe(false);
+  });
+
+  it("reports no colorRuns for an OCR'd (image-only) page", async () => {
+    const fixturePath = join(process.cwd(), "tests/fixtures/portfolio-import", "scan-application-ocr.pdf");
+    const source = await parsePdfForImport({ bytes: new Uint8Array(readFileSync(fixturePath)), fileName: "Scan.pdf" });
+    expect(source.pages[0]?.colorRuns).toEqual([]);
   });
 });

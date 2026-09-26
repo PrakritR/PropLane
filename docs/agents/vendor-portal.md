@@ -237,18 +237,71 @@ bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other
 portal table in this codebase.
 
-**Jobs board (C152/C153) — additive to Services, not a marketplace.** A
+**Jobs board (C152/C153) — Invited plus a real cross-workspace marketplace.** A
 separate `/vendor/jobs` section (`src/components/portal/vendor-jobs-panel.tsx`)
-lists the same `biddingOpen` rows Services already tracks, under Invited /
-Open tabs. Invited is real: `isInvitedJob()` reuses the existing single-vendor
-`biddingOpen` flag and the vendor's own `work_order_bids` row (still
-`submitted`, not yet `accepted`/`declined`) — Submit bid / Withdraw bid post
-to the same `/api/portal/work-order-bids` route Services already uses. Open is
-a placeholder only: there is no cross-workspace marketplace data model today
-(`work_order_bids` only ever has rows for the currently-assigned vendor, and
-RLS scopes both sides to their own `user_id`) — building a genuine "browse
-every workspace's open jobs matching my trades" board needs a new table, not
-just a new tab. Services' own Potential/Current/Past classification
+has Invited and Open tabs, both additive to Services. Invited is the original
+single-vendor flow: `isInvitedJob()` reuses the existing `biddingOpen` flag and
+the vendor's own `work_order_bids` row (still `submitted`, not yet
+`accepted`/`declined`). Open is the genuine marketplace: a `work_order_open_listings`
+table (`supabase/migrations/20260925230000_work_order_open_listings.sql`)
+carries ONLY the fields safe to show any vendor on any workspace — trade/category,
+city/area, a manager-authored `description` (never the work order's own
+`title`, which may name the resident), desired timeframe, and an optional
+budget range.
+
+**No client-side RLS read path at all on `work_order_open_listings`.** An
+earlier draft gave vendors a `status = 'open'` SELECT policy; that was reverted
+(integrator review) because RLS constrains which ROW a policy exposes, never
+which COLUMN, so it let ANY authenticated user — a resident, another manager,
+anyone signed in — read every open listing's RAW row directly via PostgREST,
+`manager_user_id` and `work_order_id` included. Both the manager's own view
+and the vendor's browse are served exclusively by the service-role API
+(`POST`/`GET /api/portal/work-order-open-listings`,
+`src/lib/work-order-open-listings.server.ts`), which re-derives the work
+order's `manager_user_id` server-side and applies a redacted projection before
+anything reaches the client. The vendor browse projection
+(`publicOpenListingProjection`) hands back only an **opaque listing id** —
+never `work_order_id` or `manager_user_id` — so a vendor who is only browsing
+never learns either internal identifier before choosing to bid.
+
+Bidding on an open listing reuses the SAME `work_order_bids` table and
+`/api/portal/work-order-bids` route Invited uses, unchanged — but the client
+sends only the listing's opaque id (`openListingId`), never a work order id;
+the route resolves the real work order id server-side
+(`resolveWorkOrderIdForOpenListing`, re-checking `status = 'open'` so a stale
+or just-closed listing id can't sneak a late bid in), and the bid row itself
+carries `work_order_bids.open_listing_id` so the vendor's own bid list can
+correlate "have I already bid on this listing" without ever seeing
+`work_order_id` either.
+
+`resolveVendorWorkOrderAccess` (`src/lib/work-order-bids.server.ts`) now
+returns an explicit `accessKind`: `"assigned"` / `"offered"` (today's original
+flow) or `"open_listing"` (admitted only because a `work_order_open_listings`
+row is currently `open` for that work order — not because the manager
+specifically offered them the job). That distinction gates what the access is
+good for: `submitWorkOrderBid` / `withdrawWorkOrderBid` accept all three kinds,
+but `scheduleWorkOrderConsultation` explicitly narrows to `["assigned",
+"offered"]` — an open-listing bidder can never escalate into the
+consultation-scheduling flow. `setVendorPriceForWorkOrder` and
+`markWorkOrderDoneByVendor` never call this resolver at all; they check
+`portal_work_order_records.vendor_user_id === actor.userId` directly, which an
+unaccepted open-listing bidder categorically cannot satisfy — so neither can
+ever be reached before a bid is actually accepted and assigned.
+
+An open-marketplace bidder gets **no `manager_vendor_records` directory
+footprint until they win**: `submitWorkOrderBid` only ever resolves an
+existing directory row (plain `SELECT`, never a create), so a losing bid
+leaves no trace in the manager's vendor roster. `acceptWorkOrderBid` is the
+ONLY caller of `ensureVendorDirectoryIdForManager` — it creates a minimal
+directory row from the vendor's OWN public business profile (never from the
+work order's private fields), but only for the bidder actually being
+accepted, and stamps the new id back onto that one bid row so name/contact
+resolution works exactly like any other vendor's win. Accepting a bid
+best-effort closes the open listing too (`closeOpenListingBestEffort`) — the
+job stops soliciting new bids the moment it's assigned. Bid submission is
+rate-limited per vendor (`work-order-bid-submit:<vendorUserId>`, 20/hour)
+since the marketplace makes it reachable from every workspace, not just one
+manager's own roster. Services' own Potential/Current/Past classification
 (`vendor-work-order-tabs.ts`) is unchanged; Jobs is a second, purely additive
 view onto the same rows.
 

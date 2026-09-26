@@ -46,6 +46,15 @@ import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-docu
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
+import {
+  closeOpenListing as closeOpenListingApi,
+  fetchOwnOpenListing,
+  formatBudgetRange,
+  publishOpenListing,
+  OPEN_LISTING_TIMEFRAMES,
+  type OwnOpenListing,
+} from "@/lib/work-order-open-listings";
+import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { acceptDemoWorkOrderBid, approveDemoWorkOrderPay } from "@/lib/demo/demo-work-order-actions";
@@ -254,6 +263,19 @@ export function ManagerWorkOrdersPanel({
   });
   const [bidsByWorkOrderId, setBidsByWorkOrderId] = useState<Record<string, WorkOrderBid[]>>({});
   const [acceptingBidId, setAcceptingBidId] = useState<string | null>(null);
+  // C152: the manager's own open-marketplace listing state per work order (null = never opened).
+  const [openListingByWorkOrderId, setOpenListingByWorkOrderId] = useState<Record<string, OwnOpenListing | null>>({});
+  const [openListingModalRow, setOpenListingModalRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [openListingDraft, setOpenListingDraft] = useState({
+    trade: "",
+    area: "",
+    description: "",
+    timeframe: "Flexible",
+    budgetMin: "",
+    budgetMax: "",
+  });
+  const [openListingBusy, setOpenListingBusy] = useState(false);
+  const [closingListingId, setClosingListingId] = useState<string | null>(null);
   const [dispatchBusyId, setDispatchBusyId] = useState<string | null>(null);
   const [autoSchedulingId, setAutoSchedulingId] = useState<string | null>(null);
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
@@ -323,6 +345,11 @@ export function ManagerWorkOrdersPanel({
     setBidsByWorkOrderId((prev) => ({ ...prev, [workOrderId]: bids }));
   }, []);
 
+  const loadOpenListing = useCallback(async (workOrderId: string) => {
+    const listing = await fetchOwnOpenListing(workOrderId);
+    setOpenListingByWorkOrderId((prev) => ({ ...prev, [workOrderId]: listing }));
+  }, []);
+
   const bidsVendorUserIds = useMemo(() => {
     const ids = new Set<string>();
     for (const bids of Object.values(bidsByWorkOrderId)) {
@@ -357,8 +384,9 @@ export function ManagerWorkOrdersPanel({
         [row.id]: prev[row.id] ?? defaultBillDraft(row),
       }));
       if (!row.selfAssigned && (row.vendorId || row.biddingOpen || row.biddingResolvedAt)) void loadBids(row.id);
+      if (!row.selfAssigned && !isDemoModeActive()) void loadOpenListing(row.id);
     },
-    [loadBids],
+    [loadBids, loadOpenListing],
   );
 
   const routeWorkOrderId = workOrderIdProp ? decodeURIComponent(workOrderIdProp) : null;
@@ -937,6 +965,73 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
+  /** C152: "Open to bids" — publish (or edit + republish) the redacted marketplace
+   * listing for this service. Distinct from the single-vendor "Invite for bids"
+   * flow above: this is visible to every vendor on every workspace, not just one
+   * the manager has already picked. */
+  const openOpenListingModal = (row: DemoManagerWorkOrderRow) => {
+    const existing = openListingByWorkOrderId[row.id];
+    const guessedTrade = VENDOR_TRADE_OPTIONS.find((t) => t.toLowerCase() === (row.category ?? "").toLowerCase());
+    setOpenListingDraft({
+      trade: existing?.trade || guessedTrade || VENDOR_TRADE_OPTIONS[0],
+      area: existing?.area ?? "",
+      description: existing?.description ?? "",
+      timeframe: existing?.timeframe ?? "Flexible",
+      budgetMin: existing?.budgetMinCents != null ? (existing.budgetMinCents / 100).toFixed(0) : "",
+      budgetMax: existing?.budgetMaxCents != null ? (existing.budgetMaxCents / 100).toFixed(0) : "",
+    });
+    setOpenListingModalRow(row);
+  };
+
+  const closeOpenListingModal = () => setOpenListingModalRow(null);
+
+  const submitOpenListing = async () => {
+    const row = openListingModalRow;
+    if (!row) return;
+    if (!openListingDraft.area.trim()) {
+      showToast("Enter a city or area.");
+      return;
+    }
+    if (!openListingDraft.description.trim()) {
+      showToast("Write a short description for the listing.");
+      return;
+    }
+    setOpenListingBusy(true);
+    try {
+      const result = await publishOpenListing({
+        workOrderId: row.id,
+        trade: openListingDraft.trade,
+        area: openListingDraft.area.trim(),
+        description: openListingDraft.description.trim(),
+        timeframe: openListingDraft.timeframe || undefined,
+        budgetMinCents: openListingDraft.budgetMin ? Math.round(parseMoneyAmount(openListingDraft.budgetMin) * 100) : null,
+        budgetMaxCents: openListingDraft.budgetMax ? Math.round(parseMoneyAmount(openListingDraft.budgetMax) * 100) : null,
+      });
+      if (!result.ok) throw new Error(result.error ?? "Could not publish listing.");
+      setOpenListingByWorkOrderId((prev) => ({ ...prev, [row.id]: result.listing ?? null }));
+      showToast("Published to the open marketplace.");
+      closeOpenListingModal();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not publish listing.");
+    } finally {
+      setOpenListingBusy(false);
+    }
+  };
+
+  const closeOpenListingHandler = async (row: DemoManagerWorkOrderRow) => {
+    setClosingListingId(row.id);
+    try {
+      const result = await closeOpenListingApi(row.id);
+      if (!result.ok) throw new Error(result.error ?? "Could not close bidding.");
+      setOpenListingByWorkOrderId((prev) => ({ ...prev, [row.id]: result.listing ?? null }));
+      showToast("Bidding closed.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not close bidding.");
+    } finally {
+      setClosingListingId(null);
+    }
+  };
+
   const handleDispatchDecision = async (row: DemoManagerWorkOrderRow, action: "approve" | "decline") => {
     // /demo: never fetch the authed dispatch route from the sandbox.
     if (isDemoModeActive()) {
@@ -1181,6 +1276,67 @@ export function ManagerWorkOrdersPanel({
             </a>
           ) : null}
         </div>
+
+        {!row.selfAssigned ? (
+          <div className="mt-3 border-t border-border pt-3" data-attr="work-order-open-listing">
+            {(() => {
+              const listing = openListingByWorkOrderId[row.id];
+              const isOpen = listing?.status === "open";
+              return (
+                <>
+                  <WorkOrderFact
+                    label="Open marketplace"
+                    value={
+                      isOpen
+                        ? [listing?.trade, listing?.area, formatBudgetRange(listing?.budgetMinCents ?? null, listing?.budgetMaxCents ?? null)]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : listing?.status === "closed"
+                          ? "Closed"
+                          : "Not listed"
+                    }
+                  />
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {isOpen ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-7 rounded-full px-3 text-xs"
+                          data-attr="open-listing-edit"
+                          onClick={() => openOpenListingModal(row)}
+                        >
+                          Edit listing
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-7 rounded-full px-3 text-xs"
+                          data-attr="open-listing-close"
+                          disabled={closingListingId === row.id}
+                          onClick={() => void closeOpenListingHandler(row)}
+                        >
+                          {closingListingId === row.id ? "Closing…" : "Close bidding"}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-7 rounded-full px-3 text-xs"
+                        data-attr="open-listing-open"
+                        disabled={row.bucket === "completed"}
+                        onClick={() => openOpenListingModal(row)}
+                      >
+                        Open to bids
+                      </Button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
 
         {row.bucket === "open" && dispatch ? (
           dispatch.status === "proposed" ? (
@@ -1648,6 +1804,96 @@ export function ManagerWorkOrdersPanel({
               dataAttr="invite-vendors-select"
             />
           )}
+        </PortalDialog>
+        <PortalDialog
+          open={openListingModalRow !== null}
+          onClose={() => {
+            if (openListingBusy) return;
+            closeOpenListingModal();
+          }}
+          dismissBlocked={openListingBusy}
+          title="Open to bids"
+          dataAttr="open-listing-modal"
+          primaryAction={{
+            label: openListingBusy ? "Publishing…" : "Publish to marketplace",
+            onClick: () => void submitOpenListing(),
+            disabled: openListingBusy,
+            loading: openListingBusy,
+          }}
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-muted">
+              Visible to every vendor on the marketplace — never the address, unit, resident, or photos.
+            </p>
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-foreground">
+              Trade
+              <Select
+                value={openListingDraft.trade}
+                data-attr="open-listing-trade"
+                onChange={(e) => setOpenListingDraft((prev) => ({ ...prev, trade: e.target.value }))}
+              >
+                {VENDOR_TRADE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-foreground">
+              City or area
+              <Input
+                placeholder="Brooklyn, NY"
+                value={openListingDraft.area}
+                data-attr="open-listing-area"
+                onChange={(e) => setOpenListingDraft((prev) => ({ ...prev, area: e.target.value }))}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-foreground">
+              Description
+              <Textarea
+                placeholder="What needs to be done — kept general, no address or resident details"
+                value={openListingDraft.description}
+                data-attr="open-listing-description"
+                onChange={(e) => setOpenListingDraft((prev) => ({ ...prev, description: e.target.value }))}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-foreground">
+              Desired timeframe
+              <Select
+                value={openListingDraft.timeframe}
+                data-attr="open-listing-timeframe"
+                onChange={(e) => setOpenListingDraft((prev) => ({ ...prev, timeframe: e.target.value }))}
+              >
+                {OPEN_LISTING_TIMEFRAMES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <div className="flex gap-3">
+              <label className="flex flex-1 flex-col gap-1 text-[13px] font-medium text-foreground">
+                Budget min (optional)
+                <Input
+                  inputMode="decimal"
+                  placeholder="$100"
+                  value={openListingDraft.budgetMin}
+                  data-attr="open-listing-budget-min"
+                  onChange={(e) => setOpenListingDraft((prev) => ({ ...prev, budgetMin: e.target.value }))}
+                />
+              </label>
+              <label className="flex flex-1 flex-col gap-1 text-[13px] font-medium text-foreground">
+                Budget max (optional)
+                <Input
+                  inputMode="decimal"
+                  placeholder="$300"
+                  value={openListingDraft.budgetMax}
+                  data-attr="open-listing-budget-max"
+                  onChange={(e) => setOpenListingDraft((prev) => ({ ...prev, budgetMax: e.target.value }))}
+                />
+              </label>
+            </div>
+          </div>
         </PortalDialog>
       </>
     );

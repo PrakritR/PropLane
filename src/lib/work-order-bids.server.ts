@@ -21,6 +21,8 @@ import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server
 import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { rateLimit } from "@/lib/rate-limit";
+import { closeOpenListingBestEffort, resolveOpenListingId } from "@/lib/work-order-open-listings.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -37,6 +39,9 @@ export type BidRecord = {
   vendor_user_id: string;
   vendor_directory_id: string | null;
   manager_user_id: string;
+  /** Set only when this bid was placed through the C152 open marketplace, linking it
+   * back to the listing without the client ever needing to know work_order_id. */
+  open_listing_id: string | null;
   quote_mode: QuoteMode;
   consultation_visit_at: string | null;
   amount_cents: number | null;
@@ -79,15 +84,44 @@ async function vendorDirectoryIdsForUser(db: Db, vendorUserId: string, managerUs
   return (data ?? []).map((row) => String(row.id ?? "")).filter(Boolean);
 }
 
-type WorkOrderAccess = { managerUserId: string; rowData: DemoManagerWorkOrderRow };
+/**
+ * How this vendor reached the work order. `assigned`/`offered` is today's
+ * original single-vendor flow (the vendor is the currently assigned vendor,
+ * or the manager specifically offered them the job). `open_listing` is the
+ * C152 marketplace door: ANY vendor, admitted only because a
+ * `work_order_open_listings` row is currently `open` for this work order.
+ *
+ * This distinction is load-bearing, not cosmetic: an `open_listing` vendor
+ * may submit/withdraw/read their own bid and NOTHING else. They must never
+ * reach `scheduleWorkOrderConsultation` (an escalation into the assigned-
+ * vendor consultation flow), and — because `setVendorPriceForWorkOrder` /
+ * `markWorkOrderDoneByVendor` check `portal_work_order_records.vendor_user_id
+ * === actor.userId` directly rather than calling this resolver at all — they
+ * categorically cannot set a price or mark a job done until they have
+ * actually won the bid and been assigned (see `acceptWorkOrderBid`).
+ */
+export type WorkOrderAccessKind = "assigned" | "offered" | "open_listing";
 
-/** A vendor may act on a work order if they're the currently assigned vendor, or if the
- * manager sent them a consultation/quote offer for it — while bidding is open, or while a
- * post-consultation price is still pending on their placeholder bid. */
+type WorkOrderAccess = {
+  managerUserId: string;
+  rowData: DemoManagerWorkOrderRow;
+  accessKind: WorkOrderAccessKind;
+  /** Set only when `accessKind === "open_listing"` — the listing this access came through. */
+  openListingId: string | null;
+};
+
+/** A vendor may act on a work order if they're the currently assigned vendor, if the
+ * manager sent them a consultation/quote offer for it, or if the job is open on the
+ * cross-workspace marketplace — while bidding is open, or while a post-consultation
+ * price is still pending on their placeholder bid. `allow` narrows which of those
+ * access kinds the CALLER is willing to accept; the default is all three, but an
+ * operation that must never be reachable through the open marketplace (today:
+ * `scheduleWorkOrderConsultation`) passes an explicit narrower list. */
 async function resolveVendorWorkOrderAccess(
   db: Db,
   actor: WorkOrderActor,
   workOrderId: string,
+  opts: { allow?: readonly WorkOrderAccessKind[] } = {},
 ): Promise<{ ok: true; access: WorkOrderAccess } | WorkOrderActionFailure> {
   const { data: workOrder } = await db
     .from("portal_work_order_records")
@@ -119,11 +153,26 @@ async function resolveVendorWorkOrderAccess(
       isOfferedVendor = Boolean(offerByDirectory?.length);
     }
   }
+  // C152: an open marketplace listing admits ANY vendor, not just one this
+  // manager specifically offered the job to — this is the one door
+  // `work_order_open_listings` opens into the existing single-vendor bid flow.
+  let openListingId: string | null = null;
   if (!isAssignedVendor && !isOfferedVendor) {
+    openListingId = await resolveOpenListingId(db, workOrderId);
+  }
+  const isOpenListingVendor = openListingId !== null;
+  if (!isAssignedVendor && !isOfferedVendor && !isOpenListingVendor) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
+
+  const accessKind: WorkOrderAccessKind = isAssignedVendor ? "assigned" : isOfferedVendor ? "offered" : "open_listing";
+  const allow = opts.allow ?? (["assigned", "offered", "open_listing"] as const);
+  if (!allow.includes(accessKind)) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
-  if (!rowData.biddingOpen) {
+  if (!rowData.biddingOpen && !isOpenListingVendor) {
     const { data: pendingBid } = await db
       .from("work_order_bids")
       .select("quote_mode, amount_cents, consultation_visit_at, status")
@@ -139,7 +188,56 @@ async function resolveVendorWorkOrderAccess(
       return { ok: false, status: 400, error: "Bidding is not open for this service." };
     }
   }
-  return { ok: true, access: { managerUserId: workOrder.manager_user_id as string, rowData } };
+  return { ok: true, access: { managerUserId: workOrder.manager_user_id as string, rowData, accessKind, openListingId } };
+}
+
+/**
+ * Resolve — or create — the `manager_vendor_records` row linking this vendor
+ * to this manager. Called ONLY from `acceptWorkOrderBid`, and only for the
+ * bid actually being accepted: an invited/offered vendor already has a
+ * directory row (an offer targets an existing one), and a cross-workspace
+ * open-marketplace bidder does not, but creating one for every bidder at
+ * SUBMIT time would leave a stray directory row behind for every losing bid.
+ * Built ONLY from the vendor's OWN public business profile / account — never
+ * from the work order's private resident/property fields — mirroring
+ * `POST /api/manager/vendor-directory/add`'s directory-linking shape.
+ */
+async function ensureVendorDirectoryIdForManager(db: Db, vendorUserId: string, managerUserId: string): Promise<string | null> {
+  const { data: existing } = await db
+    .from("manager_vendor_records")
+    .select("id")
+    .eq("vendor_user_id", vendorUserId)
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  const [{ data: profile }, { data: biz }] = await Promise.all([
+    db.from("profiles").select("full_name, email, phone").eq("id", vendorUserId).maybeSingle(),
+    db.from("vendor_business_profiles").select("business_name, work_email, work_phone, trades").eq("user_id", vendorUserId).maybeSingle(),
+  ]);
+  const trades = Array.isArray(biz?.trades) ? (biz?.trades as string[]) : [];
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const row = {
+    id,
+    managerUserId,
+    name: (biz?.business_name as string | null | undefined)?.trim() || (profile?.full_name as string | null | undefined)?.trim() || "Vendor",
+    trade: trades[0] ?? "",
+    trades: trades.length ? trades : undefined,
+    phone: (biz?.work_phone as string | null | undefined)?.trim() || (profile?.phone as string | null | undefined)?.trim() || "",
+    email: (biz?.work_email as string | null | undefined)?.trim() || (profile?.email as string | null | undefined)?.trim() || "",
+    notes: "",
+    active: true,
+    catalogId: `open-marketplace-${vendorUserId}`,
+    vendorUserId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { error } = await db
+    .from("manager_vendor_records")
+    .insert({ id, manager_user_id: managerUserId, vendor_user_id: vendorUserId, row_data: row, updated_at: now });
+  if (error) return null;
+  return id;
 }
 
 export async function submitWorkOrderBid(
@@ -167,12 +265,20 @@ export async function submitWorkOrderBid(
     return { ok: false, status: 400, error: "Enter a valid proposed date/time." };
   }
 
+  // Cross-workspace bid submission is spammable (any vendor, any open listing,
+  // any workspace) in a way an invited/offered bid never was — throttle per
+  // vendor regardless of path.
+  const limited = await rateLimit(`work-order-bid-submit:${actor.userId}`, 20, 60 * 60 * 1000);
+  if (!limited.ok) {
+    return { ok: false, status: 429, error: "Too many bids submitted — try again in a bit." };
+  }
+
   const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
   if (!access.ok) return access;
 
   const { data: existing } = await db
     .from("work_order_bids")
-    .select("id, status, quote_mode, consultation_visit_at")
+    .select("id, status, quote_mode, consultation_visit_at, open_listing_id")
     .eq("work_order_id", workOrderId)
     .eq("vendor_user_id", actor.userId)
     .maybeSingle();
@@ -180,6 +286,10 @@ export async function submitWorkOrderBid(
     return { ok: false, status: 403, error: "This bid has already been resolved." };
   }
 
+  // Deliberately a plain lookup, never a create: an open-listing bidder has no
+  // `manager_vendor_records` row for this manager yet, and every losing bid
+  // would otherwise leave a stray directory row behind. A directory link is
+  // created lazily, only for the ACCEPTED bidder, in `acceptWorkOrderBid`.
   const { data: vendorDirectoryRow } = await db
     .from("manager_vendor_records")
     .select("id")
@@ -192,6 +302,7 @@ export async function submitWorkOrderBid(
     vendor_user_id: actor.userId,
     vendor_directory_id: (vendorDirectoryRow?.id as string | undefined) ?? null,
     manager_user_id: access.access.managerUserId,
+    open_listing_id: access.access.accessKind === "open_listing" ? access.access.openListingId : (existing?.open_listing_id ?? null),
     quote_mode: (existing?.quote_mode as QuoteMode | undefined) ?? "upfront",
     consultation_visit_at: existing?.consultation_visit_at ?? null,
     amount_cents: amountCents,
@@ -272,7 +383,10 @@ export async function scheduleWorkOrderConsultation(
   const workOrderId = String(body.workOrderId ?? "").trim();
   if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
 
-  const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
+  // C152: the open marketplace never offers a "quote after consultation" mode —
+  // an open-listing bidder only ever submits an upfront amount + earliest date.
+  // Never let that access kind reach the assigned/offered-only consultation flow.
+  const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId, { allow: ["assigned", "offered"] });
   if (!access.ok) return access;
 
   const { data: existing } = await db
@@ -426,6 +540,20 @@ export async function acceptWorkOrderBid(
     return { ok: false, status: 400, error: "This bid has already been resolved." };
   }
 
+  // C152: the winning bidder may have come through the open marketplace with no
+  // `manager_vendor_records` row for this manager (never created at submit time,
+  // so a losing bid never leaves a directory row behind — see submitWorkOrderBid).
+  // Create it now, lazily, only for the vendor who actually won, then stamp it
+  // onto the bid so vendorNamesById and the row_data assignment below resolve
+  // a real name/contact exactly like an already-rostered vendor's win.
+  if (!record.vendor_directory_id) {
+    const createdDirectoryId = await ensureVendorDirectoryIdForManager(db, record.vendor_user_id, record.manager_user_id);
+    if (createdDirectoryId) {
+      record.vendor_directory_id = createdDirectoryId;
+      await db.from("work_order_bids").update({ vendor_directory_id: createdDirectoryId }).eq("id", bidId);
+    }
+  }
+
   const { data: otherBids } = await db
     .from("work_order_bids")
     .select("*")
@@ -494,6 +622,10 @@ export async function acceptWorkOrderBid(
       .from("portal_work_order_records")
       .update({ vendor_user_id: record.vendor_user_id, row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
       .eq("id", record.work_order_id);
+
+    // C152: assignment closes the marketplace listing too, if one is open —
+    // the job is no longer looking for bids from anyone else.
+    await closeOpenListingBestEffort(db, record.work_order_id);
 
     const propertyLabel = rowData.propertyName || "";
     const unit = rowData.unit || "";

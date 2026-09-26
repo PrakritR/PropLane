@@ -12,6 +12,7 @@ import {
   type BidRecord,
   type QuoteMode,
 } from "@/lib/work-order-bids.server";
+import { resolveWorkOrderIdForOpenListing } from "@/lib/work-order-open-listings.server";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,10 @@ type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 type BidJson = {
   id: string;
   workOrderId: string;
+  /** Set only for a bid placed through the C152 open marketplace — lets the vendor's
+   * OWN bid list correlate back to a browsed listing without ever learning work_order_id
+   * before they place a bid (see PublicOpenListingJson). */
+  openListingId: string | null;
   vendorUserId: string;
   vendorDirectoryId: string | null;
   vendorName?: string;
@@ -59,6 +64,7 @@ function toJson(bid: BidRecord, vendors: Map<string, { name: string; email: stri
   return {
     id: bid.id,
     workOrderId: bid.work_order_id,
+    openListingId: bid.open_listing_id,
     vendorUserId: bid.vendor_user_id,
     vendorDirectoryId: bid.vendor_directory_id,
     vendorName: vendor?.name,
@@ -113,6 +119,11 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as {
       action?: "submit" | "accept" | "schedule_consultation" | "withdraw";
       workOrderId?: string;
+      /** C152: the Open-tab browse response hands back only an opaque listing id
+       * (never work_order_id) — when this is present it is the ONLY thing trusted
+       * to resolve which job the bid is for; a client-sent `workOrderId` alongside
+       * it is ignored. */
+      openListingId?: string;
       amountCents?: number;
       materialsCents?: number;
       proposedTime?: string;
@@ -122,13 +133,26 @@ export async function POST(req: Request) {
       consultationVisitAt?: string;
     };
 
+    // Resolve the real work order id server-side from the listing id for the two
+    // vendor actions the open marketplace actually needs; never trust a client
+    // that supplies both to pick which one is authoritative.
+    let resolvedWorkOrderId = body.workOrderId;
+    if ((body.action === "submit" || body.action === "withdraw") && body.openListingId) {
+      const listingId = String(body.openListingId).trim();
+      resolvedWorkOrderId = (await resolveWorkOrderIdForOpenListing(db, listingId)) ?? undefined;
+      if (!resolvedWorkOrderId) {
+        return NextResponse.json({ error: "This listing is no longer open." }, { status: 404 });
+      }
+    }
+    const bodyWithResolvedWorkOrderId = { ...body, workOrderId: resolvedWorkOrderId };
+
     if (body.action === "accept") {
       const result = await acceptWorkOrderBid(db, actor, body);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true });
     }
     if (body.action === "submit") {
-      const result = await submitWorkOrderBid(db, actor, body);
+      const result = await submitWorkOrderBid(db, actor, bodyWithResolvedWorkOrderId);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true });
     }
@@ -138,7 +162,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, consultationVisitAt: result.consultationVisitAt });
     }
     if (body.action === "withdraw") {
-      const result = await withdrawWorkOrderBid(db, actor, body);
+      const result = await withdrawWorkOrderBid(db, actor, bodyWithResolvedWorkOrderId);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true });
     }
