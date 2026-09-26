@@ -1,16 +1,23 @@
 import Link from "next/link";
 import { MANAGER_PLAN_TIERS, type PlanTierId } from "@/data/manager-plan-tiers";
-import { BUSINESS_MAX_PROPERTIES, FREE_MAX_PROPERTIES, PRO_MAX_PROPERTIES } from "@/lib/manager-access";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY, SiteIntro, SiteSection } from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
 
-/** One line under each price — the reason to pick it, not the feature list. */
+/**
+ * One line under each price - the reason to pick it, not the feature list.
+ * Doors come from RATE_CARD, the one enforced source of truth (see its
+ * doc comment): Free's hard cap is doors, and Pro/Business are uncapped on
+ * listing count and co-managers, priced by door instead - never retype the
+ * legacy `FREE_MAX_PROPERTIES`/`PRO_MAX_PROPERTIES`/`BUSINESS_MAX_PROPERTIES`
+ * constants here, they are informational-only leftovers from before
+ * per-door billing.
+ */
 const TIER_LINE: Record<PlanTierId, string> = {
-  free: `${FREE_MAX_PROPERTIES} listing · no card`,
-  pro: `${PRO_MAX_PROPERTIES} properties · residents, leases, inbox`,
-  business: `${BUSINESS_MAX_PROPERTIES} properties · ${BUSINESS_MAX_PROPERTIES} co-managers · priority support`,
+  free: `${RATE_CARD.free.includedDoors} doors · no card`,
+  pro: `${RATE_CARD.pro.includedDoors} doors included · residents, leases, inbox`,
+  business: `${RATE_CARD.business.includedDoors} doors included · unlimited co-managers`,
 };
 
 const TIER_CTA: Record<PlanTierId, string> = {

@@ -3,6 +3,7 @@ import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { CodexHeroWindow } from "@/components/marketing/site/codex-hero-window";
 import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY, SITE_MEASURE } from "@/components/marketing/site/primitives";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import "@/components/marketing/site/site.css";
 
@@ -58,7 +59,9 @@ export function SiteHero() {
             </Link>
             <AppStoreBadge dataAttr="home-hero-app-store" />
           </div>
-          <p className="mt-4 text-[13px] text-muted">Free for one home · No card · Web and iPhone</p>
+          <p className="mt-4 text-[13px] text-muted">
+            Free for {RATE_CARD.free.includedDoors} doors · No card · Web and iPhone
+          </p>
         </div>
       </div>
 
