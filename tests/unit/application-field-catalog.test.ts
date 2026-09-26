@@ -4,6 +4,7 @@ import {
   applicationConfigForVariant,
   isWizardFormFieldEnabled,
   listingDisabledWizardFormKeys,
+  NEVER_DISABLED_STANDARD_KEYS,
   patchListingApplicationField,
   removeListingApplicationField,
   resolveListingApplicationFields,
@@ -172,5 +173,51 @@ describe("application-field-catalog", () => {
       type: "select",
       options: [],
     });
+  });
+
+  // C195 (studio decision): built-in questions screening/charges/leases read
+  // directly stay locked; only custom questions are free to remove.
+  it("a manager cannot remove SSN, ID or income via the editor — screening/charges/leases read them directly", () => {
+    // The lock is enforced once, at the editor's own remove action
+    // (`removeListingApplicationField`) — not at every read of a stored
+    // disabled-keys list, which must still honor PropLane's own short-term
+    // curated default that legitimately disables these same fields by
+    // design (see application-form-variants.test.ts).
+    const ssn = catalogField("personal", "Social Security number");
+    const id = catalogField("personal", "Driver's license / ID");
+    const income = catalogField("employment", "Monthly / annual income");
+    expect(NEVER_DISABLED_STANDARD_KEYS).toEqual(
+      expect.arrayContaining([ssn.standardKey, id.standardKey, income.standardKey]),
+    );
+
+    const sub = createDefaultListingSubmission();
+    for (const def of [ssn, id, income]) {
+      const field = resolveListingApplicationFields(sub, normalizeCustomApplicationFields).find(
+        (f) => f.standardKey === def.standardKey,
+      )!;
+      const result = removeListingApplicationField(sub, field);
+      expect(result.disabledStandardApplicationKeys).not.toContain(def.standardKey);
+    }
+
+    // A stored disabled-keys list still resolves as configured (the
+    // short-term default's own legitimate hide), never force-reversed here.
+    const forced = {
+      ...sub,
+      disabledStandardApplicationKeys: [ssn.standardKey, id.standardKey, income.standardKey],
+    };
+    const fields = resolveListingApplicationFields(forced, normalizeCustomApplicationFields);
+    expect(fields.some((f) => f.standardKey === ssn.standardKey)).toBe(false);
+    expect(fields.some((f) => f.standardKey === id.standardKey)).toBe(false);
+    expect(fields.some((f) => f.standardKey === income.standardKey)).toBe(false);
+  });
+
+  it("keeps income optional even though it can no longer be disabled", () => {
+    // The lock only blocks REMOVAL — income's own required default (false, so
+    // an unemployed applicant can still submit) is untouched by C195.
+    const sub = createDefaultListingSubmission();
+    const income = resolveListingApplicationFields(sub, normalizeCustomApplicationFields).find(
+      (f) => f.label === "Monthly / annual income",
+    )!;
+    expect(income.required).toBe(false);
   });
 });

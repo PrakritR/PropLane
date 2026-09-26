@@ -157,10 +157,18 @@ vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({
 vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
 
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
+import { resetManagerSmsConversationsClientCacheForTests } from "@/lib/manager-sms-conversations-client";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // This file imports ManagerUnifiedInbox once at module scope (no
+  // vi.resetModules() + per-test dynamic import), so the sms-conversations
+  // TTL cache added in manager-sms-conversations-client.ts otherwise
+  // persists across `it()`s that share the same mocked viewer id — a later
+  // test would silently render an earlier test's cached SMS payload instead
+  // of its own mock. Each test's mount should read a fresh fetch.
+  resetManagerSmsConversationsClientCacheForTests();
 });
 
 describe("conversation rows carry no select checkbox", () => {

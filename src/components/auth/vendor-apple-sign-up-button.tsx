@@ -8,7 +8,7 @@ import {
 
 export function VendorAppleSignUpButton({
   inviteToken,
-  nextPath = "/vendor/dashboard",
+  nextPath = "/vendor/onboarding",
   disabled = false,
 }: {
   inviteToken?: string;

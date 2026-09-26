@@ -29,10 +29,11 @@ export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsT
   { id: "payouts", label: "Payouts" },
   { id: "services", label: "Services" },
   { id: "communication", label: "Communication" },
-  { id: "bookings", label: "Bookings" },
-  { id: "inspections", label: "Inspections" },
-  // Reminder matrix + quiet hours. The tab id stays `automation` (the
-  // `ManagerPortalSettingsTab` union value). The hub query is `reminders`.
+  // Reminder matrix, quiet hours, and (C111/C116) every area's reminder
+  // rules and automated messages, including Bookings' and Inspections' —
+  // both former tabs held only that content and are gone. The tab id stays
+  // `automation` (the `ManagerPortalSettingsTab` union value). The hub query
+  // is `reminders`.
   { id: "automation", label: "Reminders" },
 ];
 
@@ -50,6 +51,10 @@ export function parseManagerSettingsAreaTab(area: string | undefined | null): Ma
   if (area === "reminders") return "automation";
   if (area === "residents") return "resident";
   if (area === "properties") return "applications";
+  // Bookings and Inspections settings tabs are gone (C111/C116) — both held
+  // only a Reminders/Messages section, which now lives on the Reminders hub.
+  // An old bookmark or link to either segment lands there instead of 404ing.
+  if (area === "bookings" || area === "inspections") return "automation";
   const match = MANAGER_PORTAL_SETTINGS_TABS.find((item) => item.id === area);
   return match ? match.id : null;
 }

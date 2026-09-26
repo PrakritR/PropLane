@@ -34,12 +34,17 @@ import {
   uploadedLeaseNeedsManagerConfirmation,
 } from "@/lib/uploaded-lease-extraction";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { newSignatureHashMismatch } from "@/lib/lease-signature-hash-guard";
 import { parseUploadedLeasePdfBytes } from "@/lib/uploaded-lease-parse.server";
 import { assertSafePdfForImport, parsePdfForImport } from "@/lib/pdf-import/pdf-source.server";
 import { leaseBodyMatchesManagerFiledLease, managerFiledLeaseScopeForNewRow } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
 import { LEASE_TEMPLATE_BUCKET, leaseTemplateObjectPath } from "@/lib/lease-template-storage";
-import { hasBothLeaseSignatures, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { hasBothLeaseSignatures, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { loadLeasingPipelineState, resolveLeasingPipelineForProperty } from "@/lib/leasing-pipeline-preferences";
+import { buildLeaseFirstSigningHtml, resolveManagerFilledSigningAnswers, type LeaseFirstFeeContext } from "@/lib/leasing/lease-first-signing-document";
 import {
   projectLeasePipelineListRow,
   restoreOmittedLeaseDocument,
@@ -415,7 +420,7 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "confirm_template_placement_review" | "confirm_uploaded_lease_review" | "begin_lease_first_signing";
       id?: string;
       leaseId?: string;
       acknowledgeTermsRiderConflicts?: boolean;
@@ -635,6 +640,108 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, row: nextRow });
     }
 
+    if (body.action === "begin_lease_first_signing") {
+      // Ida Cares lease-first (PLAN-0925, C274-C287): the resident-triggered
+      // transition from a `createLeaseFirstDraft` marker row (`bucket:
+      // "manager", status: "Draft", leaseFirst: true`, no document yet) into
+      // the same `bucket: "resident", status: "Resident Signature Pending"`
+      // state every other lease type already reaches before a resident can
+      // sign — see `residentSignLease` in `lease-pipeline-storage.ts`. Only a
+      // resident may call this, only on their OWN draft, and the document is
+      // generated entirely server-side from the property's PUBLISHED (never
+      // draft) lease template — nothing in the request body becomes document
+      // content, so this cannot be used to smuggle arbitrary lease text the
+      // way `introducesUntrustedLeaseDocument` guards the generic upsert path.
+      if (ctx.user.role !== "resident") return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const leaseId = body.leaseId?.trim() ?? "";
+      if (!leaseId) return NextResponse.json({ error: "Lease id required." }, { status: 400 });
+      const { data, error } = await ctx.db
+        .from("portal_lease_pipeline_records")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data, updated_at")
+        .eq("id", leaseId)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: "Could not load your lease." }, { status: 500 });
+      const record = data as (StoredLeaseScopeColumns & { id: string; row_data?: Record<string, unknown>; updated_at?: string | null }) | null;
+      const ownsRecord =
+        record &&
+        ((record.resident_user_id && record.resident_user_id === ctx.user.id) ||
+          (record.resident_email && record.resident_email.trim().toLowerCase() === ctx.user.email));
+      if (!record || !ownsRecord) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const row = normalizeLeasePipelineRow(record.row_data ?? {});
+      if (row.leaseFirst !== true || row.bucket !== "manager" || row.status !== "Draft" || row.generatedHtml || hasBothLeaseSignatures(row) || row.residentSignature || row.managerSignature) {
+        return NextResponse.json({ error: "This lease is not ready to begin signing." }, { status: 409 });
+      }
+      const managerUserId = record.manager_user_id ?? row.managerUserId ?? "";
+      const propertyId = record.property_id ?? row.propertyId ?? "";
+      if (!managerUserId || !propertyId) return NextResponse.json({ error: "This lease has no property on file." }, { status: 409 });
+      const { data: propertyRecord, error: propertyError } = await ctx.db
+        .from("manager_property_records")
+        .select("property_data")
+        .eq("id", propertyId)
+        .eq("manager_user_id", managerUserId)
+        .maybeSingle();
+      if (propertyError || !propertyRecord) return NextResponse.json({ error: "This property is no longer available." }, { status: 404 });
+      const propertyData = propertyRecord.property_data as { listingSubmission?: unknown; buildingName?: string; title?: string } | null;
+      const rawSubmission = propertyData?.listingSubmission;
+      if (!rawSubmission || typeof rawSubmission !== "object") {
+        return NextResponse.json({ error: "This property has no lease template configured." }, { status: 409 });
+      }
+      // Trusted, already-shaped JSON at rest (same trust level `ownedTemplate` in
+      // `lease-template-import/route.ts` uses for its own `submission` read) —
+      // not raw/unknown user input, so a direct cast rather than the
+      // caller-shape `normalizeManagerListingSubmissionV1` (which expects an
+      // already-typed `ManagerListingSubmissionV1`, not `unknown`).
+      const sub = rawSubmission as ManagerListingSubmissionV1;
+      const pipelineState = await loadLeasingPipelineState(ctx.db, managerUserId);
+      const pipelinePrefs = resolveLeasingPipelineForProperty(pipelineState, propertyId);
+      const templateId = pipelinePrefs.defaultLeaseTemplateId;
+      const templates = readPropertyLeaseTemplates(sub);
+      const template = templateId ? templates.find((t) => t.id === templateId) : undefined;
+      const publishedConfig = template?.publishedQuestionConfig;
+      if (!template || !publishedConfig) {
+        return NextResponse.json({ error: "This property has no published lease-first template configured." }, { status: 409 });
+      }
+      const roomChoice = (row.roomChoice ?? "").trim();
+      const listingRoomId = roomChoice.includes("::") ? roomChoice.split("::")[1] : undefined;
+      const room = listingRoomId ? sub.rooms.find((r) => r.id === listingRoomId) : undefined;
+      const fees: LeaseFirstFeeContext = {
+        monthlyRent: room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : null,
+        dailyRent: room?.dailyRentPrice && room.dailyRentPrice > 0 ? room.dailyRentPrice : null,
+        moveInFeeLabel: null,
+      };
+      const propertyLabel = propertyData?.buildingName ?? propertyData?.title ?? sub.buildingName ?? "";
+      const generatedHtml = buildLeaseFirstSigningHtml(publishedConfig, {
+        propertyLabel,
+        fees,
+        documentTitle: template.label,
+      });
+      const managerAnswers = resolveManagerFilledSigningAnswers(publishedConfig, fees);
+      const iso = new Date().toISOString();
+      const nextRow: LeasePipelineRow = {
+        ...row,
+        leaseTemplateId: template.id,
+        signingTemplateSnapshot: publishedConfig,
+        signingAnswers: { ...(row.signingAnswers ?? {}), ...managerAnswers },
+        generatedHtml,
+        generatedAtIso: iso,
+        documentMode: "proplane-generated",
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        updatedAtIso: iso,
+        updated: iso,
+      };
+      let updateBegin = ctx.db
+        .from("portal_lease_pipeline_records")
+        .update({ row_data: nextRow, updated_at: iso })
+        .eq("id", leaseId)
+        .eq("manager_user_id", managerUserId);
+      updateBegin = record.updated_at ? updateBegin.eq("updated_at", record.updated_at) : updateBegin.is("updated_at", null);
+      const { data: beganRows, error: beginError } = await updateBegin.select("id");
+      if (beginError) return NextResponse.json({ error: "Could not start signing." }, { status: 500 });
+      if (!beganRows?.length) return NextResponse.json({ error: "This lease changed. Reload and try again." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: normalizeRow(nextRow) });
+    }
+
     if (body.action === "delete" || body.action === "deleteIds") {
       const ids =
         body.action === "deleteIds"
@@ -646,19 +753,42 @@ export async function POST(req: Request) {
       if (ctx.user.role === "resident") {
         return NextResponse.json({ error: "Residents cannot delete lease records." }, { status: 403 });
       }
+      const executedIds: string[] = [];
       for (const id of ids) {
         const { data: existing } = await ctx.db
           .from("portal_lease_pipeline_records")
-          .select("id, manager_user_id, property_id")
+          .select("id, manager_user_id, property_id, row_data")
           .eq("id", id)
           .limit(1);
-        const record = (existing ?? [])[0] as LeaseScopeRecord | undefined;
+        const record = (existing ?? [])[0] as (LeaseScopeRecord & { row_data?: Record<string, unknown> }) | undefined;
         if (!record) continue;
         if (ctx.user.role !== "admin") {
           const allowed = await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record, "delete");
           if (!allowed) continue;
         }
+        // A fully executed lease is legal evidence: permanently deleting the row
+        // destroys the signed document and both signatures with no way to recover
+        // them, and unlike a routine save (guarded above by
+        // `wipesExecutedLeaseWithoutSupersedeIntent`) a DELETE has no "supersede"
+        // shape to exempt. Refuse rather than archive-by-accident; the manager
+        // still has void/renew for a lease they no longer want active.
+        const storedRow = (record.row_data ?? {}) as LeasePipelineRow;
+        if (leaseClaimsExecution(storedRow)) {
+          executedIds.push(id);
+          continue;
+        }
         await ctx.db.from("portal_lease_pipeline_records").delete().eq("id", id);
+      }
+      // Bulk (`deleteIds`) callers today are fire-and-forget local-cache cleanup
+      // (e.g. purging an application's draft leases) and do not inspect this
+      // body, so a single executed id never blocks the rest of the batch — but
+      // the refusal is still real: `refused` lists every id whose row survives.
+      if (executedIds.length > 0) {
+        return NextResponse.json({
+          ok: true,
+          refused: executedIds,
+          error: "This lease is executed and cannot be deleted. Void or renew it instead.",
+        });
       }
       return NextResponse.json({ ok: true });
     }
@@ -1081,6 +1211,21 @@ export async function POST(req: Request) {
           return NextResponse.json(
             { error: `Only the ${forgedRole} can add the ${forgedRole}'s signature.` },
             { status: 403 },
+          );
+        }
+
+        // Part 3 hotfix (defect 3): a NEW signature's reported hash must match
+        // what the SERVER actually has stored — the document the signer was
+        // shown when they opened it — not merely be present. Without this, a
+        // client that hashed a stale or slim local copy (the resident's list
+        // row carries no bytes at all) could record a signature over a
+        // document that was never what the party actually saw.
+        if (
+          newSignatureHashMismatch(storedRow, normalized as unknown as LeasePipelineRow, sha256Hex)
+        ) {
+          return NextResponse.json(
+            { error: "This lease changed after you opened it. Reload it and sign again." },
+            { status: 409 },
           );
         }
       }

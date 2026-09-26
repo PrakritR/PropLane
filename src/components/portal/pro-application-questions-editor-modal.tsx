@@ -42,6 +42,7 @@ import {
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
+  NEVER_DISABLED_STANDARD_KEY_SET,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -64,6 +65,11 @@ import {
   type ApplicationTemplateQuestionConfig,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
+import {
+  applyEffectiveApplicationForm,
+  workspaceApplicationFormIsConfigured,
+  type WorkspaceApplicationFormTemplate,
+} from "@/lib/rental-application/workspace-application-form";
 
 /** Question sections start collapsed; managers expand the ones they need. */
 function collapsedApplicationSections(): Set<string> {
@@ -142,6 +148,13 @@ function submissionForNewCustomApplication(sub: ManagerListingSubmissionV1): Man
   return {
     ...sub,
     ...mergeApplicationConfigForVariant("standard", customApplicationConfigWithAllStandardQuestions()),
+    // A brand-new named application is always freshly authored content, so
+    // it must stay fully editable regardless of whether this listing
+    // otherwise follows the workspace form — never open ADD read-only.
+    // (`applicationFormSource` is the listing-wide flag; the "Workspace
+    // form" / "Custom for this listing" picker still lets the manager
+    // switch it back once the template exists.)
+    applicationFormSource: "custom",
   };
 }
 
@@ -168,6 +181,8 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose,
   onSaved,
   showToast,
+  autoImportFile = null,
+  onAutoImportConsumed,
 }: {
   open: boolean;
   title?: string;
@@ -202,6 +217,17 @@ export function ManagerApplicationQuestionsEditorModal({
   onClose: () => void;
   onSaved: () => void;
   showToast: (m: string) => void;
+  /**
+   * "+ Add → Upload PDF" in one step: the caller already created and saved a
+   * real (empty) template — `applicationTemplate` is never null here — and
+   * hands the just-picked PDF through so this modal can run the same import
+   * `importPdf` already runs for an existing template, once, automatically,
+   * the first time it opens with a template + a pending file. The caller
+   * clears this after one render (`onAutoImportConsumed`) so re-opening the
+   * same template later never re-imports on its own.
+   */
+  autoImportFile?: File | null;
+  onAutoImportConsumed?: () => void;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -219,6 +245,12 @@ export function ManagerApplicationQuestionsEditorModal({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The workspace-wide application-form template (Settings → Application
+  // form), fetched once per open so this listing's "Workspace form" /
+  // "Custom for this listing" pick can show what it currently means and copy
+  // it onto the listing exactly once when the manager switches to Custom.
+  const [workspaceForm, setWorkspaceForm] = useState<WorkspaceApplicationFormTemplate | null>(null);
+  const [workspaceFormLoaded, setWorkspaceFormLoaded] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
@@ -270,6 +302,66 @@ export function ManagerApplicationQuestionsEditorModal({
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
+
+  // The real Applications tab (`pro-property-application-questions-panel.tsx`)
+  // always opens this modal with a `templateEditorMode` — every row is a
+  // named `PropertyApplicationTemplate` (Long-term / Short-term / Co-signer),
+  // even for the ordinary single-listing edit path. `applicationFormSource`
+  // is a LISTING-wide flag (all three variants switch together), not a
+  // per-template one, so it must stay reachable in that mode too — only a
+  // genuinely ambiguous multi-property BULK edit excludes it (`isBulkSave`).
+  useEffect(() => {
+    if (!open || isBulkSave) {
+      setWorkspaceForm(null);
+      setWorkspaceFormLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    setWorkspaceFormLoaded(false);
+    fetch("/api/portal/application-form")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { template?: WorkspaceApplicationFormTemplate } | null) => {
+        if (cancelled) return;
+        const template = data?.template;
+        setWorkspaceForm(template && workspaceApplicationFormIsConfigured(template) ? template : null);
+        setWorkspaceFormLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceFormLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isBulkSave]);
+
+  // Absent = "workspace" (follows the workspace template by default, see
+  // `resolveEffectiveApplicationForm`); "custom" keeps this listing's own
+  // triplet independent. Switching TO custom copies the workspace form onto
+  // the listing ONCE, right now — the same "one-time copy, nothing stored as
+  // a standing link" shape as "Same as Room X" (`listing-wizard-defaults.md`).
+  const applicationFormSource: "workspace" | "custom" = localSub.applicationFormSource === "custom" ? "custom" : "workspace";
+  const setApplicationFormSource = (next: "workspace" | "custom") => {
+    if (next === applicationFormSource) return;
+    setLocalSub((prev) => {
+      if (next === "custom" && workspaceForm) {
+        return {
+          ...prev,
+          applicationFormSource: "custom",
+          customApplicationFields: workspaceForm.customApplicationFields,
+          disabledStandardApplicationKeys: workspaceForm.disabledStandardApplicationKeys,
+          applicationConfigMode: workspaceForm.applicationConfigMode,
+          shortTermCustomApplicationFields: workspaceForm.shortTermCustomApplicationFields,
+          shortTermDisabledStandardApplicationKeys: workspaceForm.shortTermDisabledStandardApplicationKeys,
+          shortTermApplicationConfigMode: workspaceForm.shortTermApplicationConfigMode,
+          cosignerCustomApplicationFields: workspaceForm.cosignerCustomApplicationFields,
+          cosignerDisabledStandardApplicationKeys: workspaceForm.cosignerDisabledStandardApplicationKeys,
+          cosignerApplicationConfigMode: workspaceForm.cosignerApplicationConfigMode,
+        };
+      }
+      return { ...prev, applicationFormSource: next };
+    });
+    setDirty(true);
+  };
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
 
@@ -283,6 +375,12 @@ export function ManagerApplicationQuestionsEditorModal({
     }
     if (action === "order" && (field.section === "household" || field.section === "property")) return false;
     if (action === "label" && field.section === "household") return false;
+    // C195: SSN, ID and income join the identity trio in never being
+    // removable — screening/charges/leases read them directly and a manager
+    // hiding one breaks approval with no error at disable-time. Unlike the
+    // identity trio, only removal is locked here: label and required stay
+    // editable (income in particular is meant to stay optional).
+    if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
     if (action !== "order" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) {
       return action === "label";
     }
@@ -295,14 +393,24 @@ export function ManagerApplicationQuestionsEditorModal({
     onDelete();
   };
 
+  // While this listing follows the workspace template, DISPLAY (fields,
+  // preview) resolves from the workspace's questions, not the listing's own
+  // (currently inactive) triplet — `renderSection` below shows that resolved
+  // set read-only rather than the editable builder, so nothing here writes
+  // an edit that the next render would silently discard.
+  const effectiveSubForDisplay = useMemo(
+    () => (applicationFormSource === "workspace" ? applyEffectiveApplicationForm(localSub, workspaceForm) : localSub),
+    [localSub, workspaceForm, applicationFormSource],
+  );
+
   // The config slice for the form the manager is editing.
   // top-level triplet; short-term reads its own, defaulting to PropLane's
   // curated short-term question set until edited. Edits to one never touch the
   // other.
   const configSlice = useMemo(() => ({
-    ...applicationConfigForVariant(localSub, variant),
+    ...applicationConfigForVariant(effectiveSubForDisplay, variant),
     questionDisplayOrder,
-  }), [localSub, questionDisplayOrder, variant]);
+  }), [effectiveSubForDisplay, questionDisplayOrder, variant]);
 
   // `normalizeCustomApplicationFieldsForEditor` (not the plain normalizer) keeps
   // an in-progress row with an empty label or no options yet — it must stay
@@ -603,6 +711,28 @@ export function ManagerApplicationQuestionsEditorModal({
     }
   };
 
+  // "+ Add → Upload PDF" in one step: the caller already created and saved
+  // the (empty) template before opening this modal, so `applicationTemplate`
+  // is already real — run the same import the manual "Import PDF" button
+  // runs, once, then land on Preview where the source comparison and any
+  // flagged issues live. Guarded by a ref (not state) so this can never
+  // re-fire from an unrelated re-render while `autoImportFile` is still set.
+  const autoImportRanRef = useRef(false);
+  useEffect(() => {
+    if (!open || !autoImportFile || autoImportRanRef.current) return;
+    if (!applicationTemplate || !applicationPreviewPropertyId || isBulkSave) return;
+    autoImportRanRef.current = true;
+    // The state updates below happen once the import network call settles,
+    // not synchronously in the effect body — an async completion callback,
+    // the same shape `importPdf`'s own button handler already uses.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void importPdf(autoImportFile).then(() => {
+      setStepIdx(workspaceSteps.length - 1);
+      onAutoImportConsumed?.();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, autoImportFile, applicationTemplate, applicationPreviewPropertyId, isBulkSave]);
+
   const reviewImportedSource = async () => {
     if (!applicationTemplate || !applicationPreviewPropertyId || !templates || !onPersistSubmission || isBulkSave) return;
     const currentDraft = importedQuestionDraft ?? draftQuestionConfigForTemplate(applicationTemplate);
@@ -817,6 +947,25 @@ export function ManagerApplicationQuestionsEditorModal({
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
     const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
+    if (applicationFormSource === "workspace" && workspaceForm && !isBulkSave) {
+      return (
+        <div data-attr={`application-section-toggle-${sectionId}`} className="space-y-3">
+          <p className="text-sm text-muted">
+            Following the workspace application form. Pick &quot;Custom for this listing&quot; above to edit this
+            listing&apos;s own questions.
+          </p>
+          {sectionQuestions.length === 0 ? (
+            <p className="text-sm text-muted">No questions in this section.</p>
+          ) : (
+            <ApplicationSectionPreviewPane
+              section={RENTAL_APPLICATION_SECTIONS.find((s) => s.id === sectionId) ?? null}
+              fields={sectionQuestions}
+              applicationPreviewPropertyId={applicationPreviewPropertyId}
+            />
+          )}
+        </div>
+      );
+    }
     return (
       <div data-attr={`application-section-toggle-${sectionId}`}>
         {sectionQuestions.length === 0 && sectionDisabled.length === 0 ? (
@@ -844,6 +993,25 @@ export function ManagerApplicationQuestionsEditorModal({
       </div>
     );
   };
+
+  // Rendered on whichever entry step is actually present — the real
+  // Applications tab always opens this modal in `templateEditorMode` (step
+  // "name"), never the plain "form" step; both render it so it is reachable
+  // either way. `applicationFormSource` is listing-wide, not per-template.
+  const applicationFormSourcePicker =
+    !isBulkSave && workspaceFormLoaded ? (
+      <FieldSingleSelect
+        label="Application form"
+        labelClassName={WIZARD_LABEL_CLASS}
+        value={applicationFormSource}
+        dataAttr="application-form-source"
+        options={[
+          { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
+          { value: "custom", label: "Custom for this listing" },
+        ]}
+        onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
+      />
+    ) : null;
 
   const previewBody = (
     <div className="space-y-3">
@@ -984,6 +1152,7 @@ export function ManagerApplicationQuestionsEditorModal({
               data-attr="property-application-name"
             />
             {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
+            {applicationFormSourcePicker}
           </StepColumn>
         ) : null}
         {stepId === "form" ? (
@@ -996,6 +1165,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 </button>
               }
             />
+            {applicationFormSourcePicker}
             <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label="Application form">
               {APPLICATION_FORM_VARIANTS.map((v) => {
                 const active = variant === v.id;

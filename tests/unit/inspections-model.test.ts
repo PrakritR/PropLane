@@ -1,6 +1,6 @@
 import { reportFixture } from "../helpers/inspection-fixture";
 import { describe, expect, it } from "vitest";
-import { applyInspectionObservations, createInspectionSchema, ensureInspectionSchema, inspectionPhotoCounts, transitionResidentSubmission } from "@/lib/inspections/model";
+import { applyInspectionObservations, createInspectionSchema, ensureInspectionSchema, inspectionPhotoCounts, inspectionRoomProgress, transitionResidentSubmission } from "@/lib/inspections/model";
 
 const patch = { revision: 1, observations: [{ itemId: "area-0-item-0", condition: "damaged", notes: "Door has a scratch" }] };
 describe("inspection evidence and workflow", () => {
@@ -55,6 +55,16 @@ describe("inspection evidence and workflow", () => {
     item.manager.photos.push({ id: "b", path: "p/b", uploadedBy: "owner", uploadedAt: "2026-09-07T10:00:00Z" });
     expect(inspectionPhotoCounts(report.document)).toEqual({ manager: 1, resident: 1, total: 2, lastAt: "2026-09-07T10:00:00Z" });
     expect(inspectionPhotoCounts(reportFixture().document)).toEqual({ manager: 0, resident: 0, total: 0, lastAt: null });
+  });
+  /** C250/U033: the roster row needs "N of M rooms photographed", not just a total photo count. */
+  it("counts a room as done once either side has added a photo to it", () => {
+    const report = reportFixture();
+    expect(inspectionRoomProgress(report.document)).toEqual({ done: 0, total: report.document.areas.length });
+    report.document.areas[0]!.items[0]!.resident.photos.push({ id: "a", path: "p/a", uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z" });
+    expect(inspectionRoomProgress(report.document)).toEqual({ done: 1, total: report.document.areas.length });
+    // A second photo in the same room, or one added by the manager instead, does not double-count it.
+    report.document.areas[1]!.items[0]!.manager.photos.push({ id: "b", path: "p/b", uploadedBy: "owner", uploadedAt: "2026-09-07T10:00:00Z" });
+    expect(inspectionRoomProgress(report.document)).toEqual({ done: 2, total: report.document.areas.length });
   });
 });
 

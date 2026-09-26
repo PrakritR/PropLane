@@ -223,7 +223,7 @@ export type DemoManagerOutgoingPaymentRow = {
   amountCents?: number;
   vendorPaymentMethods?: "ach"[];
   achAvailable?: boolean;
-  paidViaChannel?: "ach";
+  paidViaChannel?: "ach" | "balance";
   paidAtLabel?: string;
 };
 
@@ -252,8 +252,17 @@ export type DemoManagerWorkOrderRow = {
   /** Full property address, snapshotted at submission time for manager/vendor display. */
   propertyAddress?: string;
   scheduledAtIso?: string;
-  /** Google Calendar event id after PropPlane sync. */
+  /** Google Calendar event id after PropPlane sync (manager's own connected calendar). */
   googleCalendarEventId?: string;
+  /**
+   * Google Calendar event id on the ASSIGNED VENDOR's own connected calendar,
+   * pushed only when that vendor has `vendorPushEnabled` on
+   * (`src/lib/google-calendar/vendor-calendar-push.server.ts`). Distinct from
+   * `googleCalendarEventId` above because manager and vendor each connect a
+   * different Google account, so the same visit can have two independent
+   * remote event ids.
+   */
+  vendorGoogleCalendarEventId?: string;
   residentName?: string;
   residentEmail?: string;
   propertyId?: string;
@@ -312,8 +321,12 @@ export type DemoManagerWorkOrderRow = {
   vendorMarkedDoneAt?: string;
   vendorMarkedDoneNote?: string;
   paidAt?: string;
-  /** How the manager paid the vendor (bookkeeping + payout routing). */
-  vendorPaymentChannel?: "ach";
+  /**
+   * How the manager paid the vendor (bookkeeping + payout routing). `"balance"`
+   * (night/vendor-pay, `PROPLANE_BALANCE_ENABLED`) means paid instantly from
+   * the manager's PropLane balance — no Stripe transfer.
+   */
+  vendorPaymentChannel?: "ach" | "balance";
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
   // ---- PLAN-0915 vendor loop stamps ----

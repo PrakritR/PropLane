@@ -300,6 +300,24 @@ normalization + plan transitions), `tests/unit/stripe-axis-ach-checkout.test.ts`
 `application_fee_amount`, `transfer_data` destination, no `on_behalf_of`), and
 `tests/unit/stripe-ledger-fees.test.ts` (fee attribution).
 
+**A third funding model exists behind a flag: the PropLane balance ledger
+(night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off).** When on,
+`createHouseholdChargeCheckout` passes `fundingModel: "platform_ledger"` to
+`createAxisAchCheckoutSession` — the ONE new branch in that builder — instead
+of resolving a destination account: no `transfer_data`, no
+`application_fee_amount`, no `platform_hold` metadata; the charge lands on the
+platform outright (separate charges and transfers). The resident-facing fee
+math (`residentServiceFeeBreakdown`) is byte-identical either way — only where
+the settled money goes changes. The `checkout.session.completed` webhook
+credits `manager_payout_cents` as a PENDING entry in the manager's PropLane
+balance (`src/lib/proplane-balance/household-charge-credit.server.ts`),
+available once Stripe's own balance-transaction `available_on` passes. Nothing
+else (application fees, vendor-invoice-pay checkout, autopay) ever requests
+this funding model, and with the flag off `createHouseholdChargeCheckout`
+resolves the SAME destination-or-hold path it always has. See
+`.lavish/night/build-vendor-pay.md` for the full architecture and the
+switch-on checklist.
+
 **The destination is per-manager when they are ready.**
 `resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
 manager's own `profiles.stripe_connect_account_id` and returns the account id
@@ -569,6 +587,14 @@ is how a moved resident got two "Rent — October" rows at two prices.
 
 Coverage: `tests/unit/lease-signed-terms.test.ts`.
 
+**UI location (C145):** saved payment methods and the autopay card live in
+Settings › Account, alongside sign out (`ResidentPaymentMethodsSettingsCard`,
+`resident-payment-methods-settings-card.tsx`) — not in the Payments list,
+which keeps owning charge history and the per-charge Pay flow. A declined
+autopay run's "Pay now" routes to `/resident/payments?pay=<chargeId>`, the
+same shortcut the dashboard's Balance due uses (C248) to open the pay
+confirmation directly.
+
 ## Autopay: one run per charge, the SAME builder and fee resolver as a manual payment (PLAN-0920-1051 Wave 1)
 
 Autopay covers **recurring charges only** — `rent` and `utilities`
@@ -661,3 +687,12 @@ wherever the resident already receives payment notices per their preferences.
 
 Coverage: `tests/unit/resident-autopay.test.ts`,
 `tests/unit/resident-payments-autopay.test.tsx`.
+
+**A resident's `manager_id` is not guaranteed to be a valid UUID** (a legacy or
+corrupt fixture row is a real case, not just theoretical — it 500'd every
+`/resident/move-in` load until fixed). `resolveResidentAutopayHousehold`
+treats Postgres's `22P02 invalid input syntax for type uuid` the same as an
+empty result — no valid manager link means no autopay household — rather than
+letting the raw DB error bubble up as a 500. Any new query keyed on a
+resident's `manager_id`/`resident_user_id` should do the same rather than
+assume the column always holds a well-formed id.

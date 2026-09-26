@@ -73,10 +73,20 @@ describe("ADD PROPERTY at the plan limit", () => {
     expect(tryOpenAddBody()).toContain("showToast(managerPropertyLimitMessage(");
   });
 
-  it("keeps the ADD row live rather than disabling it at the cap", () => {
-    // Disabling is the other way to delete the upgrade path.
-    expect(SOURCE).toContain("addPropertyDisabled={!skuLoaded}");
-    expect(SOURCE).not.toContain("addPropertyDisabled={atPropertyLimit");
+  it("keeps the ADD row live rather than disabling it at the cap or while the plan tier is still loading", () => {
+    // Disabling is the other way to delete the upgrade path. The plan tier
+    // still loading is the same story: `canOpenAdd()` already toasts and
+    // queues a retry for that window (night UX sweep — a pre-disabled
+    // button there was indistinguishable from permanently broken).
+    //
+    // The `addPropertyDisabled` prop this used to check is gone (commit
+    // 135c3f2a deleted the empty-state "Create" pill, its last consumer);
+    // the header's own trigger was never wired to it — it gates on
+    // `canOpenAdd()` when the menu is asked to open, never via a disabled prop.
+    expect(SOURCE).not.toContain("addPropertyDisabled");
+    expect(SOURCE).not.toContain("disabled={atPropertyLimit");
+    expect(SOURCE).not.toContain("disabled={!skuLoaded}");
+    expect(SOURCE).toContain("if (next && !canOpenAdd()) return;");
   });
 });
 

@@ -5,6 +5,7 @@
  */
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
 import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
@@ -28,9 +29,11 @@ import {
   type LeaseDocumentMode,
   replacesSignedLeaseDocument,
   rowHasAnySignature,
+  sha256Hex,
   signedDocumentHashesDiverge,
   stripsLeaseExecutionWithoutSupersede,
 } from "@/lib/lease-execution-evidence";
+import { deriveInitials, pdfDataUrlToBytes, stampLeaseDocumentFields } from "@/lib/lease-document-field-stamping";
 import { parseLeaseHtmlSections, rebuildLeaseHtmlFromSections } from "@/lib/lease-html-sections";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 import {
@@ -38,7 +41,16 @@ import {
   renderLeaseSectionEdit,
   type LeaseSectionEdit,
 } from "@/lib/lease-section-text";
-import { appendLeaseTermsRiderToPdf, mergeUploadedLeasePdfWithSignatures } from "@/lib/lease-pdf-signing";
+import {
+  appendLeaseTermsRiderToPdf,
+  appendSignaturePageToPdfBytes,
+  bytesToDataUrl,
+  buildLeaseBodyTextPdf,
+  dataUrlToBytes,
+  getLeasePdfBaseDataUrl,
+  htmlToPlainTextParagraphs,
+  mergeUploadedLeasePdfWithSignatures,
+} from "@/lib/lease-pdf-signing";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
 import {
   downloadDataUrl,
@@ -525,6 +537,19 @@ export function leaseLandlordNameWarning(row: LeasePipelineRow): string | null {
 }
 
 export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {
+  // The document check itself, taught to recognize an uploaded/library-attached
+  // PDF: `leasePipelineRowHasDocument` (-> `leaseRowHasDocument`) already
+  // tolerates a LIST-shaped row whose bytes were omitted for bandwidth
+  // (`documentOmitted`/`managerUploadedPdf.omitted`) as long as a filename is
+  // present — a naive `row.generatedHtml || row.managerUploadedPdf?.dataUrl`
+  // check reads that as "no document" and wrongly refuses a lease that
+  // genuinely has one server-side. Every send surface (`sendLeaseToResident`,
+  // the assistant's `send_lease_for_signature`, and `leaseCanBeSentForSignature`
+  // via `leaseSendGateBlocker`) reads this one check now, so none of them can
+  // drift back to the narrower, buggier version.
+  if (!leasePipelineRowHasDocument(row)) {
+    return "Generate or upload a lease document first.";
+  }
   const requireApproved = leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences());
   const approval = leaseApplicationApprovalBlockerAmong(row, apps, {
     requireApprovedApplication: requireApproved,
@@ -800,6 +825,15 @@ export type LeasePipelineRow = {
   residentUserId?: string | null;
   roomChoice?: string | null;
   signedRentLabel?: string | null;
+  /**
+   * Set by `createLeaseFirstDraft` (Part 3 hotfix, defect 4): a Draft row
+   * created from "Send lease to sign" before any application exists, so the
+   * resident's Lease tab has a real record to unlock onto instead of the
+   * request going nowhere. Distinguishes an intentionally-shared lease-first
+   * draft from an ordinary early-stage draft the manager has not sent yet —
+   * only the former is visible to the resident before a document exists.
+   */
+  leaseFirst?: boolean;
   application?: Partial<RentalWizardFormState>;
   /**
    * Lease-first intake answers (PLAN-0924-1421). Allowlisted fields only —
@@ -818,6 +852,18 @@ export type LeasePipelineRow = {
     originalDataUrl?: string;
     omitted?: boolean;
     libraryDocumentId?: string | null;
+    /**
+     * Signature field placements copied from the library entry at attach time
+     * (night/custom-lease). Empty/absent = today's behavior (certificate page
+     * only, no stamped copy). See `src/lib/lease-document-library.ts`.
+     */
+    fields?: import("@/lib/lease-document-library").LeaseDocumentField[];
+    /** Derived stamped copy — fields rendered onto the ORIGINAL bytes, plus the
+     * existing signature certificate. Never what a party hashes/signs; see
+     * `lease-document-field-stamping.ts`. */
+    stampedDataUrl?: string | null;
+    /** SHA-256 of `stampedDataUrl`'s bytes — its own, separate evidence trail. */
+    stampedDocumentSha256?: string | null;
   } | null;
   /** List GET omitted PDF/HTML bytes; detail `?id=` still has them. */
   documentOmitted?: boolean;
@@ -951,6 +997,35 @@ export type LeasePipelineRow = {
   bundleGroupKey?: string | null;
   /** Property lease template used for the last generation. */
   leaseGenerationTemplateId?: string | null;
+  /**
+   * Ida Cares lease-first (PLAN-0925, C274-C287): the `PropertyLeaseTemplate`
+   * whose imported question config this draft is signing against — resolved
+   * once, at `begin_lease_first_signing`, from the workspace/property's
+   * `defaultLeaseTemplateId` leasing-pipeline preference. Distinct from
+   * `leaseGenerationTemplateId` (set when a standard application-driven lease
+   * is GENERATED from an approved application) because a lease-first sign has
+   * no application yet.
+   */
+  leaseTemplateId?: string | null;
+  /**
+   * Immutable snapshot of the PUBLISHED `PropertyLeaseTemplate.publishedQuestionConfig`
+   * pinned at `begin_lease_first_signing` time — the resident's signing wizard
+   * reads clause/fee questions from HERE, never a live re-fetch of the
+   * template, so a later manager edit to the template cannot change what an
+   * in-progress signer is agreeing to (same "pinned published version"
+   * invariant `docs/agents/lease-generation.md` documents for applications).
+   */
+  signingTemplateSnapshot?: ApplicationTemplateQuestionConfig | null;
+  /**
+   * Resident's in-progress answers to `signingTemplateSnapshot`'s questions,
+   * keyed by each question's `key` (initials text, or the manager-filled fee
+   * amount baked in at `begin_lease_first_signing`). Saved incrementally
+   * through the ordinary upsert path (same mechanism `ResidentLeaseIntakeSection`
+   * already uses) so the wizard can resume. Never part of the hashed/signed
+   * document itself — `generatedHtml` is the fixed artifact that gets signed;
+   * this is supplementary evidence of engagement with each clause.
+   */
+  signingAnswers?: Record<string, string> | null;
 };
 
 function workflowStatusForRow(
@@ -1216,6 +1291,7 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     residentUserId: typeof r.residentUserId === "string" ? r.residentUserId : null,
     roomChoice: typeof r.roomChoice === "string" ? r.roomChoice : null,
     signedRentLabel: typeof r.signedRentLabel === "string" ? r.signedRentLabel : null,
+    leaseFirst: r.leaseFirst === true,
     application: r.application,
     leaseIntake: normalizeLeaseIntakeAnswers(r.leaseIntake),
     // Do not alter persisted historical bytes on read. Section overrides stay
@@ -1300,6 +1376,19 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     bundleGroupKey: typeof r.bundleGroupKey === "string" ? r.bundleGroupKey : null,
     leaseGenerationTemplateId:
       typeof r.leaseGenerationTemplateId === "string" ? r.leaseGenerationTemplateId : null,
+    leaseTemplateId: typeof r.leaseTemplateId === "string" ? r.leaseTemplateId : null,
+    signingTemplateSnapshot:
+      r.signingTemplateSnapshot && typeof r.signingTemplateSnapshot === "object"
+        ? (r.signingTemplateSnapshot as ApplicationTemplateQuestionConfig)
+        : null,
+    signingAnswers:
+      r.signingAnswers && typeof r.signingAnswers === "object" && !Array.isArray(r.signingAnswers)
+        ? Object.fromEntries(
+            Object.entries(r.signingAnswers as Record<string, unknown>).filter(
+              (entry): entry is [string, string] => typeof entry[1] === "string",
+            ),
+          )
+        : null,
     // Renewal / prior-term evidence must survive normalize — otherwise client
     // writes drop pendingRenewal and the server wipe-guard (PRP-385) cannot tell
     // a renew from an approval stub.
@@ -1488,6 +1577,38 @@ export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerL
     resident: rows.filter((r) => r.bucket === "resident").length,
     signed: rows.filter((r) => r.bucket === "signed" && r.status !== "Fully Signed").length,
     completed: rows.filter((r) => r.status === "Fully Signed").length,
+  };
+}
+
+export type LeasePipelineProgressSegment = {
+  id: ManagerLeaseTab;
+  count: number;
+  /** Percentage of the whole pipeline this stage occupies, 0–100. */
+  pct: number;
+};
+
+export type LeasePipelineProgress = {
+  total: number;
+  signed: number;
+  segments: LeasePipelineProgressSegment[];
+};
+
+/**
+ * Total-progress summary across the four lease pipeline stages (C245/U027):
+ * the tabs already show each stage's own count, but nothing said how many
+ * leases are stuck at each stage relative to the whole pipeline. `null` when
+ * there is nothing to summarize — an empty bar communicates nothing.
+ */
+export function computeLeasePipelineProgress(
+  counts: Record<ManagerLeaseTab, number>,
+  order: ManagerLeaseTab[] = ["manager", "resident", "signed", "completed"],
+): LeasePipelineProgress | null {
+  const total = order.reduce((sum, id) => sum + counts[id], 0);
+  if (total === 0) return null;
+  return {
+    total,
+    signed: counts.completed,
+    segments: order.map((id) => ({ id, count: counts[id], pct: (counts[id] / total) * 100 })),
   };
 }
 
@@ -2402,8 +2523,13 @@ export function leasePipelineBucketCounts(): [number, number, number] {
 
 export function residentCanViewLeaseRow(row: LeasePipelineRow | null | undefined): boolean {
   if (!row) return false;
-  const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
-  if (!hasDocument) return false;
+  // The lease list is served SLIM (no document bytes) to every reader,
+  // including the resident's own GET (lease-pipeline-list-projection.ts).
+  // `leaseRowHasDocument` understands that a `documentOmitted: true` row
+  // still carries a document; requiring actual bytes here (the prior check)
+  // made every lease invisible the instant it left the manager's browser,
+  // because the resident's local copy never had bytes to begin with.
+  if (!leaseRowHasDocument(row)) return false;
   return (
     row.status === "Resident Signature Pending" ||
     row.status === "Manager Signature Pending" ||
@@ -2713,6 +2839,14 @@ export function deleteLeasePipelineRow(id: string, managerUserId?: string | null
   const rows = readLeasePipeline(managerUserId);
   const row = rows.find((r) => r.id === id);
   if (!leaseAccessibleToManager(row, managerUserId)) return false;
+  // An executed lease's document and signatures are the legal evidence of what
+  // was signed. `write()` below already reverts this exact mutation shape via
+  // `preserveSignedLeaseDocuments` / `stripsLeaseExecutionWithoutSupersede`
+  // (and the server 409s it too — `wipesExecutedLeaseWithoutSupersedeIntent`),
+  // but returning `true` afterward would tell the caller the delete succeeded
+  // when the row was silently kept. Refuse up front instead of attempting a
+  // write the guard is only going to undo.
+  if (leaseClaimsExecution(row)) return false;
   if (String(row.residentEmail ?? "").trim()) {
     clearUploadedOwnLease(row.residentEmail);
   }
@@ -3022,12 +3156,46 @@ async function refreshUploadedPdfSignatures(row: LeasePipelineRow): Promise<Leas
   // already-merged copy on the second signature, and the guard below could not
   // tell a certificate merge from a document swap.
   const pinned = pdf.originalDataUrl ? pdf : { ...pdf, originalDataUrl: pdf.dataUrl };
+  let withCertificate = pinned;
   try {
     const merged = await mergeUploadedLeasePdfWithSignatures({ ...row, managerUploadedPdf: pinned });
-    if (!merged) return pinned;
-    return { ...pinned, dataUrl: merged };
+    if (merged) withCertificate = { ...pinned, dataUrl: merged };
   } catch {
-    return pinned;
+    // fall through with the unmerged (but pinned) copy
+  }
+  return withStampedLeaseFields(withCertificate, row);
+}
+
+/**
+ * The stamped copy (night/custom-lease, item 3): fields placed on the library
+ * entry, copied onto `managerUploadedPdf.fields` at attach time, rendered onto
+ * the ORIGINAL bytes with each party's already-recorded typed signature/date —
+ * never onto the certificate-merged copy, and never what either party hashed.
+ * A field this signature event has no value for yet (the other party's,
+ * before they have signed) is simply left unstamped; the next signature event
+ * re-stamps from the original and gains it.
+ */
+async function withStampedLeaseFields(
+  pdf: NonNullable<LeasePipelineRow["managerUploadedPdf"]>,
+  row: LeasePipelineRow,
+): Promise<LeasePipelineRow["managerUploadedPdf"]> {
+  if (!pdf.fields?.length || !pdf.originalDataUrl) return pdf;
+  try {
+    const stamped = await stampLeaseDocumentFields(pdf.originalDataUrl, pdf.fields, {
+      residentSignature: row.residentSignature?.name ?? null,
+      residentInitials: row.residentSignature?.name ? deriveInitials(row.residentSignature.name) : null,
+      residentDateSigned: row.residentSignature?.signedAtIso
+        ? row.residentSignature.signedAtIso.slice(0, 10)
+        : null,
+      managerSignature: row.managerSignature?.name ?? null,
+      managerInitials: row.managerSignature?.name ? deriveInitials(row.managerSignature.name) : null,
+      managerDateSigned: row.managerSignature?.signedAtIso ? row.managerSignature.signedAtIso.slice(0, 10) : null,
+    });
+    if (!stamped) return pdf;
+    const stampedDocumentSha256 = await sha256Hex(pdfDataUrlToBytes(stamped)).catch(() => null);
+    return { ...pdf, stampedDataUrl: stamped, stampedDocumentSha256: stampedDocumentSha256 ?? null };
+  } catch {
+    return pdf;
   }
 }
 
@@ -3215,6 +3383,57 @@ export async function printLeaseAsPdf(row: LeasePipelineRow): Promise<PortalDown
   return downloadLeaseFromRow(row);
 }
 
+/**
+ * C064: "Export" is a NEW, distinct action from the plain Download above — a
+ * real PDF that always ends with the signature/audit certificate page
+ * (`buildLeaseSignaturePagePdf`: who signed, when, the document fingerprint,
+ * template/jurisdiction, consent), regardless of whether the lease's own
+ * document is an uploaded PDF or a PropLane-generated one. Only offered once
+ * the lease has SOME signature (`leaseClaimsExecution`) — an unsigned lease
+ * has nothing yet to attest.
+ *
+ * For an uploaded PDF, the base is the ORIGINAL bytes (never the copy that
+ * signing may have already merged a certificate into), so Export always adds
+ * exactly one certificate page. For a generated lease there is no source PDF
+ * to build on, so the body is paginated from the SAME rendered HTML the
+ * manager and resident already see (markup stripped, nothing reworded), with
+ * its own inline signature block removed first so the one real certificate
+ * page is not duplicated.
+ */
+export async function buildLeaseExportWithAuditPdf(row: LeasePipelineRow): Promise<Uint8Array | null> {
+  if (!leaseClaimsExecution(row)) return null;
+  const pdfBase = getLeasePdfBaseDataUrl(row);
+  if (pdfBase) {
+    return appendSignaturePageToPdfBytes(dataUrlToBytes(pdfBase), row);
+  }
+  const html = getLeaseDocumentHtml(row);
+  if (!html) return null;
+  const withoutInlineSignatureBlock = html.replace(
+    /<!-- axis-signatures:start -->[\s\S]*?<!-- axis-signatures:end -->/g,
+    "",
+  );
+  const bodyBytes = await buildLeaseBodyTextPdf(htmlToPlainTextParagraphs(withoutInlineSignatureBlock));
+  return appendSignaturePageToPdfBytes(bodyBytes, row);
+}
+
+export async function exportLeaseWithAuditPdf(row: LeasePipelineRow): Promise<PortalDownloadResult> {
+  if (typeof window === "undefined") return "failed";
+  const current =
+    leaseRowCarriesDocumentBytes(row) || !leaseRowHasDocument(row)
+      ? row
+      : ((await ensureLeaseDocumentLoaded(row.id, undefined, row)) ?? row);
+  const bytes = await buildLeaseExportWithAuditPdf(current);
+  if (!bytes) return "failed";
+  return downloadDataUrl(bytesToDataUrl(bytes), `PropLane-Lease-Export-${leaseDownloadBaseName(current)}.pdf`);
+}
+
+export function runLeaseExport(row: LeasePipelineRow, showToast: (message: string) => void): void {
+  void exportLeaseWithAuditPdf(row).then((result) => {
+    const message = portalDownloadToastMessage(result, "lease");
+    if (message) showToast(message);
+  });
+}
+
 export function dedupeLeasePipelineRows(rows: LeasePipelineRow[]): LeasePipelineRow[] {
   const byAgreement = new Map<string, LeasePipelineRow>();
   for (const row of rows) {
@@ -3245,66 +3464,115 @@ export function managerUploadLeasePdf(
       resolve({ ok: false, error: "PDF too large (max 3.5 MB)." });
       return;
     }
-    const rows = [...(readRaw(managerUserId) ?? readLeasePipeline(managerUserId))];
-    const idx = findRawLeaseRowIndex(rowId, managerUserId);
-    const row = idx === -1 ? null : rows[idx]!;
-    if (!leaseAccessibleToManager(row, managerUserId) || !String(row.residentEmail ?? "").trim()) {
-      resolve({ ok: false, error: "Missing resident email on lease row." });
-      return;
-    }
-    if (!leaseAllowsManagerDocumentEdits(row)) {
-      resolve({ ok: false, error: "Move the lease back to manager review before uploading a new PDF." });
-      return;
-    }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      const payload = {
-        dataUrl,
-        originalDataUrl: dataUrl,
-        fileName: file.name,
-        uploadedAt: new Date().toISOString(),
-      };
-      const iso = new Date().toISOString();
-      const nextVersion = (row.versionNumber ?? row.pdfVersion) + 1;
-      rows[idx] = normalizeLeasePipelineRow({
-        ...row,
-        bucket: "manager",
-        managerUploadedPdf: payload,
-        documentMode: "original-pdf",
-        // Written BEFORE any text is read, so the confirm-before-sign gate is
-        // closed for the whole window in which the parse could still be running
-        // or could fail. A parse that never completes leaves the lease held,
-        // not quietly signable. /demo has no parse round trip (it must not call
-        // real routes) so it stores none — but it is NOT thereby exempt:
-        // normalize gives it an `unreadUploadedLeaseParse`, so the demo shows
-        // the same attest-before-send gate with the read step absent.
-        uploadedLeaseParse: isDemoModeActive() ? null : pendingUploadedLeaseParse(file.name),
-        generatedHtml: null,
-        generatedAtIso: null,
-        pdfVersion: nextVersion,
-        versionNumber: nextVersion,
-        status: "Manager Review",
-        currentActorRole: "manager",
-        updatedAtIso: iso,
-        updated: formatUpdatedLabel(iso),
-        managerSignature: null,
-        residentSignature: null,
-        signatureName: null,
-        signedAtIso: null,
-        residentSignedAt: null,
-        managerSignedAt: null,
-        sentToResidentAt: null,
-        fullySignedAt: null,
-        voidedAt: null,
-        leaseDocumentRemovedAt: null,
-      });
-      write(rows, managerUserId);
-      resolve({ ok: true });
+      resolve(applyManagerUploadedPdfToLease(rowId, { dataUrl, fileName: file.name }, managerUserId));
     };
     reader.onerror = () => resolve({ ok: false, error: "Could not read file." });
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Attach a workspace lease-library entry to a resident's lease row instead of
+ * uploading a fresh file (night/custom-lease). Fetches the entry's bytes
+ * through the SAME re-authorizing route every other reader uses
+ * (`leaseTemplateUrlForPath`/`LEASE_TEMPLATE_ROUTE`) — the manager already
+ * has read access to it (they can see the library), never a second privilege
+ * path — then writes it exactly like a fresh upload, plus the library id (for
+ * "delete if unused" tracking) and any placed signature fields.
+ */
+export async function managerAttachLibraryLeaseDocument(
+  rowId: string,
+  entry: { id: string; url: string; fileName: string; fields?: import("@/lib/lease-document-library").LeaseDocumentField[] },
+  managerUserId?: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  let dataUrl: string;
+  try {
+    const res = await fetch(entry.url, { credentials: "include" });
+    if (!res.ok) return { ok: false, error: "Could not read that library document." };
+    const blob = await res.blob();
+    if (blob.size > 3.5 * 1024 * 1024) return { ok: false, error: "PDF too large (max 3.5 MB)." };
+    dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return { ok: false, error: "Could not read that library document." };
+  }
+  return applyManagerUploadedPdfToLease(
+    rowId,
+    { dataUrl, fileName: entry.fileName, libraryDocumentId: entry.id, fields: entry.fields },
+    managerUserId,
+  );
+}
+
+function applyManagerUploadedPdfToLease(
+  rowId: string,
+  upload: {
+    dataUrl: string;
+    fileName: string;
+    libraryDocumentId?: string | null;
+    fields?: import("@/lib/lease-document-library").LeaseDocumentField[];
+  },
+  managerUserId?: string | null,
+): { ok: boolean; error?: string } {
+  const rows = [...(readRaw(managerUserId) ?? readLeasePipeline(managerUserId))];
+  const idx = findRawLeaseRowIndex(rowId, managerUserId);
+  const row = idx === -1 ? null : rows[idx]!;
+  if (!leaseAccessibleToManager(row, managerUserId) || !String(row.residentEmail ?? "").trim()) {
+    return { ok: false, error: "Missing resident email on lease row." };
+  }
+  if (!leaseAllowsManagerDocumentEdits(row)) {
+    return { ok: false, error: "Move the lease back to manager review before uploading a new PDF." };
+  }
+  const payload = {
+    dataUrl: upload.dataUrl,
+    originalDataUrl: upload.dataUrl,
+    fileName: upload.fileName,
+    uploadedAt: new Date().toISOString(),
+    ...(upload.libraryDocumentId ? { libraryDocumentId: upload.libraryDocumentId } : {}),
+    ...(upload.fields?.length ? { fields: upload.fields } : {}),
+  };
+  const iso = new Date().toISOString();
+  const nextVersion = (row.versionNumber ?? row.pdfVersion) + 1;
+  rows[idx] = normalizeLeasePipelineRow({
+    ...row,
+    bucket: "manager",
+    managerUploadedPdf: payload,
+    documentMode: "original-pdf",
+    // Written BEFORE any text is read, so the confirm-before-sign gate is
+    // closed for the whole window in which the parse could still be running
+    // or could fail. A parse that never completes leaves the lease held,
+    // not quietly signable. /demo has no parse round trip (it must not call
+    // real routes) so it stores none — but it is NOT thereby exempt:
+    // normalize gives it an `unreadUploadedLeaseParse`, so the demo shows
+    // the same attest-before-send gate with the read step absent.
+    uploadedLeaseParse: isDemoModeActive() ? null : pendingUploadedLeaseParse(upload.fileName),
+    generatedHtml: null,
+    generatedAtIso: null,
+    pdfVersion: nextVersion,
+    versionNumber: nextVersion,
+    status: "Manager Review",
+    currentActorRole: "manager",
+    updatedAtIso: iso,
+    updated: formatUpdatedLabel(iso),
+    managerSignature: null,
+    residentSignature: null,
+    signatureName: null,
+    signedAtIso: null,
+    residentSignedAt: null,
+    managerSignedAt: null,
+    sentToResidentAt: null,
+    fullySignedAt: null,
+    voidedAt: null,
+    leaseDocumentRemovedAt: null,
+  });
+  write(rows, managerUserId);
+  return { ok: true };
 }
 
 /**
@@ -3553,17 +3821,56 @@ export function residentUploadLeasePdf(email: string, file: File): Promise<{ ok:
   });
 }
 
-/** Resident electronically signs; row always moves to **signed** (awaiting manager countersign unless already fully executed). */
+const LEASE_SIGN_NOT_AWAITING_RESIDENT: LeasePipelineActionResult = {
+  ok: false,
+  error: "This lease is not awaiting your signature.",
+};
+const LEASE_SIGN_NOT_AWAITING_MANAGER: LeasePipelineActionResult = {
+  ok: false,
+  error: "This lease is not awaiting a manager signature.",
+};
+
+/**
+ * Resident electronically signs; row always moves to **signed** (awaiting
+ * manager countersign unless already fully executed).
+ *
+ * Two hotfix invariants (a lease sent before Sep 19 could be signed with
+ * neither held):
+ * 1. The signature hash is taken from the FULLY loaded document, never the
+ *    slim list copy every resident's local store actually holds — signing
+ *    loads the full row first, via `ensureLeaseDocumentLoaded`, exactly like
+ *    the manager's own preview already did.
+ * 2. The write WAITS for the server. A lease is never shown as signed until
+ *    `persistLeaseRowToServerAwait` confirms it, and a refusal is returned to
+ *    the caller as a real message rather than silently ignored in the
+ *    background.
+ */
 export async function residentSignLease(
   email: string,
   signatureName?: string,
   consentVersion?: string | null,
-): Promise<boolean> {
-  const rows = [...(readRaw() ?? readLeasePipeline())];
-  const idx = findActiveResidentLeaseRawIndex(email);
-  if (idx === -1) return false;
-  const row = rows[idx]!;
-  if (row.status !== "Resident Signature Pending" || row.bucket !== "resident" || row.residentSignature) return false;
+): Promise<LeasePipelineActionResult> {
+  const locate = (): LeasePipelineRow | null => {
+    const rows = readRaw() ?? readLeasePipeline();
+    const idx = findActiveResidentLeaseRawIndex(email);
+    return idx === -1 ? null : (rows[idx] ?? null);
+  };
+  let row = locate();
+  if (!row) return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+  if (row.status !== "Resident Signature Pending" || row.bucket !== "resident" || row.residentSignature) {
+    return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+  }
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    await ensureLeaseDocumentLoaded(row.id, undefined, row);
+    row = locate();
+    if (!row) return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+    if (row.status !== "Resident Signature Pending" || row.bucket !== "resident" || row.residentSignature) {
+      return LEASE_SIGN_NOT_AWAITING_RESIDENT;
+    }
+  }
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    return { ok: false, error: "Your lease document could not be loaded. Reload the page and try again." };
+  }
   const iso = new Date().toISOString();
   const trimmedSignature = signatureName?.trim() || row.residentName || "Resident";
   // Hash the bytes the resident was actually shown, BEFORE the signature (and
@@ -3589,7 +3896,7 @@ export async function residentSignLease(
   });
   const bothSigned = hasBothLeaseSignatures(nextRowBase);
   const mergedPdf = await refreshUploadedPdfSignatures(nextRowBase);
-  rows[idx] = {
+  const updatedRow: LeasePipelineRow = {
     ...nextRowBase,
     managerUploadedPdf: mergedPdf ?? nextRowBase.managerUploadedPdf,
     bucket: "signed",
@@ -3603,25 +3910,83 @@ export async function residentSignLease(
     sentToResidentAt: row.sentToResidentAt ?? row.updatedAtIso,
     fullySignedAt: bothSigned ? iso : null,
   };
-  write(rows);
-  return true;
+  const persisted = await persistLeaseRowToServerAwait(updatedRow);
+  if (!persisted.ok) return persisted;
+  const freshRows = [...(readRaw() ?? readLeasePipeline())];
+  const freshIdx = freshRows.findIndex((r) => r.id === updatedRow.id);
+  if (freshIdx === -1) freshRows.push(updatedRow);
+  else freshRows[freshIdx] = updatedRow;
+  write(freshRows, undefined, { persist: false });
+  return { ok: true };
 }
 
-/** Manager / authorized agent electronically countersigns (only after the resident has signed). */
+/**
+ * Ida Cares lease-first (PLAN-0925, C274-C287): resident-triggered transition
+ * of a `createLeaseFirstDraft` marker row into `bucket: "resident", status:
+ * "Resident Signature Pending"` with a real generated document, so
+ * `residentSignLease` has something to hash and sign. The document is built
+ * entirely server-side from the property's published lease-first template —
+ * this call carries no document content, only the lease id.
+ */
+export async function beginLeaseFirstSigning(leaseId: string): Promise<LeasePipelineActionResult> {
+  if (!canUseStorage()) {
+    return { ok: false, error: "Could not start signing. Check your connection and try again." };
+  }
+  try {
+    const res = await fetch("/api/portal-lease-pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "begin_lease_first_signing", leaseId }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; row?: unknown; error?: string };
+    if (!res.ok || !body.ok) {
+      return { ok: false, error: body.error?.trim() || "Could not start signing. Try again." };
+    }
+    const nextRow = normalizeLeasePipelineRow(body.row ?? {});
+    const freshRows = [...(readRaw() ?? readLeasePipeline())];
+    const freshIdx = freshRows.findIndex((r) => r.id === nextRow.id);
+    if (freshIdx === -1) freshRows.push(nextRow);
+    else freshRows[freshIdx] = nextRow;
+    write(freshRows, undefined, { persist: false });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not start signing. Check your connection and try again." };
+  }
+}
+
+/**
+ * Manager / authorized agent electronically countersigns (only after the
+ * resident has signed). Same two hotfix invariants as `residentSignLease`:
+ * hash the fully loaded document, and wait for the server before reporting
+ * success.
+ */
 export async function managerSignLease(
   rowId: string,
   signatureName: string,
   managerUserId?: string | null,
   consentVersion?: string | null,
-): Promise<boolean> {
-  const rows = readLeasePipeline(managerUserId);
-  const idx = rows.findIndex((r) => r.id === rowId);
-  if (idx === -1) return false;
-  const row = rows[idx]!;
-  if (!leaseAccessibleToManager(row, managerUserId)) return false;
-  if (!leaseAwaitingManagerCountersign(row)) return false;
+): Promise<LeasePipelineActionResult> {
+  const locate = (): LeasePipelineRow | null => {
+    const rows = readLeasePipeline(managerUserId);
+    return rows.find((r) => r.id === rowId) ?? null;
+  };
+  let row = locate();
+  if (!row || !leaseAccessibleToManager(row, managerUserId) || !leaseAwaitingManagerCountersign(row)) {
+    return LEASE_SIGN_NOT_AWAITING_MANAGER;
+  }
   const trimmedSignature = signatureName.trim();
-  if (!trimmedSignature) return false;
+  if (!trimmedSignature) return { ok: false, error: "Enter your name to sign." };
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    await ensureLeaseDocumentLoaded(row.id, managerUserId, row);
+    row = locate();
+    if (!row || !leaseAccessibleToManager(row, managerUserId) || !leaseAwaitingManagerCountersign(row)) {
+      return LEASE_SIGN_NOT_AWAITING_MANAGER;
+    }
+  }
+  if (!leaseRowCarriesDocumentBytes(row)) {
+    return { ok: false, error: "The lease document could not be loaded. Reload the page and try again." };
+  }
   const iso = new Date().toISOString();
   // Hash the agreement bytes, not the copy carrying the resident's certificate
   // page (see lease-execution-evidence.ts). Equal to the resident's hash unless
@@ -3641,10 +4006,7 @@ export async function managerSignLease(
   const bothSigned = hasBothLeaseSignatures(nextRowBase);
   const mergedPdf = await refreshUploadedPdfSignatures(nextRowBase);
   const thread = [...(row.thread ?? []), makeMsg("manager", `Manager signed electronically — ${trimmedSignature}.`)];
-  const raw = [...(readRaw(managerUserId) ?? [])];
-  const rawIdx = raw.findIndex((r) => r.id === rowId);
-  if (rawIdx === -1) return false;
-  raw[rawIdx] = {
+  const updatedRow: LeasePipelineRow = {
     ...nextRowBase,
     managerUploadedPdf: mergedPdf ?? nextRowBase.managerUploadedPdf,
     bucket: "signed",
@@ -3656,8 +4018,14 @@ export async function managerSignLease(
     managerSignedAt: iso,
     fullySignedAt: bothSigned ? iso : null,
   };
-  write(raw, managerUserId);
-  return true;
+  const persisted = await persistLeaseRowToServerAwait(updatedRow);
+  if (!persisted.ok) return persisted;
+  const raw = [...(readRaw(managerUserId) ?? [])];
+  const rawIdx = raw.findIndex((r) => r.id === rowId);
+  if (rawIdx === -1) raw.push(updatedRow);
+  else raw[rawIdx] = updatedRow;
+  write(raw, managerUserId, { persist: false });
+  return { ok: true };
 }
 
 export function residentRequestEdits(email: string, message: string): boolean {
@@ -3741,14 +4109,13 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
   if (!logical || !leaseAccessibleToManager(logical, managerUserId)) {
     return { ok: false, error: "Lease not found." };
   }
-  const signableMode = effectiveLeaseDocumentMode(logical);
-  if (
-    (signableMode === "original-pdf" && !logical.managerUploadedPdf?.dataUrl) ||
-    (signableMode !== "original-pdf" && !logical.generatedHtml) ||
-    (signableMode === "imported-converted" && !logical.templateImportReview && !logical.uploadedLeaseParse?.review.confirmedConvertedHtmlSha256)
-  ) {
-    return { ok: false, error: "Generate or upload a lease document first." };
-  }
+  // Document presence AND the imported-converted review-confirmation gate
+  // (Akhil's PDF-import safety check) are both enforced inside
+  // `leaseSendGateBlocker` below (see its comment on `leaseSendGateBlockerAmong`)
+  // — `logical` is read from the LIST-shaped client cache, whose bytes are
+  // intentionally omitted for bandwidth, so a bare `managerUploadedPdf?.dataUrl`
+  // check here would wrongly refuse an uploaded or library-attached PDF lease
+  // that genuinely has a document server-side.
   if (logical.status === "Fully Signed" || logical.status === "Voided") {
     return { ok: false, error: "This lease is already finalized." };
   }

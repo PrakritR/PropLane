@@ -227,7 +227,7 @@ export function PortalWorkspaceClient({
   );
 
   const hideInboxPropertyFilter =
-    (portalKind === "admin" || portalKind === "manager" || portalKind === "pro") && model.title === "Inbox";
+    (portalKind === "admin" || portalKind === "manager" || portalKind === "pro") && model.title === "Communication";
 
   const headerFilters =
     portalKind === "admin" && !hideInboxPropertyFilter ? (

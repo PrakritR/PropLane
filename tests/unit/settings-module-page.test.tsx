@@ -40,50 +40,31 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
   function Properties() {
     return <div>properties module</div>;
   }
-  function Applications({ reminderFormRef }: ComponentProps<typeof actual.ApplicationsSettingsPanel>) {
-    React.useImperativeHandle(reminderFormRef, () => ({ saveIfDirty: async () => true }), []);
+  // C111: Applications/Lease/Tasks/Payments/Services no longer take a
+  // reminder formRef of their own — that content (and its flush handle) now
+  // lives on `ManagerPortalAutomationSettingsPanel`, mocked below.
+  function Applications() {
     return <div>applications module</div>;
   }
-  function Tours({ formRef, managerReminderFormRef }: ComponentProps<typeof actual.TourSettingsPanel>) {
+  function Tours({ formRef }: ComponentProps<typeof actual.TourSettingsPanel>) {
     React.useImperativeHandle(formRef, () => ({ saveIfDirty: async () => true }), []);
-    React.useImperativeHandle(managerReminderFormRef, () => ({ saveIfDirty: async () => true }), []);
     return <div>tours module</div>;
   }
-  function Lease({ reminderFormRef }: ComponentProps<typeof actual.LeaseSettingsPanel>) {
-    React.useImperativeHandle(reminderFormRef, () => ({ saveIfDirty: async () => true }), []);
+  function Lease() {
     return <div>lease module</div>;
   }
-  function Tasks({ reminderFormRef }: ComponentProps<typeof actual.TaskSettingsPanel>) {
-    React.useImperativeHandle(reminderFormRef, () => ({ saveIfDirty: async () => true }), []);
+  function Tasks() {
     return <div>tasks module</div>;
   }
   function Resident() {
     return <div>resident module</div>;
   }
-  function Payments({ formRef, outgoingReminderFormRef }: ComponentProps<typeof actual.PaymentsSettingsPanel>) {
+  function Payments({ formRef }: ComponentProps<typeof actual.PaymentsSettingsPanel>) {
     React.useImperativeHandle(formRef, () => ({ saveIfDirty: async () => true }), []);
-    React.useImperativeHandle(outgoingReminderFormRef, () => ({ saveIfDirty: async () => true }), []);
     return <div>payments module</div>;
   }
-  function Services({
-    workOrderReminderFormRef,
-    serviceOrderReminderFormRef,
-  }: ComponentProps<typeof actual.ServicesSettingsPanel>) {
-    React.useImperativeHandle(workOrderReminderFormRef, () => ({ saveIfDirty: async () => true }), []);
-    React.useImperativeHandle(serviceOrderReminderFormRef, () => ({ saveIfDirty: async () => true }), []);
+  function Services() {
     return <div>services module</div>;
-  }
-  function Inspections({
-    dueReminderFormRef,
-    reviewReminderFormRef,
-  }: ComponentProps<typeof actual.InspectionsSettingsPanel>) {
-    React.useImperativeHandle(dueReminderFormRef, () => ({ saveIfDirty: async () => true }), []);
-    React.useImperativeHandle(reviewReminderFormRef, () => ({ saveIfDirty: async () => true }), []);
-    return <div>inspections module</div>;
-  }
-  function Bookings({ reminderFormRef }: ComponentProps<typeof actual.BookingsSettingsPanel>) {
-    React.useImperativeHandle(reminderFormRef, () => ({ saveIfDirty: async () => true }), []);
-    return <div>bookings module</div>;
   }
   function Communication() {
     return <div>communication module</div>;
@@ -99,8 +80,6 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
     ResidentSettingsPanel: Resident,
     PaymentsSettingsPanel: Payments,
     ServicesSettingsPanel: Services,
-    InspectionsSettingsPanel: Inspections,
-    BookingsSettingsPanel: Bookings,
     CommunicationSettingsPanel: Communication,
   };
 });
@@ -125,13 +104,13 @@ describe("SettingsModulePage — every registered tab resolves without throwing"
   });
 
   it("covers every registered tab — this list itself must not silently shrink", () => {
+    // Bookings and Inspections settings tabs are gone (C111/C116): both held
+    // only a Reminders/Messages section, now on "automation".
     expect(MANAGER_PORTAL_SETTINGS_TABS.map((t) => t.id).sort()).toEqual(
       [
         "applications",
         "automation",
-        "bookings",
         "communication",
-        "inspections",
         "lease",
         "payments",
         "payouts",

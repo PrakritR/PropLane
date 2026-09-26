@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
@@ -14,6 +15,7 @@ import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { ResidentNotificationPreferencesSettings } from "@/components/portal/resident-notification-preferences-settings";
+import { ResidentPaymentMethodsSettingsCard } from "@/components/portal/resident-payment-methods-settings-card";
 import {
   PortalSettingsField,
   PortalSettingsFormBody,
@@ -421,13 +423,15 @@ export function ResidentProfilePanel({
       case "preferences":
         return (
           <>
-            <PortalSettingsSection title="Appearance">
-              <PortalSettingsGroup>
-                <PortalSettingsRow label="Theme">
-                  <ThemeToggle className="shrink-0" />
-                </PortalSettingsRow>
-              </PortalSettingsGroup>
-            </PortalSettingsSection>
+            {DARK_MODE_ENABLED ? (
+              <PortalSettingsSection title="Appearance">
+                <PortalSettingsGroup>
+                  <PortalSettingsRow label="Theme">
+                    <ThemeToggle className="shrink-0" />
+                  </PortalSettingsRow>
+                </PortalSettingsGroup>
+              </PortalSettingsSection>
+            ) : null}
             <ResidentNotificationPreferencesSettings />
             <AssistantCustomInstructionsSetting role="resident" />
             <NotificationsToggle />
@@ -438,7 +442,15 @@ export function ResidentProfilePanel({
       case "feedback":
         return <PortalBugFeedbackPanel reporterRole="resident" embedded />;
       case "account":
-        return <PortalSettingsExtras currentKind="resident" variant="session" />;
+        return (
+          <>
+            {/* C145: payment methods and autopay live alongside sign out
+                rather than inside the Payments list, which keeps owning
+                charge history and the per-charge Pay flow. */}
+            <ResidentPaymentMethodsSettingsCard />
+            <PortalSettingsExtras currentKind="resident" variant="session" />
+          </>
+        );
     }
   };
 

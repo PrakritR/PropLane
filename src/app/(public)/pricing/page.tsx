@@ -7,11 +7,11 @@ import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { BUSINESS_MAX_PROPERTIES, FREE_MAX_PROPERTIES, PRO_MAX_PROPERTIES } from "@/lib/manager-access";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteFaq, type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
+import { CellValue, Check, Dash, COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import {
   SITE_BTN_PRIMARY,
   SITE_BTN_SECONDARY,
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: `PropLane pricing: free for one home, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo. 14-day trial, no card required.`,
+  description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} residents, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} residents included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} residents included). 14-day trial, no card required.`,
 };
 
 const CTA_BASE = MANAGER_GET_STARTED_HREF;
@@ -44,16 +44,23 @@ const TIER_TAGLINE: Record<PlanTierId, string> = {
 /**
  * What each card lists. "Everything in X, plus" — a tier repeats nothing the
  * one before it already said, so the difference between two plans is the
- * whole list, not a diff a buyer has to run in their head. Caps come from
- * `manager-access` and the credit from `allowances`, never retyped.
+ * whole list, not a diff a buyer has to run in their head. Door counts and
+ * per-door overage come from `RATE_CARD` — the one enforced source of truth
+ * (see its doc comment) — never the legacy, informational-only
+ * `FREE_MAX_PROPERTIES`/`PRO_MAX_PROPERTIES`/`BUSINESS_MAX_PROPERTIES`
+ * constants in `manager-access.ts`, which that file's own comment says not to
+ * read as an enforced limit. Co-managers are unlimited on Pro and Business
+ * (`manager-plan-tiers.ts`'s "unlimited co-managers" copy); only Free's door
+ * cap is a hard limit. Credit comes from `allowances`, never retyped.
  */
 function tierIncludes(id: PlanTierId): { heading: string; items: { text: string; included: boolean }[] } {
   const credit = (t: PlanTierId) => formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS[t]!);
+  const perDoor = (t: "pro" | "business") => formatRateCardUsd(RATE_CARD[t].perExtraDoorMonthlyCents ?? 0);
   if (id === "free") {
     return {
       heading: "What's included",
       items: [
-        { text: `${FREE_MAX_PROPERTIES} property listing`, included: true },
+        { text: `${RATE_CARD.free.includedDoors} residents`, included: true },
         { text: "Applications & tour scheduling", included: true },
         { text: "Rent collection & charges", included: true },
         { text: "In-app inbox & email", included: true },
@@ -67,10 +74,10 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
     return {
       heading: "Everything in Free, plus",
       items: [
-        { text: `Up to ${PRO_MAX_PROPERTIES} property listings`, included: true },
+        { text: `${RATE_CARD.pro.includedDoors} residents included, then ${perDoor("pro")}/resident`, included: true },
         { text: "Residents, leases & services", included: true },
-        { text: "AI drafts in the inbox", included: true },
-        { text: "Up to 2 co-managers", included: true },
+        { text: "AI drafts in Communication", included: true },
+        { text: "Unlimited co-managers", included: true },
         { text: "1 work number — texting & calls", included: true },
         { text: `${credit("pro")}/mo communication credit`, included: true },
         { text: "Manager may cover processing fees", included: true },
@@ -80,8 +87,8 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
   return {
     heading: "Everything in Pro, plus",
     items: [
-      { text: `Up to ${BUSINESS_MAX_PROPERTIES} property listings`, included: true },
-      { text: "Up to 20 co-managers, per-module access", included: true },
+      { text: `${RATE_CARD.business.includedDoors} residents included, then ${perDoor("business")}/resident`, included: true },
+      { text: "Unlimited co-managers, per-module access", included: true },
       { text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`, included: true },
       { text: `${credit("business")}/mo communication credit`, included: true },
       { text: "Priority admin support", included: true },
@@ -97,7 +104,7 @@ const CREDIT_PACKS_TEXT = (() => {
 const FAQ: SiteFaqItem[] = [
   {
     q: "Is the free tier actually free?",
-    a: "Yes. $0, no card, one listing, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.",
+    a: `Yes. $0, no card, ${RATE_CARD.free.includedDoors} residents, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.`,
   },
   {
     q: "Do I need a credit card to try Pro or Business?",
@@ -124,18 +131,6 @@ const FAQ: SiteFaqItem[] = [
     a: `Paying for the year up front is two months free: Pro is ${MANAGER_PLAN_TIERS[1]!.annual.headline} a year instead of ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents * 12)}, and Business is ${MANAGER_PLAN_TIERS[2]!.annual.headline} instead of ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents * 12)}. Included communication credit is the same on annual plans.`,
   },
 ];
-
-function Check() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-primary" aria-hidden>
-      <path d="M4 10.5l3.5 3.5L16 5.5" />
-    </svg>
-  );
-}
-
-function Dash() {
-  return <span aria-hidden className="inline-block h-[2px] w-3 shrink-0 rounded bg-border" />;
-}
 
 function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: boolean }) {
   const featured = tier.id === "pro";
@@ -186,66 +181,10 @@ function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: b
   );
 }
 
-/* ───────────────────── comparison table ───────────────────── */
-
-type Cell = boolean | string;
-const YES = true;
-const NO = false;
-
-const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell] }[] }[] = [
-  {
-    group: "Homes & team",
-    rows: [
-      { label: "Property listings", cells: [String(FREE_MAX_PROPERTIES), String(PRO_MAX_PROPERTIES), String(BUSINESS_MAX_PROPERTIES)] },
-      { label: "Co-managers", cells: [NO, "2", "20"] },
-      { label: "Workspaces", cells: ["1", "1", String(WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces)] },
-      { label: "Per-module access for co-managers", cells: [NO, YES, YES] },
-    ],
-  },
-  {
-    group: "Leasing",
-    rows: [
-      { label: "Public listing, apply link, tours", cells: [YES, YES, YES] },
-      { label: "Applications", cells: [YES, YES, YES] },
-      { label: "Residents & services", cells: [NO, YES, YES] },
-      { label: "Lease drafted from the application, e-sign", cells: [NO, YES, YES] },
-    ],
-  },
-  {
-    group: "Money",
-    rows: [
-      { label: "Rent by card or bank", cells: [YES, YES, YES] },
-      { label: "Ledger & reports", cells: [YES, YES, YES] },
-      { label: "Who pays processing fees", cells: ["Resident", "Resident or manager", "Resident or manager"] },
-    ],
-  },
-  {
-    group: "Communication",
-    rows: [
-      { label: "Work number, texting & calls", cells: [NO, "1 included", "1 per workspace"] },
-      {
-        label: "Included credit / month",
-        cells: [
-          formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!),
-          formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!),
-          formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!),
-        ],
-      },
-      { label: "AI assistant in the portal", cells: [YES, YES, YES] },
-      { label: "AI drafts in the inbox", cells: [NO, YES, YES] },
-    ],
-  },
-  {
-    group: "Support",
-    rows: [{ label: "Priority admin support", cells: [NO, NO, YES] }],
-  },
-];
-
-function CellValue({ value }: { value: Cell }) {
-  if (value === true) return <Check />;
-  if (value === false) return <Dash />;
-  return <span className="text-[13.5px] font-semibold text-foreground">{value}</span>;
-}
+/* ───────────────────── comparison table ─────────────────────
+   COMPARE, Check, Dash, and CellValue now live in
+   `pricing-compare-data.tsx`, shared with the home page teaser's
+   condensed grid so the two surfaces can never list different features. */
 
 function CompareTable() {
   return (
@@ -305,6 +244,74 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/**
+ * C178: phone-only per-plan accordion, a deliberate reversal of PRP-314's
+ * horizontal scroller — each plan expands to its own full feature list
+ * instead of a table that scrolls sideways. Reads the SAME `COMPARE` rows as
+ * `CompareTable`, just transposed to one plan's column per panel, so the two
+ * renderings can never list different features. Pro (the featured tier)
+ * opens by default; desktop is unchanged (`CompareTable`'s single table).
+ */
+function ComparePlanAccordion() {
+  return (
+    <div className="mt-10 flex flex-col gap-3" data-attr="pricing-compare-phone">
+      {MANAGER_PLAN_TIERS.map((tier, i) => (
+        <details
+          key={tier.id}
+          className="group overflow-hidden rounded-2xl border border-border bg-card"
+          open={tier.id === "pro"}
+          data-attr={`pricing-compare-phone-${tier.id}`}
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[14px] font-bold text-foreground [&::-webkit-details-marker]:hidden">
+            {tier.label} — every feature
+            <span
+              aria-hidden
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border text-muted transition-transform group-open:rotate-180"
+            >
+              ▾
+            </span>
+          </summary>
+          <div className="border-t border-border px-5 pb-4">
+            {COMPARE.map((g) => (
+              <div key={g.group}>
+                <p className="pt-3 text-[11px] font-bold uppercase tracking-[0.07em] text-primary">{g.group}</p>
+                {g.rows.map((r) => (
+                  <div
+                    key={r.label}
+                    className="flex items-center justify-between gap-3 border-t border-border/60 py-2 text-[13px]"
+                  >
+                    <span className="text-foreground">{r.label}</span>
+                    <CellValue value={r.cells[i]!} />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * C178: a fixed bottom bar on phone so the CTA is always one tap away while
+ * scrolling the plan cards or the comparison accordion, instead of scrolling
+ * back to the top. `md:hidden` — desktop keeps its inline card CTAs only.
+ */
+function MobileStickyCta() {
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-3 border-t border-border bg-card/95 px-4 py-2.5 backdrop-blur-md md:hidden [html[data-native]_&]:pb-[max(0.625rem,env(safe-area-inset-bottom))]"
+      data-attr="pricing-sticky-cta"
+    >
+      <p className="flex-1 text-[12.5px] text-muted">Free for {RATE_CARD.free.includedDoors} residents, no card.</p>
+      <Link href={TIER_CTA.free.href} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
+        Get started
+      </Link>
+    </div>
+  );
+}
+
 function BillingToggle({ annual }: { annual: boolean }) {
   const pill = (on: boolean) =>
     cn(
@@ -336,11 +343,11 @@ export default async function PricingPage({
   const rates = COMMS_BILLING_RATES_CENTS;
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative min-h-0 flex-1 pb-16 md:pb-0">
       <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
         <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
           <SiteHeading as="h1" id="pricing-title">
-            Free for one home.
+            Free for {RATE_CARD.free.includedDoors} residents.
             <br />
             <span className="text-primary">Pay when the portfolio earns it.</span>
           </SiteHeading>
@@ -351,21 +358,29 @@ export default async function PricingPage({
       </section>
 
       <section className="py-12 sm:py-14" aria-label="Plans">
-        {/* Three plans stay side by side on a phone too (PRP-314): a snap scroller
-            below md, a plain 3-column grid from md up. Stacking them meant only
-            one plan was ever on screen, which defeats a comparison page. */}
+        {/* C178 (captain-requested reversal of PRP-314's side-by-side snap
+            scroller): phone stacks full-width cards in one column; md+ keeps
+            the unchanged 3-column grid. */}
         <div
-          className={`${SITE_MEASURE} flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 pt-3 [&>*]:w-[84%] [&>*]:shrink-0 [&>*]:snap-center md:grid md:grid-cols-3 md:gap-5 md:overflow-visible md:pb-0 md:[&>*]:w-auto`}
-          data-attr="pricing-plan-scroller"
+          className={`${SITE_MEASURE} flex flex-col gap-4 pt-3 md:grid md:grid-cols-3 md:gap-5 md:pt-0`}
+          data-attr="pricing-plan-stack"
         >
           {MANAGER_PLAN_TIERS.map((tier) => (
             <PlanCard key={tier.id} tier={tier} annual={annual} />
           ))}
         </div>
         <div className={SITE_MEASURE}>
-          <CompareTable />
+          {/* C178: phone gets a per-plan accordion instead of the sideways-
+              scrolling table; desktop's <CompareTable> is unchanged. */}
+          <div className="md:hidden">
+            <ComparePlanAccordion />
+          </div>
+          <div className="hidden md:block">
+            <CompareTable />
+          </div>
         </div>
       </section>
+      <MobileStickyCta />
 
       <SiteSection ariaLabel="Credit and fees">
         <div className="grid gap-4 md:grid-cols-2">

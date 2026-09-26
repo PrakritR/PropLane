@@ -52,6 +52,8 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
     await db.query(await readFile("supabase/migrations/20260906070000_shared_room_capacity.sql", "utf8"));
     await db.query(await readFile("supabase/migrations/20260912150000_shared_room_capacity_normalization_occupancy_start.sql", "utf8"));
     await db.query(await readFile("supabase/migrations/20260920234000_resident_slot_arbitration.sql", "utf8"));
+    await db.query(await readFile("supabase/migrations/20260914120000_room_placement_name_fallback.sql", "utf8"));
+    await db.query(await readFile("supabase/migrations/20260925030000_room_placement_slot_suffix_fix.sql", "utf8"));
   });
   afterAll(async () => {
     for (const client of connections) {
@@ -132,6 +134,30 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
     const { application } = await residentSlotFixture(2);
     await insert(db, application("first", 1));
     await expect(insert(db, application("second", 2))).resolves.toBeDefined();
+  });
+
+  it("approves a room choice carrying the resident-slot suffix (propertyId::roomId::rN)", async () => {
+    // Regression for the false "Assigned room no longer exists." on approval
+    // (PROPLANE-CB273315): roomChoiceValue() in src/lib/rental-application/data.ts
+    // appends "::r<N>" to the room choice whenever the applicant picks a bed in a
+    // per-resident-priced room, and that suffixed value is what lands in
+    // application.roomChoice1 when assignedRoomChoice is unset (real dev-DB shape:
+    // "<propertyId>::<roomId>::r1"). room_placement_room() used to split on the
+    // FIRST "::" only, turning the extracted room id into "<roomId>::r1", which
+    // never matches a real room and always raised.
+    const { application, propertyId } = await residentSlotFixture(2);
+    const row = { ...application("suffixed", 1), assignedRoomChoice: `${propertyId}::r::r1` };
+    await expect(insert(db, row)).resolves.toBeDefined();
+    const stored = (
+      await db.query("select row_data->>'assignedRoomChoice' as c from manager_application_records where id=$1", [row.id])
+    ).rows[0].c;
+    expect(stored).toBe(`${propertyId}::r::r1`);
+  });
+
+  it("still rejects a suffixed choice naming a room that truly does not exist", async () => {
+    const { application, propertyId } = await residentSlotFixture(2);
+    const row = { ...application("missing-room", 1), assignedRoomChoice: `${propertyId}::ghost-room::r1` };
+    await expect(insert(db, row)).rejects.toMatchObject({ code: "23514", message: "Assigned room no longer exists." });
   });
 
   it("does not arbitrate a stale residentSlot once the room drops per-resident pricing", async () => {

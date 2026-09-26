@@ -1,7 +1,9 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { isVideoUploadFile } from "@/lib/listing-media-drop";
 
 const MAX_IMG_BYTES = 10 * 1024 * 1024;
-const MAX_VID_BYTES = 14 * 1024 * 1024;
+/** The storage plan's per-file limit. */
+export const MAX_LISTING_VIDEO_BYTES = 50 * 1024 * 1024;
 const IMG_MAX_WIDTH = 1280;
 const IMG_QUALITY = 0.75;
 const TUS_CHUNK = 6 * 1024 * 1024;
@@ -24,6 +26,26 @@ function extToMime(ext: string): string {
     heic: "image/heic",
   };
   return map[ext] ?? "application/octet-stream";
+}
+
+/** The reverse of {@link extToMime}, for a File whose name has no extension. */
+function mimeToExt(mime: string): string {
+  const map: Record<string, string> = {
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/x-m4v": "m4v",
+    "video/webm": "webm",
+    "video/x-msvideo": "avi",
+    "video/x-matroska": "mkv",
+    "video/x-ms-wmv": "wmv",
+    "video/x-flv": "flv",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/heic": "heic",
+  };
+  return map[mime] ?? mime.split("/")[1]?.replace("jpeg", "jpg") ?? "mp4";
 }
 
 async function fileToDataUrl(file: File, maxBytes: number): Promise<string | null> {
@@ -65,7 +87,14 @@ async function fileToDataUrl(file: File, maxBytes: number): Promise<string | nul
   });
 }
 
-async function uploadViaTus(file: File, path: string, mime: string, token: string, supabaseUrl: string): Promise<void> {
+async function uploadViaTus(
+  file: File,
+  path: string,
+  mime: string,
+  token: string,
+  supabaseUrl: string,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
   const b64 = (value: string) => btoa(unescape(encodeURIComponent(value)));
   const metadata = [
     `bucketName ${b64("listing-photos")}`,
@@ -116,6 +145,7 @@ async function uploadViaTus(file: File, path: string, mime: string, token: strin
       throw new Error(`TUS chunk failed at offset ${offset} (${patchRes.status}): ${body}`);
     }
     offset = end;
+    onProgress?.(offset / file.size);
   }
 }
 
@@ -147,8 +177,12 @@ async function uploadThroughServer(input: File | string): Promise<string> {
   return body.url;
 }
 
-async function uploadToBucket(input: File | string): Promise<string> {
-  if (await shouldUseServerListingUpload()) return uploadThroughServer(input);
+async function uploadToBucket(input: File | string, opts?: { onProgress?: (fraction: number) => void }): Promise<string> {
+  if (await shouldUseServerListingUpload()) {
+    const url = await uploadThroughServer(input);
+    opts?.onProgress?.(1);
+    return url;
+  }
   const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser");
   const db = createSupabaseBrowserClient();
   const {
@@ -163,17 +197,24 @@ async function uploadToBucket(input: File | string): Promise<string> {
   if (typeof input === "string") {
     body = await fetch(input).then((response) => response.blob());
     mime = body.type || "image/jpeg";
-    ext = mime.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+    ext = mimeToExt(mime);
   } else {
     body = input;
-    ext = input.name.split(".").pop()?.toLowerCase() ?? "mp4";
-    mime = input.type || extToMime(ext);
+    // A File's name usually carries its extension. iOS can hand over a clip
+    // with no extension at all (and sometimes no MIME type either) — fall
+    // back to the MIME type's own extension rather than the bare `.pop()`
+    // (which, given a name with no dot, returned the whole filename as the
+    // "extension").
+    const rawExt = input.name.includes(".") ? input.name.split(".").pop()!.toLowerCase() : "";
+    mime = input.type || (rawExt ? extToMime(rawExt) : "video/mp4");
+    ext = rawExt || mimeToExt(mime);
   }
 
   const path = `${session.user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   if (input instanceof File && input.size >= 10 * 1024 * 1024) {
     const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
-    await uploadViaTus(input, path, mime, session.access_token, supabaseUrl);
+    await uploadViaTus(input, path, mime, session.access_token, supabaseUrl, opts?.onProgress);
+    opts?.onProgress?.(1);
     return db.storage.from("listing-photos").getPublicUrl(path).data.publicUrl;
   }
 
@@ -190,6 +231,7 @@ async function uploadToBucket(input: File | string): Promise<string> {
     }
     throw new Error(message || "Upload failed.");
   }
+  opts?.onProgress?.(1);
   return db.storage.from("listing-photos").getPublicUrl(path).data.publicUrl;
 }
 
@@ -207,12 +249,25 @@ export async function uploadListingImageFiles(files: FileList | File[]): Promise
   return uploaded;
 }
 
-export async function uploadListingVideoFile(file: File): Promise<string> {
-  if (!file.type.startsWith("video/")) throw new Error("Please choose a video file.");
-  if (file.size > MAX_VID_BYTES * 4) {
-    throw new Error(`Video too large (max ${Math.round((MAX_VID_BYTES * 4) / 1024 / 1024)} MB): ${file.name}`);
+export async function uploadListingVideoFile(
+  file: File,
+  opts?: { onProgress?: (fraction: number) => void },
+): Promise<string> {
+  // iOS can hand a video picker's result over with an empty MIME type, so the
+  // extension is checked too — the same acceptance rule the drop zone uses.
+  if (!isVideoUploadFile(file)) throw new Error("Please choose a video file.");
+  if (file.size > MAX_LISTING_VIDEO_BYTES) {
+    throw new Error(`Video too large (max ${Math.round(MAX_LISTING_VIDEO_BYTES / 1024 / 1024)} MB).`);
   }
-  return uploadToBucket(file);
+  try {
+    return await uploadToBucket(file, opts);
+  } catch (err) {
+    // A storage or TUS failure carries status codes and offsets; the manager
+    // sees one plain line under the tile, the detail stays in the console.
+    console.error("uploadListingVideoFile: upload failed", err);
+    const message = err instanceof Error ? err.message : "";
+    throw new Error(message.startsWith("File is too large") ? message : "Upload failed. Try again.");
+  }
 }
 
 /** Upload a persisted `data:` URL to listing-photos; pass through http(s) URLs unchanged. */

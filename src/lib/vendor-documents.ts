@@ -102,6 +102,20 @@ export function vendorDocumentStatusTone(doc: VendorDocumentRecord | undefined):
   return "portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
 }
 
+/**
+ * The subset of document kinds that gate a vendor's "Verified" standing
+ * elsewhere in the product (the manager directory's Insured/Licensed facts,
+ * `vendor-directory.server.ts`) or block 1099 reporting. Missing one of
+ * these reads as a compliance gap, not ordinary paperwork — it gets the row's
+ * `attention` dot + a red `statusWord` plus an always-visible Upload action,
+ * never a pill (C262).
+ */
+export const VENDOR_COMPLIANCE_DOCUMENT_KINDS: VendorDocumentKind[] = ["w9", "insurance", "license"];
+
+export function isVendorComplianceDocumentKind(kind: VendorDocumentKind): boolean {
+  return (VENDOR_COMPLIANCE_DOCUMENT_KINDS as readonly string[]).includes(kind);
+}
+
 export function isVendorDocumentKind(value: string): value is VendorDocumentKind {
   return (VENDOR_DOCUMENT_KINDS as readonly string[]).includes(value);
 }
@@ -129,4 +143,22 @@ export function findVendorDocument(
   kind: VendorDocumentKind,
 ): VendorDocumentRecord | undefined {
   return (existing ?? []).find((d) => d.kind === kind);
+}
+
+/**
+ * Read a picked File as a data URL for `/api/vendor/documents/upload`, which
+ * only ever parses a JSON body with a `dataUrl` string — never multipart
+ * `FormData` (that mismatch is what made "Replace" silently fail: the route
+ * throws parsing the body as JSON, which the route's own catch turns into a
+ * generic "Upload failed."). Both the Documents panel's inline Replace and
+ * the upload wizard share this so the request shape can never drift apart
+ * again.
+ */
+export function readVendorDocumentDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
 }

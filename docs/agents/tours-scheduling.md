@@ -3,6 +3,21 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+`/resident/tour/schedule` and the signed-out guest `/rent/tours-contact` both
+resolve their listing with the SAME loader: `loadPublicPropertyLeadFromServer`
+(`src/lib/demo-property-pipeline.ts`) populates the client extras cache, and
+`getPropertyForPublicLink` (`src/lib/rental-application/data.ts`) is the
+synchronous reader the page actually renders from — the promise's own
+resolved value is not read directly. `fetchPublicPropertyLead` therefore must
+cache a successful PUBLIC lead even when the request's own identity/catalog
+generation goes stale mid-flight (sign-in hydration is a routine source of
+that race, via `resetPropertyPipelineClientCache`'s generation bump): gating
+the cache write itself on freshness, rather than only gating what the promise
+hands back to its own caller, left the cache never populated at all and
+produced a false "This listing is not available to tour right now." right
+after sign-in even though the API call succeeded. See
+`tests/unit/public-property-lead-signin-race.test.ts`.
+
 ## Approval-first automated tours
 
 Managers can opt in to one automated tour-interest follow-up. After the leasing

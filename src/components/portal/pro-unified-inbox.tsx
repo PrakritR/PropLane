@@ -70,6 +70,7 @@ import {
   buildResidentPlaceholderInboxItems,
   parseContactInboxThreadId,
 } from "@/lib/communication-resident-placeholders";
+import { archivePlaceholderContactThread } from "@/lib/communication-inbox-thread-mutations";
 import {
   threadPassesCommunicationFilters,
   type CommunicationThreadFilters,
@@ -120,6 +121,7 @@ import {
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
 import { startObservedInboxReadOperation } from "@/lib/portal-inbox-read-operation.client";
+import { applySmsProjectionListMutation } from "@/lib/sms-projection-list-reconciliation";
 
 function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return a.size === b.size && [...a].every((value) => b.has(value));
@@ -185,6 +187,32 @@ function inboxUsesDesktopSplit(): boolean {
   if (typeof window === "undefined") return true;
   if (typeof window.matchMedia !== "function") return true;
   return window.matchMedia("(min-width: 1024px)").matches;
+}
+
+type ManagerInboxSnapshot = {
+  emailThreads: PersistedInboxThread[];
+  smsResidents: ManagerSmsResidentConversation[];
+};
+
+/**
+ * Last-ready Communication list per viewer+workspace, held only for the life
+ * of this module (PLAN B2). `ManagerUnifiedInbox` can remount without a full
+ * page reload — e.g. navigating to another portal section and back — and
+ * without this it re-showed the loading skeleton and re-ran every source
+ * fetch even though the exact same list was already known. On such a
+ * remount this snapshot renders immediately instead, while `loadInitialList`
+ * revalidates silently underneath; a failed revalidation keeps showing the
+ * snapshot rather than surfacing an error. The very first load of a browser
+ * session has no entry yet and keeps the original all-sources-ready
+ * invariant (`tests/unit/inbox-initial-loading-readiness.test.tsx`).
+ */
+const managerInboxSnapshotCache = new Map<string, ManagerInboxSnapshot>();
+export function resetManagerInboxSnapshotCacheForTests(): void {
+  managerInboxSnapshotCache.clear();
+}
+
+function managerInboxSnapshotKey(viewerId: string, workspaceId: string | null | undefined): string {
+  return `${viewerId}::${workspaceId ?? "default"}`;
 }
 
 export function ManagerUnifiedInbox({
@@ -255,6 +283,7 @@ export function ManagerUnifiedInbox({
   const [smsOpenedIds, setSmsOpenedIds] = useState<Set<string>>(() => new Set());
   const smsOpenedIdsRef = useRef(smsOpenedIds);
   const firstSmsPageIdsRef = useRef(new Set<string>());
+  const deletedSmsProjectionIdsRef = useRef(new Set<string>());
   const [smsHiddenIds, setSmsHiddenIds] = useState<Set<string>>(() => loadSmsHiddenIds());
   const [smsArchivedIds, setSmsArchivedIds] = useState<Set<string>>(() => loadManagerSmsArchivedIds());
   const [internalQuery, setInternalQuery] = useState("");
@@ -293,6 +322,7 @@ export function ManagerUnifiedInbox({
   const smsResidentsViewerEpochRef = useRef(0);
   const previousSmsWorkspaceIdRef = useRef(workspaceIdentity.id);
   const currentSmsWorkspaceIdRef = useRef(workspaceIdentity.id);
+  const smsWorkspaceEpochRef = useRef(0);
   const directSendRefreshGeneration = useRef(0);
   const directSendInboxRefreshersRef = useRef(
     new Map<object, CoalescedRefresher<PersistedInboxSyncResult>>(),
@@ -321,6 +351,7 @@ export function ManagerUnifiedInbox({
     // component can switch sessions without remounting, so neither may carry
     // a previous viewer's contact metadata or authorization state forward.
     setSmsResidents([]);
+    deletedSmsProjectionIdsRef.current.clear();
     firstSmsPageIdsRef.current = new Set();
     oldestSmsCursorRef.current = null;
     setSmsNextCursor(null);
@@ -335,7 +366,9 @@ export function ManagerUnifiedInbox({
     if (previousSmsWorkspaceIdRef.current === workspaceIdentity.id) return;
     previousSmsWorkspaceIdRef.current = workspaceIdentity.id;
     currentSmsWorkspaceIdRef.current = workspaceIdentity.id;
+    smsWorkspaceEpochRef.current += 1;
     setSmsResidents([]);
+    deletedSmsProjectionIdsRef.current.clear();
     firstSmsPageIdsRef.current = new Set();
     oldestSmsCursorRef.current = null;
     setSmsNextCursor(null);
@@ -461,7 +494,7 @@ export function ManagerUnifiedInbox({
       setSmsArchivedIds(loadManagerSmsArchivedIds());
       setSmsResidents((current) => {
         if (smsResidentsViewerEpochRef.current !== requestViewerEpoch) return current;
-        const server = normalized.residents;
+        const server = normalized.residents.filter((row) => !row.projectionId || !deletedSmsProjectionIdsRef.current.has(row.projectionId));
         const serverKeys = new Set(
           server.flatMap((row) =>
             [row.conversationKey, ...(row.memberKeys ?? [])].filter(
@@ -483,7 +516,9 @@ export function ManagerUnifiedInbox({
           for (const row of server) {
             const id = smsConversationId(row);
             const previous = byId.get(id);
-            byId.set(id, previous ? { ...previous, ...row } : row);
+            byId.set(id, previous && previous.projectionId &&
+              (previous.stateVersion ?? 0) > (row.stateVersion ?? 0)
+              ? previous : previous ? { ...previous, ...row } : row);
           }
           return [...byId.values()];
         }
@@ -494,8 +529,14 @@ export function ManagerUnifiedInbox({
           !server.some((fresh) => smsConversationId(fresh) === smsConversationId(row)),
         );
         firstSmsPageIdsRef.current = new Set(server.map(smsConversationId));
+        const currentById = new Map(current.map((row) => [smsConversationId(row), row]));
         const unique = new Map<string, ManagerSmsResidentConversation>();
-        for (const row of [...pendingOptimistic, ...server, ...loadedOlderPages]) unique.set(smsConversationId(row), row);
+        for (const row of [...pendingOptimistic, ...server, ...loadedOlderPages]) {
+          const id = smsConversationId(row);
+          const previous = currentById.get(id);
+          unique.set(id, previous && previous.projectionId &&
+            (previous.stateVersion ?? 0) > (row.stateVersion ?? 0) ? previous : row);
+        }
         return [...unique.values()];
       });
       if (!append) setSmsListVersion((version) => version + 1);
@@ -523,17 +564,34 @@ export function ManagerUnifiedInbox({
       return;
     }
     setInitialListViewerId(viewerId);
-    setInitialListState("loading");
+    // PLAN B2: a remount within the same session already proved this exact
+    // viewer+workspace ready once (`managerInboxSnapshotCache`, seeded by the
+    // layout effect below). Keep showing it — never flash back to "loading" —
+    // while the fetches below revalidate silently.
+    const hadCachedSnapshot = managerInboxSnapshotCache.has(
+      managerInboxSnapshotKey(viewerId, workspaceIdentity.id),
+    );
+    if (!hadCachedSnapshot) setInitialListState("loading");
     const [inbox, applications, smsOk] = await Promise.all([
       syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
       syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
-      loadSms({ initialGeneration: requestGeneration }),
+      // force: true — this is the load that decides whether the page is
+      // "ready" or "error" (and the one an explicit Retry re-runs via
+      // retryInitialList below), so it must always be a genuine new attempt,
+      // never the shared sms-conversations TTL cache's last (possibly
+      // failed, possibly another caller's) response.
+      loadSms({ force: true, initialGeneration: requestGeneration }),
     ]);
     if (requestGeneration !== initialLoadGeneration.current) return;
     if (inbox.stale || applications.stale) return;
     if (applications.ok) onApplicationsLoaded?.();
     if (inbox.ok) setEmailThreads(inbox.rows);
-    setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
+    const ready = inbox.ok && applications.ok && smsOk;
+    // A background revalidation failure after a cache hit keeps the last
+    // known-good snapshot on screen (silent) instead of surfacing an error —
+    // the very first load of a session has no cache hit and keeps the
+    // original invariant exactly.
+    setInitialListState(ready || hadCachedSnapshot ? "ready" : "error");
   }, [isClient, loadSms, onApplicationsLoaded, sessionReady, viewerId, workspaceIdentity.id]);
 
   const retryInitialList = useCallback(async (): Promise<void> => {
@@ -552,6 +610,46 @@ export function ManagerUnifiedInbox({
     };
   }, [loadInitialList]);
 
+  // PLAN B2 — seed from the last-ready snapshot BEFORE paint on a remount, so
+  // the skeleton never has a chance to flash. `useLayoutEffect` (not
+  // `useEffect`) so this commits in the same phase as the mount, ahead of
+  // `loadInitialList`'s own effect above. A brand-new session has no cache
+  // entry and this is a no-op, preserving the original invariant.
+  //
+  // This is a MOUNT-only opportunity — `hasSeededSnapshotRef` is consumed the
+  // first time `viewerId` resolves truthy and never re-armed. A genuine
+  // account switch WITHIN the same mounted instance (A-B-A) must keep going
+  // through the ordinary fetch cycle: seeding again on every viewerId change
+  // would restore viewer A's stale rows the instant the session flips back
+  // to A, defeating the deliberate "empty during the transition" guarantee
+  // those cases already have (see the A-B-A tests in
+  // `tests/unit/inbox-initial-loading-readiness.test.tsx`).
+  const hasSeededSnapshotRef = useRef(false);
+  useLayoutEffect(() => {
+    if (hasSeededSnapshotRef.current) return;
+    if (!isClient || !viewerId?.trim()) return;
+    hasSeededSnapshotRef.current = true;
+    const key = managerInboxSnapshotKey(viewerId, workspaceIdentity.id);
+    const cached = managerInboxSnapshotCache.get(key);
+    if (!cached) return;
+    setInitialListViewerId(viewerId);
+    setInitialListState("ready");
+    setEmailThreads(cached.emailThreads);
+    setSmsResidents(cached.smsResidents);
+  }, [isClient, viewerId, workspaceIdentity.id]);
+
+  // Keep the snapshot cache mirroring whatever is currently rendered as
+  // "ready", so the NEXT remount of this viewer+workspace has the freshest
+  // possible fallback (including live updates while mounted, e.g. polling).
+  useEffect(() => {
+    if (!isClient || !viewerId?.trim()) return;
+    if (initialListState !== "ready" || initialListViewerId !== viewerId) return;
+    managerInboxSnapshotCache.set(managerInboxSnapshotKey(viewerId, workspaceIdentity.id), {
+      emailThreads,
+      smsResidents,
+    });
+  }, [emailThreads, initialListState, initialListViewerId, isClient, smsResidents, viewerId, workspaceIdentity.id]);
+
   useEffect(() => {
     if (smsPollHalted || initialListState !== "ready") return;
     // Poll for inbound texts, but skip while the tab is backgrounded (no point
@@ -563,7 +661,11 @@ export function ManagerUnifiedInbox({
     };
     const id = window.setInterval(tick, 20_000);
     const onVis = () => {
-      if (document.visibilityState === "visible") void loadSms();
+      // force: true — "fresh the moment the manager returns" (see comment
+      // above) means an actual new request, not the TTL cache's last result
+      // (which could be a stale success or, per the test this covers, a
+      // just-cached failure from moments before backgrounding).
+      if (document.visibilityState === "visible") void loadSms({ force: true });
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -602,7 +704,10 @@ export function ManagerUnifiedInbox({
           return [optimistic, ...current];
         });
       }
-      void loadSms();
+      // A contact just changed (new SMS thread created) — same "something
+      // changed, get a real answer" case onSmsDeleted and the direct-send
+      // refresh already force; this listener was the one inconsistent case.
+      void loadSms({ force: true });
     };
     window.addEventListener(MANAGER_SMS_CONTACTS_CHANGED_EVENT, refreshContacts);
     return () => window.removeEventListener(MANAGER_SMS_CONTACTS_CHANGED_EVENT, refreshContacts);
@@ -831,7 +936,10 @@ export function ManagerUnifiedInbox({
   const occupiedResidentEmails = useMemo(() => {
     const occupied = new Set<string>();
     for (const row of filteredEmail) {
-      if (row.folder === "trash") continue;
+      // An ARCHIVED email thread still occupies the contact — once a
+      // placeholder is archived it becomes a real (trashed) thread, and the
+      // placeholder must stop showing on Active rather than existing
+      // alongside its own now-real archived conversation.
       const email = row.email?.trim().toLowerCase();
       if (email) occupied.add(email);
     }
@@ -891,13 +999,15 @@ export function ManagerUnifiedInbox({
       ),
       "active",
     );
-    const archived = pinAssistant(mergeUnifiedInboxItems(
+    // PropLane Assistant never appears on Archived — it cannot be archived
+    // away, so it belongs only on Active/Unread (docs/agents/communication-inbox.md).
+    const archived = mergeUnifiedInboxItems(
       [
         ...filteredEmail.filter((t) => t.folder === "trash").map(emailThreadMergeStub),
         ...allSmsItems.filter((row) => row.archived).map((row) => row.item),
       ],
       listSort,
-    ), "archived");
+    );
     return { active: active.length, archived: archived.length };
   }, [
     allSmsItems,
@@ -930,6 +1040,10 @@ export function ManagerUnifiedInbox({
       [...emailListItems, ...smsListItems, ...placeholderListItems],
       listSort,
     );
+    // PropLane Assistant is pinned on Active and Unread — never on Archived,
+    // where it cannot be forced back in and is never selectable
+    // (docs/agents/communication-inbox.md).
+    if (listSegment === "archived") return merged;
     if (!assistantThreadId || !viewerId) {
       return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
     }
@@ -949,6 +1063,40 @@ export function ManagerUnifiedInbox({
     smsListItems,
     viewerId,
   ]);
+
+  const beginSmsMutation = useCallback(() => {
+    const requestViewer = viewerId;
+    const requestWorkspace = workspaceIdentity.id;
+    const requestEpoch = viewerEpochRef.current;
+    const requestWorkspaceEpoch = smsWorkspaceEpochRef.current;
+    const isCurrent = () => currentViewerIdRef.current === requestViewer &&
+      currentSmsWorkspaceIdRef.current === requestWorkspace && viewerEpochRef.current === requestEpoch &&
+      smsWorkspaceEpochRef.current === requestWorkspaceEpoch;
+    return (mutation: import("@/hooks/use-unified-communication-bulk").SmsBulkMutation) => {
+    if (!isCurrent()) return;
+    for (const id of mutation.deleted) deletedSmsProjectionIdsRef.current.add(id);
+    setSmsResidents((current) => {
+      if (!isCurrent()) return current;
+      return applySmsProjectionListMutation(current, mutation);
+    });
+    for (const id of [...new Set(mutation.reconcile)]) {
+      void fetch(`/api/manager/sms-conversations/${encodeURIComponent(id)}`, {
+        credentials: "same-origin", cache: "no-store",
+      }).then(async (response) => {
+        if (!isCurrent()) return;
+        if (response.status === 403 || response.status === 404) {
+          setSmsResidents((current) => isCurrent() ? current.filter((row) => row.projectionId !== id) : current);
+          return;
+        }
+        if (!response.ok) return;
+        const detail = await response.json() as { resident?: ManagerSmsResidentConversation };
+        if (!isCurrent() || !detail.resident?.projectionId) return;
+        setSmsResidents((current) => isCurrent() ? current.map((row) => row.projectionId === id &&
+          (row.stateVersion ?? 0) <= (detail.resident?.stateVersion ?? 0) ? { ...row, ...detail.resident } : row) : current);
+      }).catch(() => { /* A failed detail read leaves the row for the next retry. */ });
+    }
+    };
+  }, [viewerId, workspaceIdentity.id]);
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
   const listRows = initialListReady
@@ -971,6 +1119,7 @@ export function ManagerUnifiedInbox({
       void loadSms({ force: true });
     },
     smsTargets,
+    onSmsMutationStart: beginSmsMutation,
     assistantPlaceholder: viewerId
       ? buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace)
       : undefined,
@@ -987,6 +1136,30 @@ export function ManagerUnifiedInbox({
       clearCommunicationThreadUrl(threadListHref());
     },
   });
+
+  /**
+   * Archive a resident-directory placeholder row (no stored conversation at
+   * all) — the row itself carries no persisted identity, so resolve the
+   * underlying contact from the directory and create its archived thread
+   * (`archivePlaceholderContactThread`). Optimistic: `emailThreads` updates
+   * immediately from the function's own optimistic commit; a failure rolls
+   * back and toasts, matching every other archive action.
+   */
+  const handleArchivePlaceholder = useCallback(
+    async (threadId: string) => {
+      const contactId = parseContactInboxThreadId(threadId);
+      const contact = contactId ? filterContacts?.find((c) => c.id === contactId) : undefined;
+      if (!contact) return;
+      const { ok, next } = await archivePlaceholderContactThread(MANAGER_INBOX_STORAGE_KEY, contact);
+      if (!ok) {
+        appUi?.showToast("Could not archive conversation.");
+        return;
+      }
+      setEmailThreads(next);
+      appUi?.showToast("Archived.");
+    },
+    [appUi, filterContacts],
+  );
 
   const selection = useMemo(
     () => (initialListReady && selectedKey ? parseUnifiedInboxKey(selectedKey) : null),
@@ -1220,6 +1393,7 @@ export function ManagerUnifiedInbox({
             value={listSegmentProp}
             onChange={onArchivedViewChange}
             counts={listSegmentCounts}
+            interceptNavigation
           />
           <div className="flex min-w-0 items-center gap-1">
             <div className="relative min-w-0 flex-1">
@@ -1298,7 +1472,7 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
-              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager />}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -1397,8 +1571,16 @@ export function ManagerUnifiedInbox({
     for (const id of selectedProjectionSignature.split("\0")) {
       void fetch(`/api/manager/sms-conversations/${encodeURIComponent(id)}`, {
         credentials: "same-origin", cache: "no-store", signal: controller.signal,
-      }).then((response) => {
+      }).then(async (response) => {
         if (controller.signal.aborted || scope !== selectionContext || viewerEpochRef.current !== requestEpoch) return;
+        if (response.ok) {
+          const detail = await response.json() as { resident?: ManagerSmsResidentConversation };
+          if (controller.signal.aborted || scope !== selectionContext || viewerEpochRef.current !== requestEpoch || !detail.resident?.projectionId) return;
+          setSmsResidents((current) => current.map((resident) => resident.projectionId === id &&
+            (resident.stateVersion ?? 0) <= (detail.resident?.stateVersion ?? 0)
+              ? { ...resident, ...detail.resident } : resident));
+          return;
+        }
         if (response.status !== 403 && response.status !== 404) return;
         // A refreshed first page may omit this selected row because its grant
         // was revoked, not because pagination displaced it. Reauthorize the
@@ -1502,6 +1684,7 @@ export function ManagerUnifiedInbox({
       emailThreadSnapshot={selectedEmailThreads}
       onViewed={markSelectedRead}
       onProjectionStateChanged={handleSmsProjectionStateChanged}
+      onProjectionMutationStart={beginSmsMutation}
       projectionScope={`${viewerId}:${workspaceIdentity.id}:${selectedRow?.key ?? ""}`}
       viewActive={mobileThreadOpen || (isClient && inboxUsesDesktopSplit())}
       /*
@@ -1590,6 +1773,7 @@ export function ManagerUnifiedInbox({
         onUnreadCountChange={onSmsUnreadCountChange}
         onConversationOpened={handleSmsConversationOpened}
         onProjectionStateChanged={handleSmsProjectionStateChanged}
+        onProjectionMutationStart={beginSmsMutation}
         listSegment={listSegment}
         onArchived={() => {
           setSmsArchivedIds(loadManagerSmsArchivedIds());

@@ -26,8 +26,6 @@ import {
     PaymentsSettingsPanel,
     ResidentSettingsPanel,
     type ResidentSettingsArea,
-  BookingsSettingsPanel,
-  InspectionsSettingsPanel,
   ServicesSettingsPanel,
   TaskSettingsPanel,
   type TaskSettingsHandle,
@@ -447,13 +445,13 @@ export const SettingsModulePage = forwardRef<
     saveRegistryRef,
     "lease-reminder",
   );
-  const tourManagerReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
-    saveRegistryRef,
-    "tour-manager-reminder",
-  );
   const taskReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
     saveRegistryRef,
     "task-reminder",
+  );
+  const incomingPaymentReminderFormRef = useSaveRegistryEntry<PaymentAutomationSettingsHandle>(
+    saveRegistryRef,
+    "incoming-payment-reminder",
   );
   const outgoingPaymentReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
     saveRegistryRef,
@@ -568,8 +566,6 @@ export const SettingsModulePage = forwardRef<
           waiverCode={waiverCode}
           onWaiverCodeChange={setWaiverCode}
           onWaiverCodeCommit={commitWaiverCode}
-          teamMembers={teamMembers}
-          reminderFormRef={applicationsReminderFormRef}
           showFormLink={showFormLink}
           source={applicationSource}
           applicationSettings={applicationSettings}
@@ -579,15 +575,29 @@ export const SettingsModulePage = forwardRef<
         />
       ) : null}
 
-      {active && tab === "automation" ? <ManagerPortalAutomationSettingsPanel formRef={automationFormRef} /> : null}
+      {active && tab === "automation" ? (
+        <ManagerPortalAutomationSettingsPanel
+          formRef={automationFormRef}
+          teamMembers={teamMembers}
+          applicationsReminderFormRef={applicationsReminderFormRef}
+          leaseReminderFormRef={leaseReminderFormRef}
+          taskReminderFormRef={taskReminderFormRef}
+          incomingPaymentReminderFormRef={incomingPaymentReminderFormRef}
+          outgoingPaymentReminderFormRef={outgoingPaymentReminderFormRef}
+          workOrderReminderFormRef={workOrderReminderFormRef}
+          serviceOrderReminderFormRef={serviceOrderReminderFormRef}
+          inspectionDueReminderFormRef={inspectionDueReminderFormRef}
+          inspectionReviewReminderFormRef={inspectionReviewReminderFormRef}
+          bookingReminderFormRef={bookingReminderFormRef}
+        />
+      ) : null}
 
       {showTours ? (
         <TourSettingsPanel
           onFooterReady={setPanelFooter}
           onSaved={onCalendarSettingsSaved}
           formRef={toursFormRef}
-          teamMembers={teamMembers}
-          managerReminderFormRef={tourManagerReminderFormRef}
+          propertyOptions={scopedPropertyOptions}
         />
       ) : null}
 
@@ -600,8 +610,6 @@ export const SettingsModulePage = forwardRef<
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
           onAutomationChange={changeAutomation}
-          teamMembers={teamMembers}
-          reminderFormRef={leaseReminderFormRef}
           showFormLink={showFormLink}
           source={applicationSource}
           leasingPipeline={leasingPipeline}
@@ -613,7 +621,6 @@ export const SettingsModulePage = forwardRef<
         <TaskSettingsPanel
           teamMembers={teamMembers}
           onFooterReady={setPanelFooter}
-          reminderFormRef={taskReminderFormRef}
           formRef={taskFormRef}
         />
       ) : null}
@@ -628,9 +635,6 @@ export const SettingsModulePage = forwardRef<
           }}
           area={residentHubArea}
           onAreaChange={setResidentHubArea}
-          teamMembers={teamMembers}
-          paymentsFormRef={paymentsFormRef}
-          householdFormRef={leaseReminderFormRef}
         />
       ) : null}
 
@@ -639,8 +643,6 @@ export const SettingsModulePage = forwardRef<
           onFooterReady={setPanelFooter}
           formRef={paymentsFormRef}
           mode={paymentsMode}
-          teamMembers={teamMembers}
-          outgoingReminderFormRef={outgoingPaymentReminderFormRef}
           propertyOptions={scopedPropertyOptions}
           initialPropertyId={initialPropertyId}
         />
@@ -649,29 +651,7 @@ export const SettingsModulePage = forwardRef<
       {active && tab === "payouts" ? <PortalPayoutsSettingsPage portal="manager" /> : null}
 
       {active && tab === "services" ? (
-        <ServicesSettingsPanel
-          teamMembers={teamMembers}
-          onFooterReady={setPanelFooter}
-          workOrderReminderFormRef={workOrderReminderFormRef}
-          serviceOrderReminderFormRef={serviceOrderReminderFormRef}
-        />
-      ) : null}
-
-      {active && tab === "inspections" ? (
-        <InspectionsSettingsPanel
-          teamMembers={teamMembers}
-          onFooterReady={setPanelFooter}
-          dueReminderFormRef={inspectionDueReminderFormRef}
-          reviewReminderFormRef={inspectionReviewReminderFormRef}
-        />
-      ) : null}
-
-      {active && tab === "bookings" ? (
-        <BookingsSettingsPanel
-          teamMembers={teamMembers}
-          onFooterReady={setPanelFooter}
-          reminderFormRef={bookingReminderFormRef}
-        />
+        <ServicesSettingsPanel onFooterReady={setPanelFooter} />
       ) : null}
 
       {active && tab === "communication" ? (

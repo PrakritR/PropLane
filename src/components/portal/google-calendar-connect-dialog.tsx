@@ -15,9 +15,16 @@ import { useIsNativeApp } from "@/hooks/use-is-native-app";
 export function GoogleCalendarConnectDialog({
   onConnectionChange,
   className,
+  /** Manager (default) reads `/api/portal/google-calendar`; a role cloning the
+   * OAuth flow onto its own storage (vendor) passes its own base. */
+  apiBase = "/api/portal/google-calendar",
+  /** Vendor calendar only: offer the "push my assigned visits to Google" toggle. */
+  showVendorPushToggle = false,
 }: {
   onConnectionChange?: () => void;
   className?: string;
+  apiBase?: string;
+  showVendorPushToggle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -28,7 +35,7 @@ export function GoogleCalendarConnectDialog({
   const readStatus = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/portal/google-calendar?origin=${encodeURIComponent(window.location.origin)}`,
+        `${apiBase}?origin=${encodeURIComponent(window.location.origin)}`,
         { credentials: "include" },
       );
       if (!res.ok) return;
@@ -37,7 +44,7 @@ export function GoogleCalendarConnectDialog({
     } catch {
       setConnected(null);
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     void readStatus();
@@ -77,6 +84,8 @@ export function GoogleCalendarConnectDialog({
       >
         <GoogleCalendarConnectPanel
           presentation="dialog"
+          apiBase={apiBase}
+          showVendorPushToggle={showVendorPushToggle}
           onConnectionChange={() => {
             void readStatus();
             onConnectionChange?.();

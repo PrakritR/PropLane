@@ -22,10 +22,15 @@ export const vendorPortal: PortalDefinition = {
     {
       section: "documents",
       label: "Documents",
-      // Source is a filter in one list; the document KIND stays structural for
-      // uploads while its category remains a row label.
-      tabs: [{ id: "all", label: "All" }],
+      // Status (All / On file / Missing) is the routed tab with real counts;
+      // Source and Category are Filter-sheet fields, not separate tabs.
+      tabs: [
+        { id: "all", label: "All" },
+        { id: "on-file", label: "On file" },
+        { id: "missing", label: "Missing" },
+      ],
     },
+    { section: "reviews", label: "Reviews", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
@@ -39,5 +44,6 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Finances", path: "/vendor/financials/income" },
   { label: "Invoices", path: "/vendor/financials/invoices" },
   { label: "Documents", path: "/vendor/documents/all" },
+  { label: "Reviews", path: "/vendor/reviews" },
   { label: "Settings", path: "/vendor/profile" },
 ] as const;

@@ -21,6 +21,11 @@ import {
   type ListingHouseDefaults,
 } from "@/lib/listing-house-defaults";
 import type { ListingFeeRow } from "@/lib/listing-fees";
+import {
+  applyEffectiveApplicationForm,
+  normalizeWorkspaceApplicationFormTemplate,
+  type WorkspaceApplicationFormTemplate,
+} from "@/lib/rental-application/workspace-application-form";
 import { resolveListingCtaEmailsByManager } from "@/lib/listing-cta-email.server";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
@@ -129,6 +134,10 @@ const PUBLIC_SUBMISSION_KEYS = [
   "houseRulesText",
   "amenitiesText",
   "housePhotoDataUrls",
+  // Whole-house walkthrough video. Only ever published as an http(s) storage
+  // URL — see `publicMediaUrl` in `publicSubmission` below; a `data:` URL is
+  // stripped rather than reaching an anonymous caller.
+  "houseVideoDataUrl",
   "floorPlanByLabel",
   "propertyFloorPlanDataUrl",
   "quickFacts",
@@ -174,6 +183,14 @@ const PUBLIC_SUBMISSION_KEYS = [
   "shortTermApplicationConfigMode",
   "shortTermCustomApplicationFields",
   "shortTermDisabledStandardApplicationKeys",
+  // Cosigner variant — added alongside the workspace application-form
+  // template feature, which can populate these via "share across variants"
+  // and needs the public apply wizard's co-signer step to see them; the
+  // standard/short-term triplets were already public above.
+  "applicationFormSource",
+  "cosignerApplicationConfigMode",
+  "cosignerCustomApplicationFields",
+  "cosignerDisabledStandardApplicationKeys",
   "propertyApplicationTemplates",
   "propertyApplicationTemplatesExplicit",
 ] as const satisfies readonly (keyof ManagerListingSubmissionV1)[];
@@ -302,6 +319,11 @@ const PUBLIC_HOUSE_DEFAULT_PRICE_KEYS = [
   "weeklyRentPrice",
 ] as const satisfies readonly (keyof ListingHouseDefaults)[];
 
+/** An http(s) URL, or `undefined` — a `data:` URL (or anything else) never reaches an anonymous caller. */
+function publicMediaUrl(value: unknown): string | undefined {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim()) ? value : undefined;
+}
+
 function moneyText(raw: unknown): string {
   return String(raw ?? "")
     .replace(/^\$/, "")
@@ -397,8 +419,15 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
   const houseDefaults = charged.houseDefaults
     ? pick(charged.houseDefaults as ListingHouseDefaults, PUBLIC_HOUSE_DEFAULT_PRICE_KEYS)
     : undefined;
+  // Pull `houseVideoDataUrl` back out of the generic pick so a `data:` URL —
+  // never expected in practice now that uploads land in storage, but not a
+  // security boundary this projection may assume — is dropped rather than
+  // published, same as every other media field's public-only contract.
+  const { houseVideoDataUrl: rawHouseVideoDataUrl, ...picked } = pick(charged, PUBLIC_SUBMISSION_KEYS);
+  const houseVideoDataUrl = publicMediaUrl(rawHouseVideoDataUrl);
   return {
-    ...pick(charged, PUBLIC_SUBMISSION_KEYS),
+    ...picked,
+    ...(houseVideoDataUrl ? { houseVideoDataUrl } : {}),
     ...(Array.isArray(charged.propertyApplicationTemplates)
       ? { propertyApplicationTemplates: charged.propertyApplicationTemplates.map(publicPropertyApplicationTemplate) }
       : {}),
@@ -444,17 +473,54 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
  * anonymous read of `manager_property_records.property_data` MUST run through
  * this — `getPublicListings()` here and the single-property lead route — or the
  * two disagree about what "public" means and the stricter one is decorative.
+ *
+ * `workspaceForm` is optional so every existing caller keeps compiling
+ * unchanged; omitting it means "no workspace template known here", which
+ * resolves to today's behaviour (the listing's own fields) exactly like a
+ * workspace that has never saved a template.
  */
-export function publicListingProjection(property: MockProperty): MockProperty {
+export function publicListingProjection(
+  property: MockProperty,
+  workspaceForm?: WorkspaceApplicationFormTemplate | null,
+): MockProperty {
   const sub = property.listingSubmission;
+  const resolvedSub = sub && sub.v === 1 ? applyEffectiveApplicationForm(sub, workspaceForm ?? null) : sub;
   return {
     ...pick(property, PUBLIC_PROPERTY_KEYS),
-    ...(sub && sub.v === 1 ? { listingSubmission: publicSubmission(sub) } : {}),
+    ...(resolvedSub && resolvedSub.v === 1 ? { listingSubmission: publicSubmission(resolvedSub) } : {}),
     // Says what this payload IS, so the browser cache it lands in can tell it
     // apart from the owner's authoritative copy of the same listing. See
     // `cachePublicExtraListings`.
     publicProjection: true,
   } as MockProperty;
+}
+
+/** Batch-load every named workspace's saved application-form template, keyed by `workspace_id`. Missing/never-saved = absent from the map. */
+async function loadWorkspaceApplicationFormsByWorkspaceId(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  workspaceIds: readonly string[],
+): Promise<Map<string, WorkspaceApplicationFormTemplate>> {
+  const ids = [...new Set(workspaceIds.filter((id): id is string => typeof id === "string" && id.length > 0))];
+  const out = new Map<string, WorkspaceApplicationFormTemplate>();
+  if (ids.length === 0) return out;
+  // Best-effort: a failure here must never break the whole public catalog —
+  // every listing simply falls back to its own fields (today's behaviour),
+  // same fail-open rule as the validation-side lookup.
+  try {
+    const { data, error } = await db.from("workspace_automation_settings").select("workspace_id, row_data").in("workspace_id", ids);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const rowData = row.row_data;
+      const raw = rowData && typeof rowData === "object" && !Array.isArray(rowData)
+        ? (rowData as Record<string, unknown>).applicationFormTemplate
+        : undefined;
+      const template = normalizeWorkspaceApplicationFormTemplate(raw);
+      if (template) out.set(String(row.workspace_id), template);
+    }
+  } catch {
+    /* fall back to every listing's own fields, unchanged */
+  }
+  return out;
 }
 
 /**
@@ -467,7 +533,7 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
   const db = createSupabaseServiceRoleClient();
   let query = db
     .from("manager_property_records")
-    .select("id, manager_user_id, property_data")
+    .select("id, manager_user_id, workspace_id, property_data")
     .eq("status", "live")
     .order("updated_at", { ascending: false })
     .limit(500);
@@ -536,6 +602,7 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
       contactWorkEmail: row.manager_user_id
         ? managerWorkEmailByUserId.get(row.manager_user_id)
         : undefined,
+      workspaceId: row.workspace_id ? String(row.workspace_id) : null,
     };
     const dedupeKey = `${withOwner.buildingName}::${withOwner.address}`.trim().toLowerCase();
     byKey.set(dedupeKey, withOwner);
@@ -547,7 +614,11 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
   const visibleListings = opts?.testWorkspaceId
     ? listings
     : filterSandboxFromPublicCatalog(listings, { production, managerEmailByUserId });
-  return visibleListings.map(
-    publicListingProjection,
+  const workspaceForms = await loadWorkspaceApplicationFormsByWorkspaceId(
+    db,
+    visibleListings.map((l) => l.workspaceId ?? "").filter(Boolean),
+  );
+  return visibleListings.map((listing) =>
+    publicListingProjection(listing, listing.workspaceId ? workspaceForms.get(listing.workspaceId) ?? null : null),
   );
 }

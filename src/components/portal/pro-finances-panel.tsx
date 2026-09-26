@@ -1109,15 +1109,6 @@ export function ManagerFinancesPanel({
         options={propertyOptions}
         onChange={(propertyId) => setFilters((current) => ({ ...current, propertyId }))}
       />
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        onClick={openAddExpense}
-        data-attr="finances-overview-add-expense"
-      >
-        + Add expense
-      </Button>
     </>
   ) : null;
 
@@ -1161,7 +1152,11 @@ export function ManagerFinancesPanel({
               data-attr="finances-add-income-top"
               onClick={openAddIncome}
             />
-          ) : tabId === "expenses" ? (
+          ) : tabId === "expenses" || isOverviewTab ? (
+            // Overview used to swap this for a labelled outline "+ Add
+            // expense" button in the actions band — the one list header that
+            // dropped the round primary '+' every other section keeps (AXI
+            // night sweep area 2c).
             <PortalPrimaryIconAction
               label="Add expense"
               data-attr="finances-add-expense-top"

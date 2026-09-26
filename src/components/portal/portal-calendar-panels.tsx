@@ -703,6 +703,37 @@ export function meetingPaintsCalendarGrid(meeting: DemoMeeting): boolean {
   return !meeting.googleCalendarInformational;
 }
 
+/**
+ * C259: a chip's background (`meeting.color`) already encodes STATUS —
+ * confirmed vs a co-manager's tour vs still pending — so two meetings of the
+ * same status but different kinds (a move-in inspection task, a vendor
+ * visit, a tour) were visually identical until the label was read. This adds
+ * a second, TYPE-keyed signal — a small colored dot before the label — that
+ * still tells them apart even when the label itself truncates.
+ */
+export const MEETING_TYPE_DOT_COLOR: Record<NonNullable<DemoMeeting["kind"]>, string> = {
+  tour: "bg-sky-500",
+  service: "bg-violet-500",
+  task: "bg-amber-500",
+  partner: "bg-slate-400",
+};
+
+export function meetingTypeDotColor(kind: DemoMeeting["kind"]): string {
+  return (kind && MEETING_TYPE_DOT_COLOR[kind]) || "bg-slate-400";
+}
+
+/** The type-color-code dot — same glyph everywhere a meeting chip renders its label. */
+export function MeetingTypeDot({ kind, className }: { kind: DemoMeeting["kind"]; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      data-attr="meeting-type-dot"
+      data-meeting-kind={kind ?? "unknown"}
+      className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", meetingTypeDotColor(kind), className)}
+    />
+  );
+}
+
 function shiftDateStr(dateStr: string, days: number): string {
   const [year, month, day] = dateStr.split("-").map(Number);
   if (!year || !month || !day) return dateStr;
@@ -955,6 +986,7 @@ export function PortalCalendarPanels({
   vendorViewer = false,
   hideViewModeControl = false,
   onVendorAvailabilityEdit,
+  onVendorAvailabilityRemove,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -997,6 +1029,15 @@ export function PortalCalendarPanels({
   hideViewModeControl?: boolean;
   /** Vendor edits are delegated to the canonical vendor-availability editor. */
   onVendorAvailabilityEdit?: (dateStr: string, slotIdx?: number) => void;
+  /**
+   * Vendor calendar: the same one-click × the manager's Tours availability
+   * blocks get, for the vendor's OWN painted run. When supplied, `canEditAvailability`
+   * turns on for `vendorViewer` (only for this — see `hasEditableKeys`), and the
+   * × on a run's first cell calls this instead of the manager-only
+   * `removeDefaultRun`/`removeOpenRun` paths, which operate on a different
+   * (legacy schedule-record) storage the vendor never writes to.
+   */
+  onVendorAvailabilityRemove?: (dateStr: string, startSlot: number, endSlotExclusive: number) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1115,10 +1156,17 @@ export function PortalCalendarPanels({
   }, [availabilityKeysByKind, writeStorageKeys]);
   // A vendor supplies a storage key solely as a paint cache of canonical
   // `/api/vendor/availability` rules. It is never a legacy schedule-record
-  // target, even though the manager calendar uses the same prop for writes.
+  // target, even though the manager calendar uses the same prop for writes —
+  // so the KEYS never make a vendor's run "editable" here. The one exception
+  // is `onVendorAvailabilityRemove`: when the caller supplies it, the vendor
+  // may remove (but never add/paint through this legacy path) their own run
+  // via the same × the manager's Tours blocks get.
   const hasEditableKeys = useMemo(
-    () => !isVendorViewer && AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
-    [isVendorViewer, kindKeysMap],
+    () =>
+      isVendorViewer
+        ? Boolean(onVendorAvailabilityRemove)
+        : AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
+    [isVendorViewer, kindKeysMap, onVendorAvailabilityRemove],
   );
   const [uncontrolledViewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
   const viewMode = controlledViewMode ?? uncontrolledViewMode;
@@ -2047,6 +2095,10 @@ export function PortalCalendarPanels({
     (dateStr: string): string => {
       const openCount = openSlotCountForDate(dateStr);
       const eventCount = scheduledMeetings.filter((meeting) => meeting.dateStr === dateStr).length;
+      // A day with nothing to count — no open availability and nothing
+      // booked — shows nothing rather than "0 open" repeated under every
+      // cell of an empty calendar (AXI night sweep area 2j).
+      if (openCount === 0 && eventCount === 0) return "";
       if (canEditAvailability) {
         return eventCount > 0 ? `${openCount} open · ${eventCount} booked` : `${openCount} open`;
       }
@@ -3004,7 +3056,11 @@ export function PortalCalendarPanels({
     const compactGridTopGap = flowScroll ? "mt-0" : "mt-2";
     const compactMobileTopGap = flowScroll ? "mt-0" : "mt-2 max-lg:mt-4";
     const copyToHousesDisabled = !onCopyWeekToHouses || !otherProperties?.length;
-    const canEditWeek = !vendorMode && canEditAvailability;
+    // `canEditAvailability` now also covers a vendor's own run-level × (see
+    // `hasEditableKeys`), which must never surface the manager-only week menu
+    // (copy/clear week, copy to houses) or its "+ Add availability" — the
+    // vendor calendar owns its own primary "Add availability" icon elsewhere.
+    const canEditWeek = !vendorMode && !isVendorViewer && canEditAvailability;
     // One "Availability" icon holds every bulk/utility action (copy, clear,
     // copy to houses, connect Google Calendar) so the persistent command band
     // stays Filter · Availability · Share · + — never six loose icons
@@ -3282,7 +3338,10 @@ export function PortalCalendarPanels({
                   >
                     {meeting ? (
                       isMeetingStart ? (
-                        <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
+                        <span className="flex items-center justify-center gap-1 truncate">
+                          <MeetingTypeDot kind={meeting.kind} />
+                          <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
+                        </span>
                       ) : (
                         <span className="block truncate opacity-70">
                           {isGoogleCalendarPrivateBlock(meeting)
@@ -3323,6 +3382,13 @@ export function PortalCalendarPanels({
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (vendorViewer) {
+                          // The vendor's own run only — never the manager-only
+                          // legacy schedule-record paths below, which write to
+                          // a storage the vendor never reads from.
+                          onVendorAvailabilityRemove?.(ds, run.startSlot, run.endSlotExclusive);
+                          return;
+                        }
                         if (run.isDefault) {
                           removeDefaultRun(ds, run.startSlot, run.endSlotExclusive);
                         } else {
@@ -3755,10 +3821,11 @@ export function PortalCalendarPanels({
                             {meeting ? (
                               <button
                                 type="button"
-                                className={`w-full rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
+                                className={`flex w-full items-center gap-1.5 truncate rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
                                 onClick={(e: MouseEvent<HTMLButtonElement>) => openSlotDetails(ds, slotIdx, e.currentTarget, meeting)}
                               >
-                                {meetingCalendarGridLabel(meeting)}
+                                <MeetingTypeDot kind={meeting.kind} />
+                                <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
                               </button>
                             ) : vendorViewer ? (
                               <button
@@ -3808,11 +3875,12 @@ export function PortalCalendarPanels({
                     {meeting ? (
                       <button
                         type="button"
-                        className={`absolute inset-1 z-[1] rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
+                        className={`absolute inset-1 z-[1] flex items-center gap-1.5 truncate rounded-xl border px-2 py-2 text-left text-xs font-semibold shadow-sm transition hover:brightness-95 ${meeting.color}`}
                         style={{ height: `calc(${meeting.durationMinutes / SLOT_DURATION_MINUTES} * 40px - 4px)` }}
                         onClick={(e: MouseEvent<HTMLButtonElement>) => openSlotDetails(ds, slotIdx, e.currentTarget, meeting)}
                       >
-                        {meetingCalendarGridLabel(meeting)}
+                        <MeetingTypeDot kind={meeting.kind} />
+                        <span className="truncate">{meetingCalendarGridLabel(meeting)}</span>
                       </button>
                     ) : vendorViewer ? (
                       <button

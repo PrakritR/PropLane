@@ -9,14 +9,18 @@ function src(rel: string) {
 }
 
 describe("Application / Lease Bookings chrome", () => {
-  it("property pages use the Form | Automation command bar and drop the footer Settings word", () => {
+  it("property pages use the Form command bar and no longer carry their own automation pane (C228)", () => {
     const application = src("src/components/portal/pro-property-application-questions-panel.tsx");
     const lease = src("src/components/portal/pro-property-lease-panel.tsx");
 
     for (const file of [application, lease]) {
       expect(file).toContain("PropertyFormAutomationCommandBar");
-      expect(file).toContain("SettingsModulePage");
-      expect(file).toContain('initialPane="automation"');
+      // C228: automation moved onto the form itself (Settings -> Forms) — the
+      // property page no longer mounts an inline SettingsModulePage pane for it.
+      expect(file).not.toContain("SettingsModulePage");
+      expect(file).not.toContain('initialPane="automation"');
+      expect(file).not.toContain("ProPortalSettingsModal");
+      expect(file).toContain('router.push("/portal/profile?tab=forms")');
       expect(file).not.toContain("PropertyDetailFooterActions");
       expect(file).not.toMatch(/>\s*Settings\s*</);
     }

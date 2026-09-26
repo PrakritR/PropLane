@@ -89,14 +89,24 @@ function narrowScope(callerIds: string[] | null, workspaceIds: string[] | null):
   return callerIds.filter((id) => allowed.has(id));
 }
 
-function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
-  return readPartnerInquiries()
+/**
+ * Pure item -> row shaping, split out from `inquiryRows` so a server-side
+ * reader (the tour export route) can produce the exact same `ManagerTourRow`
+ * shape the list renders, from the same one function, without the client-only
+ * `readPartnerInquiries()` data source. Callers must pre-filter `rows` to
+ * exactly what this viewer may see — this function does no visibility
+ * filtering of its own (the client wrapper below applies
+ * `tourInquiryVisibleToViewer`/ownership; the export route applies its own
+ * narrower "fully owned" gate, since it must never shape a co-manager's
+ * free/busy-redacted item into a row that looks like a real one).
+ */
+export function tourRowsFromInquiries(rows: PartnerInquiry[]): ManagerTourRow[] {
+  return rows
     .filter((row) => row.kind === "tour")
     // Annotated because each branch below produces a different `bucket` literal, which TypeScript
     // otherwise infers as mutually incompatible object types rather than one row union.
     .flatMap((row): ManagerTourRow[] => {
       if (row.status === "pending") {
-        if (!tourInquiryVisibleToViewer(row, filter)) return [];
         return getPartnerInquiryWindows(row).map((window, index) => {
           const startMs = Date.parse(window.start);
           const endMs = Date.parse(window.end);
@@ -127,7 +137,7 @@ function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
         .filter((row) => row !== null) as ManagerTourRow[];
       }
 
-      if (row.status === "declined" && row.managerUserId === filter.viewerUserId) {
+      if (row.status === "declined") {
         const window = getPartnerInquiryWindows(row)[0];
         if (!window) return [];
         const startMs = Date.parse(window.start);
@@ -162,12 +172,31 @@ function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
     .filter((row): row is ManagerTourRow => Boolean(row));
 }
 
+/** Client wrapper: applies co-manager visibility, then shapes with the pure function above. */
+function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
+  const visible = readPartnerInquiries().filter((row) => {
+    if (row.kind !== "tour") return false;
+    if (row.status === "pending") return tourInquiryVisibleToViewer(row, filter);
+    if (row.status === "declined") return row.managerUserId === filter.viewerUserId;
+    return false;
+  });
+  return tourRowsFromInquiries(visible);
+}
+
 function plannedRows(filter: ScheduledTourFilter): ManagerTourRow[] {
   return readAllPlannedEvents()
     .filter((event) => event.kind === "tour")
     .filter((event) => plannedTourVisibleToViewer(event, filter))
-    .map((event) => plannedRow(event))
-    .filter((row): row is ManagerTourRow => Boolean(row));
+    .flatMap((event) => tourRowsFromPlannedEvents([event]));
+}
+
+/**
+ * Pure item -> row shaping for a confirmed/cancelled tour, split out for the
+ * same reason as `tourRowsFromInquiries` (server-side export reuse). Callers
+ * must pre-filter to exactly what this viewer may see.
+ */
+export function tourRowsFromPlannedEvents(events: PlannedEvent[]): ManagerTourRow[] {
+  return events.map((event) => plannedRow(event)).filter((row): row is ManagerTourRow => Boolean(row));
 }
 
 function plannedRow(event: PlannedEvent): ManagerTourRow | null {

@@ -26,7 +26,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-lg font-semibold text-foreground">Agreement</h2>
             <p className="mt-2">
               These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and use of the PropLane website at{" "}
-              <a href="https://prop-lane.space" className="font-medium text-primary hover:opacity-90">
+              <a href="https://proplane.ai" className="font-medium text-primary hover:opacity-90">
                 prop-lane.space
               </a>
               , our iOS and Android mobile applications, and related property management software and services
@@ -183,8 +183,8 @@ export default function TermsOfServicePage() {
             <h2 className="text-lg font-semibold text-foreground">Contact us</h2>
             <p className="mt-2">
               For questions about these Terms, contact us at{" "}
-              <a href="mailto:support@prop-lane.space" className="font-medium text-primary hover:opacity-90">
-                support@prop-lane.space
+              <a href="mailto:support@proplane.ai" className="font-medium text-primary hover:opacity-90">
+                support@proplane.ai
               </a>{" "}
               or{" "}
               <Link href="/partner/contact" className="font-medium text-primary hover:opacity-90">

@@ -34,7 +34,7 @@ export type ConversationEmailResult = { sent: boolean; resendId: string | null }
 function fromDomain(from: string): string {
   const email = from.match(/<([^>]+)>/)?.[1] ?? from;
   const at = email.lastIndexOf("@");
-  return at >= 0 ? email.slice(at + 1).trim().toLowerCase() : "prop-lane.space";
+  return at >= 0 ? email.slice(at + 1).trim().toLowerCase() : "proplane.ai";
 }
 
 /**

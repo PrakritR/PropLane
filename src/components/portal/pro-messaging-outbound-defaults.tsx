@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   deliverViaFromManagerSettings,
   patchDeliverViaForKind,
@@ -20,6 +21,7 @@ import {
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
 import { formatManagerMessagingPhone } from "@/lib/sms/manager-messaging-number";
 
 export function ManagerMessagingOutboundDefaults({
@@ -31,6 +33,7 @@ export function ManagerMessagingOutboundDefaults({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId } = usePortalSession();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
@@ -44,13 +47,9 @@ export function ManagerMessagingOutboundDefaults({
           if (!cancelled) setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
           return;
         }
-        const res = await fetch("/api/portal/automation-settings", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!res.ok) throw new Error("Could not load messaging defaults.");
-        const body = (await res.json()) as { settings: ManagerAutomationSettings };
-        if (!cancelled) setDraft(body.settings);
+        if (!userId) return;
+        const loaded = await loadManagerAutomationSettingsCached(userId);
+        if (!cancelled) setDraft(loaded.settings);
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load messaging defaults.");
       } finally {
@@ -60,7 +59,7 @@ export function ManagerMessagingOutboundDefaults({
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, userId]);
 
   const channels = deliverViaFromManagerSettings(draft, "messages");
 

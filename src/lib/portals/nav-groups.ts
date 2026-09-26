@@ -69,7 +69,7 @@ const PRO_GROUPS: NavGroupConfig[] = [
 const ADMIN_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard"] },
   { id: "portfolio", label: "Portfolio", sections: ["properties"] },
-  { id: "people", label: "People", sections: ["axis-users", "test-accounts", "billing"] },
+  { id: "people", label: "People", sections: ["axis-users", "test-accounts"] },
   { id: "operations", label: "Operations", sections: ["events", "communication", "bugs-feedback"] },
 ];
 
@@ -81,8 +81,8 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 ];
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
-  { id: "workspace", label: "Workspace", sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
+  { id: "home", label: null, sections: ["dashboard"] },
+  { id: "work", label: "Work", sections: ["work-orders", "calendar", "reviews"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];

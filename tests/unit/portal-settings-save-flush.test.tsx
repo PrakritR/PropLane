@@ -16,11 +16,11 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 
-const { showToast, paymentsSaveIfDirty, tourPanelSaveIfDirty, tourReminderSaveIfDirty } = vi.hoisted(() => ({
+const { showToast, paymentsSaveIfDirty, paymentsOutgoingReminderSaveIfDirty, tourPanelSaveIfDirty } = vi.hoisted(() => ({
   showToast: vi.fn(),
   paymentsSaveIfDirty: vi.fn(async () => true),
+  paymentsOutgoingReminderSaveIfDirty: vi.fn(async () => true),
   tourPanelSaveIfDirty: vi.fn(async () => true),
-  tourReminderSaveIfDirty: vi.fn(async () => true),
 }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -53,21 +53,24 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
   const actual = await importOriginal<typeof import("@/components/portal/pro-portal-settings-panels")>();
   const React = await import("react");
 
-  function MockPaymentsSettingsPanel({ formRef }: ComponentProps<typeof actual.PaymentsSettingsPanel>) {
+  // Payments registers its OWN handle plus an independent outgoing-reminder
+  // sub-panel handle — the natural place two independent saves are already
+  // in flight together under one tab, which is exactly what the "one
+  // failure must not block the other" assertion needs. (WS4, PLAN-0925 Part
+  // 5: `TourSettingsPanel` used to be this suite's example of that shape too,
+  // via an embedded `managerReminderFormRef` sub-panel, but C191 trimmed
+  // Tours down to booking rules only — it has a single handle now.)
+  function MockPaymentsSettingsPanel({
+    formRef,
+    outgoingReminderFormRef,
+  }: ComponentProps<typeof actual.PaymentsSettingsPanel>) {
     React.useImperativeHandle(formRef, () => ({ saveIfDirty: paymentsSaveIfDirty }), []);
+    React.useImperativeHandle(outgoingReminderFormRef, () => ({ saveIfDirty: paymentsOutgoingReminderSaveIfDirty }), []);
     return <div>Payments panel</div>;
   }
 
-  // The real TourSettingsPanel registers its OWN handle plus an embedded
-  // reminder-rule-settings sub-panel's handle — the natural place two
-  // independent saves are already in flight together under one tab, which is
-  // exactly what the "one failure must not block the other" assertion needs.
-  function MockTourSettingsPanel({
-    formRef,
-    managerReminderFormRef,
-  }: ComponentProps<typeof actual.TourSettingsPanel>) {
+  function MockTourSettingsPanel({ formRef }: ComponentProps<typeof actual.TourSettingsPanel>) {
     React.useImperativeHandle(formRef, () => ({ saveIfDirty: tourPanelSaveIfDirty }), []);
-    React.useImperativeHandle(managerReminderFormRef, () => ({ saveIfDirty: tourReminderSaveIfDirty }), []);
     return <div>Tours panel</div>;
   }
 
@@ -76,6 +79,31 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
     PaymentsSettingsPanel: MockPaymentsSettingsPanel,
     TourSettingsPanel: MockTourSettingsPanel,
   };
+});
+
+// C111 moved every area's reminders onto ONE tab (`automation` — the
+// Reminders hub), which is now where several INDEPENDENTLY registered
+// handles are actually mounted together under a single tab (Payments' own
+// outgoing-reminder sub-panel lost that shape in the same move — it no
+// longer carries a second handle of its own).
+vi.mock("@/components/portal/pro-portal-automation-settings-panel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/portal/pro-portal-automation-settings-panel")>();
+  const React = await import("react");
+
+  function MockManagerPortalAutomationSettingsPanel({
+    formRef,
+    applicationsReminderFormRef,
+  }: ComponentProps<typeof actual.ManagerPortalAutomationSettingsPanel>) {
+    React.useImperativeHandle(formRef, () => ({ saveIfDirty: paymentsSaveIfDirty }), []);
+    React.useImperativeHandle(
+      applicationsReminderFormRef,
+      () => ({ saveIfDirty: paymentsOutgoingReminderSaveIfDirty }),
+      [],
+    );
+    return <div>Reminders hub</div>;
+  }
+
+  return { ...actual, ManagerPortalAutomationSettingsPanel: MockManagerPortalAutomationSettingsPanel };
 });
 
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
@@ -97,7 +125,7 @@ afterEach(() => {
   showToast.mockReset();
   paymentsSaveIfDirty.mockReset().mockResolvedValue(true);
   tourPanelSaveIfDirty.mockReset().mockResolvedValue(true);
-  tourReminderSaveIfDirty.mockReset().mockResolvedValue(true);
+  paymentsOutgoingReminderSaveIfDirty.mockReset().mockResolvedValue(true);
 });
 
 describe("ProPortalSettingsModal — save-before-close ordering", () => {
@@ -140,17 +168,19 @@ describe("ProPortalSettingsModal — save-before-close ordering", () => {
   });
 
   it("runs every panel's save even when one of them rejects (allSettled, not all)", async () => {
-    tourPanelSaveIfDirty.mockRejectedValueOnce(new Error("Tour save failed"));
+    // C111: the Reminders hub (`automation` tab) is where several
+    // independently registered handles are actually mounted together now.
+    paymentsSaveIfDirty.mockRejectedValueOnce(new Error("Reminders save failed"));
     const onClose = vi.fn();
 
-    render(<ProPortalSettingsModal open onClose={onClose} initialTab="tours" />);
-    await screen.findByText("Tours panel");
+    render(<ProPortalSettingsModal open onClose={onClose} initialTab="automation" />);
+    await screen.findByText("Reminders hub");
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    await waitFor(() => expect(tourPanelSaveIfDirty).toHaveBeenCalledTimes(1));
-    // The sibling reminder-settings save still ran despite the other rejecting.
-    await waitFor(() => expect(tourReminderSaveIfDirty).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(paymentsSaveIfDirty).toHaveBeenCalledTimes(1));
+    // The sibling handle's save still ran despite the other rejecting.
+    await waitFor(() => expect(paymentsOutgoingReminderSaveIfDirty).toHaveBeenCalledTimes(1));
     expect(onClose).not.toHaveBeenCalled();
   });
 

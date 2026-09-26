@@ -69,7 +69,7 @@ function VendorOauthFinishContent() {
         if (body.unlinkedReason && body.unlinkedNotice) {
           queuePendingNotice({ message: body.unlinkedNotice, pathPrefix: VENDOR_PORTAL_PATH });
         }
-        window.location.replace(next ?? "/vendor/dashboard");
+        window.location.replace(next ?? "/vendor/onboarding");
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not finish vendor signup.";
         setErrorText(message);

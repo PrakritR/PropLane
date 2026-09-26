@@ -343,5 +343,50 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
       expect((pid.metadata as Record<string, string>).hold_amount_cents).toBe(String(subtotal));
       expect(result.totalCents).toBe(subtotal + fee);
     });
+
+    // PROPLANE_BALANCE_ENABLED (night/vendor-pay): the ONE new branch. Must be
+    // byte-different from BOTH the destination path (no transfer_data at all,
+    // even though a destinationAccountId was passed) and the hold path (no
+    // platform_hold flag — this is a deliberate permanent choice, not a
+    // "waiting on Connect onboarding" state).
+    it("platform_ledger: no transfer_data, no application_fee_amount, no platform_hold — funding_model metadata only", async () => {
+      const { stripe, calls } = captureStripe();
+      const subtotal = 150_000;
+      const fee = residentProcessingFeeCents(subtotal, "ach");
+      const result = await createAxisAchCheckoutSession(stripe, {
+        ...baseInput,
+        amountCents: subtotal,
+        paymentMethod: "ach",
+        feePayer: "resident",
+        destinationAccountId: "acct_test", // must be ignored when platform_ledger is set
+        fundingModel: "platform_ledger",
+      });
+      const params = calls[0]!;
+      const pid = params.payment_intent_data as Record<string, unknown>;
+      expect(pid.transfer_data).toBeUndefined();
+      expect(pid).not.toHaveProperty("application_fee_amount");
+      const piMetadata = pid.metadata as Record<string, string>;
+      expect(piMetadata.funding_model).toBe("platform_ledger");
+      expect(piMetadata.platform_hold).toBeUndefined();
+
+      const metadata = params.metadata as Record<string, string>;
+      expect(metadata.funding_model).toBe("platform_ledger");
+      expect(metadata.platform_hold).toBeUndefined();
+      expect(metadata.manager_payout_cents).toBe(String(subtotal));
+      expect(result.totalCents).toBe(subtotal + fee);
+    });
+
+    it("connect_destination (default, flag off) is byte-identical whether fundingModel is omitted or explicit", async () => {
+      const { stripe, calls: callsOmitted } = captureStripe();
+      await createAxisAchCheckoutSession(stripe, { ...baseInput, amountCents: 5_000, paymentMethod: "card" });
+      const { stripe: stripe2, calls: callsExplicit } = captureStripe();
+      await createAxisAchCheckoutSession(stripe2, {
+        ...baseInput,
+        amountCents: 5_000,
+        paymentMethod: "card",
+        fundingModel: "connect_destination",
+      });
+      expect(callsExplicit[0]).toEqual(callsOmitted[0]);
+    });
   });
 });

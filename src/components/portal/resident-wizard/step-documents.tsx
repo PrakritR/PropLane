@@ -12,7 +12,7 @@ export const RESIDENT_DOCUMENT_KINDS = [
   { value: "id_front", label: "ID · front" },
   { value: "id_back", label: "ID · back" },
   { value: "income_proof", label: "Proof of income" },
-  { value: "other", label: "Other" },
+  { value: "other", label: "Other documents" },
 ];
 
 export function DocumentsStep({

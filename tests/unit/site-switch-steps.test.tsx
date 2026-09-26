@@ -18,16 +18,28 @@ describe("SiteSwitchSteps", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders all three step titles", () => {
+  // Real /portal/properties/import flow is exactly Upload -> Review -> Create
+  // (portfolio-import-page.tsx's `Step` type) - never the invented 5-step
+  // "match columns" wizard this section used to show.
+  it("renders all three real step titles", () => {
     render(<SiteSwitchSteps />);
     expect(screen.getByRole("heading", { name: "Import your portfolio" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Invite your residents" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Collect rent in PropLane" })).toBeInTheDocument();
+    // "Review what the agent found" is the step's own h3 title AND the real
+    // review panel's own h1 heading (both real, deliberately duplicated —
+    // see the next test), so this one asserts by count rather than by role.
+    expect(screen.getAllByText("Review what the agent found").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("heading", { name: "Create it, invite when you're ready" })).toBeInTheDocument();
   });
 
-  it("renders the import button copy in the mock", () => {
+  // Captain 2026-09-26: "remove live demo no need" — the review step is now
+  // the REAL `PortfolioImportReviewStep` fed the bundled sample rent roll,
+  // never a live `/demo` iframe. Assert there is no iframe and the real
+  // review screen's own copy renders.
+  it("renders the real Properties -> Import review screen statically, never a /demo iframe", () => {
     render(<SiteSwitchSteps />);
-    expect(screen.getByText("Import 2 properties, 6 residents")).toBeInTheDocument();
+    expect(document.querySelector("iframe")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Review what the agent found" })).toBeInTheDocument();
+    expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
   it("is imported and rendered by the home page", () => {

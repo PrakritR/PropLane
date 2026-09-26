@@ -4,9 +4,14 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   INBOX_TAB_DEFS,
+  InboxComposer,
+  InboxThreadView,
+  InboxTwoPane,
   PortalInboxEmptyState,
   PortalInboxMessageTable,
   inboxTabEmptyCopy,
+  type InboxBubbleMessage,
+  type InboxMessageDirection,
   type PortalInboxTableRow,
 } from "@/components/portal/portal-inbox-ui";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
@@ -34,6 +39,39 @@ import {
   type InboxMessage,
 } from "@/lib/demo-admin-partner-inbox";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+
+/**
+ * The author label admin's own reply box has always stamped a sent turn with
+ * (`appendThreadReply(row.id, "PropLane admin", text)` below). `InboxMessage`
+ * carries no explicit direction field — a thread reply's `authorLabel` is
+ * either this constant (admin sent it) or the counterparty's own name
+ * (`appendPortalMessageToAdminInbox` in `demo-admin-partner-inbox.ts` stamps
+ * their real name on an inbound follow-up) — so comparing against it is the
+ * one place C022's two-pane derives an `InboxBubbleMessage.direction`.
+ */
+export const ADMIN_REPLY_AUTHOR_LABEL = "PropLane admin";
+
+/** One conversation's messages (root + thread) as chat bubbles for `InboxThreadView`. */
+export function buildThreadMessages(message: InboxMessage): InboxBubbleMessage[] {
+  // A "sent" row's root is admin's own composed message; every other folder's
+  // root is the original inbound message from the counterparty.
+  const rootDirection: InboxMessageDirection = message.folder === "sent" ? "outbound" : "inbound";
+  const root: InboxBubbleMessage = {
+    id: `${message.id}-root`,
+    author: rootDirection === "outbound" ? ADMIN_REPLY_AUTHOR_LABEL : message.name,
+    body: message.body,
+    at: formatWhen(message.createdAt),
+    direction: rootDirection,
+  };
+  const replies: InboxBubbleMessage[] = message.thread.map((reply) => ({
+    id: reply.id,
+    author: reply.authorLabel,
+    body: reply.body,
+    at: formatWhen(reply.createdAt),
+    direction: reply.authorLabel === ADMIN_REPLY_AUTHOR_LABEL ? "outbound" : "inbound",
+  }));
+  return [root, ...replies];
+}
 
 function formatWhen(iso: string) {
   try {
@@ -479,7 +517,16 @@ export const AdminInboxClient = forwardRef<
   const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const [tick, setTick] = useState(0);
+  // `expandedId` doubles as the open conversation's id in the two-pane thread
+  // view (C022) — the same field that used to drive the inline accordion now
+  // drives which row's chevron highlights AND which thread renders on the
+  // right, so opening/closing behaves identically to before.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // One draft per conversation, so switching threads never loses what was
+  // being typed in another one (mirrors `PortalInboxMessageTable`'s own
+  // per-row `replyDraftById`, now that admin owns its composer directly).
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [replySendingId, setReplySendingId] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   // Messages marked read while viewing "Unopened" stay listed here until the tab
   // is switched or the page is refreshed; they only move to "Opened" on reset.
@@ -641,16 +688,25 @@ export const AdminInboxClient = forwardRef<
 
   const tableRows = useMemo(() => toAdminTableRows(rows), [rows]);
 
-  // Opening a message no longer marks it read — reading keeps it in Unopened.
-  const toggleExpand = (id: string) => {
-    setExpandedId((cur) => (cur === id ? null : id));
-  };
-
-  const markRead = (id: string) => {
+  const markRead = useCallback((id: string) => {
     if (markInboxMessageRead(id)) {
       setRetainedIds((prev) => new Set(prev).add(id));
       setTick((t) => t + 1);
     }
+  }, []);
+
+  // C170 (WS4, PLAN-0925 Part 5, resolved): opening a message now marks it
+  // read, same as every other portal's inbox. `retainedIds` (already built
+  // for the explicit "mark read" action) keeps the row listed on Unopened
+  // until the tab changes, so opening a message does not make it jump out
+  // of the list out from under the manager mid-read.
+  const toggleExpand = (id: string) => {
+    setExpandedId((cur) => {
+      if (cur === id) return null;
+      const row = all.find((m) => m.id === id);
+      if (row && row.folder === "inbox" && !row.read) markRead(id);
+      return id;
+    });
   };
 
   const emptyCopy = inboxTabEmptyCopy(effectiveTabId);
@@ -658,11 +714,135 @@ export const AdminInboxClient = forwardRef<
   const fromOrToHeader =
     effectiveTabId === "all" ? "From / To" : effectiveTabId === "sent" ? "To" : "From";
 
-  const bodyById = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const row of rows) m[row.id] = row.body;
-    return m;
-  }, [rows]);
+  const selectedMessage = useMemo(() => rows.find((r) => r.id === expandedId) ?? null, [rows, expandedId]);
+  // The table row's own name/email resolution already handles a "sent"
+  // broadcast (composeRecipientLabel, blanked email for Everyone/All
+  // managers/All residents) — reuse it for the thread header instead of a
+  // second copy of that rule.
+  const selectedTableRow = useMemo(() => tableRows.find((r) => r.id === expandedId) ?? null, [tableRows, expandedId]);
+
+  // Restore / Delete forever (Trash tab) or Move to trash (every other tab) —
+  // identical to the row ⋯ menu's existing actions, extracted so the open
+  // thread pane can offer the same action beside the conversation, not only
+  // from the collapsed list row (needed on phone, where the list is hidden
+  // while a thread is open).
+  const extraRowActionsFor = useCallback(
+    (id: string) => {
+      if (tabId === "trash") {
+        return (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              data-attr="admin-communication-restore"
+              onClick={() => {
+                return restoreInboxMessageFromTrash(id).then((ok) => {
+                  if (ok) {
+                    showToast("Restored.");
+                    setExpandedId(null);
+                    setTick((t) => t + 1);
+                  } else {
+                    showToast("Could not restore message.");
+                  }
+                });
+              }}
+            >
+              Restore
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_DETAIL_BTN} !border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
+              data-attr="admin-communication-delete-forever"
+              onClick={() => {
+                return permanentlyDeleteInboxMessage(id).then((ok) => {
+                  if (ok) {
+                    showToast("Deleted permanently.");
+                    setExpandedId(null);
+                    setTick((t) => t + 1);
+                  } else {
+                    showToast("Could not delete message.");
+                  }
+                });
+              }}
+            >
+              Delete forever
+            </Button>
+          </>
+        );
+      }
+      return (
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_DETAIL_BTN}
+          data-attr="admin-communication-move-to-trash"
+          onClick={() => {
+            return moveInboxMessageToTrash(id).then((ok) => {
+              if (ok) {
+                showToast("Moved to trash.");
+                setExpandedId(null);
+                setTick((t) => t + 1);
+              } else {
+                showToast("Could not move message to trash.");
+              }
+            });
+          }}
+        >
+          Move to trash
+        </Button>
+      );
+    },
+    [tabId, showToast],
+  );
+
+  // The reply composer, owned directly by admin's Communication two-pane
+  // (C022) rather than the shared table's inline reply box — same server
+  // path (`/api/admin/inbox-reply`) and demo fallback (`appendThreadReply`)
+  // the old accordion's "Send reply" button used.
+  const submitReply = useCallback(() => {
+    const message = selectedMessage;
+    if (!message) return;
+    const text = (replyDrafts[message.id] ?? "").trim();
+    if (!text) return;
+    if (!roleAllowsThread(message.senderRole)) return;
+    if (message.folder !== "inbox" && message.folder !== "sent") return;
+    setReplySendingId(message.id);
+    void (async () => {
+      try {
+        if (isDemoModeActive()) {
+          if (appendThreadReply(message.id, ADMIN_REPLY_AUTHOR_LABEL, text)) {
+            setReplyDrafts((prev) => ({ ...prev, [message.id]: "" }));
+            showToast("Reply sent.");
+            setTick((t) => t + 1);
+          } else {
+            showToast("Could not add reply.");
+          }
+          return;
+        }
+        const res = await fetch("/api/admin/inbox-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ threadId: message.id, text }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !data.ok) {
+          showToast(data.error ?? "Could not send reply.");
+          return;
+        }
+        await syncInboxMessagesFromServer({ force: true });
+        setReplyDrafts((prev) => ({ ...prev, [message.id]: "" }));
+        showToast("Reply sent.");
+        setTick((t) => t + 1);
+      } catch {
+        showToast("Could not send reply.");
+      } finally {
+        setReplySendingId(null);
+      }
+    })();
+  }, [selectedMessage, replyDrafts, showToast]);
 
   const titleAside = (
     <>
@@ -730,135 +910,65 @@ export const AdminInboxClient = forwardRef<
         ) : rows.length === 0 ? (
           <PortalInboxEmptyState title={emptyCopy} />
         ) : (
-          <PortalInboxMessageTable
-            rowActionMenus
-            rows={tableRows}
-            primaryPartyHeader={fromOrToHeader}
-            onMarkRead={effectiveTabId === "unopened" || tabId === "all" ? markRead : undefined}
-            getDetailBody={(row) => bodyById[row.id]}
-            getThreadMessages={(row) => {
-              const message = rows.find((r) => r.id === row.id);
-              if (!message) return [];
-              return [
-                {
-                  id: `${message.id}-root`,
-                  from: message.name,
-                  body: message.body,
-                  at: formatWhen(message.createdAt),
-                },
-                ...message.thread.map((t) => ({
-                  id: t.id,
-                  from: t.authorLabel,
-                  body: t.body,
-                  at: formatWhen(t.createdAt),
-                })),
-              ];
-            }}
-            onReply={
-              tabId === "trash"
-                ? undefined
-                : (row, text) => {
-                    const message = rows.find((r) => r.id === row.id);
-                    if (!message) return;
-                    if (!roleAllowsThread(message.senderRole)) return;
-                    if (message.folder !== "inbox" && message.folder !== "sent") return;
-                    void (async () => {
-                      if (isDemoModeActive()) {
-                        if (appendThreadReply(row.id, "PropLane admin", text)) {
-                          showToast("Added to thread.");
-                          setTick((t) => t + 1);
-                        } else {
-                          showToast("Could not add reply.");
-                        }
-                        return;
-                      }
-                      try {
-                        const res = await fetch("/api/admin/inbox-reply", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          credentials: "include",
-                          body: JSON.stringify({ threadId: row.id, text }),
-                        });
-                        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-                        if (!res.ok || !data.ok) {
-                          showToast(data.error ?? "Could not send reply.");
-                          return;
-                        }
-                        await syncInboxMessagesFromServer({ force: true });
-                        showToast("Reply sent.");
-                        setTick((t) => t + 1);
-                      } catch {
-                        showToast("Could not send reply.");
-                      }
-                    })();
-                  }
+          /*
+            The manager two-pane shape (C022): a conversation list on the left,
+            the open thread as chat bubbles with a persistent composer on the
+            right — `InboxTwoPane` / `InboxThreadView` / `InboxComposer`
+            (portal-inbox-ui.tsx), the same primitives manager/resident/vendor
+            Communication compose with ("Admin borrows; it does not invent").
+            Admin alone keeps its own LIST as the existing record table
+            (`PortalInboxMessageTable`, `hideExpandedDetail` — an additive prop
+            this change added) instead of switching to `InboxConversationRow`
+            cards: docs/agents/communication-inbox.md's "admin alone keeps its
+            flat table" and admin-list-surface-adoption.test.ts's "the genuine
+            record tables (Communication -> Email) still use table primitives".
+          */
+          <InboxTwoPane
+            panes="split"
+            heightMode="section"
+            className="min-h-0"
+            threadOpen={Boolean(expandedId)}
+            list={
+              <PortalInboxMessageTable
+                rowActionMenus
+                rows={tableRows}
+                primaryPartyHeader={fromOrToHeader}
+                onMarkRead={effectiveTabId === "unopened" || tabId === "all" ? markRead : undefined}
+                expandedId={expandedId}
+                onToggleExpand={toggleExpand}
+                renderExtraActions={(row) => extraRowActionsFor(row.id)}
+                hideExpandedDetail
+              />
             }
-            expandedId={expandedId}
-            onToggleExpand={toggleExpand}
-            renderExtraActions={(row) => {
-              if (tabId === "trash") {
-                return (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={PORTAL_DETAIL_BTN}
-                      onClick={() => {
-                        return restoreInboxMessageFromTrash(row.id).then((ok) => {
-                          if (ok) {
-                            showToast("Restored.");
-                            setExpandedId(null);
-                            setTick((t) => t + 1);
-                          } else {
-                            showToast("Could not restore message.");
-                          }
-                        });
-                      }}
-                    >
-                      Restore
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={`${PORTAL_DETAIL_BTN} !border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-                      onClick={() => {
-                        return permanentlyDeleteInboxMessage(row.id).then((ok) => {
-                          if (ok) {
-                            showToast("Deleted permanently.");
-                            setExpandedId(null);
-                            setTick((t) => t + 1);
-                          } else {
-                            showToast("Could not delete message.");
-                          }
-                        });
-                      }}
-                    >
-                      Delete forever
-                    </Button>
-                  </>
-                );
-              }
-              return (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_DETAIL_BTN}
-                  onClick={() => {
-                    return moveInboxMessageToTrash(row.id).then((ok) => {
-                      if (ok) {
-                        showToast("Moved to trash.");
-                        setExpandedId(null);
-                        setTick((t) => t + 1);
-                      } else {
-                        showToast("Could not move message to trash.");
-                      }
-                    });
-                  }}
-                >
-                  Move to trash
-                </Button>
-              );
-            }}
+            thread={
+              selectedMessage && selectedTableRow ? (
+                <InboxThreadView
+                  title={selectedTableRow.name}
+                  subtitle={selectedTableRow.email || undefined}
+                  avatarName={selectedTableRow.name}
+                  messages={buildThreadMessages(selectedMessage)}
+                  onBack={() => setExpandedId(null)}
+                  headerActions={extraRowActionsFor(selectedMessage.id)}
+                  composer={
+                    tabId === "trash" ? undefined : (
+                      <InboxComposer
+                        value={replyDrafts[selectedMessage.id] ?? ""}
+                        onChange={(v) => setReplyDrafts((prev) => ({ ...prev, [selectedMessage.id]: v }))}
+                        onSubmit={submitReply}
+                        sending={replySendingId === selectedMessage.id}
+                        placeholder="Write a reply…"
+                        dataAttr="admin-communication-reply"
+                      />
+                    )
+                  }
+                  threadKey={selectedMessage.id}
+                />
+              ) : (
+                <div className="flex h-full min-h-[16rem] items-center justify-center p-6">
+                  <PortalInboxEmptyState title="Select a conversation" />
+                </div>
+              )
+            }
           />
         )}
       </div>
@@ -869,7 +979,7 @@ export const AdminInboxClient = forwardRef<
 
   return (
     <ManagerPortalPageShell
-      title="Inbox"
+      title="Communication"
       titleAside={titleAside}
       filterRow={
         <ManagerPortalStatusPills

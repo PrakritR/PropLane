@@ -107,11 +107,18 @@ export const DELETE_ORDER = [
   "screening_orders",
   "work_order_bids",
   "work_order_vendor_offers",
+  // C152 marketplace listing; references portal_work_order_records (cascade).
+  "work_order_open_listings",
   "work_order_reference_counters",
+  // References portal_work_order_records (cascade), same as vendor_invoices/vendor_payouts.
+  "vendor_reviews",
   "vendor_invoices",
   "vendor_payouts",
   // Platform-held funds awaiting a Connect destination; financial like vendor_payouts.
   "platform_payment_holds",
+  // night/vendor-pay ledger account row (owner_key is a manager or vendor id, not an FK);
+  // financial like vendor_invoices/vendor_payouts above.
+  "proplane_balance_accounts",
   "vendor_tax_profiles",
   "vendor_business_profiles",
   "vendor_availability_rules",
@@ -126,6 +133,7 @@ export const DELETE_ORDER = [
   "prospect_tour_bookings",
   "prospect_tour_google_calendar_cleanup",
   "prospect_tour_google_calendar_create_intents",
+  "google_calendar_pending_changes",
   "tour_slot_reservations",
   "prospect_tour_scheduling_state",
   "agent_messages",
@@ -180,6 +188,9 @@ export const DELETE_ORDER = [
   // A renamed work email held as an alias for 30 days; cascades from the email row too.
   "manager_assistant_email_aliases",
   "manager_sms_numbers",
+  // References manager_vendor_records (cascade); must clear before it, in the FK-parents
+  // section at the end of this list.
+  "manager_vendor_preferences",
   "manager_sms_contacts",
   "manager_sms_messages",
   "manager_sms_conversation_houses",

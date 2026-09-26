@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatUsdFromCents } from "@/lib/comms-billing/rates";
 
 
-const DEFAULT_FROM = "PropLane <notifications@prop-lane.space>";
+const DEFAULT_FROM = "PropLane <notifications@proplane.ai>";
 
 async function loadManagerEmail(
   db: SupabaseClient,

@@ -25,7 +25,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ sh
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "admin-1", email: "admin@example.test" }),
 }));
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => state.demo }));
+vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => state.demo, DEMO_MANAGER_USER_ID: "demo-manager" }));
 vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo-admin-scheduling")>()),
   ADMIN_AVAILABILITY_STORAGE_KEY: "availability",
@@ -101,5 +101,12 @@ describe("AdminEventsClient decline", () => {
     await waitFor(() => expect(state.declineLocal).toHaveBeenCalledWith("tour-inquiry-1"));
     expect(state.deleteInquiry).not.toHaveBeenCalled();
     expect(state.toast).toHaveBeenCalledWith("Request declined.");
+  });
+});
+
+describe("AdminEventsClient meeting type glyph (U068)", () => {
+  it("shows a type glyph fact for a tour request, distinguishing it from other call kinds", async () => {
+    render(<AdminEventsClient />);
+    expect(await screen.findByText("Property tour")).toBeInTheDocument();
   });
 });

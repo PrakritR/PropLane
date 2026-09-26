@@ -450,15 +450,6 @@ export function ManagerProperties({
       onAddProperty={tryOpenAdd}
       searchQuery={listSearch}
       onClearSearch={() => setListSearch("")}
-      /*
-        Disabled only while the PLAN is still unknown — never because the cap is
-        spent. A manager at the Free limit gets a live button that refuses and
-        says why, with the upgrade path in the message. Disabling it instead
-        makes it a dead click: the one moment the product has to explain the
-        limit and offer the upgrade passes in silence. Same rule, same reason as
-        the sidebar's `upsell` nav lock in AGENTS.md.
-      */
-      addPropertyDisabled={!skuLoaded}
     />
   );
 
@@ -522,7 +513,11 @@ export function ManagerProperties({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                  {/* Not pre-disabled on `!skuLoaded`: `onOpenChange` above
+                      already calls `canOpenAdd()`, which toasts and queues a
+                      retry for the still-loading case. A washed-out disabled-
+                      looking button for that brief window was the bug. */}
+                  <PortalPrimaryIconAction label="Add property" data-attr="manager-properties-add-top" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>

@@ -125,6 +125,17 @@ function LockedFeatureCard({
 }
 
 /** Shown when a property portal user on the Free plan opens a paid section. */
+/*
+ * The dimmed preview behind the lock card used to bleed through at the
+ * card's edges — `bg-background/55` over an `opacity-35` preview left the
+ * skeleton rows faintly but distractingly visible around and through the
+ * card (AXI night sweep area 2k). Near-opaque so the card sits on a clean
+ * background; the preview's own low opacity is now belt-and-suspenders, not
+ * the only thing standing between the skeleton and full visibility.
+ */
+const TIER_PAYWALL_OVERLAY_CLASS =
+  "absolute inset-0 flex items-center justify-center bg-background/95 p-4 sm:p-6";
+
 export function PortalTierPaywall({
   basePath,
   featureLabel,
@@ -140,7 +151,7 @@ export function PortalTierPaywall({
         <div className="pointer-events-none select-none opacity-35 grayscale" data-tier-paywall-disabled-content>
           <LockedFeaturePreview />
         </div>
-        <div className="absolute inset-0 flex items-center justify-center bg-background/55 p-4 backdrop-blur-sm sm:p-6">
+        <div className={TIER_PAYWALL_OVERLAY_CLASS}>
           <LockedFeatureCard featureLabel={label} audience="manager" basePath={basePath} />
         </div>
       </div>
@@ -162,7 +173,7 @@ export function ResidentTierPaywall({
         <div className="pointer-events-none select-none opacity-35 grayscale" data-tier-paywall-disabled-content>
           <LockedFeaturePreview />
         </div>
-        <div className="absolute inset-0 flex items-center justify-center bg-background/55 p-4 backdrop-blur-sm sm:p-6">
+        <div className={TIER_PAYWALL_OVERLAY_CLASS}>
           <LockedFeatureCard featureLabel={featureLabel} audience="resident" basePath={basePath} />
         </div>
       </div>

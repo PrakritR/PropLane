@@ -1,5 +1,119 @@
 # Lease generation — agent notes
 
+## Resident lease visibility, signing, and lease-first sends (Sep 2026 hotfix)
+
+Four invariants, closed together because a resident could not sign any lease
+in production until they were (live since Sep 19, `64f410ca`):
+
+- **The lease list is slim for every reader, including the resident's own
+  GET.** `residentCanViewLeaseRow` uses `leaseRowHasDocument`
+  (lease-pipeline-list-projection.ts), which understands `documentOmitted:
+  true` as "a document exists, just not inlined here" — never require actual
+  bytes on the list-shaped row. Requiring bytes is how every sent lease
+  became invisible: the resident's own copy of a sent lease never has bytes
+  to begin with.
+- **Signing loads the FULL document first, then waits for the server.**
+  `residentSignLease` / `managerSignLease` call `ensureLeaseDocumentLoaded`
+  before hashing (never hash the slim copy), then `await
+  persistLeaseRowToServerAwait` and return `LeasePipelineActionResult` (`{ok:
+  true } | { ok: false; error }`) — never a bare boolean, and never a
+  fire-and-forget `write()`. Nothing is marked signed locally until the
+  server has confirmed it.
+- **The server checks the signature hash.** `newSignatureHashMismatch`
+  (`lease-signature-hash-guard.ts`) refuses (409) a NEW signature whose
+  reported `documentSha256` disagrees with the SHA-256 of the bytes the
+  server actually has stored — wired into `POST /api/portal-lease-pipeline`
+  next to `leaseSignatureWriteRefusal`. It never judges a resend or re-sign
+  (that guard's job) and never refuses an absent hash (WebCrypto being
+  unavailable is honest, not forged).
+- **"Send lease to sign" creates a real draft.** `createLeaseFirstDraft`
+  (`src/lib/leasing/lease-first-draft.server.ts`) writes a server-authorized
+  `Draft` row (`bucket: "manager"`, `leaseFirst: true`), idempotent per
+  (manager, property, room, resident email). `buildResidentLeaseDocumentRows`
+  shows it to the resident before any document exists so
+  `ResidentLeaseIntakeSection` has something to render, and
+  `resident-portal-access.ts` resolves the pipeline manager and unlocks
+  `isPreLeaseResident` through it when there is no application yet.
+  `findLeaseRowIndexForApprovedApp`'s existing email+property match (not new
+  code) attaches a later approved application onto this same draft instead of
+  creating a duplicate lease.
+
+Coverage: `tests/unit/resident-lease-visible-when-slim.test.ts`,
+`lease-sign-awaits-server.test.ts`, `lease-signature-hash-guard.test.ts`,
+`lease-first-draft.test.ts`.
+
+## Lease-first Sign step — optional signers are invite-by-email, not typed text (C278)
+
+`ResidentLeaseFirstSigningWizard`'s "Sign" step keeps the required primary
+signature off this wizard entirely (it hands off to the real signing path via
+`onReachedSign`), and renders every OTHER field from the imported template's
+"authorization" section (representative / legal representative / personal
+guarantee) as an invite-by-email row: an email input plus a "Send invite"
+button, not a plain typed-text question. The resident's typed value (the third
+party's email) still saves through the wizard's existing `signingAnswers`
+write — no new column, no new table.
+
+"Send invite" posts to `POST /api/resident/lease-signer-invite`, which
+resolves the resident actor the same way `report-lease-issue` does, then calls
+`sendLeaseSignerInvite` (`src/lib/lease-signer-invite.server.ts`): verifies the
+caller owns the lease, that it is genuinely on the lease-first Sign step
+(`leaseFirst`, `bucket: "resident"`, `status: "Resident Signature Pending"`,
+no `residentSignature` yet), then sends ONE plain, one-way notice email
+through the existing `postResendEmail` transport. The invited party never
+gets portal access, an account, or a way to sign — the email exists purely to
+tell them they were named, matching "no new auth surface."
+
+A resident sends this email from PropLane's own domain, so nothing about it is
+caller-controlled: `classifySignerInviteRole` matches the wizard's raw field
+label against a FIXED allowlist (representative / legal representative /
+guarantor) and only the matched entry's canonical label ever reaches the
+email — an unrecognized label is refused (400), never sent verbatim. The
+resident's name in the email comes only from the lease row's own
+`residentName` (never `profiles.full_name`, which the resident controls) and
+is stripped of URLs/newlines and length-capped before it can reach the
+subject or body. `rateLimit` (`src/lib/rate-limit.ts`) caps it at 5 invites
+per resident per 24 hours and 1 invite per (lease, role) per 24 hours (429 on
+either).
+
+Coverage: `tests/unit/lease-signer-invite.test.ts`,
+`tests/unit/resident-lease-first-signing-wizard-invite.test.ts`.
+
+## Lease-first "House rules addendum" step — numbered clauses, with red-flag styling (C276)
+
+C282's real PDF-import section classification (`lease-template-pdf-import.ts`)
+made the structure buildable: once a "House rules addendum" section carries
+its own individually-classified clause rows (rather than one placeholder
+acknowledgment field), `ResidentLeaseFirstSigningWizard` renders every
+non-required field in that section as a numbered, READ-ONLY rule
+(`HouseRuleClauseRow`) instead of an editable question, and its one required
+field as a single final acknowledgment step requiring BOTH initials AND a
+date (`HouseRulesAcknowledgmentRow`) — an ordinary clause step elsewhere is
+unchanged (initials only). The date rides in `signingAnswers` under
+`${field.key}__date`, additive to the existing JSON blob.
+
+Red-flagged-in-red styling is now real, derived from the PDF's own ink, never
+guessed: `pdf-source.server.ts`'s `parsePdfForImport` walks each page's
+operator list (not just `getTextContent()`) tracking `setFill*` color state
+alongside every `showText`/`showSpacedText` call, aligns each call back onto
+the plain-text extraction's own character offsets, and reports the result as
+`pages[n].colorRuns` — spans of non-default fill color, normalized into a
+small palette (`classifyFillColorHex`: `"default"` / `"red"` / `"other"`,
+red being a hue within 20° of true red at sufficient saturation) alongside
+the raw hex. This is purely additive: every existing caller's plain `text` /
+`blocks` output is byte-identical to before. `lease-template-pdf-import.ts`'s
+`isPredominantlyRed` marks a clause `flagged: true` only when at least half
+its own characters overlap a `red` colorRun. `HouseRuleClauseRow` renders a
+flagged clause in the design system's `text-danger` token (never a raw hex)
+plus a non-color `TriangleAlert` cue with its own `aria-label="Important"`,
+so the emphasis still reaches a resident who cannot perceive color. A manager
+can correct a misread in `ManagerLeaseQuestionsEditorModal`'s per-question
+"Important" checkbox (`toggleFlagged`) — the one editable field on an
+otherwise read-only imported clause.
+
+Coverage: `tests/unit/pdf-source-color.test.ts`,
+`tests/unit/lease-template-pdf-import-color.test.ts`,
+`tests/unit/resident-lease-first-signing-wizard-house-rules.test.tsx`.
+
 ## PDF import review and signing
 
 The private original PDF remains the source for both lease and application imports. The shared server parser records page spans, form widgets, a source SHA-256, and unresolved pages. A bounded local OCR pass handles up to four image-only pages. A manager must resolve every reported import issue before publishing an application template or confirming a converted lease. The PDF is served through the owner-scoped private document route, never a public object URL.
@@ -490,11 +604,19 @@ signature.
   `row`, so a colliding id could otherwise have replaced another manager's
   executed lease and re-parented it. That client-supplied `row` fallback is
   still an unscoped input and belongs to the onboarding lane to remove.
-- **`deleteLeasePipelineRow` wipes a fully executed lease behind one
-  `window.confirm`**, with no status gate. It clears the signatures in the same
-  write, so it is outside the guard by construction. Not silent, so not fixed
-  here, but "Delete lease" destroying an execution record with no archive is a
-  product decision someone should make deliberately.
+- **FIXED (night/custom-lease, Sep 2026).** The call sites never actually used
+  `window.confirm` — both already routed through the in-theme `useConfirm()` —
+  but the underlying refusal this note asked for was genuinely missing on TWO
+  paths: `deleteLeasePipelineRow` returned `true` after `write()`'s own
+  `preserveSignedLeaseDocuments` guard silently reverted the mutation on an
+  executed row (now refuses up front, `leaseClaimsExecution(row)`), and
+  `POST /api/portal-lease-pipeline` with `action: "delete"`/`"deleteIds"` ran
+  an unconditional `.delete()` with NO execution check at all — the real gap,
+  since it permanently removes the row (see `wipesExecutedLeaseWithoutSupersedeIntent`,
+  which only guards the routine-save path). Both now refuse; coverage in
+  `tests/unit/lease-delete-executed-refusal.test.ts` and
+  `tests/unit/lease-pipeline-route-delete-executed.test.ts`. Still true: no
+  archive-on-delete for the rows this refuses — a manager void/renews instead.
 - **A renewal or amendment discards the superseded executed document.**
   `amendLeaseMoveOutDate` and `renewLease` (`src/lib/lease-amendment.server.ts`,
   not this agent's files) overwrite `generatedHtml` on a fully signed row while
@@ -517,6 +639,103 @@ charges stay.
 - Rows seeded as `externallySignedLease` carry synthetic signatures and no hash.
   That is correct (nothing was executed through the portal), but it means a
   present signature does not imply a present fingerprint.
+
+### Export: a real signed-document-with-audit-page PDF (C064, Sep 2026)
+
+**Export** is a NEW action, distinct from the plain **Download** section
+action next to it: Download hands back the lease's own document as-is
+(uploaded PDF, or the generated HTML file); Export always produces a real PDF
+that ends with the certificate page (`buildLeaseSignaturePagePdf` — who
+signed, when, the document fingerprint, template/jurisdiction, consent),
+regardless of document mode. Owner: `buildLeaseExportWithAuditPdf`
+(`lease-pipeline-storage.ts`), `appendSignaturePageToPdfBytes` /
+`buildLeaseBodyTextPdf` / `htmlToPlainTextParagraphs` (`lease-pdf-signing.ts`).
+
+- Only offered once the lease carries some signature (`leaseClaimsExecution`)
+  — an unsigned lease has nothing yet to attest, so `buildLeaseExportWithAuditPdf`
+  returns `null` and the UI does not show the action.
+- For an uploaded PDF, the base is the row's **ORIGINAL** bytes
+  (`getLeasePdfBaseDataUrl`'s `originalDataUrl ?? dataUrl`), never the copy
+  signing may have already merged a certificate into — Export always adds
+  exactly one certificate page, never two.
+- For a PropLane-generated (HTML) lease there is no source PDF to build on, so
+  the body is paginated from the SAME rendered HTML the manager and resident
+  already see, with markup stripped by `htmlToPlainTextParagraphs` (never
+  reworded) and its own inline `<!-- axis-signatures:start/end -->` block
+  removed first so the one real certificate page is not duplicated.
+- UI: `LeasePrimaryHeaderActions`' `onExport` (lease record header icons and
+  the list's single-select bulk bar), wired through `runLeaseExport` /
+  `exportLeaseWithAuditPdf`.
+
+### Audit trail: who signed, when, and the fingerprint (C066, Sep 2026)
+
+`leaseAuditTrailFacts` (`lease-execution-evidence.ts`) is the pure derivation
+— it was already computing the hash but nothing rendered it. `null` when the
+row has nothing yet to attest (unsigned).
+
+**Audit trail is a real tab**, registered as `"audit-trail"` in the shared
+`record-sections.ts` lease-kind entry (same shape Applications uses for
+`"application-form"`), between "Lease document" and "Answers" — the shared
+shell registry was off-limits to this workstream when this was first built
+(landed as an Overview card + document-tab content instead) and was cleared
+for a follow-up once the shell stream finished. `renderLeaseAuditTrailFacts`
+(`pro-leases-pipeline-panel.tsx`) renders it; a row with nothing to attest yet
+shows an empty state rather than a blank tab. Overview now keeps only a
+one-line "Fingerprint" summary card with a "Section →" link to the tab
+(`docs/agents/record-page.md` point 3), not the full fact list.
+
+`sectionActions["audit-trail"]` offers Export (wired to the real
+`onExport`/`buildLeaseExportWithAuditPdf` action, C064) and Share; per-section
+header actions are declared here for the next phase that wires
+`activeSectionId` end to end (see this registry's own docs) — today the lease
+record's real header icons still come from `LeasePrimaryHeaderActions`
+directly, the pre-existing "Known gap" in `docs/agents/record-page.md`.
+
+### Answers section: every clause's answer, by section (C281, Ida Cares lease-first, Sep 2026)
+
+`leaseFirstAnswersBySection` (`leasing/lease-first-signing-document.ts`) groups
+`signingTemplateSnapshot`'s clauses by their `section`, in source order
+(reusing the same `sectionsInOrder` helper `buildLeaseFirstSigningHtml`
+already uses), and reads each one's recorded `signingAnswers` value —
+`"Not yet initialed"` for an unanswered `initials` clause, `"—"` for any
+other unanswered type, never a guess. `null`/absent only when the row is not
+a lease-first row at all (`signingTemplateSnapshot` unset).
+
+**Answers is a real tab**, registered as `"answers"` in `record-sections.ts`
+right after Audit trail — same follow-up as above, same shape as
+Applications' own `"application-form"` tab. It is listed for EVERY lease, the
+same way Applications always lists "Screening" whether or not a check exists:
+`renderLeaseAnswersSection` (`pro-leases-pipeline-panel.tsx`) shows the real
+per-section cards (`ReviewSection`/`ReviewRow`, reused from
+`pro-application-readonly-review.tsx`) for a lease-first row, and an empty
+state for an ordinary application-driven lease that carries no
+`signingTemplateSnapshot`. Overview keeps only a one-line "N of M answered"
+summary (`leaseFirstAnswersSummaryLabel`, same file as
+`leaseFirstAnswersBySection` — reads the identical "answered" rule so the two
+can never disagree) linking to the tab.
+
+### The PDF-import pipeline now classifies real sections (C282, Sep 2026)
+
+`mapLeaseTemplatePdfImport` (`lease-template-pdf-import.ts`) previously
+produced one flat, unclassified list of clauses per imported PDF — the
+section grouping Settings → Forms → License agreement showed for Ida Cares
+existed only because that seed's `section` values were hand-authored. A real
+manager import got no sections at all. `looksLikeSectionHeader` (same file)
+is now a deterministic heading heuristic — a roman-numeral heading ("I.
+Fees") or a short (<= 8 words, <= 60 characters), unpunctuated line — that
+assigns every clause after it to that section until the next one, the exact
+"I. Fees" … "VIII. House rules" shape the Ida Cares seed already uses. The
+license-agreement editor and viewer (`pro-lease-questions-editor-modal.tsx`'s
+`sectionGroups`, `leaseFirstAnswersBySection`) needed no changes: both already
+grouped by whatever `field.section` held, which is exactly why the hand-authored
+seed rendered correctly before this fix.
+
+Not a legal-document parser: an unusually styled source PDF can still
+misclassify a heading, or miss one, in either direction — documented as a
+deliberate, bounded limitation in the module's own docstring rather than
+something this heuristic can eliminate. The manager's existing per-question
+section field in the review editor is the correction path for a
+misclassified line, same as any other imported field value.
 
 # Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
 
@@ -1063,6 +1282,62 @@ sandboxed without `allow-scripts`.
   `DELETE` scoped to the caller's own folder.
 - `tests/unit/lease-template-storage.test.ts` also asserts a foreign URL merely
   containing the route resolves to null.
+
+---
+
+## Workspace lease document library, signature-field placement, and stamping (Sep 2026, night/custom-lease)
+
+A manager can now save an uploaded lease PDF into a small, workspace-scoped
+catalog (`lease_document_library` — additive migration, metadata only) and
+pick it from a `FieldSingleSelect` instead of re-uploading: wired into the
+property listing's lease-upload modal (`property-lease-upload-modal.tsx`) and
+into the resident lease-row editor (`pro-pipeline-lease-edit-modal.tsx` →
+`lease-attach-from-library-modal.tsx` → `managerAttachLibraryLeaseDocument`,
+`lease-pipeline-storage.ts`). Bytes stay exactly where they already lived —
+the private `lease-templates` bucket — fetched only through the existing
+`/api/portal/lease-template` route, which gained a fourth authorization
+branch (`libraryReferencesTemplate`) for an entry not yet attached to any
+property or lease: workspace access, re-derived via `assertSettingsScopeOwned`
+(owner or a co-manager holding the "leases" grant), never trusted from the
+request. Row-level metadata (name, default flag, delete-if-unused) is its own
+tiny API, `/api/portal/lease-library`; the Settings tab is `Settings → Lease
+documents` (`lease-document-library-panel.tsx`).
+
+An entry can carry signature-field placements — `LeaseDocumentField` in
+`src/lib/lease-document-library.ts`, normalized coordinates 0..1 against the
+page's own size, placed in a full-screen click-to-place / drag-to-move editor
+(`lease-document-field-editor-modal.tsx`, rasterizing pages with the shared
+`pdf-page-raster.client.ts`, the same unpdf/pdf.js approach
+`uploaded-lease-pdf-preview.tsx` already used). Fields are copied onto
+`managerUploadedPdf.fields` when a lease attaches the entry, never resolved
+downstream from the library row — the lease keeps its own copy. **If no fields
+are placed, nothing about today's behavior changes**: no stamped copy, just
+the existing certificate page.
+
+When fields ARE present, each signature event (`residentSignLease` /
+`managerSignLease`) renders a SIGNED COPY with pdf-lib
+(`lease-document-field-stamping.ts`'s `stampLeaseDocumentFields`) — onto the
+ORIGINAL bytes, never the certificate-merged copy — stamping only the fields
+that already have a value (the other party's fields stay blank until they
+sign too) and stores it as `managerUploadedPdf.stampedDataUrl` plus its own,
+separate `stampedDocumentSha256`. **This must never touch what either party's
+signature hashes**: `leaseDocumentSha256` still reads `originalDataUrl` before
+any of this runs, exactly as before this change — the stamped copy is a
+convenience rendering of what was already agreed to, not a second document to
+sign, and `leaseDocumentBody()` (the immutability guard's own reference point)
+never reads `stampedDataUrl`. The resident/manager signing modal
+(`lease-signing-modal.tsx`) shows a read-only "Where you're signing" page
+preview with the placed fields highlighted, only when fields exist.
+
+Known gap: wiring into the create-listing wizard's lease editor
+(`manager-lease-editor-modal.tsx`) was not done — only the two paths above.
+Coverage: `tests/unit/lease-document-library.test.ts` (coordinate
+normalization, fails closed on garbage), `tests/unit/lease-document-field-stamping.test.ts`
+(pdf-lib inspection of stamped output, right page/position, blank-until-signed),
+`tests/unit/lease-document-field-evidence.test.ts` (stamped hash is separate
+from and never touches the execution-evidence hash),
+`tests/integration/portal/lease-library-access.test.ts` (another manager
+cannot read or write a workspace's library entries).
 
 ---
 

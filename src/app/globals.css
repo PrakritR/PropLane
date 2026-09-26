@@ -259,17 +259,27 @@
   background-color: rgba(190, 24, 93, 0.18) !important;
 }
 
+/*
+ * Night UX sweep — selected vs. unselected toolbar pills were both "white-ish
+ * text on near-black" in the dark admin theme (a faint 16%-opacity white wash
+ * vs. plain white/78 text), reading as nearly indistinguishable. Every light-
+ * theme pill list, and every other selected-state control in the product,
+ * uses a solid brand-color fill with high-contrast foreground text
+ * (`bg-primary text-primary-foreground`, see `ManagerPortalStatusPills`'
+ * `activeTone="primary"`). Use the same token pair here instead of a raw,
+ * low-contrast white overlay.
+ */
 [data-theme="dark"] .portal-status-pill-active {
-  background-color: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 [data-theme="dark"] .portal-status-pill-count-active {
-  background-color: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
 }
 
 [data-theme="dark"] .portal-table-th {
@@ -2716,6 +2726,16 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
 
   html:has([data-slot="portal-page-footer-actions"][data-pinned]) .axis-assistant-fab {
     bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 6.25rem) !important;
+  }
+
+  /* Vendor Dashboard: the Your-jobs section's own header controls (Add,
+     Manage services) can land within ~100px of the fixed FAB — the section
+     is the page's last piece of content, so on a short dashboard (little to
+     attend to, nothing upcoming) there is no scrolling to separate them at
+     all, and reserving scroll room alone does not help. Raise the FAB clear
+     of that corner whenever the section is on screen (N058). */
+  html:has([data-attr="dashboard-your-jobs"]) .axis-assistant-fab {
+    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 3.75rem) !important;
   }
 }
 

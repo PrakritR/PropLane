@@ -20,7 +20,11 @@ export const PORTAL_EMPTY_COPY = {
   "properties.all": T("No homes yet", "properties"),
   "properties.listed": T("Nothing listed", "properties"),
   "properties.unlisted": T("Nothing unlisted", "properties"),
-  "properties.drafts": T("No drafts", "properties"),
+  // C242: "No drafts" alone gave no memory jog of what a draft even is. A
+  // draft is a listing wizard that was started and closed before it
+  // finished — naming that in the title itself is the one line this empty
+  // state gets (no subtext sentence underneath it).
+  "properties.drafts": T("No listings in progress", "properties"),
   "tours.pending": T("No tours pending", "tours"),
   "tours.upcoming": T("Nothing upcoming", "tours"),
   "tours.past": T("No past tours", "tours"),

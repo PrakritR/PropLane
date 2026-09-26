@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Settings } from "lucide-react";
+import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
@@ -128,6 +130,11 @@ export function VendorWorkOrdersPanel({
   const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
   const [doneNoteById, setDoneNoteById] = useState<Record<string, string>>({});
   const [markingDoneId, setMarkingDoneId] = useState<string | null>(null);
+  // N010: a completion photo is required before a job can be marked done —
+  // reuses the same picker/data-URL pattern as the resident's own required
+  // intake photo (ServiceIntakePhotoPicker), never a new upload mechanism.
+  const [donePhotosById, setDonePhotosById] = useState<Record<string, string[]>>({});
+  const [donePhotoErrorById, setDonePhotoErrorById] = useState<Record<string, boolean>>({});
   /** Chosen before a bid row exists — once scheduled/submitted, the row's own quoteMode wins. */
   const [modeById, setModeById] = useState<Record<string, "upfront" | "after_consultation">>({});
   const [consultationDraftById, setConsultationDraftById] = useState<Record<string, string>>({});
@@ -429,18 +436,88 @@ export function VendorWorkOrdersPanel({
       return next;
     });
 
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+
+  const openDonePhotoPicker = (rowId: string) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;width:0;height:0;";
+    input.setAttribute("tabindex", "-1");
+    input.setAttribute("aria-hidden", "true");
+    const onChange = () => {
+      void onPickDonePhotos(rowId, input.files);
+      input.removeEventListener("change", onChange);
+      input.remove();
+    };
+    input.addEventListener("change", onChange);
+    document.body.appendChild(input);
+    input.click();
+  };
+
+  const onPickDonePhotos = async (rowId: string, files: FileList | null) => {
+    if (!files?.length) return;
+    const current = donePhotosById[rowId] ?? [];
+    const remaining = 6 - current.length;
+    if (remaining <= 0) {
+      showToast("Up to 6 photos.");
+      return;
+    }
+    const next = [...current];
+    for (let i = 0; i < Math.min(files.length, remaining); i++) {
+      const file = files[i];
+      if (!file) continue;
+      if (!file.type.startsWith("image/")) {
+        showToast("Images only.");
+        return;
+      }
+      next.push(await fileToDataUrl(file));
+    }
+    setDonePhotosById((prev) => ({ ...prev, [rowId]: next }));
+    if (next.length > 0) setDonePhotoErrorById((prev) => ({ ...prev, [rowId]: false }));
+  };
+
+  const removeDonePhoto = (rowId: string, index: number) => {
+    setDonePhotosById((prev) => ({
+      ...prev,
+      [rowId]: (prev[rowId] ?? []).filter((_, i) => i !== index),
+    }));
+  };
+
   const markDone = async (row: DemoManagerWorkOrderRow) => {
+    const completionPhotos = donePhotosById[row.id] ?? [];
+    if (completionPhotos.length === 0) {
+      setDonePhotoErrorById((prev) => ({ ...prev, [row.id]: true }));
+      showToast("Add a completion photo before marking this service done.");
+      return;
+    }
     setMarkingDoneId(row.id);
     try {
       const res = await fetch("/api/portal/work-orders/mark-done", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ workOrderId: row.id, note: doneNoteById[row.id] ?? "" }),
+        body: JSON.stringify({
+          workOrderId: row.id,
+          note: doneNoteById[row.id] ?? "",
+          completionPhotoDataUrls: completionPhotos,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not mark done.");
       await syncManagerWorkOrdersFromServer({ force: true });
+      setDonePhotosById((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
       showToast("Marked done. The manager has been notified.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not mark done.");
@@ -481,7 +558,7 @@ export function VendorWorkOrdersPanel({
           delete next[row.id];
           return next;
         });
-        showToast("Bid withdrawn.");
+        showToast("Quote withdrawn.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
@@ -498,7 +575,7 @@ export function VendorWorkOrdersPanel({
         delete next[row.id];
         return next;
       });
-      showToast("Bid withdrawn.");
+      showToast("Quote withdrawn.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not withdraw bid.");
     } finally {
@@ -779,7 +856,7 @@ export function VendorWorkOrdersPanel({
               disabled={submittingId === row.id}
               onClick={() => submitBid(row)}
             >
-              {pricingPending ? "Submit price" : bid ? "Update bid" : "Submit bid"}
+              {pricingPending ? "Submit price" : bid ? "Update quote" : "Submit quote"}
             </Button>
             {bid && bid.status === "submitted" ? (
               <Button
@@ -790,7 +867,7 @@ export function VendorWorkOrdersPanel({
                 disabled={withdrawingBidId === row.id}
                 onClick={() => withdrawBid(row)}
               >
-                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw bid"}
+                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw quote"}
               </Button>
             ) : null}
           </PortalTableDetailActions>
@@ -847,6 +924,40 @@ export function VendorWorkOrdersPanel({
                   className="h-8 rounded-md text-sm"
                 />
               </label>
+            </div>
+            <div className="space-y-2">
+              <ServiceIntakePhotoPicker onPick={() => openDonePhotoPicker(row.id)} disabled={markingDoneId === row.id} />
+              {donePhotoErrorById[row.id] ? (
+                <p className="text-xs font-medium text-[var(--status-overdue-fg)]" data-attr="vendor-mark-done-photo-error">
+                  Add a completion photo before marking this service done.
+                </p>
+              ) : null}
+              {(donePhotosById[row.id] ?? []).length ? (
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {(donePhotosById[row.id] ?? []).map((src, i) => (
+                    <div key={i} className="overflow-hidden rounded-xl border border-border bg-accent/30">
+                      <Image
+                        src={src}
+                        alt={`Completion photo ${i + 1}`}
+                        width={160}
+                        height={120}
+                        className="h-20 w-full object-cover"
+                        unoptimized
+                      />
+                      <div className="flex justify-start p-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-7 rounded-full px-2.5 text-[11px]"
+                          onClick={() => removeDonePhoto(row.id, i)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <PortalTableDetailActions>
               {showScheduledPrice ? (

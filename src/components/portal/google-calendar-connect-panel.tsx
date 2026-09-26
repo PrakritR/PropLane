@@ -21,6 +21,10 @@ type GoogleCalendarStatus = {
   missingSecret?: boolean;
   oauthRedirectUri?: string;
   managerEmail?: string | null;
+  /** Previously connected; Google reported the refresh token revoked/expired. */
+  revoked?: boolean;
+  /** Vendor only: push assigned visits/availability to this account's own Google Calendar. Default off. */
+  vendorPushEnabled?: boolean;
 };
 
 /**
@@ -41,9 +45,17 @@ type GoogleCalendarStatus = {
 export function GoogleCalendarConnectPanel({
   onConnectionChange,
   presentation = "card",
+  /** Manager (default) reads/writes `/api/portal/google-calendar/*`; a role that
+   * clones the manager OAuth flow onto its own storage (vendor) passes its own
+   * base, e.g. `/api/vendor/google-calendar`. */
+  apiBase = "/api/portal/google-calendar",
+  /** Vendor calendar only: offer the "push my assigned visits to Google" toggle (default off). */
+  showVendorPushToggle = false,
 }: {
   onConnectionChange?: () => void;
   presentation?: "card" | "dialog";
+  apiBase?: string;
+  showVendorPushToggle?: boolean;
 }) {
   const { showToast } = useAppUi();
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
@@ -54,12 +66,12 @@ export function GoogleCalendarConnectPanel({
 
   const load = useCallback(async () => {
     try {
-      await fetch("/api/portal/google-calendar/link-session", {
+      await fetch(`${apiBase}/link-session`, {
         method: "POST",
         credentials: "include",
       }).catch(() => undefined);
       const res = await fetch(
-        `/api/portal/google-calendar?origin=${encodeURIComponent(window.location.origin)}`,
+        `${apiBase}?origin=${encodeURIComponent(window.location.origin)}`,
         { credentials: "include" },
       );
       if (!res.ok) return;
@@ -68,7 +80,7 @@ export function GoogleCalendarConnectPanel({
     } catch {
       setStatus(null);
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     void load();
@@ -85,9 +97,9 @@ export function GoogleCalendarConnectPanel({
     const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
     showToast("Opening Google sign-in…");
     window.location.assign(
-      `/api/portal/google-calendar/connect?origin=${origin}&returnTo=${returnTo}`,
+      `${apiBase}/connect?origin=${origin}&returnTo=${returnTo}`,
     );
-  }, [showToast, status?.configured]);
+  }, [apiBase, showToast, status?.configured]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -120,7 +132,10 @@ export function GoogleCalendarConnectPanel({
   const disconnect = async () => {
     setBusy(true);
     try {
-      const res = await fetch("/api/portal/google-calendar", { method: "DELETE", credentials: "include" });
+      // `apiBase`, not a hardcoded manager path — this panel is also mounted
+      // for vendors (`apiBase="/api/vendor/google-calendar"`); a pure vendor
+      // account hitting the manager route 401s and could never disconnect.
+      const res = await fetch(apiBase, { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Could not disconnect.");
       await load();
       onConnectionChange?.();
@@ -135,7 +150,9 @@ export function GoogleCalendarConnectPanel({
   const toggleSync = async (next: boolean) => {
     setBusy(true);
     try {
-      const res = await fetch("/api/portal/google-calendar", {
+      // Same `apiBase` fix as `disconnect` above — a vendor's sync toggle was
+      // silently PATCHing the manager's connection instead of their own.
+      const res = await fetch(apiBase, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -146,6 +163,25 @@ export function GoogleCalendarConnectPanel({
       onConnectionChange?.();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not update sync setting.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleVendorPush = async (next: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch(apiBase, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ vendorPushEnabled: next }),
+      });
+      if (!res.ok) throw new Error("Could not update this setting.");
+      await load();
+      onConnectionChange?.();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not update this setting.");
     } finally {
       setBusy(false);
     }
@@ -196,6 +232,10 @@ export function GoogleCalendarConnectPanel({
             <p className="text-sm text-muted">
               Google Calendar isn&apos;t set up on this server yet — ask an admin to finish the setup.
             </p>
+          ) : status.revoked ? (
+            <p className="text-sm text-foreground" data-attr="google-calendar-revoked-notice">
+              Google access was revoked or expired. Reconnect to keep syncing.
+            </p>
           ) : (
             <p className="text-sm text-muted">
               {status.configured
@@ -213,7 +253,7 @@ export function GoogleCalendarConnectPanel({
             </Button>
           ) : (
             <Button type="button" variant="primary" disabled={busy || !status.configured} onClick={startConnect}>
-              Connect Google Calendar
+              {status.revoked ? "Reconnect Google Calendar" : "Connect Google Calendar"}
             </Button>
           )}
         </div>
@@ -229,6 +269,21 @@ export function GoogleCalendarConnectPanel({
             data-attr="google-calendar-sync-toggle"
           />
           <span className="text-xs text-muted">Two-way sync — Google events here; confirmed tours on Google.</span>
+        </label>
+      ) : null}
+      {status.connected && showVendorPushToggle ? (
+        <label className="flex cursor-pointer items-start gap-3 border-t border-border pt-3">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-primary"
+            checked={status.vendorPushEnabled === true}
+            disabled={busy}
+            onChange={(e) => void toggleVendorPush(e.target.checked)}
+            data-attr="google-calendar-vendor-push-toggle"
+          />
+          <span className="text-xs text-muted">
+            Push my assigned visits and availability to this Google Calendar too. Off by default.
+          </span>
         </label>
       ) : null}
     </div>

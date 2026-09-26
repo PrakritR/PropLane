@@ -19,6 +19,13 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
   readExtraListingsForUser: () => [],
 }));
 
+// C228: the property page's own automation sheet is gone — the gear now
+// navigates to Settings -> Forms instead, which needs the app router mounted.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: () => {} }),
+  usePathname: () => "/portal/properties/all/mgr-house-1",
+}));
+
 let PERSISTED: unknown = null;
 vi.mock("@/lib/manager-property-save-target", () => ({
   persistManagerListingSubmission: (_t: unknown, _u: unknown, next: unknown) => {

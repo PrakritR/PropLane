@@ -5,7 +5,11 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { ArrowUpRight, Mail, Phone, Settings, UserRound } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Mail, MapPin, Phone, Receipt, Settings, ShieldCheck, SlidersHorizontal, Star, UserRound, Wrench } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -27,6 +31,7 @@ import {
   MANAGER_VENDORS_EVENT,
   readOwnManagerVendorRows,
   syncManagerVendorsFromServer,
+  syncManagerVendorsFromServerDetailed,
   deleteManagerVendorRow,
   type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
@@ -47,6 +52,9 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { ManagerVendorDetail, type VendorDetailTab } from "@/components/portal/pro-vendor-detail";
+import { ManagerVendorPayoutsModal } from "@/components/portal/manager-vendor-payouts-panel";
+import type { ManagerVendorSummary } from "@/lib/manager-vendor-summary.server";
+import { loadManagerVendorSummary } from "@/lib/manager-vendor-summary-client";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -59,7 +67,7 @@ import {
   personRecordNeedsYouItems,
 } from "@/lib/person-record-actions";
 import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
-import { listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
+import { catalogVendorMatchesTradeArea, listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { findRosterCatalogMatch } from "@/lib/manager-vendor-typical-rates";
@@ -153,6 +161,17 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState(false);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [directoryVendors, setDirectoryVendors] = useState<AxisCatalogVendor[]>([]);
+  const [directoryFilterOpen, setDirectoryFilterOpen] = useState(false);
+  const [directoryTradeFilter, setDirectoryTradeFilter] = useState("");
+  const [directoryAreaFilter, setDirectoryAreaFilter] = useState("");
+  const [directoryMinRatingFilter, setDirectoryMinRatingFilter] = useState("");
+  const [addingDirectoryId, setAddingDirectoryId] = useState<string | null>(null);
+  const [payoutsOpen, setPayoutsOpen] = useState(false);
+  // C272: "Add to your vendors" grants the directory vendor visibility into
+  // this workspace's service requests — a confirm step names that before the
+  // grant, rather than a silent one-click add.
+  const [pendingDirectoryAdd, setPendingDirectoryAdd] = useState<AxisCatalogVendor | null>(null);
 
   const directoryTab = parseVendorDirectoryTab(searchParams?.get("tab"));
   const catalogDetailId = searchParams?.get("catalog")?.trim() || null;
@@ -165,10 +184,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     setListError(false);
     void (async () => {
       try {
-        const res = await fetch("/api/portal-vendors", { credentials: "include" });
-        if (!res.ok) throw new Error("load");
-        await syncManagerVendorsFromServer({ force: true });
-        if (!cancelled) setListError(false);
+        // One network round trip, not two: this used to fire a throwaway
+        // fetch just to check res.ok, then a second independent fetch (via
+        // syncManagerVendorsFromServer) to actually load the data — the same
+        // GET /api/portal-vendors, back to back (Night QA finding #6: 5-9s
+        // stuck on "Loading records…"). syncManagerVendorsFromServerDetailed
+        // does the one fetch this page needs and reports whether it succeeded.
+        const { ok } = await syncManagerVendorsFromServerDetailed({ force: true });
+        if (!cancelled) setListError(!ok);
       } catch {
         if (!cancelled) setListError(true);
       } finally {
@@ -186,6 +209,61 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     return () => window.removeEventListener(MANAGER_VENDORS_EVENT, onChange);
   }, []);
 
+  // Directory-listed self-serve vendors, merged into the "PropLane vendors" tab
+  // alongside the curated catalog — filterable by trade/area (Filter popover).
+  useEffect(() => {
+    if (!authReady) return;
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (directoryTradeFilter) params.set("trade", directoryTradeFilter);
+    if (directoryAreaFilter.trim()) params.set("area", directoryAreaFilter.trim());
+    if (directoryMinRatingFilter) params.set("minRating", directoryMinRatingFilter);
+    void fetch(`/api/manager/vendor-directory?${params.toString()}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { rows?: AxisCatalogVendor[] }) => {
+        if (!cancelled) setDirectoryVendors(data.rows ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDirectoryVendors([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, directoryTradeFilter, directoryAreaFilter, directoryMinRatingFilter, tick]);
+
+  const addDirectoryVendorToRoster = useCallback(
+    async (row: AxisCatalogVendor) => {
+      const vendorUserId = row.directoryVendorUserId;
+      if (!vendorUserId) return;
+      setAddingDirectoryId(vendorUserId);
+      try {
+        const res = await fetch("/api/manager/vendor-directory/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ vendorUserId }),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Could not add vendor.");
+        await syncManagerVendorsFromServer({ force: true });
+        setTick((n) => n + 1);
+        showToast(`${row.name} added to your vendors.`);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not add vendor.");
+      } finally {
+        setAddingDirectoryId(null);
+      }
+    },
+    [showToast],
+  );
+
+  const confirmAddDirectoryVendor = useCallback(() => {
+    if (!pendingDirectoryAdd) return;
+    const row = pendingDirectoryAdd;
+    setPendingDirectoryAdd(null);
+    void addDirectoryVendorToRoster(row);
+  }, [addDirectoryVendorToRoster, pendingDirectoryAdd]);
+
   const vendors = useMemo(() => {
     void tick;
     const rows = readOwnManagerVendorRows(userId, undefined, {
@@ -196,6 +274,29 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       (row) => assignedIdsInWorkspace(row.propertyIds ?? [], workspacePropertyIds).length > 0,
     );
   }, [tick, userId, bare, workspacePropertyIds]);
+
+  // Review aggregates (★ average · count) for the vendors on screen, one batched
+  // request rather than one per row (see /api/portal/vendor-reviews/aggregates).
+  const [reviewAggregatesByVendorUserId, setReviewAggregatesByVendorUserId] = useState<
+    Record<string, { average: number | null; count: number }>
+  >({});
+  useEffect(() => {
+    const vendorUserIds = [...new Set(vendors.map((v) => v.vendorUserId).filter((id): id is string => Boolean(id)))];
+    if (vendorUserIds.length === 0) {
+      setReviewAggregatesByVendorUserId({});
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/portal/vendor-reviews/aggregates?vendorUserIds=${encodeURIComponent(vendorUserIds.join(","))}`)
+      .then((res) => res.json())
+      .then((data: { aggregates?: Record<string, { average: number | null; count: number }> }) => {
+        if (!cancelled) setReviewAggregatesByVendorUserId(data.aggregates ?? {});
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [vendors]);
 
   // The search box narrows the current tab only; the tab counts stay the totals.
   const visibleVendors = useMemo(
@@ -219,6 +320,36 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     if (!routeVendorId) return null;
     return vendors.find((row) => row.id === routeVendorId) ?? null;
   }, [routeVendorId, vendors]);
+
+  // C080/PLAN item 3a: live counts for the open vendor's Services/Invoices/Reviews
+  // tabs, so an empty tab can be hidden from the record chrome below. The
+  // summary fetch is coalesced+cached (manager-vendor-summary-client.ts), so
+  // this doesn't duplicate the network call ManagerVendorDetail makes for the
+  // same vendor — both resolve the same in-flight/cached request.
+  const [routeVendorSummary, setRouteVendorSummary] = useState<ManagerVendorSummary | null>(null);
+  const [routeVendorSummaryState, setRouteVendorSummaryState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  useEffect(() => {
+    if (!routeVendor || !userId) {
+      setRouteVendorSummary(null);
+      setRouteVendorSummaryState("idle");
+      return;
+    }
+    let cancelled = false;
+    setRouteVendorSummaryState("loading");
+    loadManagerVendorSummary(userId, routeVendor.id)
+      .then((next) => {
+        if (cancelled) return;
+        setRouteVendorSummary(next);
+        setRouteVendorSummaryState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setRouteVendorSummaryState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeVendor?.id, userId]);
 
 
   const openDefaultsForm = useCallback((trade?: string) => {
@@ -459,6 +590,32 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const modals = (
     <>
+      <Modal
+        open={pendingDirectoryAdd !== null}
+        onClose={() => setPendingDirectoryAdd(null)}
+        title="Add to your vendors"
+      >
+        <div className="space-y-4 p-1">
+          <p className="text-sm leading-relaxed text-foreground">
+            {pendingDirectoryAdd?.name ?? "This vendor"} will be added to your roster and will be able to see
+            this workspace&apos;s service requests so they can bid and get assigned jobs.
+          </p>
+          <ModalFooter>
+            <Button type="button" variant="outline" onClick={() => setPendingDirectoryAdd(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              data-attr="vendor-directory-add-confirm"
+              disabled={addingDirectoryId === pendingDirectoryAdd?.directoryVendorUserId}
+              onClick={confirmAddDirectoryVendor}
+            >
+              Add to your vendors
+            </Button>
+          </ModalFooter>
+        </div>
+      </Modal>
+      <ManagerVendorPayoutsModal open={payoutsOpen} onClose={() => setPayoutsOpen(false)} />
       <ManagerVendorFormModal
         open={vendorFormOpen}
         mode={vendorFormMode}
@@ -597,7 +754,31 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       vendorTab === "check-ins"
         ? vendorTab
         : "overview";
-    const sections = recordSections("manager", "vendor", { basePath });
+    const baseSections = recordSections("manager", "vendor", { basePath });
+    // Item 3a: hide the Services/Invoices/Reviews tabs when this vendor has
+    // zero rows for them — never hide "overview", and never filter before the
+    // counts have actually loaded (avoids a flash of a tab disappearing).
+    const routeVendorJobs = routeVendorSummary?.jobs ?? [];
+    const servicesCount = routeVendorJobs.length;
+    const invoicesCount = routeVendorJobs.filter((job) => job.finalInvoiceCents != null).length;
+    const reviewsCount =
+      (routeVendor.vendorUserId ? (reviewAggregatesByVendorUserId[routeVendor.vendorUserId]?.count ?? 0) : 0) +
+      routeVendorJobs.filter((job) => job.residentRating != null).length;
+    const sections =
+      routeVendorSummaryState === "ready"
+        ? {
+            ...baseSections,
+            groups: baseSections.groups.map((group) => ({
+              ...group,
+              items: group.items.filter((item) => {
+                if (item.id === "services") return servicesCount > 0;
+                if (item.id === "invoices") return invoicesCount > 0;
+                if (item.id === "reviews") return reviewsCount > 0;
+                return true;
+              }),
+            })),
+          }
+        : baseSections;
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
         navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
@@ -675,9 +856,21 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     );
   }
 
-  const catalogRows = listManagerCatalogVendors(vendors);
+  // The trade/area Filter must narrow BOTH sources — the curated catalog and
+  // the self-serve directory rows — not just the directory rows the server
+  // already pre-filtered by `trade`/`area` query params (proof-bug #2). A
+  // rating-floor filter narrows the same way: the server already applied it
+  // to the directory rows, but a curated catalog / shared-roster row has no
+  // rating at all, so it fails a minimum-rating filter too rather than
+  // silently staying visible.
+  const minRatingFloor = directoryMinRatingFilter ? Number(directoryMinRatingFilter) : 0;
+  const catalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors].filter(
+    (row) =>
+      catalogVendorMatchesTradeArea(row, directoryTradeFilter, directoryAreaFilter) &&
+      (minRatingFloor <= 0 || (row.rating ?? 0) >= minRatingFloor),
+  );
   const visibleCatalogRows = catalogRows.filter((row) =>
-    matchesPortalListSearch(vendorSearch, row.name, row.trade, row.city, row.description),
+    matchesPortalListSearch(vendorSearch, row.name, row.trade, ...(row.trades ?? []), row.city, row.description),
   );
   const noMatchCard = (dataAttr: string, clearDataAttr: string) => (
     <PortalListEmptyCard
@@ -772,6 +965,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 catalogRosterMatch || !userId
                   ? undefined
                   : async () => {
+                      if (catalogDetail.directoryVendorUserId) {
+                        await addDirectoryVendorToRoster(catalogDetail);
+                        const matched = findRosterCatalogMatch(vendors, catalogDetail);
+                        if (!matched) return null;
+                        return { kind: "vendor", id: matched.id, label: matched.name };
+                      }
                       const row = await ensureCatalogVendorOnRoster({
                         userId,
                         catalog: catalogDetail,
@@ -839,8 +1038,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <div className={PORTAL_LIST_PAGE_BODY}>
         {visibleCatalogRows.map((row) => {
           const existing = findRosterCatalogMatch(vendors, row);
+          const isDirectory = Boolean(row.directoryVendorUserId);
+          const busy = isDirectory && addingDirectoryId === row.directoryVendorUserId;
           const openProfile = () => navigate(vendorCatalogDetailHref(basePath, row.catalogId));
-          const add = () => openAddVendorForm(row.trade, row);
+          const add = () => (isDirectory ? setPendingDirectoryAdd(row) : openAddVendorForm(row.trade, row));
+          const tradesLabel = row.trades?.length ? row.trades.join(", ") : row.trade;
           return (
             <RecordActionContext.Provider
               key={row.catalogId}
@@ -851,10 +1053,10 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                   <Button
                     type="button"
                     data-attr="vendor-catalog-row-add"
-                    disabled={Boolean(existing)}
+                    disabled={Boolean(existing) || busy}
                     onClick={add}
                   >
-                    {existing ? "Added" : "Add to your vendors"}
+                    {existing ? "Added" : busy ? "Adding…" : "Add to your vendors"}
                   </Button>
                 ),
               }}
@@ -862,7 +1064,23 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               <PortalPropertyRecordRow
                 title={row.name}
                 address={row.description}
-                facts={<span>{[row.trade, row.city].filter(Boolean).join(" · ")}</span>}
+                facts={
+                  isDirectory ? (
+                    <>
+                      <PortalRowFact icon={Wrench} srLabel="Trades">{tradesLabel || "—"}</PortalRowFact>
+                      {row.city ? <PortalRowFact icon={MapPin} srLabel="Area">{row.city}</PortalRowFact> : null}
+                      {row.insured ? <PortalRowFact icon={ShieldCheck} srLabel="Insured">Insured</PortalRowFact> : null}
+                      {row.licensed ? <PortalRowFact icon={FileCheck2} srLabel="Licensed">Licensed</PortalRowFact> : null}
+                      {row.reviewCount ? (
+                        <PortalRowFact icon={Star} srLabel="Review rating">
+                          {`${row.rating?.toFixed(1)} · ${row.reviewCount}`}
+                        </PortalRowFact>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span>{[row.trade, row.city].filter(Boolean).join(" · ")}</span>
+                  )
+                }
                 leading={
                   <div className="flex h-[4.125rem] w-[5.5rem] items-center justify-center rounded-[10px] bg-secondary text-muted max-md:h-[3.125rem] max-md:w-16">
                     <UserRound className="size-6" strokeWidth={1.6} aria-hidden />
@@ -898,13 +1116,18 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           const phone = row.phone.trim();
           const email = row.email.trim();
           const meta = vendorRowMeta(row);
+          const reviewAggregate = row.vendorUserId ? reviewAggregatesByVendorUserId[row.vendorUserId] : undefined;
+          const reviewFact =
+            reviewAggregate && reviewAggregate.count > 0
+              ? `${reviewAggregate.average?.toFixed(1)} · ${reviewAggregate.count}`
+              : undefined;
           return (
             <PortalApplicantRecordRow
               key={row.id}
               name={row.name}
               address={row.trade.trim() || "—"}
               facts={
-                phone || email || meta ? (
+                phone || email || meta || reviewFact ? (
                   <>
                     {phone ? (
                       <PortalRowFact icon={Phone} srLabel="Phone">
@@ -914,6 +1137,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                     {email ? (
                       <PortalRowFact icon={Mail} srLabel="Email">
                         {email}
+                      </PortalRowFact>
+                    ) : null}
+                    {reviewFact ? (
+                      <PortalRowFact icon={Star} srLabel="Review rating">
+                        {reviewFact}
                       </PortalRowFact>
                     ) : null}
                     {meta ? <span data-attr="vendor-row-meta">{meta}</span> : null}
@@ -989,9 +1217,69 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     });
   }
 
+  const directoryFilterActive = Boolean(directoryTradeFilter || directoryAreaFilter.trim() || directoryMinRatingFilter);
+  const directoryFilterPanel =
+    directoryTab === "catalog" && directoryFilterOpen ? (
+      <div
+        className="mb-3 flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-card p-3"
+        data-attr="vendor-directory-filter-panel"
+      >
+        <div className="min-w-[10rem]">
+          <FieldSingleSelect
+            label="Trade"
+            value={directoryTradeFilter}
+            onChange={setDirectoryTradeFilter}
+            options={[{ value: "", label: "Any trade" }, ...VENDOR_TRADE_OPTIONS.map((t) => ({ value: t, label: t }))]}
+            dataAttr="vendor-directory-filter-trade"
+          />
+        </div>
+        <div className="min-w-[10rem]">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted" htmlFor="vendor-directory-filter-area">
+            Area
+          </label>
+          <Input
+            id="vendor-directory-filter-area"
+            value={directoryAreaFilter}
+            onChange={(e) => setDirectoryAreaFilter(e.target.value)}
+            placeholder="City or ZIP"
+            data-attr="vendor-directory-filter-area"
+          />
+        </div>
+        <div className="min-w-[10rem]">
+          <FieldSingleSelect
+            label="Rating"
+            value={directoryMinRatingFilter}
+            onChange={setDirectoryMinRatingFilter}
+            options={[
+              { value: "", label: "Any rating" },
+              { value: "3", label: "3+ stars" },
+              { value: "4", label: "4+ stars" },
+              { value: "4.5", label: "4.5+ stars" },
+            ]}
+            dataAttr="vendor-directory-filter-rating"
+          />
+        </div>
+        {directoryFilterActive ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setDirectoryTradeFilter("");
+              setDirectoryAreaFilter("");
+              setDirectoryMinRatingFilter("");
+            }}
+            data-attr="vendor-directory-filter-reset"
+          >
+            Reset
+          </Button>
+        ) : null}
+      </div>
+    ) : null;
+
   const body = (
     <>
       {modals}
+      {directoryFilterPanel}
       <PortalRecordListSurface
         className="mt-0"
         onBulkClear={directoryTab === "yours" ? clearSelection : undefined}
@@ -1013,6 +1301,23 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const vendorToolbar = (
     <>
+      {directoryTab === "catalog" ? (
+        <PortalIconAction
+          // C256: the generic "Filter" tooltip gave no hint the popover covers
+          // trade and rating — name what it filters, and say when one is applied.
+          label={`Filter by trade or rating${directoryFilterActive ? " · active" : ""}`}
+          icon={SlidersHorizontal}
+          active={directoryFilterOpen || directoryFilterActive}
+          onClick={() => setDirectoryFilterOpen((v) => !v)}
+          data-attr="vendor-directory-filter-toggle"
+        />
+      ) : null}
+      <PortalIconAction
+        label="Payouts"
+        icon={Receipt}
+        onClick={() => setPayoutsOpen(true)}
+        data-attr="vendor-payouts-open"
+      />
       <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
     </>
   );

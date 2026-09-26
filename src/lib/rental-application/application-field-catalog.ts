@@ -163,6 +163,25 @@ export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLI
 
 const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KEYS);
 
+/**
+ * Screening, charges and leases read these built-ins directly — disabling one
+ * breaks approval or billing later with no error at disable-time (studio
+ * decision C195: "built-in questions stay locked; custom ones are free").
+ * Superset of {@link REQUIRED_IDENTITY_STANDARD_KEYS}: name/phone/email (always
+ * required, see above) plus SSN, ID and income — but unlike the identity trio
+ * these keep their own catalog `required` default (income in particular stays
+ * optional, so an unemployed applicant can still submit). This set only ever
+ * blocks REMOVING the question, never its required-ness.
+ */
+export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) =>
+    REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
+    (field.section === "personal" && (field.label === "Social Security number" || field.label === "Driver's license / ID")) ||
+    (field.section === "employment" && field.label === "Monthly / annual income"),
+).map((field) => field.standardKey);
+
+export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_KEYS);
+
 const CATALOG_BY_KEY = new Map(
   STANDARD_APPLICATION_FIELD_CATALOG.map((def) => [def.standardKey, def] as const),
 );
@@ -250,6 +269,13 @@ type VariantConfigSource = {
 };
 
 function asStringArray(value: unknown): string[] {
+  // Only the identity trio (name/phone/email) is force-kept here — a
+  // pre-existing defense-in-depth against a forged disabled-keys list, not
+  // where C195's SSN/ID/income lock lives. That lock is enforced once, at
+  // the manager-facing mutation (`removeListingApplicationField`'s
+  // editor-remove action); filtering the wider NEVER_DISABLED set here too
+  // also reverses PropLane's own short-term curated default, which
+  // legitimately disables SSN/ID/income by design.
   return Array.isArray(value)
     ? value.filter(
         (k): k is string =>
@@ -680,9 +706,14 @@ export function removeListingApplicationField(
   customApplicationFields: ManagerCustomApplicationField[];
   applicationConfigMode: "standard" | "custom";
 } {
-  // These fields establish the applicant record and must remain available to
-  // the same server-side validator regardless of editor state or import input.
-  if (field.standardKey && REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey)) {
+  // Identity (name/phone/email) establishes the applicant record; SSN, ID,
+  // and income are read directly by screening and billing — C195 locks a
+  // manager out of removing any of them via the editor, on every variant
+  // that reaches this function (long-term and co-signer editors both do;
+  // the short-term form's own curated default is set directly in
+  // `applicationConfigForVariant` and never goes through this function, so
+  // it is unaffected and keeps hiding SSN/income exactly as before).
+  if (field.standardKey && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey)) {
     return {
       disabledStandardApplicationKeys: [...(sub.disabledStandardApplicationKeys ?? [])],
       customApplicationFields: [...(sub.customApplicationFields ?? [])],

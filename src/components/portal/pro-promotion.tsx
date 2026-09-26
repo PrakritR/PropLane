@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { FilterFieldsAccordion } from "@/components/portal/filter-field-lists";
 import { PortalListPropertyField } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -894,7 +894,11 @@ export function ManagerPromotion({
   const promotionCommandActions = <>{promotionFilterSheet}</>;
 
   const promotionPrimaryAction = (
-    <PortalPrimaryIconAction label="New promotion" onClick={() => openNewPromotion()} data-attr="promotion-new" />
+    <PortalPrimaryIconAction
+      label={portalListAddPrimaryLabel("promotion")}
+      onClick={() => openNewPromotion()}
+      data-attr="promotion-new"
+    />
   );
 
   return (
@@ -1035,7 +1039,7 @@ export function ManagerPromotion({
                   activeKind,
                 ) ?? undefined
               }
-              actions={[{ label: "New promotion", onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
+              actions={[{ label: portalListAddPrimaryLabel("promotion"), onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
             />
           )
         ) : (

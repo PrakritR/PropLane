@@ -3,11 +3,14 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Wrench } from "lucide-react";
+import { ShieldCheck, Star, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalDataTableEmpty,
@@ -28,10 +31,12 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
+import { VendorReviewDialog } from "@/components/portal/vendor-review-dialog";
 import {
   MANAGER_VENDORS_EVENT,
   readActiveManagerVendorRows,
   syncManagerVendorsFromServer,
+  type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
@@ -143,6 +148,24 @@ function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
   return null;
 }
 
+/**
+ * C105: "verified" for the bid comparison table — a current license doc AND
+ * current insurance, the same license+insurance current bar the self-serve
+ * vendor directory uses (`vendor-directory.server.ts`'s `insuranceIsCurrent`),
+ * computed locally from the manager's own already-loaded vendor roster rather
+ * than a second server round trip.
+ */
+function vendorIsVerified(vendor: ManagerVendorRow | undefined | null): boolean {
+  if (!vendor) return false;
+  const docs = vendor.vendorDocuments ?? [];
+  const hasLicense = docs.some((doc) => doc.kind === "license");
+  if (!hasLicense) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const insuranceDoc = docs.find((doc) => doc.kind === "insurance");
+  if (insuranceDoc) return !insuranceDoc.expiresAt || insuranceDoc.expiresAt >= today;
+  return Boolean(vendor.insuranceExpiresAt && vendor.insuranceExpiresAt >= today);
+}
+
 // Restrict photo links to http(s) or inline image data URLs before they reach an
 // <a href> / <Image src> sink — inlined as a guard clause at each call site (rather
 // than routed through a helper's return value) so CodeQL's xss-through-dom barrier
@@ -235,9 +258,45 @@ export function ManagerWorkOrdersPanel({
   const [autoSchedulingId, setAutoSchedulingId] = useState<string | null>(null);
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
+  // night/vendor-pay: an additional payment source in the confirm modal,
+  // shown only once the flag-gated balance read comes back enabled. Defaults
+  // to "ach" — unchanged behavior for everyone until they explicitly pick it.
+  const [approvePayChannel, setApprovePayChannel] = useState<"ach" | "balance">("ach");
+  const [approvePayBalance, setApprovePayBalance] = useState<{ enabled: boolean; availableCents: number } | null>(null);
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  /** "Leave a review" dialog launched from the record header, completed services only. */
+  const [reviewRow, setReviewRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  /** C105: multi-vendor "Invite another vendor" sheet launched from the vendor-schedule section. */
+  const [inviteVendorRow, setInviteVendorRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [inviteVendorSelectedIds, setInviteVendorSelectedIds] = useState<string[]>([]);
+  const [inviteVendorBusy, setInviteVendorBusy] = useState(false);
+  // Review aggregates (★ average · count) for vendors who have bid, batched into one
+  // request per set of vendor ids rather than one per bid row (mirrors pro-vendors-panel.tsx).
+  const [reviewAggregatesByVendorUserId, setReviewAggregatesByVendorUserId] = useState<
+    Record<string, { average: number | null; count: number }>
+  >({});
+
+  // Reads the manager's PropLane balance whenever the confirm modal opens —
+  // `{ enabled: false }` (the flag is off) is the common case and renders no
+  // picker at all, same as today.
+  useEffect(() => {
+    if (!approvePayRow) return;
+    setApprovePayChannel("ach");
+    let cancelled = false;
+    fetch("/api/portal/proplane-balance", { credentials: "include" })
+      .then((res) => res.json())
+      .then((body: { enabled?: boolean; availableCents?: number }) => {
+        if (!cancelled) setApprovePayBalance({ enabled: Boolean(body.enabled), availableCents: body.availableCents ?? 0 });
+      })
+      .catch(() => {
+        if (!cancelled) setApprovePayBalance(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [approvePayRow]);
 
   useEffect(() => {
     void syncManagerVendorsFromServer();
@@ -263,6 +322,29 @@ export function ManagerWorkOrdersPanel({
     const bids = await fetchWorkOrderBids(workOrderId);
     setBidsByWorkOrderId((prev) => ({ ...prev, [workOrderId]: bids }));
   }, []);
+
+  const bidsVendorUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const bids of Object.values(bidsByWorkOrderId)) {
+      for (const bid of bids) if (bid.vendorUserId) ids.add(bid.vendorUserId);
+    }
+    return [...ids].sort();
+  }, [bidsByWorkOrderId]);
+
+  useEffect(() => {
+    if (bidsVendorUserIds.length === 0) return;
+    let cancelled = false;
+    fetch(`/api/portal/vendor-reviews/aggregates?vendorUserIds=${encodeURIComponent(bidsVendorUserIds.join(","))}`)
+      .then((res) => res.json())
+      .then((data: { aggregates?: Record<string, { average: number | null; count: number }> }) => {
+        if (!cancelled) setReviewAggregatesByVendorUserId((prev) => ({ ...prev, ...(data.aggregates ?? {}) }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bidsVendorUserIds.join(",")]);
 
   const openExpand = useCallback(
     (row: DemoManagerWorkOrderRow) => {
@@ -635,7 +717,7 @@ export function ManagerWorkOrdersPanel({
   /** Runs the same completion + expense-logging as "Mark complete", then marks the vendor
    * paid (bookkeeping status only — see APPROVE_PAY_CONFIRM_THRESHOLD_CENTS for the
    * one-tap vs confirm-preview gate). */
-  const submitApprovePay = async (row: DemoManagerWorkOrderRow) => {
+  const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "ach" | "balance" = "ach") => {
     setApprovePayBusy(true);
     try {
       // /demo: mark paid locally — never hits the real payout/bookkeeping route.
@@ -650,7 +732,7 @@ export function ManagerWorkOrdersPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ workOrder: row, ...approvePayDefaults(row) }),
+        body: JSON.stringify({ workOrder: row, ...approvePayDefaults(row), paymentChannel }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not approve payment.");
@@ -808,7 +890,7 @@ export function ManagerWorkOrdersPanel({
       if (isDemoModeActive()) {
         if (!acceptDemoWorkOrderBid(bid.workOrderId)) throw new Error("Could not accept bid.");
         await loadBids(bid.workOrderId);
-        showToast("Bid accepted. Vendor assigned at the agreed cost.");
+        showToast("Quote accepted. Vendor assigned at the agreed cost.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
@@ -821,13 +903,40 @@ export function ManagerWorkOrdersPanel({
       if (!res.ok) throw new Error(data.error ?? "Could not accept bid.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(bid.workOrderId);
-      showToast("Bid accepted. Vendor assigned at the agreed cost.");
+      showToast("Quote accepted. Vendor assigned at the agreed cost.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not accept bid.");
     } finally {
       setAcceptingBidId(null);
     }
   };
+
+  /** C105: confirm-send for the "Invite another vendor" multi-select sheet — reuses the
+   * exact same server offer path (email + inbox + biddingOpen) as the single-vendor
+   * "Invite for bids" flow, just with several vendors selected at once. */
+  const confirmInviteVendors = async () => {
+    const row = inviteVendorRow;
+    if (!row || inviteVendorSelectedIds.length === 0) return;
+    setInviteVendorBusy(true);
+    try {
+      const result = await sendWorkOrderToVendors(row.id, inviteVendorSelectedIds);
+      if (!result.ok) throw new Error(result.error ?? "Could not invite vendors.");
+      await syncManagerWorkOrdersFromServer({ force: true });
+      await loadBids(row.id);
+      showToast(
+        result.sent && result.sent.length > 0
+          ? `Invited ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} for bids.`
+          : "No vendors could be invited.",
+      );
+      setInviteVendorRow(null);
+      setInviteVendorSelectedIds([]);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not invite vendors.");
+    } finally {
+      setInviteVendorBusy(false);
+    }
+  };
+
 
   const handleDispatchDecision = async (row: DemoManagerWorkOrderRow, action: "approve" | "decline") => {
     // /demo: never fetch the authed dispatch route from the sandbox.
@@ -1122,6 +1231,15 @@ export function ManagerWorkOrdersPanel({
                 {bids.map((bid) => {
                   const pricingPending = bid.amountCents == null;
                   const totalCents = (bid.amountCents ?? 0) + bid.materialsCents;
+                  // C105: comparison facts — plain text, never a pill — so a manager can see
+                  // rating and verification at a glance across every bid.
+                  const bidVendor = activeVendors.find((v) => v.id === bid.vendorDirectoryId);
+                  const reviewAggregate = bid.vendorUserId ? reviewAggregatesByVendorUserId[bid.vendorUserId] : undefined;
+                  const reviewFact =
+                    reviewAggregate && reviewAggregate.count > 0
+                      ? `${reviewAggregate.average?.toFixed(1) ?? "—"} · ${reviewAggregate.count}`
+                      : null;
+                  const verified = vendorIsVerified(bidVendor);
                   return (
                   <div
                     key={bid.id}
@@ -1132,6 +1250,18 @@ export function ManagerWorkOrdersPanel({
                       <span className="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]">
                         {bid.quoteMode === "after_consultation" ? "After consultation" : "Upfront"}
                       </span>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2.5 text-muted">
+                        {reviewFact ? (
+                          <PortalRowFact icon={Star} srLabel="Review rating">
+                            {reviewFact}
+                          </PortalRowFact>
+                        ) : null}
+                        {verified ? (
+                          <PortalRowFact icon={ShieldCheck} srLabel="Verified">
+                            Verified
+                          </PortalRowFact>
+                        ) : null}
+                      </div>
                       {pricingPending ? (
                         <span className="ml-1 text-muted">
                           · Consultation{" "}
@@ -1294,8 +1424,22 @@ export function ManagerWorkOrdersPanel({
     // "Schedule" has nothing left to do once the work is completed — dropped rather
     // than shown as a dead "Coming soon" action (docs/agents/record-page.md § Known gap).
     const headerActions = sections.headerActions.filter((action) => {
-      if (action.id === "schedule") return routeWorkOrder.bucket !== "completed";
+      if (action.id === "schedule") {
+        if (routeWorkOrder.bucket === "completed") return false;
+        // C247: nothing to schedule a visit for until a vendor is assigned — offering it
+        // on an unassigned open service was a dead click. A service already past "open"
+        // (e.g. re-confirming a scheduled visit) always has an assignee already.
+        if (routeWorkOrder.bucket === "open") {
+          return Boolean(routeWorkOrder.vendorId || routeWorkOrder.vendorName);
+        }
+        return true;
+      }
       if (action.id === "close") return routeWorkOrder.bucket === "scheduled";
+      // Only a completed service with an assigned vendor can be reviewed — the
+      // server re-derives the same eligibility, this just avoids a dead click.
+      if (action.id === "review") {
+        return routeWorkOrder.bucket === "completed" && Boolean(routeWorkOrder.vendorUserId);
+      }
       return true;
     });
     const onHeaderAction = (actionId: string) => {
@@ -1310,6 +1454,15 @@ export function ManagerWorkOrdersPanel({
       if (actionId === "close") {
         if (routeWorkOrder.automationStatus === "vendor_marked_done") approvePay(routeWorkOrder);
         else markComplete(routeWorkOrder);
+        return;
+      }
+      if (actionId === "review") {
+        setReviewRow(routeWorkOrder);
+        return;
+      }
+      if (actionId === "invite-vendor") {
+        setInviteVendorRow(routeWorkOrder);
+        setInviteVendorSelectedIds([]);
         return;
       }
       if (actionId === "delete") {
@@ -1349,6 +1502,16 @@ export function ManagerWorkOrdersPanel({
               { id: "priority", label: "Priority", value: routeWorkOrder.priority ?? "—" },
               { id: "vendor", label: "Vendor", value: routeWorkOrder.vendorName?.trim() || "None", tone: routeWorkOrder.vendorName?.trim() ? "default" : "danger", detail: routeWorkOrder.vendorName?.trim() ? undefined : "Not assigned" },
               { id: "cost", label: "Cost", value: displayWorkOrderCost(routeWorkOrder.cost) },
+              // C253: bid count, visible from Overview without opening Vendor & schedule.
+              ...(routeWorkOrder.biddingOpen || (bidsByWorkOrderId[routeWorkOrder.id]?.length ?? 0) > 0
+                ? [
+                    {
+                      id: "bids",
+                      label: "Bids",
+                      value: String(bidsByWorkOrderId[routeWorkOrder.id]?.length ?? 0),
+                    },
+                  ]
+                : []),
             ],
             overviewNeeds: !routeWorkOrder.vendorName?.trim()
               ? [{ id: "assign-vendor", title: "Assign a vendor", detail: "No vendor assigned yet" }]
@@ -1449,6 +1612,44 @@ export function ManagerWorkOrdersPanel({
             />
           ) : null}
         </Modal>
+        <VendorReviewDialog
+          open={reviewRow !== null}
+          row={reviewRow ? { id: reviewRow.id, title: reviewRow.title, vendorName: reviewRow.vendorName } : null}
+          onClose={() => setReviewRow(null)}
+        />
+        <PortalDialog
+          open={inviteVendorRow !== null}
+          onClose={() => {
+            if (inviteVendorBusy) return;
+            setInviteVendorRow(null);
+            setInviteVendorSelectedIds([]);
+          }}
+          dismissBlocked={inviteVendorBusy}
+          title="Invite vendors for bids"
+          primaryAction={{
+            label: inviteVendorBusy
+              ? "Inviting…"
+              : `Invite${inviteVendorSelectedIds.length > 0 ? ` ${inviteVendorSelectedIds.length}` : ""}`,
+            onClick: () => void confirmInviteVendors(),
+            disabled: inviteVendorBusy || inviteVendorSelectedIds.length === 0,
+            loading: inviteVendorBusy,
+          }}
+        >
+          {activeVendors.length === 0 ? (
+            <PortalListEmptyCard title="No vendors on your roster yet" workspaceAware={false} dataAttr="invite-vendors-empty" />
+          ) : (
+            <CheckboxMultiSelect
+              label="Vendors"
+              options={activeVendors
+                // Up to 10 per send (server-enforced MAX_VENDORS_PER_SEND in work-order-offers.server.ts).
+                .map((vendor) => ({ value: vendor.id, label: vendor.trade?.trim() ? `${vendor.name} · ${vendor.trade}` : vendor.name }))}
+              selected={inviteVendorSelectedIds}
+              onChange={(next) => setInviteVendorSelectedIds(next.slice(0, 10))}
+              disabled={inviteVendorBusy}
+              dataAttr="invite-vendors-select"
+            />
+          )}
+        </PortalDialog>
       </>
     );
   }
@@ -1669,7 +1870,7 @@ export function ManagerWorkOrdersPanel({
                 type="button"
                 variant="primary"
                 data-attr="work-order-approve-pay-confirm"
-                onClick={() => submitApprovePay(approvePayRow)}
+                onClick={() => submitApprovePay(approvePayRow, approvePayChannel)}
                 disabled={approvePayBusy}
               >
                 {approvePayBusy ? "Approving…" : "Approve & pay"}
@@ -1699,9 +1900,25 @@ export function ManagerWorkOrdersPanel({
             {approvePayRow.vendorMarkedDoneNote ? (
               <p className="text-xs text-muted">Vendor note: &ldquo;{approvePayRow.vendorMarkedDoneNote}&rdquo;</p>
             ) : null}
+            {approvePayBalance?.enabled ? (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-foreground">Pay from</span>
+                <Select
+                  value={approvePayChannel}
+                  onChange={(e) => setApprovePayChannel(e.target.value as "ach" | "balance")}
+                  data-attr="work-order-approve-pay-channel"
+                >
+                  <option value="ach">Card (Stripe)</option>
+                  <option value="balance">
+                    PropLane balance · ${(approvePayBalance.availableCents / 100).toFixed(2)} available
+                  </option>
+                </Select>
+              </label>
+            ) : null}
             <p className="text-xs text-muted">
-              This logs the expense, marks the service completed, and records the vendor as paid (bookkeeping
-              only; no funds are transferred).
+              {approvePayChannel === "balance"
+                ? "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
+                : "This logs the expense, marks the service completed, and records the vendor as paid (bookkeeping only; no funds are transferred)."}
             </p>
           </div>
         ) : null}

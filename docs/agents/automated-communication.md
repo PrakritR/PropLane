@@ -32,18 +32,20 @@ Invariants:
 
 ## Settings
 
-The **Notifications** hub holds globals only: alert destination, digest, quiet hours, **Team & automated sends** (team notices auto-send; resident & vendor messages need approval first — the send mode above), sent history, and an index into every area tab. Each area tab owns its rows:
+The **Reminders** hub (Profile → Settings → Reminders, tab id stays `automation`) is the ONE place a manager edits a reminder rule or an automated message (C111). Quiet hours, **Team & automated sends** (team notices auto-send; resident & vendor messages need approval first — the send mode above), and the read-only **"What PropLane sends"** shipped-defaults list sit at the top; below that, a "Rules & messages" section renders every area's rows, grouped by area with a dropdown filter (never pills) to narrow to one. Each area's group is the exact same self-contained component (`AutomationRuleRows`, `ManagerReminderRuleSettingsPanel`, the `*RemindersSettingsBundle`s, `AutomatedMessagesList`) an area's own Settings tab used to render — only the location moved, so every rule and message that was editable before still is. Applications, Lease, Tasks, Residents, Payments, Services, and Communication each keep only their real Handling fields on their own tab and link out to this hub for the rest (`docs/agents/ui-change-checklist.md`-style link row, `data-attr="<area>-open-reminders-hub"`). **Bookings and Inspections settings tabs are gone entirely** (captain decision, C116) — both held only this content, so their groups now live on the hub with no tab of their own; a settings gear on the Bookings or Inspections feature page still opens the hub (`initialTab="automation"`), and an old `/portal/settings/bookings|inspections` link or `?tab=bookings|inspections` redirects there instead of 404ing.
 
-| Tab | Rows (reminders) | Messages sent automatically (events) |
+| Area (on the Reminders hub) | Rows (reminders) | Messages sent automatically (events) |
 | --- | --- | --- |
 | Services | Acknowledge new requests (promise), unassigned / emergency escalations, **vendor silent after accept (re-offer)**, add-on decision, approved-but-unpaid, offers expire, tell me when no vendor answers, require On my way, ask resident to confirm the fix (+ auto-close), share ratings, offer expiring (vendor), no On my way, invoice nudge, invoice approval, vendor document expiry, visit reminders (You / Team / Resident / **Vendor**) | filed, offered, expiring, expired, filled, declined, accepted, scheduled, rescheduled, cancelled, on the way, done, confirmed, reopened, auto-closed, rated, invoiced, invoice approved/disputed, paid, **vendor silent**; add-on submitted/approved/denied/returned |
 | Lease | Lease ending (you 90/60/30, resident 60/30), **renewal offer (60d)**, renewal offer expiry, countersignature overdue, move-in (7/1), payment method missing, move-out (30/7/1), **move-out instructions (14d)**, **deposit return notice (day of)**, schedule move-out inspection, deposit accounting (+ deadline days), signing reminders, document signature reminder | created, sent, signed by resident, countersigned, fully signed, voided, move-out date set, lease extended |
 | Applications | Response promise, decision reminder, approved-no-lease, incomplete application (applicant / you), post-tour apply link | submitted, approved, declined, withdrawn |
-| Tours | Guest and manager tour reminders, request unanswered, offer other times, no-show prompt, tour-interest follow-up | confirmed, cancelled by guest, claimed by a teammate (team) |
+| Tours | Guest and manager tour reminders now ship on fixed defaults, not a per-workspace rule (C191) — see "What PropLane sends" above | confirmed, cancelled by guest, claimed by a teammate (team) |
 | Payments | Rent reminder schedule, my payment alerts, delinquency, outgoing payments | charge created, processing, received, partial, failed, refunded, late fee applied, deposit received |
 | Communication | Unanswered message reminder, welcome sequence (off), AI draft auto-send | after-hours reply, emergency flagged, availability changed (team) |
+| Bookings | Booking reminders | — |
 | Inspections | Room photos (resident / you) | resident submitted, report reopened |
 | Tasks | Task reminders, overdue | — |
+| Residents | Welcome message | — |
 
 Resident → Settings → Preferences: per-category Email / Text (messages, lease & move, payments, services, applications, **tours**, **inspections**, phone calls, account) plus **quiet hours for texts**.
 

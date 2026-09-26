@@ -28,7 +28,7 @@ export default function PrivacyPolicyPage() {
               PropLane (&ldquo;we,&rdquo; &ldquo;us&rdquo;) provides property management software operated by PropLane Seattle
               Housing. This policy describes how we collect, use, and protect information when you use the PropLane website
               at{" "}
-              <a href="https://prop-lane.space" className="font-medium text-primary hover:opacity-90">
+              <a href="https://proplane.ai" className="font-medium text-primary hover:opacity-90">
                 prop-lane.space
               </a>{" "}
               and our iOS and Android mobile applications (collectively, the &ldquo;Service&rdquo;).
@@ -217,8 +217,8 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-semibold text-foreground">Contact us</h2>
             <p className="mt-2">
               For privacy questions, contact us at{" "}
-              <a href="mailto:support@prop-lane.space" className="font-medium text-primary hover:opacity-90">
-                support@prop-lane.space
+              <a href="mailto:support@proplane.ai" className="font-medium text-primary hover:opacity-90">
+                support@proplane.ai
               </a>{" "}
               or{" "}
               <Link href="/partner/contact" className="font-medium text-primary hover:opacity-90">

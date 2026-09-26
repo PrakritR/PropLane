@@ -255,9 +255,27 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // C152 open marketplace listing. No vendor-owned column: a listing has no
+    // vendor identity of its own until a bid (work_order_bids, classified
+    // above) is accepted — the listing itself just disappears with the
+    // manager's own work order.
+    table: "work_order_open_listings",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "work_order_reference_counters",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "vendor_reviews",
+    phase: 1,
+    // reviewer_user_id may be a co-manager distinct from the owning manager_user_id —
+    // deleting the co-manager's own account detaches the byline but the workspace
+    // keeps the review it wrote, same as gl_journal_lines' actor-reference columns.
+    manager: { ids: ["manager_user_id"], detachIds: ["reviewer_user_id"] },
+    vendor: { ids: ["vendor_user_id"] },
   },
   {
     table: "vendor_invoices",
@@ -276,6 +294,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 1,
     manager: { ids: ["owner_user_id"], preserveFinancial: true },
     vendor: { ids: ["owner_user_id"], preserveFinancial: true },
+  },
+  {
+    // night/vendor-pay, PROPLANE_BALANCE_ENABLED. `owner_key` holds the
+    // manager id for owner_kind='workspace' and the vendor id for
+    // owner_kind='vendor' — see the migration header for why "workspace"
+    // resolves onto the manager identity, not portal_workspaces.id.
+    table: "proplane_balance_accounts",
+    phase: 1,
+    manager: { ids: ["owner_key"], preserveFinancial: true },
+    vendor: { ids: ["owner_key"], preserveFinancial: true },
   },
   {
     table: "vendor_tax_profiles",
@@ -402,12 +430,26 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "manager_automation_settings",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+    // Also stores a VENDOR's own Google Calendar/Sheets tokens (Calendar and
+    // Sheets connect reuse this table keyed by whatever userId connects —
+    // see src/lib/google-calendar/settings.ts and the vendor Calendar
+    // routes), so a vendor-account purge needs this rule too or a vendor's
+    // OAuth tokens survive their own account deletion.
+    vendor: { ids: ["manager_user_id"] },
   },
   {
     // Workspace rung of the settings scope (PLAN-0920-0845); owned by the workspace owner.
     table: "workspace_automation_settings",
     phase: 2,
     manager: { ids: ["owner_user_id"] },
+  },
+  {
+    // Two-way Google Calendar sync attention items (proplane-calendar-reconcile.server.ts);
+    // owner_user_id is a manager OR vendor's own auth id (see owner_kind).
+    table: "google_calendar_pending_changes",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
   },
   {
     // Address-prefill lookups this manager spent each month (docs/agents/listing-prefill.md).
@@ -493,6 +535,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   },
   {
     table: "manager_sms_numbers",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "manager_vendor_preferences",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
   },
@@ -984,6 +1031,12 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
   workspace_work_numbers:
     "Workspace <-> work-number assignment join table; keyed on workspace_id/number_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged.",
+  lease_document_library:
+    "Workspace-scoped lease PDF library (night/custom-lease); keyed on workspace_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged. The uploader's manager_user_id is provenance, not an ownership key the purge follows.",
+  proplane_balance_entries:
+    "Child of proplane_balance_accounts (on delete cascade), no account column of its own; the ledger is preserved financial history like ledger_entries, so its parent account row is retained (preserveFinancial) and this child is never reached anyway.",
+  workspace_debit_consents:
+    "Signed debit authorization; a financial record retained like the ledger and cascaded by workspace deletion.",
 };
 
 /**

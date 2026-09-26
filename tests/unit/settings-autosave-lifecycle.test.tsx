@@ -87,7 +87,13 @@ afterEach(() => {
 async function renderCommunication(onSaveStatusChange: (status: SettingsModuleSaveStatus) => void) {
   const ref = createRef<SettingsModulePageHandle>();
   render(<SettingsModulePage ref={ref} tab="communication" onSaveStatusChange={onSaveStatusChange} />);
-  const toggle = await screen.findByRole("switch", { name: "Auto-send AI drafts" });
+  // "Auto-send AI drafts" moved to the Reminders hub (C111); this file's
+  // remaining self-contained Communication toggle is the same lifecycle
+  // shape (report/flush/unmount through the same PATCH), so it still proves
+  // the contract.
+  const toggle = await screen.findByRole("switch", {
+    name: "Share my profile phone and email when no work number or work email is set",
+  });
   return { ref, toggle };
 }
 
@@ -136,7 +142,7 @@ describe("a pending debounced save is never lost when the manager leaves first (
     cleanup();
 
     await waitFor(() => expect(patches).toHaveLength(1), { timeout: 3000 });
-    expect(patches[0]!.body).toMatchObject({ inboxAiDraftAutoSend: true });
+    expect(patches[0]!.body).toMatchObject({ shareProfileContactWithoutWorkChannel: true });
   });
 
   it("a pending save is not silently dropped when the debounce timer has not yet elapsed", async () => {
@@ -152,6 +158,6 @@ describe("a pending debounced save is never lost when the manager leaves first (
 
     expect(result).toEqual({ ok: true });
     expect(patches).toHaveLength(1);
-    expect(patches[0]!.body).toMatchObject({ inboxAiDraftAutoSend: true });
+    expect(patches[0]!.body).toMatchObject({ shareProfileContactWithoutWorkChannel: true });
   });
 });

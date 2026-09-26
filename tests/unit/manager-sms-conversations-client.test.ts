@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setPortalSessionViewer } from "@/lib/auth/portal-session-gate";
-import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
+import {
+  invalidateManagerSmsConversationsClient,
+  loadManagerSmsConversationsClient,
+} from "@/lib/manager-sms-conversations-client";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -89,5 +92,47 @@ describe("loadManagerSmsConversationsClient", () => {
     firstResponse.resolve(payload("old-reader"));
     await expect(oldReader).resolves.toBeInstanceOf(Response);
     await expect(newReader).resolves.toBeInstanceOf(Response);
+  });
+
+  // Night QA finding #7: /api/manager/sms-conversations landed in the
+  // top-5-slowest calls on 7 of 10 manager routes because the mount-time
+  // read plus the 60s nav-count poll (and any other reader) each started a
+  // brand-new fetch the instant the previous one settled — the coalesced
+  // refresher only dedupes CONCURRENT callers, with no TTL of its own.
+  it("serves an unforced caller inside the TTL window from the last response without a new fetch", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(payload("ttl-a"));
+    setPortalSessionViewer("viewer-ttl");
+
+    const first = await loadManagerSmsConversationsClient("viewer-ttl");
+    const second = await loadManagerSmsConversationsClient("viewer-ttl");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(second.json()).resolves.toEqual({ residents: [{ conversationKey: "ttl-a", messages: [] }] });
+    expect(first).not.toBe(second);
+  });
+
+  it("force always starts a fresh fetch even inside the TTL window", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(payload("ttl-a")).mockResolvedValueOnce(payload("ttl-b"));
+    setPortalSessionViewer("viewer-ttl-force");
+
+    await loadManagerSmsConversationsClient("viewer-ttl-force");
+    const forced = await loadManagerSmsConversationsClient("viewer-ttl-force", true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(forced.json()).resolves.toEqual({ residents: [{ conversationKey: "ttl-b", messages: [] }] });
+  });
+
+  it("an explicit invalidate forces the next call to fetch fresh, TTL notwithstanding", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(payload("ttl-a")).mockResolvedValueOnce(payload("ttl-b"));
+    setPortalSessionViewer("viewer-ttl-invalidate");
+
+    await loadManagerSmsConversationsClient("viewer-ttl-invalidate");
+    invalidateManagerSmsConversationsClient("viewer-ttl-invalidate");
+    await loadManagerSmsConversationsClient("viewer-ttl-invalidate");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

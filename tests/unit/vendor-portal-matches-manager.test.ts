@@ -5,6 +5,7 @@ import { vendorPortal } from "@/lib/portals/vendor";
 import { NATIVE_BOTTOM_NAV_VENDOR_PRIMARY } from "@/lib/native/portal-bottom-nav";
 import {
   parseVendorWorkOrderTab,
+  VENDOR_WORK_ORDER_TAB_LABELS,
   VENDOR_WORK_ORDER_TAB_ORDER,
 } from "@/lib/vendor-work-order-tabs";
 import { vendorLinkPaths } from "@/lib/tools/domains/portal-links";
@@ -33,12 +34,17 @@ describe("vendor portal matches manager chrome", () => {
     ]);
   });
 
-  it("Services tabs are Pending / Upcoming / Past, with legacy quote URLs mapped", () => {
+  it("Services tabs are the pending/upcoming/past buckets, shown as Potential / Current / Past, with legacy quote URLs mapped", () => {
     expect([...VENDOR_WORK_ORDER_TAB_ORDER]).toEqual(["pending", "upcoming", "past"]);
     expect(parseVendorWorkOrderTab("quote")).toBe("pending");
     expect(parseVendorWorkOrderTab("tour")).toBe("pending");
     expect(parseVendorWorkOrderTab("scheduled")).toBe("upcoming");
     expect(parseVendorWorkOrderTab("completed")).toBe("past");
+    // Ids/URLs are unchanged; only the displayed label reads the standard
+    // list header's bucket names (spec:addendum-6).
+    expect(VENDOR_WORK_ORDER_TAB_LABELS.pending).toBe("Potential");
+    expect(VENDOR_WORK_ORDER_TAB_LABELS.upcoming).toBe("Current");
+    expect(VENDOR_WORK_ORDER_TAB_LABELS.past).toBe("Past");
   });
 
   it("Communication uses the shared shell titled Communication and always-on setup cards", () => {
@@ -77,15 +83,25 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar exposes list, day, week, and month with the shared availability editor", () => {
+  it("vendor calendar (C155 superseded, captain 2026-09-26) is the shared week-grid engine with All/Services/Availability tabs", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
+    // The agenda-only redesign (C155) was reverted: the vendor Calendar is now
+    // the same week-grid engine the manager Calendar uses, in `vendorViewer`
+    // mode, filtered by a kind tab instead of a view-mode switcher.
+    expect(calendar).toContain("PortalCalendarPanels");
     expect(calendar).toContain("vendorViewer");
-    expect(calendar).toContain('label: "List"');
-    expect(calendar).toContain('label: "Day"');
-    expect(calendar).toContain('label: "Week"');
-    expect(calendar).toContain('label: "Month"');
+    expect(calendar).toContain("onVendorAvailabilityEdit");
+    expect(calendar).toContain("hideViewModeControl");
+    expect(calendar).toContain("GoogleCalendarConnectDialog");
+    // Set-availability edits and removal both go through the one canonical
+    // editor — clicking a painted block re-opens it rather than a bespoke
+    // grid-level delete.
     expect(calendar).toContain("VendorAvailabilityEditor");
-    expect(read("src/lib/portal-detail-routes.ts")).toContain('["list", "day", "week", "month"]');
+    expect(calendar).toContain("VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT");
+    expect(read("src/lib/portal-detail-routes.ts")).toContain('["all", "services", "availability"]');
+    // The old "Flexible weekday" / "Add work" vendor-only chrome never
+    // returns — those are vendorDayFlexibility/vendorCalendarActions, both
+    // deliberately left unset here.
     expect(calendar).not.toContain("vendorDayFlexibility");
     expect(calendar).not.toContain("Add work");
     expect(calendar).not.toContain("Mark day as flexible");
@@ -93,10 +109,12 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/lib/vendor-availability.ts")).toContain("convertFlexibleWeeklyRulesToWindows");
   });
 
-  it("finances uses a filter sheet, request payment, payout setup, and doors the Payouts tab to Settings", () => {
+  it("finances uses a filter sheet, an Add-payment primary, payout setup, and doors the Payouts tab to Settings", () => {
     const finances = read("src/components/portal/vendor-finances-panel.tsx");
     expect(finances).toContain("PortalFilterSortSheet");
-    expect(finances).toContain("Request payment");
+    // "Request payment" was renamed to the shared "Add <noun>" list-band
+    // primary shape (N025) — this assertion rotted after that fix landed.
+    expect(finances).toContain('portalListAddPrimaryLabel("payment")');
     expect(finances).toContain("Payout setup");
     // Payouts is one page now, mounted at Settings → Payouts
     // (PLAN-0920-1500) — the Finances "payouts" tabId never reaches this

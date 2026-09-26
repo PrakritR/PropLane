@@ -20,16 +20,18 @@ import { seedCanonicalDemoPortfolio } from "@/lib/demo/canonical-demo-portfolio-
  * sandbox accounts + `/demo` mirror stay identical across environments without
  * ever moving credentials between them.
  *
- * The accounts are provisioned with an EMPTY portfolio by design: the shared
- * `seedCanonicalDemoPortfolio` sources `buildDemoIdleSnapshot()`, which now
- * ships empty (see `docs/agents/demo-sandbox.md`). This route creates and
- * repairs the logins; it no longer plants portfolio rows behind them.
+ * The accounts are provisioned with the shared `buildDemoIdleSnapshot()`
+ * portfolio (Seattle Homes — see `demo-guided-data.ts`, `docs/agents/demo-sandbox.md`)
+ * unless `seedPortfolio` is explicitly `false`, in which case this route
+ * creates and repairs only the logins.
  *
  * It is still a write against whatever database the runtime points at, not a
- * read-only check. `seedPortfolio` defaults to true, and once that snapshot is
- * refilled the seed also writes the two DEPLOYMENT-WIDE schedule singletons
+ * read-only check. `seedPortfolio` defaults to true. The call below passes
+ * `skipGlobalScheduleSingletons: true` so seeding the portfolio's one tour
+ * never touches the two DEPLOYMENT-WIDE schedule singletons
  * (`axis_admin_planned_events_v1` / `axis_admin_partner_inquiries_v1`), which
- * hold real prospect tour requests in production.
+ * hold real prospect tour requests in production — every other row
+ * (properties, charges, leases, applications) is still written normally.
  *
  * Keep the account set and passwords in lockstep with
  * tests/helpers/seed-test-db.mjs (the test-DB seed also prunes non-canonical
@@ -246,15 +248,26 @@ export async function provisionSandboxAccounts(
   const byEmail = new Map(accounts.map((a) => [a.email, a.userId]));
   let portfolioSeeded = false;
   if (seedPortfolio) {
-    await seedCanonicalDemoPortfolio(db, {
-      managerUserId: byEmail.get(CANONICAL_DEMO_MANAGER_EMAIL)!,
-      residentUserId: byEmail.get(CANONICAL_DEMO_RESIDENT_EMAIL)!,
-      vendorUserId: byEmail.get(CANONICAL_DEMO_VENDOR_EMAIL)!,
-      residentEmail: CANONICAL_DEMO_RESIDENT_EMAIL,
-      vendorEmail: CANONICAL_DEMO_VENDOR_EMAIL,
-      residentAxisId: RESIDENT_AXIS_ID,
-      managerEmail: CANONICAL_DEMO_MANAGER_EMAIL,
-    });
+    await seedCanonicalDemoPortfolio(
+      db,
+      {
+        managerUserId: byEmail.get(CANONICAL_DEMO_MANAGER_EMAIL)!,
+        residentUserId: byEmail.get(CANONICAL_DEMO_RESIDENT_EMAIL)!,
+        vendorUserId: byEmail.get(CANONICAL_DEMO_VENDOR_EMAIL)!,
+        residentEmail: CANONICAL_DEMO_RESIDENT_EMAIL,
+        vendorEmail: CANONICAL_DEMO_VENDOR_EMAIL,
+        residentAxisId: RESIDENT_AXIS_ID,
+        managerEmail: CANONICAL_DEMO_MANAGER_EMAIL,
+      },
+      // buildDemoIdleSnapshot() carries the Seattle Homes portfolio again
+      // (captain 2026-09-25) — this route can run against PRODUCTION, so it
+      // must never let that portfolio's tour reach the two DEPLOYMENT-WIDE
+      // schedule singletons (axis_admin_planned_events_v1 /
+      // axis_admin_partner_inquiries_v1), which hold real prospect tour
+      // requests. Every property/charge/lease/application row is still
+      // written and scoped to the canonical manager account as before.
+      { skipGlobalScheduleSingletons: true },
+    );
     portfolioSeeded = true;
   }
 

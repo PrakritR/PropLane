@@ -21,6 +21,7 @@ import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server
 import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { rateLimit } from "@/lib/rate-limit";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -79,15 +80,27 @@ async function vendorDirectoryIdsForUser(db: Db, vendorUserId: string, managerUs
   return (data ?? []).map((row) => String(row.id ?? "")).filter(Boolean);
 }
 
-type WorkOrderAccess = { managerUserId: string; rowData: DemoManagerWorkOrderRow };
+/**
+ * How this vendor reached the work order — the vendor is the currently
+ * assigned vendor, or the manager specifically offered them the job.
+ */
+export type WorkOrderAccessKind = "assigned" | "offered";
+
+type WorkOrderAccess = {
+  managerUserId: string;
+  rowData: DemoManagerWorkOrderRow;
+  accessKind: WorkOrderAccessKind;
+};
 
 /** A vendor may act on a work order if they're the currently assigned vendor, or if the
- * manager sent them a consultation/quote offer for it — while bidding is open, or while a
- * post-consultation price is still pending on their placeholder bid. */
+ * manager sent them a consultation/quote offer for it — while bidding is open, or while
+ * a post-consultation price is still pending on their placeholder bid. `allow` narrows
+ * which of those access kinds the CALLER is willing to accept; the default is both. */
 async function resolveVendorWorkOrderAccess(
   db: Db,
   actor: WorkOrderActor,
   workOrderId: string,
+  opts: { allow?: readonly WorkOrderAccessKind[] } = {},
 ): Promise<{ ok: true; access: WorkOrderAccess } | WorkOrderActionFailure> {
   const { data: workOrder } = await db
     .from("portal_work_order_records")
@@ -122,6 +135,13 @@ async function resolveVendorWorkOrderAccess(
   if (!isAssignedVendor && !isOfferedVendor) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
+
+  const accessKind: WorkOrderAccessKind = isAssignedVendor ? "assigned" : "offered";
+  const allow = opts.allow ?? (["assigned", "offered"] as const);
+  if (!allow.includes(accessKind)) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (!rowData.biddingOpen) {
     const { data: pendingBid } = await db
@@ -139,7 +159,53 @@ async function resolveVendorWorkOrderAccess(
       return { ok: false, status: 400, error: "Bidding is not open for this service." };
     }
   }
-  return { ok: true, access: { managerUserId: workOrder.manager_user_id as string, rowData } };
+  return { ok: true, access: { managerUserId: workOrder.manager_user_id as string, rowData, accessKind } };
+}
+
+/**
+ * Resolve — or create — the `manager_vendor_records` row linking this vendor
+ * to this manager. Called ONLY from `acceptWorkOrderBid`, as a defensive
+ * fallback for the (normally already-present) directory row an invited/offered
+ * vendor's offer targets. Built ONLY from the vendor's OWN public business
+ * profile / account — never from the work order's private resident/property
+ * fields — mirroring `POST /api/manager/vendor-directory/add`'s directory-linking shape.
+ */
+async function ensureVendorDirectoryIdForManager(db: Db, vendorUserId: string, managerUserId: string): Promise<string | null> {
+  const { data: existing } = await db
+    .from("manager_vendor_records")
+    .select("id")
+    .eq("vendor_user_id", vendorUserId)
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  const [{ data: profile }, { data: biz }] = await Promise.all([
+    db.from("profiles").select("full_name, email, phone").eq("id", vendorUserId).maybeSingle(),
+    db.from("vendor_business_profiles").select("business_name, work_email, work_phone, trades").eq("user_id", vendorUserId).maybeSingle(),
+  ]);
+  const trades = Array.isArray(biz?.trades) ? (biz?.trades as string[]) : [];
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const row = {
+    id,
+    managerUserId,
+    name: (biz?.business_name as string | null | undefined)?.trim() || (profile?.full_name as string | null | undefined)?.trim() || "Vendor",
+    trade: trades[0] ?? "",
+    trades: trades.length ? trades : undefined,
+    phone: (biz?.work_phone as string | null | undefined)?.trim() || (profile?.phone as string | null | undefined)?.trim() || "",
+    email: (biz?.work_email as string | null | undefined)?.trim() || (profile?.email as string | null | undefined)?.trim() || "",
+    notes: "",
+    active: true,
+    catalogId: `vendor-bid-${vendorUserId}`,
+    vendorUserId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { error } = await db
+    .from("manager_vendor_records")
+    .insert({ id, manager_user_id: managerUserId, vendor_user_id: vendorUserId, row_data: row, updated_at: now });
+  if (error) return null;
+  return id;
 }
 
 export async function submitWorkOrderBid(
@@ -165,6 +231,14 @@ export async function submitWorkOrderBid(
   const proposedDate = new Date(proposedTime);
   if (Number.isNaN(proposedDate.getTime())) {
     return { ok: false, status: 400, error: "Enter a valid proposed date/time." };
+  }
+
+  // Cross-workspace bid submission is spammable (any vendor, any open listing,
+  // any workspace) in a way an invited/offered bid never was — throttle per
+  // vendor regardless of path.
+  const limited = await rateLimit(`work-order-bid-submit:${actor.userId}`, 20, 60 * 60 * 1000);
+  if (!limited.ok) {
+    return { ok: false, status: 429, error: "Too many bids submitted — try again in a bit." };
   }
 
   const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
@@ -424,6 +498,17 @@ export async function acceptWorkOrderBid(
   if (acceptError) return { ok: false, status: 500, error: acceptError.message };
   if (!acceptedRows || acceptedRows.length === 0) {
     return { ok: false, status: 400, error: "This bid has already been resolved." };
+  }
+
+  // Defensive fallback: create a directory row for the winning bidder if one
+  // somehow doesn't already exist, then stamp it onto the bid so vendorNamesById
+  // and the row_data assignment below resolve a real name/contact.
+  if (!record.vendor_directory_id) {
+    const createdDirectoryId = await ensureVendorDirectoryIdForManager(db, record.vendor_user_id, record.manager_user_id);
+    if (createdDirectoryId) {
+      record.vendor_directory_id = createdDirectoryId;
+      await db.from("work_order_bids").update({ vendor_directory_id: createdDirectoryId }).eq("id", bidId);
+    }
   }
 
   const { data: otherBids } = await db

@@ -569,7 +569,7 @@ describe("vendor write tools: previews reject foreign/invalid targets", () => {
     const input = { workOrderId: "WO-D", amountUsd: 999 };
     const preview = await previewWrite(setMyPriceTool, ctx, input);
     expect(preview.ok).toBe(false);
-    if (!preview.ok) expect(preview.error).toContain("accepted bid amount is locked");
+    if (!preview.ok) expect(preview.error).toContain("accepted quote amount is locked");
     const exec = await executeWrite(setMyPriceTool, ctx, input);
     expect(exec.ok).toBe(false);
     // Neither the accepted bid nor the work order price moved.

@@ -34,9 +34,16 @@ shared `PortalMobileNavBar` (back arrow + top-right profile menu), which every
 portal's mobile/native layout renders now.
 
 **Invite → signup linking.** A manager's "Send invite" (Vendors — reachable at
-`/portal/relationships/vendors`, the `ManagerVendorsPanel` component under the
-Team section's Vendors tab; no longer a Services sub-tab — that was
-removed as redundant with the Services sub-tab)
+`/portal/vendors` (`vendorListHref` in `portal-detail-routes.ts`; `?tab=catalog`
+for the PropLane vendors tab), the `ManagerVendorsPanel` component under the
+Operations section's Vendors item; no longer a Services sub-tab — that was
+removed as redundant with the Services sub-tab. **`/portal/relationships/vendors`
+is a STALE URL** — this doc said so until night/vendor-signup's proof-bug fix
+pass hit it directly: `render-portal-section.tsx`'s Teams-retirement redirect
+(PLAN-0923-1934) sends `section === "relationships"` unconditionally to
+`/portal/profile?tab=workspaces`, so that old path never reaches the vendors
+panel at all, even though the page still 200s on first load. Always use
+`vendorListHref`/`/portal/vendors`, never hand-type the old path.)
 writes a `vendor_invites` row (`manager_user_id`, `vendor_directory_id`,
 `vendor_email`, status) — the invitee has no account yet, so this can't use the
 `account_link_invites` Axis-ID-lookup shape; it's matched by lowercased email at
@@ -67,31 +74,63 @@ route stamps. Never reintroduce an expiry-optional path — a NULL expiry
 previously skipped the TTL check entirely. Coverage:
 `tests/unit/vendor-invite-redemption-ttl.test.ts`.
 
-**Unlinked-signup notice — DELIVERY-driven today, should become STATE-driven
-(follow-up, not done).** A signup that finishes with no linked manager reports
-why: `provisionVendorAccountByEmail` returns `unlinkedReason`
-(`"invite_expired"` | `"invite_revoked"` | `null`), the vendor-register routes
-turn it into copy via `vendorUnlinkedNotice(reason, { confirmed })`, and the
-message is handed across the post-signup `window.location.replace` through
-`src/lib/pending-notice.ts` (sessionStorage, TTL + `/vendor` destination guard,
-atomic read-and-clear) for `vendor-dashboard.tsx` to render as a dismissible
-banner. That banner is driven by DELIVERY — it appears only when a notice was
-queued during this signup — and it should instead be driven by STATE: rendered
-whenever the vendor's `linkedManagerId` is null, with the queued message merely
-supplying the specific reason when one exists. Two concrete gaps remain until
-then:
+**Unlinked-signup notice — now STATE-driven (night/vendor-signup).** The
+Dashboard banner no longer depends on a notice having been queued during this
+particular signup: `vendor-dashboard.tsx` fetches `/api/vendor/profile` on
+every load and shows the banner whenever `linked === false`, regardless of
+entry path (password, Google/Apple, invite, or the email-confirmation link
+that previously left `registerSelfServe`'s `confirmed === false` branch
+queuing nothing). `pending-notice.ts` — the sessionStorage queue, its TTL and
+destination guard — is now supplementary only: when a specific reason
+(`"invite_expired"` | `"invite_revoked"`) was queued, it supplies that reason's
+copy; otherwise the banner falls back to a generic "waiting on a manager"
+message. A destructive read or a reload no longer loses the banner, because
+state, not delivery, is what renders it.
 
-- The brand-new self-serve path never queues. `registerSelfServe`'s
-  `confirmed === false` branch returns early after setting the inline notice on
-  the "check your email" screen, so a vendor who clicks the emailed link and
-  lands in the portal gets no banner — that journey still ends silently
-  unlinked.
-- The sessionStorage read is destructive, so a reload or a navigation before
-  the vendor clicks Dismiss consumes the notice permanently. "Stays until
-  acknowledged" only holds within one uninterrupted page view.
+**Self-serve onboarding (night/vendor-signup).** A vendor who signs up with no
+invite now lands at `/vendor/onboarding` (every signup path's default
+`redirectTo`/`nextPath` changed from `/vendor/dashboard`) — Business name,
+Trades (`VENDOR_TRADE_OPTIONS`), service area (city + ZIPs + radius), optional
+license number/document, optional insurance provider/policy/expiry/certificate,
+and a directory-listing toggle. These live on `vendor_business_profiles`
+(additive columns: `trades`, `service_area_zips`, `service_radius_miles`,
+`license_number`, `license_doc_path`, `insurance_*`, `directory_listed`,
+`onboarding_completed_at`) — the vendor's OWN record, so none of it requires a
+manager link, unlike `/api/vendor/profile` and `/api/vendor/documents/*`
+(both still gated on `resolveOwnVendorRecords` returning a row). License/
+insurance uploads go through `/api/vendor/onboarding/documents` (upload) and
+`/api/vendor/onboarding/documents/signed-url` (read), same private
+`vendor-documents` bucket and path convention as the existing manager-linked
+uploads, but keyed off `vendor_business_profiles` instead of
+`manager_vendor_records.row_data.vendorDocuments`.
+`onboarding_completed_at` is server-derived (`vendorOnboardingRequiredFieldsFilled`
+in `vendor-business-profile.server.ts`) from business name + at least one trade
++ a service area, and — once set — never un-sets, even if a field is later
+cleared. The vendor Dashboard shows a "Finish setting up" checklist (Business,
+Trades & area, License & insurance, Payout bank — the last linking to the
+existing `/vendor/financials/payouts` Connect flow) until all four are done.
 
-Going state-driven would make `pending-notice.ts` — the queue, its TTL and its
-destination guard — redundant.
+**Manager-facing vendor directory (night/vendor-signup).** A directory-listed,
+onboarding-complete self-serve vendor (`directory_listed = true`) is now
+discoverable in the manager "PropLane vendors" tab
+(`pro-vendors-panel.tsx`), merged alongside the curated `AXIS_VENDOR_CATALOG`
+and shared-roster rows via `GET /api/manager/vendor-directory`
+(`src/lib/vendor-directory.server.ts`'s `loadDirectoryListedVendors`), public-safe
+fields only — business name, trades, area, and derived `insured`/`licensed`
+flags (a current, non-expired certificate; never the policy number or a doc
+path). Filterable by trade/area through a Filter toggle on that tab. Row
+"Add to your vendors" for a directory row calls `POST
+/api/manager/vendor-directory/add` rather than the generic
+`ensureCatalogVendorOnRoster` path (which never touches `vendor_user_id`):
+it sets the manager_vendor_records `vendor_user_id` DB column directly, the
+same real link invite redemption creates, so the vendor's unlinked banner
+clears immediately. Idempotent per manager+vendor pair (`catalogId:
+"self-serve-<vendorUserId>"` lets the existing `findRosterCatalogMatch` detect
+an already-added row). Known gap: the catalog detail page's header "Add"
+action and its communication-tab auto-ensure both still route a directory
+row's initial add through this linked path (patched), but a future third add
+entry point must do the same or it will silently fall back to the
+non-linking `ensureCatalogVendorOnRoster`.
 
 **Directory privacy.** Linked vendors cannot directly SELECT `manager_vendor_records`; `20260912230000_vendor_directory_private_fields.sql` removes that policy. Vendor portal readers use authorized service-role routes, and catalog responses use `vendorCatalogProjection`.
 
@@ -117,6 +156,13 @@ That route now also calls `deliverPortalInboxMessage()` with
 the vendor has signed up; the email always sends via the vendor's stored email
 regardless of signup status. Phase 2 (tour → bid) should hook the same
 `deliverPortalInboxMessage` call rather than growing a second notification path.
+The vendor's own `/vendor/reviews` has a rating filter ("5 stars", "4 stars &
+up", …) — a workspace filter was also requested (C263) but is intentionally
+NOT built: `mapPublicVendorReviewRow`'s `reviewerLabel` is hardcoded to "A
+PropLane manager" for every review on that route specifically so a vendor can
+never learn which manager/workspace reviewed them, and a workspace filter
+would require exposing that identity.
+
 Inbox scoping added a 3rd scope constant (`axis_portal_inbox_vendor_v1`,
 mirrored across `portal-inbox-delivery.ts`, `portal-inbox-thread-scope.ts`, and
 the legacy duplicate in `send-inbox-message/route.ts` — yes, the scope-for-role
@@ -190,6 +236,21 @@ because it let a vendor's own client INSERT bids on arbitrary work orders,
 bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other
 portal table in this codebase.
+
+**Jobs board retired (C152/C153 superseded).** A standalone `/vendor/jobs`
+section with Invited/Open tabs and a cross-workspace open-marketplace browse
+(`work_order_open_listings`, `openListingId` on `work_order_bids`,
+`resolveVendorWorkOrderAccess`'s `"open_listing"` access kind) previously
+existed alongside Services. The captain cut it (2026-09-26): there is no open
+marketplace, and no Jobs nav item — a vendor's invited-to-bid services are
+just Services' own Potential tab (`vendorWorkOrderTab`'s `biddingOpen`
+bucket), the same rows Services already showed. `/vendor/jobs*` redirects to
+Services (`render-portal-section.tsx`). `resolveVendorWorkOrderAccess` is back
+to a plain `"assigned" | "offered"` access kind; the `work_order_open_listings`
+table and its migration are untouched in the database (no drop migration) but
+no code path reads or writes it any more. Bid submission stays rate-limited
+per vendor (`work-order-bid-submit:<vendorUserId>`, 20/hour) as a general
+anti-spam guard.
 
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
@@ -292,3 +353,23 @@ sends the money with no one re-approving the job. Only failures whose reason
 matches `RETRYABLE_VENDOR_PAYOUT_FAILURE` are re-driven.
 
 Coverage: `tests/unit/stripe-vendor-payout.test.ts`.
+
+# Vendor portal (Phase 5: reviews)
+
+A manager (or a co-manager with `services` granted at `edit`) leaves one
+star-rated review per **completed** service, editable for 14 days; the vendor
+may reply once. `vendor_reviews`
+(`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
+`work_order_id`, keyed by `vendor_user_id` rather than
+`manager_vendor_records.id` — same reason as `vendor_invoices`/`vendor_payouts`
+/`work_order_bids`: a manager's own directory row isn't stable across the
+several managers one vendor may work for. Eligibility, the edit window, the
+aggregate, and the cross-workspace redaction (a vendor's reviews are shown to
+every workspace that hired them, but another workspace's own review reads as
+`"A PropLane manager"`) are all pure functions in `src/lib/vendor-reviews.ts` —
+re-derived server-side from fetched rows, never the request body. Surfaces:
+the vendor record's Reviews tab (`pro-vendor-detail.tsx`, alongside the
+pre-existing, unrelated resident "was this fixed?" rating block — don't merge
+them), a `★ 4.6 · 12` glyph fact on the Vendors list row (never a pill), a
+"Leave a review" record-header action on a completed service, and the
+vendor's own `/vendor/reviews`.

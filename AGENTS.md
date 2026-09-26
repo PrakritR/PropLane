@@ -261,10 +261,12 @@ Empty `PropertyBrowseCard.imageUrl` means no real photo. Render
 
 # Portal UI system
 
-**Start at [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).**
+**Start at [`docs/agents/ui-page-structure.md`](docs/agents/ui-page-structure.md)** (the generic
+anatomy every page follows), then [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).
 Every list tab copies Properties via `PortalRecordListSurface`: header card
-with the search box, flat shared record rows, dashed ADD footer with
-unique `ariaLabel`, per-record ⋯ menus with contextual actions. Mobile is the same surface.
+with tabs, search, icon actions and the round blue + (the only create action;
+filters open from the top-right Filter popover), flat shared record rows,
+per-record ⋯ menus with contextual actions. Mobile is the same surface.
 **No pills on rows**: a row is tile · title · place line · glyph facts · figure · ⋯,
 never a `Badge` or status chip — the tab says the bucket, anything else is a
 plain fact with a glyph (`tests/unit/portal-list-rows-no-pills.test.ts`).
@@ -357,16 +359,18 @@ branches on `"resident"` without consulting `profile_roles`.
 Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communication-inbox.md).
 
 - **One conversation list.** Standalone inbox page shell is `/demo` only.
-  Manager Communication has Active | Archived tabs under the work identity
-  boxes; resident and vendor keep status in Filter.
+  Manager and vendor Communication both have Active | Archived tabs under the
+  work identity boxes, switching instantly with no remount; resident is the
+  one portal that keeps status in Filter with no tab row.
 - Scheduled sends render **inline** in the recipient thread (admin table is the exception).
 - A message enters the store **after** the send is authorized. Copy the resident panel, not the manager/vendor ones.
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.
 - SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
 - Residents cannot schedule a compose (deliberate).
 - A thread's `row_data` may carry a `recordRef: {kind,id,label}`; a record page's
-  Communication section (`record-communication-section.tsx`) filters the same
-  inbox down to that one record's threads — see `docs/agents/communication-inbox.md` § recordRef.
+  Communication section (`record-communication-section.tsx`) merges the same
+  inbox into one timeline of every conversation with that record's contact(s),
+  archived included — see `docs/agents/communication-inbox.md` § recordRef.
 
 ## Inbox attachments
 
@@ -411,6 +415,7 @@ answer. Fail closed to `true`.
 | Manager account creation | `docs/agents/manager-account-creation.md` | `/auth/create-account` never auto-redirects into a portal |
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
+| Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |
 | Communication | `docs/agents/communication-inbox.md` | One inbox; authorize then append; `formatInboxStamp`; never `inline` |
 | Record pages | docs/agents/record-page.md | Residents standard; header icons per section; no footer or toolbar; picker on phone |
 | Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |

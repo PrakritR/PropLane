@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
+import { buildConversationKey, SMS_COUNTERPARTY_ROLES } from "@/lib/sms-conversation-identity";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
@@ -60,35 +61,24 @@ export async function upsertManagerInboxNotice(
     rootMessageId: messageId, rootOutbound: args.folder === "sent",
     ...(args.originalSmsEvent ? { rootOriginalSmsEvent: args.originalSmsEvent } : {}),
   };
-  // Ignore the insert conflict, then append under compare-and-swap. Parallel
-  // webhooks must never overwrite each other's message history.
-  const { data: inserted, error: insertError } = await db.from("portal_inbox_thread_records")
-    .upsert({ id: threadId, scope: MANAGER_INBOX_SCOPE, owner_user_id: args.managerUserId,
-      participant_email: null, thread_type: args.threadType, row_data: incoming,
-      updated_at: now.toISOString() }, { onConflict: "id", ignoreDuplicates: true }).select("id");
-  if (insertError) throw new Error("Could not store the SMS inbox notice.");
-  if (inserted?.length) return { threadId, messageId };
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const { data: prior, error } = await db.from("portal_inbox_thread_records")
-      .select("row_data, updated_at").eq("id", threadId)
-      .eq("owner_user_id", args.managerUserId).eq("scope", MANAGER_INBOX_SCOPE).single();
-    if (error || !prior) throw new Error("Could not load the SMS inbox conversation.");
-    const row = prior.row_data as Record<string, unknown>;
-    const messages = Array.isArray(row.messages) ? row.messages as { id: string }[] : [];
-    if (row.rootMessageId === messageId || messages.some((m) => m.id === messageId)) return { threadId, messageId };
-    const updatedAt = new Date(Math.max(Date.now(), Date.parse(prior.updated_at) + 1)).toISOString();
-    const { data: updated, error: updateError } = await db.from("portal_inbox_thread_records")
-      .update({ row_data: { ...row, folder: "inbox", preview: incoming.preview,
-        time: stamp, unread: Boolean(row.unread) || incoming.unread,
-        messages: [...messages, { id: messageId, from: args.from, body: args.body,
-          at: stamp, outbound: args.folder === "sent",
-          ...(args.originalSmsEvent ? { originalSmsEvent: args.originalSmsEvent } : {}) }] }, updated_at: updatedAt })
-      .eq("id", threadId).eq("owner_user_id", args.managerUserId)
-      .eq("scope", MANAGER_INBOX_SCOPE).eq("updated_at", prior.updated_at).select("id");
-    if (updateError) throw new Error("Could not append the SMS inbox notice.");
-    if (updated?.length) return { threadId, messageId };
+  const controlKeys = phone ? SMS_COUNTERPARTY_ROLES.map((role) =>
+    buildConversationKey({ ownerManagerUserId: args.managerUserId, role, counterpartyPhone: phone })) : [];
+  const { data, error } = await db.rpc("append_manager_sms_inbox_notice", {
+    p_owner: args.managerUserId,
+    p_thread_id: threadId,
+    p_thread_type: args.threadType,
+    p_message_id: messageId,
+    p_incoming: incoming,
+    p_message: { id: messageId, from: args.from, body: args.body, at: stamp,
+      outbound: args.folder === "sent",
+      ...(args.originalSmsEvent ? { originalSmsEvent: args.originalSmsEvent } : {}) },
+    p_inbound: args.folder !== "sent",
+    p_control_keys: controlKeys,
+  });
+  if (error || !data || data.threadId !== threadId || data.messageId !== messageId) {
+    throw new Error("Could not append the SMS inbox notice.");
   }
-  throw new Error("SMS inbox conversation is busy; retry delivery.");
+  return { threadId, messageId };
 }
 
 export async function sendManagerNoticeEmail(args: {

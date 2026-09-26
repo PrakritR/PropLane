@@ -46,7 +46,7 @@ const RESIDENT_FAQS: FaqItem[] = [
     q: "How do I submit a maintenance request?",
     a: (
       <>
-        Open the resident portal and go to <strong className="font-medium text-foreground">Maintenance</strong>. You
+        Open the resident portal and go to <strong className="font-medium text-foreground">Services</strong>. You
         can describe the issue and attach photos from your phone&rsquo;s camera or photo library. Your property manager
         is notified right away.
       </>

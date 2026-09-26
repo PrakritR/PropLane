@@ -397,10 +397,16 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
   return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
-/** Vendor calendar views. List is the accessible record view of the same visits. */
-export const VENDOR_CALENDAR_VIEW_TABS = ["list", "day", "week", "month"] as const;
+/**
+ * Vendor Calendar's own destination tabs — a kind filter over the week grid,
+ * not a day/week/month view switcher (the grid itself is always the week
+ * view; there is no separate view-mode picker). "All" shows both scheduled
+ * services and painted availability; "Services" hides availability painting;
+ * "Availability" hides scheduled-visit blocks.
+ */
+export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services", "availability"] as const;
 export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
-export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "week";
+export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
 
 export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
   if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
@@ -1105,10 +1111,16 @@ export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string
  * block); "amendments" folds into that same view's version history. Old
  * links to any of the three still resolve — they just land on Lease document
  * rather than 404 or silently falling back to Overview.
+ *
+ * "audit-trail" and "answers" (C066/C281) are real tabs, not folded content —
+ * same shape as Applications' own "application-form" tab — added once the
+ * shared shell registry was clear for this workstream to touch.
  */
 export const LEASE_DETAIL_TABS = [
   "overview",
   "lease-document",
+  "audit-trail",
+  "answers",
   "payments",
   "communication",
 ] as const;
@@ -1443,8 +1455,12 @@ export function documentRecordHref(
   return tab === "preview" ? base : `${base}/${tab}`;
 }
 
-/** Resident service record rail tabs (PLAN-0920-1058, area 1c). */
-export const RESIDENT_SERVICE_DETAIL_TABS = ["overview", "updates", "photos", "communication"] as const;
+/**
+ * Resident service record rail tabs (PLAN-0920-1058, area 1c). "vendor" (C135)
+ * is rendered conditionally by the panel — only once a vendor is actually
+ * assigned — the same "tabs disappear when empty" pattern used elsewhere.
+ */
+export const RESIDENT_SERVICE_DETAIL_TABS = ["overview", "updates", "photos", "vendor", "communication"] as const;
 export type ResidentServiceDetailTabId = (typeof RESIDENT_SERVICE_DETAIL_TABS)[number];
 
 export function parseResidentServiceDetailTab(raw: string | undefined | null): ResidentServiceDetailTabId {

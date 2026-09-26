@@ -2,8 +2,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, CheckCircle2, Pencil, Trash2, XCircle } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalTableDetailActions,
@@ -95,6 +96,11 @@ export function ManagerServiceRequestDetail({
   const [decisionKind, setDecisionKind] = useState<DecisionKind | null>(null);
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState<{ subject: string; body: string } | null>(null);
+  // C273: a decline needs a reason — collected in its own required step before the
+  // notification preview opens, and stored on the row regardless of whether the
+  // resident message is actually sent.
+  const [denyReasonOpen, setDenyReasonOpen] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
 
   useEffect(() => {
     setEditPrice(moneyFieldValue(req.price ?? ""));
@@ -148,14 +154,23 @@ export function ManagerServiceRequestDetail({
     setDecisionKind("approve");
   };
 
-  const openDenyPreview = () => {
+  const openDenyReasonStep = () => {
+    setDenyReason("");
+    setDenyReasonOpen(true);
+  };
+
+  const confirmDenyReason = () => {
+    const reason = denyReason.trim();
+    if (!reason) return;
     setDecisionDraft(
       buildServiceRequestDeniedNotice({
         residentName: req.residentName,
         offerName: req.offerName,
         propertyLabel,
+        reason,
       }),
     );
+    setDenyReasonOpen(false);
     setDecisionKind("deny");
   };
 
@@ -196,7 +211,9 @@ export function ManagerServiceRequestDetail({
           });
         }
       } else {
-        denyServiceRequest(req.id, draft?.body);
+        // Store the manager's actual reason (not the full formatted notice) so it stays
+        // legible if the record is reopened later, whether or not a message ever sent.
+        denyServiceRequest(req.id, denyReason.trim() || draft?.body);
         onUpdated();
         onDenied?.();
       }
@@ -258,7 +275,7 @@ export function ManagerServiceRequestDetail({
               label="Deny"
               tone="danger"
               data-attr="service-request-deny"
-              onClick={openDenyPreview}
+              onClick={openDenyReasonStep}
             />
             {editingCharges ? (
               <PortalIconAction icon={Check} label="Save" tone="primary" onClick={saveCharges} />
@@ -383,6 +400,31 @@ export function ManagerServiceRequestDetail({
       </div>
 
       {onFooterActionsChange ? null : <PortalTableDetailActions>{detailActions}</PortalTableDetailActions>}
+
+      <PortalDialog
+        open={denyReasonOpen}
+        onClose={() => setDenyReasonOpen(false)}
+        title="Decline request"
+        primaryAction={{
+          label: "Continue",
+          onClick: confirmDenyReason,
+          disabled: !denyReason.trim(),
+        }}
+      >
+        <div>
+          <p className="mb-1 text-[11px] font-medium text-muted">
+            Reason <span className="text-rose-500">*</span>
+          </p>
+          <Textarea
+            value={denyReason}
+            onChange={(e) => setDenyReason(e.target.value)}
+            placeholder="Why can't this request be approved?"
+            rows={3}
+            className="bg-card"
+            data-attr="service-request-deny-reason"
+          />
+        </div>
+      </PortalDialog>
 
       <PortalNotificationPreviewModal
         open={decisionKind !== null && decisionDraft !== null}

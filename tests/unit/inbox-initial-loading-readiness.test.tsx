@@ -415,12 +415,11 @@ describe("PRP-470 initial Communication readiness", () => {
     const archived = screen.getByRole("link", { name: /^Archived/ });
     expect(archived).toHaveAttribute("href", "/portal/communication/archived");
     expect(archived).toHaveAttribute("aria-current", "page");
-    // The PropLane Assistant thread is pinned on every manager segment —
-    // Active, Unread, AND Archived — and can never be archived away
-    // (docs/agents/communication-inbox.md), so a manager with no other
-    // archived conversations still sees that one pinned row here instead of
-    // the no-conversations empty card (and its "Active conversations" link).
-    expect(screen.getByText("PropLane Assistant")).toBeTruthy();
+    // The PropLane Assistant thread is pinned on Active and Unread only — it
+    // can never be archived away, so it never appears on Archived
+    // (docs/agents/communication-inbox.md). A manager with no archived
+    // conversations sees the no-conversations empty card instead.
+    expect(screen.queryByText("PropLane Assistant")).toBeNull();
   });
 
   it("shows a retryable load error and recovers on retry", async () => {
@@ -774,6 +773,49 @@ describe("PRP-470 initial Communication readiness", () => {
     }] })));
     expect(screen.queryByText("Stale resident SMS")).toBeNull();
     expect(screen.getByText("Current resident SMS")).toBeTruthy();
+  });
+
+  it("PLAN B2 — a remount within the same session renders the last-ready snapshot immediately, then revalidates silently", async () => {
+    let inboxCalls = 0;
+    // Mirrors real behavior: `loadPersistedInbox` reflects whatever the last
+    // successful server sync staged, not an unconditional empty stub — that
+    // is what a genuine remount reads on its own "sync from local storage"
+    // effect, matching the module-level snapshot this test is proving.
+    let persistedRows: ReturnType<typeof thread>[] = [];
+    vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
+      loadPersistedInbox: () => persistedRows,
+      syncPersistedInboxFromServerWithStatus: async () => {
+        inboxCalls += 1;
+        persistedRows = [thread("snapshot-thread", "Snapshot resident")];
+        return { rows: persistedRows, ok: true };
+      },
+      stagePersistedInboxRows: (_key: string, rows: ReturnType<typeof thread>[]) => {
+        persistedRows = rows;
+      },
+    }));
+    vi.doMock("@/lib/manager-applications-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
+      syncManagerApplicationsFromServerWithStatus: async () => ({ rows: [], ok: true }),
+      readManagerApplicationRows: () => [],
+    }));
+    const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
+
+    const first = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
+    await waitFor(() => expect(screen.getByText("Snapshot resident")).toBeTruthy());
+    expect(inboxCalls).toBe(1);
+    first.unmount();
+
+    // A remount for the SAME viewer+workspace (no vi.resetModules() between
+    // these two renders, so the module-level snapshot cache survives exactly
+    // like a real browser tab navigating away from Communication and back).
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
+    // Renders immediately from the cached snapshot — never the skeleton.
+    expect(screen.getByText("Snapshot resident")).toBeTruthy();
+    expect(screen.queryByText("Loading conversations…")).toBeNull();
+    // The revalidation still runs silently underneath.
+    await waitFor(() => expect(inboxCalls).toBe(2));
+    expect(screen.getByText("Snapshot resident")).toBeTruthy();
   });
 
   it("keeps a ready manager list and selection when background SMS refresh fails", async () => {

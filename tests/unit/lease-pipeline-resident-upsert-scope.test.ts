@@ -12,6 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 const OWNER_MANAGER = "manager-who-owns-it";
 const RESIDENT_ID = "11111111-2222-3333-4444-555555555555";
@@ -1196,11 +1197,16 @@ describe("portal-lease-pipeline signed-document immutability", () => {
  * evidence of what they actually agreed to — or sign a lease still sitting in manager review.
  */
 describe("portal-lease-pipeline signature guards", () => {
+  // Matches `sendToResident()`'s `generatedHtml` below — the Part 3 hotfix's
+  // server-side hash guard (`newSignatureHashMismatch`) now refuses a NEW
+  // signature whose reported hash disagrees with the document actually
+  // stored, so a placeholder value here would 409 every test in this block
+  // that signs a lease for the first time.
   const RESIDENT_SIG = {
     role: "resident" as const,
     name: "Resident",
     signedAtIso: "2026-05-01T00:00:00Z",
-    documentSha256: "aaa",
+    documentSha256: createHash("sha256").update(Buffer.from("<p>Lease v1</p>", "utf8")).digest("hex"),
   };
 
   const sendToResident = () => ({

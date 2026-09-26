@@ -24,7 +24,7 @@ function read(relPath: string) {
 
 describe("public support email", () => {
   it("is the PropLane brand address", () => {
-    expect(PUBLIC_SUPPORT_EMAIL).toBe("support@prop-lane.space");
+    expect(PUBLIC_SUPPORT_EMAIL).toBe("support@proplane.ai");
   });
 
   it("no public page still shows the legacy info@ address", () => {
@@ -46,7 +46,7 @@ describe("public support email", () => {
 
   it("keeps the reviews feedback mailto subject param", () => {
     const source = read("src/app/(public)/reviews/page.tsx");
-    expect(source).toMatch(/mailto:(\$\{PUBLIC_SUPPORT_EMAIL\}|support@prop-lane\.space)\?subject=PropLane%20feedback/);
+    expect(source).toMatch(/mailto:(\$\{PUBLIC_SUPPORT_EMAIL\}|support@proplane\.ai)\?subject=PropLane%20feedback/);
   });
 
   it("keeps the admin account identity separate from the public support address", () => {

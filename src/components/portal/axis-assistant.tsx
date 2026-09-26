@@ -140,8 +140,13 @@ function AxisAssistantFixedTrigger() {
       aria-label="Open PropLane Assistant"
       aria-expanded={open}
       data-attr="axis-assistant-fab"
-      className="axis-assistant-fab group fixed bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)] right-[max(1.25rem,env(safe-area-inset-right))] z-[55] flex h-11 w-11 items-center justify-center rounded-full text-white shadow-[0_12px_28px_-12px_rgba(47,107,255,0.75)] outline-none transition-[transform,filter] duration-200 hover:scale-105 hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95 lg:hidden"
-      style={{ background: "var(--btn-primary)" }}
+      // A ringed card-background circle, not a filled primary one (AXI night
+      // sweep area 2e) — this used to be the identical filled blue circle as
+      // the page's own primary "+" (`PortalPrimaryIconAction`), same size,
+      // same corner, so the two were impossible to tell apart on phone. The
+      // page's "+" stays the only solid-blue circle on screen; the assistant
+      // reads as a secondary utility control that happens to float.
+      className="axis-assistant-fab group fixed bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)] right-[max(1.25rem,env(safe-area-inset-right))] z-[55] flex h-11 w-11 items-center justify-center rounded-full border border-primary/25 bg-card text-primary shadow-[0_12px_28px_-16px_rgba(15,23,42,0.45)] outline-none transition-[transform,filter] duration-200 hover:scale-105 hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95 lg:hidden"
     >
       <AxisAssistantSparkleIcon className="h-[18px] w-[18px]" />
     </button>
@@ -542,15 +547,19 @@ export function AxisAssistant({
     })
       .then(async (response) => {
         const data = await response.json() as {
-          capability?: { targets?: SmsTestCapabilityPayload["targets"] };
+          capability?: { targets?: SmsTestCapabilityPayload["targets"] } | null;
           error?: string;
         };
         if (!isCurrent()) return;
+        // response.ok with a null capability is the ordinary "not eligible"
+        // answer (most accounts are not a test-workspace member) — silent,
+        // not an error. A 404 is kept as the same silent case for any older
+        // cached client/service-worker response still using that shape.
+        if (response.status === 404 || (response.ok && !data.capability)) {
+          update({ capability: null, visible: false, active: false, targetId: "", error: null });
+          return;
+        }
         if (!response.ok || !data.capability) {
-          if (response.status === 404) {
-            update({ capability: null, visible: false, active: false, targetId: "", error: null });
-            return;
-          }
           update({ visible: true });
           throw new Error(data.error ?? "SMS test mode is unavailable.");
         }

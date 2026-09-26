@@ -10,6 +10,7 @@ import {
   updateGoogleCalendarEvent,
 } from "@/lib/google-calendar/api.server";
 import { loadGoogleCalendarConnection } from "@/lib/google-calendar/settings";
+import { syncVendorServiceVisitToGoogleCalendar } from "@/lib/google-calendar/vendor-calendar-push.server";
 import { mergeTourAvailabilitySlotsIntoWindows, payloadSlots } from "@/lib/tour-slot-math";
 import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 
@@ -21,7 +22,8 @@ import {
 } from "@/lib/google-calendar/markers";
 
 const PLANNED_RECORD_ID = "axis_admin_planned_events_v1";
-const SERVICE_VISIT_DURATION_MINUTES = 60;
+/** Exported: also the canonical service-visit length `proplane-calendar-reconcile.server.ts` uses to compute a work order's expected end time. */
+export const SERVICE_VISIT_DURATION_MINUTES = 60;
 
 type GoogleCalendarUpsertInput = {
   id?: string;
@@ -422,8 +424,29 @@ export function workOrderShouldSyncToGoogleCalendar(row: DemoManagerWorkOrderRow
   return row.bucket === "scheduled" || Boolean(row.scheduledAtIso);
 }
 
-/** Best-effort push, update, or remove a scheduled work order on the manager's Google Calendar. */
+/**
+ * Best-effort push, update, or remove a scheduled work order on the manager's
+ * Google Calendar, THEN — if a vendor is assigned and that vendor has opted
+ * in (`connection.vendorPushEnabled`, default off) — on the assigned
+ * vendor's OWN connected Google Calendar too
+ * (`vendor-calendar-push.server.ts`). Every existing call site keeps working
+ * unchanged: this is additive, best-effort, and never throws for the vendor
+ * leg, matching the manager leg's own contract.
+ */
 export async function syncWorkOrderToGoogleCalendar(
+  db: SupabaseClient,
+  managerUserId: string,
+  row: DemoManagerWorkOrderRow,
+): Promise<DemoManagerWorkOrderRow> {
+  const managerSynced = await syncWorkOrderToManagerGoogleCalendar(db, managerUserId, row);
+  try {
+    return await syncVendorServiceVisitToGoogleCalendar(db, managerSynced.vendorUserId, managerSynced);
+  } catch {
+    return managerSynced;
+  }
+}
+
+async function syncWorkOrderToManagerGoogleCalendar(
   db: SupabaseClient,
   managerUserId: string,
   row: DemoManagerWorkOrderRow,

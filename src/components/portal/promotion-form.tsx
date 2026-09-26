@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PromotionAiDraftPhotoPicker } from "@/components/portal/promotion-ai-draft-card";
+import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-preview";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import type { ManagerPromotionPropertyOption } from "@/lib/manager-property-links";
@@ -15,6 +16,7 @@ import {
   PROMOTION_TONE_OPTIONS,
   PROMOTION_SIZE_OPTIONS,
   type FlyerSize,
+  type ManagerPromotionRow,
   type PromotionInputs,
   type PromotionTemplate,
   type PromotionTheme,
@@ -85,6 +87,31 @@ export function draftInputs(draft: PromotionDraft): PromotionInputs {
     schedulingUrl: draft.schedulingUrl.trim(),
     includeSchedulingLink: draft.includeSchedulingLink,
     images: draft.images.slice(0, FLYER_IMAGE_LIMIT),
+  };
+}
+
+/**
+ * C039 (captain, BUILD-WAVE2 §4): a render-ready row for the flyer LIVE
+ * preview inside the create/edit form — not persisted. `copy: null` lets
+ * {@link buildFlyerHtml} fall back to `composeFallbackFlyerCopy`, so the
+ * preview updates from the typed inputs alone, with no AI round trip.
+ */
+export function draftToPreviewRow(draft: PromotionDraft): ManagerPromotionRow {
+  const now = new Date().toISOString();
+  return {
+    id: "preview",
+    managerUserId: null,
+    propertyId: null,
+    propertyLabel: draft.propertyLabel.trim(),
+    title: draft.title,
+    theme: draft.theme,
+    flyerSize: draft.flyerSize,
+    template: draft.template,
+    status: "draft",
+    inputs: draftInputs(draft),
+    copy: null,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
@@ -269,6 +296,9 @@ export function PromotionForm({
   const isCustom = draft.propertyKey === CUSTOM_PROPERTY_KEY;
   const selectedTemplate =
     PROMOTION_TEMPLATE_OPTIONS.find((t) => t.id === draft.template) ?? PROMOTION_TEMPLATE_OPTIONS[0]!;
+  // C039: the flyer preview renders live as fields fill in, not only in a
+  // separate preview step.
+  const previewRow = useMemo(() => draftToPreviewRow(draft), [draft]);
 
   async function onPhotoFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -405,7 +435,7 @@ export function PromotionForm({
           className="mt-1"
           value={draft.contact}
           onChange={(e) => setDraft((d) => ({ ...d, contact: e.target.value }))}
-          placeholder="leasing@prop-lane.space · (206) 555-0142"
+          placeholder="leasing@proplane.ai · (206) 555-0142"
         />
       </div>
       <div>
@@ -496,6 +526,12 @@ export function PromotionForm({
           })}
         </div>
         <p className="mt-1 text-[11px] text-muted">{selectedTemplate.description}</p>
+      </div>
+      <div className="sm:col-span-2">
+        <label className="text-xs font-semibold text-muted">Preview</label>
+        <div className="mt-1 flex justify-center">
+          <PromotionFlyerPreview promotion={previewRow} embedded />
+        </div>
       </div>
     </div>
   );

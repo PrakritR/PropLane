@@ -26,7 +26,7 @@ import { VENDOR_DOCUMENTS_BUCKET } from "@/lib/vendor-documents-storage";
 const VENDOR_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const PDF_DATA_URL = "data:application/pdf;base64,JVBERi0xLjQK";
 
-function mockStorage(uploaded: string[] = [], downloaded: string[] = []) {
+function mockStorage(uploaded: string[] = [], signed: { path: string; opts: unknown }[] = []) {
   const storage = {
     from: (bucket: string) => ({
       upload: async (path: string) => {
@@ -36,12 +36,12 @@ function mockStorage(uploaded: string[] = [], downloaded: string[] = []) {
         uploaded.push(path);
         return { error: null };
       },
-      download: async (path: string) => {
+      createSignedUrl: async (path: string, _ttlSeconds: number, opts?: unknown) => {
         if (bucket !== VENDOR_DOCUMENTS_BUCKET) {
           return { data: null, error: { message: `unexpected bucket ${bucket}` } };
         }
-        downloaded.push(path);
-        return { data: new Blob(["pdf-bytes"], { type: "application/pdf" }), error: null };
+        signed.push({ path, opts });
+        return { data: { signedUrl: `https://storage.example/${path}?sig=mock` }, error: null };
       },
     }),
   };
@@ -102,9 +102,9 @@ describe("vendor documents storage routes", () => {
     expect(data.error).toMatch(/unauthorized/i);
   });
 
-  it("downloads from the private vendor-documents bucket for the owner", async () => {
+  it("never streams bytes any more — redirects to a freshly minted signed URL for the owner", async () => {
     const storagePath = `vendor-documents/${VENDOR_ID}/insurance-1.pdf`;
-    const downloaded: string[] = [];
+    const signed: { path: string; opts: unknown }[] = [];
     mocks.resolveOwnVendorRecords.mockResolvedValue([
       {
         id: "mv-1",
@@ -117,7 +117,7 @@ describe("vendor documents storage routes", () => {
               kind: "insurance",
               fileName: "cert.pdf",
               storagePath,
-              url: "/api/vendor/documents/file?kind=insurance",
+              url: "/api/vendor/documents/signed-url?kind=insurance",
               uploadedAt: "2026-01-01T00:00:00.000Z",
             },
           ],
@@ -125,11 +125,42 @@ describe("vendor documents storage routes", () => {
         },
       },
     ]);
-    mocks.createSupabaseServiceRoleClient.mockReturnValue({ storage: mockStorage([], downloaded) });
+    mocks.createSupabaseServiceRoleClient.mockReturnValue({ storage: mockStorage([], signed) });
 
     const res = await DOWNLOAD(jsonRequest("http://t/api/vendor/documents/file?kind=insurance"));
-    expect(res.status).toBe(200);
-    expect(downloaded).toEqual([storagePath]);
-    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(res.status).toBe(302);
+    expect(signed).toEqual([{ path: storagePath, opts: undefined }]);
+    expect(res.headers.get("location")).toBe(`https://storage.example/${storagePath}?sig=mock`);
+  });
+
+  it("404s a foreign vendor's kind — never signs a path outside the caller's own prefix", async () => {
+    mocks.resolveOwnVendorRecords.mockResolvedValue([
+      {
+        id: "mv-1",
+        managerUserId: "mgr-1",
+        row: {
+          id: "mv-1",
+          managerUserId: "mgr-1",
+          vendorDocuments: [
+            {
+              kind: "insurance",
+              fileName: "cert.pdf",
+              storagePath: "vendor-documents/some-other-vendor/insurance-1.pdf",
+              url: "/api/vendor/documents/signed-url?kind=insurance",
+              uploadedAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    ]);
+    const signed: { path: string; opts: unknown }[] = [];
+    mocks.createSupabaseServiceRoleClient.mockReturnValue({ storage: mockStorage([], signed) });
+
+    const res = await DOWNLOAD(jsonRequest("http://t/api/vendor/documents/file?kind=insurance"));
+    const { status, data } = await parseJsonResponse<{ error?: string }>(res);
+    expect(status).toBe(404);
+    expect(data.error).toMatch(/not found/i);
+    expect(signed).toHaveLength(0);
   });
 });

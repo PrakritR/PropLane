@@ -1,6 +1,7 @@
 "use client";
 
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -32,7 +33,17 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
-import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
+import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionRoomProgress, type InspectionSummary } from "@/lib/inspections/model";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import {
+  residentInspectionTab,
+  RESIDENT_INSPECTION_TAB_LABELS,
+  RESIDENT_INSPECTION_TAB_ORDER,
+  RESIDENT_INSPECTION_TYPE_LABELS,
+  type ResidentInspectionTab,
+  type ResidentInspectionTypeFilter,
+} from "@/lib/resident-inspections-tabs";
 
 const inspectionsSettingsEntry = getSettingsEntryPoint("inspections");
 
@@ -47,6 +58,14 @@ const photoLine = (photos: InspectionPhotoCounts) => {
   const parts = [photos.resident ? `resident ${photos.resident}` : "", photos.manager ? `manager ${photos.manager}` : ""].filter(Boolean);
   return `${photos.total} photo${photos.total === 1 ? "" : "s"}${parts.length > 1 ? ` · ${parts.join(", ")}` : ""}`;
 };
+
+/**
+ * "3 of 8 rooms photographed" (C250/U033) — the roster row's second fact, so a manager can tell
+ * which residents still need specific rooms covered without opening every report. Empty once a
+ * report has no rooms at all (should not happen, but never divide by zero into a line).
+ */
+const roomProgressLine = (progress: InspectionRoomProgress): string =>
+  progress.total ? `${progress.done} of ${progress.total} room${progress.total === 1 ? "" : "s"} photographed` : "";
 
 /** Room-by-room progress straight from the stored document — the same rows Rooms itself renders. */
 function inspectionRoomStats(document: InspectionDocument): { done: number; total: number; issues: number } {
@@ -105,6 +124,8 @@ export type InspectionRow = {
   tenancy: string;
   /** "No photos yet" or "4 photos · resident 2, manager 2". */
   photos: string;
+  /** Set only once a report exists — there is no per-room data before one is created. */
+  roomProgress?: InspectionRoomProgress;
   /** The room's own configuration requires this kind of inspection. */
   required: boolean;
   report?: InspectionSummary;
@@ -155,6 +176,7 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
       address: `${residency?.property || report.property_label}${roomSuffix(residency?.room || report.room_label)}`,
       tenancy: tenancyLine(residency),
       photos: photoLine(report.photos),
+      roomProgress: report.roomProgress,
       required: requiredFor(residency),
       report,
       residency,
@@ -203,8 +225,27 @@ export function pickPrimaryInspectionReport(reports: InspectionSummary[]): Inspe
   return [...reports].sort((a, b) => b.inspection_date.localeCompare(a.inspection_date) || b.created_at.localeCompare(a.created_at))[0];
 }
 
-/** Resident's own Inspections section — move-in / move-out reports for their room. */
-export function ResidentInspectionsPage({ kind = "move-in", reportId, basePath = "/resident" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
+/**
+ * Resident's own Inspections section. Two route grammars share this page:
+ * - New bucket list (`bucket` set): a merged move-in + move-out roster,
+ *   grouped Upcoming / In progress / Done, with Move-in/Move-out as a "Type"
+ *   filter instead of a top destination (captain, 2026-09-25).
+ * - Legacy kind-based detail (`kind` + `reportId`, `bucket` omitted): unchanged
+ *   — a filed report still opens at `/inspections/{move-in|move-out}/{id}`.
+ */
+export function ResidentInspectionsPage({
+  kind = "move-in",
+  reportId,
+  basePath = "/resident",
+  bucket,
+  typeFilter,
+}: {
+  kind?: InspectionKind;
+  reportId?: string;
+  basePath?: string;
+  bucket?: ResidentInspectionTab;
+  typeFilter?: ResidentInspectionTypeFilter;
+}) {
   if (reportId) return <InspectionsPanel role="resident" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
   return (
     <ManagerPortalPageShell
@@ -212,7 +253,14 @@ export function ResidentInspectionsPage({ kind = "move-in", reportId, basePath =
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <InspectionsPanel role="resident" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />
+      <InspectionsPanel
+        role="resident"
+        initialKind={kind}
+        reportId={reportId}
+        routeBase={`${basePath}/inspections`}
+        residentBucket={bucket}
+        residentTypeFilter={typeFilter}
+      />
     </ManagerPortalPageShell>
   );
 }
@@ -230,18 +278,43 @@ export function ManagerInspectionsPage({ kind = "move-in", reportId, recordTab, 
   );
 }
 
-export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false }: {
+export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, residentBucket, residentTypeFilter }: {
   role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  /** Resident-only bucket list mode. Omitted (always, for manager) keeps the kind-based view exactly as it was. */
+  residentBucket?: ResidentInspectionTab;
+  residentTypeFilter?: ResidentInspectionTypeFilter;
 }) {
   const { userId, ready } = usePortalSession();
   // Remount state on an account/portal/residency change so another viewer never sees old evidence.
-  if (!ready) return <p role="status" className="p-4 text-sm text-muted">Loading inspections…</p>;
+  // A bare "Loading…" paragraph here (instead of the same shimmering
+  // skeleton every other list content area uses) read, on a slow session
+  // read, as the whole page having failed to mount its shell — the caller
+  // (`ResidentInspectionsPage` / `ManagerInspectionsPage`) already keeps the
+  // portal shell mounted around this content slot, so only this content
+  // area needs a loading shape.
+  if (!ready) return <ListSkeleton rows={4} showLeading={false} className="p-1" />;
   if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view your inspections.</p>;
-  return <InspectionWorkspace key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}`} userId={userId ?? "demo"} role={role} applicationId={applicationId} initialKind={initialKind} reportId={reportId} recordTab={recordTab} routeBase={routeBase} embeddedInResident={embeddedInResident} />;
+  return (
+    <InspectionWorkspace
+      key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}:${residentBucket ?? ""}`}
+      userId={userId ?? "demo"}
+      role={role}
+      applicationId={applicationId}
+      initialKind={initialKind}
+      reportId={reportId}
+      recordTab={recordTab}
+      routeBase={routeBase}
+      embeddedInResident={embeddedInResident}
+      residentBucket={residentBucket}
+      residentTypeFilter={residentTypeFilter}
+    />
+  );
 }
 
-function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false }: {
+function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, residentBucket, residentTypeFilter }: {
   userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  residentBucket?: ResidentInspectionTab;
+  residentTypeFilter?: ResidentInspectionTypeFilter;
 }) {
   const router = useRouter();
   const { showToast } = useAppUi();
@@ -250,10 +323,19 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<InspectionDetail | null>(null);
+  // Bumped by the retry button below so the detail effect re-runs without a full remount.
+  const [detailRetryToken, setDetailRetryToken] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Resident-only "Type" filter (Filter popover), narrowing the merged
+  // move-in + move-out roster within the active bucket. Initialized once from
+  // the routed prop; the workspace remounts (see `key` above) when the bucket
+  // itself changes, so this never goes stale.
+  const [residentTypeFilterState, setResidentTypeFilterState] = useState<ResidentInspectionTypeFilter>(
+    residentTypeFilter ?? "all",
+  );
   const propertyOptions = useMemo(
     () => (role === "manager" ? buildManagerPropertyFilterOptions(userId) : []),
     [role, userId],
@@ -282,11 +364,25 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   useEffect(() => {
     if (!reportId) return;
     let cancelled = false;
-    inspectionRequest<InspectionDetail>(role, `/${reportId}`).then(value => {
+    // Clearing a stale error before a retry, not synchronizing with an external read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setError("");
+    // C202: a stalled fetch (dropped connection, a proxy that never closes the
+    // response) previously left `detail` null forever — the loading paragraph
+    // below had no error and no timeout to fall back on, and photos stayed
+    // unreachable behind it. A bounded wait guarantees this always resolves
+    // into either the report or a retryable error.
+    const controller = new AbortController();
+    const stall = setTimeout(() => controller.abort(), 15_000);
+    inspectionRequest<InspectionDetail>(role, `/${reportId}`, { signal: controller.signal }).then(value => {
       if (!cancelled) setDetail(value);
-    }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Could not open this report."); });
-    return () => { cancelled = true; };
-  }, [reportId, role]);
+    }).catch(e => {
+      if (cancelled) return;
+      const stalled = e instanceof DOMException && e.name === "AbortError";
+      setError(stalled ? "This report is taking longer than expected to load." : e instanceof Error ? e.message : "Could not open this report.");
+    }).finally(() => clearTimeout(stall));
+    return () => { cancelled = true; controller.abort(); clearTimeout(stall); };
+  }, [reportId, role, detailRetryToken]);
   const run = async (operation: () => Promise<void>) => {
     if (working.current) return;
     working.current = true; setBusy(true); setError("");
@@ -294,8 +390,13 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     catch (e) { if (live.current) setError(e instanceof Error ? e.message : "Could not finish the request."); }
     finally { working.current = false; if (live.current) setBusy(false); }
   };
-  const open = (id: string) => run(async () => {
-    if (routeBase) { router.push(`${routeBase}/${kind}/${id}`); return; }
+  // `kindOverride` lets the resident bucket view (a merged move-in + move-out
+  // list) open a row under ITS OWN real kind rather than whatever the `kind`
+  // state happens to hold — every other caller omits it and keeps today's
+  // behavior exactly.
+  const open = (id: string, kindOverride?: InspectionKind) => run(async () => {
+    const useKind = kindOverride ?? kind;
+    if (routeBase) { router.push(`${routeBase}/${useKind}/${id}`); return; }
     setDetail(await inspectionRequest<InspectionDetail>(role, `/${id}`)); setSelected(new Set());
   });
   /**
@@ -303,12 +404,13 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
    * looks. The roster row already knows the resident, the room and the move date, so the old
    * "New inspection" dialog only asked the manager to retype what the row was showing them.
    */
-  const openResidency = (residency: InspectionResidency) => run(async () => {
+  const openResidency = (residency: InspectionResidency, kindOverride?: InspectionKind) => run(async () => {
+    const useKind = kindOverride ?? kind;
     const value = await inspectionRequest<InspectionDetail>(role, "", {
-      method: "POST", body: JSON.stringify({ applicationId: residency.id, kind }),
+      method: "POST", body: JSON.stringify({ applicationId: residency.id, kind: useKind }),
     });
     setSelected(new Set());
-    if (routeBase) router.push(`${routeBase}/${kind}/${value.report.id}`);
+    if (routeBase) router.push(`${routeBase}/${useKind}/${value.report.id}`);
     else setDetail(value);
   });
   const changeKind = (next: InspectionKind) => {
@@ -335,12 +437,39 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, visibleReports);
   const rows = rowsFor(kind);
   const shownRows = filterInspectionRows(rows, query);
-  const searchHidesEveryRow = rows.length > 0 && shownRows.length === 0;
-  const selectedRows = rows.filter(row => selected.has(row.key));
+
+  // Resident-only: a merged move-in + move-out roster, bucketed Upcoming /
+  // In progress / Done (captain, 2026-09-25). `embeddedInResident` (the
+  // record-page card) and every manager render keep the kind-based `rows`
+  // above untouched — this block only runs, and is only READ below, when
+  // `residentBucket` was actually routed.
+  const isResidentBucketMode = role === "resident" && !embeddedInResident && residentBucket != null;
+  const residentTypeKinds: InspectionKind[] =
+    residentTypeFilterState === "all" ? ["move-in", "move-out"] : [residentTypeFilterState];
+  const residentAllRows: (InspectionRow & { _kind: InspectionKind })[] = isResidentBucketMode
+    ? residentTypeKinds.flatMap((k) => rowsFor(k).map((row) => ({ ...row, _kind: k })))
+    : [];
+  const residentActiveBucket: ResidentInspectionTab = residentBucket ?? "upcoming";
+  const residentBucketCounts: Record<ResidentInspectionTab, number> = { upcoming: 0, "in-progress": 0, done: 0 };
+  for (const row of residentAllRows) residentBucketCounts[residentInspectionTab(row.report ?? null)] += 1;
+  const residentRowsForBucket = residentAllRows.filter(
+    (row) => residentInspectionTab(row.report ?? null) === residentActiveBucket,
+  );
+  const residentShownRows = filterInspectionRows(residentRowsForBucket, query);
+
+  // Every manager render (`isResidentBucketMode` false) takes the `: rows` /
+  // `: shownRows` branch — byte-identical to the pre-existing behavior.
+  const effectiveRows = isResidentBucketMode ? residentRowsForBucket : rows;
+  const effectiveShownRows = isResidentBucketMode ? residentShownRows : shownRows;
+  const effectiveSearchHidesEveryRow = effectiveRows.length > 0 && effectiveShownRows.length === 0;
+  const effectiveKindForAdd: InspectionKind = isResidentBucketMode ? residentTypeKinds[0]! : kind;
+
+  const selectedRows = effectiveRows.filter(row => selected.has(row.key));
   const selectedReports = selectedRows.filter(row => row.report).map(row => row.report!);
   const openRow = (row: InspectionRow) => {
-    if (row.report) void open(row.report.id);
-    else if (row.residency?.canCreate) openResidency(row.residency);
+    const rowKind = (row as InspectionRow & { _kind?: InspectionKind })._kind;
+    if (row.report) void open(row.report.id, rowKind);
+    else if (row.residency?.canCreate) openResidency(row.residency, rowKind);
   };
 
   const openEmbeddedInspection = () => {
@@ -454,7 +583,13 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       </PortalRecordDetailPage>
     );
   }
-  if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
+  if (reportId) return <div className="space-y-3 p-4">
+    {error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}
+    <div className="flex flex-wrap gap-2">
+      {error && <Button onClick={() => setDetailRetryToken(t => t + 1)} data-attr="inspection-detail-retry">Retry</Button>}
+      <Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button>
+    </div>
+  </div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
       <ResidentDetailSubsectionChrome
@@ -479,6 +614,40 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         editDisabled={embeddedEditDisabled}
         editLabel={embeddedPrimaryReport ? "Edit" : "Create inspection"}
       />
+    ) : isResidentBucketMode ? (
+    <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection status" activeDestinationId={residentActiveBucket}
+      destinations={RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
+        id,
+        label: RESIDENT_INSPECTION_TAB_LABELS[id],
+        count: residentBucketCounts[id],
+        href: `${routeBase}/${id}`,
+        dataAttr: `resident-inspections-tab-${id}`,
+      }))}
+      search={{ value: query, onChange: setQuery, placeholder: "Search inspections", dataAttr: "inspections-search" }}
+      actions={
+        <PortalFilterSortSheet
+          activeCount={portalFilterActiveCount([residentTypeFilterState !== "all" ? residentTypeFilterState : ""])}
+          compactPanel
+          commandStripTrigger
+          filterFieldCount={1}
+          onReset={() => setResidentTypeFilterState("all")}
+          dataAttr="resident-inspections-type-filter-open"
+        >
+          <FieldSingleSelect
+            label="Type"
+            variant="cell"
+            value={residentTypeFilterState}
+            onChange={(next) => setResidentTypeFilterState(next as ResidentInspectionTypeFilter)}
+            options={[
+              { value: "all", label: "All types" },
+              { value: "move-in", label: RESIDENT_INSPECTION_TYPE_LABELS["move-in"] },
+              { value: "move-out", label: RESIDENT_INSPECTION_TYPE_LABELS["move-out"] },
+            ]}
+            dataAttr="resident-inspections-type-select"
+          />
+        </PortalFilterSortSheet>
+      }
+    />
     ) : (
     <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
@@ -523,15 +692,29 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       </div>
     ) : null}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : embeddedScope ? null : <PortalRecordListSurface
-      isEmpty={shownRows.length === 0}
+      isEmpty={effectiveShownRows.length === 0}
       // No pill: an inspection opens by itself once a resident has a room, so the
       // card is tile + title + the sibling that does have reports. A search that hides
       // every row gets the muted no-match card with Clear search, as Properties does.
-      emptyCard={searchHidesEveryRow ? {
+      emptyCard={effectiveSearchHidesEveryRow ? {
         title: portalEmptyNoMatchTitle("inspections", query),
         section: "inspections",
         tone: "muted",
         clear: { label: "Clear search", onClick: () => setQuery(""), dataAttr: "inspections-empty-clear-search" },
+      } : isResidentBucketMode ? {
+        title: `No inspections ${residentActiveBucket === "in-progress" ? "in progress" : residentActiveBucket} yet`,
+        section: "inspections",
+        sibling: routeBase
+          ? portalEmptySibling(
+              RESIDENT_INSPECTION_TAB_ORDER.map((id) => ({
+                id,
+                label: RESIDENT_INSPECTION_TAB_LABELS[id].toLowerCase(),
+                count: residentBucketCounts[id],
+                href: `${routeBase}/${id}`,
+              })),
+              residentActiveBucket,
+            )
+          : null,
       } : {
         title: role === "manager" ? portalEmptyCopy(`inspections.${kind}`).title : kind === "move-in" ? "No move-in inspection yet" : "No move-out inspection yet",
         section: "inspections",
@@ -543,17 +726,17 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
           : null,
       }}
       add={{
-        ariaLabel: `Add ${kind === "move-in" ? "move-in" : "move-out"} inspection`,
+        ariaLabel: `Add ${effectiveKindForAdd === "move-in" ? "move-in" : "move-out"} inspection`,
         inline: true,
         dataAttr: "inspection-add",
         onClick: () => {
           const next = visible.find((residency) =>
-            residency.canCreate && !visibleReports.some((report) => report.application_id === residency.id && report.kind === kind),
+            residency.canCreate && !visibleReports.some((report) => report.application_id === residency.id && report.kind === effectiveKindForAdd),
           );
-          if (next) openResidency(next);
+          if (next) openResidency(next, isResidentBucketMode ? effectiveKindForAdd : undefined);
         },
         disabled: !visible.some((residency) =>
-          residency.canCreate && !visibleReports.some((report) => report.application_id === residency.id && report.kind === kind),
+          residency.canCreate && !visibleReports.some((report) => report.application_id === residency.id && report.kind === effectiveKindForAdd),
         ),
       }}
       onBulkClear={() => setSelected(new Set())}
@@ -561,16 +744,20 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       bulkActions={<PortalSectionActionRow variant="header">
         <Button variant="outline" disabled={busy || selectedReports.length === 0} onClick={() => run(async () => { for (const report of selectedReports) await downloadInspection(role, report.id); })} data-attr="inspection-bulk-download">Download PDF</Button>
       </PortalSectionActionRow>}
-    >{shownRows.map(row => <PortalApplicantRecordRow key={row.key} name={row.name} address={row.address}
+    >{effectiveShownRows.map(row => <PortalApplicantRecordRow key={row.key} name={row.name} address={row.address}
       facts={<>
         {row.tenancy ? <PortalRowFact icon={CalendarDays} srLabel="Tenancy">{row.tenancy}</PortalRowFact> : null}
         <PortalRowFact icon={Camera} srLabel="Photos">{row.photos}</PortalRowFact>
-        {row.required ? <PortalRowFact icon={ClipboardCheck} srLabel="Requirement">Required</PortalRowFact> : null}
+        {row.roomProgress && row.roomProgress.total > 0 ? (
+          <PortalRowFact icon={ClipboardCheck} srLabel="Room progress">{roomProgressLine(row.roomProgress)}</PortalRowFact>
+        ) : row.required ? (
+          <PortalRowFact icon={ClipboardCheck} srLabel="Requirement">Required</PortalRowFact>
+        ) : null}
       </>}
       checked={selected.has(row.key)}
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
       onOpen={() => openRow(row)}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
-    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} propertyOptions={propertyOptions} />}
+    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="automation" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} propertyOptions={propertyOptions} />}
   </div>;
 }

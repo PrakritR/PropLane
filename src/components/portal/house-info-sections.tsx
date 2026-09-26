@@ -391,7 +391,7 @@ export function ResidentPortalHelpCard() {
           <b>Lease</b> — read your terms, and ask to extend when you are ready.
         </li>
         <li>
-          <b>Inbox</b> — message your property manager. Everything stays documented.
+          <b>Communication</b> — message your property manager. Everything stays documented.
         </li>
       </ul>
     </section>

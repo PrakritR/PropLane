@@ -25,6 +25,39 @@ export type GoogleCalendarConnection = {
   channelResourceId?: string | null;
   /** Epoch ms the channel expires — Google caps `events.watch` at ~7 days. */
   channelExpiryMs?: number | null;
+  /**
+   * The dedicated secondary "PropLane" calendar (`calendars.insert`, created
+   * by `ensureProplaneCalendarId`), used for every PropLane-authored WRITE
+   * (tours, service visits, availability blocks) once it exists. `calendarId`
+   * above remains the READ calendar for busy-time (the user's own primary).
+   * `null` until creation succeeds (older connections, or a creation that
+   * failed) — writers fall back to `calendarId` in that case.
+   */
+  writeCalendarId?: string | null;
+  /**
+   * Incremental-sync cursor for the dedicated write calendar, used by
+   * `pullProplaneCalendarPendingChanges` to detect a Google-side edit or
+   * deletion of a PropLane-authored event. Separate from `syncToken` (which
+   * covers the read/busy calendar) because the two calendars are walked
+   * independently.
+   */
+  proplaneSyncToken?: string | null;
+  /**
+   * Vendor-only, default OFF: whether this vendor's assigned service visits
+   * and painted availability blocks are pushed to their OWN connected Google
+   * Calendar. Independent of `syncEnabled` (which still gates manager writes
+   * and every busy-time read) so a vendor who only wants their Google busy
+   * time read into PropLane never gets unsolicited events written back.
+   */
+  vendorPushEnabled?: boolean;
+  /**
+   * True once a REVOKED/expired refresh token was detected
+   * (`refreshAccessToken`'s `invalid_grant`/`invalid_token` handling) and the
+   * connection was proactively marked disconnected. Distinguishes "never
+   * connected" from "was connected, needs reconnecting" for the UI without
+   * needing a separate table — cleared on every successful (re)connect.
+   */
+  revoked?: boolean;
 };
 
 export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
@@ -39,6 +72,10 @@ export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
   channelId: null,
   channelResourceId: null,
   channelExpiryMs: null,
+  writeCalendarId: null,
+  proplaneSyncToken: null,
+  vendorPushEnabled: false,
+  revoked: false,
 };
 
 function googleCalendarProjectRef(): string | null {
@@ -104,6 +141,11 @@ export function normalizeGoogleCalendarConnection(raw: unknown): GoogleCalendarC
       typeof r.channelResourceId === "string" && r.channelResourceId.trim() ? r.channelResourceId.trim() : null,
     channelExpiryMs:
       typeof r.channelExpiryMs === "number" && Number.isFinite(r.channelExpiryMs) ? r.channelExpiryMs : null,
+    writeCalendarId: typeof r.writeCalendarId === "string" && r.writeCalendarId.trim() ? r.writeCalendarId.trim() : null,
+    proplaneSyncToken:
+      typeof r.proplaneSyncToken === "string" && r.proplaneSyncToken.trim() ? r.proplaneSyncToken.trim() : null,
+    vendorPushEnabled: r.vendorPushEnabled === true,
+    revoked: r.revoked === true,
   };
 }
 
@@ -120,6 +162,15 @@ export function googleCalendarPublicStatus(
     schemaReady: opts?.schemaReady !== false,
     perManager: true,
     googleAuthUser: opts?.googleAuthUser === true,
+    // True only when a PREVIOUSLY connected account was proactively
+    // disconnected after Google reported the refresh token revoked/expired
+    // (`invalid_grant`) — lets the UI say "reconnect" instead of "connect".
+    revoked: connection.revoked === true && !connection.connected,
+    vendorPushEnabled: connection.vendorPushEnabled === true,
+    // Whether a dedicated PropLane calendar exists yet — new writes land
+    // there once true; older/failed-creation connections keep writing to
+    // the primary calendar until this becomes true (e.g. on reconnect).
+    hasDedicatedCalendar: Boolean(connection.writeCalendarId),
   };
 }
 

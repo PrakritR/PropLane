@@ -811,9 +811,26 @@ async function fetchPublicPropertyLead(
   try {
     const res = await fetch(`/api/public/property-lead?propertyId=${encodeURIComponent(id)}`);
     const body = (await res.json()) as { property?: MockProperty; testWorkspaceId?: string };
-    if (!isCurrentPublicCatalogRequest(identity) || !res.ok || !body.property) return null;
-    if (body.testWorkspaceId) cachePrivateTestWorkspaceListings(identity, body.testWorkspaceId, [body.property], false);
-    else {
+    if (!res.ok || !body.property) return null;
+    // Deliberately NOT gated on isCurrentPublicCatalogRequest(identity) below:
+    // `/api/public/property-lead` is a PUBLIC endpoint, so a genuinely normal
+    // lead is safe to cache even when this request's own identity/generation
+    // went stale in flight (e.g. sign-in hydrating mid-fetch bumps the catalog
+    // generation via resetPublicListingCatalog()). Discarding it here used to
+    // leave the public extras cache never populated at all, so a sync reader
+    // like getPropertyForPublicLink() could never find a listing that had, in
+    // fact, loaded successfully — the tour-scheduling "This listing is not
+    // available to tour right now" bug, reproduced right after resident
+    // sign-in on both the signed-in (/resident/tour/schedule) and the
+    // signed-out guest (/rent/tours-contact) paths, which share this loader.
+    // loadPublicPropertyLeadFromServer() still gates its OWN return value on
+    // identity freshness, so a stale caller never acts on this data directly.
+    if (body.testWorkspaceId) {
+      // Private test-workspace listings stay identity-scoped:
+      // cachePrivateTestWorkspaceListings refuses on its own when the
+      // viewer/workspace has moved on since this request started.
+      cachePrivateTestWorkspaceListings(identity, body.testWorkspaceId, [body.property], false);
+    } else {
       if (catalogScope.kind === "private" || catalogScope.kind === "denied") return null;
       // This successful, classified server projection confirms a normal lead.
       catalogScope = { kind: "normal" };
