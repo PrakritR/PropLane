@@ -259,7 +259,15 @@ export async function uploadListingVideoFile(
   if (file.size > MAX_LISTING_VIDEO_BYTES) {
     throw new Error(`Video too large (max ${Math.round(MAX_LISTING_VIDEO_BYTES / 1024 / 1024)} MB).`);
   }
-  return uploadToBucket(file, opts);
+  try {
+    return await uploadToBucket(file, opts);
+  } catch (err) {
+    // A storage or TUS failure carries status codes and offsets; the manager
+    // sees one plain line under the tile, the detail stays in the console.
+    console.error("uploadListingVideoFile: upload failed", err);
+    const message = err instanceof Error ? err.message : "";
+    throw new Error(message.startsWith("File is too large") ? message : "Upload failed. Try again.");
+  }
 }
 
 /** Upload a persisted `data:` URL to listing-photos; pass through http(s) URLs unchanged. */
