@@ -76,6 +76,7 @@ import { AssistantDisplaySetting } from "@/components/portal/assistant-display-s
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
+import { ManagerFormsSettingsPanel } from "@/components/portal/pro-portal-settings-forms-panel";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
@@ -135,7 +136,7 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
  * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
  * `workspace-only` variant — no properties picker.
  */
-export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications", "applicationForm", "leaseDocuments"]);
+export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications", "applicationForm", "leaseDocuments", "forms"]);
 
 /** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -172,6 +173,7 @@ export type SettingsGroupId =
   | "applicationForm"
   | "lease"
   | "leaseDocuments"
+  | "forms"
   | "tours"
   | "resident"
   | "payments"
@@ -234,6 +236,20 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
   );
 
   return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
+}
+
+function FormsSettingsModulePane() {
+  const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const propertyOptions = useMemo(
+    () =>
+      unionLabeledPropertyOptions(
+        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+      ),
+    [userId, workspaces?.workspaces],
+  );
+  return <ManagerFormsSettingsPanel propertyOptions={propertyOptions} />;
 }
 
 export function PortalProfileClient({
@@ -478,6 +494,13 @@ export function PortalProfileClient({
         },
         { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
         { id: "leaseDocuments", label: "Lease documents", description: "Uploaded lease PDFs a property or lease can reuse.", icon: Folder, group: "Portfolio" },
+        {
+          id: "forms",
+          label: "Forms",
+          description: "Naming, the intake form, and the lease template every property follows by default.",
+          icon: FileText,
+          group: "Portfolio",
+        },
         { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
         { id: "resident", label: "Residents", description: "Resident settings for this workspace.", icon: Home, group: "Portfolio" },
       );
@@ -737,6 +760,8 @@ export function PortalProfileClient({
         );
       case "applicationForm":
         return <ManagerApplicationFormSettings />;
+      case "forms":
+        return <FormsSettingsModulePane />;
       case "spreadsheets":
         return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
       case "leaseDocuments":
