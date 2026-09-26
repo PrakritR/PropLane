@@ -4,6 +4,7 @@ import {
   creditResidentPaymentPending,
   ensureBalanceAccountId,
   payVendorFromBalance,
+  readBalancePaidThisMonthCents,
   readBalanceSnapshot,
   reverseWithdrawalClaim,
   stampWithdrawalTransfer,
@@ -18,13 +19,22 @@ function chain(result: Result) {
     select: () => chain(result),
     maybeSingle: () => result,
     eq: () => chain(result),
+    in: () => chain(result),
+    gte: () => chain(result),
   };
 }
 
 /** Minimal Supabase-client double covering exactly the call shapes ledger.server.ts uses. */
 function makeDb(opts: {
   rpc?: Record<string, (args: Record<string, unknown>) => Result>;
-  tables?: Record<string, { insert?: (row: Record<string, unknown>) => Result; update?: (patch: Record<string, unknown>) => Result }>;
+  tables?: Record<
+    string,
+    {
+      insert?: (row: Record<string, unknown>) => Result;
+      update?: (patch: Record<string, unknown>) => Result;
+      select?: () => Result;
+    }
+  >;
 }) {
   const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const insertCalls: Array<{ table: string; row: Record<string, unknown> }> = [];
@@ -46,6 +56,10 @@ function makeDb(opts: {
         updateCalls.push({ table, patch });
         const handler = opts.tables?.[table]?.update;
         return chain(handler ? handler(patch) : { data: null, error: null });
+      },
+      select: () => {
+        const handler = opts.tables?.[table]?.select;
+        return chain(handler ? handler() : { data: [], error: null });
       },
     }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -312,5 +326,36 @@ describe("stampWithdrawalTransfer / reverseWithdrawalClaim", () => {
     await expect(
       reverseWithdrawalClaim(db, { entryId: "claim-1", accountId: "acct-1", amountCents: 10_000 }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("readBalancePaidThisMonthCents", () => {
+  it("sums the magnitude of vendor_payment_out and withdrawal legs this month", async () => {
+    const { db } = makeDb({
+      tables: {
+        proplane_balance_entries: {
+          select: () => ({
+            data: [{ amount_cents: -13_200 }, { amount_cents: -5_000 }],
+            error: null,
+          }),
+        },
+      },
+    });
+    const cents = await readBalancePaidThisMonthCents(db, "acct-1");
+    expect(cents).toBe(18_200);
+  });
+
+  it("reads zero when nothing has moved out this month", async () => {
+    const { db } = makeDb({
+      tables: { proplane_balance_entries: { select: () => ({ data: [], error: null }) } },
+    });
+    expect(await readBalancePaidThisMonthCents(db, "acct-1")).toBe(0);
+  });
+
+  it("throws on a read error rather than reporting a silent zero", async () => {
+    const { db } = makeDb({
+      tables: { proplane_balance_entries: { select: () => ({ data: null, error: { message: "timeout" } }) } },
+    });
+    await expect(readBalancePaidThisMonthCents(db, "acct-1")).rejects.toThrow(/timeout/);
   });
 });

@@ -91,6 +91,31 @@ export async function creditResidentPaymentPending(
   return { ok: true, alreadyCredited: false };
 }
 
+/**
+ * Sum of money that left this account (a negative `vendor_payment_out` or
+ * `withdrawal` leg — never `resident_payment`/`fee`/`adjustment` inflows) with
+ * `created_at` inside the current UTC calendar month. Read-only, no
+ * `settle_due` needed first (settling only ever moves pending → available; it
+ * never changes an entry's `created_at` or amount). Used for the Financials
+ * Overview's "Paid this month" figure — closing the loop between the balance
+ * card and the Pay vendors / Withdraw actions that spend it.
+ */
+export async function readBalancePaidThisMonthCents(db: SupabaseClient, accountId: string): Promise<number> {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const { data, error } = await db
+    .from("proplane_balance_entries")
+    .select("amount_cents")
+    .eq("account_id", accountId)
+    .in("kind", ["vendor_payment_out", "withdrawal"])
+    .eq("status", "available")
+    .gte("created_at", monthStart);
+  if (error) throw new Error(`Could not read this month's balance spend: ${error.message}`);
+  const rows = (data ?? []) as Array<{ amount_cents: number | null }>;
+  const totalCents = rows.reduce((sum, row) => sum + Math.abs(Number(row.amount_cents) || 0), 0);
+  return totalCents;
+}
+
 export type PayVendorFromBalanceResult =
   | { ok: true; payerEntryId: string; payeeEntryId: string }
   | { ok: false; code: "insufficient_balance"; availableCents: number; requestedCents: number; shortfallCents: number }
