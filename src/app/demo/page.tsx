@@ -1,5 +1,12 @@
 import { DemoManagerShell } from "@/app/demo/demo-manager-shell";
 import { DemoResetScroll } from "@/app/demo/demo-reset-scroll";
+import type { DemoPortalRole } from "@/lib/demo/demo-session";
+
+const DEMO_ROLES = new Set<DemoPortalRole>(["manager", "resident", "vendor"]);
+
+function readRole(value: string | undefined): DemoPortalRole | undefined {
+  return value && DEMO_ROLES.has(value as DemoPortalRole) ? (value as DemoPortalRole) : undefined;
+}
 
 /**
  * Standalone public page for the `/demo` sandbox. Deliberately outside the
@@ -22,12 +29,23 @@ import { DemoResetScroll } from "@/app/demo/demo-reset-scroll";
  * `stampCrawlPolicy`, which stamps `X-Robots-Tag: noindex` off the canonical
  * crawl host and leaves it indexable on the canonical host) rather than a
  * page-specific exception.
+ *
+ * `?role=&section=` deep-links straight into one slice for another page's
+ * embed (e.g. the home page's "Three sign-ins" tabs) — read on the SERVER
+ * from the actual request so the initial render is already correct, rather
+ * than a client-side `useSearchParams()` read that would first paint the
+ * default Manager/Dashboard and then flash to the deep-linked role.
  */
-export default function DemoPage() {
+export default async function DemoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ role?: string; section?: string }>;
+}) {
+  const params = await searchParams;
   return (
     <>
       <DemoResetScroll />
-      <DemoManagerShell />
+      <DemoManagerShell initialRole={readRole(params.role)} initialSection={params.section} />
     </>
   );
 }

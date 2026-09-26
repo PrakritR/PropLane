@@ -223,15 +223,36 @@ function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onCha
  * `WorkspaceProvider`, `AssistantDockPanel`, and the shared
  * `DemoSectionRenderer`'s resident branch for Resident — with the demo data
  * layer underneath, not `DemoPortalShell`'s own chrome.
+ *
+ * `initialRole`/`initialSection` (from `/demo`'s server-read `?role=&section=`,
+ * see `page.tsx`) let another page deep-link straight into one slice — e.g.
+ * the home page's "Three sign-ins" tabs each embed `/demo?role=vendor&section=work-orders`
+ * in a small non-interactive iframe rather than hand-drawing that portal's
+ * rows. An invalid or missing section for the given role falls back to
+ * Dashboard rather than rendering nothing.
  */
-export function DemoManagerShell() {
+export function DemoManagerShell({
+  initialRole = "manager",
+  initialSection = "dashboard",
+}: {
+  initialRole?: DemoPortalRole;
+  initialSection?: string;
+} = {}) {
   useLayoutEffect(() => {
+    setDemoRole(initialRole);
     hydrateDemoGuidedState();
     void seedDemoPortalIdleData();
+    // Deliberately NOT in the deps array: this is a one-time mount sync of
+    // the module-level demo role/session to the deep-linked initial prop,
+    // not a live subscription — `switchRole`/`navigateInDemo` own every
+    // later change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [portalRole, setPortalRole] = useState<DemoPortalRole>("manager");
-  const [section, setSection] = useState("dashboard");
+  const [portalRole, setPortalRole] = useState<DemoPortalRole>(initialRole);
+  const [section, setSection] = useState(() =>
+    portalDefinitionFor(initialRole).sections.some((s) => s.section === initialSection) ? initialSection : "dashboard",
+  );
   const [tab, setTab] = useState<string | null>(null);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
