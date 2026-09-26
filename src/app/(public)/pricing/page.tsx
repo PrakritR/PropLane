@@ -11,6 +11,7 @@ import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteFaq, type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
+import { CellValue, Check, Dash, COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import {
   SITE_BTN_PRIMARY,
   SITE_BTN_SECONDARY,
@@ -131,18 +132,6 @@ const FAQ: SiteFaqItem[] = [
   },
 ];
 
-function Check() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-primary" aria-hidden>
-      <path d="M4 10.5l3.5 3.5L16 5.5" />
-    </svg>
-  );
-}
-
-function Dash() {
-  return <span aria-hidden className="inline-block h-[2px] w-3 shrink-0 rounded bg-border" />;
-}
-
 function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: boolean }) {
   const featured = tier.id === "pro";
   const price = annual ? tier.annual : tier.monthly;
@@ -192,81 +181,10 @@ function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: b
   );
 }
 
-/* ───────────────────── comparison table ───────────────────── */
-
-type Cell = boolean | string;
-const YES = true;
-const NO = false;
-
-const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell] }[] }[] = [
-  {
-    group: "Homes & team",
-    rows: [
-      {
-        label: "Doors included",
-        cells: [
-          String(RATE_CARD.free.includedDoors),
-          String(RATE_CARD.pro.includedDoors),
-          String(RATE_CARD.business.includedDoors),
-        ],
-      },
-      {
-        label: "Extra door price",
-        cells: [
-          "—",
-          `${formatRateCardUsd(RATE_CARD.pro.perExtraDoorMonthlyCents ?? 0)}/mo`,
-          `${formatRateCardUsd(RATE_CARD.business.perExtraDoorMonthlyCents ?? 0)}/mo`,
-        ],
-      },
-      { label: "Co-managers", cells: [NO, "Unlimited", "Unlimited"] },
-      { label: "Workspaces", cells: ["1", "1", String(WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces)] },
-      { label: "Per-module access for co-managers", cells: [NO, YES, YES] },
-    ],
-  },
-  {
-    group: "Leasing",
-    rows: [
-      { label: "Public listing, apply link, tours", cells: [YES, YES, YES] },
-      { label: "Applications", cells: [YES, YES, YES] },
-      { label: "Residents & services", cells: [NO, YES, YES] },
-      { label: "Lease drafted from the application, e-sign", cells: [NO, YES, YES] },
-    ],
-  },
-  {
-    group: "Money",
-    rows: [
-      { label: "Rent by card or bank", cells: [YES, YES, YES] },
-      { label: "Ledger & reports", cells: [YES, YES, YES] },
-      { label: "Who pays processing fees", cells: ["Resident", "Resident or manager", "Resident or manager"] },
-    ],
-  },
-  {
-    group: "Communication",
-    rows: [
-      { label: "Work number, texting & calls", cells: [NO, "1 included", "1 per workspace"] },
-      {
-        label: "Included credit / month",
-        cells: [
-          formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!),
-          formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!),
-          formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!),
-        ],
-      },
-      { label: "AI assistant in the portal", cells: [YES, YES, YES] },
-      { label: "AI drafts in the inbox", cells: [NO, YES, YES] },
-    ],
-  },
-  {
-    group: "Support",
-    rows: [{ label: "Priority admin support", cells: [NO, NO, YES] }],
-  },
-];
-
-function CellValue({ value }: { value: Cell }) {
-  if (value === true) return <Check />;
-  if (value === false) return <Dash />;
-  return <span className="text-[13.5px] font-semibold text-foreground">{value}</span>;
-}
+/* ───────────────────── comparison table ─────────────────────
+   COMPARE, Check, Dash, and CellValue now live in
+   `pricing-compare-data.tsx`, shared with the home page teaser's
+   condensed grid so the two surfaces can never list different features. */
 
 function CompareTable() {
   return (
