@@ -95,7 +95,7 @@ import {
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
-import { RESIDENT_PAYMENTS_TAB_LABELS } from "@/lib/resident-payments-tabs";
+import { RESIDENT_PAYMENTS_TAB_LABELS, shouldSimplifyResidentPaymentsHeader } from "@/lib/resident-payments-tabs";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -1720,7 +1720,10 @@ export function ResidentPaymentsPanel({
     </>
   );
 
-  const paymentsCommandActions = paymentMethodButton;
+  // C261: a one-charge (ever) resident gets no Upcoming/Due/Paid tabs and no
+  // header utility button — see `shouldSimplifyResidentPaymentsHeader`.
+  const simplifyPaymentsHeader = shouldSimplifyResidentPaymentsHeader(rows.length);
+  const paymentsCommandActions = simplifyPaymentsHeader ? null : paymentMethodButton;
 
   if (chargeIdProp && detailMoveInGroup) {
     const group = detailMoveInGroup;
@@ -1906,15 +1909,19 @@ export function ResidentPaymentsPanel({
           className={paymentsLockedEmpty ? "mb-0" : "mb-2 max-lg:mb-1.5"}
           variant="command"
           stickyDestinations={false}
-          destinations={statusTabs.map((t) => ({
-            id: t.id,
-            label: t.label,
-            href: residentChargesListHref(basePath, t.id),
-            count: t.count,
-            alert: "alert" in t ? t.alert : undefined,
-            dataAttr: t.dataAttr,
-          }))}
-          activeDestinationId={bucket}
+          destinations={
+            simplifyPaymentsHeader
+              ? undefined
+              : statusTabs.map((t) => ({
+                  id: t.id,
+                  label: t.label,
+                  href: residentChargesListHref(basePath, t.id),
+                  count: t.count,
+                  alert: "alert" in t ? t.alert : undefined,
+                  dataAttr: t.dataAttr,
+                }))
+          }
+          activeDestinationId={simplifyPaymentsHeader ? undefined : bucket}
           destinationAriaLabel="Payment status"
           actions={paymentsCommandActions ?? undefined}
         />
