@@ -18,16 +18,20 @@ describe("SiteSwitchSteps", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders all three step titles", () => {
+  // Real /portal/properties/import flow is exactly Upload -> Review -> Create
+  // (portfolio-import-page.tsx's `Step` type) - never the invented 5-step
+  // "match columns" wizard this section used to show.
+  it("renders all three real step titles", () => {
     render(<SiteSwitchSteps />);
     expect(screen.getByRole("heading", { name: "Import your portfolio" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Invite your residents" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Collect rent in PropLane" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Review what the agent found" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create it, invite when you're ready" })).toBeInTheDocument();
   });
 
-  it("renders the import button copy in the mock", () => {
+  it("renders the real review step's summary line and create button copy in the mock", () => {
     render(<SiteSwitchSteps />);
-    expect(screen.getByText("Import 2 properties, 6 residents")).toBeInTheDocument();
+    expect(screen.getByText("rent-roll.xlsx")).toBeInTheDocument();
+    expect(screen.getByText("Create 4…")).toBeInTheDocument();
   });
 
   it("is imported and rendered by the home page", () => {
