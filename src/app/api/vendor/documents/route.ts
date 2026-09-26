@@ -13,7 +13,7 @@ import { resolveOwnVendorRecords, type OwnVendorRecord } from "@/lib/vendor-own-
 export const runtime = "nodejs";
 
 function expectedDocumentUrl(kind: VendorDocumentKind): string {
-  return `/api/vendor/documents/file?kind=${encodeURIComponent(kind)}`;
+  return `/api/vendor/documents/signed-url?kind=${encodeURIComponent(kind)}`;
 }
 
 function isStoredVendorDocument(userId: string, doc: VendorDocumentRecord): boolean {

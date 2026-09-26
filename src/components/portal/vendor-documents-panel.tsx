@@ -38,19 +38,19 @@ const DEMO_VENDOR_DOCUMENTS: VendorDocumentRecord[] = [
   {
     kind: "w9",
     fileName: "cascade-mechanical-w9.pdf",
-    url: "/api/vendor/documents/file?kind=w9",
+    url: "/api/vendor/documents/signed-url?kind=w9",
     uploadedAt: new Date(Date.now() - 120 * 86_400_000).toISOString(),
   },
   {
     kind: "insurance",
     fileName: "general-liability-certificate.pdf",
-    url: "/api/vendor/documents/file?kind=insurance",
+    url: "/api/vendor/documents/signed-url?kind=insurance",
     uploadedAt: new Date(Date.now() - 45 * 86_400_000).toISOString(),
   },
   {
     kind: "license",
     fileName: "wa-contractor-license.pdf",
-    url: "/api/vendor/documents/file?kind=license",
+    url: "/api/vendor/documents/signed-url?kind=license",
     uploadedAt: new Date(Date.now() - 200 * 86_400_000).toISOString(),
   },
 ];
@@ -153,6 +153,11 @@ export function VendorDocumentsPanel({
   const [loading, setLoading] = useState(!demo);
   const [uploadingKind, setUploadingKind] = useState<VendorDocumentKind | null>(null);
   const [previewKind, setPreviewKind] = useState<VendorDocumentKind | null>(null);
+  // Bytes are only ever reached through a server-minted signed URL
+  // (docs/agents/documents-module.md), so the previewed doc's own stored `url`
+  // marker is never used as an iframe `src` directly — this is fetched fresh
+  // from `/api/vendor/documents/signed-url` whenever `previewKind` changes.
+  const [ownPreviewUrl, setOwnPreviewUrl] = useState<string | null>(null);
   const [unlinked, setUnlinked] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -237,6 +242,31 @@ export function VendorDocumentsPanel({
     setPreviewKind(null);
   }, [source, category, statusTab]);
 
+  useEffect(() => {
+    if (!previewKind || demo) {
+      setOwnPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    setOwnPreviewUrl(null);
+    void fetch(`/api/vendor/documents/signed-url?kind=${encodeURIComponent(previewKind)}`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+        if (!res.ok || !data.url) throw new Error(data.error ?? "Could not load document preview.");
+        if (!cancelled) setOwnPreviewUrl(data.url);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        showToast(e instanceof Error ? e.message : "Could not load document preview.");
+        setPreviewKind(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewKind, demo, showToast]);
+
   const documentsByKind = useMemo(() => {
     const map = new Map<VendorDocumentKind, VendorDocumentRecord>();
     for (const doc of documents) map.set(doc.kind, doc);
@@ -320,7 +350,7 @@ export function VendorDocumentsPanel({
         next.push({
           kind,
           fileName: file.name,
-          url: `/api/vendor/documents/file?kind=${encodeURIComponent(kind)}`,
+          url: `/api/vendor/documents/signed-url?kind=${encodeURIComponent(kind)}`,
           uploadedAt: new Date().toISOString(),
         });
         return next;
@@ -366,6 +396,30 @@ export function VendorDocumentsPanel({
       showToast("Document removed.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not remove document.");
+    }
+  };
+
+  /**
+   * Fetch-then-blob rather than a direct anchor to the signed URL (or through
+   * a redirect): a download that instead navigates cross-origin opens a new
+   * tab in the native WebView instead of downloading (AGENTS.md "Inbox
+   * attachments"); this reads the bytes with an ordinary same-origin-initiated
+   * `fetch`, so no navigation ever happens.
+   */
+  const downloadOwnDocument = async (kind: VendorDocumentKind, fallbackFileName: string) => {
+    try {
+      const res = await fetch(`/api/vendor/documents/signed-url?kind=${encodeURIComponent(kind)}&download=1`, {
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; fileName?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Could not download document.");
+      const fileRes = await fetch(data.url);
+      if (!fileRes.ok) throw new Error("Could not download document.");
+      const blob = await fileRes.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      triggerDocumentDownload(objectUrl, data.fileName ?? fallbackFileName);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not download document.");
     }
   };
 
@@ -581,13 +635,13 @@ export function VendorDocumentsPanel({
       {previewDoc && previewKind ? (
         <DocumentInlineViewer
           title={VENDOR_DOCUMENT_LABELS[previewKind]}
-          src={demo ? null : previewDoc.url}
+          src={demo ? null : ownPreviewUrl}
           onDownload={() => {
             if (demo) {
               showToast("PDF preview is available on a live vendor account.");
               return;
             }
-            triggerDocumentDownload(previewDoc.url, previewDoc.fileName);
+            void downloadOwnDocument(previewKind, previewDoc.fileName);
           }}
           downloadLabel="Download PDF"
           downloadAttr={`vendor-documents-inline-download-${previewKind}`}
