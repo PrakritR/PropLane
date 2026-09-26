@@ -136,6 +136,47 @@ export type RecordSections = {
   headerActions: RecordHeaderAction[];
 };
 
+/**
+ * C011: one fixed relative order for header icons across every kind, so a
+ * manager who learns "edit is left of share, delete is always last and red"
+ * on Properties finds the same order on Residents, Payments, Leases, and
+ * every other record. This does not force every kind to CARRY every action —
+ * Payment has no edit/share/copy, Resident has no delete — it only fixes the
+ * order of whichever of these a kind's own array actually authors. The
+ * kind's first action (its own "next step" — View public, Message, Record
+ * payment, …) is never reordered: only what follows it, plus Delete, which
+ * always sorts last regardless of where the kind's array put it.
+ */
+const HEADER_ACTION_ORDER = ["edit", "share", "export", "download", "copy", "duplicate", "archive"];
+const DELETE_ACTION_ID = "delete";
+
+/** Applied once, centrally, in `recordSections()` — never re-sort a kind's array at its own definition site. */
+export function orderHeaderActions(actions: RecordHeaderAction[]): RecordHeaderAction[] {
+  if (actions.length <= 1) return actions;
+  const [primary, ...rest] = actions;
+  const deleteIndex = rest.findIndex((a) => a.id === DELETE_ACTION_ID);
+  const deleteAction = deleteIndex === -1 ? null : rest[deleteIndex]!;
+  const withoutDelete = deleteIndex === -1 ? rest : rest.filter((_, i) => i !== deleteIndex);
+
+  // Only actions that appear in HEADER_ACTION_ORDER are reordered, and only
+  // relative to ONE ANOTHER's slots — a kind-specific action (Approve,
+  // Decline, Reassign, Send for signature, …) never moves, so this can only
+  // fix the relative order among edit/share/export/duplicate, never
+  // reshuffle a kind's own action set.
+  const rankedSlots = withoutDelete
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => HEADER_ACTION_ORDER.includes(action.id));
+  const sortedRanked = [...rankedSlots].sort(
+    (a, b) => HEADER_ACTION_ORDER.indexOf(a.action.id) - HEADER_ACTION_ORDER.indexOf(b.action.id),
+  );
+  const result = [...withoutDelete];
+  rankedSlots.forEach(({ index }, i) => {
+    result[index] = sortedRanked[i]!.action;
+  });
+
+  return deleteAction ? [primary!, ...result, deleteAction] : [primary!, ...result];
+}
+
 /** Extra ids a kind's href builder needs beyond the record id itself — every field optional, sensibly defaulted. */
 export type RecordSectionContext = {
   basePath?: string;
@@ -889,8 +930,9 @@ export function recordSections(
     groups.push({ label: "", items: trioItems });
   }
 
-  const headerActions =
-    (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions;
+  const headerActions = orderHeaderActions(
+    (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions,
+  );
 
   return {
     groups,

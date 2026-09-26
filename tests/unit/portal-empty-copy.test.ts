@@ -49,6 +49,13 @@ describe("portal empty copy", () => {
     expect(portalEmptySibling([{ id: "open", label: "Open", count: 2, onSelect: () => {} }], "done")?.label).toBe("2 open");
   });
 
+  it("C242: drafts names what a draft actually is, not just that there are none", () => {
+    // A bare "No drafts" gave a first-time manager no memory jog of what
+    // "drafts" even means — this names the concept (an unfinished listing)
+    // right in the title, since no sentence is drawn under it.
+    expect(PORTAL_EMPTY_COPY["properties.drafts"].title).toBe("No listings in progress");
+  });
+
   it("derives a titled card from a bare add label — never 'Nothing here yet'", () => {
     expect(portalEmptyTitleFromAddLabel("Add lease")).toBe("No leases yet");
     expect(portalEmptyTitleFromAddLabel("Add outgoing payment")).toBe("No outgoing payments yet");
