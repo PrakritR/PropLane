@@ -148,6 +148,9 @@ import {
 import {
   deleteLeasePipelineRowsForResident,
 } from "@/lib/lease-pipeline-storage";
+import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
+import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
+import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 import {
   RESIDENT_WELCOME_EMAIL_SUBJECT,
   buildResidentWelcomeEmailBody,
@@ -158,6 +161,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   applicationDetailHref,
   applicationListHref,
+  leaseDetailHref,
   type ApplicationDetailTabId,
   type ApplicationListTabId,
 } from "@/lib/portal-detail-routes";
@@ -1697,6 +1701,8 @@ export function ManagerApplications({
 
   /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
+  /** Generate lease (C050/C065): the approved-application id pre-filling the Leases wizard, or null when closed. */
+  const [generateLeaseApplicationId, setGenerateLeaseApplicationId] = useState<string | null>(null);
   const applicationsManualAddButton = (
     <PortalPrimaryIconAction
       label="Add application"
@@ -1716,6 +1722,25 @@ export function ManagerApplications({
 
   const applicationModals = (
     <>
+      {/* C050/C065: the same "Generate lease" wizard the Leases tab's own + opens,
+          pre-filled with this applicant via initialApplicationId. Mounted only
+          while an application requested it, same lazy-mount reasoning as
+          Add application below. */}
+      {generateLeaseApplicationId ? (
+        <ManagerAddLeaseModal
+          open
+          onClose={() => setGenerateLeaseApplicationId(null)}
+          managerUserId={userId ?? null}
+          initialApplicationId={generateLeaseApplicationId}
+          onSubmitted={() => {
+            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
+          }}
+          onOpenLease={(leaseId) => {
+            setGenerateLeaseApplicationId(null);
+            navigate(leaseDetailHref(basePath, "manager", leaseId));
+          }}
+        />
+      ) : null}
       {/* Mounted only while open: the modal reads the portfolio on render, and
           the list page must not pay for that (or its imports) until asked. */}
       {addApplicationOpen ? (
@@ -2047,6 +2072,30 @@ export function ManagerApplications({
                 { label: "Status", value: applicationDecisionStatusLabel(detailRow) },
               ],
             },
+            // C050/C065: one primary action directly under Overview on an
+            // APPROVED application in an application-first workspace opens the
+            // same lease wizard the Leases tab's own + uses, pre-filled with
+            // this applicant — never a separate page. A lease-first workspace
+            // never gates a lease on application approval at all, so this is
+            // scoped to that one pipeline order (the same predicate the Leases
+            // tab reads for its own send-lease affordance).
+            ...(detailRow.bucket === "approved" &&
+            !isWithdrawnApplicationRow(detailRow) &&
+            leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences())
+              ? [
+                  {
+                    kind: "rows" as const,
+                    id: "generate-lease",
+                    title: "Lease",
+                    rows: [],
+                    emptyLabel: "No lease started yet.",
+                    footer: {
+                      label: "Generate lease",
+                      onClick: () => setGenerateLeaseApplicationId(detailRow.id),
+                    },
+                  },
+                ]
+              : []),
           ],
         })
       );
