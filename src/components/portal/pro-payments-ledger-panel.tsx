@@ -23,12 +23,19 @@ import {
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { roomDisplayLabel } from "@/lib/room-display-label";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
-import { paymentDetailHref, paymentListHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
+import { paymentDetailHref, paymentListHref, paymentRecordDetailHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { importedActivity } from "@/lib/portfolio-import/activity";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
+import {
+  RecordFactCard,
+  RecordFactRow,
+  RecordRowsCard,
+  RecordStatTiles,
+  StatTile,
+} from "@/components/portal/portal-record-overview-kit";
 import { Bell, CalendarDays, RotateCcw, Trash2 } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -1256,6 +1263,90 @@ export function ManagerPaymentsLedgerPanel({
     );
   };
 
+  // C095: the manager payment record's Overview, built from the same
+  // StatTile/RecordFactCard/RecordRowsCard kit every other record page uses
+  // (`docs/agents/record-page.md` point 3) rather than the bespoke grid
+  // `renderPaymentDetailPanel` above (kept for the resident-embedded panel,
+  // which has no section chrome / tabs to link a "Section →" action into).
+  // Every value is read straight off `row` — nothing here is computed a
+  // second way from what the sibling Resident/Service tabs already show.
+  const renderPaymentOverviewPanel = (row: DemoManagerPaymentLedgerRow) => {
+    const roomLabel = formatLedgerRoomLabel(row.roomNumber);
+    const dueDetail = formatDueMeta(row.dueDate ?? "");
+    const overdue = row.bucket === "overdue";
+    const reminders = row.householdChargeId
+      ? manageableRemindersForCharge(displayScheduledMessages, row.householdChargeId)
+          .filter((message) => message.status === "scheduled")
+          .filter((message) => Date.parse(message.sendAt) > Date.now())
+      : [];
+    const residentHref = paymentRecordDetailHref(
+      listBasePath ?? "/portal",
+      direction,
+      activeBucket,
+      row.id,
+      "resident",
+    );
+
+    return (
+      <div className="space-y-3 px-3 py-2 sm:px-4" data-attr="payment-overview-panel">
+        <RecordStatTiles>
+          <StatTile dataAttr="payment-overview-tile-amount" label="Amount" value={row.lineAmount} />
+          <StatTile
+            dataAttr="payment-overview-tile-balance"
+            label="Balance due"
+            value={row.balanceDue}
+            tone={overdue ? "danger" : "default"}
+          />
+          <StatTile
+            dataAttr="payment-overview-tile-due"
+            label="Due date"
+            value={row.dueDate || "—"}
+            detail={dueDetail || undefined}
+            tone={overdue ? "danger" : "default"}
+          />
+          <StatTile dataAttr="payment-overview-tile-status" label="Status" value={row.statusLabel} />
+        </RecordStatTiles>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <RecordFactCard title="Details" dataAttr="payment-overview-card-details">
+            <RecordFactRow label="Property" value={row.propertyName || "—"} />
+            {roomLabel ? <RecordFactRow label="Room" value={roomLabel} /> : null}
+            <RecordFactRow label="Charge" value={row.chargeTitle} />
+            {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
+          </RecordFactCard>
+          <RecordFactCard
+            title="Resident"
+            action={{ label: "Resident", href: residentHref }}
+            dataAttr="payment-overview-card-resident"
+          >
+            <RecordFactRow label="Name" value={row.residentName || "—"} />
+          </RecordFactCard>
+          {reminders.length > 0 ? (
+            <RecordRowsCard
+              title={reminders.length === 1 ? "Scheduled reminder" : "Scheduled reminders"}
+              dataAttr="payment-overview-card-reminders"
+              rows={reminders.map((message) => ({
+                id: message.id,
+                title: message.typeLabel,
+                sub: formatScheduledSendAt(message.sendAt),
+                figure:
+                  (message.bundledChargeIds?.length ?? 0) > 1
+                    ? `${message.bundledChargeIds!.length} charges`
+                    : undefined,
+              }))}
+            />
+          ) : null}
+          {(row.residentChargeMessages?.length ?? 0) > 0 ? (
+            <RecordFactCard title="Resident message" dataAttr="payment-overview-card-resident-message">
+              {row.residentChargeMessages!.map((entry) => (
+                <RecordFactRow key={entry.id} label={formatPacificDateTime(entry.sentAt)} value={entry.body} />
+              ))}
+            </RecordFactCard>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
   const doSendBulkReminders = async (
     scope: "all" | "single",
     options: {
@@ -2254,7 +2345,7 @@ export function ManagerPaymentsLedgerPanel({
               onHeaderAction={onHeaderAction}
             >
               {recordTab === "overview" ? (
-                renderPaymentDetailPanel(detailRow)
+                renderPaymentOverviewPanel(detailRow)
               ) : recordTab === "service" ? (
                 <PortalRecordRelatedPanel
                   title="Service"
