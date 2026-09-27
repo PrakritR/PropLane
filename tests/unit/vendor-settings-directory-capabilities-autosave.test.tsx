@@ -105,6 +105,42 @@ describe("Directory listing — autosave and inline validation", () => {
     expect(emailPatchCalls).toBe(0);
     expect(emailInput.value).toBe("not-an-email");
   });
+
+  it("restoring the original email value after an invalid entry clears the error without sending a save request", async () => {
+    currentTab = "profile";
+    let emailPatchCalls = 0;
+    mockFetchByUrl({
+      "/api/vendor/business-profile": { profile: {}, workspaces: [] },
+      "/api/vendor/profile": (body: unknown) => {
+        if (body && typeof body === "object" && "email" in body) emailPatchCalls += 1;
+        // Initial load returns empty email; PATCH returns the new value
+        if (body === undefined) return { profile: { name: "", phone: "", email: "", trades: [] } };
+        return { profile: { name: "", phone: "", email: "", trades: [] } };
+      },
+    });
+    render(<VendorSettingsPanel />);
+    const emailInput = await waitForElement<HTMLInputElement>('[data-attr="vendor-settings-email"]');
+
+    // Step 1: Type an invalid email and blur to show the error
+    fireEvent.change(emailInput, { target: { value: "not-an-email" } });
+    fireEvent.blur(emailInput);
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Enter a valid email address.");
+    });
+
+    // Step 2: Restore the original empty value and blur — error should disappear
+    fireEvent.change(emailInput, { target: { value: "" } });
+    fireEvent.blur(emailInput);
+
+    // The error text should be gone (restored to original value clears error)
+    await waitFor(() => {
+      expect(document.body.textContent).not.toContain("Enter a valid email address.");
+    });
+
+    // No PATCH should have been sent (value equals saved value)
+    expect(emailPatchCalls).toBe(0);
+    expect(emailInput.value).toBe("");
+  });
 });
 
 describe("Work capabilities — immediate autosave on toggle", () => {

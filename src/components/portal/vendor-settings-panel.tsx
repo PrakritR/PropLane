@@ -229,14 +229,18 @@ export function VendorSettingsPanel() {
    * (`/api/vendor/profile` PATCH) since a client check is never authority.
    */
   async function commitDirectoryField(field: DirectoryField, value: string) {
-    if (value === savedProfileRef.current[field]) return;
-    if (field === "email" && value && !DIRECTORY_EMAIL_RE.test(value)) {
+    // Clear error before any early return, so restoring the original value
+    // clears the error even if no save request is sent.
+    const isValid = !value || field !== "email" || DIRECTORY_EMAIL_RE.test(value);
+    if (!isValid) {
       setDirectoryFieldState((s) => ({ ...s, email: "error" }));
       setDirectoryFieldError((e) => ({ ...e, email: "Enter a valid email address." }));
       return;
     }
-    setDirectoryFieldState((s) => ({ ...s, [field]: "saving" }));
+    // Clear error for valid fields before early return.
     setDirectoryFieldError((e) => ({ ...e, [field]: undefined }));
+    if (value === savedProfileRef.current[field]) return;
+    setDirectoryFieldState((s) => ({ ...s, [field]: "saving" }));
     const markSaved = () => {
       savedProfileRef.current = { ...savedProfileRef.current, [field]: value };
       setDirectoryFieldState((s) => ({ ...s, [field]: "saved" }));
