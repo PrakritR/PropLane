@@ -1,31 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaSmsPhone } from "@/lib/claw-leasing-links";
 import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
 
-let publicListingsCache: { at: number; byId: Map<string, string> } | null = null;
-const PUBLIC_LISTINGS_CACHE_TTL_MS = 55_000;
-
 async function contactSmsFromPublicCatalog(listingId: string): Promise<string | null> {
-  if (publicListingsCache && Date.now() - publicListingsCache.at < PUBLIC_LISTINGS_CACHE_TTL_MS) {
-    return publicListingsCache.byId.get(listingId) ?? null;
-  }
-  try {
-    const res = await fetch("/api/property-records/public", { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { listings?: Array<{ id?: string; contactSmsPhone?: string }> };
-    const byId = new Map<string, string>();
-    for (const listing of body.listings ?? []) {
-      const id = listing.id?.trim();
-      const phone = listingCtaSmsPhone(listing.contactSmsPhone);
-      if (id && phone) byId.set(id, phone);
-    }
-    publicListingsCache = { at: Date.now(), byId };
-    return byId.get(listingId) ?? null;
-  } catch {
-    return null;
-  }
+  return listingCtaSmsPhone((await publicListingContact(listingId))?.contactSmsPhone);
 }
 
 /**
