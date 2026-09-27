@@ -119,6 +119,11 @@ export const DELETE_ORDER = [
   // night/vendor-pay ledger account row (owner_key is a manager or vendor id, not an FK);
   // financial like vendor_invoices/vendor_payouts above.
   "proplane_balance_accounts",
+  // night/vendor-banking (VENDOR_BANKING_ENABLED) statement ledger, reconciliation
+  // stamp, and refund shortfall — financial history like vendor_payouts above.
+  "vendor_banking_ledger_entries",
+  "vendor_banking_reconciliation",
+  "vendor_banking_shortfalls",
   "vendor_tax_profiles",
   "vendor_business_profiles",
   "vendor_availability_rules",
