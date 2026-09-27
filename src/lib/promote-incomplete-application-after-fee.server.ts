@@ -23,6 +23,10 @@ import {
 } from "@/lib/stripe-application-fee";
 import { axisAchCheckoutPaid } from "@/lib/stripe-axis-ach-checkout";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import {
+  applicationFeePaymentSatisfiesTemplate,
+  resolveRequiredApplicationFeeCents,
+} from "@/lib/application-fee-checkout.server";
 
 function normalizedEmail(value: string | null | undefined): string {
   return String(value ?? "").trim().toLowerCase();
@@ -52,6 +56,20 @@ export type PromoteIncompleteAfterFeeResult =
       promoted: false;
       reason: "already_submitted" | "no_draft" | "validation_failed" | "not_paid";
       axisId?: string;
+    }
+  | {
+      ok: true;
+      promoted: false;
+      /**
+       * Lead review follow-up (2026-09-27): the draft's CURRENT application
+       * template differs from what the Stripe session actually paid for, and
+       * the amount paid does not cover what the current template requires —
+       * e.g. paid for a $0 template, then switched to a paid one before this
+       * ran. Never promoted; the applicant owes the difference.
+       */
+      reason: "fee_mismatch";
+      requiredCents: number;
+      paidCents: number;
     }
   | { ok: false; error: string };
 
@@ -126,6 +144,39 @@ export async function promoteIncompleteApplicationAfterFeePaid(
   if (!previousApplication) {
     return { ok: true, promoted: false, reason: "no_draft" };
   }
+
+  // Lead review follow-up (2026-09-27): re-resolve the fee for the template
+  // this draft is ACTUALLY about to submit under — never trust that the paid
+  // session's template still matches. `submitted === paid` (including both
+  // "no template", the single-template/no-override case) is always fine;
+  // otherwise the paid amount must cover what the current template requires.
+  const paidApplicationTemplateId = session.metadata?.application_template_id?.trim() || null;
+  const paidFeeCents = Number(session.metadata?.fee_cents ?? "0");
+  const submittedApplicationTemplateId = previousApplication.applicationTemplateId?.trim() || null;
+  if (submittedApplicationTemplateId !== paidApplicationTemplateId) {
+    const requiredCents = await resolveRequiredApplicationFeeCents(db, {
+      propertyId,
+      managerUserId: draft.record.manager_user_id?.trim() || "",
+      applicationTemplateId: submittedApplicationTemplateId,
+    });
+    if (
+      !applicationFeePaymentSatisfiesTemplate({
+        submittedApplicationTemplateId,
+        paidApplicationTemplateId,
+        paidFeeCents: Number.isFinite(paidFeeCents) ? paidFeeCents : 0,
+        requiredFeeCents: requiredCents,
+      })
+    ) {
+      return {
+        ok: true,
+        promoted: false,
+        reason: "fee_mismatch",
+        requiredCents,
+        paidCents: Number.isFinite(paidFeeCents) ? paidFeeCents : 0,
+      };
+    }
+  }
+
   const applicantName =
     previousRow.name?.trim() ||
     previousApplication.fullLegalName?.trim() ||

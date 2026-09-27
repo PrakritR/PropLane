@@ -96,6 +96,15 @@ export type ResolvedApplicationFeeProperty = {
    * `manager_application_fee_waiver_codes` lookup regardless of this value.
    */
   templateWaiverCodeOverride: string | null;
+  /**
+   * The STORED template id that actually matched `input.applicationTemplateId`
+   * — `null` when the caller supplied none, or supplied one that matched no
+   * stored template (in which case `applicationFeeCents` above is already the
+   * account default). This is what gets stamped onto the Stripe session's
+   * metadata, never the caller-supplied id verbatim, so later verification
+   * always reads a value this same resolver already validated.
+   */
+  resolvedApplicationTemplateId: string | null;
 };
 
 /**
@@ -208,8 +217,66 @@ export async function resolveApplicationFeeProperty(
       listing,
       applicationFeeCents,
       templateWaiverCodeOverride: matchedTemplate?.waiverCodeOverride?.trim() || null,
+      resolvedApplicationTemplateId: matchedTemplate?.id ?? null,
     },
   };
+}
+
+/**
+ * Lead review follow-up (2026-09-27): an applicant chooses
+ * `applicationTemplateId` when requesting a fee preview/checkout, so a
+ * dishonest one could pay for a CHEAP template (e.g. a $0 override) while
+ * actually submitting the application under a different, pricier one — the
+ * checkout resolver was already server-side-safe about the AMOUNT it
+ * charged, but nothing compared that paid template/amount against what the
+ * application is actually submitted under. Pure — no I/O, easy to test in
+ * isolation from Stripe/DB.
+ */
+export function applicationFeePaymentSatisfiesTemplate(input: {
+  /** The template the application is ACTUALLY being submitted under. */
+  submittedApplicationTemplateId: string | null | undefined;
+  /** The template resolved and stamped on the PAID session's metadata. */
+  paidApplicationTemplateId: string | null | undefined;
+  /** Cents actually paid (from the session's own `fee_cents` metadata). */
+  paidFeeCents: number;
+  /** The fee currently required for `submittedApplicationTemplateId`, freshly re-resolved. */
+  requiredFeeCents: number;
+}): boolean {
+  const submitted = (input.submittedApplicationTemplateId ?? "").trim();
+  const paid = (input.paidApplicationTemplateId ?? "").trim();
+  // Same template (including "no template selected" on both sides — a
+  // listing with a single template/no overrides never has anything to
+  // mismatch) is always satisfied regardless of amount: it is the exact
+  // charge the applicant already completed.
+  if (submitted === paid) return true;
+  // A different template is still fine as long as what was actually paid
+  // covers what the ACTUAL template now requires (e.g. overpaying, or two
+  // templates that happen to charge the same amount).
+  return input.paidFeeCents >= input.requiredFeeCents;
+}
+
+/**
+ * Re-resolves the fee currently required for one application template,
+ * reusing the exact same server-side resolver the checkout/preview routes
+ * use — never a second fee calculation. `managerUserId` here is the KNOWN,
+ * already-trusted owner of the record being checked (read from the stored
+ * row, never a caller-supplied claim), so the resolver's ownership guard is
+ * a same-value no-op rather than a real authorization check at this call site.
+ */
+export async function resolveRequiredApplicationFeeCents(
+  db: SupabaseClient,
+  input: { propertyId: string; managerUserId: string; applicationTemplateId?: string | null },
+): Promise<number> {
+  const resolved = await resolveApplicationFeeProperty(
+    db,
+    {
+      propertyId: input.propertyId,
+      managerUserId: input.managerUserId,
+      applicationTemplateId: input.applicationTemplateId ?? undefined,
+    },
+    { allowZeroFee: true },
+  );
+  return resolved.ok ? resolved.value.applicationFeeCents : 0;
 }
 
 export type ApplicationFeeItemization = {
@@ -322,6 +389,15 @@ export async function createApplicationFeeCheckout(
     property_id: input.propertyId.slice(0, 450),
     resident_email: input.residentEmail.toLowerCase().slice(0, 450),
     manager_user_id: managerUserId,
+    // P003 follow-up (2026-09-27): record what was actually RESOLVED and
+    // CHARGED for this session — the template selector (never trust it back
+    // from the client) and the exact cents the applicant paid — so a later
+    // step can prove "the application actually submitted matches what was
+    // paid for" instead of trusting a bare `paid: true`. Empty string when
+    // no template resolved (single-template/no-override listings), never
+    // omitted, so a reader can tell "no template" from "field predates this".
+    application_template_id: (resolved.value.resolvedApplicationTemplateId ?? "").slice(0, 120),
+    fee_cents: String(applicationFeeCents),
   };
   if (input.residentName) metadata.resident_name = input.residentName.slice(0, 450);
 

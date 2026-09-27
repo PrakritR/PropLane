@@ -67,6 +67,13 @@ export async function POST(req: Request) {
     let applicationPromoted = false;
     let applicationAxisId: string | null = null;
     let applicationSetupToken: string | null = null;
+    // Lead review follow-up (2026-09-27): set only when the draft's CURRENT
+    // application template no longer matches what this session paid for, and
+    // the amount paid doesn't cover what that current template now requires.
+    // The client must refuse to finalize the submission on this signal
+    // instead of trusting a bare `paid: true` — see
+    // `promoteIncompleteApplicationAfterFeePaid`'s `fee_mismatch` reason.
+    let feeMismatch: { requiredCents: number; paidCents: number } | null = null;
     if (paid) {
       const db = createSupabaseServiceRoleClient();
       const result = await markApplicationFeePaidFromStripeSession(db, session);
@@ -90,6 +97,8 @@ export async function POST(req: Request) {
       } else if (promoted.ok && promoted.reason === "already_submitted") {
         applicationPromoted = true;
         applicationAxisId = promoted.axisId ?? null;
+      } else if (promoted.ok && promoted.reason === "fee_mismatch") {
+        feeMismatch = { requiredCents: promoted.requiredCents, paidCents: promoted.paidCents };
       }
     }
 
@@ -109,6 +118,16 @@ export async function POST(req: Request) {
       applicationAxisId,
       // Token only when we just minted/kept one on promote — never invent email.
       ...(applicationSetupToken ? { applicationSetupToken } : {}),
+      ...(feeMismatch
+        ? {
+            feeMismatch: true,
+            requiredCents: feeMismatch.requiredCents,
+            paidCents: feeMismatch.paidCents,
+            error: `This application now requires a $${(feeMismatch.requiredCents / 100).toFixed(2)} fee — $${(
+              feeMismatch.paidCents / 100
+            ).toFixed(2)} was paid. Pay the difference before submitting.`,
+          }
+        : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to verify session";

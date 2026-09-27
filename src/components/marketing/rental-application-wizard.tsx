@@ -2156,6 +2156,9 @@ function RentalApplicationWizardInner({
         applicationPromoted?: boolean;
         applicationAxisId?: string | null;
         applicationSetupToken?: string | null;
+        feeMismatch?: boolean;
+        requiredCents?: number;
+        paidCents?: number;
       };
       const sessionPid = String(data.propertyId ?? "").trim() || pid;
       applyPathWithProperty = applyPathFor(sessionPid);
@@ -2163,6 +2166,22 @@ function RentalApplicationWizardInner({
       if (!res.ok) {
         processedApplicationFeeSessions.delete(sessionId);
         showToast(typeof data.error === "string" ? data.error : "Could not verify payment.");
+        router.replace(applyPathWithProperty);
+        return;
+      }
+      // Lead review follow-up (2026-09-27): the server re-resolved the fee for
+      // the template this application is ACTUALLY being submitted under and
+      // it no longer matches what this session paid for — never fall through
+      // to `finalizeApplicationSubmit` on a bare `paid: true`. The applicant
+      // stays on the form with their answers intact (no draft/session is
+      // cleared) and a clear message naming the difference owed.
+      if (data.feeMismatch) {
+        processedApplicationFeeSessions.delete(sessionId);
+        showToast(
+          typeof data.error === "string"
+            ? data.error
+            : "This application's fee changed. Pay the difference before submitting.",
+        );
         router.replace(applyPathWithProperty);
         return;
       }
