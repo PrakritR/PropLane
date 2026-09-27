@@ -183,6 +183,8 @@ export function ManagerApplicationQuestionsEditorModal({
   showToast,
   autoImportFile = null,
   onAutoImportConsumed,
+  onUploadPdf,
+  uploadingPdf = false,
 }: {
   open: boolean;
   title?: string;
@@ -228,6 +230,13 @@ export function ManagerApplicationQuestionsEditorModal({
    */
   autoImportFile?: File | null;
   onAutoImportConsumed?: () => void;
+  /**
+   * Add mode only: start this new application from a PDF. The caller creates
+   * and saves the template, then reopens this modal in edit mode with the
+   * file as `autoImportFile`, so the upload lives in the same popup as Add.
+   */
+  onUploadPdf?: (file: File, label: string) => void;
+  uploadingPdf?: boolean;
 }) {
   const isTemplateEditor = templateEditorMode === "add" || templateEditorMode === "edit";
   const [localSub, setLocalSub] = useState(sub);
@@ -252,6 +261,7 @@ export function ManagerApplicationQuestionsEditorModal({
   const [workspaceForm, setWorkspaceForm] = useState<WorkspaceApplicationFormTemplate | null>(null);
   const [workspaceFormLoaded, setWorkspaceFormLoaded] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const uploadPdfInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
   const [importedQuestionDraft, setImportedQuestionDraft] = useState<ApplicationTemplateQuestionConfig | null>(null);
@@ -1153,6 +1163,33 @@ export function ManagerApplicationQuestionsEditorModal({
             />
             {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
             {applicationFormSourcePicker}
+            {templateEditorMode === "add" && onUploadPdf ? (
+              <div className="mt-4">
+                <p className={WIZARD_LABEL_CLASS}>Start from a PDF</p>
+                <input
+                  ref={uploadPdfInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="sr-only"
+                  data-attr="property-application-upload-pdf-input"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) onUploadPdf(file, templateLabel);
+                    event.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  disabled={uploadingPdf}
+                  data-attr="property-application-upload-pdf"
+                  onClick={() => uploadPdfInputRef.current?.click()}
+                >
+                  {uploadingPdf ? "Uploading…" : "Upload PDF"}
+                </Button>
+              </div>
+            ) : null}
           </StepColumn>
         ) : null}
         {stepId === "form" ? (

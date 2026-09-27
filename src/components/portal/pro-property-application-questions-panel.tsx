@@ -2,7 +2,7 @@
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
@@ -136,7 +136,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
   const [autoImportFile, setAutoImportFile] = useState<File | null>(null);
-  const uploadPdfInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
@@ -325,20 +324,17 @@ export function ManagerPropertyApplicationQuestionsPanel({
   }, []);
 
   /**
-   * "+ Add → Upload PDF" in one step (captain override — an uploaded
-   * application PDF becomes a NAMED form, e.g. "Intake form", never a
-   * Lease/Application nav rename). Creates a real (empty) template and saves
-   * it FIRST — exactly `addSeedTemplate`'s pattern — so the editor modal
-   * opens with a real `applicationTemplate.id` and its Import PDF step is
-   * already live, then hands the picked file through as `autoImportFile` so
-   * the modal runs the same import a manual "Import PDF" click runs.
+   * Add popup → Upload PDF (captain override — an uploaded application PDF
+   * becomes a NAMED form, e.g. "Intake form", never a Lease/Application nav
+   * rename). Creates a real (empty) template and saves it FIRST — exactly
+   * `addSeedTemplate`'s pattern — so the editor reopens with a real
+   * `applicationTemplate.id` and its Import PDF step is already live, then
+   * hands the picked file through as `autoImportFile` so the modal runs the
+   * same import a manual "Import PDF" click runs. A name typed in the popup
+   * wins over the one derived from the file name.
    */
-  const openAddViaPdfUpload = useCallback(() => {
-    uploadPdfInputRef.current?.click();
-  }, []);
-
   const handleUploadPdfFile = useCallback(
-    async (file: File) => {
+    async (file: File, typedLabel = "") => {
       if (!managerUserId) {
         showToast("Could not create the form.");
         return;
@@ -347,7 +343,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       try {
         const created = createPropertyApplicationTemplate({
           kind: "long-term",
-          label: deriveFormNameFromFileName(file.name),
+          label: typedLabel.trim() || deriveFormNameFromFileName(file.name),
         });
         if (bulkPropertyIds.length > 0) {
           // A bulk (multi-property) edit has no single listing to import a
@@ -366,7 +362,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
         setEditorOpen(true);
       } finally {
         setUploadingPdf(false);
-        if (uploadPdfInputRef.current) uploadPdfInputRef.current.value = "";
       }
     },
     [bulkPropertyIds.length, managerUserId, onUpdated, persistSubmission, showToast, sub, syncedSub],
@@ -517,36 +512,21 @@ export function ManagerPropertyApplicationQuestionsPanel({
         </div>
       ) : null}
 
-      <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} flex flex-col gap-2 sm:flex-row`}>
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add application"
-          icon={PORTAL_LIST_ADD_ICONS.application}
-          onClick={openAdd}
-          dataAttr="property-application-add"
-          inline
-          className="flex-1"
-        />
-        <PortalListAddRow
-          label="Upload PDF"
-          ariaLabel="Add application from an uploaded PDF"
-          onClick={openAddViaPdfUpload}
-          disabled={uploadingPdf}
-          dataAttr="property-application-add-pdf"
-          inline
-          className="flex-1"
-        />
-        <input
-          ref={uploadPdfInputRef}
-          type="file"
-          accept="application/pdf"
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void handleUploadPdfFile(file);
-          }}
-        />
-      </div>
+      {/* The page's command bar carries the one "+" (its popup also takes a
+          PDF upload); only the embedded modal, which has no command bar,
+          needs a footer add row. */}
+      {embedInModal ? (
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+          <PortalListAddRow
+            label="Add"
+            ariaLabel="Add application"
+            icon={PORTAL_LIST_ADD_ICONS.application}
+            onClick={openAdd}
+            dataAttr="property-application-add"
+            inline
+          />
+        </div>
+      ) : null}
     </>
   );
 
@@ -576,6 +556,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
           showToast={showToast}
           autoImportFile={autoImportFile}
           onAutoImportConsumed={() => setAutoImportFile(null)}
+          onUploadPdf={(file, label) => void handleUploadPdfFile(file, label)}
+          uploadingPdf={uploadingPdf}
         />
       ) : null}
 
