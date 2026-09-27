@@ -70,8 +70,10 @@ function renderInvoices() {
 }
 
 async function openRequestPayment() {
-  await waitFor(() => expect(document.querySelector('[data-attr="vendor-invoice-new"]')).toBeTruthy());
-  fireEvent.click(document.querySelector('[data-attr="vendor-invoice-new"]') as HTMLElement);
+  // VD11 — Income and Invoices merged into one Payments list; "Submit
+  // invoice" is now the merged list's single "Request payment" primary.
+  await waitFor(() => expect(document.querySelector('[data-attr="vendor-finances-request-payment"]')).toBeTruthy());
+  fireEvent.click(document.querySelector('[data-attr="vendor-finances-request-payment"]') as HTMLElement);
 }
 
 async function goToInvoiceStep() {
