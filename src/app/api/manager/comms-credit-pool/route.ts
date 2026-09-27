@@ -36,13 +36,42 @@ export type CommsCreditPoolSummary = {
   }[];
 };
 
+/** A cheap, DB-free stub for `{ poolEnabled: false }`. `pro-plan.tsx`'s
+ * `MessagingCreditPanel` never renders without `poolEnabled: true`, so no
+ * other field here is ever read by a real caller. */
+function poolDisabledSummary(): CommsCreditPoolSummary {
+  return {
+    poolEnabled: false,
+    tier: "free",
+    allowanceCents: 0,
+    includedRemainingCents: 0,
+    purchasedRemainingCents: 0,
+    remainingCents: 0,
+    sharedAcrossWorkspaces: false,
+    rollsOver: false,
+    periodStart: "",
+    periodEnd: "",
+    paused: false,
+    usedThisMonthCents: 0,
+    fundsAllWorkspaces: false,
+    pinnedWorkspaceId: null,
+    workspaces: [],
+  };
+}
+
 /**
  * The messaging-credit pool summary for the SIGNED-IN funder (never a
- * caller-named user). The whole endpoint is only meaningful behind
- * `COMMS_CREDIT_POOL_ENABLED`; with it off it still answers (so a stray
- * fetch never 404s) but callers should gate the UI on `poolEnabled`.
+ * caller-named user). This route is mounted unconditionally (every Billing &
+ * plan page load calls it via `useCommsCreditPoolSummary`), but staging and
+ * production run with `COMMS_CREDIT_POOL_ENABLED` off AND without the pool
+ * migration applied at all — its tables do not exist there. With the flag
+ * off this answers `{ poolEnabled: false }` immediately, before touching the
+ * database at all, rather than 503ing on every page load.
  */
 export async function GET() {
+  if (!isCommsCreditPoolEnabled()) {
+    return NextResponse.json(poolDisabledSummary(), { headers: { "Cache-Control": "private, no-store" } });
+  }
   const auth = await requireManagerRouteUser();
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
   try {
@@ -87,6 +116,12 @@ export async function GET() {
  * a body can never grant funding authority over a workspace they cannot see.
  */
 export async function PATCH(req: Request) {
+  // The UI controls that call this only render when `poolEnabled` is true,
+  // but refuse cleanly here too rather than letting a stray request hit
+  // tables that may not exist where the flag (and the migration) are off.
+  if (!isCommsCreditPoolEnabled()) {
+    return NextResponse.json({ error: "Messaging credit is not available yet." }, { status: 503 });
+  }
   const auth = await requireManagerRouteUser();
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;

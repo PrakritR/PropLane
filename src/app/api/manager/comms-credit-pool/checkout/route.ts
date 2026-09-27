@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import { isCommsCreditPoolEnabled, isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import { isValidCommsCreditAmountCents } from "@/lib/comms-billing/credit-packs";
 import { loadCommsPoolSnapshot, createCommsCreditPoolCheckout } from "@/lib/comms-billing/pool.server";
 import { rateLimit } from "@/lib/rate-limit";
@@ -17,6 +17,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
  * caller's own, never a body-supplied workspace's owner.
  */
 export async function POST(req: Request) {
+  // The UI only ever calls this when `poolEnabled` is true, but refuse
+  // cleanly here too: staging/production run with the flag (and the
+  // migration that creates `comms_pool_credit_purchases`) off, and this
+  // would otherwise insert into a table that does not exist there.
+  if (!isCommsCreditPoolEnabled()) {
+    return NextResponse.json({ error: "Messaging credit is not available yet." }, { status: 503 });
+  }
   const auth = await requireManagerRouteUser();
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   if (!isCommsPaygBillingEnabled()) {

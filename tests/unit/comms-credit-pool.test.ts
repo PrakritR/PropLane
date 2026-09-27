@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type Stripe from "stripe";
 
 const mocks = vi.hoisted(() => ({
   tier: vi.fn(),
@@ -10,6 +11,10 @@ vi.mock("@/lib/manager-access-server", () => ({
 vi.mock("@/lib/workspaces/server", () => ({
   loadWorkspaces: mocks.loadWorkspaces,
 }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn(async () => undefined),
+  captureTestWorkspaceEffectForUser: vi.fn(async () => ({ captured: false })),
+}));
 
 import {
   loadOrderedPoolFunders,
@@ -17,6 +22,10 @@ import {
   setFunderFundingScope,
   setFunderWorkspaceMonthlyLimit,
   finishCommsCreditPool,
+  reverseCommsCreditPoolForPaymentIntent,
+  fulfillCommsCreditPoolPurchase,
+  loadCommsPlanCreditRules,
+  isMissingPoolSchemaError,
 } from "@/lib/comms-billing/pool.server";
 import { reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
 
@@ -226,5 +235,77 @@ describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
     const rpc = vi.fn(async () => ({ data: true, error: null }));
     await finishCommsCredit({ rpc } as never, OWNER, "pool-key-2", false);
     expect(rpc).toHaveBeenCalledWith("finish_comms_credit_pool", { p_manager_context: OWNER, p_key: "pool-key-2", p_release: false });
+  });
+});
+
+/**
+ * Staging/production run this code with `COMMS_CREDIT_POOL_ENABLED` off AND
+ * without the pool migration applied at all — its tables do not exist there.
+ * The Stripe webhook calls `reverseCommsCreditPoolForPaymentIntent` (and,
+ * before it, `fulfillCommsCreditPoolPurchase` for a matching purpose)
+ * unconditionally on every refund/dispute/checkout event, alongside the
+ * legacy reconciliation in the SAME request. Either must treat "the table
+ * isn't there" as "not a pool purchase" and return normally — never throw,
+ * which would mark the whole webhook request failed and disturb the legacy
+ * handling running in parallel.
+ */
+describe("pool functions are inert where the schema is not deployed (flag off, no migration)", () => {
+  const missingTable = { code: "42P01", message: 'relation "public.comms_pool_credit_purchases" does not exist' };
+  const schemaCacheMiss = { code: "PGRST205", message: "Could not find the table 'public.comms_pool_credit_purchases' in the schema cache" };
+  const genuineError = { code: "08006", message: "connection failure" };
+
+  it.each([
+    ["42P01 (undefined_table)", missingTable],
+    ["PGRST205 (schema cache miss)", schemaCacheMiss],
+  ])("isMissingPoolSchemaError recognizes %s", (_label, error) => {
+    expect(isMissingPoolSchemaError(error)).toBe(true);
+  });
+
+  it("isMissingPoolSchemaError does not swallow a genuine database error", () => {
+    expect(isMissingPoolSchemaError(genuineError)).toBe(false);
+  });
+
+  it.each([
+    ["42P01 (undefined_table)", missingTable],
+    ["PGRST205 (schema cache miss)", schemaCacheMiss],
+  ])("reverseCommsCreditPoolForPaymentIntent returns false, never throws, on %s", async (_label, error) => {
+    const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error }) }) }) }) };
+    await expect(
+      reverseCommsCreditPoolForPaymentIntent(db as never, "pi_test", "evt", { loadCharge: vi.fn() }),
+    ).resolves.toBe(false);
+  });
+
+  it("reverseCommsCreditPoolForPaymentIntent still throws for a genuine database error", async () => {
+    const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: genuineError }) }) }) }) };
+    await expect(
+      reverseCommsCreditPoolForPaymentIntent(db as never, "pi_test", "evt", { loadCharge: vi.fn() }),
+    ).rejects.toThrow("could not be verified");
+  });
+
+  it("fulfillCommsCreditPoolPurchase returns false on a missing table even for a matching purpose", async () => {
+    const session = {
+      id: "cs_test",
+      mode: "payment",
+      payment_status: "paid",
+      currency: "usd",
+      amount_subtotal: 500,
+      amount_total: 500,
+      payment_intent: "pi_test",
+      client_reference_id: "funder-1",
+      total_details: { amount_discount: 0 },
+      metadata: {
+        purpose: "manager_communication_credit_pool",
+        manager_user_id: "funder-1",
+        purchase_id: "11111111-1111-4111-8111-111111111111",
+        credit_cents: "500",
+      },
+    } as unknown as Stripe.Checkout.Session;
+    const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: missingTable }) }) }) }) };
+    await expect(fulfillCommsCreditPoolPurchase(db as never, session, "evt")).resolves.toBe(false);
+  });
+
+  it("loadCommsPlanCreditRules (the admin Billing page's unconditional read) returns an empty list rather than throwing", async () => {
+    const db = { from: () => ({ select: () => ({ order: async () => ({ data: null, error: missingTable }) }) }) };
+    await expect(loadCommsPlanCreditRules(db as never)).resolves.toEqual([]);
   });
 });

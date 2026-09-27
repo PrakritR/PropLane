@@ -19,6 +19,32 @@ import {
 } from "./credit-purchase.server";
 
 /**
+ * Staging/production run this code with `COMMS_CREDIT_POOL_ENABLED` off AND
+ * without the pool migration applied at all — the tables in
+ * `20260927160148_comms_credit_pool.sql` simply do not exist there yet. Two
+ * call sites reach pool tables unconditionally regardless of the flag (the
+ * Stripe webhook's refund/dispute reconciliation, which must always TRY both
+ * the legacy and pool purchase tables since either could match; and this
+ * schema not existing must never break that request or the legacy refund it
+ * is also reconciling). This recognizes "the table/column is not there" —
+ * Postgres's own `42P01`/`42703`, and PostgREST's schema-cache-miss codes for
+ * the same condition — and treats it as "no pool purchase / no pool row",
+ * never a thrown error. Any OTHER error still throws.
+ */
+export function isMissingPoolSchemaError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = String((error as { code?: string }).code ?? "");
+  const message = String((error as { message?: string }).message ?? "").toLowerCase();
+  if (["42P01", "42703", "PGRST205", "PGRST202", "PGRST106", "PGRST201"].includes(code)) return true;
+  return (
+    message.includes("schema cache") ||
+    message.includes("could not find the table") ||
+    message.includes("could not find the function") ||
+    (message.includes("does not exist") && (message.includes("relation") || message.includes("column") || message.includes("function")))
+  );
+}
+
+/**
  * The messaging-credit pool (S27, `COMMS_CREDIT_POOL_ENABLED`). Every export
  * here is inert while that flag is off — `wallet.server.ts` is the only
  * caller, and it dispatches to this module only when the flag reads `"1"`.
@@ -451,7 +477,15 @@ export async function fulfillCommsCreditPoolPurchase(
     .select("funder_user_id, applies_to_workspace_id")
     .eq("id", purchase)
     .maybeSingle();
-  if (storedError) throw new Error("Communication credit ownership could not be verified.");
+  if (storedError) {
+    // Staging/prod run with the pool flag off and the migration not applied
+    // at all — the table simply is not there. A purchase carrying this
+    // purpose could only exist if the pool schema already created it, so an
+    // undefined-table/column error here means "not a real pool purchase",
+    // never a reason to fail the whole webhook request.
+    if (isMissingPoolSchemaError(storedError)) return false;
+    throw new Error("Communication credit ownership could not be verified.");
+  }
   const storedFunder = String((stored as { funder_user_id?: string | null } | null)?.funder_user_id ?? "").trim();
   if (!storedFunder || storedFunder !== funder) {
     throw new CommsCreditValidationError("Communication payment did not match a purchase on this account.");
@@ -510,7 +544,15 @@ export async function reverseCommsCreditPoolForPaymentIntent(
     .select("id, credit_cents, funder_user_id")
     .eq("stripe_payment_intent_id", paymentId)
     .maybeSingle();
-  if (readError) throw new Error("Credit reversal could not be verified.");
+  if (readError) {
+    // Same reasoning as `fulfillCommsCreditPoolPurchase`: this table may not
+    // exist at all where the pool flag is off (staging/prod, pre-migration).
+    // Every `charge.refunded` / `refund.*` / dispute event calls this
+    // unconditionally alongside the legacy reversal, so it must never throw
+    // for "the pool schema isn't deployed here" — only for a real failure.
+    if (isMissingPoolSchemaError(readError)) return false;
+    throw new Error("Credit reversal could not be verified.");
+  }
   if (!purchase) return false;
   const funder = String(purchase.funder_user_id ?? "").trim();
   if (!funder) throw new Error("Credit reversal ownership could not be verified.");
@@ -547,13 +589,22 @@ export type CommsPlanCreditRule = {
   updatedAt: string;
 };
 
-/** Admin-only. The 3 per-tier rows `comms_plan_credit_rules` seeds. */
+/**
+ * Admin-only. The 3 per-tier rows `comms_plan_credit_rules` seeds. The admin
+ * Billing page mounts this unconditionally, but staging/production run with
+ * the pool migration not applied at all — an undefined-table/column error
+ * there means "not deployed here yet", so this returns an empty list rather
+ * than surfacing an error banner on every visit to that page.
+ */
 export async function loadCommsPlanCreditRules(db: SupabaseClient): Promise<CommsPlanCreditRule[]> {
   const { data, error } = await db
     .from("comms_plan_credit_rules")
     .select("tier, included_cents, shared_across_workspaces, rolls_over, updated_at")
     .order("tier");
-  if (error) throw new Error("Could not load plan credit rules.");
+  if (error) {
+    if (isMissingPoolSchemaError(error)) return [];
+    throw new Error("Could not load plan credit rules.");
+  }
   return (data ?? []).map((row) => ({
     tier: normalizeCommsPlanTier(row.tier),
     includedCents: Number(row.included_cents ?? 0),
