@@ -23,7 +23,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -526,15 +526,15 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
             </label>
             <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
               Type
-              <select
+              <Select
                 value={overrideDraft.type}
                 onChange={(e) => setOverrideDraft((d) => ({ ...d, type: e.target.value as OverrideType }))}
-                className="h-9 min-w-[150px] rounded-md border border-border bg-card px-2 text-sm"
+                className="h-9 min-w-[150px] rounded-md text-sm"
                 data-attr="vendor-availability-override-type"
               >
                 <option value="open">Open extra time</option>
                 <option value="block">Block time off</option>
-              </select>
+              </Select>
             </label>
             <label className="flex items-center gap-2 pb-1.5 text-xs font-medium text-muted">
               <input
