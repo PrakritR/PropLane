@@ -128,8 +128,8 @@ function dbFixture(args: { recent?: Recent[]; history?: Array<{ direction: strin
   return db as never;
 }
 
-function burst(revision = 4) {
-  return { burstId: "burst-jain", revision, workerId: "worker-jain", claimedSourceIds: ["jain-1", "jain-2"], snapshotCutoff: "2026-09-12T12:00:10.000Z" };
+function burst(revision = 4, originalInboundOccurredAt?: string) {
+  return { burstId: "burst-jain", revision, workerId: "worker-jain", claimedSourceIds: ["jain-1", "jain-2"], snapshotCutoff: "2026-09-12T12:00:10.000Z", originalInboundOccurredAt };
 }
 
 beforeEach(() => {
@@ -257,14 +257,16 @@ describe("prospect SMS runtime incident boundary", () => {
   });
 
   it("keeps delivered acknowledgements silent but permits an explicit resend and a property correction", async () => {
-    const recent = [{ id: "out-delivered", body: "Jain Home is available Now.", updated_at: new Date().toISOString() }];
+    const recent = [{ id: "out-delivered", body: "Jain Home is available Now.", updated_at: new Date(Date.now() - 1_000).toISOString() }];
+    const originalInboundOccurredAt = new Date().toISOString();
     mocks.completions.push(
       tool("suppress_redundant_reply", { recentOutboundMessageId: "out-delivered", reason: "acknowledgment" }),
       text("Jain Home is available Now."),
       text("Jain Home is available Now."),
     );
     const silent = await runLeasingSmsAgentTurn(dbFixture({ recent }), {
-      landlordId: "manager-jain", prospectPhoneE164: "+15550001111", inboundText: "Thanks", crossCatalog: true, prospectBurst: burst(),
+      landlordId: "manager-jain", prospectPhoneE164: "+15550001111", inboundText: "Thanks", crossCatalog: true,
+      prospectBurst: burst(4, originalInboundOccurredAt),
     });
     expect(silent).toMatchObject({ suppressed: true, reply: "", suppression: { referenceMessageId: "out-delivered" } });
     const resend = await runLeasingSmsAgentTurn(dbFixture({ recent }), {
