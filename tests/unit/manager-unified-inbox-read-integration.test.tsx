@@ -195,11 +195,20 @@ const email = (id: string, body: string, key: string, observation: string) => ({
   smsBindingKeys: [key],
 });
 
+// `email()`'s bare "Sep 13, 2026 12:00 PM" stamp is intentionally parsed in the
+// viewer's own local time (see `parseInboxStampMs`'s doc) — a wall clock that
+// resident SMS's UTC-fixed `createdAt` doesn't share. On a west-of-UTC
+// machine that local noon lands AFTER the SMS turn's UTC instant, so the
+// merged row's "most recent wins" preview flips to the email and the SMS
+// text these tests click through never renders. Give every merged-transcript
+// test an email `time` far enough in the past to stay older than the SMS
+// turn on any real timezone, so the merge's own newest-wins invariant (not
+// this fixture's incidental machine dependence) is what's under test.
 describe("merged projection transcript", () => {
   it("discards a delayed detail response from an earlier A-B-A viewer session", async () => {
     const old = deferred<Response>();
     const resident = { ...sms("K1", "CURRENT PREVIEW"), projectionId: "projection-one", unread: false, stateVersion: 0 };
-    state.rows = [email("email-a", "EMAIL BODY", "K1", "obs-a")];
+    state.rows = [{ ...email("email-a", "EMAIL BODY", "K1", "obs-a"), time: "2026-09-01T12:00:00.000Z" }];
     state.sms = [resident];
     state.detail.mockReturnValueOnce(old.promise).mockImplementation(async () => Response.json({ resident, messages: [{ id: "fresh", direction: "inbound", body: "FRESH SESSION", createdAt: "2026-09-13T18:03:00.000Z" }], nextCursor: null }));
     const view = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
@@ -219,7 +228,7 @@ describe("merged projection transcript", () => {
 
   it("does not acknowledge an inbound until its exact detail rendered", async () => {
     const resident = { ...sms("K1", "NEW PREVIEW"), projectionId: "projection-one", unread: true, stateVersion: 0 };
-    state.rows = [email("email-a", "EMAIL BODY", "K1", "obs-a")];
+    state.rows = [{ ...email("email-a", "EMAIL BODY", "K1", "obs-a"), time: "2026-09-01T12:00:00.000Z" }];
     state.sms = [resident];
     state.detail.mockResolvedValueOnce(Response.json({ error: "Unavailable" }, { status: 503 }));
     state.detail.mockImplementation(async () => Response.json({ resident, messages: [{ id: "observed-inbound", direction: "inbound", body: "RENDERED INBOUND", createdAt: "2026-09-13T18:03:00.000Z" }], nextCursor: null }));
@@ -280,7 +289,7 @@ describe("merged projection transcript", () => {
       createdAt: new Date(Date.UTC(2026, 8, 13, 18, 0, index + 1)).toISOString(),
     }));
     const resident = { ...sms("K1", "TEXT TURN 101"), projectionId: "projection-one", workLineId: "line-one", messages: [turns[100]], unread: false, stateVersion: 0 };
-    state.rows = [email("email-a", "SAVED EMAIL", "K1", "obs-a")];
+    state.rows = [{ ...email("email-a", "SAVED EMAIL", "K1", "obs-a"), time: "2026-09-01T12:00:00.000Z" }];
     state.sms = [resident];
     state.detail.mockImplementation(async (_id: string, before?: string) => Response.json({
       resident,
@@ -415,7 +424,7 @@ describe("routed SMS and list continuation", () => {
   });
 
   it("drops a selected projection when its unchanged summary loses detail authorization on poll", async () => {
-    state.rows = [email("email-a", "SAVED EMAIL", "K1", "obs-a")];
+    state.rows = [{ ...email("email-a", "SAVED EMAIL", "K1", "obs-a"), time: "2026-09-01T12:00:00.000Z" }];
     const resident = { ...sms("K1", "REVOKED PREVIEW"), projectionId: "projection-revoked",
       residentEmail: "resident@example.com", unread: false, stateVersion: 0 };
     state.sms = [resident];
