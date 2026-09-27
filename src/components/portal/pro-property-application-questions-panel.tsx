@@ -2,7 +2,7 @@
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
@@ -27,7 +27,6 @@ import {
 } from "@/lib/manager-property-save-target";
 import {
   applicationFormVariantForTemplate,
-  createPropertyApplicationTemplate,
   readPropertyApplicationTemplates,
   removePropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
@@ -40,11 +39,6 @@ import {
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
 import { PropertyTemplatePresetList } from "@/components/portal/property-template-preset-list";
-import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-} from "@/components/portal/portal-list-add-row";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 
 /**
@@ -136,8 +130,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
   const [autoImportFile, setAutoImportFile] = useState<File | null>(null);
-  const uploadPdfInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingPdf, setUploadingPdf] = useState(false);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
@@ -324,54 +316,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
     setEditorOpen(true);
   }, []);
 
-  /**
-   * "+ Add → Upload PDF" in one step (captain override — an uploaded
-   * application PDF becomes a NAMED form, e.g. "Intake form", never a
-   * Lease/Application nav rename). Creates a real (empty) template and saves
-   * it FIRST — exactly `addSeedTemplate`'s pattern — so the editor modal
-   * opens with a real `applicationTemplate.id` and its Import PDF step is
-   * already live, then hands the picked file through as `autoImportFile` so
-   * the modal runs the same import a manual "Import PDF" click runs.
-   */
-  const openAddViaPdfUpload = useCallback(() => {
-    uploadPdfInputRef.current?.click();
-  }, []);
-
-  const handleUploadPdfFile = useCallback(
-    async (file: File) => {
-      if (!managerUserId) {
-        showToast("Could not create the form.");
-        return;
-      }
-      setUploadingPdf(true);
-      try {
-        const created = createPropertyApplicationTemplate({
-          kind: "long-term",
-          label: deriveFormNameFromFileName(file.name),
-        });
-        if (bulkPropertyIds.length > 0) {
-          // A bulk (multi-property) edit has no single listing to import a
-          // source PDF against — PDF import stays a single-property action.
-          showToast("Upload a PDF for one property at a time.");
-          return;
-        }
-        const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
-        const next = withPropertyApplicationTemplatesExplicit(base, [...readPropertyApplicationTemplates(base), created]);
-        const saved = await persistSubmission(next, { message: "Form created — importing your PDF…" });
-        if (!saved) return;
-        onUpdated();
-        setAutoImportFile(file);
-        setEditorMode("edit");
-        setEditingTemplate(created);
-        setEditorOpen(true);
-      } finally {
-        setUploadingPdf(false);
-        if (uploadPdfInputRef.current) uploadPdfInputRef.current.value = "";
-      }
-    },
-    [bulkPropertyIds.length, managerUserId, onUpdated, persistSubmission, showToast, sub, syncedSub],
-  );
-
   const openEditApplication = useCallback(async (template: PropertyApplicationTemplate) => {
     // Older properties render their default forms from listing terms before the
     // generated templates have been stored. The PDF import route reads the
@@ -516,37 +460,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
           />
         </div>
       ) : null}
-
-      <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} flex flex-col gap-2 sm:flex-row`}>
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add application"
-          icon={PORTAL_LIST_ADD_ICONS.application}
-          onClick={openAdd}
-          dataAttr="property-application-add"
-          inline
-          className="flex-1"
-        />
-        <PortalListAddRow
-          label="Upload PDF"
-          ariaLabel="Add application from an uploaded PDF"
-          onClick={openAddViaPdfUpload}
-          disabled={uploadingPdf}
-          dataAttr="property-application-add-pdf"
-          inline
-          className="flex-1"
-        />
-        <input
-          ref={uploadPdfInputRef}
-          type="file"
-          accept="application/pdf"
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void handleUploadPdfFile(file);
-          }}
-        />
-      </div>
     </>
   );
 

@@ -8,6 +8,8 @@ import { HouseDetailsExpandable, SectionCountPill } from "@/components/portal/ho
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
+import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
+import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import {
   updateExtraListingFromSubmission,
@@ -136,6 +138,7 @@ export function ManagerPropertyRoomMoveInPanel({
   canEdit,
   onUpdated,
   showToast,
+  propertyLabel,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: RoomSaveTarget;
@@ -143,7 +146,10 @@ export function ManagerPropertyRoomMoveInPanel({
   canEdit: boolean;
   onUpdated: () => void;
   showToast: (message: string) => void;
+  /** For the Settings gear's "Applies to" row (S016). */
+  propertyLabel?: string;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const entireHome = isEntireHomeListing(sub);
   const roomIndices = useMemo(() => sortRoomIndicesByFloor(sub.rooms), [sub.rooms]);
 
@@ -289,6 +295,24 @@ export function ManagerPropertyRoomMoveInPanel({
 
   return (
     <PortalPropertyDetailSection>
+      <PortalPropertySectionToolbar
+        onSettings={() => setSettingsOpen(true)}
+        settingsLabel="Move-in settings"
+        settingsDataAttr="property-move-in-settings-open"
+      />
+      <PortalPropertySectionSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="Move-in settings"
+        propertyLabel={propertyLabel ?? "This property"}
+        dataAttr="property-move-in-settings"
+      >
+        {/* Nothing here is stored per property yet (no `operationsSettings`
+            namespace or submission field backs a move-in checklist or house
+            rules addendum toggle) — an honest empty settings surface rather
+            than a fabricated one (S016: "leave it out — no new schema"). */}
+        <p className="text-sm text-muted">Nothing to configure for Move-in yet.</p>
+      </PortalPropertySectionSettingsModal>
       <div className="space-y-2.5">
         <HouseDetailsExpandable
           defaultOpen
