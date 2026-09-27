@@ -502,6 +502,8 @@ export type HandleClawInboundResult = {
   shadowInput?: ProspectShadowBurst;
   /** Durably recorded but not queued (QStash unavailable): the caller runs it. */
   inlineBurst?: InlineProspectBurst;
+  /** Durably recorded ingress whose QStash publish runs after the webhook response. */
+  deferredPublicationBurst?: InlineProspectBurst;
 };
 
 /* In-memory idempotency for redelivered relay frames (gateway restarts, webhook
@@ -747,7 +749,7 @@ export async function handleClawLeasingInbound(args: {
   /** Opaque revision lease loaded by the signed queue callback. */
   prospectBurst?: {
     burstId: string; revision: number; workerId: string;
-    claimedSourceIds?: string[]; snapshotCutoff?: string;
+    claimedSourceIds?: string[]; snapshotCutoff?: string; originalInboundOccurredAt?: string;
     transport?: "twilio" | "claw"; sharedCatalog?: boolean;
   };
   /** Server-selected routing guidance; never sourced from the texter. */
@@ -1221,6 +1223,10 @@ export async function handleClawLeasingInbound(args: {
       channel: "twilio",
       body: text,
       replyFromNumber: workNumber,
+      // The receipt and ingress row are durable at this point. Avoid holding
+      // Twilio's webhook open on QStash; the caller runs the same fenced burst
+      // in `after()`, and the recovery cron republishes it if that dies.
+      deferPublication: true,
     });
     if (!queued.ok) {
       // The process-local receipt shortcut is never durable authority. Let the
@@ -1233,7 +1239,11 @@ export async function handleClawLeasingInbound(args: {
       intent,
       replied: false,
       durablyAccepted: true,
-      ...(queued.published ? {} : { inlineBurst: { burstId: queued.burstId, revision: queued.revision, dueAt: queued.dueAt } }),
+      ...(queued.published
+        ? {}
+        : queued.publicationDeferred
+          ? { deferredPublicationBurst: { burstId: queued.burstId, revision: queued.revision, dueAt: queued.dueAt } }
+          : { inlineBurst: { burstId: queued.burstId, revision: queued.revision, dueAt: queued.dueAt } }),
     };
   }
 

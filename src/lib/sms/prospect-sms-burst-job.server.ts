@@ -70,6 +70,15 @@ export async function runProspectSmsBurstJob(
     await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
     return NextResponse.json({ error: "Original burst envelopes unavailable." }, { status: 503 });
   }
+  // An aggregate may contain several inbound events. Silence is safe only if
+  // the candidate delivery predates every one, so use the earliest validated
+  // receipt event. Leave it absent when any event has no parseable occurrence
+  // time; the agent's candidate loader then fails closed.
+  const originalInboundOccurredAt = originals.length > 0 && originals.every(
+    (original) => Number.isFinite(Date.parse(original.receivedAt)),
+  )
+    ? originals.map((original) => original.receivedAt).sort((a, b) => Date.parse(a) - Date.parse(b))[0]
+    : undefined;
   const committedBooking = await loadConfirmedProspectTourBooking(db, {
     managerUserId: String(burst.manager_user_id),
     burstId,
@@ -117,6 +126,10 @@ export async function runProspectSmsBurstJob(
     prospectBurst: {
       burstId, revision, workerId: claim.workerId, claimedSourceIds: sourceIds,
       snapshotCutoff: ingress.map((row) => String(row.received_at)).sort().at(-1),
+      // `handleClawLeasingInbound` transparently forwards this opaque burst
+      // metadata to the leasing agent. Its snapshot cutoff remains dedicated
+      // to history fencing above.
+      originalInboundOccurredAt,
       transport: burst.reply_transport === "claw" ? "claw" : "twilio",
       sharedCatalog: burst.shared_catalog === true,
     },

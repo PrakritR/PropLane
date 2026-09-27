@@ -462,7 +462,8 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     resolveMappedManagerContacts.mockResolvedValue([{ userId: "mgr-1", email: "manager@example.com", fullName: "Manager", personalPhone: null }]);
     durableProspectSmsEnabled.mockReturnValue(true);
     enqueueProspectSmsBurst.mockResolvedValue({
-      ok: true, burstId: "burst-9", revision: 2, duplicate: false, published: false, dueAt: "2026-09-24T15:00:10.000Z",
+      ok: true, burstId: "burst-9", revision: 2, duplicate: false, published: false,
+      publicationDeferred: true, dueAt: "2026-09-24T15:00:10.000Z",
     });
     const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
 
@@ -475,7 +476,12 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     })).resolves.toMatchObject({
       ok: true,
       durablyAccepted: true,
-      inlineBurst: { burstId: "burst-9", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" },
+      deferredPublicationBurst: { burstId: "burst-9", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" },
     });
+    expect(enqueueProspectSmsBurst).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      sourceMessageId: "SM-queue-quota-exhausted",
+      channel: "twilio",
+      deferPublication: true,
+    }));
   });
 });

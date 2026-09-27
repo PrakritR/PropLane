@@ -421,8 +421,12 @@ error 11200, receipt stuck `processing`). Now:
 
 Prospect texts are merged into one reply after a 10 second quiet window
 (`QUIET_SECONDS` in `src/lib/sms/prospect-sms-burst.server.ts`); each new text
-restarts it. QStash holds the delay, so it never counts against Twilio's 15 second
-inbound webhook timeout.
+restarts it. The Twilio route records the immutable receipt and durable prospect
+ingress first, then returns without waiting on the QStash network publish. Its
+`after()` continuation publishes the revision to QStash and runs the same
+revision-fenced worker inline only if publication fails; the recovery cron
+publishes any still-unpublished row. A queue call may take five seconds, so it
+must never consume Twilio's 15 second inbound webhook budget.
 
 The durable prospect burst publisher must use the exact callback URL
 `https://proplane.ai/api/internal/prospect-sms-burst` in Vercel Production.
@@ -435,8 +439,8 @@ queued or expired-lease bursts. Treat Twilio inbound webhook failures and
 QStash callback failures as separate incidents unless request evidence links
 them.
 
-**QStash outage fallback.** If QStash refuses a publish (daily quota `429`,
-network, 5xx), the ingress row is already durable, so the text is still accepted.
+**QStash outage fallback.** If a direct or recovery QStash publish is refused
+(daily quota `429`, network, 5xx), the ingress row is already durable, so the text is still accepted.
 The inbound route answers Twilio, then runs the burst itself in `after()`
 (`runInlineProspectBurst`): it waits out the quiet window and runs the same
 `runProspectSmsBurstJob` the QStash callback runs. The recovery cron does the same
@@ -993,7 +997,12 @@ Coverage: `tests/unit/sms-opt-out-unified.test.ts`.
 `get_listing_details` in `src/lib/tools/domains/leasing-sms.ts` is the shared
 public fact source for leasing SMS and email. It returns explicit lease terms,
 base room prices, conditional surcharges, utilities, standard-lease deposits,
-and nullable pet policy. A base room price is not a price for every offered
+nullable pet policy, each room's normalized resident capacity and physical bed
+count as separate facts, and the listing's summed published room capacity when
+every room is represented. That sum is not a legal occupancy limit. A bedroom
+or physical bed is never evidence of one resident, and an occupancy lookup
+failure makes current availability unknown without hiding the published
+capacity. A base room price is not a price for every offered
 term. Custom-calendar surcharges apply only when the selected standard-lease
 dates satisfy the canonical billing predicate; standard deposits say nothing
 about short-term deposits. A room's explicit zero deposit overrides the listing.
@@ -1007,6 +1016,12 @@ concise, ask at most one combined clarification question, and include only a
 relevant tool-built link. A prospect ready to reserve, pay, or move immediately
 remains a prospect, so the agent never redirects them to resident rent payment
 or claims approval, reservation, or payment.
+
+Reply suppression is limited to a deterministic, standalone acknowledgment
+such as "thanks" or "got it" and requires an outbox row whose status is exactly
+`delivered`. The tool classifies the trusted current inbound text from the
+webhook context. A repeated question, clarification, correction, new fact, or
+availability question always rejects suppression so the model can answer.
 
 For a high-intent manager-only uncertainty with no useful grounded reply left,
 the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.

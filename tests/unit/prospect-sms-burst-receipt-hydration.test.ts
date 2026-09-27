@@ -50,7 +50,27 @@ describe("prospect SMS burst original hydration", () => {
     expect(mocks.handle).toHaveBeenCalledWith(expect.objectContaining({ originalMessages: [
       { messageId: "SM-first", body: "original SM-first", receivedAt: "2026-09-25T12:00:00Z" },
       { messageId: "SM-second", body: "original SM-second", receivedAt: "2026-09-25T12:00:02Z" },
-    ] }));
+    ], prospectBurst: expect.objectContaining({
+      snapshotCutoff: "2026-09-25T12:00:12Z",
+      originalInboundOccurredAt: "2026-09-25T12:00:00Z",
+    }) }));
+  });
+
+  it("does not substitute an ingress clock when any original occurrence time is invalid", async () => {
+    mocks.resolve.mockImplementation(async (_db: unknown, sid: string) => ({
+      sid, ingress: true, role: "prospect", fromPhone: burst.counterparty_phone_e164,
+      toPhone: burst.reply_from_number, body: `original ${sid}`,
+      occurredAt: sid === "SM-first" ? "not-a-timestamp" : "2026-09-25T12:00:02Z",
+    }));
+    const { runProspectSmsBurstJob } = await import("@/lib/sms/prospect-sms-burst-job.server");
+
+    expect((await runProspectSmsBurstJob(dbFor() as never, "burst", 3)).status).toBe(200);
+    expect(mocks.handle).toHaveBeenCalledWith(expect.objectContaining({
+      prospectBurst: expect.objectContaining({
+        snapshotCutoff: "2026-09-25T12:00:12Z",
+        originalInboundOccurredAt: undefined,
+      }),
+    }));
   });
 
   it("keeps original RPC work bounded before model work", async () => {

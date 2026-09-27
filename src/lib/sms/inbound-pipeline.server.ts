@@ -2,6 +2,7 @@ import { intakeResidentSmsPhotos } from "@/lib/inspections/attachment-intake.ser
 import { after, NextResponse } from "next/server";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
 import { runInlineProspectBurst } from "@/lib/sms/prospect-sms-burst-job.server";
+import { publishDeferredProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
@@ -1092,6 +1093,21 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     return NextResponse.json({ error: handled.error ?? "Inbound processing failed." }, { status: 503 });
   }
   const inlineBurst = handled.inlineBurst;
+  const deferredPublicationBurst = handled.deferredPublicationBurst;
+  if (deferredPublicationBurst) {
+    mark("deferred-burst-publish");
+    after(async () => {
+      const afterDb = createSupabaseServiceRoleClient();
+      const published = await publishDeferredProspectSmsBurst(afterDb, deferredPublicationBurst).catch((error) => {
+        console.error("prospect burst deferred publication failed", {
+          burstId: deferredPublicationBurst.burstId,
+          revision: deferredPublicationBurst.revision,
+        }, error);
+        return false;
+      });
+      if (!published) await runInlineProspectBurst(afterDb, deferredPublicationBurst);
+    });
+  }
   if (inlineBurst) {
     mark("inline-burst");
     after(() => runInlineProspectBurst(createSupabaseServiceRoleClient(), inlineBurst));

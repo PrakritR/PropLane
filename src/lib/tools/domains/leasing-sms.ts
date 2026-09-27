@@ -33,8 +33,10 @@ import {
   roomIsDailyPriced,
   roomPricingIsFlexible,
 } from "@/lib/room-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { getNearbyTransit, type TransitMode } from "@/lib/nearby-transit.server";
 import { exactListingIdentityMatch, normalizeListingIdentity, normalizeListingWords } from "@/lib/listing-identity";
+import { isStandaloneSmsAcknowledgment } from "@/lib/sms/standalone-acknowledgment";
 import { updateAuditResult, writeAuditLog } from "../audit";
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
@@ -127,6 +129,10 @@ function summarizeRooms(src: Record<string, unknown> | null) {
       furnishing: string | null;
       roomAmenities: string | null;
       detail: string | null;
+      /** Maximum independent residents who may hold leases for this room. */
+      residentCapacity: number;
+      /** Physical beds described by the manager. This is not lease capacity. */
+      physicalBeds: number | null;
       moveInAvailableDate: string | null;
       securityDeposit: string | null;
       utilitiesEstimate: string | null;
@@ -155,6 +161,8 @@ function summarizeRooms(src: Record<string, unknown> | null) {
         furnishing: r.furnishing?.trim() || null,
         roomAmenities: r.roomAmenitiesText?.trim() || null,
         detail: str(r as unknown as Record<string, unknown>, "detail"),
+        residentCapacity: normalizeRoomOccupancyCapacity(r.occupancyCapacity),
+        physicalBeds: r.bedCount ?? null,
         moveInAvailableDate: r.moveInAvailableDate?.trim() || null,
         securityDeposit: r.securityDeposit?.trim() || null,
         utilitiesEstimate: r.utilitiesEstimate?.trim() || null,
@@ -474,6 +482,8 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
       publishedAvailability: r.publishedAvailability,
       currentAvailabilityVerified: r.currentAvailabilityVerified,
       furnishing: r.furnishing,
+      residentCapacity: r.residentCapacity,
+      physicalBeds: r.physicalBeds,
     })),
     bundles: summarizeBundles(src),
   };
@@ -612,10 +622,10 @@ export const listLiveListingsTool = defineTool({
 export const suppressRedundantLeasingReplyTool = defineTool({
   name: LEASING_SMS_SUPPRESS_TOOL_NAME,
   description:
-    "Stay silent when the newest inbound is only an acknowledgment or repeats a question already answered by a confirmed recent SMS. Never use for a correction, new fact, new question, explicit repeat or clarification request, changed availability, or a reply whose delivery is failed or unknown. Copy the recent delivered message id exactly.",
+    "Stay silent only when the newest inbound is a standalone acknowledgment to a confirmed recently delivered SMS. Repeated questions, explicit repeat or clarification requests, corrections, new facts, availability questions, and failed or unknown deliveries must receive an answer. Copy the recent delivered message id exactly.",
   inputSchema: z.object({
     recentOutboundMessageId: z.string().min(1),
-    reason: z.enum(["acknowledgment", "repeated_question"]),
+    reason: z.literal("acknowledgment"),
   }).strict(),
   handler: async (ctx, input) => {
     const matched = ctx.leasingScope?.recentDeliveredReplies?.find(
@@ -623,6 +633,9 @@ export const suppressRedundantLeasingReplyTool = defineTool({
     );
     if (!matched) {
       throw new Error("That message is not a confirmed recent delivered reply. Answer the prospect normally.");
+    }
+    if (!isStandaloneSmsAcknowledgment(ctx.leasingScope?.currentInboundText ?? "")) {
+      throw new Error("The current inbound is not a standalone acknowledgment. Answer the prospect normally.");
     }
     return { suppress: true as const, referenceMessageId: matched.messageId, reason: input.reason };
   },
@@ -664,6 +677,25 @@ export const getListingDetailsTool = defineTool({
       if (record && typeof record.id === "string") roomCapacity.set(record.id, record.occupancyCapacity);
     }
     const facts = leasingListingFacts(src, rooms);
+    // Capacities are normalized at the listing boundary. Do not derive this
+    // from physical beds or bedrooms: a room's published resident capacity is
+    // an independent listing fact, not a legal occupancy limit. If any stored
+    // room was excluded from the prospect-safe room summary, the visible rows
+    // cannot support a complete listing total, so return unknown.
+    let maximumResidents: number | null = null;
+    try {
+      const normalizedRooms = submission
+        ? normalizeManagerListingSubmissionV1(submission as never).rooms
+        : [];
+      const completeRoomSet = normalizedRooms.length === rooms.length && normalizedRooms.every(
+        (room, index) => room.id === rooms[index]?.id,
+      );
+      if (completeRoomSet && rooms.length > 0) {
+        maximumResidents = rooms.reduce((total, room) => total + room.residentCapacity, 0);
+      }
+    } catch {
+      // Malformed legacy room data cannot support a complete listing total.
+    }
     const roomNeedle = (input.roomQuery ?? "").trim().toLowerCase();
     const matchedRooms = roomNeedle
       ? rooms.filter(
@@ -700,6 +732,7 @@ export const getListingDetailsTool = defineTool({
           };
         }),
         allRoomCount: rooms.length,
+        maximumResidents,
         bundles: summarizeBundles(src),
         leaseTerms: facts.leaseTerms,
         securityDeposit: facts.securityDeposit,

@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   replyConsent: vi.fn(async () => "allowed"),
   after: vi.fn(),
   runInlineBurst: vi.fn(async () => undefined),
+  publishDeferredBurst: vi.fn(async () => true),
   recoveryRows: [] as Record<string, unknown>[],
   projectEvent: vi.fn(async () => true),
   projectionRetryRows: [] as Record<string, unknown>[],
@@ -39,6 +40,7 @@ vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
 import twilio from "twilio";
 vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()), after: mocks.after }));
 vi.mock("@/lib/sms/prospect-sms-burst-job.server", () => ({ runInlineProspectBurst: mocks.runInlineBurst }));
+vi.mock("@/lib/sms/prospect-sms-burst.server", () => ({ publishDeferredProspectSmsBurst: mocks.publishDeferredBurst }));
 vi.mock("@/lib/twilio-client.server", () => ({
   twilioWebhookAuthToken: () => "auth-token",
   fetchTwilioMessageCreatedAt: vi.fn(),
@@ -833,6 +835,62 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.runInlineBurst).not.toHaveBeenCalled();
     await mocks.after.mock.calls[0]![0]();
     expect(mocks.runInlineBurst).toHaveBeenCalledWith(expect.anything(), inlineBurst);
+  });
+
+  it("acknowledges Twilio before publishing a durable prospect burst to QStash", async () => {
+    const deferredPublicationBurst = { burstId: "burst-1", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" };
+    mocks.handleInbound.mockResolvedValue({
+      ok: true,
+      intent: "unknown",
+      replied: false,
+      durablyAccepted: true,
+      deferredPublicationBurst,
+    });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(mocks.publishDeferredBurst).not.toHaveBeenCalled();
+    await mocks.after.mock.calls[0]![0]();
+    expect(mocks.publishDeferredBurst).toHaveBeenCalledWith(expect.anything(), deferredPublicationBurst);
+    expect(mocks.runInlineBurst).not.toHaveBeenCalled();
+  });
+
+  it("runs the same revision-fenced burst inline when deferred publication returns false", async () => {
+    const deferredPublicationBurst = { burstId: "burst-1", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" };
+    mocks.handleInbound.mockResolvedValue({
+      ok: true,
+      intent: "unknown",
+      replied: false,
+      durablyAccepted: true,
+      deferredPublicationBurst,
+    });
+    mocks.publishDeferredBurst.mockResolvedValueOnce(false);
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    await mocks.after.mock.calls[0]![0]();
+    expect(mocks.runInlineBurst).toHaveBeenCalledWith(expect.anything(), deferredPublicationBurst);
+  });
+
+  it("runs the same revision-fenced burst inline when deferred publication throws", async () => {
+    const deferredPublicationBurst = { burstId: "burst-1", revision: 2, dueAt: "2026-09-24T15:00:10.000Z" };
+    mocks.handleInbound.mockResolvedValue({
+      ok: true,
+      intent: "unknown",
+      replied: false,
+      durablyAccepted: true,
+      deferredPublicationBurst,
+    });
+    mocks.publishDeferredBurst.mockRejectedValueOnce(new Error("publisher unavailable"));
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    await mocks.after.mock.calls[0]![0]();
+    expect(mocks.runInlineBurst).toHaveBeenCalledWith(expect.anything(), deferredPublicationBurst);
   });
 
   it("keeps the saved text on the leasing path when inbound credit cannot be reserved", async () => {
