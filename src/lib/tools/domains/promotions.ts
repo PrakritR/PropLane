@@ -17,6 +17,8 @@ import {
 } from "@/lib/promotion-row-ops";
 import { humanizePropertyId } from "@/lib/reports/display-context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
+import { loadAllManagerRows } from "./load-manager-rows";
+import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 const TEMPLATE_IDS = PROMOTION_TEMPLATE_OPTIONS.map((t) => t.id) as [PromotionTemplate, ...PromotionTemplate[]];
 
@@ -68,7 +70,14 @@ async function loadOwnedPromotion(ctx: AgentContext, promotionId: string): Promi
     .limit(1);
   if (error) throw new Error(error.message);
   const rec = (data ?? [])[0] as { row_data: unknown } | undefined;
-  return rec?.row_data ? (rec.row_data as ManagerPromotionRow) : null;
+  if (!rec?.row_data) return null;
+  const row = rec.row_data as ManagerPromotionRow;
+  // Same active-workspace check `list_promotions` gets for free through
+  // `loadAllManagerRows` (`rowAllowedInAgentWorkspace`) — a manager with 2+
+  // workspaces asking the assistant to act on a promotion BY ID must not
+  // reach one filed under a house in a workspace they are not currently in.
+  if (!rowAllowedInAgentWorkspace(ctx, row)) return null;
+  return row;
 }
 
 const UNOWNED_PROMOTION_ERROR =
@@ -120,15 +129,18 @@ export const listPromotionsTool = defineTool({
     })
     .strict(),
   handler: async (ctx, input) => {
-    const { data, error } = await ctx.db
-      .from("manager_promotion_records")
-      .select("row_data")
-      .eq("manager_user_id", ctx.landlordId)
-      .order("updated_at", { ascending: false })
-      .limit(500);
-    if (error) throw new Error(error.message);
-    const promotions = ((data ?? []) as { row_data: unknown }[])
-      .map((r) => r.row_data as ManagerPromotionRow)
+    // Was a raw `manager_user_id`-only query: never widened for a co-manager
+    // (the opposite failure — a co-manager granted promotion access got
+    // NOTHING), and never narrowed to the active workspace (a manager with 2+
+    // workspaces got every workspace's promotions at once). `loadAllManagerRows`
+    // is the one shared loader that gets both right, same as every sibling
+    // domain (charges, applications, work orders, leases).
+    const promotionRows = await loadAllManagerRows(
+      ctx,
+      "manager_promotion_records",
+      (rowData) => rowData as ManagerPromotionRow,
+    );
+    const promotions = promotionRows
       .filter(Boolean)
       .map(summarizePromotion)
       .filter((p) => !input.status || p.status === input.status)

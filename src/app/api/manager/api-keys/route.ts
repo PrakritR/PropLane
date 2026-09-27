@@ -13,6 +13,7 @@ import { listApiKeys, mintApiKey, normalizeAllowedTools, normalizeScopes } from 
 import { API_KEY_WRITE_TOOL_NAMES, productAreaSelectionsForTools } from "@/lib/mcp/capabilities";
 import { track } from "@/lib/analytics/posthog";
 import { rateLimit } from "@/lib/rate-limit";
+import { listViewerWorkspaces } from "@/lib/workspaces/active.server";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  let body: { name?: unknown; scopes?: unknown; allowedTools?: unknown; transport?: unknown };
+  let body: { name?: unknown; scopes?: unknown; allowedTools?: unknown; transport?: unknown; workspaceId?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -61,12 +62,33 @@ export async function POST(req: Request) {
   if (allowedTools.length === 0) {
     return NextResponse.json({ error: "Choose at least one product area or tool." }, { status: 400 });
   }
+
+  // A key is scoped to one workspace (W001) — default to the active one so a
+  // key created without saying otherwise narrows to exactly what the manager
+  // is looking at right now, never the whole account. An explicit request
+  // must name a workspace this viewer can actually select (their own, or one
+  // they are an accepted member of); anything else is refused rather than
+  // silently falling back, so a caller cannot probe for workspace ids that
+  // are not theirs.
+  const requestedWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+  let workspaceId = requestedWorkspaceId || actor.workspace?.id || "";
+  if (requestedWorkspaceId) {
+    const viewerWorkspaces = await listViewerWorkspaces(actor.db, actor.userId);
+    const match = viewerWorkspaces.find((w) => w.id === requestedWorkspaceId);
+    if (!match) return NextResponse.json({ error: "Choose a valid workspace for this key." }, { status: 400 });
+    workspaceId = match.id;
+  }
+  if (!workspaceId) {
+    return NextResponse.json({ error: "Could not resolve a workspace for this key. Try again." }, { status: 500 });
+  }
+
   const minted = await mintApiKey(actor.db, {
     userId: actor.userId,
     name,
     scopes: scopes.length ? scopes : productAreaSelectionsForTools(allowedTools),
     allowedTools,
     transport,
+    workspaceId,
   });
   if (!minted) return NextResponse.json({ error: "Could not create the key." }, { status: 500 });
 

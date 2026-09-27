@@ -2,11 +2,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+// S021 (captain, 2026-09-27) dropped the reminders-hub gear from Tours,
+// Applications, Leases, Residents, Tasks, Bookings, and Inspections — their
+// reminder settings stay reachable from the central Settings hub instead.
+// Payments and Communication keep their own gear, and Services keeps its
+// gear because it is also the only way to the per-property service catalog.
 const FILES = [
-  "src/components/portal/pro-leases.tsx",
-  "src/components/portal/pro-applications.tsx",
-  "src/components/portal/pro-bookings.tsx",
-  "src/components/portal/pro-task-list.tsx",
+  "src/components/portal/pro-payments.tsx",
+  "src/components/portal/pro-communication.tsx",
+  "src/components/portal/pro-all-services-panel.tsx",
 ];
 
 describe("settings command icons are a gear", () => {

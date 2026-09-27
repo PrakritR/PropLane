@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertManagerFinancialsCoManagerAccess } from "@/lib/auth/co-manager-access";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { createOwnerDistribution, listOwnerDistributions } from "@/lib/manager-owner-distributions.server";
 import { track } from "@/lib/analytics/posthog";
@@ -44,9 +45,23 @@ export async function POST(req: Request) {
       memo?: string;
     };
 
+    const propertyId = String(body.propertyId ?? "").trim();
+    // Writing an owner distribution is a financials write — this used to
+    // check only the plan tier above, so the workspace's `propertyIds` list
+    // (populated by ANY accepted co-manager membership, regardless of which
+    // module was granted) was the only property gate. A co-manager granted a
+    // module other than financials (e.g. Maintenance) on an owner's house
+    // could post a distribution for it. ownerManagerUserId is intentionally
+    // undefined — passing the caller would short-circuit the check
+    // (owner===caller => allow) and make it a no-op; undefined runs the real
+    // per-property permission check, which already fast-paths true when the
+    // caller owns the property.
+    const cm = await assertManagerFinancialsCoManagerAccess(auth.db, auth.userId, propertyId, undefined, "edit");
+    if (!cm.ok) return NextResponse.json({ error: cm.error }, { status: cm.status });
+
     const distribution = await createOwnerDistribution(auth.db, {
       managerUserId: auth.userId,
-      propertyId: String(body.propertyId ?? "").trim(),
+      propertyId,
       ownerId: body.ownerId || null,
       periodStart: String(body.periodStart ?? ""),
       periodEnd: String(body.periodEnd ?? ""),
