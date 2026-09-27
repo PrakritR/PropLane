@@ -1,5 +1,7 @@
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
+  clearPropertyRecordOutbox,
+  discardPropertyRecordWrite,
   enqueuePropertyRecordWrite,
   flushPropertyRecordOutbox,
   overlayPendingPropertyWrites,
@@ -83,6 +85,8 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
         matchingHydrationRequest ? { preserveInflightViewer: nextViewerId } : undefined,
       );
     }
+    // Signed out: unsent writes carry full property payloads and belong to that session.
+    if (observedViewerId !== null && nextViewerId === null) clearPropertyRecordOutbox();
     observedViewerId = nextViewerId;
   });
   let previousWorkspace = selectedWorkspaceId();
@@ -269,7 +273,7 @@ function mirrorPropertyRecord(input: {
   if (typeof window === "undefined" || isDemoModeActive()) return;
   // Queued until the server answers, so a write that never lands is retried by
   // the next pipeline sync rather than lost when that sync replaces this copy.
-  void enqueuePropertyRecordWrite(portalSessionViewerId() ?? input.managerUserId ?? "", {
+  void enqueuePropertyRecordWrite(portalSessionViewerId() ?? "", {
     action: "upsert",
     id: input.id,
     managerUserId: input.managerUserId,
@@ -371,6 +375,7 @@ export async function upsertPropertyRecordToServer(input: {
 
 export function deleteMirroredPropertyRecord(id: string) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
+  discardPropertyRecordWrite(id);
   void fetch("/api/property-records", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -392,6 +397,7 @@ export function deleteMirroredPropertyRecord(id: string) {
  * non-ok status — 401, 403, 500 — is a genuine failure and still resolves
  * false. */
 export async function deletePropertyRecordFromServer(id: string): Promise<boolean> {
+  discardPropertyRecordWrite(id);
   if (typeof window === "undefined") return false;
   if (isDemoModeActive()) return true;
   try {
@@ -1353,7 +1359,11 @@ export function removeExtraListing(listingId: string): MockProperty | null {
 }
 
 /** Promotes a manager submission to a public listing (per-owner storage). */
-export function approvePendingManagerProperty(pendingId: string): MockProperty | null {
+export function approvePendingManagerProperty(
+  pendingId: string,
+  /** The caller sends the listing upsert itself; don't queue a second one. */
+  opts?: { callerSendsUpsert?: boolean },
+): MockProperty | null {
   const row = takePendingManagerProperty(pendingId);
   if (!row) return null;
 
@@ -1361,7 +1371,7 @@ export function approvePendingManagerProperty(pendingId: string): MockProperty |
   const prop: MockProperty = { ...buildMockPropertyFromDraft(row, listingId), adminPublishLive: true };
   const owner = row.submittedByUserId ?? LEGACY_MANAGER_SCOPE_USER_ID;
   migrateAmenityOffersPropertyId(owner, pendingId, listingId);
-  appendExtraListing(prop, owner);
+  appendExtraListing(prop, owner, { alreadyOnServer: opts?.callerSendsUpsert });
   return prop;
 }
 
@@ -1396,7 +1406,7 @@ export async function promoteLegacyPendingListingsToLive(): Promise<number> {
   if (extrasDirty) writeExtrasMap(extrasMap);
 
   for (const pending of [...readAllPendingManagerProperties()]) {
-    const created = approvePendingManagerProperty(pending.id);
+    const created = approvePendingManagerProperty(pending.id, { callerSendsUpsert: true });
     if (!created) continue;
     promoted += 1;
     const owner = created.managerUserId ?? pending.submittedByUserId ?? "";

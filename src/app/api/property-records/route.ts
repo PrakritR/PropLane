@@ -248,7 +248,7 @@ export async function POST(req: Request) {
     // 2. An EXISTING row that HAS an owner keeps that owner on every write, admins
     //    included. Every client that posts here mirrors `managerUserId` straight
     //    out of a browser-local pipeline bucket
-    //    (`mirrorLocalPropertyPipelineToServer`, `mirrorAdminPropertyRecord`,
+    //    (the property-record outbox, `mirrorAdminPropertyRecord`,
     //    `promoteLegacyPendingListingsToLive`), so honoring it let a stale local
     //    bucket keyed by another user id silently hand live listings to that
     //    account. The read path scopes strictly by `manager_user_id`, so the real

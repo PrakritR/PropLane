@@ -9,8 +9,10 @@
  * every property on every visit: an empty outbox sends nothing.
  *
  * One entry per record id, latest write wins. Entries are scoped to the viewer
- * who made them, so a different account in the same browser never replays them,
- * and they live under an `axis_` key, which sign-out clears.
+ * who made them, so a different account in the same browser never replays them;
+ * the pipeline clears the outbox when the viewer signs out. A delete, unlist or
+ * other status change for a record discards its unsent write, so a replay can
+ * never resurrect what the manager just took down.
  */
 
 import type { PropertyPipelineSnapshot } from "@/lib/persisted-property-records";
@@ -18,8 +20,13 @@ import type { ManagerPendingPropertyRow } from "@/lib/demo-property-pipeline";
 import type { MockProperty } from "@/data/types";
 
 export const PROPERTY_RECORD_OUTBOX_KEY = "axis_property_record_outbox_v1";
-/** ponytail: an edit unsent for this long is dropped rather than replayed over newer work from another device. */
-export const PROPERTY_RECORD_OUTBOX_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/**
+ * ponytail: a replay overwrites whatever the server holds (the route has no
+ * client base version to compare), so an edit unsent this long is dropped
+ * rather than risk landing over newer work from another device. Covers a
+ * reload or a short outage; a base `updated_at` on the write would lift it.
+ */
+export const PROPERTY_RECORD_OUTBOX_MAX_AGE_MS = 60 * 60 * 1000;
 
 export type PropertyRecordUpsertBody = {
   action: "upsert";
@@ -122,13 +129,18 @@ async function send(entry: PropertyRecordOutboxEntry, fetchImpl: typeof fetch): 
   }
 }
 
-/** Record a write, then send it. Returns once the server has answered (callers may ignore it). */
+/**
+ * Record a write, then send it. Returns once the server has answered (callers
+ * may ignore it). With no known viewer the write is sent once and not kept:
+ * an entry must never be replayable under some later session.
+ */
 export function enqueuePropertyRecordWrite(
   viewerId: string,
   body: PropertyRecordUpsertBody,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   const map = readOutbox();
+  if (!viewerId) return send({ viewerId, seq: (map[body.id]?.seq ?? 0) + 1, queuedAt: Date.now(), body }, fetchImpl);
   const entry: PropertyRecordOutboxEntry = {
     viewerId,
     seq: (map[body.id]?.seq ?? 0) + 1,
@@ -138,6 +150,19 @@ export function enqueuePropertyRecordWrite(
   map[body.id] = entry;
   writeOutbox(map);
   return send(entry, fetchImpl);
+}
+
+/** Forget any unsent write for this record (it was deleted, unlisted, or changed status). */
+export function discardPropertyRecordWrite(id: string) {
+  const map = readOutbox();
+  if (!(id in map)) return;
+  delete map[id];
+  writeOutbox(map);
+}
+
+/** Drop every unsent write (sign-out): full property payloads must not outlive the session. */
+export function clearPropertyRecordOutbox() {
+  writeOutbox({});
 }
 
 /** This viewer's unsent writes, dropping (and forgetting) any older than the max age. */
@@ -176,20 +201,24 @@ export function overlayPendingPropertyWrites(
   if (entries.length === 0) return snapshot;
   const pendingByUser = { ...snapshot.pendingByUser };
   const extrasByUser = { ...snapshot.extrasByUser };
-  const upsert = <T extends { id: string }>(list: T[] | undefined, row: T): T[] => {
-    const rows = [...(list ?? [])];
+  // Replace the row in whichever bucket already holds it: a co-manager's edit
+  // carries the editor's id, but the listing lives in the owner's bucket.
+  const upsert = <T extends { id: string }>(buckets: Record<string, T[]>, fallbackOwner: string, row: T) => {
+    const holder = Object.keys(buckets).find((uid) => buckets[uid]?.some((r) => r.id === row.id));
+    const key = holder ?? fallbackOwner;
+    const rows = [...(buckets[key] ?? [])];
     const idx = rows.findIndex((r) => r.id === row.id);
     if (idx === -1) rows.push(row);
     else rows[idx] = row;
-    return rows;
+    buckets[key] = rows;
   };
   for (const { body } of entries) {
     const owner = body.managerUserId?.trim();
     if (!owner) continue;
     if (body.status === "pending" && body.rowData && typeof body.rowData === "object") {
-      pendingByUser[owner] = upsert(pendingByUser[owner], body.rowData as ManagerPendingPropertyRow);
+      upsert(pendingByUser, owner, body.rowData as ManagerPendingPropertyRow);
     } else if ((body.status === "live" || body.status === "review") && body.propertyData && typeof body.propertyData === "object") {
-      extrasByUser[owner] = upsert(extrasByUser[owner], body.propertyData as MockProperty);
+      upsert(extrasByUser, owner, body.propertyData as MockProperty);
     }
   }
   return { ...snapshot, pendingByUser, extrasByUser };

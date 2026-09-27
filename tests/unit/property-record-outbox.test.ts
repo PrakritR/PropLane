@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PROPERTY_RECORD_OUTBOX_MAX_AGE_MS,
   PROPERTY_RECORD_REFUSED_EVENT,
+  clearPropertyRecordOutbox,
+  discardPropertyRecordWrite,
   enqueuePropertyRecordWrite,
   flushPropertyRecordOutbox,
   overlayPendingPropertyWrites,
@@ -19,6 +21,7 @@ import {
   type PropertyRecordUpsertBody,
 } from "@/lib/property-record-outbox";
 import type { PropertyPipelineSnapshot } from "@/lib/persisted-property-records";
+import { deleteMirroredPropertyRecord } from "@/lib/demo-property-pipeline";
 
 const VIEWER = "mgr-outbox-viewer";
 
@@ -63,6 +66,7 @@ let refused: PropertyRecordRefusedDetail[];
 const onRefused = (event: Event) => refused.push((event as CustomEvent<PropertyRecordRefusedDetail>).detail);
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/portal/properties");
   window.localStorage.clear();
   refused = [];
   window.addEventListener(PROPERTY_RECORD_REFUSED_EVENT, onRefused);
@@ -180,5 +184,47 @@ describe("property-record outbox", () => {
     expect(next.pendingByUser[VIEWER]?.map((p) => p.id)).toEqual(["pend-b"]);
     // The server snapshot itself is untouched.
     expect(snapshot.extrasByUser[VIEWER]?.[0]?.buildingName).toBe("Server copy");
+  });
+
+  it("a delete or unlist discards the unsent write, so a later flush cannot resurrect the listing", async () => {
+    const { fetchImpl, sent } = server(() => "offline");
+    await enqueuePropertyRecordWrite(VIEWER, body("mgr-a"), fetchImpl);
+    await enqueuePropertyRecordWrite(VIEWER, body("mgr-b"), fetchImpl);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
+    deleteMirroredPropertyRecord("mgr-a"); // the path every delete/unlist/status change goes through
+    discardPropertyRecordWrite("mgr-missing"); // no-op
+    vi.unstubAllGlobals();
+    expect(pendingPropertyRecordWrites(VIEWER).map((e) => e.body.id)).toEqual(["mgr-b"]);
+    sent.length = 0;
+    await flushPropertyRecordOutbox(VIEWER, fetchImpl);
+    expect(sent).toEqual(["mgr-b"]);
+  });
+
+  it("with no known viewer, sends once and keeps nothing to replay under a later session", async () => {
+    const { fetchImpl, sent } = server(() => "offline");
+    await enqueuePropertyRecordWrite("", body("mgr-a"), fetchImpl);
+    expect(sent).toEqual(["mgr-a"]);
+    expect(window.localStorage.getItem("axis_property_record_outbox_v1")).toBeNull();
+  });
+
+  it("sign-out clears every unsent payload", async () => {
+    const { fetchImpl } = server(() => "offline");
+    await enqueuePropertyRecordWrite(VIEWER, body("mgr-a"), fetchImpl);
+    clearPropertyRecordOutbox();
+    expect(window.localStorage.getItem("axis_property_record_outbox_v1")).toBeNull();
+  });
+
+  it("overlays a co-manager's unsent edit onto the owner's copy, not a duplicate in their own bucket", async () => {
+    const { fetchImpl } = server(() => "offline");
+    await enqueuePropertyRecordWrite(VIEWER, body("mgr-owned", "live", { managerUserId: VIEWER, propertyData: { id: "mgr-owned", buildingName: "Edited by co-manager" } }), fetchImpl);
+    const snapshot = {
+      pendingByUser: {},
+      extrasByUser: { "mgr-owner": [{ id: "mgr-owned", buildingName: "Owner copy" }] },
+      sideGlobal: { requestChange: [], unlisted: [], rejected: [], drafts: [] },
+      sideByUser: {},
+    } as unknown as PropertyPipelineSnapshot;
+    const next = overlayPendingPropertyWrites(snapshot, pendingPropertyRecordWrites(VIEWER));
+    expect(next.extrasByUser["mgr-owner"]?.map((p) => p.buildingName)).toEqual(["Edited by co-manager"]);
+    expect(next.extrasByUser[VIEWER]).toBeUndefined();
   });
 });

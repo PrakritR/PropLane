@@ -4,7 +4,7 @@
  * `body.managerUserId || existingOwnerId || user.id` — the request body won.
  *
  * Every client that posts here mirrors `managerUserId` straight out of a
- * browser-local pipeline bucket (`mirrorLocalPropertyPipelineToServer`,
+ * browser-local pipeline bucket (the property-record outbox,
  * `mirrorAdminPropertyRecord`, `promoteLegacyPendingListingsToLive`), so a stale
  * local bucket keyed by an old/other user id silently handed live listings to
  * that account. That is exactly what emptied a real manager's Properties tab:
