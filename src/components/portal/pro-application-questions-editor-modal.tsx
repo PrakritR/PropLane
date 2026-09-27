@@ -5,7 +5,8 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { CheckboxOption, MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
@@ -240,6 +241,15 @@ export function ManagerApplicationQuestionsEditorModal({
   const [addChooserSectionId, setAddChooserSectionId] = useState<string | null>(null);
   const [addChoice, setAddChoice] = useState<string>(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
   const [stepIdx, setStepIdx] = useState(0);
+  // P003/P006/P011: this application's Setup step reads/writes the SAME
+  // account fee, per-property pipeline order and default-template settings
+  // Settings -> Forms already edits (see property-form-setup-settings.client.ts)
+  // — never a second fee resolver. Bulk edit spans several properties, where
+  // "this property's fee" is ambiguous, so Setup is single-property only.
+  const isBulkTemplateEditor = (propertyIds?.filter((id) => id.trim()).length ?? 0) > 0;
+  const formSetup = usePropertyFormSetupSettings(applicationPreviewPropertyId, {
+    enabled: isTemplateEditor && !isBulkTemplateEditor,
+  });
   // Round 31: every edit stays local until an explicit Save. `dirty` gates the Save button
   // and drives the discard confirmation so a stray click can never overwrite properties.
   const [dirty, setDirty] = useState(false);
@@ -494,6 +504,23 @@ export function ManagerApplicationQuestionsEditorModal({
       : lockVariant
         ? []
         : [{ id: "form", label: "Form", summary: APPLICATION_FORM_VARIANTS.find((v) => v.id === variant)?.label ?? "Form" }];
+    // P003: Setup — fee, promo code, pipeline order, default for this
+    // property — single-property template editing only (see `formSetup`
+    // above); a listing-wide/bulk edit has no one property's fee to show.
+    const setupStep: AddWorkspaceStep[] =
+      isTemplateEditor && !isBulkTemplateEditor
+        ? [
+            {
+              id: "setup",
+              label: "Setup",
+              summary: formSetup.loaded
+                ? `${formSetup.applicationSettings.applicationFeeCents ? "Fee set" : "No fee"} · ${
+                    formSetup.leasingPipeline.pipelineOrder === "lease_then_application" ? "Lease first" : "Application first"
+                  }`
+                : "Fee, promo code, pipeline",
+            },
+          ]
+        : [];
     return [
       ...head,
       ...RENTAL_APPLICATION_SECTIONS.map((section) => ({
@@ -501,9 +528,20 @@ export function ManagerApplicationQuestionsEditorModal({
         label: section.title,
         summary: questionSummary(section.id),
       })),
+      ...setupStep,
       { id: "preview", label: "Preview", summary: "What the applicant sees" },
     ];
-  }, [applicationFields, isTemplateEditor, lockVariant, templateLabel, variant]);
+  }, [
+    applicationFields,
+    isTemplateEditor,
+    isBulkTemplateEditor,
+    lockVariant,
+    templateLabel,
+    variant,
+    formSetup.loaded,
+    formSetup.applicationSettings.applicationFeeCents,
+    formSetup.leasingPipeline.pipelineOrder,
+  ]);
 
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
   const stepId = workspaceSteps[current]?.id ?? "preview";
@@ -1153,6 +1191,69 @@ export function ManagerApplicationQuestionsEditorModal({
             />
             {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
             {applicationFormSourcePicker}
+            {/* P012 (captain 2026-09-27): "have upload application and lease in
+                first tab." Uploading your own application now happens on this
+                first step, not tucked into Preview at the end. */}
+            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave ? (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void importPdf(file);
+                  }}
+                />
+                <Button type="button" variant="outline" className="rounded-full" disabled={importing} onClick={() => importInputRef.current?.click()}>
+                  {importing ? "Importing…" : "Start from a file"}
+                </Button>
+                {originalPdfPath ? (
+                  <a
+                    className="inline-flex min-h-[44px] items-center rounded-full border border-border px-4 text-sm font-semibold"
+                    href={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Original PDF
+                  </a>
+                ) : null}
+                {(importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    disabled={reviewingSource || importing || saving}
+                    onClick={() => void reviewImportedSource()}
+                    data-attr="application-import-source-review"
+                  >
+                    {reviewingSource ? "Saving comparison…" : "Compare and confirm PDF"}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {importIssues.length > 0 ? (
+              <ul className="space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
+                {importIssues.map((issue, index) => (
+                  <li key={`${issue.code}-${issue.pageNumber ?? "document"}-${index}`}>
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        disabled={issue.code === "unreadable_page"}
+                        checked={resolvedImportIssueIndexes.includes(index)}
+                        onChange={(event) => setResolvedImportIssueIndexes((previous) =>
+                          event.target.checked ? [...previous, index] : previous.filter((item) => item !== index)
+                        )}
+                        aria-label={`Resolved PDF issue ${index + 1}`}
+                      />
+                      <span>{issue.pageNumber ? `Page ${issue.pageNumber}: ` : "Document: "}{issue.message}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </StepColumn>
         ) : null}
         {stepId === "form" ? (
@@ -1197,6 +1298,108 @@ export function ManagerApplicationQuestionsEditorModal({
           <StepColumn>
             <StepHeading title={currentSection.title} action={sectionAddButton(currentSection.id)} />
             {renderSection(currentSection.id)}
+          </StepColumn>
+        ) : null}
+        {stepId === "setup" ? (
+          <StepColumn>
+            <StepHeading title="Setup" />
+            {!formSetup.loaded ? (
+              <p className="text-sm text-muted">Loading…</p>
+            ) : (
+              <div className="space-y-5">
+                <div>
+                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Payment</p>
+                  <CheckboxOption
+                    label="Charge an application fee"
+                    checked={(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0}
+                    dataAttr="application-setup-fee-toggle"
+                    onChange={(next) => {
+                      const cents = next ? formSetup.applicationSettings.applicationFeeCents || 5000 : 0;
+                      void formSetup.patch({ applicationFeeCents: cents });
+                    }}
+                  />
+                  {(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0 ? (
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className={WIZARD_LABEL_CLASS}>Application cost</span>
+                      <MoneyInput
+                        label="Application cost"
+                        dataAttr="application-setup-fee-amount"
+                        value={String((formSetup.applicationSettings.applicationFeeCents ?? 0) / 100)}
+                        placeholder="50"
+                        onChange={(raw) => {
+                          const cents = Math.round((parseFloat(raw) || 0) * 100);
+                          void formSetup.patch({ applicationFeeCents: cents });
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                  {(formSetup.applicationSettings.applicationFeeCents ?? 0) > 0 ? (
+                    <div className="mt-2">
+                      <CheckboxOption
+                        label="Promo code that waives the fee"
+                        checked={Boolean(formSetup.waiverCode)}
+                        dataAttr="application-setup-waiver-toggle"
+                        onChange={(next) => void formSetup.patch({ waiverCode: next ? formSetup.waiverCode || "" : "" })}
+                      />
+                      {formSetup.waiverCode !== null ? (
+                        <div className="mt-2">
+                          <Input
+                            aria-label="Promo code that waives the fee"
+                            placeholder="SUMMER26"
+                            defaultValue={formSetup.waiverCode ?? ""}
+                            data-attr="application-setup-waiver-code"
+                            onBlur={(e) => void formSetup.patch({ waiverCode: e.target.value.trim().toUpperCase() })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <p className="mt-1.5 text-xs text-muted">
+                    This is the account&apos;s application fee — it applies to every application on this account, not just this
+                    one.
+                  </p>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline</p>
+                  <FieldSingleSelect
+                    label="Pipeline order"
+                    labelClassName={WIZARD_LABEL_CLASS}
+                    value={formSetup.leasingPipeline.pipelineOrder}
+                    dataAttr="application-setup-pipeline-order"
+                    options={[
+                      { value: "application_then_lease", label: "Application first → then lease" },
+                      { value: "lease_then_application", label: "Lease first → then application" },
+                    ]}
+                    onChange={(next) =>
+                      void formSetup.patch({
+                        leasingPipeline: {
+                          ...formSetup.leasingPipeline,
+                          pipelineOrder: next as "application_then_lease" | "lease_then_application",
+                        },
+                      })
+                    }
+                  />
+                </div>
+                {applicationTemplate ? (
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Default</p>
+                    <CheckboxOption
+                      label={`Default application for this property`}
+                      checked={formSetup.leasingPipeline.defaultApplicationTemplateId === applicationTemplate.id}
+                      dataAttr="application-setup-default-toggle"
+                      onChange={(next) =>
+                        void formSetup.patch({
+                          leasingPipeline: {
+                            ...formSetup.leasingPipeline,
+                            defaultApplicationTemplateId: next ? applicationTemplate.id : null,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ) : null}
+              </div>
+            )}
           </StepColumn>
         ) : null}
         {stepId === "preview" ? (
@@ -1272,66 +1475,6 @@ export function ManagerApplicationQuestionsEditorModal({
                   }}
                 />}
               </div>
-            ) : null}
-            {isTemplateEditor && applicationTemplate && applicationPreviewPropertyId && !isBulkSave ? (
-              <div className="flex flex-wrap gap-2">
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="sr-only"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void importPdf(file);
-                  }}
-                />
-                <Button type="button" variant="outline" className="rounded-full" disabled={importing} onClick={() => importInputRef.current?.click()}>
-                  {importing ? "Importing…" : "Import PDF"}
-                </Button>
-                {originalPdfPath ? (
-                  <a
-                    className="inline-flex min-h-[44px] items-center rounded-full border border-border px-4 text-sm font-semibold"
-                    href={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Original PDF
-                  </a>
-                ) : null}
-                {(importedQuestionDraft ?? applicationTemplate?.draftQuestionConfig)?.importProvenance?.sourceSha256 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full"
-                    disabled={reviewingSource || importing || saving}
-                    onClick={() => void reviewImportedSource()}
-                    data-attr="application-import-source-review"
-                  >
-                    {reviewingSource ? "Saving comparison…" : "Compare and confirm PDF"}
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-            {importIssues.length > 0 ? (
-              <ul className="space-y-1 text-sm text-amber-800" data-attr="application-import-issues">
-                {importIssues.map((issue, index) => (
-                  <li key={`${issue.code}-${issue.pageNumber ?? "document"}-${index}`}>
-                    <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        disabled={issue.code === "unreadable_page"}
-                        checked={resolvedImportIssueIndexes.includes(index)}
-                        onChange={(event) => setResolvedImportIssueIndexes((previous) =>
-                          event.target.checked ? [...previous, index] : previous.filter((item) => item !== index)
-                        )}
-                        aria-label={`Resolved PDF issue ${index + 1}`}
-                      />
-                      <span>{issue.pageNumber ? `Page ${issue.pageNumber}: ` : "Document: "}{issue.message}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
             ) : null}
             {isTemplateEditor && !isBulkSave ? (
               <Button
