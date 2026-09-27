@@ -57,6 +57,7 @@ import {
   applyListingFeesToSubmission,
   ensureSubmissionListingFees,
   seedSigningColumnFromLongTerm,
+  feeAppliesToArrangementCount,
   feeAppliesToResidentSlot,
   isListingFeeAmountFilled,
   LISTING_FEE_PRESETS,
@@ -102,7 +103,7 @@ import { cn } from "@/lib/utils";
 import { FieldMark } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
 
-type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
+export type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
 const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
 /**
@@ -390,13 +391,14 @@ function writeCardFeeRows(sub: ManagerListingSubmissionV1, patch: Patch, next: L
   patch(extra ? ensureSubmissionListingFees({ ...nextSub, ...extra }) : nextSub);
 }
 
-function FeeRows({
+export function FeeRows({
   sub,
   patch,
   roomId,
   roomName,
   term,
   residentSlot,
+  arrangementCount,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
@@ -411,6 +413,18 @@ function FeeRows({
    * card is not a resident block (every fee on it applies to the whole room).
    */
   residentSlot?: number;
+  /**
+   * N082: scopes this card's OWN fees to one SHARED-ROOM arrangement head
+   * count (`room.occupancyPrices[].count`) — "Cleaning fee" added inside the
+   * Shared by 2 block gets `arrangementCounts: [2]` and is this card's alone
+   * (never listed, inherited or not, on the Private card or the Shared by 3
+   * one). Absent means the arrangement axis does not apply to this card at
+   * all (a whole-place/Default card, a stay card, or a room with no shared
+   * arrangements) — every fee behaves exactly as it did before N082. Present,
+   * every caller for a shared room passes it, Private included as `1`, so
+   * every fee has exactly one owning card.
+   */
+  arrangementCount?: number;
 }) {
   const rows = useMemo(() => cardFeeRows(sub), [sub]);
   const stay = isStayTerm(term);
@@ -420,10 +434,19 @@ function FeeRows({
   const single = (f: ListingFeeRow) => (f.roomIds ?? []).length === 1;
   const onThisCard = (f: ListingFeeRow) => (roomId ? single(f) && f.roomIds![0] === roomId : !single(f));
   const onThisSlot = (f: ListingFeeRow) => residentSlot === undefined || feeAppliesToResidentSlot(f, residentSlot);
+  /** Exact ownership, mirroring `onThisCard`'s exact `roomIds` membership: a fee is THIS arrangement card's own only when its `arrangementCounts` names this one count and no other. */
+  const ownedByThisArrangement = (f: ListingFeeRow) => {
+    if (arrangementCount === undefined) return true;
+    const counts = f.arrangementCounts;
+    return Array.isArray(counts) && counts.length === 1 && counts[0] === arrangementCount;
+  };
+  /** Permissive reach, for the read-only "inherited" list: does a fee scoped to OTHER/no arrangements still cover this one? */
+  const reachesThisArrangement = (f: ListingFeeRow) =>
+    arrangementCount === undefined || feeAppliesToArrangementCount(f, arrangementCount);
   const priced = (f: ListingFeeRow) => !f.presetId || f.presetId === "custom" || isListingFeeAmountFilled(f.amount ?? "") || revealed.includes(f.id);
-  const mine = rows.filter((f) => onThisCard(f) && onThisSlot(f) && feeAppliesToLeaseType(f, term) && priced(f));
+  const mine = rows.filter((f) => onThisCard(f) && onThisSlot(f) && ownedByThisArrangement(f) && feeAppliesToLeaseType(f, term) && priced(f));
   const shared = roomId
-    ? rows.filter((f) => !mine.includes(f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, roomId))
+    ? rows.filter((f) => !mine.includes(f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, roomId) && reachesThisArrangement(f))
     : [];
   const writeRows = (next: ListingFeeRow[], extra?: Partial<ManagerListingSubmissionV1>) => writeCardFeeRows(sub, patch, next, extra);
   const write = (id: string, next: Partial<ListingFeeRow>) => writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
@@ -450,7 +473,7 @@ function FeeRows({
    */
   const splitOf = (own: ListingFeeRow) =>
     roomId
-      ? rows.find((f) => f.id !== own.id && !onThisCard(f) && !feeAppliesToRoom(f, roomId) && isSplitName(own, f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term))
+      ? rows.find((f) => f.id !== own.id && !onThisCard(f) && !feeAppliesToRoom(f, roomId) && isSplitName(own, f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && reachesThisArrangement(f))
       : undefined;
   const add = () => {
     const row: ListingFeeRow = {
@@ -460,6 +483,7 @@ function FeeRows({
       leaseTypes: feeScopeForTab(sub, term),
       roomIds: roomId ? [roomId] : undefined,
       residentSlots: residentSlot !== undefined ? [residentSlot] : undefined,
+      arrangementCounts: arrangementCount !== undefined ? [arrangementCount] : undefined,
     };
     writeRows([...rows, row]);
   };
@@ -494,6 +518,8 @@ function FeeRows({
       ...patchListingFeeCadence(listingFeeCadence(fee)),
       leaseTypes: fee.leaseTypes,
       roomIds: [roomId!],
+      residentSlots: residentSlot !== undefined ? [residentSlot] : undefined,
+      arrangementCounts: arrangementCount !== undefined ? [arrangementCount] : undefined,
       refundable: fee.refundable,
       creditsTowardSecurity: fee.creditsTowardSecurity,
       dailyRate: fee.dailyRate,
@@ -622,12 +648,12 @@ function FeeRows({
 /* ─────────────────────── partial months ─────────────────────── */
 
 /** Only a lease that can start mid-month splits one: long-term and custom dates, never month-to-month or a stay. */
-const proratesOnTab = (term: string) => term === LONG_TERM_LEASE_TERM || term === CUSTOM_LEASE_TERM;
+export const proratesOnTab = (term: string) => term === LONG_TERM_LEASE_TERM || term === CUSTOM_LEASE_TERM;
 /** A month's figure as the per-day placeholder: the calendar split, rounded up. */
-const perDay = (monthly: number) => (monthly > 0 ? String(Math.ceil(monthly / 30)) : "");
+export const perDay = (monthly: number) => (monthly > 0 ? String(Math.ceil(monthly / 30)) : "");
 
 /** One per-day box: what it shows, what it suggests, and whether it is the card's own or follows the Default card. */
-type DayRate = {
+export type DayRate = {
   text: string;
   placeholder: string;
   inherited?: boolean;
@@ -644,9 +670,10 @@ type DayRate = {
  * scoped to it alone plus, following the Default card, every house-wide fee
  * that still reaches it. A fee at $0 has no day rate.
  */
-function dailyFeeRows(sub: ManagerListingSubmissionV1, roomId: string | null, term: string): ListingFeeRow[] {
+function dailyFeeRows(sub: ManagerListingSubmissionV1, roomId: string | null, term: string, arrangementCount?: number): ListingFeeRow[] {
   return cardFeeRows(sub).filter((f) => {
     if (listingFeeCadence(f) !== "monthly" || !(num(f.amount ?? "") > 0) || !feeAppliesToLeaseType(f, term)) return false;
+    if (arrangementCount !== undefined && !feeAppliesToArrangementCount(f, arrangementCount)) return false;
     const ids = f.roomIds ?? [];
     if (roomId === null) return ids.length !== 1;
     return ids.length === 1 ? ids[0] === roomId : feeAppliesToRoom(f, roomId);
@@ -659,7 +686,7 @@ function dailyFeeRows(sub: ManagerListingSubmissionV1, roomId: string | null, te
  * monthly fee. The row follows the Default card on a room the way Rent /mo
  * does: grey while following, Reset once the room has its own answer.
  */
-function ProrateRows({
+export function ProrateRows({
   sub,
   patch,
   term,
@@ -675,6 +702,7 @@ function ProrateRows({
   util,
   dataAttr,
   hideFees = false,
+  arrangementCount,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
@@ -693,9 +721,11 @@ function ProrateRows({
   util: DayRate | null;
   dataAttr: string;
   hideFees?: boolean;
+  /** N082: which shared-room arrangement head count this block's per-day fee rows are for — see `FeeRows`' own doc. */
+  arrangementCount?: number;
 }) {
   const rows = useMemo(() => cardFeeRows(sub), [sub]);
-  const fees = dailyFeeRows(sub, roomId, term);
+  const fees = dailyFeeRows(sub, roomId, term, arrangementCount);
   const writeFeeDay = (fee: ListingFeeRow, raw: string) =>
     writeCardFeeRows(sub, patch, rows.map((f) => (f.id === fee.id ? { ...f, dailyRate: num(sanitizeMoneyInput(raw)) || undefined } : f)));
   const dayRow = (label: string, rate: DayRate, attr: string) => (
@@ -825,7 +855,14 @@ function MonthlyCards({
             dataAttr="listing-v2-price-card"
           >
             {capacity >= 2 ? (
-              <ArrangementPriceEditor room={room} onRoom={(next) => onRoom(room.id, next)} />
+              <ArrangementPriceEditor
+                room={room}
+                onRoom={(next) => onRoom(room.id, next)}
+                sub={sub}
+                patch={patch}
+                term={feeScopeTerm}
+                prorate={prorate}
+              />
             ) : (
             <>
             <FactRow
@@ -886,7 +923,14 @@ function MonthlyCards({
                 <span className="text-[13.5px] font-semibold text-foreground">{listed(rentN, utilN, mode)}</span>
               )}
             </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={feeScopeTerm} />
+            <FeeRows
+              sub={sub}
+              patch={patch}
+              roomId={room.id}
+              roomName={name}
+              term={feeScopeTerm}
+              arrangementCount={capacity >= 2 ? 1 : undefined}
+            />
             {prorate ? (
               <ProrateRows
                 sub={sub}
@@ -895,6 +939,7 @@ function MonthlyCards({
                 roomId={room.id}
                 name={name}
                 automatic={p.automatic}
+                arrangementCount={capacity >= 2 ? 1 : undefined}
                 onAutomatic={(next) => onRoom(room.id, { ...ensureSamePerResident(room), prorateMethod: next ? "auto" : "daily_rate" })}
                 rent={{
                   text: p.rate > 0 ? String(room.dailyRentRate) : "",

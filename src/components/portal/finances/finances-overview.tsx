@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
-import { paymentListHref } from "@/lib/portal-detail-routes";
+import { PayVendorsCard } from "@/components/portal/finances/pay-vendors-card";
 import {
   HOUSEHOLD_CHARGES_EVENT,
   householdChargeDueDate,
@@ -333,12 +333,18 @@ export function ManagerFinancesOverview({
   // WORKSPACE_CONNECT_ENABLED and the PropLane balance itself are on — see
   // /api/portal/proplane-balance's `workspaceConnectEnabled` field.
   const [balanceEligible, setBalanceEligible] = useState(false);
+  // C260: the "Pay vendors" card needs the real available balance to preview
+  // which approved invoices a bulk pay can clear — read once here, alongside
+  // the existing eligibility read, rather than a second fetch in that card.
+  const [availableBalanceCents, setAvailableBalanceCents] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void fetch("/api/portal/proplane-balance", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { enabled?: boolean; workspaceConnectEnabled?: boolean } | null) => {
-        if (!cancelled) setBalanceEligible(Boolean(data?.enabled && data?.workspaceConnectEnabled));
+      .then((data: { enabled?: boolean; workspaceConnectEnabled?: boolean; availableCents?: number } | null) => {
+        if (cancelled) return;
+        setBalanceEligible(Boolean(data?.enabled && data?.workspaceConnectEnabled));
+        setAvailableBalanceCents(data?.availableCents ?? 0);
       })
       .catch(() => undefined);
     return () => {
@@ -564,32 +570,34 @@ export function ManagerFinancesOverview({
 
       {balanceEligible ? (
         // C255: Pay vendors and Plan & credit are the two balance-SPENDING
-        // actions the redesign wants to encourage, so they get equal-weight
-        // cards; Withdraw is real (it opens the same balance/withdraw modal
-        // used elsewhere) but deliberately sits below them in a lighter,
-        // unbordered row rather than a third same-weight card.
-        <div className="grid gap-3 sm:grid-cols-2" data-attr="finances-balance-actions">
-          <Link
-            href={paymentListHref(basePath, "outgoing", "pending")}
-            className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
-            data-attr="finances-balance-action-pay-vendors"
-          >
-            <span className="text-sm font-semibold text-foreground">Pay vendors</span>
-            <ArrowRight className="size-4 text-muted" aria-hidden />
-          </Link>
-          <Link
-            href="/portal/profile?tab=billing"
-            className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
-            data-attr="finances-balance-action-plan-credit"
-          >
-            <span className="text-sm font-semibold text-foreground">Plan &amp; credit</span>
-            <ArrowRight className="size-4 text-muted" aria-hidden />
-          </Link>
-          <div
-            className="rounded-xl bg-accent/20 px-4 py-2.5 sm:col-span-2"
-            data-attr="finances-balance-action-withdraw"
-          >
-            <ProplaneBalanceCard portal="manager" variant="subordinate" />
+        // actions the redesign wants to encourage; Withdraw is real (it opens
+        // the same balance/withdraw modal used elsewhere) but deliberately
+        // sits below them in a lighter, unbordered row rather than a third
+        // same-weight card.
+        //
+        // C260: "Pay vendors" used to be a plain link into the Outgoing
+        // payments list with no bulk action. It is now the real list of
+        // approved invoices with per-invoice AND bulk "Pay from balance"
+        // (`PayVendorsCard`) — full width, since a list needs the room a
+        // same-weight link card didn't; "Plan & credit" keeps its own smaller
+        // card beside Withdraw below.
+        <div className="flex flex-col gap-3" data-attr="finances-balance-actions">
+          <PayVendorsCard availableCents={availableBalanceCents} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Link
+              href="/portal/profile?tab=billing"
+              className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30"
+              data-attr="finances-balance-action-plan-credit"
+            >
+              <span className="text-sm font-semibold text-foreground">Plan &amp; credit</span>
+              <ArrowRight className="size-4 text-muted" aria-hidden />
+            </Link>
+            <div
+              className="rounded-xl bg-accent/20 px-4 py-2.5"
+              data-attr="finances-balance-action-withdraw"
+            >
+              <ProplaneBalanceCard portal="manager" variant="subordinate" />
+            </div>
           </div>
         </div>
       ) : null}
