@@ -7,6 +7,7 @@ import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { resolveActiveWorkspaceRowScope, type WorkspaceRowScope } from "@/lib/workspaces/row-scope.server";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,23 @@ function normalizeRow(row: ManagerVendorRow, managerUserId: string): ManagerVend
     propertyIds: Array.isArray(row.propertyIds) ? row.propertyIds : undefined,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Vendor rows carry a LIST of served properties (`propertyIds`), not a single
+ * `property_id` column, so the shared `rowAllowedInWorkspaceScope` helper
+ * (built for one column) does not fit. A vendor assigned to specific houses
+ * shows only when at least one is in the active workspace; the "every
+ * property" sentinel (empty/absent `propertyIds`) follows the same
+ * account-level rule every other module uses — visible only when the active
+ * workspace is the viewer's own default.
+ */
+function vendorRowInWorkspaceScope(row: ManagerVendorRow, scope: WorkspaceRowScope): boolean {
+  if (scope.propertyIds === null) return true;
+  const assigned = Array.isArray(row.propertyIds) ? row.propertyIds.filter(Boolean) : [];
+  if (assigned.length === 0) return scope.includeUntagged;
+  if (scope.propertyIds.length === 0) return false;
+  return assigned.some((id) => scope.propertyIds!.includes(id));
 }
 
 export async function GET(req: Request) {
@@ -94,6 +112,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ rows });
     }
 
+    // Active-workspace narrowing (`null` = not narrowing, admin is never
+    // narrowed): switching workspaces must hide another of the manager's own
+    // workspaces' vendors, the same as every other module already does.
+    const workspaceScope: WorkspaceRowScope = admin
+      ? { propertyIds: null, includeUntagged: true }
+      : await resolveActiveWorkspaceRowScope(db, userId);
+
     async function loadOwnRows(): Promise<ManagerVendorRow[]> {
       let query = db
         .from("manager_vendor_records")
@@ -107,7 +132,9 @@ export async function GET(req: Request) {
         .map((record) => {
           const row = record.row_data as ManagerVendorRow | null;
           if (!row?.id || isVendorCategorySettingsRow(row)) return null;
-          return normalizeRow(row, String(record.manager_user_id ?? userId));
+          const normalized = normalizeRow(row, String(record.manager_user_id ?? userId));
+          if (!admin && !vendorRowInWorkspaceScope(normalized, workspaceScope)) return null;
+          return normalized;
         })
         .filter((row): row is ManagerVendorRow => row !== null);
     }
@@ -142,7 +169,13 @@ export async function GET(req: Request) {
           const assigned = Array.isArray(row.propertyIds) ? row.propertyIds : [];
           const servesGrantedHouse = assigned.length === 0 || assigned.some((id) => grantedPropertyIds.has(id));
           if (!servesGrantedHouse) return null;
-          return normalizeRow(row, ownerId);
+          const normalized = normalizeRow(row, ownerId);
+          // The same active-workspace rule as the owned branch above, keyed to
+          // the VIEWER's own selection: a granted house stays reachable only
+          // in the workspace that holds it (co-manager-access.md "active
+          // workspace narrows beside module scoping, never instead of it").
+          if (!vendorRowInWorkspaceScope(normalized, workspaceScope)) return null;
+          return normalized;
         })
         .filter((row): row is ManagerVendorRow => row !== null);
     }

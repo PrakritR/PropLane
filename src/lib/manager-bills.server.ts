@@ -7,6 +7,14 @@ import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/li
 
 export type CreateManagerBillInput = {
   managerUserId: string;
+  /**
+   * Active-workspace scope is resolved for THIS actor, not `managerUserId` —
+   * a co-manager filing a bill under the property's real owner still gets
+   * gated by their OWN active-workspace selection. Defaults to
+   * `managerUserId` when omitted, preserving prior behavior for every caller
+   * that always acts as the bill's own owner (e.g. `createBillFromVendorInvoice`).
+   */
+  viewerUserId?: string;
   description: string;
   amountCents: number;
   dueDate?: string | null;
@@ -29,7 +37,7 @@ export async function createManagerBill(db: SupabaseClient, input: CreateManager
   // rule instead (see `resolveActiveWorkspaceRowScope`), so it is never
   // refused here.
   if (input.propertyId) {
-    const scope = await resolveActiveWorkspaceRowScope(db, input.managerUserId);
+    const scope = await resolveActiveWorkspaceRowScope(db, input.viewerUserId ?? input.managerUserId);
     if (scope.propertyIds !== null && !scope.propertyIds.includes(input.propertyId)) {
       throw new Error("This property is outside your active workspace.");
     }

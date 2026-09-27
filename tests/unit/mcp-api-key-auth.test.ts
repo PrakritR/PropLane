@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findLiveApiKey, touchApiKey, createSupabaseServiceRoleClient, userHoldsAdminRole } = vi.hoisted(() => ({
-  findLiveApiKey: vi.fn(),
-  touchApiKey: vi.fn(),
-  createSupabaseServiceRoleClient: vi.fn(),
-  userHoldsAdminRole: vi.fn(),
-}));
+const { findLiveApiKey, touchApiKey, createSupabaseServiceRoleClient, userHoldsAdminRole, resolveActiveWorkspace, loadWorkspaces } =
+  vi.hoisted(() => ({
+    findLiveApiKey: vi.fn(),
+    touchApiKey: vi.fn(),
+    createSupabaseServiceRoleClient: vi.fn(),
+    userHoldsAdminRole: vi.fn(),
+    resolveActiveWorkspace: vi.fn(),
+    loadWorkspaces: vi.fn(),
+  }));
 
 vi.mock("@/lib/mcp/api-keys.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/mcp/api-keys.server")>();
@@ -13,9 +16,26 @@ vi.mock("@/lib/mcp/api-keys.server", async (importOriginal) => {
 });
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient }));
 vi.mock("@/lib/auth/admin-role", () => ({ userHoldsAdminRole }));
+// W001: `resolveApiKeyContext` now resolves a workspace scope from the key's
+// stored `workspace_id` through these two helpers instead of a cookie.
+vi.mock("@/lib/workspaces/active.server", () => ({ resolveActiveWorkspace }));
+vi.mock("@/lib/workspaces/server", () => ({ loadWorkspaces }));
 
 import { hashApiKeyToken, mintApiKey, normalizeScopes } from "@/lib/mcp/api-keys.server";
 import { bearerTokenFrom, resolveApiKeyContext } from "@/lib/mcp/context.server";
+
+/** A single-workspace account resolving `workspaceId` back as the active one — the ordinary post-migration shape. */
+function stubSingleWorkspace(workspaceId: string) {
+  resolveActiveWorkspace.mockResolvedValue({
+    id: workspaceId,
+    name: "My workspace",
+    ownerUserId: "manager_1",
+    owned: true,
+    isDefault: true,
+    propertyIds: [],
+  });
+  loadWorkspaces.mockResolvedValue([{ id: workspaceId, name: "My workspace", ownerUserId: "manager_1", owned: true, isDefault: true, propertyIds: [] }]);
+}
 
 function dbForRole(role: string | null) {
   return {
@@ -45,8 +65,10 @@ describe("MCP API-key credential resolution", () => {
       userId: "manager_1",
       scopes: ["read"],
       portal: "manager",
+      workspaceId: "ws_1",
       lastUsedAt: null,
     });
+    stubSingleWorkspace("ws_1");
   });
 
   it("parses bearer credentials and normalizes only the supported scopes", () => {
@@ -79,6 +101,7 @@ describe("MCP API-key credential resolution", () => {
       userId: "manager_1",
       scopes: ["read"],
       portal: "resident",
+      workspaceId: "ws_1",
       lastUsedAt: null,
     });
     createSupabaseServiceRoleClient.mockReturnValue(dbForRole("manager"));
@@ -97,6 +120,7 @@ describe("MCP API-key credential resolution", () => {
       allowedTools: ["list_charges"],
       transport: "api",
       portal: "manager",
+      workspaceId: "ws_1",
       lastUsedAt: null,
     });
     createSupabaseServiceRoleClient.mockReturnValue(dbForRole("manager"));
@@ -134,11 +158,58 @@ describe("MCP API-key credential resolution", () => {
         },
       }),
     };
-    const minted = await mintApiKey(db as never, { userId: "manager_1", name: "Harness", scopes: ["payments:read"], allowedTools: ["list_charges"], transport: "mcp" });
+    const minted = await mintApiKey(db as never, {
+      userId: "manager_1",
+      name: "Harness",
+      scopes: ["payments:read"],
+      allowedTools: ["list_charges"],
+      transport: "mcp",
+      workspaceId: "ws_1",
+    });
     expect(minted).not.toBeNull();
     expect(inserted).not.toBeNull();
     expect(Object.values(inserted!)).not.toContain(minted!.token);
     expect(inserted!.token_sha256).toBe(hashApiKeyToken(minted!.token));
     expect(String(inserted!.token_prefix)).toHaveLength(12);
+    expect(inserted!.workspace_id).toBe("ws_1");
+  });
+
+  // W001 regression: an API key/MCP connection used to build an `AgentContext`
+  // with no `workspace` field at all, which every tool's `!workspace => allow`
+  // fallback read as "don't narrow" — reaching every workspace the manager
+  // owns instead of just the one the key was scoped to.
+  it("refuses rather than widens when the credential has no resolvable workspace", async () => {
+    findLiveApiKey.mockResolvedValue({
+      id: "key_1",
+      userId: "manager_1",
+      scopes: ["read"],
+      portal: "manager",
+      workspaceId: null,
+      lastUsedAt: null,
+    });
+    createSupabaseServiceRoleClient.mockReturnValue(dbForRole("manager"));
+    const result = await resolveApiKeyContext(
+      new Request("https://example.test", { headers: { Authorization: "Bearer pl_live_x" } }),
+    );
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(touchApiKey).not.toHaveBeenCalled();
+  });
+
+  it("stamps the resolved workspace onto the agent context so tools narrow to it", async () => {
+    createSupabaseServiceRoleClient.mockReturnValue(dbForRole("manager"));
+    stubSingleWorkspace("ws_specific");
+    findLiveApiKey.mockResolvedValue({
+      id: "key_1",
+      userId: "manager_1",
+      scopes: ["read"],
+      portal: "manager",
+      workspaceId: "ws_specific",
+      lastUsedAt: null,
+    });
+    const result = await resolveApiKeyContext(
+      new Request("https://example.test", { headers: { Authorization: "Bearer pl_live_x" } }),
+    );
+    expect(result).toMatchObject({ ok: true, ctx: { workspace: { id: "ws_specific" } } });
+    expect(resolveActiveWorkspace).toHaveBeenCalledWith(expect.anything(), "manager_1", "ws_specific");
   });
 });

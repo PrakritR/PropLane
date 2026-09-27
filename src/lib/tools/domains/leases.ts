@@ -31,6 +31,7 @@ import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-c
 import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { propertyInAgentWorkspace, rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -120,7 +121,14 @@ async function findOwnedLeaseRecord(ctx: AgentContext, leaseId: string): Promise
     .eq("manager_user_id", ctx.landlordId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as OwnedLeaseRecord | null) ?? null;
+  const record = (data as OwnedLeaseRecord | null) ?? null;
+  if (!record) return null;
+  // Same active-workspace check `list_leases` gets for free through
+  // `loadAllManagerRows` (`rowAllowedInAgentWorkspace`) — a manager with 2+
+  // workspaces asking the assistant to void/amend/edit a lease BY ID must not
+  // reach one filed under a house in a workspace they are not currently in.
+  if (!propertyInAgentWorkspace(ctx.workspace, record.property_id)) return null;
+  return record;
 }
 
 const SIGNATURE_RESET_WARNING =
@@ -595,7 +603,10 @@ async function loadOwnedLease(ctx: AgentContext, leaseId: string): Promise<Lease
     .eq("manager_user_id", ctx.landlordId)
     .maybeSingle();
   if (!data?.row_data) return null;
-  return normalizeLeasePipelineRow(data.row_data);
+  const row = normalizeLeasePipelineRow(data.row_data);
+  // Same workspace check as `findOwnedLeaseRecord` above.
+  if (!rowAllowedInAgentWorkspace(ctx, row)) return null;
+  return row;
 }
 
 /**

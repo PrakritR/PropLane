@@ -47,3 +47,27 @@ export function narrowWorkspaceScope(
   if (!workspaceIds) return [propertyId];
   return workspaceIds.includes(propertyId) ? [propertyId] : [];
 }
+
+/**
+ * Refuse a manager write whose property lies outside the caller's ACTIVE
+ * workspace. `null` scope (no workspaces, or the load failed) never narrows,
+ * the same "never narrow on a failure" contract `activeWorkspacePropertyScope`
+ * itself follows. A blank `propertyId` always passes — a property-less write
+ * has no house to leak into another workspace.
+ *
+ * This is beside module/ownership authorization, never instead of it: callers
+ * check ownership or a co-manager grant first, and only then confirm the
+ * named property is one the active workspace actually holds (mirrors the
+ * local helper of the same shape in `manager-applications/route.ts`).
+ */
+export async function assertPropertyInActiveWorkspace(
+  db: SupabaseClient,
+  viewerUserId: string,
+  propertyId: string | null | undefined,
+): Promise<boolean> {
+  const pid = (propertyId ?? "").trim();
+  if (!pid) return true;
+  const scope = await activeWorkspacePropertyScope(db, viewerUserId);
+  if (scope === null) return true;
+  return scope.includes(pid);
+}

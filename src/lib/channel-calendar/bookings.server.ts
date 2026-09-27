@@ -17,6 +17,7 @@ import type {
 import type { MockProperty } from "@/data/types";
 import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 function propertyLabelFromRecord(
   propertyId: string,
@@ -60,7 +61,15 @@ export async function listManagerChannelCalendarBookings(
   propertyIds: string[],
   browserOrigin?: string,
 ): Promise<ManagerChannelBookingProperty[]> {
-  const uniqueIds = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  const requestedIds = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  if (requestedIds.length === 0) return [];
+
+  // Ownership/co-manager access alone is not enough: switching the active
+  // workspace must hide another of the manager's own workspaces' booking
+  // data from this panel, the same as every other module. `null` (no
+  // workspaces, or the load failed) never narrows.
+  const workspaceScope = await activeWorkspacePropertyScope(db, userId);
+  const uniqueIds = workspaceScope === null ? requestedIds : requestedIds.filter((id) => workspaceScope.includes(id));
   if (uniqueIds.length === 0) return [];
 
   const allowed: string[] = [];
