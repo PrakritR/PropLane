@@ -117,7 +117,10 @@ describe("resident portal redesign completeness", () => {
 
   describe("three-band header contract on list sections", () => {
     const band2Panels: Array<{ file: string; marker: string }> = [
-      { file: "resident-applications-panel.tsx", marker: "PortalListControlStack" },
+      // resident-applications-panel.tsx dropped its band-2 bucket tabs (C122):
+      // Pending/Approved/Rejected collapsed into one list with per-row status
+      // text (applicationStageDisplayLabel), the same treatment Tour (C120)
+      // already took. `PortalListControlStack` no longer renders there.
       { file: "resident-payments-panel.tsx", marker: "PortalListControlStack" },
       { file: "resident-documents-panel.tsx", marker: "PortalListControlStack" },
       { file: "resident-services-panel.tsx", marker: "PortalListControlStack" },
@@ -237,12 +240,14 @@ describe("resident portal redesign completeness", () => {
       const payments = readPanel("resident-payments-panel.tsx");
       expect(payments).toContain('variant="command"');
       expect(payments).toContain("ResidentPortalGroupedDataList");
+      // Tour (C120) and Applications (C122) collapsed their band-2 bucket tabs
+      // into one merged list with per-row status text, so neither renders a
+      // `variant="command"` destination bar at the list level anymore —
+      // ResidentPortalGroupedDataList is still the shared grouped-list kit both use.
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain('variant="command"');
       expect(tour).toContain("ResidentPortalGroupedDataList");
       expect(tour).toContain("PortalListAddRow");
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain('variant="command"');
       expect(applications).toContain("ResidentPortalGroupedDataList");
       expect(applications).not.toContain("useResidentPortalListFilterState");
       const services = readPanel("resident-services-panel.tsx");
@@ -290,7 +295,9 @@ describe("resident portal redesign completeness", () => {
       expect(tour).not.toContain("PORTAL_COMMAND_PRIMARY_ACTION_BTN");
 
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain("applicationListControlStack");
+      // C122 deleted `applicationListControlStack` (the band-2 bucket-tab bar)
+      // along with the tabs themselves — the Apply action now reaches the
+      // header solely through `renderApplicationAddRow`, asserted below.
       expect(applications).toContain("renderApplicationAddRow");
       expect(applications).toContain('label="Apply"');
       expect(applications).not.toContain("hint={");
