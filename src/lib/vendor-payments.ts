@@ -31,6 +31,13 @@ export type VendorPaymentRow = {
   /** The row's own source record — the extension point for fee/net work. */
   income: VendorIncomeRow | null;
   invoice: VendorInvoice | null;
+  /**
+   * VD43 — the matching `vendor_payouts` row for either kind (income by
+   * work_order_id, invoice by invoice_id), when one exists. `platformFeeCents`
+   * on it is 0 for anything settled before VENDOR_BANKING_ENABLED or with the
+   * flag off, which is exactly what keeps a fee-less row's display unchanged.
+   */
+  payout: VendorPayout | null;
 };
 
 function incomeStatusId(row: VendorIncomeRow): string {
@@ -63,6 +70,7 @@ export function vendorPaymentRowFromIncome(row: VendorIncomeRow, payout?: Vendor
     payoutId: payout?.id ?? null,
     income: row,
     invoice: null,
+    payout: payout ?? null,
   };
 }
 
@@ -74,6 +82,7 @@ export function vendorPaymentRowFromIncome(row: VendorIncomeRow, payout?: Vendor
 export function vendorPaymentRowFromInvoice(
   invoice: VendorInvoice,
   jobsById: Record<string, DemoManagerWorkOrderRow>,
+  payout?: VendorPayout,
 ): VendorPaymentRow {
   const job = invoice.workOrderId ? jobsById[invoice.workOrderId] : undefined;
   const property = jobPropertyLabel(job);
@@ -88,9 +97,10 @@ export function vendorPaymentRowFromInvoice(
     statusLabel: vendorInvoiceStatusLabel(invoice.status),
     amountCents: invoice.totalCents,
     currency: invoice.currency,
-    payoutId: null,
+    payoutId: payout?.id ?? null,
     income: null,
     invoice,
+    payout: payout ?? null,
   };
 }
 
@@ -99,13 +109,24 @@ export function buildVendorPaymentRows(
   invoices: VendorInvoice[],
   jobsById: Record<string, DemoManagerWorkOrderRow>,
   payoutsByWorkOrderId: Record<string, VendorPayout>,
+  payoutsByInvoiceId: Record<string, VendorPayout> = {},
 ): VendorPaymentRow[] {
   const rows = [
     ...incomeRows.map((row) => vendorPaymentRowFromIncome(row, payoutsByWorkOrderId[row.workOrderId])),
-    ...invoices.map((invoice) => vendorPaymentRowFromInvoice(invoice, jobsById)),
+    ...invoices.map((invoice) => vendorPaymentRowFromInvoice(invoice, jobsById, payoutsByInvoiceId[invoice.id])),
   ];
   // Newest first — the merge's whole point (VD11).
   return rows.sort((a, b) => (a.dateIso < b.dateIso ? 1 : a.dateIso > b.dateIso ? -1 : 0));
+}
+
+/** Gross / PropLane fee / net breakdown for a row's matched payout — null unless a real fee was ever taken (VD43). */
+export function vendorPaymentFeeBreakdown(
+  payout: VendorPayout | null,
+): { grossCents: number; feeCents: number; netCents: number } | null {
+  if (!payout || !payout.platformFeeCents || payout.platformFeeCents <= 0) return null;
+  const grossCents = payout.amountCents;
+  const feeCents = payout.platformFeeCents;
+  return { grossCents, feeCents, netCents: Math.max(0, grossCents - feeCents) };
 }
 
 export function formatVendorPaymentMoney(row: VendorPaymentRow): string {

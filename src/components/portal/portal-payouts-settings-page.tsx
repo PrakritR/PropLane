@@ -22,6 +22,7 @@ import {
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
 import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
+import { VendorPayoutsSettingsExtra } from "@/components/portal/vendor-payouts-settings-extra";
 import { track } from "@/lib/analytics/track-client";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -521,6 +522,11 @@ export function PortalPayoutsSettingsPage({
           void loadBalance();
         }}
       />
+
+      {/* VD55/VD68 — vendor-only, inert (renders null) until VENDOR_BANKING_ENABLED
+          is on. Owned by night/vendor-banking; touches only this appended
+          section, never the Payouts card above it. */}
+      {portal === "vendor" ? <VendorPayoutsSettingsExtra balance={balance} /> : null}
     </div>
   );
 }
