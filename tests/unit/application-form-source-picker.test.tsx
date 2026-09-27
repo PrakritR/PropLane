@@ -180,6 +180,29 @@ describe("Workspace form / Custom for this listing picker (templateEditorMode='e
     });
   });
 
+  it('P011: "Make default format" PATCHes the workspace template with this listing\'s custom config', async () => {
+    renderTemplateEditor();
+    await waitWorkspace();
+    await waitFor(() => expect(picker()).toBeTruthy());
+
+    await pickOption("Custom for this listing");
+    await waitFor(() => expect(picker().textContent).toContain("Custom for this listing"));
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+    fetchMock.mockImplementationOnce(async () =>
+      jsonResponse({ template: { ...WORKSPACE_TEMPLATE, updatedAt: "2026-09-27T00:00:00.000Z" }, workspaceId: "ws-1", configured: true }),
+    );
+
+    const button = await screen.findByRole("button", { name: "Make default format" });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/portal/application-form", expect.objectContaining({ method: "PATCH" })));
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/portal/application-form" && fetchMock.mock.calls.length);
+    const body = JSON.parse(String(call?.[1]?.body)) as { template?: { customApplicationFields?: unknown[] } };
+    expect(body.template?.customApplicationFields).toBeDefined();
+  });
+
   it("is hidden for a bulk (multi-property) edit, where a single listing's flag is ambiguous", async () => {
     const onSaved = vi.fn();
     const onClose = vi.fn();

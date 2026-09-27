@@ -69,6 +69,7 @@ import {
 } from "@/lib/property-application-templates";
 import {
   applyEffectiveApplicationForm,
+  emptyWorkspaceApplicationFormTemplate,
   workspaceApplicationFormIsConfigured,
   type WorkspaceApplicationFormTemplate,
 } from "@/lib/rental-application/workspace-application-form";
@@ -270,6 +271,11 @@ export function ManagerApplicationQuestionsEditorModal({
   // it onto the listing exactly once when the manager switches to Custom.
   const [workspaceForm, setWorkspaceForm] = useState<WorkspaceApplicationFormTemplate | null>(null);
   const [workspaceFormLoaded, setWorkspaceFormLoaded] = useState(false);
+  // P011: "Make default format" — pushes THIS custom config up to become the
+  // account's workspace-wide default, through the same PATCH
+  // Settings -> Forms already uses (recopies onto every OTHER listing that
+  // still follows the workspace, via `recopyWorkspaceApplicationFormOntoFollowingListings`).
+  const [makingDefault, setMakingDefault] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [originalPdfPath, setOriginalPdfPath] = useState<string | null>(null);
@@ -1005,6 +1011,59 @@ export function ManagerApplicationQuestionsEditorModal({
     setExpandedSectionIds(collapsedApplicationSections());
   };
 
+  /**
+   * P011: "Make default format" — pushes this listing's current custom
+   * question config up to become the WORKSPACE'S default application form,
+   * through the exact same `PATCH /api/portal/application-form` Settings ->
+   * Forms already uses (so it also recopies onto every OTHER listing still
+   * following the workspace — one write, one recipient of the change, never
+   * a second "default" concept invented here).
+   */
+  const makeDefaultFormat = async () => {
+    if (makingDefault) return;
+    setMakingDefault(true);
+    try {
+      const base = workspaceForm ?? emptyWorkspaceApplicationFormTemplate();
+      const template: WorkspaceApplicationFormTemplate =
+        variant === "short_term"
+          ? {
+              ...base,
+              shortTermCustomApplicationFields: localSub.shortTermCustomApplicationFields ?? [],
+              shortTermDisabledStandardApplicationKeys: localSub.shortTermDisabledStandardApplicationKeys ?? [],
+              shortTermApplicationConfigMode: localSub.shortTermApplicationConfigMode ?? "custom",
+            }
+          : variant === "cosigner"
+            ? {
+                ...base,
+                cosignerCustomApplicationFields: localSub.cosignerCustomApplicationFields ?? [],
+                cosignerDisabledStandardApplicationKeys: localSub.cosignerDisabledStandardApplicationKeys ?? [],
+                cosignerApplicationConfigMode: localSub.cosignerApplicationConfigMode ?? "custom",
+              }
+            : {
+                ...base,
+                customApplicationFields: localSub.customApplicationFields ?? [],
+                disabledStandardApplicationKeys: localSub.disabledStandardApplicationKeys ?? [],
+                applicationConfigMode: localSub.applicationConfigMode ?? "custom",
+              };
+      const res = await fetch("/api/portal/application-form", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template }),
+      });
+      const data = (await res.json().catch(() => null)) as { template?: WorkspaceApplicationFormTemplate; error?: string } | null;
+      if (!res.ok || !data?.template) {
+        showToast(data?.error ?? "Could not make this the default format.");
+        return;
+      }
+      setWorkspaceForm(workspaceApplicationFormIsConfigured(data.template) ? data.template : null);
+      showToast("This is now the default application format for the workspace.");
+    } catch {
+      showToast("Could not make this the default format.");
+    } finally {
+      setMakingDefault(false);
+    }
+  };
+
   const sectionAddButton = (sectionId: string) => (
     <button
       type="button"
@@ -1079,17 +1138,37 @@ export function ManagerApplicationQuestionsEditorModal({
   // either way. `applicationFormSource` is listing-wide, not per-template.
   const applicationFormSourcePicker =
     !isBulkSave && workspaceFormLoaded ? (
-      <FieldSingleSelect
-        label="Application form"
-        labelClassName={WIZARD_LABEL_CLASS}
-        value={applicationFormSource}
-        dataAttr="application-form-source"
-        options={[
-          { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
-          { value: "custom", label: "Custom for this listing" },
-        ]}
-        onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
-      />
+      <div>
+        <FieldSingleSelect
+          label="Application form"
+          labelClassName={WIZARD_LABEL_CLASS}
+          value={applicationFormSource}
+          dataAttr="application-form-source"
+          options={[
+            { value: "workspace", label: workspaceForm ? "Workspace form" : "Workspace form (not set up yet)" },
+            { value: "custom", label: "Custom for this listing" },
+          ]}
+          onChange={(next) => setApplicationFormSource(next as "workspace" | "custom")}
+        />
+        {/* P011: PropLane's built-in defaults are reached the same way every
+            other "start over" affordance in this editor already works — the
+            Form step's "Reset all standard questions" action (immediately
+            below) — rather than a third persisted format value; see the
+            build report for why a genuinely separate stored "standard" state
+            was scoped out. "Make default format" IS the other explicit ask
+            and is real: it pushes this custom config to the workspace. */}
+        {applicationFormSource === "custom" ? (
+          <button
+            type="button"
+            className="mt-1.5 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60"
+            disabled={makingDefault}
+            data-attr="application-form-make-default"
+            onClick={() => void makeDefaultFormat()}
+          >
+            {makingDefault ? "Making default…" : "Make default format"}
+          </button>
+        ) : null}
+      </div>
     ) : null;
 
   const previewBody = (
