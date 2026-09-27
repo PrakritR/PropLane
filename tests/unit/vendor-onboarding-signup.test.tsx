@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
-// Night build (night/vendor-signup): locks in the fix for the documented bug
-// in docs/agents/vendor-portal.md — the vendor Dashboard's unlinked banner
-// must be STATE-driven (render whenever the vendor has no linked manager),
-// not delivery-driven off a one-shot sessionStorage notice.
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Captain 2026-09-27 (VD20, studio): the vendor Dashboard's "waiting on a
+// property manager" banner and its dismiss control are gone — an unlinked
+// vendor no longer sees any signup-status banner on Dashboard. This locks
+// that removal in place; the STATE-driven design this used to guard
+// (docs/agents/vendor-portal.md, night/vendor-signup) is retired with it.
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
@@ -24,15 +25,6 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   VENDOR_INBOX_STORAGE_KEY: "vendor-inbox",
   loadPersistedInbox: () => [],
   syncPersistedInboxFromServer: () => Promise.resolve(),
-}));
-
-// Simulates the exact old bug: no pending notice was ever queued for this
-// page load (e.g. the vendor arrived via the email-confirmation link, which
-// docs/agents/vendor-portal.md calls out as never queuing one).
-const takePendingNotice = vi.fn(() => null);
-vi.mock("@/lib/pending-notice", () => ({
-  takePendingNotice: (...args: unknown[]) => takePendingNotice(...args),
-  VENDOR_PORTAL_PATH: "/vendor",
 }));
 
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
@@ -55,36 +47,38 @@ function mockFetchWith(linked: boolean) {
   );
 }
 
-describe("Vendor dashboard unlinked banner — state-driven, not delivery-driven", () => {
-  beforeEach(() => {
-    takePendingNotice.mockReturnValue(null);
-  });
+describe("Vendor dashboard — no signup-status banner (VD20, 2026-09-27)", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  it("shows the unlinked banner from live /api/vendor/profile state even when no notice was queued this page load", async () => {
+  it("never renders the waiting-on-a-manager banner or its dismiss control, unlinked or linked", async () => {
     mockFetchWith(false);
-    render(<VendorDashboard displayName="Test Vendor" />);
-    await waitFor(() =>
-      expect(screen.getByText("Waiting on a property manager to connect with you.")).toBeTruthy(),
-    );
-    expect(document.querySelector('[data-attr="vendor-signup-notice-dismiss"]')).toBeTruthy();
-  });
-
-  it("never shows the banner once the vendor is linked", async () => {
-    mockFetchWith(true);
     render(<VendorDashboard displayName="Test Vendor" />);
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
     expect(screen.queryByText("Waiting on a property manager to connect with you.")).toBeNull();
     expect(document.querySelector('[data-attr="vendor-signup-notice-dismiss"]')).toBeNull();
+
+    cleanup();
+    mockFetchWith(true);
+    render(<VendorDashboard displayName="Test Vendor" />);
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    expect(screen.queryByText("Waiting on a property manager to connect with you.")).toBeNull();
   });
 
-  it("prefers the queued signup reason over the generic copy when both are present", async () => {
-    takePendingNotice.mockReturnValue("Your invite link expired.");
+  it("never renders the Finish setting up onboarding checklist", async () => {
     mockFetchWith(false);
     render(<VendorDashboard displayName="Test Vendor" />);
-    await waitFor(() => expect(screen.getByText("Your invite link expired.")).toBeTruthy());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    expect(screen.queryByText("Finish setting up")).toBeNull();
+    expect(document.querySelector('[data-attr="vendor-onboarding-checklist"]')).toBeNull();
+  });
+
+  it("labels the jobs section Services, not Your jobs", async () => {
+    mockFetchWith(true);
+    render(<VendorDashboard displayName="Test Vendor" />);
+    await waitFor(() => expect(screen.getByText("Services")).toBeTruthy());
+    expect(screen.queryByText("Your jobs")).toBeNull();
   });
 });

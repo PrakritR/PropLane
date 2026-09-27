@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
   PreviewPanel,
@@ -21,11 +21,15 @@ import {
 export function VendorUploadDocumentWorkspace({
   open,
   demo = false,
+  /** Header-opened picker default (VD19, 2026-09-27) — the first still-missing
+   *  required document, so the vendor usually just confirms rather than picks. */
+  initialKind,
   onClose,
   onUploaded,
 }: {
   open: boolean;
   demo?: boolean;
+  initialKind?: VendorDocumentKind;
   onClose: () => void;
   onUploaded: (documents: VendorDocumentRecord[]) => void;
 }) {
@@ -34,6 +38,13 @@ export function VendorUploadDocumentWorkspace({
   const [kind, setKind] = useState<VendorDocumentKind | "">("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) setKind(initialKind ?? "");
+    // Only re-seed the default when the workspace opens — the vendor's own
+    // in-progress pick while it's open is never overwritten out from under them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const steps = useMemo((): AddWorkspaceStep[] => {
     return [

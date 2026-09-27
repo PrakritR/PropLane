@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CalendarClock, Clock3, MessageCircle, Receipt, Wrench } from "lucide-react";
 
 import type { PendingAction } from "@/lib/axis-assistant/use-assistant-conversation";
 
@@ -79,9 +80,12 @@ export function AssistantPinIcon({ className }: { className?: string }) {
 
 export type AssistantSuggestion = {
   label: string;
+  /** Sent as a chat prompt — ignored when `onSelect` is set. */
   prompt: string;
   icon: ReactNode;
   toneClass: string;
+  /** A chip that does something other than send a chat prompt (e.g. opens a real modal). */
+  onSelect?: () => void;
 };
 
 /**
@@ -172,15 +176,67 @@ export const ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
   },
 ];
 
+/**
+ * Vendor empty-state chips (VD23, 2026-09-27) — the vendor used to see this
+ * same manager-shaped list ("Late on rent", "Applications", …). Every prompt
+ * here maps to a real vendor tool (`docs/ai-assistant.md` § Vendor registry):
+ * `list_my_bids`/`list_my_jobs`, `list_my_schedule`, `list_vendor_invoices`/
+ * `list_vendor_payouts`, `send_message_to_manager`. "Set availability" is not
+ * a chat prompt at all — it opens the real availability editor dialog
+ * (`VendorAvailabilityEditor`, same as the Calendar page's own "Add
+ * availability" action), matching the studio spec's "opens the modal".
+ */
+export const VENDOR_ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
+  {
+    label: "Jobs to quote",
+    prompt: "What services are waiting on a quote from me?",
+    toneClass: "text-[var(--status-pending-fg)]",
+    icon: <Wrench className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Today's visits",
+    prompt: "What visits do I have scheduled today?",
+    toneClass: "text-primary",
+    icon: <CalendarClock className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Unpaid invoices",
+    prompt: "Which of my invoices are still unpaid?",
+    toneClass: "text-[var(--status-overdue-fg)]",
+    icon: <Receipt className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Update a manager",
+    prompt: "I want to send an update about a job to a property manager.",
+    toneClass: "text-[var(--status-approved-fg)]",
+    icon: <MessageCircle className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Set availability",
+    prompt: "",
+    toneClass: "text-primary",
+    icon: <Clock3 className="h-full w-full" strokeWidth={2} />,
+    // The editor only lives on the Calendar page — this chip is reachable
+    // from anywhere in the portal, so it navigates there with a query flag
+    // (read by `VendorCalendarPanel`) rather than dispatching the open event
+    // directly, which a not-yet-mounted listener would simply drop.
+    onSelect: () => {
+      window.location.assign("/vendor/calendar?openAvailability=1");
+    },
+  },
+];
+
 /** Suggestion chip grid for the assistant empty state. */
 export function AssistantSuggestionChips({
   onPick,
   disabled,
   className,
+  suggestions = ASSISTANT_SUGGESTIONS,
 }: {
   onPick: (prompt: string) => void;
   disabled?: boolean;
   className?: string;
+  suggestions?: AssistantSuggestion[];
 }) {
   return (
     <div
@@ -190,11 +246,11 @@ export function AssistantSuggestionChips({
         className ?? "grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-center"
       }`}
     >
-      {ASSISTANT_SUGGESTIONS.map((s) => (
+      {suggestions.map((s) => (
         <button
           key={s.label}
           type="button"
-          onClick={() => onPick(s.prompt)}
+          onClick={() => (s.onSelect ? s.onSelect() : onPick(s.prompt))}
           disabled={disabled}
           className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-foreground/[0.04] px-3 text-xs font-medium text-foreground outline-none transition-[border-color,background-color,transform] hover:border-primary/25 hover:bg-foreground/[0.07] focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-full"
         >

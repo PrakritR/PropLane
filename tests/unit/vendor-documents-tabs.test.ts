@@ -7,10 +7,12 @@ import {
 } from "@/lib/vendor-documents";
 
 describe("vendor document tabs", () => {
-  it("exposes tab metadata for each section", () => {
-    expect(VENDOR_DOCUMENT_TABS.map((tab) => tab.id)).toEqual(["tax", "insurance", "licensing"]);
+  it("exposes tab metadata for each section, in captain-specified order: Tax, Business license, Insurance (VD17, 2026-09-27)", () => {
+    expect(VENDOR_DOCUMENT_TABS.map((tab) => tab.id)).toEqual(["tax", "licensing", "insurance"]);
+    expect(VENDOR_DOCUMENT_TABS.map((tab) => tab.label)).toEqual(["Tax", "Business license", "Insurance"]);
     expect(vendorDocumentSectionForTab("tax")?.kinds).toContain("w9");
     expect(vendorDocumentSectionForTab("insurance")?.kinds).toContain("insurance");
+    expect(vendorDocumentSectionForTab("licensing")?.kinds).toContain("license");
   });
 
   it("labels document status for table rows", () => {

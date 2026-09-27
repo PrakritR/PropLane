@@ -197,8 +197,8 @@ test.describe("legacy nav redirects land on a real page", () => {
     }
     for (const legacy of ["mine", "shared", "tax", "insurance", "licensing"]) {
       expect
-        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on All`)
-        .toBe("/vendor/documents/all");
+        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on the bare section`)
+        .toBe("/vendor/documents");
     }
   });
 });

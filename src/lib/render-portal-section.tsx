@@ -521,8 +521,22 @@ export async function renderPortalSection(
     return <VendorSettingsPanel />;
   }
   if (kind === "vendor" && section === "reviews") {
-    if (tabParts?.length) notFound();
-    return <VendorReviewsPanel />;
+    // Top bar with sections (VD21, 2026-09-27) — a real routed tab, not a
+    // client-only toggle.
+    const { VENDOR_REVIEW_STATUS_TABS, isVendorReviewStatusTab } = await import("@/lib/vendor-reviews");
+    if (tabParts && tabParts.length > 1) notFound();
+    const raw = tabParts?.[0];
+    if (!raw) redirect(`${def.basePath}/${section}/${VENDOR_REVIEW_STATUS_TABS[0].id}`);
+    if (!isVendorReviewStatusTab(raw)) notFound();
+    return <VendorReviewsPanel tabId={raw} basePath={def.basePath} />;
+  }
+  if (kind === "vendor" && section === "documents") {
+    // Status (All / On file / Missing) tabs and the tax/insurance/licensing
+    // category tabs are gone (VD16/VD17, 2026-09-27) — the vendor's own
+    // checklist is grouped by section inline instead. A stale bookmark or
+    // emailed link to any old segment still lands, on the bare section.
+    if (tabParts?.length) redirect(`${def.basePath}/${section}`);
+    return <VendorDocumentsPanel basePath={def.basePath} />;
   }
 
   const meta = findSection(def, section);
@@ -1836,28 +1850,6 @@ export async function renderPortalSection(
     }
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
   }
-
-  if (kind === "vendor" && section === "documents") {
-    if (!meta.tabs.length) notFound();
-    if (!tabParts?.length) {
-      redirect(`${def.basePath}/${section}/${meta.tabs[0]!.id}`);
-    }
-    if (tabParts.length > 1) {
-      if (tabParts.length === 2 && tabParts[1] === "pending") {
-        redirect(`${def.basePath}/${section}/${tabParts[0]}`);
-      }
-      notFound();
-    }
-    const documentsTab = tabParts[0]!;
-    // The category and former source tabs collapsed into one source-filtered list. A vendor's
-    // bookmark, or a manager's emailed link, must still land somewhere.
-    if (["tax", "insurance", "licensing", "mine", "shared"].includes(documentsTab)) {
-      redirect(`${def.basePath}/${section}/all`);
-    }
-    if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
-    return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
-  }
-
 
   if (!meta.tabs.length) {
     if (tabParts?.length) notFound();

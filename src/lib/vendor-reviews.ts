@@ -76,6 +76,23 @@ export function mapPublicVendorReviewRow(row: Record<string, unknown>): PublicVe
 
 export const VENDOR_REVIEW_BODY_MAX_LENGTH = 2000;
 
+/**
+ * The vendor Reviews top bar's sections (VD21, 2026-09-27) — a real routed
+ * tab (like every other portal list), not a client-only toggle. "Needs
+ * reply" / "Replied" read the real `vendorReply === null` field, never
+ * invented data.
+ */
+export const VENDOR_REVIEW_STATUS_TABS = [
+  { id: "all", label: "All" },
+  { id: "needs-reply", label: "Needs reply" },
+  { id: "replied", label: "Replied" },
+] as const;
+export type VendorReviewStatusTab = (typeof VENDOR_REVIEW_STATUS_TABS)[number]["id"];
+
+export function isVendorReviewStatusTab(raw: string): raw is VendorReviewStatusTab {
+  return (VENDOR_REVIEW_STATUS_TABS as readonly { id: string }[]).some((t) => t.id === raw);
+}
+
 export function normalizeVendorReviewStars(raw: unknown): number | null {
   const n = Math.round(Number(raw));
   if (!Number.isFinite(n) || n < 1 || n > 5) return null;
