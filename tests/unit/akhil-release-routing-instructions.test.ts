@@ -71,14 +71,14 @@ describe("developer-specific release routing", () => {
     expect(deploymentWorkflow).not.toContain("Vercel project** `axis-2`");
   });
 
-  it("keeps the temporary direct-production exception dated and consistently linked", () => {
+  it("keeps Akhil's standing direct-production exception scoped and consistently linked", () => {
     expect(temporaryPolicy).toEqual({
-      version: 1,
-      kind: "temporary-direct-production-release",
+      version: 2,
+      kind: "direct-production-release",
       authorizedDeveloper: "Akhil",
       source: "origin/main",
       target: "origin/production",
-      expiresAt: "2026-09-15T04:00:00Z",
+      expiresAt: null,
     });
     for (const source of [
       rootInstructions,
@@ -87,7 +87,7 @@ describe("developer-specific release routing", () => {
       shipGate,
     ]) {
       expect(source).toContain("temporary-direct-production-policy.json");
-      expect(source).toContain("2026-09-15T04:00:00Z");
+      expect(source).not.toContain("2026-09-15T04:00:00Z");
     }
     expect(shipPreflight).toContain(
       "exception: docs/agents/temporary-direct-production-policy.json",

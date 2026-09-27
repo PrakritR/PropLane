@@ -12,6 +12,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
+  DEMO_MANAGER_USER_ID: "demo-manager",
 }));
 
 vi.mock("@/lib/household-charges", () => ({

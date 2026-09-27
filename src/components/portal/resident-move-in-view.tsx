@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { CheckCircle2, Circle } from "lucide-react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { HouseInfoReadSections, ResidentPortalHelpCard } from "@/components/portal/house-info-sections";
@@ -8,6 +10,17 @@ import { houseInfoIsEmpty } from "@/lib/house-info";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { usePortalSession } from "@/hooks/use-portal-session";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  isPendingUpfrontMoveInCharge,
+  isUnpaidHouseholdCharge,
+  readHouseholdCharges,
+  syncHouseholdChargesFromServer,
+} from "@/lib/household-charges";
+import { loadInspectionList } from "@/lib/inspections/client";
+import { pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
+import { cn } from "@/lib/utils";
 import type { ResidentMoveInResolved, ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
@@ -28,7 +41,82 @@ function DetailField({ label, value }: { label: string; value: string | null | u
   );
 }
 
-function PlacementTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
+/** Tri-state: `null` means still checking, so a row never flashes "Not yet" before the real answer lands. */
+type MoveInChecklistStatus = boolean | null;
+
+/**
+ * C130 — every fact this checklist needs (lease, charges, inspection) already exists on other
+ * tabs/pages; this just reads each one's own client source once, the same way that source's own
+ * page does, rather than inventing a fourth "move-in status" table.
+ */
+function useMoveInChecklist(basePath: string): { chargesSettled: MoveInChecklistStatus; inspectionDone: MoveInChecklistStatus } {
+  const { userId, ready } = usePortalSession();
+  const [chargesSettled, setChargesSettled] = useState<MoveInChecklistStatus>(null);
+  const [inspectionDone, setInspectionDone] = useState<MoveInChecklistStatus>(null);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!userId || isDemoModeActive()) {
+      // Demo/no-session mode never sends real requests; read as "nothing left to check".
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setChargesSettled(true);
+      setInspectionDone(true);
+      return;
+    }
+    let cancelled = false;
+    void syncHouseholdChargesFromServer().then(() => {
+      if (cancelled) return;
+      const moveInCharges = readHouseholdCharges().filter(isPendingUpfrontMoveInCharge);
+      setChargesSettled(moveInCharges.every((charge) => !isUnpaidHouseholdCharge(charge)));
+    }).catch(() => { if (!cancelled) setChargesSettled(false); });
+    void loadInspectionList(userId, "resident").then((list) => {
+      if (cancelled) return;
+      const report = pickPrimaryInspectionReport(list.reports.filter((r) => r.kind === "move-in"));
+      setInspectionDone(Boolean(report && report.photos.total > 0));
+    }).catch(() => { if (!cancelled) setInspectionDone(false); });
+    return () => { cancelled = true; };
+  }, [ready, userId, basePath]);
+
+  return { chargesSettled, inspectionDone };
+}
+
+function MoveInChecklistRow({ label, status, href }: { label: string; status: MoveInChecklistStatus; href: string }) {
+  const Icon = status ? CheckCircle2 : Circle;
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 hover:border-primary/30"
+      data-attr="move-in-checklist-row"
+    >
+      <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <Icon className={cn("size-4 shrink-0", status ? "text-primary" : "text-muted")} aria-hidden />
+        {label}
+      </span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+        {status === null ? "Checking…" : status ? "Done" : "Not yet"}
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * The default content of "Your placement" (C130): a resident used to check three separate tabs
+ * (Lease, Payments, Inspections) to know whether move-in is actually done. Every fact here comes
+ * from that same tab's own data source, so the checklist can never say something its own tab
+ * would contradict.
+ */
+function MoveInChecklist({ basePath, leaseSigned }: { basePath: string; leaseSigned: boolean }) {
+  const { chargesSettled, inspectionDone } = useMoveInChecklist(basePath);
+  return (
+    <div className="space-y-2" data-attr="move-in-checklist">
+      <MoveInChecklistRow label="Lease signed" status={leaseSigned} href={`${basePath}/lease`} />
+      <MoveInChecklistRow label="Move-in charges paid" status={chargesSettled} href={`${basePath}/payments`} />
+      <MoveInChecklistRow label="Move-in inspection photographed" status={inspectionDone} href={`${basePath}/inspections/move-in`} />
+    </div>
+  );
+}
+
+function PlacementTabContent({ resolved, basePath, leaseSigned }: { resolved: ResidentMoveInResolved; basePath: string; leaseSigned: boolean }) {
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -39,6 +127,9 @@ function PlacementTabContent({ resolved }: { resolved: ResidentMoveInResolved })
           {resolved.addressLine ? <p className="mt-0.5 text-xs text-muted">{resolved.addressLine}</p> : null}
         </div>
         <DetailField label="Move-in date" value={resolved.earliestMoveInDateLabel ?? "Not set yet"} />
+      </div>
+      <div className="mt-6">
+        <MoveInChecklist basePath={basePath} leaseSigned={leaseSigned} />
       </div>
     </div>
   );
@@ -259,14 +350,18 @@ function ResidentMoveInTabContent({
   activeTab,
   resolved,
   focusRoomId,
+  basePath,
+  leaseSigned,
 }: {
   activeTab: ResidentMoveInTabId;
   resolved: ResidentMoveInResolved;
   focusRoomId?: string;
+  basePath: string;
+  leaseSigned: boolean;
 }) {
   switch (activeTab) {
     case "placement":
-      return <PlacementTabContent resolved={resolved} />;
+      return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
     case "housemates":
       return <><ResidentHousemateSharing /><HousematesTabContent resolved={resolved} /></>;
     case "info":
@@ -281,7 +376,7 @@ function ResidentMoveInTabContent({
     case "amenities":
       return <AmenitiesTabContent resolved={resolved} />;
     default:
-      return <PlacementTabContent resolved={resolved} />;
+      return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
   }
 }
 
@@ -293,6 +388,7 @@ export function ResidentMoveInShell({
   locked = false,
   activeTab = "placement",
   focusRoomId,
+  leaseSigned = false,
 }: {
   activeTab?: string;
   basePath?: string;
@@ -301,6 +397,8 @@ export function ResidentMoveInShell({
   locked?: boolean;
   /** A `room` search param naming a structured room id. Ignored unless it matches the viewer's OWN room. */
   focusRoomId?: string;
+  /** Feeds the placement tab's move-in checklist (C130) — already resolved by the caller. */
+  leaseSigned?: boolean;
 }) {
   const tabId = parseResidentMoveInTab(activeTab);
 
@@ -343,7 +441,7 @@ export function ResidentMoveInShell({
             destinationItemLayout="equal"
             destinationDenseEqualRow
           />
-          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} />
+          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} basePath={basePath} leaseSigned={leaseSigned} />
         </>
       )}
     </div>

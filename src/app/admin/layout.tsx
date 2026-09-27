@@ -40,7 +40,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <AxisAssistant managerName={profile?.full_name ?? null}>
       <div className={PORTAL_SHELL_ROOT_CLASS} data-surface="admin">
-        <SurfaceThemeDefault theme="dark" />
+        {/*
+          Manager, resident and vendor all default light — admin was the one
+          portal left on a wholesale different (dark, indigo-accented) visual
+          system, not just different components (night sweep: "Admin is a
+          wholesale different visual system"). One UI for every portal.
+        */}
+        <SurfaceThemeDefault theme="light" />
         <PublicHomePrefetch />
         <PortalClientSessionGuard />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">

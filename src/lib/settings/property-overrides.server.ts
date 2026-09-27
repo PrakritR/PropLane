@@ -83,7 +83,32 @@ export type OperationsNamespace =
   | "serviceAutomation"
   | "automatedMessages"
   | "applicationAutomation"
-  | "tourSettings";
+  | "tourSettings"
+  /**
+   * The workspace-wide rental application template
+   * (`WorkspaceApplicationFormTemplate`, `rental-application/workspace-application-form.ts`).
+   * Workspace-rung only — resolved with `resolveSettingsScope` passing a
+   * `workspaceId` and no `propertyId`, so the property-override rung is
+   * always skipped; there is no per-property override of the template
+   * itself (a listing opts out entirely via `applicationFormSource: "custom"`
+   * on its own submission instead, a different mechanism from this rung).
+   */
+  | "applicationFormTemplate"
+  /**
+   * The workspace-wide forms terminology overrides (`FormsTerminology`,
+   * `rental-application/forms-terminology.ts`). Workspace-rung only, same
+   * shape as `applicationFormTemplate` — no per-property picker on this
+   * settings page, so there is no property-override rung for it.
+   */
+  | "formsTerminology"
+  /**
+   * The workspace-wide lease clause template
+   * (`WorkspaceLeaseClauseTemplate`, `lease-templates/workspace-lease-clause-template.ts`).
+   * Workspace-rung only, same shape as `applicationFormTemplate` — no
+   * per-property picker on this settings page, so there is no
+   * property-override rung for it.
+   */
+  | "leaseClauseTemplate";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {

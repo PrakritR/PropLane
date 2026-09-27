@@ -13,8 +13,14 @@ import { cn } from "@/lib/utils";
  * product they sell, in light and dark alike.
  */
 
-/** The page measure: 1100px, with the phone gutters every section shares. */
-export const SITE_MEASURE = "mx-auto w-full max-w-[1100px] px-5 sm:px-6";
+/**
+ * The page measure — 1280px (captain 2026-09-25: less wasted side space,
+ * "edge to edge, no wasted sides" on the home page's sections), with the
+ * phone gutters every section shares. Was 1100px; widened site-wide rather
+ * than forking a home-only measure, so every public page keeps reading as
+ * one consistent site.
+ */
+export const SITE_MEASURE = "mx-auto w-full max-w-[1280px] px-5 sm:px-6";
 
 export function SiteSection({
   id,

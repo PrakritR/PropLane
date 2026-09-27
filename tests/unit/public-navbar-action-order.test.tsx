@@ -31,11 +31,16 @@ describe("public navbar signed-out action order", () => {
     cleanup();
   });
 
-  it("puts Log in last on desktop: Book a demo, Start free, then Log in", () => {
+  // Captain 2026-09-25 (search icon + "Log in" / "Start free ↗" top bar):
+  // Log in now sits BEFORE the primary Start free pill on desktop — the
+  // secondary link, then the most prominent action last/rightmost, the same
+  // reading order the reference nav uses. The phone sheet's own order below
+  // is unrelated and unchanged.
+  it("puts Start free last on desktop: Book a demo, Log in, then Start free", () => {
     const { container } = render(<Navbar1 logoSlot={<span>Logo</span>} menu={[]} auth={auth} />);
     const desktopNav = container.querySelector("nav");
     expect(desktopNav).toBeTruthy();
-    expect(authHrefs(desktopNav!)).toEqual(["/contact", "/auth/create-account", "/auth/sign-in"]);
+    expect(authHrefs(desktopNav!)).toEqual(["/contact", "/auth/sign-in", "/auth/create-account"]);
   });
 
   it("puts Log in last on the phone sheet: Start free, then Log in", async () => {

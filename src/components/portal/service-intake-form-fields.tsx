@@ -12,8 +12,8 @@ import { mergeResidentServiceCatalogOffers } from "@/lib/manager-listing-submiss
 import { hasDeposit } from "@/lib/service-requests-storage";
 import {
   buildServiceIntakeOptions,
+  filterEnabledRepairCategories,
   findServiceIntakeOption,
-  RESIDENT_SERVICE_REPAIR_CATEGORIES,
   SERVICE_INTAKE_PRIORITY_OPTIONS,
   serviceIntakeIsCustomAddOn,
   type ServiceIntakeOption,
@@ -66,6 +66,8 @@ export function ServiceIntakeFormFields({
   disabled = false,
   photoSlot,
   voice = "resident",
+  /** C133: repair categories the workspace has disabled — never offered here either. */
+  disabledRepairCategories,
 }: {
   catalogOffers: readonly ManagerListingServiceOption[];
   form: ServiceIntakeFormState;
@@ -73,8 +75,10 @@ export function ServiceIntakeFormFields({
   disabled?: boolean;
   photoSlot?: ReactNode;
   voice?: ServiceIntakeVoice;
+  disabledRepairCategories?: readonly string[] | null;
 }) {
-  const options = buildServiceIntakeOptions(mergeResidentServiceCatalogOffers(catalogOffers));
+  const enabledRepairCategories = filterEnabledRepairCategories(disabledRepairCategories);
+  const options = buildServiceIntakeOptions(mergeResidentServiceCatalogOffers(catalogOffers), disabledRepairCategories);
   const selected = findServiceIntakeOption(options, form.optionKey);
   const isRepair = selected?.kind === "repair";
   const isCustomAddOn = serviceIntakeIsCustomAddOn(selected);
@@ -141,7 +145,7 @@ export function ServiceIntakeFormFields({
               disabled={disabled}
               data-attr="service-intake-category"
             >
-              {RESIDENT_SERVICE_REPAIR_CATEGORIES.map((category) => (
+              {enabledRepairCategories.map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>

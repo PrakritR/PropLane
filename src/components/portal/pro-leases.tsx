@@ -23,6 +23,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   LEASE_PIPELINE_EVENT,
+  computeLeasePipelineProgress,
   countManagerLeaseTabs,
   readLeasePipeline,
   syncLeasePipelineFromServer,
@@ -49,6 +50,14 @@ const LEASE_LABELS: { id: ManagerLeaseTab; label: string; dataAttr: string }[] =
   { id: "signed", label: "Manager signature", dataAttr: "leases-tab-signed" },
   { id: "completed", label: "Signed", dataAttr: "leases-tab-completed" },
 ];
+
+/** One color per pipeline stage, in the same order as `LEASE_LABELS` (C245). */
+const LEASE_PIPELINE_SEGMENT_TONE: Record<ManagerLeaseTab, string> = {
+  manager: "bg-amber-400",
+  resident: "bg-sky-400",
+  signed: "bg-violet-400",
+  completed: "bg-emerald-500",
+};
 
 export function ManagerLeases({
   tab: tabProp = "manager",
@@ -178,6 +187,15 @@ export function ManagerLeases({
   const tabs = useMemo(
     () => LEASE_LABELS.map(({ id, label, dataAttr }) => ({ id, label, count: counts[id], dataAttr })),
     [counts],
+  );
+  // C245 (U027): the four tabs read as a pipeline (Manager review · Resident
+  // signature · Manager signature · Signed) but gave no sense of total
+  // progress across the whole pipeline — a segmented bar plus a "N of M
+  // signed" line, sized off the SAME counts the tabs already show.
+  const pipelineProgress = useMemo(() => computeLeasePipelineProgress(counts), [counts]);
+  const pipelineSegmentLabel = useMemo(
+    () => new Map(LEASE_LABELS.map(({ id, label }) => [id, label])),
+    [],
   );
 
   const shareableProperties = useMemo(() => {
@@ -345,6 +363,30 @@ export function ManagerLeases({
             ) : null
           }
         />
+        {pipelineProgress ? (
+          <div
+            className="mb-2 rounded-xl border border-border bg-card px-3.5 py-2.5"
+            data-attr="leases-pipeline-progress"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {pipelineProgress.signed} of {pipelineProgress.total} leases signed
+            </p>
+            <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
+              {pipelineProgress.segments.map((segment) =>
+                segment.count > 0 ? (
+                  <span
+                    key={segment.id}
+                    className={LEASE_PIPELINE_SEGMENT_TONE[segment.id]}
+                    style={{ width: `${segment.pct}%` }}
+                    role="img"
+                    aria-label={`${pipelineSegmentLabel.get(segment.id)}: ${segment.count}`}
+                    data-attr={`leases-pipeline-progress-segment-${segment.id}`}
+                  />
+                ) : null,
+              )}
+            </div>
+          </div>
+        ) : null}
         <ManagerLeasesPipelinePanel
           rows={rows}
           tab={tab}

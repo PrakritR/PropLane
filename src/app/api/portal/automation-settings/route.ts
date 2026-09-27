@@ -90,10 +90,17 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    // The module-permission check and the scope-ownership check are
+    // independent reads (neither's DB query depends on the other's result) —
+    // running them in parallel instead of in sequence saves one full
+    // round-trip off every call (part of Night QA finding #2's ~2.3-2.5s
+    // warm latency on this route).
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    const [access, scopeAccess] = await Promise.all([
+      assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "read"),
+      assertSettingsScopeOwned(ctx.db, ctx.userId, scope),
+    ]);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
     const { ownerUserId, propertyId, workspaceId } = scopeAccess;
     const [{ settings, source }, vendorDispatch, overriddenPropertyIds] = await Promise.all([

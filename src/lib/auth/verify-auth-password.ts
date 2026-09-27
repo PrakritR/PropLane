@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { assertNonProdDatabase } from "@/lib/server-env";
+import { EXISTING_ACCOUNT_PASSWORD_MISMATCH } from "@/lib/auth/existing-account-password-mismatch";
 
-export const EXISTING_ACCOUNT_PASSWORD_MISMATCH =
-  "This email already has a PropLane account. Enter the same password you use for that account.";
+export { EXISTING_ACCOUNT_PASSWORD_MISMATCH };
 
 /**
  * Confirms `password` is correct for the auth user with this email (stateless; no cookies).

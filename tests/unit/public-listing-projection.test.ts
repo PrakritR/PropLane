@@ -275,6 +275,21 @@ describe("publicListingProjection", () => {
     expect(sub.marketingNotes).toBe("Facebook: Private locked room near University of Washington");
   });
 
+  it("publishes an http(s) houseVideoDataUrl but drops a data: URL", () => {
+    const httpListing = storedListing();
+    (httpListing.listingSubmission as unknown as Record<string, unknown>).houseVideoDataUrl =
+      "https://cdn.proplane.test/house-walkthrough.mp4";
+    const httpProjected = publicListingProjection(httpListing).listingSubmission!;
+    expect(httpProjected.houseVideoDataUrl).toBe("https://cdn.proplane.test/house-walkthrough.mp4");
+
+    const dataUrlListing = storedListing();
+    (dataUrlListing.listingSubmission as unknown as Record<string, unknown>).houseVideoDataUrl =
+      "data:video/mp4;base64,AAAA";
+    const dataUrlProjected = publicListingProjection(dataUrlListing).listingSubmission!;
+    expect(dataUrlProjected).not.toHaveProperty("houseVideoDataUrl");
+    expect(JSON.stringify(dataUrlProjected)).not.toContain("base64,AAAA");
+  });
+
   it("passes through a listing with no submission", () => {
     const listing = storedListing();
     delete (listing as { listingSubmission?: unknown }).listingSubmission;

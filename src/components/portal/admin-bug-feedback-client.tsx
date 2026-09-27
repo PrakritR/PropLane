@@ -4,16 +4,21 @@ import { useSearchParams } from "next/navigation";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import {
-  ManagerPortalFilterRow,
-  ManagerPortalPageShell,
-  PortalToolbarSortSelect,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import {
+  FilterCheckboxList,
+  FilterCollapsibleSection,
+  FilterFieldsAccordion,
+  FilterSingleSelectList,
+  filterMultiSelectSummary,
+  filterSingleSelectSummary,
+  useFilterAccordionClose,
+} from "@/components/portal/filter-field-lists";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -74,6 +79,75 @@ function sortFeedbackRows(rows: PortalBugFeedbackRow[], sort: SortFilter): Porta
   return next.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/**
+ * Portal source — multi-select, same shape as the Accounts filter fields:
+ * a real component rendered as a `FilterFieldsAccordion` child, so
+ * `useFilterAccordionClose` resolves the enclosing accordion's context.
+ * Replaces a labelled pill row that sat directly in the guarded list band.
+ */
+function FeedbackPortalFilterField({
+  value,
+  options,
+  onChange,
+}: {
+  value: PortalFilter[];
+  options: { value: PortalFilter; label: string }[];
+  onChange: (next: PortalFilter[]) => void;
+}) {
+  const summary = filterMultiSelectSummary(value, options, "All portals");
+  return (
+    <FilterCollapsibleSection
+      sectionId="feedback-portal"
+      label="Portal"
+      summary={summary}
+      empty={value.length === 0}
+      menuOptionCount={options.length}
+      dataAttr="admin-feedback-portal-trigger"
+    >
+      <FilterCheckboxList
+        options={options}
+        selected={value}
+        onChange={(next) => onChange(next as PortalFilter[])}
+        dataAttr="admin-feedback-filter-portal"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
+/** Sort order — single-select, same shape as {@link FeedbackPortalFilterField}. */
+function FeedbackSortFilterField({
+  value,
+  onChange,
+}: {
+  value: SortFilter;
+  onChange: (next: SortFilter) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const options = [
+    { value: "newest", label: "Newest first" },
+    { value: "oldest", label: "Oldest first" },
+  ];
+  const summary = filterSingleSelectSummary(value, options, "Newest first");
+  return (
+    <FilterCollapsibleSection
+      sectionId="feedback-sort"
+      label="Sort"
+      summary={summary}
+      empty={value === "newest"}
+      menuOptionCount={options.length}
+      dataAttr="admin-feedback-sort-trigger"
+    >
+      <FilterSingleSelectList
+        options={options}
+        value={value}
+        onChange={(next) => onChange(next as SortFilter)}
+        onPick={closeFieldMenu}
+        dataAttr="admin-feedback-sort"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
 export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolean }) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
@@ -83,6 +157,7 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
   const searchParams = useSearchParams();
   const statusFilter = feedbackStatusFromParam(searchParams.get("status"));
   const [sortFilter, setSortFilter] = useState<SortFilter>("newest");
+  const [titleQuery, setTitleQuery] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -121,11 +196,16 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
   }, [rows, portalFilter]);
 
   const visibleRows = useMemo(() => {
-    const filtered = portalRows.filter((r) => r.status === statusFilter);
+    const needle = titleQuery.trim().toLowerCase();
+    const filtered = portalRows.filter((r) => {
+      if (r.status !== statusFilter) return false;
+      if (!needle) return true;
+      return (r.title || "").toLowerCase().includes(needle) || r.description.toLowerCase().includes(needle);
+    });
     return sortFeedbackRows(filtered, sortFilter);
-  }, [portalRows, statusFilter, sortFilter]);
+  }, [portalRows, statusFilter, sortFilter, titleQuery]);
 
-  const portalOptions = useMemo(() => {
+  const portalOptions = useMemo((): { value: PortalFilter; label: string }[] => {
     const countFor = (portal: PortalFilter) =>
       rows.filter((r) => portalForRole(r.reporterRole) === portal).length;
     return [
@@ -246,31 +326,39 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
     </div>
   );
 
-  const filterRow = (
-    <ManagerPortalFilterRow>
-      <CheckboxMultiSelect
-        variant="pill"
-        label="Filter feedback by portal"
-        emptyLabel={`All portals (${rows.length})`}
-        options={portalOptions}
-        selected={portalFilter}
-        onChange={(next) => {
-          setPortalFilter(next as PortalFilter[]);
-          setExpandedId(null);
-        }}
-        dataAttr="admin-feedback-filter-portal"
-      />
-      <PortalToolbarSortSelect
-        label="Sort"
-        value={sortFilter}
-        onChange={(value) => setSortFilter(value)}
-        options={[
-          { value: "newest", label: "Newest first" },
-          { value: "oldest", label: "Oldest first" },
-        ]}
-        ariaLabel="Sort feedback"
-      />
-    </ManagerPortalFilterRow>
+  /*
+    Icon-only Filter popover, not a labelled pill row straight in the guarded
+    list band (docs/portal-list-section-layout.md; the dev-mode guard flags a
+    labelled pill reaching the list band on every render of a page that still
+    does this — the same class of defect already fixed on Admin Accounts).
+  */
+  const filterActions = (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([portalFilter.length > 0 ? "portal" : "", sortFilter !== "newest" ? sortFilter : ""])}
+      compactPanel
+      commandStripTrigger
+      filterFieldCount={2}
+      constrainDropdownToTitleBand={false}
+      mobileFlushBody
+      onReset={() => {
+        setPortalFilter([]);
+        setSortFilter("newest");
+        setExpandedId(null);
+      }}
+      dataAttr="admin-feedback-filter-sheet-open"
+    >
+      <FilterFieldsAccordion>
+        <FeedbackPortalFilterField
+          value={portalFilter}
+          options={portalOptions}
+          onChange={(next) => {
+            setPortalFilter(next);
+            setExpandedId(null);
+          }}
+        />
+        <FeedbackSortFilterField value={sortFilter} onChange={setSortFilter} />
+      </FilterFieldsAccordion>
+    </PortalFilterSortSheet>
   );
 
   /**
@@ -408,7 +496,7 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
     return (
       <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-sm)] sm:p-6">
         <p className="text-sm font-semibold text-foreground">Feedback</p>
-        {filterRow}
+        {filterActions}
         {content}
       </div>
     );
@@ -424,8 +512,8 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
     >
       {/*
         Counted status tabs in the same header card every other list tab uses,
-        with the portal and sort filters beside them — not a separate pill strip
-        above the list.
+        with search + the portal/sort filter behind an icon-only Filter
+        popover — not a labelled pill row in the list band.
       */}
       <PortalListControlStack
         className="mb-2"
@@ -437,7 +525,14 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
         }))}
         activeDestinationId={statusFilter}
         destinationAriaLabel="Feedback status"
-        filterRow={filterRow}
+        search={{
+          value: titleQuery,
+          onChange: setTitleQuery,
+          placeholder: "Search feedback",
+          dataAttr: "admin-feedback-search",
+          ariaLabel: "Search feedback",
+        }}
+        actions={filterActions}
       />
       {content}
     </ManagerPortalPageShell>

@@ -148,6 +148,9 @@ import {
 import {
   deleteLeasePipelineRowsForResident,
 } from "@/lib/lease-pipeline-storage";
+import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
+import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
+import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 import {
   RESIDENT_WELCOME_EMAIL_SUBJECT,
   buildResidentWelcomeEmailBody,
@@ -158,6 +161,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   applicationDetailHref,
   applicationListHref,
+  leaseDetailHref,
   type ApplicationDetailTabId,
   type ApplicationListTabId,
 } from "@/lib/portal-detail-routes";
@@ -210,9 +214,20 @@ function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFil
   return rows.filter((r) => propertyFilters.includes(applicationRowPropertyId(r)));
 }
 
+/**
+ * Same "withdrawn leaves Pending" reclassification as {@link tabForRow} (see
+ * below), so the tab COUNT badges never disagree with the LIST each tab
+ * actually renders — a withdrawn application used to inflate "Pending" both
+ * ways, cluttering the count and the list with a row the resident closed out
+ * and the manager can take no action on.
+ */
 function countByBucket(rows: DemoApplicantRow[]) {
   const c = { pending: 0, approved: 0, rejected: 0 };
   for (const r of rows) {
+    if (r.bucket === "pending" && isWithdrawnApplicationRow(r)) {
+      c.rejected += 1;
+      continue;
+    }
     c[r.bucket] += 1;
   }
   return c;
@@ -229,9 +244,19 @@ function countByBucket(rows: DemoApplicantRow[]) {
  */
 type ManagerApplicationTabId = ApplicationListTabId;
 
-/** Which tab a row belongs to for DISPLAY — never confuse with `row.bucket`. */
+/**
+ * Which tab a row belongs to for DISPLAY — never confuse with `row.bucket`.
+ * A withdrawn row keeps `bucket: "pending"` in storage (the resident's own
+ * closeout, not a manager decision), but showing it in the manager's Pending
+ * queue implied it still needed review, and it can never be approved
+ * (`isApprovableApplicationRow` already excludes it). It reads under
+ * Rejected instead — the closest existing "no action needed" tab — where
+ * `applicationDecisionStatusLabel` already renders "Withdrawn" rather than
+ * "Rejected" so it stays distinguishable from a real manager rejection.
+ */
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   if (row.bucket !== "pending") return row.bucket;
+  if (isWithdrawnApplicationRow(row)) return "rejected";
   return isInProgressApplicationRow(row) ? "incomplete" : "pending";
 }
 
@@ -1676,6 +1701,8 @@ export function ManagerApplications({
 
   /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
+  /** Generate lease (C050/C065): the approved-application id pre-filling the Leases wizard, or null when closed. */
+  const [generateLeaseApplicationId, setGenerateLeaseApplicationId] = useState<string | null>(null);
   const applicationsManualAddButton = (
     <PortalPrimaryIconAction
       label="Add application"
@@ -1695,6 +1722,25 @@ export function ManagerApplications({
 
   const applicationModals = (
     <>
+      {/* C050/C065: the same "Generate lease" wizard the Leases tab's own + opens,
+          pre-filled with this applicant via initialApplicationId. Mounted only
+          while an application requested it, same lazy-mount reasoning as
+          Add application below. */}
+      {generateLeaseApplicationId ? (
+        <ManagerAddLeaseModal
+          open
+          onClose={() => setGenerateLeaseApplicationId(null)}
+          managerUserId={userId ?? null}
+          initialApplicationId={generateLeaseApplicationId}
+          onSubmitted={() => {
+            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
+          }}
+          onOpenLease={(leaseId) => {
+            setGenerateLeaseApplicationId(null);
+            navigate(leaseDetailHref(basePath, "manager", leaseId));
+          }}
+        />
+      ) : null}
       {/* Mounted only while open: the modal reads the portfolio on render, and
           the list page must not pay for that (or its imports) until asked. */}
       {addApplicationOpen ? (
@@ -2026,6 +2072,30 @@ export function ManagerApplications({
                 { label: "Status", value: applicationDecisionStatusLabel(detailRow) },
               ],
             },
+            // C050/C065: one primary action directly under Overview on an
+            // APPROVED application in an application-first workspace opens the
+            // same lease wizard the Leases tab's own + uses, pre-filled with
+            // this applicant — never a separate page. A lease-first workspace
+            // never gates a lease on application approval at all, so this is
+            // scoped to that one pipeline order (the same predicate the Leases
+            // tab reads for its own send-lease affordance).
+            ...(detailRow.bucket === "approved" &&
+            !isWithdrawnApplicationRow(detailRow) &&
+            leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences())
+              ? [
+                  {
+                    kind: "rows" as const,
+                    id: "generate-lease",
+                    title: "Lease",
+                    rows: [],
+                    emptyLabel: "No lease started yet.",
+                    footer: {
+                      label: "Generate lease",
+                      onClick: () => setGenerateLeaseApplicationId(detailRow.id),
+                    },
+                  },
+                ]
+              : []),
           ],
         })
       );

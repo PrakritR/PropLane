@@ -291,7 +291,7 @@ export function buildPortalWorkspaceModel(
     if (portal === "admin") {
       return {
         eyebrow,
-        title: "Inbox",
+        title: "Communication",
         subtitle: "",
         showToolbar: false,
         showQuickLinks: false,
@@ -310,7 +310,7 @@ export function buildPortalWorkspaceModel(
     if (portal === "resident") {
       return {
         eyebrow,
-        title: "Inbox",
+        title: "Communication",
         subtitle: "",
         showToolbar: false,
         showQuickLinks: false,
@@ -328,7 +328,7 @@ export function buildPortalWorkspaceModel(
 
     return {
       eyebrow,
-      title: "Inbox",
+      title: "Communication",
       subtitle:
         "Compose opens when messaging is connected.",
       columns: [

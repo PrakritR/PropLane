@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   applyDocumentTheme,
+  DARK_MODE_ENABLED,
   readStoredTheme,
   THEME_STORAGE_KEY,
   type Theme,
@@ -47,9 +48,13 @@ export function ThemeProvider({
   }, [defaultTheme]);
 
   const setTheme = useCallback((next: Theme) => {
-    setThemeState(next);
-    applyDocumentTheme(next);
-    window.localStorage.setItem(THEME_STORAGE_KEY, next);
+    // DARK_MODE_ENABLED gate: while it's off, the context never reports
+    // "dark" even if some caller asks for it (applyDocumentTheme forces the
+    // DOM attribute separately) — the two never disagree.
+    const applied = DARK_MODE_ENABLED ? next : "light";
+    setThemeState(applied);
+    applyDocumentTheme(applied);
+    window.localStorage.setItem(THEME_STORAGE_KEY, applied);
   }, []);
 
   const toggleTheme = useCallback(() => {

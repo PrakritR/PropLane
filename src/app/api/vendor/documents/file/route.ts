@@ -3,11 +3,21 @@ import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { findVendorDocument, isVendorDocumentKind } from "@/lib/vendor-documents";
 import { resolveOwnVendorRecords } from "@/lib/vendor-own-record";
-import { VENDOR_DOCUMENTS_BUCKET } from "@/lib/vendor-documents-storage";
+import { VENDOR_DOCUMENTS_BUCKET, isVendorDocumentStoragePath } from "@/lib/vendor-documents-storage";
 
 export const runtime = "nodejs";
 
-/** Streams a vendor-owned compliance file from the private bucket — auth required. */
+/**
+ * Legacy path — this used to stream the vendor's file directly, which broke
+ * the private-bucket/signed-URL rule (docs/agents/documents-module.md).
+ * Nothing in this app calls it any more (new code goes straight to
+ * `/api/vendor/documents/signed-url`), but a document uploaded before this
+ * change still carries this exact path as its stored, opaque `url` marker
+ * (`vendor-documents.ts`'s `VendorDocumentRecord.url`), so this stays as a
+ * locked-down redirect rather than disappearing outright: same ownership
+ * re-derivation as the signed-url route, then a 302 to a freshly minted,
+ * short-lived signed URL — never bytes streamed through this route again.
+ */
 export async function GET(req: Request) {
   try {
     const auth = await resolveVendorPortalUserId();
@@ -25,37 +35,22 @@ export async function GET(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const records = await resolveOwnVendorRecords(db, auth.userId);
-    if (records.length === 0) return NextResponse.json({ error: "No linked manager found." }, { status: 404 });
+    if (records.length === 0) return NextResponse.json({ error: "Document not found." }, { status: 404 });
 
     const doc = records.map((record) => findVendorDocument(record.row.vendorDocuments, kind)).find(Boolean);
-    const storagePath = doc?.storagePath?.trim();
-    if (!doc || !storagePath || !storagePath.startsWith(`vendor-documents/${auth.userId}/`)) {
+    const storagePath = doc?.storagePath?.trim() ?? "";
+    if (!doc || !storagePath || !isVendorDocumentStoragePath(storagePath, auth.userId)) {
       return NextResponse.json({ error: "Document not found." }, { status: 404 });
     }
 
-    const { data, error } = await db.storage.from(VENDOR_DOCUMENTS_BUCKET).download(storagePath);
-    if (error || !data) return NextResponse.json({ error: error?.message ?? "Download failed." }, { status: 500 });
+    const { data: signed, error } = await db.storage.from(VENDOR_DOCUMENTS_BUCKET).createSignedUrl(storagePath, 300);
+    if (error || !signed?.signedUrl) {
+      return NextResponse.json({ error: error?.message ?? "Failed to sign URL." }, { status: 500 });
+    }
 
-    const bytes = Buffer.from(await data.arrayBuffer());
-    const ext = storagePath.split(".").pop()?.toLowerCase() ?? "";
-    const contentType =
-      ext === "pdf"
-        ? "application/pdf"
-        : ext === "png"
-          ? "image/png"
-          : ext === "webp"
-            ? "image/webp"
-            : "image/jpeg";
-
-    return new NextResponse(bytes, {
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${doc.fileName.replace(/"/g, "")}"`,
-        "Cache-Control": "private, no-store",
-      },
-    });
+    return NextResponse.redirect(signed.signedUrl, 302);
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Download failed.";
+    const message = e instanceof Error ? e.message : "Failed to open document.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

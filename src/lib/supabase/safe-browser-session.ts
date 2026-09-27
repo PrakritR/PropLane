@@ -53,10 +53,40 @@ export async function safeBrowserGetSession(supabase: SupabaseClient): Promise<{
 
 let recoveryListenerRegistered = false;
 
+/**
+ * `autoRefreshToken: true` makes auth-js run its own background token-refresh
+ * timer, independent of any `getSession()`/`getUser()` call app code awaits.
+ * When that background refresh's own `fetch` fails — a network blip, or the
+ * tab navigating/backgrounding mid-request — there is no app-level promise to
+ * attach a `.catch` to, so it surfaces as an uncaught
+ * `TypeError: Failed to fetch` from inside auth-js's own internals (Night QA:
+ * resident Tour page, both viewports, `_handleRequest`/`_request`). It is not
+ * correctness-affecting: the timer retries on its own next tick, and any
+ * explicit `getSession()` call already recovers via {@link safeBrowserGetSession}.
+ * Mark it handled instead of letting it reach the console as an uncaught error.
+ */
+export function isBenignAuthJsBackgroundFetchFailure(reason: unknown): boolean {
+  if (!(reason instanceof TypeError) || reason.message !== "Failed to fetch") return false;
+  const stack = reason.stack ?? "";
+  return /auth-js|gotrue|_handleRequest|_recoverAndRefresh|_autoRefreshTokenTick/i.test(stack);
+}
+
+let unhandledRejectionListenerRegistered = false;
+
+function registerAuthJsBackgroundRefreshRecovery(): void {
+  if (typeof window === "undefined" || unhandledRejectionListenerRegistered) return;
+  unhandledRejectionListenerRegistered = true;
+  window.addEventListener("unhandledrejection", (event) => {
+    if (isBenignAuthJsBackgroundFetchFailure(event.reason)) event.preventDefault();
+  });
+}
+
 /** One global listener so auto-refresh failures never leave a dead session behind. */
 export function registerBrowserAuthRecovery(supabase: SupabaseClient): void {
   if (typeof window === "undefined" || recoveryListenerRegistered) return;
   recoveryListenerRegistered = true;
+
+  registerAuthJsBackgroundRefreshRecovery();
 
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT" && !session) {

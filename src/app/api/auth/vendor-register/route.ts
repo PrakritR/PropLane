@@ -177,7 +177,7 @@ async function registerFromInvite(
     linkedManagerId: provisioned.linkedManagerId,
     unlinkedReason: provisioned.unlinkedReason,
     unlinkedNotice: vendorUnlinkedNotice(provisioned.unlinkedReason, { confirmed: true }),
-    redirectTo: "/vendor/dashboard",
+    redirectTo: "/vendor/onboarding",
   });
 }
 
@@ -218,7 +218,7 @@ async function registerSelfServe(
       // reported so the vendor knows why no manager is attached.
       unlinkedReason: provisioned.unlinkedReason,
       unlinkedNotice: vendorUnlinkedNotice(provisioned.unlinkedReason, { confirmed: true }),
-      redirectTo: "/vendor/dashboard",
+      redirectTo: "/vendor/onboarding",
     });
   }
 

@@ -1,15 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CreditCard, Download } from "lucide-react";
+import { Download, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
-import {
-  ManagerPortalPageShell,
-  ManagerPortalStatusPills,
-} from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -50,13 +49,23 @@ import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payout
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
+  bankToWithdrawAccounts,
+  formatMoney,
+  type PortalPayoutBalance,
+} from "@/components/portal/portal-payouts-panel";
+import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
+import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
+import { track } from "@/lib/analytics/track-client";
+import {
   formatInvoiceMoney,
   normalizeLineItems,
   sumLineItemsCents,
   vendorInvoiceStatusLabel,
+  vendorInvoiceTimeline,
   type VendorInvoice,
   type VendorInvoiceStatus,
 } from "@/lib/vendor-invoices";
+import { VendorInvoiceTimeline } from "@/components/portal/vendor-invoice-timeline";
 
 type VendorLinkedManagerOption = {
   managerUserId: string;
@@ -129,6 +138,92 @@ function formatIncomeDate(dateIso: string): string {
   const d = new Date(`${day}T12:00:00`);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/**
+ * C160 — Income becomes a Money-in view: the Available balance + Withdraw
+ * affordance that used to live only on Settings → Payouts is now surfaced
+ * directly on the Income tab too, so a vendor reads "money in" and can move
+ * it without a detour through Settings. Reuses the same read route
+ * (`GET /api/vendor/payouts/balance`) and the same `PayoutWithdrawSheet` /
+ * `POST /api/vendor/payouts/create` write path the Settings page already
+ * uses — no new money route, no bypass of server-side amount/ownership
+ * checks. Settings → Payouts is unchanged and still works on its own.
+ */
+function VendorIncomeBalanceCard() {
+  const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+
+  const loadBalance = useCallback(async () => {
+    setLoadError(false);
+    try {
+      const res = await fetch("/api/vendor/payouts/balance", { credentials: "include" });
+      if (!res.ok) {
+        setLoadError(true);
+        return;
+      }
+      const body = (await res.json().catch(() => null)) as Partial<PortalPayoutBalance> | null;
+      if (!body || typeof body.availableCents !== "number" || !body.setup) {
+        setLoadError(true);
+        return;
+      }
+      setBalance(body as PortalPayoutBalance);
+    } catch {
+      setLoadError(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBalance();
+  }, [loadBalance]);
+
+  // Access-denied / not-yet-linked reads the same as "nothing to show yet" —
+  // the empty Income list below already explains that state, so this card
+  // simply omits itself rather than duplicating an error banner.
+  if (loadError || !balance) return null;
+
+  const withdrawAccounts: PayoutWithdrawAccount[] = bankToWithdrawAccounts(balance.bank);
+  const withdrawableCents = withdrawableCentsFromSnapshot(balance);
+  const ready = balance.setup.ready;
+
+  return (
+    <div
+      className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm"
+      data-attr="vendor-income-balance-card"
+    >
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available balance</p>
+        <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-available">
+          {formatMoney(balance.availableCents, balance.currency)}
+        </p>
+      </div>
+      <Button
+        type="button"
+        onClick={() => {
+          track("payout_withdraw_started", { portal: "vendor", source: "income_tab" });
+          setWithdrawOpen(true);
+        }}
+        disabled={!ready || withdrawableCents <= 0}
+        data-attr="vendor-income-balance-withdraw"
+      >
+        Withdraw
+      </Button>
+      <PayoutWithdrawSheet
+        open={withdrawOpen}
+        onClose={() => setWithdrawOpen(false)}
+        apiBase="/api/vendor"
+        currency={balance.currency}
+        availableCents={balance.availableCents}
+        instantAvailableCents={balance.instantAvailableCents}
+        accounts={withdrawAccounts}
+        onSuccess={() => {
+          setWithdrawOpen(false);
+          void loadBalance();
+        }}
+      />
+    </div>
+  );
 }
 
 function VendorIncomeTable({
@@ -614,12 +709,12 @@ function VendorInvoicesView({
           recordLabel: invoice.invoiceNumber || "Invoice",
         })
       ) : (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-invoice-overview">
+        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-invoice-overview">
           <p className="text-sm text-foreground">
             {formatInvoiceMoney(invoice.totalCents, invoice.currency)} · {vendorInvoiceStatusLabel(invoice.status)}
           </p>
-          <p className="mt-1 text-xs text-muted">Submitted {formatInvoiceDate(invoice.submittedAt)}</p>
-          {invoice.memo ? <p className="mt-2 text-sm whitespace-pre-wrap text-muted">{invoice.memo}</p> : null}
+          {invoice.memo ? <p className="text-sm whitespace-pre-wrap text-muted">{invoice.memo}</p> : null}
+          <VendorInvoiceTimeline steps={vendorInvoiceTimeline(invoice)} />
         </div>
       );
     return (
@@ -680,19 +775,29 @@ function VendorInvoicesView({
       }
       primary={
         <PortalPrimaryIconAction
-          label="Request payment"
+          label={portalListAddPrimaryLabel("invoice")}
           data-attr="vendor-invoice-new"
           onClick={() => setWizardOpen(true)}
         />
       }
     >
-      <ManagerPortalStatusPills
-        tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
+      {/*
+        The same underline tabs every other status filter in the product uses
+        (manager Payments/Leases/Tours/Applications, resident Payments) —
+        this used to be a rounded pill segmented control, a visually
+        different control doing the identical job (AXI night sweep area 2i).
+      */}
+      <LocalDestinationNav
+        items={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
         activeId={statusFilter}
         onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
+        ariaLabel="Invoice status"
+        appearance="command"
       />
       {loading ? (
-        <div className="h-40 animate-pulse rounded-2xl bg-muted" data-attr="vendor-invoices-loading" aria-hidden />
+        <div data-attr="vendor-invoices-loading">
+          <ListSkeleton rows={4} showLeading={false} />
+        </div>
       ) : filtered.length === 0 ? (
         <PortalListEmptyCard
           title={invoices.length === 0 ? portalEmptyCopy("finances.invoices").title : "No invoices match this filter"}
@@ -702,7 +807,7 @@ function VendorInvoicesView({
             invoices.length === 0
               ? [
                   {
-                    label: "Request payment",
+                    label: portalListAddPrimaryLabel("invoice"),
                     onClick: () => setWizardOpen(true),
                     dataAttr: "vendor-invoice-empty-add",
                   },
@@ -970,7 +1075,7 @@ export function VendorFinancesPanel({
 
   const requestPayment = (
     <PortalPrimaryIconAction
-      label="Request payment"
+      label={portalListAddPrimaryLabel("payment")}
       data-attr="vendor-finances-request-payment"
       onClick={() => setRequestOpen(true)}
     />
@@ -1032,9 +1137,10 @@ export function VendorFinancesPanel({
         dataAttr: "vendor-income-search",
       }}
       activeFilterChips={<PortalActiveFilterChips chips={filterChips} />}
-      actions={<PortalIconAction icon={CreditCard} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
+      actions={<PortalIconAction icon={Wrench} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => payoutsRef.current?.openPaymentMethods()} />}
       primary={requestPayment}
     >
+      <VendorIncomeBalanceCard />
       {filteredRows.length === 0 ? (
         <PortalListEmptyCard
           title={filtersHideRows ? "No income matches these filters" : incomeEmpty.title}
@@ -1043,7 +1149,7 @@ export function VendorFinancesPanel({
           actions={
             filtersHideRows
               ? []
-              : [{ label: "Request payment", onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
+              : [{ label: portalListAddPrimaryLabel("payment"), onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
           }
           clear={
             filtersHideRows

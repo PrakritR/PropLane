@@ -2,22 +2,37 @@
 
 /**
  * "Communication" as a section inside a record page (approved design slice —
- * see `docs/agents/communication-inbox.md` § recordRef). Renders ONLY the
- * record's own thread: a thread-card header (counterparty avatar + name +
- * Archive), the message timeline with day dividers, and an inline reply
- * composer matching the main Communication page's — never the full inbox
- * chrome (search box, Active/Archived segments, work-number/work-email
- * identity cards, conversation list). Those stay on `ManagerUnifiedInbox` /
+ * see `docs/agents/communication-inbox.md` § recordRef). Renders ONE merged
+ * timeline of EVERY conversation with this record's contact(s): a thread-card
+ * header (counterparty avatar + name + Archive), the interleaved message
+ * timeline with day dividers, and an inline reply composer matching the main
+ * Communication page's — never the full inbox chrome (search box,
+ * Active/Archived segments, work-number/work-email identity cards,
+ * conversation list). Those stay on `ManagerUnifiedInbox` /
  * `ResidentCommunication` / `VendorCommunication`, which this component does
  * NOT mount.
  *
- * Data source and send path are unchanged from the prior embedded-inbox
- * version: the record's thread(s) are read from the SAME persisted inbox
+ * `mergedThreads` is every thread whose stamped `recordRef` matches this
+ * record OR whose counterparty email matches one of `contactIds`
+ * (case-insensitive) OR — when the thread shape carries a phone
+ * (`smsNoticePhone`) — matches `contactPhone`, INCLUDING archived (folder
+ * "trash") threads, across every property. Their messages interleave
+ * chronologically into one timeline (day dividers and the per-message
+ * channel tag both already come from `InboxMessageTimeline` /
+ * `buildInboxMessageTimeline` reading the merged `at` order — nothing new was
+ * added here, so this stays free of subtext per AGENTS.md). There is no more
+ * separate "N other conversations" link: this IS all of them. Replying still
+ * goes to the record's OWN thread only — `primaryThread` prefers a
+ * recordRef match, then the newest thread with the contact, then null (a
+ * fresh send stamps a brand-new thread with this recordRef, same as before).
+ *
+ * Data source and send path are otherwise unchanged from the prior
+ * embedded-inbox version: threads are read from the SAME persisted inbox
  * cache (`loadPersistedInbox` / `syncPersistedInboxFromServer`,
- * `PORTAL_INBOX_CHANGED_EVENT`) narrowed with `threadFilters.recordRefs`, and
- * a send still goes through `POST /api/portal/send-inbox-message` with the
- * stamped `recordRef` — a message enters the store only AFTER the send is
- * authorized server-side, exactly as every other send does.
+ * `PORTAL_INBOX_CHANGED_EVENT`), and a send still goes through
+ * `POST /api/portal/send-inbox-message` with the stamped `recordRef` — a
+ * message enters the store only AFTER the send is authorized server-side,
+ * exactly as every other send does.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive } from "lucide-react";
@@ -38,9 +53,11 @@ import {
   inboxThreadSortMs,
   lastInboundChannelOf,
   loadPersistedInbox,
+  parseInboxStampMs,
   syncPersistedInboxFromServer,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { smsNoticePhone } from "@/lib/sms-inbox-identity";
 import { inboxThreadHasEmail } from "@/lib/manager-inbox-reply-channels";
 import { inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { emailReplySubjectFor, inboxEmailBubbleFields } from "@/lib/inbox-email-display";
@@ -60,7 +77,7 @@ export type RecordCommunicationSectionRole = "manager" | "resident" | "vendor";
 export type RecordCommunicationSectionProps = {
   role: RecordCommunicationSectionRole;
   recordRef: RecordRef;
-  /** House this record belongs to, when it has one — used only to fold "other conversations" and (manager/vendor) to fan out to co-managers. Never sent on a resident compose (see below). */
+  /** House this record belongs to, when it has one — used only (manager/vendor) to fan out a new send to co-managers. Never sent on a resident compose (see below). Never narrows the merged history shown, which now spans every property. */
   propertyId?: string;
   /** The person(s) this record's thread is naturally with (e.g. the resident on a lease, the vendor on a job). First entry is who the composer addresses. */
   contactIds?: string[];
@@ -95,8 +112,8 @@ const KIND_LABEL: Record<RecordRef["kind"], string> = {
 };
 
 /** Same shape as the main inbox's thread → bubble builder (`inboxThreadBubbles` in
- * `pro-resident-detail-inbox.tsx`), scoped to a single thread — the record pane
- * shows exactly one conversation, never a merged multi-thread history. */
+ * `pro-resident-detail-inbox.tsx`), scoped to one thread's own messages —
+ * `mergedThreadBubbles` below interleaves several of these into one timeline. */
 function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
   const folder = thread.folder === "sent" ? "sent" : "inbox";
   let lastShownSubject = "";
@@ -109,7 +126,10 @@ function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
     );
     lastShownSubject = fields.lastShownSubject;
     bubbles.push({
-      id: message.id,
+      // Prefixed with the source thread id: several stored threads now
+      // interleave into one timeline, and two different threads' own message
+      // ids are not guaranteed distinct from each other.
+      id: `${thread.id}:${message.id}`,
       author: message.from,
       body: fields.body,
       at: message.at,
@@ -120,6 +140,20 @@ function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
     });
   }
   return bubbles;
+}
+
+/**
+ * Every message from every merged thread, interleaved chronologically into
+ * one timeline. Day dividers and the per-message channel tag are already
+ * derived from message order by `InboxMessageTimeline` /
+ * `buildInboxMessageTimeline` — merging here is the only change needed for
+ * them to span threads correctly.
+ */
+function mergedThreadBubbles(threads: PersistedInboxThread[]): InboxBubbleMessage[] {
+  return threads
+    .flatMap((thread) => threadBubbles(thread).map((bubble) => ({ bubble, sortMs: parseInboxStampMs(bubble.at) ?? 0 })))
+    .sort((a, b) => a.sortMs - b.sortMs)
+    .map((entry) => entry.bubble);
 }
 
 export function RecordCommunicationSection({
@@ -161,12 +195,24 @@ export function RecordCommunicationSection({
   useEffect(() => {
     setActiveRef(recordRef);
   }, [recordRef.kind, recordRef.id, recordRef.label]);
+  // A hard reload of this record page starts with whatever `loadPersistedInbox`
+  // finds in the LOCAL cache, which is empty until `syncPersistedInboxFromServer`
+  // below completes at least once — this pane rendered the confident "No
+  // messages about this X yet" empty state during that gap, before the real
+  // thread had even been fetched, so the exact same conversation intermittently
+  // "had no messages" depending on how fast the reload happened to land versus
+  // the sync's own network latency. `initialSyncDone` distinguishes "still
+  // checking" from "checked, and there really is nothing" so the empty label
+  // only ever reflects the server's actual answer.
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
   useEffect(() => {
+    setInitialSyncDone(false);
     const sync = () => setThreads(loadPersistedInbox(scope, []));
     sync();
     void syncPersistedInboxFromServer(scope)
       .then(sync)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setInitialSyncDone(true));
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, [scope]);
@@ -181,38 +227,53 @@ export function RecordCommunicationSection({
     [activeRef.kind, activeRef.id],
   );
 
-  const recordThreads = useMemo(
-    () =>
-      threads.filter(
-        (t) => t.folder !== "trash" && threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef }),
-      ),
-    [threads, threadFilters],
+  const contactEmailSet = useMemo(
+    () => new Set((contactIds ?? []).map((id) => id.trim().toLowerCase()).filter(Boolean)),
+    [contactIds],
+  );
+  const normalizedContactPhone = useMemo(
+    () => (contactPhone?.trim() ? smsNoticePhone(contactPhone) : ""),
+    [contactPhone],
   );
 
-  // A record's thread belongs to whoever first composed from it, so there is
-  // ordinarily exactly one match; prefer the one addressed to this record's
-  // own contact and fall back to the most recently active match.
+  // Every conversation with this record's contact(s) — matched by stamped
+  // recordRef OR counterparty email OR (when the thread shape carries one) a
+  // matching phone — INCLUDING archived threads, across every property. This
+  // is now the whole history with this person, not just this one record's
+  // labeled thread.
+  const mergedThreads = useMemo(
+    () =>
+      threads.filter((t) => {
+        if (threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef })) {
+          return true;
+        }
+        const email = (t.email ?? "").trim().toLowerCase();
+        if (email && contactEmailSet.has(email)) return true;
+        if (normalizedContactPhone && t.smsNoticePhone && smsNoticePhone(t.smsNoticePhone) === normalizedContactPhone) {
+          return true;
+        }
+        return false;
+      }),
+    [threads, threadFilters, contactEmailSet, normalizedContactPhone],
+  );
+
+  // Replying still targets exactly one thread: prefer the one stamped with
+  // THIS record's own recordRef, else the newest thread with the contact,
+  // else none (a send then stamps a brand-new thread with this recordRef).
   const primaryThread = useMemo(() => {
-    if (recordThreads.length === 0) return null;
-    if (primaryContact) {
-      const byContact = recordThreads.find((t) => t.email.trim().toLowerCase() === primaryContact);
-      if (byContact) return byContact;
-    }
-    return [...recordThreads].sort((a, b) => inboxThreadSortMs(b.id, b.time) - inboxThreadSortMs(a.id, a.time))[0] ?? null;
-  }, [recordThreads, primaryContact]);
+    if (mergedThreads.length === 0) return null;
+    const byRecordRef = mergedThreads.find(
+      (t) => t.recordRef?.kind === activeRef.kind && t.recordRef?.id === activeRef.id,
+    );
+    if (byRecordRef) return byRecordRef;
+    const candidates = primaryContact
+      ? mergedThreads.filter((t) => t.email.trim().toLowerCase() === primaryContact)
+      : mergedThreads;
+    const pool = candidates.length > 0 ? candidates : mergedThreads;
+    return [...pool].sort((a, b) => inboxThreadSortMs(b.id, b.time) - inboxThreadSortMs(a.id, a.time))[0] ?? null;
+  }, [mergedThreads, activeRef.kind, activeRef.id, primaryContact]);
 
-  const otherConversationsCount = useMemo(() => {
-    if (!primaryContact) return 0;
-    return threads.filter((t) => {
-      if (t.folder === "trash") return false;
-      if ((t.email ?? "").trim().toLowerCase() !== primaryContact) return false;
-      if (t.recordRef?.kind === recordRef.kind && t.recordRef?.id === recordRef.id) return false;
-      if (propertyId && t.houses?.length && !t.houses.some((h) => h.propertyId === propertyId)) return false;
-      return true;
-    }).length;
-  }, [threads, primaryContact, propertyId, recordRef.kind, recordRef.id]);
-
-  const messages = useMemo<InboxBubbleMessage[]>(() => (primaryThread ? threadBubbles(primaryThread) : []), [primaryThread]);
+  const messages = useMemo<InboxBubbleMessage[]>(() => mergedThreadBubbles(mergedThreads), [mergedThreads]);
 
   const recipientEmail = (primaryThread?.email ?? primaryContact ?? "").trim();
   const emailAvailable = primaryThread ? inboxThreadHasEmail(primaryThread.email) : Boolean(recipientEmail.includes("@"));
@@ -367,7 +428,6 @@ export function RecordCommunicationSection({
   }, [archiving, primaryThread, scope]);
 
   const kindLabel = KIND_LABEL[activeRef.kind];
-  const commBase = role === "manager" ? "/portal/communication" : `/${role}/communication`;
   const counterpartyName = primaryThread?.from?.trim() || activeRef.label || recipientEmail || "Contact";
 
   const headerActions = primaryThread ? (
@@ -434,20 +494,14 @@ export function RecordCommunicationSection({
         messages={messages}
         headerActions={headerActions}
         composer={composer}
-        emptyLabel={`No messages about this ${kindLabel} yet — write the first one below`}
+        emptyLabel={
+          initialSyncDone
+            ? `No messages about this ${kindLabel} yet — write the first one below`
+            : "Loading messages…"
+        }
         threadKey={primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`}
         scrollMode="page"
       />
-      {otherConversationsCount > 0 ? (
-        <a
-          href={commBase}
-          className="block px-3 py-2 text-xs text-muted hover:text-foreground sm:px-4"
-          data-attr="record-communication-other-conversations"
-        >
-          {otherConversationsCount} other conversation{otherConversationsCount === 1 ? "" : "s"} with this contact
-          {propertyId ? " · this property" : ""} ›
-        </a>
-      ) : null}
     </div>
   );
 }

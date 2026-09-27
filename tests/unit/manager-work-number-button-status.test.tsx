@@ -22,6 +22,14 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
   }),
 }));
 
+// jsdom's default test URL has pathname "/", which `isDemoModeActive()`
+// otherwise reads as the public demo surface — this suite exercises the
+// REAL (non-demo) fetch-driven status flow, same pattern other suites use.
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
+  isDemoModeActive: () => false,
+}));
+
 import { ManagerWorkNumberButton } from "@/components/portal/pro-work-number-button";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import { resetManagerMessagingNumberStatusClientCache } from "@/lib/sms/manager-messaging-number-client";

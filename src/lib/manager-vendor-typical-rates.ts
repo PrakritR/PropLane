@@ -85,6 +85,25 @@ export function expandTypicalRateCells(input: {
   return cells;
 }
 
+export type AcceptedBidTypicalPrice = { averageCents: number; jobCount: number };
+
+/**
+ * C080: a real "typical job" figure derived from this vendor's own accepted
+ * bids (`work_order_bids.status === "accepted"`), instead of the manually
+ * entered `typicalRates[0]` — which is a manager guess, not observed history.
+ * Returns null when there is no accepted-bid history yet, so the caller can
+ * fall back to the manual rate exactly as before. Pure — the caller supplies
+ * the accepted-bid amounts already scoped to this vendor (e.g. each job's
+ * `acceptedQuoteCents` from `ManagerVendorSummary`, which is itself sourced
+ * from `work_order_bids` rows with `status = "accepted"`).
+ */
+export function computeTypicalPriceFromAcceptedBids(amountsCents: readonly (number | null | undefined)[]): AcceptedBidTypicalPrice | null {
+  const valid = amountsCents.filter((n): n is number => typeof n === "number" && Number.isFinite(n) && n > 0);
+  if (valid.length === 0) return null;
+  const sum = valid.reduce((acc, n) => acc + n, 0);
+  return { averageCents: Math.round(sum / valid.length), jobCount: valid.length };
+}
+
 export function findRosterCatalogMatch(
   rows: readonly ManagerVendorRow[],
   hit: { catalogId?: string | null; phone?: string; name: string; trade: string },

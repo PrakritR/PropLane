@@ -172,8 +172,11 @@ describe("co-manager nav sections", () => {
  * sidebar's `upsell` nav lock above: the row stays live because it is the entry
  * point to the upgrade, and deleting it deletes a revenue path.
  *
- * The button is still disabled while the PLAN ITSELF is unknown — a manager
- * should not start a listing we may then have to refuse.
+ * The button itself is never pre-disabled while the plan is still loading
+ * either (night UX sweep — that read as a permanently broken control, not a
+ * brief wait): `tryOpenAdd`'s own `canOpenAdd()` guard already covers "a
+ * manager should not start a listing we may then have to refuse" at click
+ * time, toasting and queuing a retry instead of opening the wizard.
  */
 describe("the Free plan property cap", () => {
   const src = readFileSync(
@@ -181,9 +184,18 @@ describe("the Free plan property cap", () => {
     "utf8",
   );
 
-  it("disables Add property only while the plan is still loading", () => {
-    expect(src).toContain("addPropertyDisabled={!skuLoaded}");
-    expect(src).not.toContain("addPropertyDisabled={!skuLoaded || atPropertyLimit}");
+  it("never pre-disables Add property — the plan-unknown case is handled at click time, not by disabling the control", () => {
+    // commit 135c3f2a ("empty state no longer repeats Create next to the
+    // header's own") deleted the empty-state Create pill, the last consumer
+    // of the `addPropertyDisabled` prop/plumbing, so that literal is gone for
+    // good reason. The invariant it guarded is unchanged: the header trigger
+    // is never disabled on a loading or at-limit flag — gating happens when
+    // the menu is asked to open, via `canOpenAdd()`.
+    expect(src).not.toContain("disabled={!skuLoaded}");
+    expect(src).not.toContain("disabled={!skuLoaded || atPropertyLimit}");
+    expect(src).toContain("if (next && !canOpenAdd()) return;");
+    expect(src).toContain("if (!skuLoaded) {");
+    expect(src).toContain('showToast("Loading subscription…")');
   });
 
   it("refuses the click with the limit and the upgrade path", () => {

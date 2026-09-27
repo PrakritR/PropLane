@@ -18,6 +18,8 @@ import {
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
+import { managerMayFileLeaseUnderProperty } from "@/lib/auth/manager-lease-scope";
+import { createLeaseFirstDraft } from "@/lib/leasing/lease-first-draft.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
 import {
@@ -197,6 +199,35 @@ export async function POST(req: Request) {
     const propertyId = primary.id;
     const listing = primary.listing;
     const origin = appOrigin();
+
+    // Part 3 hotfix (defect 4): "Send lease to sign" used to only email a
+    // create-account link — no lease row existed, so the Lease tab stayed
+    // locked for the new signup and the manager's Leases list showed nothing.
+    // Create the real draft BEFORE sending anything, so a failure here never
+    // leaves the prospect holding a link to a lease that does not exist.
+    if (kind === "lease") {
+      if (!to) {
+        return NextResponse.json({ error: "A resident email is required to send a lease to sign." }, { status: 400 });
+      }
+      const leaseScope = await managerMayFileLeaseUnderProperty(svc, user.id, propertyId);
+      if (!leaseScope.ok) {
+        return NextResponse.json({ error: leaseScope.error }, { status: 500 });
+      }
+      if (!leaseScope.allowed && leaseScope.propertyExists) {
+        return NextResponse.json({ error: "You cannot file a lease under this property." }, { status: 403 });
+      }
+      const draft = await createLeaseFirstDraft(svc, {
+        managerUserId: user.id,
+        propertyId,
+        roomChoice: listingRoomId || roomName || null,
+        name: prospectName,
+        email: to,
+        phone: phone || null,
+      });
+      if (!draft.ok) {
+        return NextResponse.json({ error: draft.error }, { status: 500 });
+      }
+    }
 
     const propertyTitle = isMultiListing || isMultiApply
       ? `${authorized.length} homes`

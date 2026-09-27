@@ -11,9 +11,11 @@ import {
   saveGoogleSheetsConnection,
   saveManagerSheetBindings,
   type ManagerSheetBinding,
+  type ManagerSheetStaysTab,
 } from "@/lib/manager-sheet-link";
 import { googleSheetsPublicStatus } from "@/lib/sheet-sync/google-sheets-auth";
 import { warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
+import type { StaysTableColumnMap } from "@/lib/sheet-sync/parse-stays-table";
 
 export const runtime = "nodejs";
 
@@ -55,6 +57,7 @@ export async function POST(req: Request) {
     spreadsheetId,
     occupancyGid: occupancyGidForSpreadsheet(spreadsheetId),
     houseTabs: [],
+    staysTab: null,
     workspaceId: asTrimmed(body?.workspaceId),
     propertyId: propertyId && propertyId !== ALL_SHEET_PROPERTIES ? propertyId : null,
     autoSync: true,
@@ -79,6 +82,13 @@ export async function PATCH(req: Request) {
     workspaceId?: unknown;
     propertyId?: unknown;
     autoSync?: unknown;
+    /** BUILD-WAVE2 C210: `null` clears the linked stays tab; omit to leave it as-is. */
+    staysTab?: {
+      gid?: unknown;
+      title?: unknown;
+      columnMap?: unknown;
+      nameMap?: unknown;
+    } | null;
   } | null;
   const id = asTrimmed(body?.id);
   if (!id) return NextResponse.json({ error: "Missing spreadsheet." }, { status: 400 });
@@ -88,6 +98,30 @@ export async function PATCH(req: Request) {
   const current = bindings[index];
   const spreadsheetId = asTrimmed(body?.spreadsheetId) || current.spreadsheetId;
   const propertyRaw = body?.propertyId === null ? ALL_SHEET_PROPERTIES : asTrimmed(body?.propertyId);
+  const staysTab: ManagerSheetStaysTab | null =
+    body?.staysTab === undefined
+      ? current.staysTab
+      : body.staysTab === null
+        ? null
+        : {
+            gid: asTrimmed(body.staysTab.gid),
+            title: asTrimmed(body.staysTab.title),
+            columnMap:
+              body.staysTab.columnMap && typeof body.staysTab.columnMap === "object"
+                ? (body.staysTab.columnMap as StaysTableColumnMap)
+                : null,
+            nameMap:
+              body.staysTab.nameMap && typeof body.staysTab.nameMap === "object" && !Array.isArray(body.staysTab.nameMap)
+                ? Object.fromEntries(
+                    Object.entries(body.staysTab.nameMap as Record<string, unknown>).filter(
+                      (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0,
+                    ),
+                  )
+                : {},
+          };
+  if (staysTab && !staysTab.gid) {
+    return NextResponse.json({ error: "Choose a tab to link as Stays." }, { status: 400 });
+  }
   bindings[index] = {
     ...current,
     spreadsheetId,
@@ -101,6 +135,7 @@ export async function PATCH(req: Request) {
           ? propertyRaw
           : null,
     autoSync: typeof body?.autoSync === "boolean" ? body.autoSync : current.autoSync,
+    staysTab,
   };
   const saved = await saveManagerSheetBindings(actor.db, actor.userId, bindings);
   return NextResponse.json({ links: saved.map(publicManagerSheetBinding) });

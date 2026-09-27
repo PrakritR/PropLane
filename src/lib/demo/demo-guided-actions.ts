@@ -70,9 +70,9 @@ export async function runDemoResidentSignLease(
   email = DEMO_GUIDED_EMAIL,
   name = CANONICAL_DEMO_GUIDED_NAME,
 ): Promise<boolean> {
-  const ok = await residentSignLease(email.trim(), name.trim());
-  if (ok) window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
-  return ok;
+  const result = await residentSignLease(email.trim(), name.trim());
+  if (result.ok) window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+  return result.ok;
 }
 
 export async function runDemoManagerSignLease(
@@ -81,9 +81,9 @@ export async function runDemoManagerSignLease(
 ): Promise<boolean> {
   const leaseId = demoLeaseRowIdForApplication(axisId);
   const managerUserId = resolveDemoManagerScopeUserId();
-  const ok = await managerSignLease(leaseId, name.trim(), managerUserId);
-  if (ok) window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
-  return ok;
+  const result = await managerSignLease(leaseId, name.trim(), managerUserId);
+  if (result.ok) window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+  return result.ok;
 }
 
 export function demoLeaseRowForApplication(axisId: string) {

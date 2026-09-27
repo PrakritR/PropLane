@@ -670,7 +670,7 @@ describe("approve_and_pay_work_order", () => {
         "Moves real money: labor cost is transferred to the vendor's bank account. Materials are your own expense and are not transferred.",
       );
       expect(res.preview.fields.find((l) => l.label === "Labor payout")!.value).toContain("$400.00");
-      expect(res.preview.fields.find((l) => l.label === "Labor payout")!.value).toContain("accepted bid");
+      expect(res.preview.fields.find((l) => l.label === "Labor payout")!.value).toContain("accepted quote");
     }
   });
 

@@ -354,18 +354,30 @@ export async function findExistingPortalMessageThread(
   participantEmail: string | null;
   scope: string;
   updatedAt: string | null;
+  /**
+   * True when the matched row's CURRENT folder is "trash" (archived). The
+   * caller decides whether this delivery may reopen it — only a genuinely
+   * inbound turn does (see `deliverPortalMessageThreadSide`'s `reopens`).
+   */
+  archived: boolean;
 } | null> {
   const matchCol = side.folder === "sent" ? "owner_user_id" : "participant_email";
   const matchVal = side.folder === "sent" ? side.ownerUserId : side.participantEmail;
   if (!matchVal) return null;
 
   const otherPartyNormalized = side.otherPartyEmail.trim().toLowerCase();
+  // Deliberately NOT filtered on `row_data->>folder` at the DB level: an
+  // archived row's folder is "trash", not `side.folder`, and filtering it out
+  // here made every new message to/from an archived person's thread insert a
+  // brand-new duplicate row instead of appending to the real one — history
+  // stayed stuck in Archived while a near-empty duplicate appeared in Active
+  // (captain resurrection sweep). The JS loop below still matches folder or
+  // the archived row's remembered `previousFolder` explicitly.
   const { data } = await db
     .from("portal_inbox_thread_records")
     .select("id, row_data, owner_user_id, participant_email, scope, updated_at")
     .eq("scope", side.scope)
     .eq(matchCol, matchVal)
-    .eq("row_data->>folder", side.folder)
     .eq("row_data->>email", otherPartyNormalized)
     .order("updated_at", { ascending: false })
     .limit(100);
@@ -379,17 +391,39 @@ export async function findExistingPortalMessageThread(
     updated_at: string | null;
   }[];
   const otherParty = side.otherPartyEmail.trim().toLowerCase();
+  let archivedMatch: (typeof rows)[number] | null = null;
   for (const r of rows) {
     const rowData = (r.row_data ?? {}) as Record<string, unknown>;
-    if (String(rowData.folder ?? "") !== side.folder) continue;
     if (String(rowData.email ?? "").trim().toLowerCase() !== otherParty) continue;
+    const folder = String(rowData.folder ?? "");
+    if (folder === side.folder) {
+      return {
+        id: String(r.id),
+        rowData,
+        ownerUserId: r.owner_user_id ?? null,
+        participantEmail: r.participant_email ?? null,
+        scope: String(r.scope ?? side.scope),
+        updatedAt: r.updated_at ?? null,
+        archived: false,
+      };
+    }
+    // An archived row remembers which side it was via `previousFolder` — only
+    // that remembered side may match, never the OTHER side's own row (a
+    // trashed "sent" copy is not a match for an "inbox"-side lookup).
+    if (!archivedMatch && folder === "trash" && String(rowData.previousFolder ?? "") === side.folder) {
+      archivedMatch = r;
+    }
+  }
+  if (archivedMatch) {
+    const rowData = (archivedMatch.row_data ?? {}) as Record<string, unknown>;
     return {
-      id: String(r.id),
+      id: String(archivedMatch.id),
       rowData,
-      ownerUserId: r.owner_user_id ?? null,
-      participantEmail: r.participant_email ?? null,
-      scope: String(r.scope ?? side.scope),
-      updatedAt: r.updated_at ?? null,
+      ownerUserId: archivedMatch.owner_user_id ?? null,
+      participantEmail: archivedMatch.participant_email ?? null,
+      scope: String(archivedMatch.scope ?? side.scope),
+      updatedAt: archivedMatch.updated_at ?? null,
+      archived: true,
     };
   }
   return null;
@@ -473,6 +507,8 @@ export async function deliverPortalMessageThreadSide(
   const normalizedRecordRef = normalizeRecordRef(args.recordRef);
 
   if (existing) {
+    // See the `folder`/`previousFolder` comment further below.
+    const reopens = existing.archived && !args.outbound;
     const messages = Array.isArray(existing.rowData.messages)
       ? [...(existing.rowData.messages as unknown[])]
       : [];
@@ -545,6 +581,14 @@ export async function deliverPortalMessageThreadSide(
           preview: args.preview,
           time: args.when,
           unread: args.unread,
+          // Only a genuinely INBOUND turn may reopen an archived thread — an
+          // outbound or automated append (a manager send, a reminder, a
+          // notice, an assistant copy) never un-archives it (captain
+          // resurrection sweep policy). `reopens` covers both writing this
+          // upsert's `folder` back to the live value and clearing the
+          // remembered `previousFolder`; an outbound append into a still-
+          // archived thread keeps its current (trash) folder untouched.
+          ...(reopens ? { folder: args.folder, previousFolder: undefined } : {}),
           // Advance with the latest message, like `subject`: a conversation is
           // about whatever it most recently became about.
           ...(args.category ? { category: args.category } : {}),

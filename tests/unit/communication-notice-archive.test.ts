@@ -19,11 +19,15 @@ it("archives every stored source id behind a collapsed conversation", async () =
   expect(mocks.fetch).not.toHaveBeenCalled();
   expect(result.next[0]).toMatchObject({ id: "email-new", folder: "trash" });
 });
-it("leaves local state unchanged when the atomic folder mutation fails", async () => {
+it("rolls back to the same local state when the atomic folder mutation fails (PLAN B3 optimistic)", async () => {
   const row = { id: "email-new", folder: "inbox", from: "Sam", email: "sam@example.test", subject: "Hello", preview: "", body: "", time: "", unread: false };
   mocks.load.mockReturnValue([row]); mocks.change.mockResolvedValue(false);
   expect(await archivePersistedInboxThreads("manager", ["email-new"])).toEqual({ ok: false, next: [row] });
-  expect(mocks.stage).not.toHaveBeenCalled();
+  // Optimistic (PLAN B3): the row moves to "trash" immediately, then the
+  // failed mutation rolls it back — `stage` IS called (twice), but its LAST
+  // call restores the exact original row.
+  expect(mocks.stage).toHaveBeenCalledTimes(2);
+  expect(mocks.stage).toHaveBeenLastCalledWith("manager", [row]);
 });
 it("delegates an SMS notice to its combined folder and follow-up transaction", async () => {
   mocks.load.mockReturnValue([{ id: "sms_notice_a", ownerUserId: "owner", from: "+12065550100", folder: "inbox",

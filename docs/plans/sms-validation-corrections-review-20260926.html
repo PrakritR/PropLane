@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS validation corrections - independent review</title>
+  <style>
+    body{max-width:1080px;margin:40px auto;padding:0 24px;color:#17212b;background:#fff;font:16px/1.55 system-ui,sans-serif}
+    h1{font-size:30px;line-height:1.2}h2{margin-top:32px;font-size:22px}h3{font-size:18px}
+    a{color:#165bb7}code{font-size:.88em;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;margin:16px 0}
+    th,td{text-align:left;vertical-align:top;border:1px solid #ced5dd;padding:10px}th{background:#f3f5f7}
+    .finding{border-left:4px solid #a75c00;padding:12px 18px;background:#fff6e8}.meta{color:#4d5965}.hashes td{font-size:13px}
+    @media(max-width:700px){body{padding:0 16px}table{display:block;overflow-x:auto}}
+  </style>
+</head>
+<body>
+  <h1>SMS validation corrections: independent review</h1>
+  <p class="meta">26 September 2026 · Akhil · Baseline/observed HEAD <code>b27fca80acb129fe4de7e347e87f5b0f5702ce73</code><br>Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code></p>
+  <p><strong>Disposition: changes requested for the picker replacement.</strong> One medium-severity keyboard-access regression is introduced by adopting the current shared control. No Critical or High findings. No blockers were found in the bounded purge integration, dispatcher fixture corrections, or skeleton guard correction. This is not release approval; root validation remains pending.</p>
+
+  <h2>Scope and method</h2>
+  <p>Reviewed only the seven requested working-tree-versus-index deltas listed in the hash table below. The staged SMS feature was not re-reviewed. Surrounding implementation, shared picker dependencies, purge manifest, schema definitions and fixtures were read only to establish those deltas' behavior. The separate runtime receipt correction is excluded.</p>
+  <p>Read <code>AGENTS.md</code>, <code>docs/agents/AGENTS-akhil.md</code>, the bounded correction plan and applicable ship requirements. No source edits, tests, lint, build, typecheck, graph refresh, server, database/provider calls, git mutations or delegated review were performed. The only written artifact is this report. The expected <code>.graphify/graph.json</code> is absent; conclusions use direct source inspection.</p>
+
+  <h2>Finding</h2>
+  <div class="finding">
+    <h3>P2 / Medium: the new Text line picker cannot select a line with the keyboard</h3>
+    <p><strong>Changed location:</strong> <a href="../../src/components/portal/pro-resident-detail-inbox.tsx">src/components/portal/pro-resident-detail-inbox.tsx:1045-1057</a>. The native select is replaced by <code>FieldSingleSelect</code>. Its accessible trigger name is correct, but its selection mechanism currently requires a pointer-down/pointer-up pair.</p>
+    <p><strong>Evidence:</strong> <a href="../../src/components/ui/checkbox-multi-select.tsx">checkbox-multi-select.tsx:455-459</a> calls <code>onChange</code> only through <code>useFieldSelectListboxPointerPick</code>; option buttons at lines 473-501 have no click or keyboard selection handler. <a href="../../src/components/ui/field-select-listbox-pick.ts">field-select-listbox-pick.ts:43-99</a> registers only pointerdown, pointerup and pointercancel. <a href="../../src/components/ui/field-select-menu.tsx">field-select-menu.tsx:788-819</a> handles Escape, not keyboard selection. Native Enter/Space button activation produces a click, which does not take this pointer-only selection path.</p>
+    <p><strong>Impact:</strong> with two bound projections, selection starts at null. A keyboard user can activate the Text line trigger but cannot choose either projection, so the existing <code>smsAvailable</code> and composer guards leave an SMS-only reply unavailable. The previous native select supported keyboard selection. This is an adoption regression on the reviewed surface even though the underlying shared-control limitation predates this delta.</p>
+    <p><strong>Required correction:</strong> retain the shared picker while providing keyboard/assistive activation through its selection mechanism, preserving disabled-option checks and avoiding duplicate pointer activation. Add a focused keyboard interaction assertion using the real picker that selects the second projection and retains the exact <code>projection-two</code> send assertion. Review any shared-control correction as a separate bounded delta. The current integration adjustment at <a href="../../tests/unit/manager-unified-inbox-read-integration.test.tsx">manager-unified-inbox-read-integration.test.tsx:257-265</a> exercises only pointer events, so its reported pass cannot detect this regression.</p>
+    <p>This finding is based on the complete event-handler path in source; no browser reproduction or new test execution was performed under this review's restrictions.</p>
+  </div>
+
+  <h2>Verified bounded behavior</h2>
+  <table>
+    <thead><tr><th>Area</th><th>Evidence and conclusion</th></tr></thead>
+    <tbody>
+      <tr><td>Purge inventory and ordering</td><td><a href="../../scripts/lib/account-deletion.mjs">account-deletion.mjs:139-146</a> includes all seven account tables, in order: <code>sms_projection_ambiguous_aliases</code>, <code>sms_projection_deleted_events</code>, <code>sms_projection_view_state</code>, <code>sms_projection_pending</code>, <code>sms_projection_aliases</code>, <code>sms_projection_turns</code>, <code>sms_projection_conversations</code>. All precede <code>manager_sms_numbers</code> at line 182. The three conversation FK children (view state, aliases, turns) precede conversations, matching <code>20260925130000_sms_projection.sql</code> lines 40, 62 and 93. Other viewers' state for a deleted owner conversation is removed by the conversation FK cascade. Work-line IDs intentionally have no FK; the requested ordering is nevertheless maintained.</td></tr>
+      <tr><td>Purge ownership and fail-closed behavior</td><td><code>ID_COLUMNS</code> now recognizes <code>owner_manager_user_id</code> and <code>viewer_user_id</code> at lines 28-29. Six projection tables have the former; view state has the latter. <code>ownershipFilter</code> at lines 257-266 emits equality clauses only for supplied account identity and returns null without usable scope. <a href="../../scripts/delete-account.mjs">delete-account.mjs:115-122</a> skips null scope; line 139 deletes using the stored filter. The existing explicit target and dry-run guards are unchanged. No unscoped delete is introduced. Existing CLI policy can also match a conversation's <code>counterparty_user_id</code>; this is the documented QA-reset policy, distinct from the in-app purge's detach policy.</td></tr>
+      <tr><td>Global state excluded</td><td><code>sms_projection_cutover</code> is absent from <code>DELETE_ORDER</code> and <code>IDENTITY_TABLES</code>. The manifest explicitly retains it at <a href="../../src/lib/auth/account-purge-manifest.ts">account-purge-manifest.ts:938</a>. Its schema is a global readiness singleton, not an account table. New order/scoping tests at <a href="../../tests/unit/account-deletion-plan.test.ts">account-deletion-plan.test.ts:71-76,117-136</a> cover the two columns, seven-table inventory, work-number ordering, child ordering and manifest parity; existing null-scope tests remain.</td></tr>
+      <tr><td>Dispatcher batch versus single result</td><td>The real query at <a href="../../src/lib/sms/owner-sms-dispatcher.server.ts">owner-sms-dispatcher.server.ts:730-736</a> awaits <code>select("id,selected_work_line_id").in("id", claimed IDs)</code>, then maps an array. <a href="../../tests/unit/prospect-tour-booking-dispatch.test.ts">prospect-tour-booking-dispatch.test.ts:78-159</a> now returns a list for that lookup using the actual claimed row ID, including both alternate reminder IDs. Each <code>from</code> creates a fresh builder, so ordinary single-row update/insert responses remain objects. <a href="../../tests/unit/prospect-sms-outbox-dispatch.test.ts">prospect-sms-outbox-dispatch.test.ts:39-48</a> returns a list from <code>in</code> for its fixed <code>outbox-1</code> fixture while preserving <code>single</code>/<code>maybeSingle</code> results. These are legacy/null-selected-line fixtures; they do not claim new multi-row or non-null-line coverage.</td></tr>
+      <tr><td>Dispatcher assertions retained</td><td>No assertions or production dispatcher code changed in these deltas. Tour tests retain the booking-keyed final fence and exact sender/credit key (lines 210-237), accepted-but-unknown single-attempt outcome (239-250), revoked consent no-send behavior (252-264), stale reminder fence and credit refund (266-311), and successful current fence (313-337). Burst tests retain disabled durable-runtime deferral (88-99), retired transport rejection (68-86,101-134), atomic billing/segment-budget assertions (136-159), and one provider send without a second credit reservation (161-190).</td></tr>
+      <tr><td>Picker identity, history and send routing</td><td>Both old and new controls bind the same <code>selectedProjectionId</code>; nonempty IDs are guaranteed by the summary filter at <code>pro-resident-detail-inbox.tsx:296</code>. The existing selection-retention logic at 305-310 is unchanged. Options preserve every projection, including selectable <code>history only</code> entries. <code>selectedSmsResident</code> remains ID-based at 343-346, and <code>sendDisabled</code> continues to exclude history-only sending. The POST and idempotency fingerprint retain the selected projection at 733-758. The real-dropdown test retains initial no-choice blocking, <code>projection-two</code> payload, retired-line blocking and no extra send at 236-270. It adds a selected-label assertion and does not mock the shared dropdown.</td></tr>
+      <tr><td>Picker loading, errors and label</td><td>The correction changes only the import and control markup. Detail loading, stale-response rejection, errors and older-page loading at <code>pro-resident-detail-inbox.tsx:311-342,994-1035</code> remain unchanged; the picker does not clear them or inject a loading-dependent default. The shared trigger has <code>aria-label="Text line"</code>, expanded state and listbox association (<code>checkbox-multi-select.tsx:590-598</code>). Pointer selection preserves the intended behavior. Keyboard selection is the finding above. No new mobile/browser QA is claimed.</td></tr>
+      <tr><td>Skeleton guard</td><td><a href="../../tests/unit/inbox-thread-skeleton.test.tsx">inbox-thread-skeleton.test.tsx:24</a> now requires the exact pending branch to render <code>InboxThreadEmpty</code> only with <code>routedSmsError</code>, otherwise <code>InboxThreadSkeleton</code>; it is not reduced to a mere component-presence check. The real branch is <a href="../../src/components/portal/pro-unified-inbox.tsx">pro-unified-inbox.tsx:1490-1491</a>. Route lookup clears the error before loading (1114,1122) and sets it on failed/invalid lookup (1127-1139,1155-1156). Existing rendered skeleton status/aria-busy assertions remain at test lines 10-16. This is a source-shape guard, not a new timing test.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Validation evidence and remaining root gates</h2>
+  <p><strong>Supplied execution evidence, not independently rerun:</strong> the executor reports seven focused files / 58 tests passed, exit 0, and lint exit 0 with ten existing hook warnings outside the picker. The initial root whole-unit run exited 1 after approximately 922 seconds: 2,064 files / 14,838 tests passed; five files / 12 tests failed. These corrections address those five failing files, but the final combined candidate has not yet passed the required broad rerun. Source/fixture inspection above was independent of those reported outcomes.</p>
+  <ol>
+    <li>Correct and independently re-review the keyboard-selection regression, retaining focused exact-line and retired-line assertions. Finish and separately review the runtime receipt correction, which is outside this report.</li>
+    <li>Root remains the sole heavy-validation owner. Rerun the whole-unit gate after the final corrections and record actual exit status; complete required lint/typecheck/build gates for the resulting candidate using pinned Node 22 (<code>/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin</code>) with bounded concurrency. Focused green tests do not replace the failed root gate.</li>
+    <li>Root completes graph refresh and required real-data/browser QA, including exact line selection, history-only access, loading/error states, keyboard access and mobile layout. Follow the repository's local E2E requirement for portal UI promotion; public smoke alone is not full E2E. Stop task-owned servers after active QA.</li>
+    <li>Before any authorized release, retain the required security/bug/performance/parity review evidence, run <code>ship:preflight</code>, and follow keeper → main → staging → production. Staging QA is required on 26 September: the dated waiver expired on 23 September. Deployment, TestFlight distribution and applicable App Store submission verification remain root release responsibilities. This report neither performs nor authorizes promotion or production mutation.</li>
+  </ol>
+
+  <h2>Reviewed file snapshots</h2>
+  <p>SHA-256 of complete working-tree file bytes at review time. Hashes identify the snapshots; review coverage remains limited to their unstaged corrections, not every staged change included in those bytes. Any later change to these deltas requires review reconciliation.</p>
+  <table class="hashes">
+    <thead><tr><th>File</th><th>SHA-256</th></tr></thead>
+    <tbody>
+      <tr><td>scripts/lib/account-deletion.mjs</td><td><code>d0c07a57bc40d1fc220a5f6a8aa96c56823246f23e2e1d2c3018addb813e0983</code></td></tr>
+      <tr><td>tests/unit/account-deletion-plan.test.ts</td><td><code>0aa184dde44f9a204faf5389602776a88eb548d93fd92da73e50ceb41f52b902</code></td></tr>
+      <tr><td>tests/unit/prospect-tour-booking-dispatch.test.ts</td><td><code>6dee4472f121951e58847ab8ccdbf133bddf145fc8c06dbd9afcf21d7b29b0b5</code></td></tr>
+      <tr><td>tests/unit/prospect-sms-outbox-dispatch.test.ts</td><td><code>e81a5bf39224fd7d02d9d9f55d6b4728d16dd8912afb85698935bdfe4d22258a</code></td></tr>
+      <tr><td>tests/unit/inbox-thread-skeleton.test.tsx</td><td><code>f6cfcfac5d1dcb97f2de6abe86439803268f3d6b4778ca8526383d7ae3140984</code></td></tr>
+      <tr><td>src/components/portal/pro-resident-detail-inbox.tsx</td><td><code>21612ab54ba43f510dc4b51e08ceb351d5ccdcb6aade1d3e7959b1dfc61a6dcd</code></td></tr>
+      <tr><td>tests/unit/manager-unified-inbox-read-integration.test.tsx</td><td><code>6936520dae97b756ca5c14824e7bc8fda4cfb7419aaf8c40947af9711f16acfe</code></td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

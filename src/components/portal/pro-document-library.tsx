@@ -33,7 +33,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { documentRecordHref, type DocumentDetailTabId } from "@/lib/portal-detail-routes";
+import { type DocumentDetailTabId } from "@/lib/portal-detail-routes";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -61,7 +61,7 @@ import { useSearchParams } from "next/navigation";
 import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
-import { Upload } from "lucide-react";
+import { Upload, FileText } from "lucide-react";
 
 const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All scopes" },
@@ -246,7 +246,8 @@ function toFilterOptions(
 }
 
 export type ManagerDocumentLibraryHandle = {
-  openUpload: () => void;
+  /** C061: an upload triggered from a specific folder (Leases/Other) defaults to it — never always "Other". */
+  openUpload: (defaultCategory?: ManagerDocumentCategory) => void;
 };
 
 type ManagerDocumentLibraryProps = {
@@ -321,7 +322,23 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   const setExpiryFilter = onExpiryFilterChange ?? setExpiryFilterState;
 
   const [uploadOpen, setUploadOpen] = useState(false);
-  useImperativeHandle(ref, () => ({ openUpload: () => setUploadOpen(true) }), []);
+  // C061: an upload from a specific folder defaults into it — the caller
+  // (the folder tab currently open) passes its own category; the general
+  // library view falls back to whatever category filter is active there.
+  const [uploadDefaultCategory, setUploadDefaultCategory] = useState<ManagerDocumentCategory | undefined>(undefined);
+  useImperativeHandle(
+    ref,
+    () => ({
+      openUpload: (defaultCategory) => {
+        const fallback = (DOCUMENT_CATEGORIES as readonly string[]).includes(categoryFilter)
+          ? (categoryFilter as ManagerDocumentCategory)
+          : undefined;
+        setUploadDefaultCategory(defaultCategory ?? fallback);
+        setUploadOpen(true);
+      },
+    }),
+    [categoryFilter],
+  );
   const [renameTarget, setRenameTarget] = useState<ManagerDocumentDTO | null>(null);
   const [versionTarget, setVersionTarget] = useState<ManagerDocumentDTO | null>(null);
   const [previewTarget, setPreviewTarget] = useState<ManagerDocumentDTO | null>(null);
@@ -687,6 +704,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
       <UploadModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+        defaultCategory={uploadDefaultCategory}
         propertyOptions={propertyOptions}
         vendorRows={vendorRows.filter((v) => v.active !== false)}
         onUploaded={(doc) => {
@@ -722,7 +740,14 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         }}
       />
 
-      <PreviewModal doc={previewTarget} onClose={() => setPreviewTarget(null)} />
+      <PreviewModal
+        doc={previewTarget}
+        onClose={() => setPreviewTarget(null)}
+        onEdit={(doc) => {
+          setPreviewTarget(null);
+          setRenameTarget(doc);
+        }}
+      />
     </>
   );
 
@@ -883,7 +908,9 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
                 scopeSummary(doc),
                 formatBytes(doc.sizeBytes),
               ].join(" · ")}
-              onOpen={() => navigate(documentRecordHref(basePath, doc.id))}
+              // C062/C063 (captain, BUILD-WAVE2 §4, resolved): one modal — no
+              // 4-tab document record page.
+              onOpen={() => setPreviewTarget(doc)}
               dataAttr={`document-row-${doc.id}`}
             />
           ))}
@@ -904,6 +931,7 @@ function UploadModal({
   supersedeDocumentId,
   title = "Upload document",
   versionMode = false,
+  defaultCategory,
 }: {
   open: boolean;
   onClose: () => void;
@@ -913,12 +941,14 @@ function UploadModal({
   supersedeDocumentId?: string;
   title?: string;
   versionMode?: boolean;
+  /** C061: the folder the upload was opened from — never always "Other". */
+  defaultCategory?: ManagerDocumentCategory;
 }) {
   const { showToast } = useAppUi();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState("");
-  const [category, setCategory] = useState<ManagerDocumentCategory>("other");
+  const [category, setCategory] = useState<ManagerDocumentCategory>(defaultCategory ?? "other");
   const [propertyId, setPropertyId] = useState("");
   const [visibility, setVisibility] = useState<ManagerDocumentVisibility>("manager");
   const [residentEmail, setResidentEmail] = useState("");
@@ -933,7 +963,7 @@ function UploadModal({
     if (!open) {
       setFile(null);
       setDisplayName("");
-      setCategory("other");
+      setCategory(defaultCategory ?? "other");
       setPropertyId("");
       setVisibility("manager");
       setResidentEmail("");
@@ -945,6 +975,13 @@ function UploadModal({
       setStepError(null);
     }
   }, [open]);
+
+  // C061: category defaults to the folder the upload was opened from. A
+  // separate effect (not the reset-on-close one above) because it must run
+  // when `open` flips true, with that same render's `defaultCategory`.
+  useEffect(() => {
+    if (open) setCategory(defaultCategory ?? "other");
+  }, [open, defaultCategory]);
 
   useEffect(() => {
     if (!open) return;
@@ -1344,7 +1381,7 @@ function DocumentPreviewPane({ doc }: { doc: ManagerDocumentDTO }) {
   );
 }
 
-function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClose: () => void }) {
+function PreviewModal({ doc, onClose, onEdit }: { doc: ManagerDocumentDTO | null; onClose: () => void; onEdit: (doc: ManagerDocumentDTO) => void }) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const [url, setUrl] = useState<string | null>(null);
@@ -1413,6 +1450,15 @@ function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClos
               type="button"
               variant="outline"
               className={PORTAL_DETAIL_BTN}
+              onClick={() => onEdit(doc)}
+              data-attr="document-preview-edit"
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
               onClick={() => handleDownload()}
               disabled={downloading}
               data-attr="document-download"
@@ -1429,9 +1475,20 @@ function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClos
         ) : !url ? (
           <p className="py-12 text-center text-sm text-muted">Preview unavailable.</p>
         ) : !canInline ? (
-          <p className="py-12 text-center text-sm text-muted">
-            This file type can’t be previewed inline. Use Download to open it.
-          </p>
+          doc ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-attr="document-preview-file-fallback">
+              <FileText className="size-10 text-muted" aria-hidden />
+              <dl className="grid grid-cols-[auto_auto] gap-x-2 gap-y-1 text-xs text-muted">
+                <dt className="text-right font-medium text-foreground/70">Type</dt>
+                <dd className="text-left">{doc.mimeType}</dd>
+                <dt className="text-right font-medium text-foreground/70">Size</dt>
+                <dd className="text-left">{formatBytes(doc.sizeBytes)}</dd>
+                <dt className="text-right font-medium text-foreground/70">Uploaded</dt>
+                <dd className="text-left">{formatDate(doc.createdAt)}</dd>
+              </dl>
+              <p className="text-sm text-muted">This file type can’t be previewed inline. Use Download to open it.</p>
+            </div>
+          ) : null
         ) : doc && isImageMime(doc.mimeType) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={url} alt={doc.displayName} className="mx-auto max-h-[70vh] max-w-full rounded-lg" />

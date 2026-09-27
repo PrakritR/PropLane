@@ -24,7 +24,7 @@ const ROLE_META: Record<
   },
   manager: {
     label: "Property",
-    hint: "Manage properties & tenants",
+    hint: "Manage properties & residents",
     icon: "manager",
     tone: "blue",
   },

@@ -232,6 +232,7 @@ function CustomQuestionFieldControl({
         <Input
           id={inputId}
           inputMode={field.type === "number" ? "decimal" : undefined}
+          maxLength={field.type === "initials" ? 6 : undefined}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className={errorClass}

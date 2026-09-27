@@ -19,7 +19,8 @@ import {
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { accessNotes, parseHouseTab, type HouseRoomFact, type ParsedHouseTab } from "@/lib/sheet-sync/parse-house-tab";
 import { parseOccupancyGrid, type OccupancyStay } from "@/lib/sheet-sync/parse-occupancy";
-import { loadWorkbookTabs } from "@/lib/sheet-sync/fetch-sheet";
+import { parseStaysTable, type StaysTableStay } from "@/lib/sheet-sync/parse-stays-table";
+import { fetchStaysTabRows, loadWorkbookTabs } from "@/lib/sheet-sync/fetch-sheet";
 import { getGoogleSheetsAccessToken } from "@/lib/sheet-sync/google-sheets-auth";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 
@@ -246,6 +247,152 @@ async function applyBookings(
   }
 }
 
+/**
+ * Stays-table rows (BUILD-WAVE2 C210/C213) go through the same duplicate-safe
+ * upsert/remove contract as {@link applyBookings}, on a distinct `sheet_stays_`
+ * id namespace so the two importers never collide or fight over the same
+ * record. Every source imports (Airbnb, Booking, Tenant, Direct, Other —
+ * captain decision C213: "import every row, with Tenant as the channel"),
+ * unlike the grid importer, which only ever produced Airbnb/Booking. Airbnb
+ * and Booking rows reuse the exact same `reason` the grid importer writes, so
+ * they draw identically (`source: "airbnb"` / `"booking_com"`); every other
+ * channel is stored as a plain hold with the guest's name attached — the
+ * existing room-date-block renderer already colours a named hold distinctly
+ * (`bookingVisualSource`), so this needed no change to the display-source
+ * enum to show up correctly on Bookings.
+ */
+async function applyStaysTableBookings(
+  db: SupabaseClient,
+  managerUserId: string,
+  stays: StaysTableStay[],
+  propertyByHouse: Map<string, ReturnType<typeof propertyMeta>>,
+  properties: ReturnType<typeof propertyMeta>[],
+  nameMap: Record<string, string>,
+  summary: SheetSyncSummary,
+): Promise<void> {
+  const wanted = new Map<
+    string,
+    {
+      id: string;
+      propertyId: string;
+      roomId: string;
+      checkIn: string;
+      checkOut: string;
+      reason: string;
+      residentName: string | null;
+      notes: string;
+    }
+  >();
+
+  for (const stay of stays) {
+    // A manager's own remembered match (from the preview screen, C210) wins
+    // over automatic house-key matching — it exists precisely for the sheet
+    // spellings the matcher could not resolve on its own.
+    const overrideId = nameMap[stay.houseRaw];
+    const property = overrideId ? properties.find((p) => p.id === overrideId) : propertyByHouse.get(stay.houseKey);
+    if (!property) {
+      summary.warnings.push(`No listing matched ${stay.houseRaw || stay.houseKey} for ${stay.name}.`);
+      continue;
+    }
+    const locked = assertWritableSheetPropertyId(property.id);
+    if (locked) {
+      summary.warnings.push(locked);
+      continue;
+    }
+    if (!stay.end) {
+      // Open-ended stays-table rows are read (parse-stays-table.ts keeps
+      // them), but a room-date block always needs a real checkout — rather
+      // than guess a far-future date and risk blocking a room nobody meant to
+      // hold that long, this one row is skipped with a clear reason so the
+      // manager can add an end date (or use "Update from sheet" once they do).
+      summary.warnings.push(`${stay.name} at ${property.address || stay.houseRaw} has no check-out date — add one to import this stay.`);
+      continue;
+    }
+    let roomId = "";
+    if (stay.roomNumber != null) {
+      const resolved = roomIdForNumber(property.rooms, stay.roomNumber);
+      if (!resolved) {
+        summary.warnings.push(`${property.address || stay.houseKey} has no Room ${stay.roomNumber} for ${stay.name}.`);
+        continue;
+      }
+      roomId = resolved;
+    }
+    const isChannelImport = stay.channel === "Airbnb" || stay.channel === "Booking";
+    const uid = `sheet_stays_${property.id}_${roomId}_${stay.start}_${staySlug(stay.name)}_${stay.channel.toLowerCase()}`;
+    const id = roomDateBlockRecordId(managerUserId, uid);
+    wanted.set(id, {
+      id,
+      propertyId: property.id,
+      roomId,
+      checkIn: stay.start,
+      checkOut: exclusiveCheckoutAfterLastNight(stay.end),
+      reason: isChannelImport ? channelReason(stay.channel === "Booking" ? "Booking" : "Airbnb") : stay.channel,
+      residentName: isChannelImport ? null : stay.name,
+      notes: stay.notes,
+    });
+  }
+
+  const mappedPropertyIds = [...new Set([...propertyByHouse.values()].map((p) => p.id))];
+  if (mappedPropertyIds.length === 0) return;
+
+  const { data: existing, error } = await db
+    .from("portal_schedule_records")
+    .select("id, property_id, row_data")
+    .eq("manager_user_id", managerUserId)
+    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+    .in("property_id", mappedPropertyIds);
+  if (error) throw error;
+
+  const now = new Date().toISOString();
+  const existingIds = new Set<string>();
+  for (const row of existing ?? []) {
+    const id = String(row.id);
+    existingIds.add(id);
+    const rowData = asObject(row.row_data);
+    const staysOwned = rowData[SHEET_SYNC_FLAG] === true && id.includes("_stays_");
+    if (staysOwned && !wanted.has(id)) {
+      const { error: delError } = await db
+        .from("portal_schedule_records")
+        .delete()
+        .eq("id", id)
+        .eq("manager_user_id", managerUserId);
+      if (delError) summary.warnings.push(delError.message);
+      else summary.bookingsRemoved += 1;
+    }
+  }
+
+  for (const booking of wanted.values()) {
+    const rowData: Record<string, unknown> = {
+      id: booking.id,
+      recordType: ROOM_DATE_BLOCK_RECORD_TYPE,
+      propertyId: booking.propertyId,
+      roomId: booking.roomId,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      reason: booking.reason,
+      [SHEET_SYNC_FLAG]: true,
+      createdAt: now,
+      startsAt: `${booking.checkIn}T00:00:00`,
+      endsAt: `${booking.checkOut}T00:00:00`,
+      ...(booking.residentName ? { residentName: booking.residentName } : {}),
+      ...(booking.notes ? { sheetNotes: booking.notes } : {}),
+    };
+    const { error: upsertError } = await db.from("portal_schedule_records").upsert(
+      {
+        id: booking.id,
+        manager_user_id: managerUserId,
+        property_id: booking.propertyId,
+        record_type: ROOM_DATE_BLOCK_RECORD_TYPE,
+        row_data: rowData,
+        updated_at: now,
+      },
+      { onConflict: "id" },
+    );
+    if (upsertError) summary.warnings.push(`${booking.residentName ?? "stay"}: ${upsertError.message}`);
+    else summary.bookingsUpserted += 1;
+  }
+}
+
 async function applyHouseDetails(
   db: SupabaseClient,
   managerUserId: string,
@@ -382,11 +529,24 @@ async function syncOneBinding(
   const houseTabs = workbook.houses.map((tab) => parseHouseTab(tab.rows, tab.title, asOf));
   const roomFacts = houseTabs.flatMap((tab) => tab.rooms);
 
+  // A manager-picked stays tab (BUILD-WAVE2 C210) — a one-row-per-stay
+  // reader, entirely separate from the day-by-day occupancy grid above.
+  let staysTableStays: import("@/lib/sheet-sync/parse-stays-table").StaysTableStay[] = [];
+  if (link.staysTab) {
+    const staysRows = await fetchStaysTabRows(link.spreadsheetId, link.staysTab, accessToken);
+    if (staysRows) {
+      staysTableStays = parseStaysTable(staysRows, asOf, link.staysTab.columnMap ?? undefined).stays;
+    } else {
+      summary.warnings.push("Could not read the linked Stays tab — pick the sheet again.");
+    }
+  }
+
   const properties = (await loadOwnedProperties(db, managerUserId)).map(propertyMeta);
   let propertyByHouse = new Map<string, ReturnType<typeof propertyMeta>>();
   const houseKeys = new Set<string>([
     ...stays.map((stay) => stay.houseKey),
     ...houseTabs.map((tab) => tab.houseKey).filter((key): key is string => Boolean(key)),
+    ...staysTableStays.map((stay) => stay.houseKey),
   ]);
   for (const houseKey of houseKeys) {
     const id = resolveSheetPropertyId(houseKey, properties, {
@@ -410,6 +570,17 @@ async function syncOneBinding(
   await applyBookings(db, managerUserId, stays, propertyByHouse, summary);
   await applyHouseDetails(db, managerUserId, houseTabs, propertyByHouse, summary);
   await applyPayments(db, managerUserId, roomFacts, propertyByHouse, summary);
+  if (link.staysTab) {
+    await applyStaysTableBookings(
+      db,
+      managerUserId,
+      staysTableStays,
+      propertyByHouse,
+      properties,
+      link.staysTab.nameMap,
+      summary,
+    );
+  }
 
   return {
     ok: true,

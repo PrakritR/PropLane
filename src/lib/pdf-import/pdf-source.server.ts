@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { getDocumentProxy, getResolvedPDFJS, renderPageAsImage } from "unpdf";
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFStream } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFStream } from "pdf-lib";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_PAGES = 60;
@@ -12,16 +12,29 @@ const MAX_CHARACTERS = 250_000;
 const MAX_OCR_PAGES = 4;
 const OCR_PAGE_TIMEOUT_MS = 12_000;
 
+/** Every message is a constant, so routes may return `error.message` as-is. */
 export class UnsafePdfImportError extends Error {}
+
+export const PROTECTED_PDF_MESSAGE =
+  "This PDF is password-protected. Remove the protection (or print it to a new PDF) and upload it again.";
+export const ACTIVE_PDF_MESSAGE =
+  "This PDF contains scripts, attachments, or other active content. Print it to a new PDF and upload that copy.";
 
 /** Inspect decoded PDF objects, including object streams, before retaining bytes. */
 export async function assertSafePdfForImport(bytes: Uint8Array): Promise<void> {
   try { await inspectPdfObjects(bytes); }
-  catch { throw new UnsafePdfImportError("PDF contains active or unsupported content and cannot be imported."); }
+  catch (error) {
+    throw new UnsafePdfImportError(error instanceof ProtectedPdfError ? PROTECTED_PDF_MESSAGE : ACTIVE_PDF_MESSAGE);
+  }
 }
 
+class ProtectedPdfError extends Error {}
+
 async function inspectPdfObjects(bytes: Uint8Array): Promise<void> {
-  const document = await PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false });
+  const document = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  // Encrypted object streams can't be inspected, so a protected file is still
+  // refused, just with a message the manager can act on.
+  if (document.isEncrypted) throw new ProtectedPdfError();
   const context = document.context;
   const visited = new Set<object>();
   const scanned = new Set<object>();
@@ -40,6 +53,40 @@ async function inspectPdfObjects(bytes: Uint8Array): Promise<void> {
     }
     if (value.has(PDFName.of("Next"))) inspectAction(value.get(PDFName.of("Next")));
   };
+  // In a tagged PDF (Word, Google Docs, Canva exports) a structure element's
+  // `/A` is its attribute object - `/O` owner, never `/S` - not an action.
+  // Skip it only for dictionaries actually reached from the structure tree
+  // (never by shape alone: an outline item can mimic `/S` + `/P`), and never
+  // when it carries `/Next`, which PDFium runs whatever the parent's type.
+  // The key scan below still walks these dictionaries for `/JS` and friends.
+  const resolve = (value: unknown) => (value instanceof PDFRef ? context.lookup(value) : value);
+  const structureElements = new Set<PDFDict>();
+  {
+    const pending: unknown[] = [document.catalog.get(PDFName.of("StructTreeRoot"))];
+    const seen = new Set<unknown>();
+    while (pending.length) {
+      const node = resolve(pending.pop());
+      if (!node || seen.has(node)) continue;
+      seen.add(node);
+      if (node instanceof PDFArray) pending.push(...node.asArray());
+      else if (node instanceof PDFDict) {
+        if (node.has(PDFName.of("S"))) structureElements.add(node);
+        pending.push(node.get(PDFName.of("K")));
+      }
+    }
+  }
+  const isStructureAttributes = (owner: PDFDict, value: unknown): boolean => {
+    if (!structureElements.has(owner) || owner.has(PDFName.of("Subtype"))) return false;
+    const resolved = resolve(value);
+    const items = resolved instanceof PDFArray ? resolved.asArray().map(resolve) : [resolved];
+    return items.every((item) =>
+      item instanceof PDFNumber ||
+      (item instanceof PDFDict &&
+        item.has(PDFName.of("O")) &&
+        !item.has(PDFName.of("S")) &&
+        !item.has(PDFName.of("Next"))),
+    );
+  };
   const scanDictionary = (dict: PDFDict): void => {
     if (scanned.has(dict)) return;
     scanned.add(dict);
@@ -52,6 +99,9 @@ async function inspectPdfObjects(bytes: Uint8Array): Promise<void> {
     for (const key of ["A", "AA", "OpenAction"]) {
       const action = dict.get(PDFName.of(key));
       if (!action) continue;
+      if (key === "A" && isStructureAttributes(dict, action)) continue;
+      // `/OpenAction [page /Fit]` is a destination ("open at page 1"), not an action.
+      if (key === "OpenAction" && resolve(action) instanceof PDFArray) continue;
       if (key === "AA") {
         const additional = context.lookup(action);
         if (!(additional instanceof PDFDict)) throw new Error("PDF contains an unsupported action and cannot be imported.");
@@ -128,6 +178,18 @@ export type PdfImportIssue = {
   message: string;
 };
 
+/** Small fixed palette every extracted fill color buckets into (see `classifyFillColorHex`). */
+export type PdfFillColorTag = "default" | "red" | "other";
+
+/**
+ * A contiguous span of `pages[n].text` (same character offsets as
+ * `blocks[].start/end`) that a non-default fill color covers. Default
+ * (black/grayscale) text is never represented here — only the colors worth a
+ * caller's attention. `hex` is the raw source color; `color` is the
+ * normalized bucket a caller should branch on.
+ */
+export type PdfColorRun = { start: number; end: number; color: PdfFillColorTag; hex: string };
+
 export type PdfImportSource = {
   sourceSha256: string;
   fileName: string;
@@ -137,6 +199,8 @@ export type PdfImportSource = {
     blocks: Array<{ text: string; start: number; end: number }>;
     formFields: Array<{ name: string; value: string; options: string[]; required: boolean }>;
     issues: string[];
+    /** Empty for an OCR'd (image) page — OCR has no color signal, never a guessed one. */
+    colorRuns: PdfColorRun[];
   }>;
   issues: PdfImportIssue[];
   coverage: {
@@ -145,6 +209,170 @@ export type PdfImportSource = {
     complete: boolean;
   };
 };
+
+const RED_HUE_SPAN_DEGREES = 20;
+const RED_MIN_SATURATION = 0.3;
+
+/**
+ * Buckets a `#rrggbb` fill color into the small palette the import pipeline
+ * and its callers reason about. Any near-grayscale color (including pure
+ * black body text) is "default"; a saturated hue within 20° of true red
+ * (0°/360°) is "red" — the one color this pipeline treats as a flaggable
+ * emphasis signal; everything else saturated is "other". An unparsable value
+ * is treated as "default" (never invents a flag from bad input).
+ */
+export function classifyFillColorHex(hex: string): PdfFillColorTag {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return "default";
+  const value = match[1];
+  const r = parseInt(value.slice(0, 2), 16) / 255;
+  const g = parseInt(value.slice(2, 4), 16) / 255;
+  const b = parseInt(value.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  const lightness = (max + min) / 2;
+  const saturation = chroma === 0 || lightness <= 0 || lightness >= 1 ? 0 : chroma / (1 - Math.abs(2 * lightness - 1));
+  if (saturation < RED_MIN_SATURATION) return "default";
+  let hue: number;
+  if (max === r) hue = 60 * (((g - b) / chroma) % 6);
+  else if (max === g) hue = 60 * ((b - r) / chroma + 2);
+  else hue = 60 * ((r - g) / chroma + 4);
+  if (hue < 0) hue += 360;
+  return hue <= RED_HUE_SPAN_DEGREES || hue >= 360 - RED_HUE_SPAN_DEGREES ? "red" : "other";
+}
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function componentsToHex(r: number, g: number, b: number): string {
+  const toByte = (value: number) => Math.round(clampUnit(value) * 255).toString(16).padStart(2, "0");
+  return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
+}
+
+/**
+ * Reads a `setFill*` operator's args into a `#rrggbb` hex color. The
+ * installed pdf.js build (via `unpdf`'s `getResolvedPDFJS`) already
+ * normalizes every fill color space it resolves — gray, RGB, CMYK — down to a
+ * single hex-string argument (verified against the actual installed operator
+ * list for all three), so the common path is a direct string read. The
+ * numeric fallbacks below cover a pdf.js build that does not pre-normalize.
+ * `setFillColor` / `setFillColorN` on a Pattern/Separation/ICC colorspace has
+ * no reliable numeric-to-RGB mapping and is left `null` — a color is never
+ * guessed; the run simply keeps whatever fill color was already current.
+ */
+function fillColorHexFromArgs(opName: string, args: unknown[] | null | undefined): string | null {
+  if (!args || args.length === 0) return null;
+  const first = args[0];
+  if (typeof first === "string") return /^#[0-9a-f]{6}$/i.test(first) ? first.toLowerCase() : null;
+  const numbers = args.filter((value): value is number => typeof value === "number");
+  if (numbers.length !== args.length || numbers.length === 0) return null;
+  if (opName === "setFillGray" && numbers.length === 1) return componentsToHex(numbers[0], numbers[0], numbers[0]);
+  if (opName === "setFillRGBColor" && numbers.length === 3) return componentsToHex(numbers[0], numbers[1], numbers[2]);
+  if (opName === "setFillCMYKColor" && numbers.length === 4) {
+    const [c, m, y, k] = numbers;
+    return componentsToHex((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k));
+  }
+  return null;
+}
+
+/** Concatenates a showText/showSpacedText call's glyphs into plain characters, skipping TJ kerning numbers. */
+function glyphRunText(args: unknown[] | null | undefined): string {
+  const glyphs = args?.[args.length - 1];
+  if (!Array.isArray(glyphs)) return "";
+  let out = "";
+  for (const glyph of glyphs) {
+    if (!glyph || typeof glyph !== "object") continue;
+    const unicode = (glyph as { unicode?: unknown }).unicode;
+    const fontChar = (glyph as { fontChar?: unknown }).fontChar;
+    out += typeof unicode === "string" ? unicode : typeof fontChar === "string" ? fontChar : "";
+  }
+  return out;
+}
+
+/**
+ * Walks a page's operator list to tag which spans of its own already-extracted
+ * `pageText` were filled with a non-default color, in `pageText`'s exact
+ * character offsets (the same coordinate system as `blocks[].start/end`).
+ *
+ * Each showText/showSpacedText call is aligned to `pageText` independently —
+ * a sequential, cursor-advancing exact-substring search — rather than mapped
+ * 1:1 against `getTextContent()`'s items: verified against this pdf.js build,
+ * two adjacent differently-colored runs on the same line are routinely
+ * combined by `getTextContent()` into a single text item, so a naive
+ * item-to-operator index mapping would mis-tag them. Calls that share a fill
+ * color and are separated only by whitespace (including the synthetic
+ * line-break `pageText` inserts between visual lines) are then merged into
+ * one run, so a rule spanning several lines reports as ONE red span rather
+ * than one per line. A call whose text cannot be found in `pageText` — not
+ * expected for a linear content stream, but possible for parts of the PDF
+ * spec this does not model (RTL reordering, exotic ligatures) — is silently
+ * left untagged rather than guessed at; the plain-text extraction this runs
+ * alongside is entirely unaffected either way.
+ */
+function pageColorRuns(
+  fnArray: number[],
+  argsArray: (unknown[] | null)[],
+  ops: Record<string, number>,
+  pageText: string,
+): PdfColorRun[] {
+  const fillOpNames = new Map<number, string>([
+    [ops.setFillRGBColor, "setFillRGBColor"],
+    [ops.setFillGray, "setFillGray"],
+    [ops.setFillCMYKColor, "setFillCMYKColor"],
+  ]);
+  let currentHex = "#000000";
+  const stack: string[] = [];
+  const calls: Array<{ text: string; hex: string }> = [];
+  for (let i = 0; i < fnArray.length; i += 1) {
+    const op = fnArray[i];
+    if (op === ops.save) { stack.push(currentHex); continue; }
+    if (op === ops.restore) { currentHex = stack.pop() ?? currentHex; continue; }
+    const fillName = fillOpNames.get(op);
+    if (fillName) {
+      const hex = fillColorHexFromArgs(fillName, argsArray[i]);
+      if (hex) currentHex = hex;
+      continue;
+    }
+    if (op === ops.showText || op === ops.showSpacedText || op === ops.nextLineShowText || op === ops.nextLineSetSpacingShowText) {
+      const text = glyphRunText(argsArray[i]);
+      if (text) calls.push({ text, hex: currentHex });
+    }
+  }
+
+  type Aligned = { start: number; end: number; hex: string };
+  const aligned: Aligned[] = [];
+  let cursor = 0;
+  for (const call of calls) {
+    let matched = call.text;
+    let index = pageText.indexOf(matched, cursor);
+    if (index === -1) {
+      matched = call.text.trim();
+      index = matched ? pageText.indexOf(matched, cursor) : -1;
+    }
+    if (index === -1) continue;
+    aligned.push({ start: index, end: index + matched.length, hex: call.hex });
+    cursor = index + matched.length;
+  }
+
+  const merged: Aligned[] = [];
+  for (const run of aligned) {
+    const last = merged[merged.length - 1];
+    if (last && last.hex === run.hex && /^\s*$/.test(pageText.slice(last.end, run.start))) {
+      last.end = run.end;
+    } else {
+      merged.push({ ...run });
+    }
+  }
+
+  const runs: PdfColorRun[] = [];
+  for (const run of merged) {
+    const color = classifyFillColorHex(run.hex);
+    if (color !== "default") runs.push({ start: run.start, end: run.end, color, hex: run.hex });
+  }
+  return runs;
+}
 
 /** Keep widget labels, values, and choices alongside each page's visible text. */
 export function pdfImportPageContent(page: PdfImportSource["pages"][number]): string {
@@ -256,6 +484,7 @@ export async function parsePdfForImport(args: {
       if (pageActions && Object.keys(pageActions).length > 0) {
         throw new Error("PDF contains active page actions and cannot be imported.");
       }
+      let colorRuns: PdfColorRun[] = [];
       try {
         const annotations = await page.getAnnotations();
         if (annotations.some((annotation) => annotation.subtype === "Widget")) {
@@ -294,6 +523,10 @@ export async function parsePdfForImport(args: {
             message: `Page ${pageNumber} contains an image. Compare it with the source and account for any content in the converted draft.`,
           });
         }
+        // OCR'd pages have no vector fill-color state to read — an image has no color signal here.
+        if (!ocrText.has(pageNumber)) {
+          colorRuns = pageColorRuns(operators.fnArray, operators.argsArray, OPS, text);
+        }
       } catch {
         const code = "annotation_scan_failed";
         pageIssues.push(code);
@@ -312,7 +545,7 @@ export async function parsePdfForImport(args: {
           message: `Page ${pageNumber} has no extractable text. Compare the original and transcribe or use the original PDF.`,
         });
       }
-      pages.push({ pageNumber, text, blocks, formFields, issues: pageIssues });
+      pages.push({ pageNumber, text, blocks, formFields, issues: pageIssues, colorRuns });
     }
 
     return {

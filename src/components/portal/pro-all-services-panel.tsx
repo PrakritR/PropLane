@@ -81,11 +81,8 @@ import {
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { ServiceEscalationSettingsModal } from "@/components/portal/service-escalation-settings-modal";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
@@ -94,6 +91,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
+import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 
 type FilterType = "requests" | "work-orders";
 
@@ -194,6 +192,26 @@ export function ManagerAllServicesPanel({
     // managerUserId alone (stale/mis-stamped rows still show for property owners).
     return readAllServiceRequests().filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"));
   }, [userId, dataTick]);
+
+  // C253: bid counts for the Overview tile and the list row's glyph fact — one
+  // batched fetch (no workOrderId = every bid across this manager's work orders,
+  // scoped server-side to `manager_user_id`) rather than one request per row.
+  const [allBids, setAllBids] = useState<WorkOrderBid[]>([]);
+  useEffect(() => {
+    if (!authReady || !userId) return;
+    let cancelled = false;
+    void fetchWorkOrderBids().then((bids) => {
+      if (!cancelled) setAllBids(bids);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, userId, dataTick]);
+  const bidCountByWorkOrderId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const bid of allBids) counts.set(bid.workOrderId, (counts.get(bid.workOrderId) ?? 0) + 1);
+    return counts;
+  }, [allBids]);
 
   const filterPropertyOptions = useMemo(() => {
     const opts = [...propertyOptions];
@@ -492,7 +510,15 @@ export function ManagerAllServicesPanel({
             },
           ];
 
-          if (selectedSingleRow.kind === "maintenance" && selectedWorkOrder?.bucket === "open") {
+          // C247: Schedule/Confirm time only apply once a vendor is actually assigned —
+          // offering them on an unassigned service is a dead click (nothing to schedule
+          // a visit for yet). "Invite more vendors" / "Decline" stay reachable regardless
+          // via the record's own header actions.
+          if (
+            selectedSingleRow.kind === "maintenance" &&
+            selectedWorkOrder?.bucket === "open" &&
+            Boolean(selectedWorkOrder?.vendorId || selectedWorkOrder?.vendorName)
+          ) {
             actions.push({
               id: "schedule-visit",
               node: (
@@ -572,6 +598,7 @@ export function ManagerAllServicesPanel({
 
   const renderServiceRow = (row: (typeof visibleUnifiedRows)[number], omitPropertyInSubtitle: boolean) => {
     const rowKey = unifiedServiceRowKey(row);
+    const bidCount = row.kind === "maintenance" ? bidCountByWorkOrderId.get(row.id) ?? 0 : 0;
     const subtitleParts = [
       row.kind === "add-on" ? "Add-on service" : "Maintenance",
       omitPropertyInSubtitle ? null : row.propertyLabel,
@@ -579,11 +606,19 @@ export function ManagerAllServicesPanel({
       row.unitLabel,
       // The visit time rides on the row so a manager sees at a glance what is booked
       // and what PropLane has only proposed (see `visitSourcePill` in the detail).
+      // C246: a genuinely scheduled visit only ever sets `scheduledIso`; an approved
+      // add-on with no confirmed visit shows its approval date labeled as such instead
+      // of being misread as a scheduled-visit date.
       row.scheduledIso
         ? formatServiceVisitLabel(row.scheduledIso)
         : row.proposedVisit
           ? `Proposed ${formatServiceVisitLabel(row.proposedVisit.iso)}`
-          : null,
+          : row.approvedIso
+            ? `Approved ${formatServiceVisitLabel(row.approvedIso)}`
+            : null,
+      // C253: a plain glyph-free fact — never a pill/badge — so a manager can see bid
+      // volume without opening the record.
+      bidCount > 0 ? `${bidCount} ${bidCount === 1 ? "bid" : "bids"}` : null,
     ].filter(Boolean);
     return (
       <PortalServiceRecordRow
@@ -906,21 +941,13 @@ export function ManagerAllServicesPanel({
         showToast={showToast}
       />
 
-      <ManagerPortalSettingsModal
+      <ServiceEscalationSettingsModal
         open={servicesSettingsOpen}
         onClose={() => setServicesSettingsOpen(false)}
-        initialTab="services"
-        scopedTitle={settingsDialogTitlePrefix(servicesSettingsEntry)}
-        editAction={
-          propertyOptions.length > 0
-            ? {
-                label: "Edit service catalog",
-                description: "Service types and pricing per property.",
-                dataAttr: "edit-service-requests-open",
-                onSelect: () => setEditServiceRequestsOpen(true),
-              }
-            : undefined
-        }
+        onEditCatalog={() => {
+          setServicesSettingsOpen(false);
+          setEditServiceRequestsOpen(true);
+        }}
       />
 
       <ScheduleServiceVisitModal

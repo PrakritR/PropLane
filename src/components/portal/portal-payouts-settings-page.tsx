@@ -20,6 +20,7 @@ import {
   type PortalPayoutsPortalKind,
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
+import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
 import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 import { track } from "@/lib/analytics/track-client";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
@@ -329,6 +330,11 @@ export function PortalPayoutsSettingsPage({
           </p>
         ) : null}
       </div>
+
+      {/* PropLane balance — night/vendor-pay, PROPLANE_BALANCE_ENABLED. A
+          SEPARATE internal ledger balance from the Stripe-derived balance
+          above; renders nothing while the flag is off. */}
+      <ProplaneBalanceCard portal={portal} />
 
       {/* Set up — only until ready */}
       {!ready ? (

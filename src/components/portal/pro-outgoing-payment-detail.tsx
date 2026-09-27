@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -12,10 +12,10 @@ import {
 import type { DemoManagerOutgoingPaymentRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
-  availableManagerVendorPayMethods,
   defaultManagerVendorPayMethod,
   managerCanPayOutgoingRowWithMethod,
   managerVendorPayMethodLabel,
+  managerVendorPayMethodsWithBalance,
   type ManagerVendorPayMethod,
 } from "@/lib/manager-vendor-payment-flow";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
@@ -64,10 +64,35 @@ export function ManagerOutgoingPaymentDetail({
 }) {
   const { showToast } = useAppUi();
   const payable = Boolean(row.workOrderId && row.bucket !== "paid");
-  const methods = useMemo(() => availableManagerVendorPayMethods(vendor), [vendor]);
+  // C098: "Pay from balance" only exists once BOTH the per-workspace Connect
+  // rollout (`WORKSPACE_CONNECT_ENABLED`, dark by default) and the underlying
+  // PropLane balance itself are on — this dark-launches the new UI even
+  // though the balance-funded approve-pay path server-side already works.
+  const [balanceEligible, setBalanceEligible] = useState(false);
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    let cancelled = false;
+    void fetch("/api/portal/proplane-balance", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { enabled?: boolean; workspaceConnectEnabled?: boolean } | null) => {
+        if (!cancelled) setBalanceEligible(Boolean(data?.enabled && data?.workspaceConnectEnabled));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const methods = useMemo(() => managerVendorPayMethodsWithBalance(vendor, balanceEligible), [vendor, balanceEligible]);
   const [paymentMethod, setPaymentMethod] = useState<ManagerVendorPayMethod>(
     () => defaultManagerVendorPayMethod(vendor) ?? "ach",
   );
+  // Once eligibility resolves (it starts false, since the read above is async),
+  // move a still-default "ach" selection over to the preferred "balance" rail —
+  // but never override a method the manager already picked by hand.
+  const userPickedRef = useRef(false);
+  useEffect(() => {
+    if (balanceEligible && !userPickedRef.current) setPaymentMethod("balance");
+  }, [balanceEligible]);
   const [payConfirmOpenInternal, setPayConfirmOpenInternal] = useState(false);
   const payConfirmOpen = payModalOpen ?? payConfirmOpenInternal;
   const setPayConfirmOpen = onPayModalOpenChange ?? setPayConfirmOpenInternal;
@@ -102,7 +127,7 @@ export function ManagerOutgoingPaymentDetail({
 
   const needsDoublePayAck = Boolean(existingPayout) && !doublePayAcknowledged;
 
-  const canPayWithSelected = managerCanPayOutgoingRowWithMethod(row, paymentMethod);
+  const canPayWithSelected = managerCanPayOutgoingRowWithMethod(row, paymentMethod, balanceEligible);
 
   const submitPay = async () => {
     if (!workOrder) {
@@ -150,6 +175,8 @@ export function ManagerOutgoingPaymentDetail({
         error?: string;
         code?: string;
         existingPayout?: ExistingVendorPayoutSummary | null;
+        availableCents?: number;
+        requestedCents?: number;
       };
       if (res.status === 409 && data.code === VENDOR_DOUBLE_PAY_CONFLICT_CODE && data.existingPayout) {
         // The pre-check missed it (or the payout landed since). Surface the server's
@@ -157,6 +184,16 @@ export function ManagerOutgoingPaymentDetail({
         setExistingPayout(data.existingPayout);
         setDoublePayAcknowledged(false);
         showToast("Acknowledge the existing PropLane payout to continue.");
+        return;
+      }
+      // C098: the PropLane balance can't cover this job — fall back to ACH
+      // rather than dead-ending on an error. The ledger move never happened
+      // (`payVendorFromBalance` checks the balance before touching anything),
+      // so nothing needs to be undone; the manager just re-confirms on ACH.
+      if (res.status === 422 && data.code === "insufficient_balance") {
+        setPaymentMethod("ach");
+        userPickedRef.current = true;
+        showToast(data.error ?? "The PropLane balance is short — paying by ACH instead.");
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Could not complete payment.");
@@ -208,7 +245,10 @@ export function ManagerOutgoingPaymentDetail({
           <PortalPaymentMethodPicker
             options={methods}
             value={paymentMethod}
-            onChange={setPaymentMethod}
+            onChange={(method) => {
+              userPickedRef.current = true;
+              setPaymentMethod(method);
+            }}
             dataAttrPrefix="manager-outgoing-payment-method"
           />
           <div className="mt-3">
@@ -312,7 +352,9 @@ export function ManagerOutgoingPaymentDetail({
             </div>
           ) : null}
           <p className="text-muted">
-            PropLane will attempt an ACH payout to the vendor&apos;s linked bank account and log this expense.
+            {paymentMethod === "balance"
+              ? "Pays instantly out of your PropLane balance and logs this expense. If the balance is short, PropLane pays by ACH instead."
+              : "PropLane will attempt an ACH payout to the vendor's linked bank account and log this expense."}
           </p>
         </div>
       </Modal>

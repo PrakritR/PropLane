@@ -151,7 +151,7 @@ describe("processManagerAssistantInboundEmail", () => {
   it("returns handled:false for non-assistant addresses", async () => {
     const result = await processManagerAssistantInboundEmail(db, {
       ...parsed,
-      toEmails: ["support@prop-lane.space"],
+      toEmails: ["support@proplane.ai"],
     });
     expect(result).toEqual({ handled: false });
   });

@@ -19,9 +19,13 @@ const markTileSizes = {
 const glyphSizes = {
   default: "h-[28px] w-[28px]",
   compact: "h-[20px] w-[20px]",
+  /** Bare glyph at avatar-chip scale — a workspace switcher's own h-6/h-7 tile
+   *  supplies the background box, so only the mark itself is needed here. */
+  micro: "h-[15px] w-[15px]",
 } as const;
 
 export type AxisLogoSize = keyof typeof markTileSizes;
+export type AxisLogoGlyphSize = keyof typeof glyphSizes;
 
 export type AxisLogoVariant = "default" | "portalHeader" | "adminHeader";
 
@@ -33,13 +37,17 @@ export type AxisLogoVariant = "default" | "portalHeader" | "adminHeader";
  * dark theme — src/app/globals.css) rather than a hardcoded hex, so the mark
  * always matches the rest of the UI's brand accent instead of showing a
  * fixed blue in a dark-mode context.
+ *
+ * Exported (not just used by {@link AxisLogoMark}) so a caller that already
+ * draws its own tile chrome — the workspace switcher's flat avatar chip — can
+ * drop in just the glyph at `size="micro"` instead of building a second mark.
  */
-function AxisLogoGlyph({
+export function AxisLogoGlyph({
   className = "",
   size = "default",
 }: {
   className?: string;
-  size?: AxisLogoSize;
+  size?: AxisLogoGlyphSize;
 }) {
   return (
     <svg

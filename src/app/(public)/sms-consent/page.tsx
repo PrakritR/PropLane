@@ -57,7 +57,7 @@ export default function SmsConsentPage() {
             <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed text-muted">
               <li>
                 <strong className="font-medium text-foreground">Who sends the messages:</strong> PropLane
-                (prop-lane.space).
+                (proplane.ai).
               </li>
               <li>
                 <strong className="font-medium text-foreground">What the messages are about:</strong> your
@@ -79,8 +79,8 @@ export default function SmsConsentPage() {
               <li>
                 <strong className="font-medium text-foreground">Getting help:</strong> reply{" "}
                 <strong>HELP</strong> for help, or contact{" "}
-                <a href="mailto:support@prop-lane.space" className="font-medium text-primary hover:opacity-90">
-                  support@prop-lane.space
+                <a href="mailto:support@proplane.ai" className="font-medium text-primary hover:opacity-90">
+                  support@proplane.ai
                 </a>
                 .
               </li>

@@ -43,9 +43,11 @@ describe("settings account vs operations groups", () => {
     expect(groupFor("payments")).toBe("Operations");
     expect(groupFor("tasks")).toBe("Operations");
     expect(groupFor("reminders")).toBe("Operations");
-    expect(groupFor("bookings")).toBe("Operations");
-    expect(groupFor("inspections")).toBe("Operations");
     expect(groupFor("services")).toBe("Operations");
+    // Bookings and Inspections settings tabs are gone (C111/C116) — both held
+    // only reminders, now on the "reminders" nav entry above.
+    expect(groupFor("bookings")).toBeNull();
+    expect(groupFor("inspections")).toBeNull();
   });
 
   it("moves Billing and API onto Account — they belong to the login", () => {

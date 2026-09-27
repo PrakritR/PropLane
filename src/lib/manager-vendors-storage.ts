@@ -90,7 +90,7 @@ const EMPTY_FALLBACK: ManagerVendorRow[] = [];
 let memoryRows: ManagerVendorRow[] = [];
 const MANAGER_VENDORS_SYNC_TTL_MS = 15_000;
 let managerVendorsLastSyncedAt = 0;
-let managerVendorsSyncPromise: Promise<ManagerVendorRow[]> | null = null;
+let managerVendorsSyncPromise: Promise<{ rows: ManagerVendorRow[]; ok: boolean }> | null = null;
 
 function vendorRowsChanged(a: ManagerVendorRow[], b: ManagerVendorRow[]) {
   return JSON.stringify(a) !== JSON.stringify(b);
@@ -177,19 +177,25 @@ export function makeVendorId(): string {
   return `vendor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export async function syncManagerVendorsFromServer(opts?: { force?: boolean }): Promise<ManagerVendorRow[]> {
-  if (!canUseStorage()) return [];
+/**
+ * Shared core for {@link syncManagerVendorsFromServer} and
+ * {@link syncManagerVendorsFromServerDetailed} — one network call either way.
+ * `ok: false` means the read failed and the returned rows are the stale
+ * local fallback, not a fresh read.
+ */
+async function syncManagerVendorsFromServerCore(opts?: { force?: boolean }): Promise<{ rows: ManagerVendorRow[]; ok: boolean }> {
+  if (!canUseStorage()) return { rows: [], ok: true };
   hydrateVendorsFromSession();
-  if (isDemoModeActive()) return readManagerVendorRows();
+  if (isDemoModeActive()) return { rows: readManagerVendorRows(), ok: true };
   const force = opts?.force === true;
   if (!force && managerVendorsSyncPromise) return managerVendorsSyncPromise;
   if (!force && managerVendorsLastSyncedAt > 0 && Date.now() - managerVendorsLastSyncedAt < MANAGER_VENDORS_SYNC_TTL_MS) {
-    return readManagerVendorRows();
+    return { rows: readManagerVendorRows(), ok: true };
   }
   try {
     managerVendorsSyncPromise = (async () => {
       const res = await fetch("/api/portal-vendors", { credentials: "include" });
-      if (!res.ok) return readManagerVendorRows();
+      if (!res.ok) return { rows: readManagerVendorRows(), ok: false };
       const body = (await res.json()) as { rows?: ManagerVendorRow[] };
       const rows = Array.isArray(body.rows) ? body.rows : [];
       const changed = vendorRowsChanged(memoryRows, rows);
@@ -197,14 +203,24 @@ export async function syncManagerVendorsFromServer(opts?: { force?: boolean }): 
       persistVendorsToSession(rows);
       managerVendorsLastSyncedAt = Date.now();
       if (changed) emit();
-      return rows;
+      return { rows, ok: true };
     })();
     return await managerVendorsSyncPromise;
   } catch {
-    return readManagerVendorRows();
+    return { rows: readManagerVendorRows(), ok: false };
   } finally {
     managerVendorsSyncPromise = null;
   }
+}
+
+export async function syncManagerVendorsFromServer(opts?: { force?: boolean }): Promise<ManagerVendorRow[]> {
+  const { rows } = await syncManagerVendorsFromServerCore(opts);
+  return rows;
+}
+
+/** Same one network call as {@link syncManagerVendorsFromServer}, plus whether it actually succeeded — for a caller that shows a distinct error state instead of silently falling back. */
+export async function syncManagerVendorsFromServerDetailed(opts?: { force?: boolean }): Promise<{ rows: ManagerVendorRow[]; ok: boolean }> {
+  return syncManagerVendorsFromServerCore(opts);
 }
 
 export function readManagerVendorRows(fallback: ManagerVendorRow[] = EMPTY_FALLBACK): ManagerVendorRow[] {

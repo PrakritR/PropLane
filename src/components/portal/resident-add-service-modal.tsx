@@ -72,18 +72,43 @@ export function ResidentAddServiceModal({
     () => mergeResidentServiceCatalogOffers(availableOffers),
     [availableOffers],
   );
-  const intakeOptions = useMemo(() => buildServiceIntakeOptions(catalogOffers), [catalogOffers]);
+  // C133: the workspace's repair-category toggle — fetched once per open rather than
+  // threaded through the whole services-panel prop chain, since this modal is the
+  // only resident-facing place that needs it.
+  const [disabledRepairCategories, setDisabledRepairCategories] = useState<string[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch("/api/portal/resident-property", { credentials: "include" })
+      .then((res) => res.json())
+      .then((data: { disabledRepairCategories?: string[] }) => {
+        if (!cancelled) setDisabledRepairCategories(Array.isArray(data.disabledRepairCategories) ? data.disabledRepairCategories : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+  const intakeOptions = useMemo(
+    () => buildServiceIntakeOptions(catalogOffers, disabledRepairCategories),
+    [catalogOffers, disabledRepairCategories],
+  );
   const [form, setForm] = useState<ServiceIntakeFormState>(() =>
     createEmptyServiceIntakeFormState(intakeOptions),
   );
   const [submitting, setSubmitting] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
+  // N010: a repair request needs at least one photo — this only ever shows
+  // after a failed submit attempt (no subtext ahead of that, per the "no
+  // subtext" standard).
+  const [photoError, setPhotoError] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     queueMicrotask(() => {
       setForm(createEmptyServiceIntakeFormState(intakeOptions));
       setPhotos([]);
+      setPhotoError(false);
     });
   }, [open, intakeOptions]);
 
@@ -135,6 +160,7 @@ export function ResidentAddServiceModal({
       next.push(await fileToDataUrl(file));
     }
     setPhotos(next);
+    if (next.length > 0) setPhotoError(false);
   };
 
   const submit = async () => {
@@ -170,6 +196,11 @@ export function ResidentAddServiceModal({
         }
         if (!form.description.trim()) {
           showToast("Describe the issue first.");
+          return;
+        }
+        if (photos.length === 0) {
+          setPhotoError(true);
+          showToast("Add at least one photo before submitting.");
           return;
         }
         const application = getApplication();
@@ -324,9 +355,15 @@ export function ResidentAddServiceModal({
           form={form}
           onChange={patchForm}
           disabled={submitting || !servicesUnlocked}
+          disabledRepairCategories={disabledRepairCategories}
           photoSlot={
             <>
               <ServiceIntakePhotoPicker onPick={openPhotoPicker} disabled={submitting} />
+              {photoError ? (
+                <p className="text-xs font-medium text-[var(--status-overdue-fg)]" data-attr="resident-service-intake-photo-error">
+                  Add at least one photo before submitting.
+                </p>
+              ) : null}
               {photos.length ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {photos.map((src, i) => (

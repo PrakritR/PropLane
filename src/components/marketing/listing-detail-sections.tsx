@@ -325,6 +325,12 @@ export function ListingDetailSections({
   const houseRulesDisplay =
     rich.houseRulesBody?.trim() || (!property.listingSubmission ? DEFAULT_LISTING_HOUSE_RULES_FALLBACK : null);
   const heroUrls = rich.heroHousePhotoUrls ?? [];
+  // Only an http(s) storage URL ever reaches this component — never a `data:`
+  // URL, which `publicListingProjection` already strips before an anonymous
+  // caller sees this property (see `public-listings.server.ts`).
+  const rawHouseVideoUrl = property.listingSubmission?.houseVideoDataUrl;
+  const heroVideoUrl =
+    typeof rawHouseVideoUrl === "string" && /^https?:\/\//i.test(rawHouseVideoUrl.trim()) ? rawHouseVideoUrl : null;
   const propertyLabel = propertyDisplayLabel(property);
   const facts = useMemo(
     () => deriveListingKeyFacts(rich, property),
@@ -378,9 +384,18 @@ export function ListingDetailSections({
 
             {/* Photos, or the one-line band */}
             {heroUrls.length > 0 ? (
-              <ListingPhotoMosaic key={heroUrls.join("|")} urls={heroUrls} className="mt-4" />
+              <ListingPhotoMosaic
+                key={heroUrls.join("|")}
+                urls={heroUrls}
+                className="mt-4"
+                videoUrl={heroVideoUrl}
+              />
             ) : (
-              <ListingNoPhotoBand className="mt-4" onAddPhotos={managerPreviewChrome ? onAddPhotos : undefined} />
+              <ListingNoPhotoBand
+                className="mt-4"
+                onAddPhotos={managerPreviewChrome ? onAddPhotos : undefined}
+                videoUrl={heroVideoUrl}
+              />
             )}
 
             <ListingKeyFacts facts={facts} className="mt-4" />

@@ -3,17 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { formatPacificDate, formatPacificDateTime } from "@/lib/pacific-time";
+import { formatPacificDateTime } from "@/lib/pacific-time";
 import { MANAGER_PROPERTY_CAP_OVERRIDE_MAX } from "@/lib/manager-billing-overrides";
 
 /**
- * The ONE manager account editor.
- *
- * It is rendered by both admin Accounts (`admin-axis-users-client.tsx`) and admin Billing
- * (`admin-billing-client.tsx`). Billing is a different LIST over the same accounts, not a second
- * account screen — a staff member who changes a plan from the Billing list and a staff member who
- * changes it from Accounts must be using the same control, or the two grow different rules for the
- * same write. That is exactly the drift "Admin borrows; it does not invent" exists to prevent.
+ * The manager account editor, as two cards on the account record page
+ * (`admin-account-record-page.tsx`, C165): {@link ManagerPlanBillingCard} and
+ * {@link ManagerDangerZoneCard}. Billing folded into Accounts (captain:
+ * "combine Billing and Accounts") — a staff member who changes a plan must be
+ * using the same control regardless of which list they opened it from, or the
+ * two grow different rules for the same write. That is exactly the drift
+ * "Admin borrows; it does not invent" exists to prevent.
  */
 
 export type ManagerAccountDetailRow = {
@@ -328,7 +328,13 @@ function BillingOverridesEditor({
   );
 }
 
-export function ManagerAccountDetail({
+/**
+ * Plan, processing fees and staff billing overrides for one manager account —
+ * the "Plan & billing" card on the account record page (C165). Split out of
+ * the former combined `ManagerAccountDetail` so the record page can render it
+ * as its own card, separate from {@link ManagerDangerZoneCard}.
+ */
+export function ManagerPlanBillingCard({
   row,
   onRefresh,
   showToast,
@@ -338,7 +344,6 @@ export function ManagerAccountDetail({
   showToast: (m: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [plan, setPlan] = useState<ManagerPlan>(() => normalizeManagerPlan(row.tier));
   const currentPlan = normalizeManagerPlan(row.tier);
   const planDirty = plan !== currentPlan;
@@ -449,59 +454,8 @@ export function ManagerAccountDetail({
     }
   };
 
-  const toggle = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/admin/managers", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, active: !row.active }),
-      });
-      if (!res.ok) {
-        showToast("Could not update account.");
-        return;
-      }
-      showToast(row.active ? "Manager account disabled." : "Manager account enabled.");
-      onRefresh();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteAccount = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/admin/managers", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id }),
-      });
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: "Could not delete account." }));
-        showToast((error as string) || "Could not delete account.");
-        return;
-      }
-      showToast("Manager account deleted.");
-      onRefresh();
-    } finally {
-      setBusy(false);
-      setConfirmDelete(false);
-    }
-  };
-
   return (
-    <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className={FIELD_LABEL}>Account</p>
-        <TierBadge tier={row.tier} />
-        <StatusPill active={row.active} />
-        {row.joinedAt ? (
-          <span className="text-xs text-muted">
-            Joined {formatPacificDate(row.joinedAt, { year: "numeric", month: "short", day: "numeric" })}
-          </span>
-        ) : null}
-      </div>
-
+    <div className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-4">
       <div className="flex items-center gap-2">
         <p className={FIELD_LABEL}>Plan</p>
         <Select
@@ -579,51 +533,6 @@ export function ManagerAccountDetail({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className={`rounded-full ${row.active ? "border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]" : ""}`}
-          onClick={() => toggle()}
-          disabled={busy}
-        >
-          {busy && !confirmDelete && !planDirty ? "Updating…" : row.active ? "Disable account" : "Enable account"}
-        </Button>
-        {confirmDelete ? (
-          <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 portal-banner-danger">
-            <span className="text-xs font-semibold text-rose-800">
-              Permanently delete this manager, all properties, residents, payments, and login?
-            </span>
-            <button
-              type="button"
-              className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-              onClick={() => void deleteAccount()}
-              disabled={busy}
-            >
-              {busy ? "Deleting…" : "Yes, delete"}
-            </button>
-            <button
-              type="button"
-              className="text-xs font-semibold text-muted hover:text-foreground"
-              onClick={() => setConfirmDelete(false)}
-              disabled={busy}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full border-rose-200 text-rose-700 hover:bg-[var(--status-overdue-bg)]"
-            onClick={() => setConfirmDelete(true)}
-            disabled={busy}
-          >
-            Delete account
-          </Button>
-        )}
-      </div>
-
       <div className="ml-auto shrink-0">
         <Button
           type="button"
@@ -639,6 +548,112 @@ export function ManagerAccountDetail({
       {/* Beside Plan and Processing fees, not on a screen of their own: an exception to a plan is
           read together with the plan it excepts. */}
       <BillingOverridesEditor managerUserId={row.id} showToast={showToast} />
+    </div>
+  );
+}
+
+/**
+ * Enable/disable and delete for one manager account — the "Danger zone" card
+ * on the account record page (C165). Split out of the former combined
+ * `ManagerAccountDetail` so it renders as its own card, separate from
+ * {@link ManagerPlanBillingCard}.
+ */
+export function ManagerDangerZoneCard({
+  row,
+  onRefresh,
+  showToast,
+}: {
+  row: ManagerAccountDetailRow;
+  onRefresh: () => void;
+  showToast: (m: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/managers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, active: !row.active }),
+      });
+      if (!res.ok) {
+        showToast("Could not update account.");
+        return;
+      }
+      showToast(row.active ? "Manager account disabled." : "Manager account enabled.");
+      onRefresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/managers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id }),
+      });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Could not delete account." }));
+        showToast((error as string) || "Could not delete account.");
+        return;
+      }
+      showToast("Manager account deleted.");
+      onRefresh();
+    } finally {
+      setBusy(false);
+      setConfirmDelete(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-4 py-4">
+      <Button
+        type="button"
+        variant="outline"
+        className={`rounded-full ${row.active ? "border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]" : ""}`}
+        onClick={() => toggle()}
+        disabled={busy}
+      >
+        {busy && !confirmDelete ? "Updating…" : row.active ? "Disable account" : "Enable account"}
+      </Button>
+      {confirmDelete ? (
+        <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 portal-banner-danger">
+          <span className="text-xs font-semibold text-rose-800">
+            Permanently delete this manager, all properties, residents, payments, and login?
+          </span>
+          <button
+            type="button"
+            className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+            onClick={() => void deleteAccount()}
+            disabled={busy}
+          >
+            {busy ? "Deleting…" : "Yes, delete"}
+          </button>
+          <button
+            type="button"
+            className="text-xs font-semibold text-muted hover:text-foreground"
+            onClick={() => setConfirmDelete(false)}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-full border-rose-200 text-rose-700 hover:bg-[var(--status-overdue-bg)]"
+          onClick={() => setConfirmDelete(true)}
+          disabled={busy}
+        >
+          Delete account
+        </Button>
+      )}
     </div>
   );
 }

@@ -3,15 +3,14 @@ import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
-import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -44,6 +43,7 @@ import {
   syncLegacyLeaseFieldsFromTemplates,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
+import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -106,12 +106,13 @@ export function ManagerPropertyLeasePanel({
    */
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const router = useRouter();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [questionsEditorTemplate, setQuestionsEditorTemplate] = useState<PropertyLeaseTemplate | null>(null);
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
@@ -128,11 +129,10 @@ export function ManagerPropertyLeasePanel({
     [propertyIds],
   );
 
-  const settingsPropertyOptions = useMemo(() => {
-    const id = settingsPropertyId?.trim();
-    if (!id) return [];
-    return [{ id, label: settingsPropertyLabel?.trim() || "This property" }];
-  }, [settingsPropertyId, settingsPropertyLabel]);
+  // `settingsPropertyId`/`settingsPropertyLabel` no longer resolve a local automation
+  // sheet (C228) — kept as props so callers need no change, just unused here.
+  void settingsPropertyId;
+  void settingsPropertyLabel;
 
   const persistSubmission = useCallback(
     async (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
@@ -188,11 +188,21 @@ export function ManagerPropertyLeasePanel({
     setFormOpen(true);
   }, []);
 
-  const openEdit = useCallback((templateId: string) => {
-    setFormMode("edit");
-    setEditingTemplateId(templateId);
-    setFormOpen(true);
-  }, []);
+  const openEdit = useCallback(
+    (templateId: string) => {
+      // An imported lease (C282) has its own question-config editor; every
+      // other lease keeps the standard terms/document form.
+      const target = templates.find((t) => t.id === templateId);
+      if (target?.draftQuestionConfig || target?.publishedQuestionConfig) {
+        setQuestionsEditorTemplate(target);
+        return;
+      }
+      setFormMode("edit");
+      setEditingTemplateId(templateId);
+      setFormOpen(true);
+    },
+    [templates],
+  );
 
   const selectedTemplates = useMemo(
     () => templates.filter((template) => selectedIds.has(template.id)),
@@ -422,15 +432,21 @@ export function ManagerPropertyLeasePanel({
         </div>
       ) : null}
 
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add lease"
-          icon={PORTAL_LIST_ADD_ICONS.lease}
-          onClick={openAdd}
-          dataAttr="property-lease-add"
-        />
-      </div>
+      {/* The page's command bar carries the one "+" (its form also takes a
+          PDF upload); only the embedded modal, which has no command bar,
+          needs a footer add row. */}
+      {embedInModal ? (
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+          <PortalListAddRow
+            label="Add"
+            ariaLabel="Add lease"
+            icon={PORTAL_LIST_ADD_ICONS.lease}
+            onClick={openAdd}
+            dataAttr="property-lease-add"
+            inline
+          />
+        </div>
+      ) : null}
     </>
   );
 
@@ -468,30 +484,45 @@ export function ManagerPropertyLeasePanel({
         showToast={showToast}
       />
 
-      {settingsPropertyOptions.length > 0 ? (
-        <ProPortalSettingsModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          initialTab="lease"
-          initialPane="automation"
-          scoped
-          scopedTitle="Lease"
-          propertyOptions={settingsPropertyOptions}
-          initialPropertyId={settingsPropertyOptions[0]?.id}
-        />
-      ) : null}
+      <ManagerLeaseQuestionsEditorModal
+        key={questionsEditorTemplate?.id ?? "none"}
+        open={Boolean(questionsEditorTemplate)}
+        template={questionsEditorTemplate}
+        templates={templates}
+        propertyId={propertyId ?? bulkPropertyIds[0] ?? null}
+        onClose={() => setQuestionsEditorTemplate(null)}
+        onSave={async (nextTemplates) => {
+          const ok = await persistTemplates(nextTemplates);
+          if (ok) onUpdated();
+          return ok;
+        }}
+        onDelete={
+          questionsEditorTemplate
+            ? () => {
+                handleDelete(questionsEditorTemplate.id);
+                setQuestionsEditorTemplate(null);
+              }
+            : undefined
+        }
+        canDelete
+        showToast={showToast}
+      />
+
     </>
   );
 
+  // C228: the property page no longer carries its own lease automation
+  // block. The gear now opens Settings -> Forms, where every lease's
+  // Automation block lives (same workspace-scoped storage) alongside "Used at".
   const commandBar = !embedInModal ? (
     <PropertyFormAutomationCommandBar
       pane={pane}
       onPaneChange={setPane}
+      panes={[{ id: "form", label: "Form" }]}
       filter={formFilterSheet}
-      onSettings={() => setSettingsOpen(true)}
-      settingsLabel="Lease settings"
+      onSettings={() => router.push("/portal/profile?tab=forms")}
+      settingsLabel="Lease automation"
       settingsDataAttr="property-lease-settings-open"
-      settingsDisabled={settingsPropertyOptions.length === 0}
       onAdd={openAdd}
       addLabel="Add lease"
       addDataAttr="property-lease-command-add"
@@ -518,20 +549,9 @@ export function ManagerPropertyLeasePanel({
     />
   ) : null;
 
-  const automationBody =
-    !embedInModal && pane === "automation" ? (
-      <SettingsModulePage
-        tab="lease"
-        propertyOptions={settingsPropertyOptions}
-        initialPropertyId={settingsPropertyOptions[0]?.id}
-        active
-      />
-    ) : null;
-
   return (
     <>
       {commandBar}
-      {automationBody}
       {embedInModal || pane === "form" ? (
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
         <>

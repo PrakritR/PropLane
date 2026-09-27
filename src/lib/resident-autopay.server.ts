@@ -35,6 +35,21 @@ export const AUTOPAY_RECURRING_KINDS: ReadonlySet<HouseholdChargeKind> = new Set
 /** The first charge plus the one allowed retry — `resident_autopay_runs.attempt` never passes this. */
 export const AUTOPAY_MAX_ATTEMPTS = 2;
 
+/**
+ * `manager_user_id`/`resident_user_id` columns this module queries are typed
+ * `uuid`. A profile can carry a non-UUID `manager_id`/user id (a legacy or
+ * malformed link — e.g. a pre-migration fixture row), and handing that
+ * straight to `.eq(...)` makes Postgres reject the whole query with
+ * `22P02 invalid input syntax for type uuid` instead of just returning zero
+ * rows. Treat that one error the same way an empty result already is: no
+ * valid manager link means no autopay household, not a 500 — every other
+ * not-linked-yet resident already gets the same "no household" response.
+ */
+function isInvalidUuidInputError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === "22P02" || /invalid input syntax for type uuid/i.test(error.message ?? "");
+}
+
 /** The same `residentEmail|propertyId` key `recurringRentProfileKey` groups a resident's recurring charges by. */
 export function residentAutopayHouseholdKey(residentEmail: string, propertyId: string): string {
   return `${residentEmail.trim().toLowerCase()}|${propertyId}`;
@@ -150,7 +165,10 @@ export async function resolveResidentAutopayHousehold(
     .eq("resident_email", input.residentEmail.trim().toLowerCase())
     .in("kind", [...AUTOPAY_RECURRING_KINDS])
     .limit(500);
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isInvalidUuidInputError(error)) return null;
+    throw new Error(error.message);
+  }
 
   const charges = (rows ?? [])
     .map((row) => row.row_data as HouseholdCharge | null)

@@ -78,6 +78,12 @@ vi.mock("@/lib/supabase/service", () => ({
       if (table === "manager_automation_settings") {
         return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
       }
+      // N037's reconcile reads this to find the owner's default workspace
+      // before copying its application form onto the listing — none exists
+      // in this fixture set, so the reconcile cleanly no-ops.
+      if (table === "portal_workspaces") {
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+      }
       if (table !== "manager_property_records") throw new Error(`unexpected table: ${table}`);
       return {
         // One flexible builder serves three different callers against this table: the existing-row
@@ -416,9 +422,9 @@ describe("A manager already OVER the door cap keeps every listing they have", ()
   });
 
   it("re-mirroring the whole over-limit portfolio writes every existing row", async () => {
-    // `mirrorLocalPropertyPipelineToServer` re-upserts every locally known row
-    // on load. For an over-limit account that is N live upserts in a row, and
-    // every one of them must land.
+    // An over-limit account's existing rows must keep accepting upserts: the
+    // property-record outbox replays unsent edits of them, N in a row, and the
+    // old page-load mirror re-sent all of them. Every one of them must land.
     for (let i = 1; i <= OVER_BY; i += 1) {
       EXISTING_ROW = { manager_user_id: FREE_MANAGER, status: "live" };
       const res = await post({

@@ -1,156 +1,86 @@
 /* Public site — section styles that Tailwind utilities cannot express (positioned art, keyframes). Imported by the components that use them. */
 
-/* ───────────── home hero — "Night blue" (site/hero.tsx) ───────────── */
-.site-hero-glow {
+/* ───────────── home hero — Codex-style, light (site/hero.tsx, site/codex-hero-window.tsx) ─────────────
+   The wash: three soft diagonal periwinkle→violet radial glows on the hero's
+   white/lavender base (captain 2026-09-25, light-mode pass) — heavily blurred
+   so they read as a soft gradient backdrop, not distinct blobs. */
+.codex-hero-wash {
   position: absolute;
   border-radius: 9999px;
-  filter: blur(70px);
   pointer-events: none;
+  filter: blur(50px);
 }
-.site-hero-glow-a {
-  width: 640px;
-  height: 640px;
-  left: -180px;
-  top: -280px;
-  background: #2863f0;
-  opacity: 0.55;
+.codex-hero-wash-a {
+  left: -220px;
+  top: -260px;
+  width: 760px;
+  height: 760px;
+  background: radial-gradient(circle, rgba(90, 140, 255, 0.55) 0%, rgba(90, 140, 255, 0) 70%);
 }
-.site-hero-glow-b {
-  width: 560px;
-  height: 560px;
-  right: -160px;
-  top: 40px;
-  background: #5a8cff;
-  opacity: 0.3;
+.codex-hero-wash-b {
+  right: -260px;
+  top: -180px;
+  width: 820px;
+  height: 820px;
+  background: radial-gradient(circle, rgba(154, 156, 245, 0.5) 0%, rgba(154, 156, 245, 0) 70%);
 }
-.site-hero-grain {
+.codex-hero-activity-card {
   position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-  background-size: 22px 22px;
-  pointer-events: none;
-}
-.site-hero-browser {
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
-  background: #fff;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-  /* Bleed: the page below hides the bottom of the frame. */
-  margin-bottom: -1px;
-  margin-top: -12px;
-  max-height: 520px;
-}
-.site-hero-phone {
-  position: absolute;
-  right: -72px;
-  bottom: 36px;
-  z-index: 3;
-  width: 178px;
-  overflow: hidden;
-  border: 6px solid #111;
-  border-radius: 28px;
-  background: #fff;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-}
-.site-hero-draft {
-  position: absolute;
-  left: -18px;
-  top: 34%;
+  left: -16px;
+  top: 36%;
   z-index: 3;
   width: 250px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 12px;
   background: #fff;
-  padding: 10px 12px;
-  box-shadow: 0 14px 34px rgba(8, 9, 11, 0.28);
+  padding: 10px 30px 10px 12px;
+  box-shadow: 0 20px 45px -18px rgba(15, 23, 42, 0.28);
+}
+@media (max-width: 1023px) {
+  .codex-hero-activity-card { width: 200px; left: -10px; padding: 8px 26px 8px 10px; }
 }
 @media (max-width: 767px) {
-  .site-hero-browser { max-height: 300px; margin-top: 0; }
-  .site-hero-phone { width: 118px; right: -20px; bottom: 10px; border-width: 4px; border-radius: 20px; }
-  .site-hero-draft { display: none; }
+  .codex-hero-activity-card { width: 168px; left: -6px; top: 30%; padding: 7px 24px 7px 9px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .site-hero-phone, .site-hero-draft { animation: site-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-  .site-hero-draft { animation-delay: 0.15s; }
+  .codex-hero-activity-card { animation: codex-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: 0.15s; }
 }
-@keyframes site-hero-rise {
+@keyframes codex-hero-rise {
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: none; }
 }
+.codex-hero-wash-c {
+  left: 12%;
+  top: 140px;
+  width: 620px;
+  height: 620px;
+  background: radial-gradient(circle, rgba(124, 127, 242, 0.35) 0%, rgba(124, 127, 242, 0) 72%);
+}
 
-/* ───────────── communication scroll story (site/story.tsx) ───────────── */
-.site-story {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: 32px;
-  align-items: start;
+/* ───────────── product mock panels (site/product-mock/*) ─────────────
+   Captain 2026-09-26: the Codex-reference media panel — a soft blue/violet
+   gradient backdrop with the real portal window floating inside it, cropped
+   at the panel's own bottom (and, on narrow viewports, right) edge by
+   `overflow: hidden` rather than scaled — "panel scales down, horizontal
+   crop ok." Replaces the retired live `/demo` iframe embeds. */
+.pm-backdrop {
+  background: linear-gradient(165deg, #eef1ff 0%, #e6ebff 45%, #dbe2ff 100%);
 }
-.site-story-step {
-  padding: 40px 0 40px 18px;
-  border-top: 1px solid var(--border);
-  border-left: 3px solid transparent;
-  transition: border-color 0.25s ease;
-  cursor: default;
+.pm-backdrop-wash {
+  position: absolute;
+  inset: -15%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(90, 140, 255, 0.22) 0%, rgba(90, 140, 255, 0) 60%),
+    radial-gradient(circle at 85% 85%, rgba(154, 156, 245, 0.2) 0%, rgba(154, 156, 245, 0) 60%);
 }
-/* Inactive steps read in the muted ink (still AA); the active one in full ink with a blue rail. */
-.site-story-step h3 { color: var(--muted); transition: color 0.25s ease; }
-.site-story-step.is-active { border-left-color: var(--primary); }
-.site-story-step.is-active h3 { color: var(--foreground); }
-.site-story-step:first-child { border-top: 0; padding-top: 8px; }
-.site-story-step:last-child { padding-bottom: 260px; }
-.site-story-frame {
-  position: sticky;
-  top: 24px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--card);
-  box-shadow: 0 24px 60px rgba(8, 9, 11, 0.14);
+/* Flipped (panel-on-the-left) row: same two glows, mirrored horizontally. */
+.pm-backdrop-wash--mirror {
+  background:
+    radial-gradient(circle at 75% 20%, rgba(90, 140, 255, 0.22) 0%, rgba(90, 140, 255, 0) 60%),
+    radial-gradient(circle at 15% 85%, rgba(154, 156, 245, 0.2) 0%, rgba(154, 156, 245, 0) 60%);
 }
-.site-story-inbox {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  height: 520px;
-  font-size: 12px;
-}
-.site-story-list {
-  overflow: hidden;
-  border-right: 1px solid var(--border);
-  background: var(--card);
-}
-.site-story-dash {
-  height: 520px;
-  padding: 16px 18px;
-  background: var(--portal-canvas, #f5f7fb);
-}
-.site-story-caret {
-  display: inline-block;
-  width: 1px;
-  height: 12px;
-  margin-left: 2px;
-  vertical-align: -2px;
-  background: currentColor;
-  animation: site-story-blink 1s steps(1) infinite;
-}
-@keyframes site-story-blink { 50% { opacity: 0; } }
-
-@media (max-width: 1023px) {
-  .site-story { grid-template-columns: 1fr; gap: 20px; }
-  .site-story-frame { position: static; }
-  .site-story-step { padding: 22px 0; }
-  .site-story-step:last-child { padding-bottom: 22px; }
-  .site-story-inbox { grid-template-columns: 1fr; height: auto; }
-  .site-story-list { display: none; }
-  .site-story-dash { height: auto; }
-}
-/* Reduced motion: no sticky, no observer — every pane shows, stacked. */
-@media (prefers-reduced-motion: reduce) {
-  .site-story { grid-template-columns: 1fr; }
-  .site-story-frame { position: static; }
-  .site-story-pane[hidden] { display: block !important; border-top: 1px solid var(--border); }
-  .site-story-caret { animation: none; }
-}
+.pm-window { z-index: 1; }
 
 /* ───────────── /app phone frames (site/app-page.tsx) ───────────── */
 .site-app-shots { position: relative; height: 480px; }
@@ -171,31 +101,4 @@
   .site-app-shots { height: 420px; }
   .site-app-phone { right: calc(50% - 190px); width: 190px; }
   .site-app-phone.is-back { right: calc(50% + 10px); width: 170px; }
-}
-
-/* story: composer menus and the sent-bubble entrance */
-.site-story-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  z-index: 5;
-  width: 260px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: 0 18px 40px rgba(8, 9, 11, 0.16);
-}
-.site-story-menu-item {
-  display: block;
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
-  text-align: left;
-  transition: background-color 0.15s ease;
-}
-.site-story-menu-item:hover { background: var(--accent); }
-.site-story-menu-item b { display: block; font-size: 12.5px; color: var(--foreground); }
-.site-story-menu-item span { display: block; font-size: 11px; color: var(--muted); }
-@media (prefers-reduced-motion: no-preference) {
-  .site-story-sent { animation: site-hero-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 }

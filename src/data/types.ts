@@ -24,6 +24,13 @@ export type MockProperty = {
   mapLng?: number;
   /** When set, listing detail sections are generated from manager submission. */
   listingSubmission?: ManagerListingSubmissionV1;
+  /**
+   * `manager_property_records.workspace_id`, attached server-side only so
+   * `getPublicListings()` can look up this listing's workspace application
+   * form template before projecting. NOT in `PUBLIC_PROPERTY_KEYS`, so
+   * `publicListingProjection` strips it from every payload a prospect sees.
+   */
+  workspaceId?: string | null;
   /** Supabase user id of the owning manager (demo localStorage scoping). */
   managerUserId?: string;
   /**

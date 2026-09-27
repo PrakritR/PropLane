@@ -30,6 +30,7 @@ import { resolveViewerWorkNumber } from "@/lib/sms/manager-workspace-role.server
 import { loadConversationHouses } from "@/lib/sms/conversation-houses.server";
 import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
+import { projectManagerSmsEvent } from "@/lib/sms/project-manager-sms-event.server";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
 
@@ -313,6 +314,8 @@ export async function logManagerSmsMessage(
     fromPhone?: string | null;
     toPhone: string;
     messageSid?: string | null;
+    /** Original provider event time. A burst may be persisted after later texts. */
+    createdAt?: string | null;
     source?: "work_number" | "relay" | "automated";
     /**
      * The counterparty's capacity in this thread. On a shared line the role is
@@ -340,41 +343,89 @@ export async function logManagerSmsMessage(
     counterpartyPhone: residentPhone,
   });
   const conversationKey = args.conversationKey?.trim() || derivedConversationKey;
+  const occurredAt = args.createdAt || new Date().toISOString();
 
   const row = {
     manager_user_id: managerUserId,
     resident_user_id: residentUserId,
     resident_phone: residentPhone,
     direction: args.direction,
-    body: args.body.trim().slice(0, 1600),
+    body: args.body,
     from_phone: args.fromPhone ? phoneKey(args.fromPhone) : null,
     to_phone: toPhone,
     message_sid: args.messageSid?.trim() || null,
+    created_at: occurredAt,
     source: args.source ?? "work_number",
     counterparty_role: counterpartyRole,
     conversation_key: conversationKey,
   };
 
+  let alreadyLogged = false;
+  let originalTime = occurredAt;
+  let originalBody = args.body;
+  let originalFrom = row.from_phone;
+  let originalTo = toPhone;
   if (row.message_sid) {
     const { data: existing } = await db
       .from("manager_sms_messages")
-      .select("id")
+      .select("id,created_at,body,from_phone,to_phone")
       .eq("message_sid", row.message_sid)
       .limit(1);
-    if ((existing ?? []).length > 0) return true;
+    alreadyLogged = (existing ?? []).length > 0;
+    if (alreadyLogged && !args.createdAt) {
+      originalTime = String(existing?.[0]?.created_at ?? occurredAt);
+      originalBody = String(existing?.[0]?.body ?? args.body);
+      originalFrom = existing?.[0]?.from_phone ? String(existing[0].from_phone) : row.from_phone;
+      originalTo = existing?.[0]?.to_phone ? String(existing[0].to_phone) : toPhone;
+    }
   }
 
-  const { error } = await db.from("manager_sms_messages").insert(row);
-  if (error) {
-    // Unique sid race — treat as already logged.
-    if (error.code === "23505") return true;
-    console.error("logManagerSmsMessage insert failed", error.message, {
-      managerUserId,
-      residentPhone,
-      direction: row.direction,
-    });
-    return false;
+  if (!alreadyLogged) {
+    const { error } = await db.from("manager_sms_messages").insert(row);
+    if (error) {
+      // Unique SID race: the winner's original transport row remains the
+      // evidence, while this call still repairs the idempotent projection.
+      if (error.code !== "23505") {
+        console.error("logManagerSmsMessage insert failed", error.message, {
+          managerUserId,
+          direction: row.direction,
+        });
+        return false;
+      }
+      // A concurrent writer won the SID. Its durable transport envelope is
+      // authoritative unless this caller supplies the receipt's original time.
+      if (!args.createdAt && row.message_sid) {
+        const { data: winner, error: winnerError } = await db.from("manager_sms_messages")
+          .select("created_at,body,from_phone,to_phone")
+          .eq("message_sid", row.message_sid).maybeSingle();
+        if (!winnerError && winner) {
+          originalTime = String(winner.created_at);
+          originalBody = String(winner.body);
+          originalFrom = winner.from_phone ? String(winner.from_phone) : row.from_phone;
+          originalTo = winner.to_phone ? String(winner.to_phone) : toPhone;
+        }
+      }
+    }
   }
+  // The operational log is the send/receive gate. Projection is a repairable
+  // read model and must never suppress a reply after the original was saved.
+  await projectManagerSmsEvent(db, {
+    ownerManagerUserId: managerUserId,
+    counterpartyRole,
+    counterpartyUserId: residentUserId,
+    counterpartyPhone: residentPhone,
+    workPhone: args.direction === "inbound" ? toPhone : row.from_phone,
+    legacyConversationKey: conversationKey,
+    messageSid: row.message_sid,
+    direction: args.direction,
+    body: originalBody,
+    occurredAt: originalTime,
+    fromPhone: originalFrom,
+    toPhone: originalTo,
+    source: row.source,
+  }).catch((error) => console.error("sms projection deferred after durable log", {
+    reason: error instanceof Error ? error.message.split(":")[0] : "unknown",
+  }));
   return true;
 }
 
@@ -405,7 +456,7 @@ const RESIDENT_SCAN_MAX_ROWS = 20000;
  * Returns one entry per requested owner, each sorted by name, so the caller's
  * first-owner-wins dedup stays deterministic.
  */
-async function listResidentsForOwners(
+export async function listResidentsForOwners(
   db: SupabaseClient,
   managerUserIds: string[],
 ): Promise<Map<string, ResidentSeed[]>> {

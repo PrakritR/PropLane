@@ -173,8 +173,13 @@ beforeEach(() => {
   fetchCalls.length = 0;
 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  // Public resume and variant restoration can queue another microtask after
+  // unmount. Drain it before the next test installs a new global fetch spy.
+  await act(async () => {
+    cleanup();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   clearRentalWizardDraft();

@@ -41,9 +41,7 @@ const ALL_NAV_IDS: SettingsGroupId[] = [
   "payouts",
   "services",
   "tasks",
-  "bookings",
   "spreadsheets",
-  "inspections",
   "reminders",
 ];
 
@@ -81,6 +79,8 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
   });
 
   it("the Portfolio + Operations modules get the full scope bar", () => {
+    // Bookings and Inspections settings tabs are gone (C111/C116) — both held
+    // only reminders, now on the "reminders" pane already in this list.
     const expected: SettingsGroupId[] = [
       "applications",
       "lease",
@@ -91,11 +91,9 @@ describe("settings nav entries: bar / Account tag / Device tag, exactly one", ()
       "payouts",
       "tasks",
       "reminders",
-      "bookings",
-      "inspections",
       "services",
     ];
-    expect(SCOPED_OPERATIONS_PANES.size).toBe(12);
+    expect(SCOPED_OPERATIONS_PANES.size).toBe(10);
     for (const id of expected) expect(SCOPED_OPERATIONS_PANES.has(id)).toBe(true);
   });
 

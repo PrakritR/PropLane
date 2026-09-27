@@ -1,5 +1,6 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -824,7 +825,7 @@ export function ManagerTaskList({
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
       ) : null}><div className={PORTAL_LIST_PAGE_BODY}>
-        {loading ? <p className="text-sm text-muted">Loading…</p> : null}
+        {loading ? <ListSkeleton rows={4} showLeading={false} /> : null}
 
         {!loading && visibleRows.length > 0 ? (
           <div

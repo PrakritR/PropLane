@@ -34,6 +34,8 @@ import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
+import { payVendorFromBalance } from "@/lib/proplane-balance/ledger.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -46,8 +48,13 @@ export type ApprovePayInput = {
   materialsCostCents?: number;
   materialsMemo?: string;
   workDoneSummary?: string;
-  /** ACH through Stripe Connect is the only vendor payout rail (PLAN-0916). */
-  paymentChannel?: "ach";
+  /**
+   * ACH through Stripe Connect (PLAN-0916) is the default rail. `"balance"`
+   * (night/vendor-pay, `PROPLANE_BALANCE_ENABLED`) pays the vendor instantly
+   * out of the manager's PropLane balance instead — no Stripe call, no
+   * Checkout redirect. Ignored (treated as `"ach"`) when the flag is off.
+   */
+  paymentChannel?: "ach" | "balance";
   /**
    * The manager saw the double-pay warning naming the existing PropLane payout
    * and still wants to mark this paid. Without it, a work order that already has
@@ -65,7 +72,19 @@ export type ApprovePayExistingPayoutFailure = WorkOrderActionFailure & {
   existingPayout: ExistingVendorPayoutSummary;
 };
 
-export type ApprovePayFailure = WorkOrderActionFailure | ApprovePayExistingPayoutFailure;
+/** `paymentChannel: "balance"` and the PropLane balance can't cover the job — the caller falls back to the card (ACH) path. */
+export type ApprovePayInsufficientBalanceFailure = WorkOrderActionFailure & {
+  status: 422;
+  code: "insufficient_balance";
+  availableCents: number;
+  requestedCents: number;
+  shortfallCents: number;
+};
+
+export type ApprovePayFailure =
+  | WorkOrderActionFailure
+  | ApprovePayExistingPayoutFailure
+  | ApprovePayInsufficientBalanceFailure;
 
 export type ApprovePaySuccess = {
   ok: true;
@@ -146,7 +165,7 @@ export async function approveAndPayWorkOrder(
     return { ok: false, status: 403, error: "Vendor payouts are unavailable for test accounts." };
   }
 
-  const paymentChannel = "ach" as const;
+  const paymentChannel: "ach" | "balance" = input.paymentChannel === "balance" ? "balance" : "ach";
 
   const blocking = await findBlockingVendorPayout(db, workOrder.id);
   if (!blocking.ok) return { ok: false, status: 500, error: blocking.error };
@@ -209,7 +228,45 @@ export async function approveAndPayWorkOrder(
 
   const vendorUserId = String(existing.vendor_user_id ?? "").trim();
   const invoiceCents = Math.round(acceptedVendorCostCents ?? 0);
-  if (!input.settleOnly && vendorUserId && invoiceCents >= 100) {
+
+  // night/vendor-pay: pay the vendor instantly out of the manager's PropLane
+  // balance instead of starting a Stripe Checkout session. Runs BEFORE any
+  // completion/expense-logging write, so an insufficient balance (or the flag
+  // being off) leaves nothing half-done — the caller falls back to the card
+  // (ACH) path, which stays exactly as it was.
+  if (paymentChannel === "balance" && !input.settleOnly) {
+    if (!proplaneBalanceEnabled()) {
+      return { ok: false, status: 400, error: "The PropLane balance is not enabled." };
+    }
+    if (!vendorUserId || invoiceCents < 100) {
+      return { ok: false, status: 400, error: "Balance payment needs a vendor and a cost of at least $1.00." };
+    }
+    const move = await payVendorFromBalance(db, {
+      managerUserId: ownerManagerUserId,
+      vendorUserId,
+      amountCents: invoiceCents,
+      // Same idempotency-root shape as the vendor-invoice pay-from-balance
+      // route (`vendor-invoice:<id>`) — scoped to this work order, so a
+      // retried request can never pay the same job twice through the ledger.
+      idempotencyRoot: `work-order:${workOrder.id}`,
+    });
+    if (!move.ok) {
+      if (move.code === "insufficient_balance") {
+        return {
+          ok: false,
+          status: 422,
+          code: "insufficient_balance",
+          error: `The PropLane balance has ${(move.availableCents / 100).toFixed(2)} available; this job needs ${(move.requestedCents / 100).toFixed(2)}. Pay by card instead.`,
+          availableCents: move.availableCents,
+          requestedCents: move.requestedCents,
+          shortfallCents: move.shortfallCents,
+        };
+      }
+      return { ok: false, status: 500, error: move.error };
+    }
+  }
+
+  if (paymentChannel === "ach" && !input.settleOnly && vendorUserId && invoiceCents >= 100) {
     const checkout = await startVendorPayCheckout(db, {
       workOrderId: workOrder.id,
       ownerManagerUserId,
@@ -285,6 +342,20 @@ export async function approveAndPayWorkOrder(
       vendorUserId: existing.vendor_user_id,
       amountCents: acceptedVendorCostCents ?? 0,
     }).catch(() => null);
+  } else if (!input.settleOnly && existing.vendor_user_id && paymentChannel === "balance") {
+    // The ledger move already happened above (before any write) — this only
+    // records it in `vendor_payouts` so the SAME double-pay guard
+    // (`findBlockingVendorPayout`) and payout timeline see a settled payout,
+    // exactly as `completeVendorPayFromStripeSession` already does for a
+    // platform-hold-settled Stripe payment with no transfer id yet.
+    await recordVendorPayoutSettled(db, {
+      workOrderId: workOrder.id,
+      managerUserId: ownerManagerUserId,
+      vendorUserId: existing.vendor_user_id,
+      amountCents: acceptedVendorCostCents ?? 0,
+      stripeTransferId: null,
+    });
+    payoutOutcome = { status: "paid", amountCents: acceptedVendorCostCents ?? 0 };
   }
 
   const propertyLabel = paid.propertyName ? `${paid.propertyName}${paid.unit ? ` · ${paid.unit}` : ""}` : "";

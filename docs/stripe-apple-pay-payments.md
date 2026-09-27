@@ -100,6 +100,33 @@ that is native build config and is **out of scope** for this change (a separate
 iOS task owns native config). The legacy hosted application-fee redirect and
 Safari web paths are unaffected.
 
+## Local webhook relay (C203 — avoid a stuck "Processing…" locally)
+
+Both embedded checkouts above are `mode: "payment"` sessions the server
+confirms via webhook (`/api/stripe/webhook`), same as
+[`stripe-ach-local-test.md`](stripe-ach-local-test.md) documents for ACH.
+Without `stripe listen` forwarding locally, a card payment that Stripe's own
+iframe reports as submitted never reaches the app, so the embedded checkout
+sits on its own internal "Processing…" state forever and the wizard never
+sees the fee as paid — this is the most common LOCAL cause of that hang, not a
+bug in the checkout itself.
+
+```bash
+# Terminal 1
+npm run dev
+
+# Terminal 2 (requires Stripe CLI, `stripe login` once)
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+
+Copy the printed `whsec_…` into `STRIPE_WEBHOOK_SECRET` in `.env.local` and
+restart `npm run dev`. `application-fee-inline-payment.tsx` also has its own
+host-side timeout (`STUCK_AFTER_MS`, 45s): if the embedded checkout still
+hasn't resolved by then, it shows "This is taking longer than expected" with a
+**Reload payment form** button that remounts the SAME client secret — it never
+re-fetches one, so it can never mint a second charge even if the first
+attempt is still in flight server-side.
+
 ## Testing
 
 | Environment | Apple Pay |

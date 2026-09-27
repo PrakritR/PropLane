@@ -67,6 +67,13 @@ describe("ownership filter", () => {
     }
     expect(EMAIL_COLUMNS).toContain("resident_email");
   });
+
+  it("scopes SMS projection owners and viewers to the requested account", () => {
+    expect(ID_COLUMNS).toContain("owner_manager_user_id");
+    expect(ID_COLUMNS).toContain("viewer_user_id");
+    expect(ownershipFilter(["owner_manager_user_id"], account)).toContain("owner_manager_user_id.eq.user-1");
+    expect(ownershipFilter(["viewer_user_id"], account)).toContain("viewer_user_id.eq.user-1");
+  });
 });
 
 describe("delete order", () => {
@@ -105,6 +112,18 @@ describe("delete order", () => {
 
   it("names each table once", () => {
     expect(new Set(DELETE_ORDER).size).toBe(DELETE_ORDER.length);
+  });
+
+  it("deletes every SMS projection row before its conversation parent and work number", () => {
+    const projectionTables = [
+      "sms_projection_ambiguous_aliases", "sms_projection_deleted_events",
+      "sms_projection_view_state", "sms_projection_pending", "sms_projection_aliases",
+      "sms_projection_turns", "sms_projection_conversations",
+    ];
+    for (const table of projectionTables) expect(before(table, "manager_sms_numbers"), table).toBe(true);
+    for (const child of ["sms_projection_view_state", "sms_projection_aliases", "sms_projection_turns"]) {
+      expect(before(child, "sms_projection_conversations"), child).toBe(true);
+    }
   });
 
   it("visits every table the in-app purge knows about", () => {

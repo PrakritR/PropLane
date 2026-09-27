@@ -24,6 +24,22 @@ cookies are scoped per registrable domain, an installed app that updates to a
 build loading the new domain starts with no session and prompts a one-time
 re-login; this is inherent to the domain cutover, not a bug.
 
+**Browser visitors on a legacy host ARE redirected — by middleware, not
+Vercel.** `src/middleware.ts` + `src/lib/legacy-host-redirect.ts` send a
+plain browser's top-level page load on `prop-lane.space`, `proplane.space`
+(no hyphen — a separate domain, not yet attached to the Vercel project),
+`axis-seattle-housing.com`, or any `www.` variant to `https://proplane.ai`
+with the same path and query, 308. It stays exempt for anything that could be
+the native shell, checked in application code where the request's real
+evidence is visible (Vercel's domain-level redirect has none of this and must
+stay off): the Capacitor entry path (cold-launch, before any cookie exists),
+the first-party `proplane_native` cookie `NativeBridge` sets once it confirms
+the Capacitor bridge is up (`markNativeSession`, `src/lib/native/native-session-marker.ts`),
+or an in-app WebView user agent. `/api/**`, non-GET/HEAD requests, and any
+request without document-navigation evidence (`Sec-Fetch-Dest`/`Sec-Fetch-Mode`
+absent — assets, fetch/XHR, webhooks, cron) are never touched. Legacy hosts
+keep the existing host-aware `noindex` for whatever isn't redirected.
+
 - **Web/UI changes ship instantly** via your normal Vercel deploy. No app-store
   review needed for content or UI — the WebView always loads the latest site.
 - **Native-shell changes** (new plugins, icons, permissions, the Capacitor

@@ -8,6 +8,7 @@ import {
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress-application";
+import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -155,7 +156,12 @@ export function residentApplicationSubmitBlocked(input: {
   const room = input.roomChoice1?.trim() || "";
 
   const duplicatePending = existing.some((row) => {
-    if (row.bucket !== "pending" || isInProgressApplicationRow(row)) return false;
+    // A withdrawn row keeps bucket "pending" (see isWithdrawnApplicationRow) —
+    // without this check a withdrawn application blocked the very resubmit
+    // the comment above promises, contradicting the server's own
+    // findDuplicateApplication (duplicate-application.server.ts), which
+    // already excludes withdrawn rows the same way.
+    if (row.bucket !== "pending" || isInProgressApplicationRow(row) || isWithdrawnApplicationRow(row)) return false;
     const rowPid = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
     if (rowPid !== pid) return false;
     const rowRoom = row.application?.roomChoice1?.trim() || row.assignedRoomChoice?.trim() || "";

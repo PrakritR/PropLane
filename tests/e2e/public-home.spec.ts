@@ -4,7 +4,7 @@ import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /property management\s*that runs itself/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^propLane$/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /start free/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /book a demo/i }).first()).toBeVisible();
   });
@@ -16,7 +16,7 @@ test.describe("Public home", () => {
     await expect(nav.getByRole("link", { name: /^why proplane$/i }).first()).toHaveAttribute("href", "/why-proplane");
   });
 
-  test("FAQ answers every question ahead of the closing CTA", async ({ page }) => {
+  test("FAQ answers every question and closes the page", async ({ page }) => {
     await page.goto("/");
 
     const faq = page.getByRole("region", { name: "Questions, answered", exact: true });
@@ -42,12 +42,10 @@ test.describe("Public home", () => {
     await faq.getByText("Is there a free plan?", { exact: true }).click();
     await expect(faq.getByText(/free is \$0 with no card/i)).toBeVisible();
 
-    // The board sits above the closing CTA.
-    const ctaTop = await page
-      .getByRole("region", { name: "Get started", exact: true })
-      .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
-    const faqBottom = await faq.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
-    expect(faqBottom).toBeLessThanOrEqual(ctaTop);
+    // No separate closing CTA band on home (captain 2026-09-25, src/app/(public)/page.tsx):
+    // the pricing teaser and hero's own "Start free" already carry the ask, so the FAQ
+    // is deliberately the last section on the page.
+    await expect(page.getByRole("region", { name: "Get started", exact: true })).toHaveCount(0);
   });
 
   test("pricing teaser reads the three plans from the tier table", async ({ page }) => {
@@ -60,15 +58,26 @@ test.describe("Public home", () => {
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
-  test("the audience switch changes the screen beside it", async ({ page }) => {
+  // Captain 2026-09-26: redesigned around static, fixture-fed real portal
+  // panels (no live /demo iframe, no perspective switch — see
+  // docs/agents/marketing-mocks.md). Each row's own in-panel TABS (Pending/
+  // Upcoming/Past, etc.) still switch which fixture rows render.
+  test("the lifecycle section shows every stage as a real, tabbed product panel", async ({ page }) => {
     await page.goto("/");
-    const section = page.locator("#who-its-for");
+    const section = page.locator("#lifecycle");
     await section.scrollIntoViewIfNeeded();
-    await expect(section.getByRole("tab", { name: /managers/i })).toHaveAttribute("aria-selected", "true");
-    await section.getByRole("tab", { name: /residents/i }).click();
-    await expect(section.getByRole("link", { name: /for residents/i })).toBeVisible();
-    await section.getByRole("tab", { name: /vendors/i }).click();
-    await expect(section.getByRole("link", { name: /for vendors/i })).toHaveAttribute("href", "/vendors");
+    await expect(section.getByRole("heading", { name: /the best way to run a rental/i })).toBeVisible();
+    for (const kicker of ["Tours", "Applications", "Leasing", "Payments", "Services", "Communication"]) {
+      await expect(section.getByText(kicker, { exact: true }).first()).toBeVisible();
+    }
+    await expect(section.locator("iframe")).toHaveCount(0);
+
+    // Leasing's own in-panel tabs swap which fixture rows render.
+    const leasingRow = page.locator('[data-lifecycle-row="leasing"]');
+    await expect(leasingRow.getByText("Dana Reyes")).toBeVisible();
+    await leasingRow.getByRole("button", { name: /signed/i }).click();
+    await expect(leasingRow.getByText("Liam Foster")).toBeVisible();
+    await expect(leasingRow.getByText("Dana Reyes")).toHaveCount(0);
   });
 
   test("nothing overflows sideways on a phone", async ({ browser }) => {

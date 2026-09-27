@@ -55,6 +55,7 @@ import {
   customFieldsForWizardStep,
   formatCustomFieldAnswerDisplay,
   groupCustomFieldAnswersBySection,
+  isCustomFieldHiddenByCondition,
   listingCustomApplicationFields,
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
@@ -358,7 +359,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         error={errors[customFieldErrorKey(field.key)]}
         onChange={(next) => patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })}
         getApplicationId={getApplicationId} setupTokenRequired={p.photoSetupTokenRequired}
-        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly} />
+        getSetupToken={p.getPhotoSetupToken} readOnly={photosReadOnly || field.filledBy === "manager"} />
     </div>
   );
 
@@ -384,7 +385,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const fields = customFieldsForWizardStep(
       listingCustomApplicationFields(applicationConfig),
       step,
-    );
+    ).filter((field) => !isCustomFieldHiddenByCondition(field, form.customFieldAnswers));
     if (fields.length === 0) return null;
     return (
       <div className="space-y-5 rounded-2xl border border-border bg-accent/20 p-4 sm:p-5">
@@ -406,7 +407,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             getApplicationId={getApplicationId}
             setupTokenRequired={p.photoSetupTokenRequired}
             getSetupToken={p.getPhotoSetupToken}
-            readOnly={photosReadOnly}
+            readOnly={photosReadOnly || field.filledBy === "manager"}
           />
         ))}
       </div>
@@ -1174,7 +1175,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               getApplicationId={getApplicationId}
               setupTokenRequired={p.photoSetupTokenRequired}
               getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
+              readOnly={photosReadOnly || field.filledBy === "manager"}
             />
           </div>
         );
@@ -1670,7 +1671,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
 
   if (step === 8) {
     const additionalFields = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields)
-      .filter((field) => field.section === "additional");
+      .filter((field) => field.section === "additional")
+      .filter((field) => !isCustomFieldHiddenByCondition(field, form.customFieldAnswers));
     const renderAdditionalField = (field: (typeof additionalFields)[number]) => {
       if (!field.isStandard) {
         return (
@@ -1683,7 +1685,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               getApplicationId={getApplicationId}
               setupTokenRequired={p.photoSetupTokenRequired}
               getSetupToken={p.getPhotoSetupToken}
-              readOnly={photosReadOnly}
+              readOnly={photosReadOnly || field.filledBy === "manager"}
             />
           </div>
         );

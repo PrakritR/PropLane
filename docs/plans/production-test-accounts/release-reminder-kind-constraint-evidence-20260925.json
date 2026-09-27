@@ -1,0 +1,11 @@
+{
+  "capturedOn": "2026-09-25",
+  "target": "production",
+  "project": "qahnczmilgptcedaqype",
+  "constraint": "portal_reminder_records_kind_check",
+  "definition": "CONSTRAINT portal_reminder_records_kind_check CHECK ((kind = ANY (ARRAY['tour'::text, 'tour_interest'::text, 'task'::text, 'service_order'::text, 'work_order'::text, 'booking'::text, 'application'::text, 'application_manager'::text, 'application_post_tour'::text, 'lease'::text, 'lease_manager'::text, 'payment_manager'::text, 'outgoing_payment'::text, 'inspection'::text, 'inspection_manager'::text, 'work_order_unassigned'::text, 'work_order_unassigned_emergency'::text, 'work_order_no_on_my_way'::text, 'vendor_offer_expiry'::text, 'vendor_invoice_nudge'::text, 'invoice_approval'::text, 'service_request_decision'::text, 'service_request_unpaid'::text, 'vendor_document_expiry'::text, 'lease_ending'::text, 'lease_ending_manager'::text, 'renewal_offer_expiry'::text, 'countersign_overdue'::text, 'move_in'::text, 'move_in_payment_method'::text, 'move_out'::text, 'move_out_inspection_manager'::text, 'deposit_accounting'::text, 'lease_renewal_offer'::text, 'move_out_instructions'::text, 'deposit_return_notice'::text, 'application_documents'::text, 'application_decision_manager'::text, 'application_no_lease_manager'::text, 'cosigner'::text, 'group_application'::text, 'tour_request_unanswered'::text, 'tour_request_reoffer'::text, 'tour_no_show_manager'::text, 'tour_feedback'::text, 'delinquency_manager'::text, 'message_unanswered'::text, 'document_signature'::text, 'task_overdue'::text, 'resident_welcome'::text, 'inspection_acknowledge'::text])))",
+  "sha256": "5edc34c3861213ec4e89ddff89ffc80ec7d2ac652bee6cae8c675bfc8dfed038",
+  "sourceMigration": "20260920231000_lease_ending_sequence_reminder_kinds.sql",
+  "sourceSha256": "5786a8ee4535f01202d8421d5ac077a0e7983315bfeaba247d95b07f08d3366b",
+  "provenance": "Read-only production pg_get_constraintdef; CONSTRAINT name prefix matches REMINDER_SCHEMA_SQL. Definition independently confirmed against the committed migration."
+}

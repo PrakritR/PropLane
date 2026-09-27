@@ -13,13 +13,16 @@ vi.mock("@/lib/manager-property-save-target", async (importOriginal) => ({
 vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
   ManagerApplicationQuestionsEditorModal: () => <div data-testid="application-editor-modal" />,
 }));
-vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
-  ProPortalSettingsModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="application-settings-modal" /> : null,
+// C228: the property page's own automation sheet is gone — the gear now
+// navigates to Settings -> Forms instead, which needs the app router mounted.
+const routerPush = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPush }),
+  usePathname: () => "/portal/properties/all/mgr-house-1",
 }));
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
-  it("property tab shows per-template action menus and Application settings", () => {
+  it("property tab shows per-template action menus and Application automation", () => {
     const sub = addApplicationTemplateFromSeed(
       addApplicationTemplateFromSeed(createDefaultListingSubmission(), "standard"),
       "short-term",
@@ -37,12 +40,14 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Application settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Application automation" })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Application settings" }));
-    expect(screen.getByTestId("application-settings-modal")).toBeTruthy();
+    // C228: the gear no longer opens a local automation sheet — it jumps to
+    // Settings -> Forms, where this application form's Automation block now lives.
+    fireEvent.click(screen.getByRole("button", { name: "Application automation" }));
+    expect(routerPush).toHaveBeenCalledWith("/portal/profile?tab=forms");
   });
 
   it("Edit application modal keeps checkbox selection", () => {

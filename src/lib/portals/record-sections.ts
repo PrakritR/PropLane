@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Send,
   Share2,
+  Star,
   Trash2,
   Upload,
   UserMinus,
@@ -135,6 +136,47 @@ export type RecordSections = {
   headerActions: RecordHeaderAction[];
 };
 
+/**
+ * C011: one fixed relative order for header icons across every kind, so a
+ * manager who learns "edit is left of share, delete is always last and red"
+ * on Properties finds the same order on Residents, Payments, Leases, and
+ * every other record. This does not force every kind to CARRY every action —
+ * Payment has no edit/share/copy, Resident has no delete — it only fixes the
+ * order of whichever of these a kind's own array actually authors. The
+ * kind's first action (its own "next step" — View public, Message, Record
+ * payment, …) is never reordered: only what follows it, plus Delete, which
+ * always sorts last regardless of where the kind's array put it.
+ */
+const HEADER_ACTION_ORDER = ["edit", "share", "export", "download", "copy", "duplicate", "archive"];
+const DELETE_ACTION_ID = "delete";
+
+/** Applied once, centrally, in `recordSections()` — never re-sort a kind's array at its own definition site. */
+export function orderHeaderActions(actions: RecordHeaderAction[]): RecordHeaderAction[] {
+  if (actions.length <= 1) return actions;
+  const [primary, ...rest] = actions;
+  const deleteIndex = rest.findIndex((a) => a.id === DELETE_ACTION_ID);
+  const deleteAction = deleteIndex === -1 ? null : rest[deleteIndex]!;
+  const withoutDelete = deleteIndex === -1 ? rest : rest.filter((_, i) => i !== deleteIndex);
+
+  // Only actions that appear in HEADER_ACTION_ORDER are reordered, and only
+  // relative to ONE ANOTHER's slots — a kind-specific action (Approve,
+  // Decline, Reassign, Send for signature, …) never moves, so this can only
+  // fix the relative order among edit/share/export/duplicate, never
+  // reshuffle a kind's own action set.
+  const rankedSlots = withoutDelete
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => HEADER_ACTION_ORDER.includes(action.id));
+  const sortedRanked = [...rankedSlots].sort(
+    (a, b) => HEADER_ACTION_ORDER.indexOf(a.action.id) - HEADER_ACTION_ORDER.indexOf(b.action.id),
+  );
+  const result = [...withoutDelete];
+  rankedSlots.forEach(({ index }, i) => {
+    result[index] = sortedRanked[i]!.action;
+  });
+
+  return deleteAction ? [primary!, ...result, deleteAction] : [primary!, ...result];
+}
+
 /** Extra ids a kind's href builder needs beyond the record id itself — every field optional, sensibly defaulted. */
 export type RecordSectionContext = {
   basePath?: string;
@@ -172,6 +214,8 @@ type KindDef = {
    * here falls back to `headerActions`.
    */
   sectionActions?: Record<string, RecordHeaderAction[]>;
+  /** Communication is part of the shared trio for every kind except where explicitly opted out (C229: a property's own conversations live only on the portal-wide Communication page now). Defaults to true when omitted. */
+  hasCommunication?: boolean;
   hasDocuments: boolean;
   hasActivity: boolean;
   href: (ctx: RecordSectionContext) => (recordId: string, tab: string) => string;
@@ -199,7 +243,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "copy", label: "Copy", icon: Copy },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
-    hasDocuments: true,
+    // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
+    // Documents rail items are removed — conversations and files live only on
+    // the portal-wide Communication/Documents pages now.
+    hasCommunication: false,
+    hasDocuments: false,
     hasActivity: true,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
@@ -290,10 +338,20 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     // PLAN-0921-1029, area 2: Overview · Lease document · Payments ·
     // Communication. "Terms", "Signatures" and "Amendments" fold into the
     // Lease document view instead of staying separate tabs.
+    //
+    // C066/C281: "Audit trail" and "Answers" are real tabs, same shape as
+    // Applications' own "application-form" — who signed/when/the fingerprint,
+    // and (Ida Cares lease-first only) every clause's answer by section.
+    // Answers is listed for every lease the same way Applications always
+    // lists "Screening" regardless of whether a check exists — the panel
+    // shows an empty state for an ordinary application-driven lease that
+    // carries no `signingTemplateSnapshot`.
     ownGroups: [
       { label: "Lease", ids: [
         { id: "overview", label: "Overview" },
         { id: "lease-document", label: "Lease document" },
+        { id: "audit-trail", label: "Audit trail" },
+        { id: "answers", label: "Answers" },
       ] },
       { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
     ],
@@ -309,6 +367,13 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "new-version", label: "Generate new version", icon: Plus },
         { id: "upload", label: "Upload a PDF", icon: Upload },
         { id: "download", label: "Download", icon: Download },
+      ],
+      "audit-trail": [
+        { id: "export", label: "Export", icon: Download },
+        { id: "share", label: "Share", icon: Share2 },
+      ],
+      answers: [
+        { id: "share", label: "Share", icon: Share2 },
       ],
       payments: [
         { id: "add-charge", label: "Add charge", icon: Plus },
@@ -345,9 +410,14 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "archive", label: "Archive", icon: Archive },
     ],
     sectionActions: {
+      // C049 (studio decision): "Request more info" had no real handler
+      // anywhere in the app — dropped rather than shipped as a dead action.
+      // (This whole `sectionActions` map is currently unread by
+      // PortalRecordSectionChrome — the application record's real header
+      // dock is `renderApplicationRowActions` in pro-applications.tsx — so
+      // this never rendered either way; removed for hygiene.)
       "application-form": [
         { id: "approve", label: "Approve", icon: CheckCircle2 },
-        { id: "request-info", label: "Request more info", icon: Mail },
         { id: "download", label: "Download", icon: Download },
         { id: "print", label: "Print", icon: Printer },
       ],
@@ -425,6 +495,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "assign-vendor", label: "Assign vendor", icon: UserPlus },
       { id: "schedule", label: "Schedule", icon: Calendar },
       { id: "close", label: "Close", icon: CheckCircle2 },
+      // Only rendered once the service is completed and a vendor is assigned
+      // (gated in pro-work-orders-panel.tsx's headerActions filter).
+      { id: "review", label: "Leave a review", icon: Star },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
@@ -492,6 +565,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "overview", label: "Overview" },
         { id: "services", label: "Services" },
         { id: "invoices", label: "Invoices" },
+        { id: "reviews", label: "Reviews" },
       ] },
     ],
     headerActions: [
@@ -857,9 +931,10 @@ export function recordSections(
     }))
     .filter((group) => group.items.length > 0);
 
-  const trioItems: RecordSectionItem[] = [
-    { id: "communication", label: "Communication", href: (recordId: string) => hrefFor(recordId, "communication") },
-  ];
+  const trioItems: RecordSectionItem[] = [];
+  if (def.hasCommunication !== false) {
+    trioItems.push({ id: "communication", label: "Communication", href: (recordId: string) => hrefFor(recordId, "communication") });
+  }
   if (def.hasDocuments) {
     trioItems.push({ id: "documents", label: "Documents", href: (recordId: string) => hrefFor(recordId, "documents") });
   }
@@ -868,10 +943,13 @@ export function recordSections(
   }
   // No group label: Communication/Documents/Activity read as universal record
   // chrome, not a labeled category the way "Money" or "People" are.
-  groups.push({ label: "", items: trioItems });
+  if (trioItems.length > 0) {
+    groups.push({ label: "", items: trioItems });
+  }
 
-  const headerActions =
-    (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions;
+  const headerActions = orderHeaderActions(
+    (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions,
+  );
 
   return {
     groups,

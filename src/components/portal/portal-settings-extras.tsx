@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { PortalDataExportButton } from "@/components/portal/portal-data-export-button";
 import { PortalDeleteAccountButton } from "@/components/portal/portal-delete-account-button";
@@ -31,7 +32,7 @@ export function PortalSettingsExtras({
       title="Account"
     >
       <PortalSettingsGroup>
-        {variant === "full" ? (
+        {variant === "full" && DARK_MODE_ENABLED ? (
           <PortalSettingsRow label="Appearance">
             <ThemeToggle className="shrink-0" />
           </PortalSettingsRow>

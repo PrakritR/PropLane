@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Bell,
   Download,
+  FileCheck2,
   FileSearch,
   FilePlus,
   Pencil,
@@ -18,7 +19,11 @@ import {
 } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
-import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import {
+  leaseAllowsSignedPdfUpload,
+  leaseCanBeMarkedSignedOffPlatform,
+  leaseClaimsExecution,
+} from "@/lib/lease-execution-evidence";
 import {
   hasBothLeaseSignatures,
   leaseAwaitingManagerCountersign,
@@ -39,6 +44,10 @@ type LeasePrimaryHeaderActionsProps = {
   downloadLabel?: string;
   deleteLabel?: string;
   onDownload: () => void;
+  /** C064: a real signed-document-with-audit-page PDF, distinct from plain Download. Shown once the lease carries any signature. */
+  onExport?: () => void;
+  exportBusy?: boolean;
+  exportDataAttr?: string;
   onSignManager?: () => void;
   onSigningReminder?: () => void;
   signingReminderBusy?: boolean;
@@ -121,6 +130,9 @@ export function LeasePrimaryHeaderActions({
   downloadLabel = "Download",
   deleteLabel = "Delete",
   onDownload,
+  onExport,
+  exportBusy = false,
+  exportDataAttr = "lease-primary-export",
   onSignManager,
   onSigningReminder,
   signingReminderBusy = false,
@@ -154,6 +166,7 @@ export function LeasePrimaryHeaderActions({
 }: LeasePrimaryHeaderActionsProps) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const hasDocument = leaseRowHasDocument(row);
+  const showExport = hasDocument && leaseClaimsExecution(row) && Boolean(onExport);
 
   const showSendToResident =
     hasDocument &&
@@ -191,6 +204,21 @@ export function LeasePrimaryHeaderActions({
             label={downloadLabel}
             dataAttr={downloadDataAttr}
             onClick={onDownload}
+          />
+        ),
+      });
+    }
+
+    if (showExport) {
+      actions.push({
+        id: "export",
+        node: (
+          <LeaseHeaderIcon
+            icon={FileCheck2}
+            label={exportBusy ? "Exporting…" : "Export"}
+            dataAttr={exportDataAttr}
+            disabled={exportBusy}
+            onClick={onExport}
           />
         ),
       });
@@ -386,6 +414,10 @@ export function LeasePrimaryHeaderActions({
     return actions;
   }, [
     hasDocument,
+    showExport,
+    exportBusy,
+    exportDataAttr,
+    onExport,
     showSendToResident,
     showMoveToReview,
     showSign,

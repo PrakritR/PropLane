@@ -51,8 +51,14 @@ function entryPoint(
  * callers that want a specific module rather than a tab lookup.
  */
 export const MANAGER_SETTINGS_ENTRY_POINTS = {
-  bookings: entryPoint("bookings", "Booking settings", "bookings"),
-  inspections: entryPoint("inspections", "Inspection settings", "inspections"),
+  // Both tabs are gone (C111/C116): each held only a Reminders/Messages
+  // section, which now lives on the central Reminders hub — these two gears
+  // still open it directly (their call sites hardcode `initialTab="automation"`)
+  // rather than going dead. No `tab` here: `notifications` already owns the
+  // canonical automation->entry reverse lookup (`getSettingsEntryPointForTab`),
+  // and a second "automation" tab value here would shadow it.
+  bookings: entryPoint("bookings", "Booking settings"),
+  inspections: entryPoint("inspections", "Inspection settings"),
   payments: entryPoint("payments", "Payment settings", "payments"),
   leases: entryPoint("leases", "Lease settings", "lease"),
   properties: entryPoint("properties", "Property settings"),

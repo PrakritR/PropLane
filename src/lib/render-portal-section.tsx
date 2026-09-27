@@ -1,4 +1,14 @@
 import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
+import {
+  parseResidentInspectionTypeFilter,
+  RESIDENT_INSPECTION_TAB_ORDER,
+  type ResidentInspectionTab,
+} from "@/lib/resident-inspections-tabs";
+import {
+  parseResidentDocumentKindFilter,
+  RESIDENT_DOCUMENT_KIND_DEFAULT_TAB,
+  type ResidentDocumentTab,
+} from "@/lib/resident-documents-tabs";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { AdminDashboard } from "@/components/portal/admin-dashboard";
 import { ManagerDashboard } from "@/components/portal/pro-dashboard";
@@ -6,6 +16,8 @@ import { ManagerLeases } from "@/components/portal/pro-leases";
 import { ManagerPayments } from "@/components/portal/pro-payments";
 import { ManagerPromotion } from "@/components/portal/pro-promotion";
 import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
+import QRCode from "qrcode";
+import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
@@ -34,6 +46,7 @@ import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-pa
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
+import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
@@ -387,6 +400,13 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/work-orders/pending`);
   }
 
+  // Jobs was folded into Services — every /vendor/jobs* URL (any tab, any
+  // depth) redirects to the Potential tab, which already lists every invited
+  // job (`vendorWorkOrderTab`'s `biddingOpen` bucket).
+  if (kind === "vendor" && section === "jobs") {
+    redirect(`${def.basePath}/work-orders/pending`);
+  }
+
   const residentCtx = kind === "resident" ? await getEffectiveSessionForPortal("resident") : null;
   const residentManagerTier =
     kind === "resident" && residentCtx?.profile?.manager_id?.trim()
@@ -501,6 +521,10 @@ export async function renderPortalSection(
     if (tabParts?.length) notFound();
     return <VendorSettingsPanel />;
   }
+  if (kind === "vendor" && section === "reviews") {
+    if (tabParts?.length) notFound();
+    return <VendorReviewsPanel />;
+  }
 
   const meta = findSection(def, section);
   if (!meta) notFound();
@@ -543,13 +567,18 @@ export async function renderPortalSection(
   }
 
   if (kind === "admin" && section === "properties") {
-    if (tabParts?.length) notFound();
-    return <AdminPropertiesClient />;
+    // A property row's record page is `/admin/properties/<adminRefId>` (C163)
+    // — one detail segment, decoded and handed to the client for lookup.
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminPropertiesClient detailId={detailId} />;
   }
 
   if (kind === "admin" && section === "axis-users") {
-    if (tabParts?.length) notFound();
-    return <AdminAxisUsersClient />;
+    // An account row's record page is `/admin/axis-users/<kind>-<id>` (C165).
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminAxisUsersClient detailId={detailId} />;
   }
 
   if (kind === "admin" && section === "billing") {
@@ -558,10 +587,12 @@ export async function renderPortalSection(
   }
 
   if (kind === "admin" && section === "test-accounts") {
-    if (tabParts?.length) notFound();
+    // A workspace row's record page is `/admin/test-accounts/<workspaceId>` (C168).
+    if ((tabParts?.length ?? 0) > 1) notFound();
     if (!isTestWorkspaceFeatureEnabled()) notFound();
     await requireTrustedTestWorkspaceOperator().catch(() => notFound());
-    return <AdminTestWorkspacesClient />;
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminTestWorkspacesClient detailId={detailId} />;
   }
 
   if (kind === "admin" && section === "leases") {
@@ -1292,7 +1323,16 @@ export async function renderPortalSection(
       );
     }
     if (section === "app") {
-      return subscriptionGated(<ManagerMobileAppPanel />, kind, "app", managerOwnerSubscriptionTier);
+      // N068: a real QR code fills the desktop-only blank space next to the
+      // phone-dock layout with a fast desktop-to-phone handoff, generated
+      // server-side from the same canonical download URL the App Store badge
+      // uses (same pattern as the public /app page and the house print sheets).
+      const qrCodeSvg = await QRCode.toString(iosAppDownloadUrl(), {
+        type: "svg",
+        margin: 0,
+        color: { dark: "#0b1120", light: "#ffffff00" },
+      });
+      return subscriptionGated(<ManagerMobileAppPanel qrCodeSvg={qrCodeSvg} />, kind, "app", managerOwnerSubscriptionTier);
     }
     if (section === "profile") {
       return subscriptionGated(<ManagerProfile />, kind, "profile", managerOwnerSubscriptionTier);
@@ -1370,38 +1410,55 @@ export async function renderPortalSection(
   }
 
   if (kind === "resident" && section === "documents") {
-    const allowedTabs = meta.tabs.map((t) => t.id);
+    const allowedTabs = meta.tabs.map((t) => t.id); // bucket ids: to-sign, signed, archived
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/${section}/${allowedTabs[0] ?? "application"}`);
+      redirect(`${def.basePath}/${section}/${allowedTabs[0] ?? "to-sign"}`);
     }
     if (tabParts.length > 2) notFound();
-    const docTab = tabParts[0]!;
-    // "Shared with you" was merged into "Other documents" — keep old deep links alive.
-    if (docTab === "shared") redirect(`${def.basePath}/${section}/other`);
-    if (!allowedTabs.includes(docTab)) notFound();
-    const detailId =
-      tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-    if (
-      tabParts.length === 2 &&
-      docTab !== "application" &&
-      docTab !== "lease" &&
-      docTab !== "receipts"
-    ) {
-      notFound();
+    const seg = tabParts[0]!;
+    // "Shared with you" was merged into "Other documents" long ago — keep old deep links alive.
+    if (seg === "shared") redirect(`${def.basePath}/${section}/archived?kind=other`);
+
+    // Legacy category LIST url (no detail id) — captain, 2026-09-25: the top
+    // destinations are now To sign / Signed / Archived, and Application /
+    // Lease / Rent receipts / Other documents moved into the Filter
+    // popover's "Kind" field. Land on that kind's default bucket with the
+    // kind preselected rather than 404ing.
+    const legacyKind = parseResidentDocumentKindFilter(seg);
+    if (legacyKind && !tabParts[1]) {
+      redirect(`${def.basePath}/${section}/${RESIDENT_DOCUMENT_KIND_DEFAULT_TAB[legacyKind]}?kind=${legacyKind}`);
     }
-    const applicationId = docTab === "application" ? detailId : undefined;
-    const leaseId = docTab === "lease" ? detailId : undefined;
-    const receiptId = docTab === "receipts" ? detailId : undefined;
+
+    // Detail via the legacy kind segment (`/documents/{kind}/{id}`) is
+    // unchanged — a document always opens under its own real kind, whichever
+    // bucket/kind filter the resident found it from.
+    if (legacyKind === "application" || legacyKind === "lease" || legacyKind === "receipts") {
+      const detailId = decodeURIComponent(tabParts[1]!);
+      const tierGate = residentManagerTierGate("documents", residentManagerTier, meta.label);
+      if (tierGate) return tierGate;
+      return (
+        <ResidentDocumentsPanel
+          tabId={legacyKind}
+          basePath={def.basePath}
+          applicationId={legacyKind === "application" ? detailId : undefined}
+          leaseId={legacyKind === "lease" ? detailId : undefined}
+          receiptId={legacyKind === "receipts" ? detailId : undefined}
+        />
+      );
+    }
+    // "Other documents" never had a detail-id route.
+    if (legacyKind === "other") notFound();
+
+    // New bucket LIST route: `/documents/{to-sign|signed|archived}`.
+    if (!allowedTabs.includes(seg)) notFound();
     const tierGate = residentManagerTierGate("documents", residentManagerTier, meta.label);
     if (tierGate) return tierGate;
     return (
       <ResidentDocumentsPanel
-        tabId={docTab}
+        tabId={seg}
         basePath={def.basePath}
-        tabs={meta.tabs}
-        applicationId={applicationId}
-        leaseId={leaseId}
-        receiptId={receiptId}
+        bucket={seg as ResidentDocumentTab}
+        kindFilter={parseResidentDocumentKindFilter(firstSearchParam(searchParams, "kind"))}
       />
     );
   }
@@ -1439,11 +1496,32 @@ export async function renderPortalSection(
   if (kind === "resident" && section === "inspections") {
     // Locked until the lease is signed, like My home — there is no room to inspect before then.
     if (!residentAccess?.leaseAccessUnlocked) redirect(`${def.basePath}/dashboard`);
-    if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
-    const inspectionKind = tabParts[0];
-    if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 2) notFound();
-    if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
-    return <ResidentInspectionsPage kind={inspectionKind} reportId={tabParts[1]} basePath={def.basePath} />;
+    if (!tabParts?.length) redirect(`${def.basePath}/inspections/upcoming`);
+    const seg = tabParts[0]!;
+    // Legacy Move-in / Move-out LIST url (no report id) — captain, 2026-09-25:
+    // the top destinations are now the Upcoming / In progress / Done buckets,
+    // and Move-in / Move-out moved into the Filter popover's "Type" field.
+    // Land on Upcoming with that type preselected rather than 404ing.
+    if ((seg === "move-in" || seg === "move-out") && !tabParts[1]) {
+      redirect(`${def.basePath}/inspections/upcoming?type=${seg}`);
+    }
+    // Detail via the kind segment (`/inspections/{move-in|move-out}/{id}`) is
+    // unchanged — a filed report always opens under its own real kind,
+    // whichever bucket/type filter the resident found it from.
+    if (seg === "move-in" || seg === "move-out") {
+      if (tabParts.length > 2) notFound();
+      if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
+      return <ResidentInspectionsPage kind={seg} reportId={tabParts[1]} basePath={def.basePath} />;
+    }
+    // New bucket LIST route: `/inspections/{upcoming|in-progress|done}`.
+    if (!(RESIDENT_INSPECTION_TAB_ORDER as readonly string[]).includes(seg) || tabParts.length > 1) notFound();
+    return (
+      <ResidentInspectionsPage
+        bucket={seg as ResidentInspectionTab}
+        basePath={def.basePath}
+        typeFilter={parseResidentInspectionTypeFilter(firstSearchParam(searchParams, "type"))}
+      />
+    );
   }
 
   if (kind === "resident" && section === "move-in") {
@@ -1483,6 +1561,7 @@ export async function renderPortalSection(
         tabId={moveInTab}
         tabs={meta.tabs}
         focusRoomId={typeof searchParams?.room === "string" ? searchParams.room : undefined}
+        leaseSigned={residentAccess?.leaseSigned ?? false}
       />
     );
   }
@@ -1632,7 +1711,10 @@ export async function renderPortalSection(
     } = await import("@/lib/portal-detail-routes");
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0];
-    if (raw === "tasks" || raw === "tours" || raw === "all" || raw === "services") {
+    // "all" is the default and canonicalizes to the bare route. day/week/month/list
+    // were view-mode ids from the retired agenda-only calendar (C155); tasks/tours
+    // never existed for vendor. All fall back to the default tab rather than 404ing.
+    if (raw === "all" || raw === "list" || raw === "day" || raw === "week" || raw === "month" || raw === "tasks" || raw === "tours") {
       redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
     }
     if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();

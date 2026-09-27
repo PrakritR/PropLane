@@ -19,7 +19,10 @@ class ResizeObserverStub {
 }
 vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: () => {}, replace: () => {}, prefetch: () => {} }),
+}));
 
 import { PublicNavbar } from "@/components/layout/public-navbar";
 

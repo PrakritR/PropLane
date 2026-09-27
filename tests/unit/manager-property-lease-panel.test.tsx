@@ -7,9 +7,12 @@ import { createDefaultListingSubmission } from "@/lib/manager-listing-submission
 vi.mock("@/components/portal/property-lease-form-modal", () => ({
   PropertyLeaseFormModal: () => null,
 }));
-vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
-  ProPortalSettingsModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="lease-settings-modal" /> : null,
+// C228: the property page's own automation sheet is gone — the gear now
+// navigates to Settings -> Forms instead, which needs the app router mounted.
+const routerPush = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPush }),
+  usePathname: () => "/portal/properties/all/mgr-house-1",
 }));
 
 describe("ManagerPropertyLeasePanel", () => {
@@ -45,7 +48,7 @@ describe("ManagerPropertyLeasePanel", () => {
     );
 
     // Record editing appears only inside that record’s menu.
-    expect(screen.getByRole("button", { name: "Lease settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Lease automation" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
 
     expect(screen.queryByRole("checkbox")).toBeNull();
@@ -54,7 +57,9 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Lease settings" }));
-    expect(screen.getByTestId("lease-settings-modal")).toBeTruthy();
+    // C228: the gear no longer opens a local automation sheet — it jumps to
+    // Settings -> Forms, where this lease's Automation block now lives.
+    fireEvent.click(screen.getByRole("button", { name: "Lease automation" }));
+    expect(routerPush).toHaveBeenCalledWith("/portal/profile?tab=forms");
   });
 });

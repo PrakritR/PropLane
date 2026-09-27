@@ -13,12 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SignupFieldStack } from "@/components/auth/signup-field-stack";
 import { PasswordInput } from "@/components/ui/password-input";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { queuePendingNotice, VENDOR_PORTAL_PATH } from "@/lib/pending-notice";
 import { FIELD_LABEL_CLASS } from "@/lib/ui-styles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 import { withAuthTimeout } from "@/lib/auth/with-timeout";
+import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 
 type RegisterResponse = {
   error?: string;
@@ -36,7 +38,7 @@ export function VendorSignupForm({
   inviteToken,
   initialEmail = "",
   initialFullName = "",
-  nextPath = "/vendor/dashboard",
+  nextPath = "/vendor/onboarding",
   variant = "default",
   disabled = false,
   hideLegalFooter = false,
@@ -57,6 +59,15 @@ export function VendorSignupForm({
   // collected different details depending on which link you arrived through.
   const [fullName, setFullName] = useState(initialFullName ?? "");
   const [phone, setPhone] = useState("");
+  // C175: the first-tier onboarding basics (business name, at least one
+  // trade, a service area — the same bar `vendorOnboardingRequiredFieldsFilled`
+  // checks) collected directly at signup so a vendor doesn't face a second
+  // blank form immediately after. All optional here — leaving them blank
+  // just means `/vendor/onboarding` still has them to fill, same as today.
+  const [businessName, setBusinessName] = useState("");
+  const [trades, setTrades] = useState<string[]>([]);
+  const [serviceAreaCity, setServiceAreaCity] = useState("");
+  const [serviceAreaZips, setServiceAreaZips] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
@@ -73,7 +84,7 @@ export function VendorSignupForm({
 
   const compact = variant === "compact";
   const locked = disabled || busy;
-  const resolvedNext = nextPath.startsWith("/") ? nextPath : "/vendor/dashboard";
+  const resolvedNext = nextPath.startsWith("/") ? nextPath : "/vendor/onboarding";
 
   const submit = async () => {
     setError(null);
@@ -148,6 +159,34 @@ export function VendorSignupForm({
         return;
       }
       if (signInData?.user) posthog.identify(signInData.user.id);
+
+      // Best-effort: write the collected business-profile basics through the
+      // SAME persistence `/vendor/onboarding` already uses (`saveVendorBusinessProfile`
+      // via `PATCH /api/vendor/business-profile`) now that there's a session to
+      // authorize the write. Never blocks the signup — if this fails, the
+      // vendor simply meets the same blank fields on `/vendor/onboarding` as
+      // before C175, no regression.
+      const zips = serviceAreaZips
+        .split(",")
+        .map((z) => z.trim())
+        .filter(Boolean);
+      if (businessName.trim() || trades.length > 0 || serviceAreaCity.trim() || zips.length > 0) {
+        try {
+          await fetch("/api/vendor/business-profile", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessName: businessName.trim() || undefined,
+              trades: trades.length > 0 ? trades : undefined,
+              serviceArea: serviceAreaCity.trim() || undefined,
+              serviceAreaZips: zips.length > 0 ? zips : undefined,
+            }),
+          });
+        } catch {
+          // Best-effort only — see comment above.
+        }
+      }
+
       const fallback = body.redirectTo?.startsWith("/") ? body.redirectTo : resolvedNext;
       // Queued only here, on the one exit that actually reloads the page — the
       // sign-in-error and throw branches must not leave a notice behind for an
@@ -200,6 +239,58 @@ export function VendorSignupForm({
   // Both layouts render the SAME fields.
   const passwordFieldsDefault = passwordFieldsCompact;
 
+  // C175: business-profile basics, collected inline so signup and onboarding
+  // are one step instead of two. Optional — see the state comment above.
+  const businessBasicsFields = (
+    <div className="space-y-3 rounded-2xl border border-border bg-card p-3.5" data-attr="vendor-signup-business-basics">
+      <p className="text-sm font-semibold text-foreground">Your business (optional now, needed before your first job)</p>
+      <label className="flex flex-col gap-1">
+        <span className={FIELD_LABEL_CLASS}>Business name</span>
+        <Input
+          value={businessName}
+          onChange={(e) => setBusinessName(e.target.value)}
+          placeholder="Apex Plumbing LLC"
+          disabled={locked}
+          data-attr="vendor-signup-business-name"
+        />
+      </label>
+      <div className="space-y-1.5">
+        <span className={FIELD_LABEL_CLASS}>Trades</span>
+        <CheckboxMultiSelect
+          label="Trades"
+          hideLabel
+          options={VENDOR_TRADE_OPTIONS.map((t) => ({ value: t, label: t }))}
+          selected={trades}
+          onChange={setTrades}
+          disabled={locked}
+          dataAttr="vendor-signup-trades-select"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL_CLASS}>City</span>
+          <Input
+            value={serviceAreaCity}
+            onChange={(e) => setServiceAreaCity(e.target.value)}
+            placeholder="Seattle, WA"
+            disabled={locked}
+            data-attr="vendor-signup-service-city"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL_CLASS}>ZIP codes</span>
+          <Input
+            value={serviceAreaZips}
+            onChange={(e) => setServiceAreaZips(e.target.value)}
+            placeholder="98101, 98104"
+            disabled={locked}
+            data-attr="vendor-signup-service-zips"
+          />
+        </label>
+      </div>
+    </div>
+  );
+
   const tagline = (
     <p className="text-center text-[11px] leading-tight text-muted whitespace-nowrap sm:text-xs">
       Free vendor account · services &amp; payouts through PropLane.
@@ -242,6 +333,8 @@ export function VendorSignupForm({
 
         {passwordFieldsCompact}
 
+        {businessBasicsFields}
+
         <Button
           type="button"
           data-attr="vendor-signup-submit"
@@ -271,6 +364,7 @@ export function VendorSignupForm({
       {socialBlock}
       <AuthDivider label="or enter your details" />
       {passwordFieldsDefault}
+      {businessBasicsFields}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {localDevConfirmHint ? (
         <p className="text-xs text-muted">Local dev only: check the server console for the confirmation link.</p>

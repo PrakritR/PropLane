@@ -197,7 +197,7 @@ const FAQ_NOTES: { q: string; a: ReactNode }[] = [
   },
   {
     q: "How much does it cost?",
-    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and the inbox, priced by doors past the first 20). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, priced by doors past the first 120). Paying for a year saves about ${ANNUAL_DISCOUNT_PERCENT}%.`,
+    a: `Free is $0. Pro is ${PRO_MONTHLY_USD} a month (residents, leases, and the inbox, priced by residents past the first 20). Business is ${BUSINESS_MONTHLY_USD} a month (priority support, priced by residents past the first 120). Paying for a year saves about ${ANNUAL_DISCOUNT_PERCENT}%.`,
   },
   {
     q: "Do I need a credit card to try it?",

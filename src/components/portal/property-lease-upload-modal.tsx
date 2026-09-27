@@ -4,8 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { readLeaseTemplateFile } from "@/components/portal/lease-config-form";
 import { createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
+import { listLeaseDocumentLibrary, type LeaseDocumentLibraryEntry } from "@/lib/lease-document-library";
+
+/** Value for the library picker meaning "upload a new PDF instead of reusing one." */
+const UPLOAD_NEW_VALUE = "";
 
 const fieldLabelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-muted";
 
@@ -34,6 +39,8 @@ export function PropertyLeaseUploadModal({
   const [fileName, setFileName] = useState<string | null>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [libraryEntries, setLibraryEntries] = useState<LeaseDocumentLibraryEntry[]>([]);
+  const [librarySelection, setLibrarySelection] = useState(UPLOAD_NEW_VALUE);
 
   useEffect(() => {
     if (!open) return;
@@ -41,9 +48,27 @@ export function PropertyLeaseUploadModal({
     setFileName(null);
     setDataUrl(null);
     setBusy(false);
+    setLibrarySelection(UPLOAD_NEW_VALUE);
+    void listLeaseDocumentLibrary()
+      .then(setLibraryEntries)
+      .catch(() => setLibraryEntries([]));
   }, [open]);
 
   const close = () => onClose();
+
+  const onPickFromLibrary = (id: string) => {
+    setLibrarySelection(id);
+    if (id === UPLOAD_NEW_VALUE) {
+      setDataUrl(null);
+      setFileName(null);
+      return;
+    }
+    const entry = libraryEntries.find((e) => e.id === id);
+    if (!entry) return;
+    setDataUrl(entry.url);
+    setFileName(entry.fileName);
+    setLabel(entry.name);
+  };
 
   const handleFile = (file: File | null) => {
     if (!file) return;
@@ -102,6 +127,19 @@ export function PropertyLeaseUploadModal({
       }
     >
       <div className="space-y-4">
+        {libraryEntries.length > 0 ? (
+          <FieldSingleSelect
+            label="Lease document"
+            value={librarySelection}
+            onChange={onPickFromLibrary}
+            dataAttr="property-lease-upload-library-picker"
+            options={[
+              { value: UPLOAD_NEW_VALUE, label: "Upload new PDF…" },
+              ...libraryEntries.map((entry) => ({ value: entry.id, label: entry.name })),
+            ]}
+          />
+        ) : null}
+
         <div>
           <label className={fieldLabelClass} htmlFor="property-lease-upload-name">
             Lease name
@@ -115,6 +153,7 @@ export function PropertyLeaseUploadModal({
           />
         </div>
 
+        {librarySelection !== UPLOAD_NEW_VALUE ? null : (
         <div>
           <label className={fieldLabelClass}>Lease file</label>
           <input
@@ -149,6 +188,13 @@ export function PropertyLeaseUploadModal({
             </label>
           )}
         </div>
+        )}
+        {librarySelection !== UPLOAD_NEW_VALUE && fileName ? (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3.5 py-3">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{fileName}</p>
+            <span className="shrink-0 text-xs font-semibold text-muted">From your library</span>
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

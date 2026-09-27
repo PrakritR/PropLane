@@ -75,7 +75,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
         : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
     ),
  useAppUi: () => ({ showToast }) }));
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
+vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false, DEMO_MANAGER_USER_ID: "demo-manager" }));
 vi.mock("@/lib/manager-subscription-client", () => ({
   loadManagerSubscriptionTierClient: vi.fn(async () => "pro"),
   loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false),

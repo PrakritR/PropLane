@@ -11,6 +11,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 import { runAgentTurn } from "@/lib/agent/loop";
 import { buildRegistry, defineTool, defineWriteTool } from "@/lib/tools/registry";
+import { suppressRedundantLeasingReplyTool } from "@/lib/tools/domains/leasing-sms";
 
 const suppress = defineTool({
   name: "suppress_reply",
@@ -83,6 +84,62 @@ describe("agent loop explicit suppression", () => {
 
     expect(result.reply).toBe("Here is the answer.");
     expect(result.suppression).toBeUndefined();
+  });
+
+  it("turns a rejected repeated-question suppression call into a normal answer", async () => {
+    create
+      .mockResolvedValueOnce({
+        stop_reason: "tool_use",
+        content: [{
+          type: "tool_use",
+          id: "tool-1",
+          name: "suppress_redundant_reply",
+          input: { recentOutboundMessageId: "out-1", reason: "acknowledgment" },
+        }],
+        usage: { input_tokens: 9, output_tokens: 3 },
+      })
+      .mockResolvedValueOnce({
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Room 3 allows up to two residents, so the house maximum is four." }],
+        usage: { input_tokens: 11, output_tokens: 4 },
+      });
+    const questionCtx = {
+      ...ctx,
+      leasingScope: {
+        sessionId: "session-1",
+        prospectPhoneE164: "+12065550123",
+        channel: "sms" as const,
+        workNumber: "+12065550124",
+        currentInboundText: "so each room has own resident? no more than 3 people in the house?",
+        recentDeliveredReplies: [{
+          messageId: "out-1",
+          text: "Each renter gets a private room.",
+          deliveredAt: "2026-09-27T05:38:00.000Z",
+        }],
+      },
+    } as AgentContext;
+
+    const result = await runAgentTurn({
+      ctx: questionCtx,
+      registry: buildRegistry([suppressRedundantLeasingReplyTool]),
+      messages: [{ role: "user", content: questionCtx.leasingScope!.currentInboundText }],
+      suppressionTools: ["suppress_redundant_reply"],
+    });
+
+    expect(result).toMatchObject({
+      reply: "Room 3 allows up to two residents, so the house maximum is four.",
+      terminationReason: "end_turn",
+    });
+    expect(result.suppression).toBeUndefined();
+    const secondCall = create.mock.calls[1]![0];
+    expect(secondCall.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "user",
+        content: expect.arrayContaining([
+          expect.objectContaining({ type: "tool_result", is_error: true }),
+        ]),
+      }),
+    ]));
   });
 
   it("validates inline write input before consuming its revision claim", async () => {

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Scheduled inbox loader correction - execution handoff</title>
+<style>body{max-width:850px;margin:40px auto;padding:24px;font:16px/1.6 system-ui}code{background:#f2f2f2;padding:1px 4px}h1,h2{line-height:1.2}</style>
+<h1>Scheduled inbox loader correction</h1>
+<p>Executed in <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code> from baseline <code>b27fca80acb129fe4de7e347e87f5b0f5702ce73</code>. This is a bounded correction to the schedule loader. No database, network, provider, server, or git operation was performed.</p>
+<h2>Change</h2>
+<p><code>loadManagerScheduledMessages</code> now uses the already manager-scoped, reminder-eligible charge set to request only its distinct property IDs. The listing helper batches at 100 IDs per query, skips the property read for an explicit empty set, and surfaces scoped query errors. Calls that omit the ID argument retain their global read and prior query-error behavior. Relevant listing normalization remains unchanged, so malformed relevant data still fails visibly.</p>
+<p>Files: <code>src/lib/payment-automation-server.ts</code> and <code>tests/unit/payment-automation-scheduled-loader.test.ts</code>.</p>
+<h2>Validation</h2>
+<ul>
+<li>Node 22.23.0, 768 MB heap, one Vitest worker: <code>vitest run tests/unit/payment-automation-scheduled-loader.test.ts --maxWorkers=1</code> - exit 0, 4 tests passed.</li>
+<li><code>eslint src/lib/payment-automation-server.ts tests/unit/payment-automation-scheduled-loader.test.ts</code> - exit 0.</li>
+</ul>
+<p>The focused tests cover an authorized referenced listing alongside an unrelated malformed listing, deduplication and 100-ID batch bounds over 1,000 IDs, empty and unscoped reads, scoped query failure, and malformed relevant listing failure. The test asserts that the existing projection receives the relevant listing map and manager options.</p>
+<h2>Review request</h2>
+<p>Please independently review the scoped read, legacy unscoped semantics, and loader regression coverage. Root owns whole-project validation and the read-only actual DEV replay; this handoff does not claim either has completed.</p>
+</html>

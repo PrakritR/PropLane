@@ -8,7 +8,7 @@ import {
 
 export function VendorGoogleSignUpButton({
   inviteToken,
-  nextPath = "/vendor/dashboard",
+  nextPath = "/vendor/onboarding",
   disabled = false,
 }: {
   /** When signing up from a manager invite link, the token is forwarded through OAuth. */

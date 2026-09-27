@@ -10,7 +10,7 @@ To address:
 1. **Conversation replies** — outbound portal conversation emails carry a signed
    `reply+…@${RESEND_REPLY_DOMAIN}` Reply-To; a verified reply is routed into the
    manager↔resident conversation thread (see "Conversation replies" below).
-2. **Everything else** (including **support@prop-lane.space**) shows up as a
+2. **Everything else** (including **support@proplane.ai**) shows up as a
    message in the **admin portal inbox** (the founder/`PRIMARY_ADMIN_EMAIL`
    scope), so support mail is handled inside the app next to the rest of the
    unified inbox.
@@ -80,7 +80,7 @@ status). Both go through `checkWorkspaceAssistantMailboxLocal` /
 
 ## How it works
 
-1. `support@prop-lane.space` is routed to **Resend Inbound**.
+1. `support@proplane.ai` is routed to **Resend Inbound**.
 2. Resend POSTs a Svix-signed `email.received` webhook to
    `POST /api/webhooks/email/inbound`
    (`src/app/api/webhooks/email/inbound/route.ts`).

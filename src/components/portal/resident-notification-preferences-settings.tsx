@@ -38,10 +38,10 @@ type RowStatus = "idle" | "saving" | "saved" | "error";
  * humanized key below, it never silently disappears.
  */
 const CATEGORY_COPY: Record<NotificationCategory, { label: string; description: string }> = {
-  messages: { label: "Messages", description: "New messages from your property manager." },
+  messages: { label: "Communication", description: "New communication from your property manager." },
   leases: { label: "Lease, move-in & move-out", description: "Lease signing, renewal, and move-out updates." },
   payments: { label: "Payments", description: "Rent charges, receipts, and payment reminders." },
-  maintenance: { label: "Maintenance", description: "Updates on service and maintenance requests." },
+  maintenance: { label: "Services", description: "Updates on service requests." },
   applications: { label: "Applications", description: "Updates on applications you've submitted." },
   tours: { label: "Tours", description: "Tour confirmations, changes, and reminders." },
   inspections: { label: "Inspections", description: "Move-in and move-out photo reminders." },

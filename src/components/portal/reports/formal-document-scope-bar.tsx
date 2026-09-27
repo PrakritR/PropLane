@@ -60,7 +60,7 @@ export function FormalDocumentScopeBar({
         options={[
           { value: "portfolio", label: "All properties" },
           { value: "property", label: "Per property" },
-          { value: "tenant", label: "Per tenant" },
+          { value: "tenant", label: "Per resident" },
           { value: "room", label: "Per room" },
         ]}
       />
@@ -82,14 +82,14 @@ export function FormalDocumentScopeBar({
 
       {filters.scope === "tenant" ? (
         <FieldSingleSelect
-          label="Tenant"
+          label="Resident"
           wrapperClassName={fieldWrapClass("min-w-[10rem]")}
           dataAttr="formal-document-tenant"
-          placeholder="Select tenant"
+          placeholder="Select resident"
           value={filters.residentEmail}
           onChange={(next) => onChange({ residentEmail: next })}
           options={[
-            { value: "", label: "Select tenant" },
+            { value: "", label: "Select resident" },
             ...options.tenants.map((t) => ({ value: t.email, label: t.name })),
           ]}
         />

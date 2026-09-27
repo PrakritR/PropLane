@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Two-migration parity-gap operation for review</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:980px;margin:36px auto;padding:0 24px;color:#18222c}h1,h2{line-height:1.2}code,pre{overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f1f4f6;padding:14px;border-radius:6px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #cbd2d8;padding:9px;text-align:left;vertical-align:top}.stop{border-left:4px solid #a45324;background:#fff2e8;padding:15px}</style><body>
+<h1>Two-migration parity-gap operation</h1>
+<p>Restored in the durable release checkout on 26 September 2026. The separate executable is <code>scripts/sms-release-parity-gap-migrations.mjs</code>, SHA-256 <code>fc81569a4446e5d327ab8889512097b39a086ddd486eac33f8e9d94b5ebc130b</code>, matching the independently reviewed source. It reuses only the existing runner's credential, connection and backup helpers; the existing six-SMS operation is otherwise unchanged.</p>
+<p class="stop"><strong>Execution boundary.</strong> Akhil has explicitly authorized the additional two migrations on production. The release owner must still run exact-target preflight, fresh backup, staging apply/postflight and QA before production apply/postflight. The executable requires <code>--apply-authorized</code>, a new backup path and an exact target. This restoration performed no database connection or mutation.</p>
+<h2>Bounded objects and targets</h2>
+<table><tr><th>Item</th><th>Exact scope</th></tr>
+<tr><td>Targets</td><td>Staging <code>xwszcafaontidfgznlxd</code>, then production <code>qahnczmilgptcedaqype</code>. No dev/test or arbitrary project target is accepted.</td></tr>
+<tr><td>First migration</td><td><code>20260913000000_payment_reminder_occurrences.sql</code>, SHA-256 <code>49e4829408198c0256939517cb4d0c49d5df4b51cc8c93ca0e2549e853f015cf</code>. Three payment occurrence/coverage/delivery tables, two indexes and two claim/resolve RPCs.</td></tr>
+<tr><td>Second migration</td><td><code>20260913010000_scheduled_inbox_channel_claims.sql</code>, SHA-256 <code>fb13c8d0076fd71e3e21e011855e4d66924ba49d43854165a6252e1bb90ed42b</code>. One delivery table, one index, three claim/resolve/finalize RPCs, and one guard function plus UPDATE/DELETE trigger on <code>portal_scheduled_inbox_message_records</code>.</td></tr>
+<tr><td>Ledger</td><td>Only the two matching version/name/SQL entries are inserted into <code>supabase_migrations.schema_migrations</code> in the same transaction as the DDL. No history is fabricated or marked applied without SQL.</td></tr></table>
+<h2>Execution contract</h2>
+<ol><li>Review both immutable SQL files and runner. A source hash change aborts before credential bootstrap. The target is fixed by name and exact project ref. Credential bootstrap verifies project-bound host/user, PostgreSQL identity/role and pinned TLS root.</li>
+<li>Read-only preflight requires the existing scheduled inbox table and expected columns, <code>auth.users</code> and UUID generation. It requires both ledger entries and every listed new table/index/RPC/guard/trigger to be absent. A partial or previously applied state stops the operation.</li>
+<li>Apply first creates a fresh mode-0600 custom <code>pg_dump</code> archive directly under <code>/private/tmp</code>. An existing path is refused. <code>pg_restore --list</code> must pass before the transaction starts. Preserve the private archive outside the repository.</li>
+<li>One transaction obtains a task advisory lock, sets 3-second DDL lock and 60-second statement timeouts, repeats all preconditions, runs the two SQL files in order, inserts the matching ledger rows and validates catalog state before commit. Postflight reconnects read-only and verifies both exact ledger hashes, four table RLS/ACLs, three indexes, five service-only RPC ACLs and the active UPDATE/DELETE guard trigger.</li>
+<li>If a command fails after commit was attempted, its generic failure output does not establish rollback. Run read-only postflight and inspect the exact ledger/catalog state before any retry. Never replay a partially applied state.</li></ol>
+<h2>Exact commands for the release owner</h2>
+<p>Run from <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code> with the established Supabase access token and local PostgreSQL client tools. Select a fresh, private, target-specific archive name for each apply.</p>
+<pre>node scripts/sms-release-parity-gap-migrations.mjs --target staging --phase preflight
+node scripts/sms-release-parity-gap-migrations.mjs --target staging --phase apply --apply-authorized --backup-file /private/tmp/sms-parity-gap-staging-20260926T&lt;unique&gt;.dump
+node scripts/sms-release-parity-gap-migrations.mjs --target staging --phase postflight
+
+# Only after staging evidence:
+node scripts/sms-release-parity-gap-migrations.mjs --target production --phase preflight
+node scripts/sms-release-parity-gap-migrations.mjs --target production --phase apply --apply-authorized --backup-file /private/tmp/sms-parity-gap-production-20260926T&lt;unique&gt;.dump
+node scripts/sms-release-parity-gap-migrations.mjs --target production --phase postflight</pre>
+<h2>Release checks and material risks</h2>
+<p>Staging QA must verify reminder history and scheduled inbox behavior with nonexternal fixtures, then the full named migration parity gate and remaining SMS release gates must pass. Do not exercise provider sends on production merely to validate metadata. This operation does not backfill past reminders, repair data, send messages, alter the six-SMS manifest or promote branches.</p>
+<p>The new scheduled trigger blocks edits/deletes of rows once sending starts. Existing cron/manual paths may resume delivery after the missing claim RPCs become available. DDL takes locks on the scheduled table; the 3-second lock timeout stops rather than waiting through sustained traffic. The backup archive's list check establishes archive readability, not a rehearsed restore.</p>
+<h2>Failure and recovery</h2>
+<p>Failure before commit rolls back both DDL and ledger entries. If commit acknowledgment is uncertain, reconnect read-only for the exact target and run postflight; a mismatch requires human review of the catalog and ledger before further writes. Keep the pre-apply backup. Do not automatically drop new tables or restore a full database after live delivery begins, because the new tables can contain duplicate-prevention state. Recovery then needs a reviewed, bounded plan.</p>
+<p><strong>Prior validation:</strong> The same runner source passed independent security review and rollback-only PostgreSQL 17.11 rehearsal on 25 September 2026. This restored checkout requires fresh exact-target preflight and postflight evidence before either apply.</p>
+</body></html>

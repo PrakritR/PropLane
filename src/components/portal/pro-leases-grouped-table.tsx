@@ -14,7 +14,7 @@
  * holds several stages (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 
-import { Clock, FileText, Mail, Users } from "lucide-react";
+import { Clock, FileText, Mail, PenLine, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
@@ -22,6 +22,7 @@ import {
   leaseStageFact,
   leaseUpdatedShort,
   leaseResidentSlotFact,
+  leaseInitialsProgressFact,
   type ManagerLeaseListCluster,
 } from "@/lib/manager-lease-list";
 
@@ -66,6 +67,11 @@ export function ManagerLeasesGroupedTable({
                   {stage ? (
                     <PortalRowFact icon={FileText} srLabel="Stage">
                       {stage}
+                    </PortalRowFact>
+                  ) : null}
+                  {leaseInitialsProgressFact(row) ? (
+                    <PortalRowFact icon={PenLine} srLabel="Initials">
+                      {leaseInitialsProgressFact(row)}
                     </PortalRowFact>
                   ) : null}
                   <PortalRowFact icon={Clock} srLabel="Last update">

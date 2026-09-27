@@ -47,6 +47,7 @@ import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
 import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
 import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
+import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
 import {
   handleAutopayPaymentIntentFailed,
   handleAutopayPaymentIntentSucceeded,
@@ -299,6 +300,9 @@ export async function POST(req: Request) {
             await enrichCheckoutLedgerFees(stripe, session);
             await creditHoldFromPaidSession(db, session).catch((e) => {
               console.error("[stripe webhook] household charge platform hold", e);
+            });
+            await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session).catch((e) => {
+              console.error("[stripe webhook] household charge balance ledger credit", e);
             });
             const distinctId = session.client_reference_id ?? session.id;
             track("household_charge_paid", distinctId, { session_id: session.id });

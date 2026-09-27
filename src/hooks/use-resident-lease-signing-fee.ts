@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 export type ResidentLeaseSigningFee = {
   ready: boolean;
@@ -30,7 +31,9 @@ export function useResidentLeaseSigningFee(leaseId: string | null | undefined): 
   const id = leaseId?.trim() ?? "";
 
   const load = useCallback(async () => {
-    if (!id) {
+    // The Seattle Homes sandbox doesn't model a lease signing fee — never
+    // fetch this auth-gated route from /demo.
+    if (!id || isDemoModeActive()) {
       setState({ ...IDLE, ready: true });
       return;
     }

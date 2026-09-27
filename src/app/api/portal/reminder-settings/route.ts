@@ -354,7 +354,9 @@ export async function PATCH(req: Request) {
       if (Object.keys(patchEntries).length > 0 || touchesQuietHours) {
         await patchWorkspaceReminderOverride(ctx.db, workspaceId, ownerUserId, {
           ...patchEntries,
-          ...(touchesQuietHours ? { quietHours: nextSettings.quietHours, automationSendMode: nextSettings.automationSendMode } : {}),
+          ...(touchesQuietHours
+            ? { quietHours: nextSettings.quietHours, automationSendMode: nextSettings.automationSendMode }
+            : {}),
         });
         await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "workspace", ownerUserId, workspaceId });
       }

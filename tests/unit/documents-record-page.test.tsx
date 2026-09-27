@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 // @vitest-environment-options { "url": "http://localhost/portal/documents" }
-// The manager Documents Library row is now a record page (PLAN-0920-1058,
-// area 1c): rows navigate instead of expanding inline, and the record's own
-// Preview/Details + Communication/Activity trio come from the registry.
+// C062/C063 (captain, BUILD-WAVE2 §4, resolved "keep the single-modal
+// viewer"): a Documents Library row opens the single preview modal in place,
+// it no longer navigates to a 4-tab record page. The record-page route/
+// component below still renders when reached directly (e.g. an old deep
+// link) — it just isn't the row's own click target any more.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
@@ -60,13 +62,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("document library row opens the record page", () => {
-  it("clicking a row navigates to /portal/documents/<id> (preview, the default tab, omitted)", async () => {
+describe("document library row opens the single preview modal", () => {
+  it("clicking a row opens the preview modal in place, without navigating", async () => {
     vi.stubGlobal("fetch", stubFetch());
     render(<ManagerDocumentLibrary userId="mgr-1" basePath="/portal" />);
     const row = await screen.findByText("Boiler inspection certificate");
     fireEvent.click(row);
-    expect(navigate).toHaveBeenCalledWith("/portal/documents/doc-1");
+    expect(navigate).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Boiler inspection certificate")).toBeTruthy();
+    expect(within(dialog).getByText("Download")).toBeTruthy();
+    expect(within(dialog).getByText("Edit")).toBeTruthy();
   });
 });
 

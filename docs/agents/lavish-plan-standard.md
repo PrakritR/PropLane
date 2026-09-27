@@ -55,6 +55,9 @@ The scaffold (`scripts/lavish/plan-template.mjs`) is a **shell**. Every
 
 ## Show the UI, do not describe it
 
+Start from the whole-product mock kit ([`ui-mock-kit.md`](ui-mock-kit.md)): load it into the
+plan and change only the pages the plan touches, with Before matching today exactly.
+
 If the change touches anything visual, the UI tab must render the screen in
 PropLane's own look — the template ships `.pl-card`, `.pl-row`, `.pl-btn`,
 `.pl-pill` primitives on the real brand tokens (`--pl-blue #2863f0`, ink

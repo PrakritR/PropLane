@@ -28,6 +28,8 @@ function fakeDb(opts: {
   bids?: Array<{ amount_cents: number | null; status: string | null }>;
   connectAccountId?: string | null;
   existingPayoutStatus?: "pending" | "paid" | "failed" | null;
+  /** N007: the vendor's recorded insurance expiry (yyyy-mm-dd), or null/undefined for "never recorded" (not blocked). */
+  insuranceExpiresAt?: string | null;
 }) {
   const inserted: Row[] = [];
   const updated: Row[] = [];
@@ -44,6 +46,15 @@ function fakeDb(opts: {
             Promise.resolve({ data: opts.bids ?? [], error: null }).then(resolve),
         };
         return builder;
+      }
+      if (table === "vendor_business_profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { insurance_expires_at: opts.insuranceExpiresAt ?? null }, error: null }),
+            }),
+          }),
+        };
       }
       if (table === "profiles") {
         return {
@@ -307,5 +318,49 @@ describe("payoutVendorForWorkOrder", () => {
 
     expect(transferCreate).not.toHaveBeenCalled();
     expect(updated).toHaveLength(0);
+  });
+
+  it("N007: blocks a new payout when the vendor's insurance has expired, never calling Stripe", async () => {
+    const { client, updated } = fakeDb({
+      bids: [{ amount_cents: 20000, status: "accepted" }],
+      connectAccountId: "acct_1",
+      insuranceExpiresAt: "2020-01-01",
+    });
+    const transferCreate = vi.fn();
+    vi.mocked(getStripe).mockReturnValue({ transfers: { create: transferCreate } } as never);
+
+    const outcome = await payoutVendorForWorkOrder(client as never, {
+      workOrderId: "WO-8",
+      managerUserId: "mgr-1",
+      vendorUserId: "vendor-1",
+      amountCents: 20000,
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.failureReason).toMatch(/insurance/i);
+    expect(transferCreate).not.toHaveBeenCalled();
+    expect(updated[0]).toMatchObject({ status: "failed" });
+  });
+
+  it("N007: never blocks a vendor who simply never recorded insurance", async () => {
+    const { client } = fakeDb({
+      bids: [{ amount_cents: 20000, status: "accepted" }],
+      connectAccountId: "acct_1",
+      insuranceExpiresAt: null,
+    });
+    vi.mocked(getStripe).mockReturnValue({
+      transfers: { create: vi.fn().mockResolvedValue({ id: "tr_9" }) },
+    } as never);
+    vi.mocked(retrieveManagerConnectAccountOrNull).mockResolvedValue({ id: "acct_1" } as never);
+    vi.mocked(connectAccountTransfersActive).mockReturnValue(true);
+
+    const outcome = await payoutVendorForWorkOrder(client as never, {
+      workOrderId: "WO-9",
+      managerUserId: "mgr-1",
+      vendorUserId: "vendor-1",
+      amountCents: 20000,
+    });
+
+    expect(outcome.status).toBe("paid");
   });
 });

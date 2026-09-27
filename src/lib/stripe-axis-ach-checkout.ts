@@ -48,6 +48,23 @@ export type AxisAchCheckoutInput = {
    * opted in keeps the historical behavior.
    */
   feePayer?: ServiceFeePayer;
+  /**
+   * `PROPLANE_BALANCE_ENABLED` switch (night/vendor-pay). Default
+   * `"connect_destination"` — today's behavior, completely unchanged: a
+   * destination charge to `destinationAccountId` when ready, else a platform
+   * hold. `"platform_ledger"` is the ONE place that behavior changes: the
+   * charge lands on the platform with NO `transfer_data` and NO
+   * `application_fee_amount` at all (there is no destination to transfer to or
+   * take a fee from) — `destinationAccountId` is ignored when this is set.
+   * The full settled amount the manager would have received
+   * (`managerPayoutCents`) is credited to that manager's PropLane balance
+   * later, by the webhook, once Stripe reports the charge available
+   * (`stripe-webhook-financials.ts` → `proplane-balance/ledger.server.ts`).
+   * Only resident household-charge checkout ever sets this — application fees
+   * and vendor-invoice-pay checkout never pass it, so they are byte-for-byte
+   * unchanged whether the flag is on or off.
+   */
+  fundingModel?: "connect_destination" | "platform_ledger";
 };
 
 export type AxisAchCheckoutResult =
@@ -255,8 +272,10 @@ export async function createAxisAchCheckoutSession(
   }
 
   const residentEmail = input.residentEmail.trim().toLowerCase();
-  const destinationAccountId = input.destinationAccountId?.trim() || "";
-  const holdPath = !destinationAccountId;
+  const fundingModel = input.fundingModel ?? "connect_destination";
+  const isPlatformLedger = fundingModel === "platform_ledger";
+  const destinationAccountId = isPlatformLedger ? "" : input.destinationAccountId?.trim() || "";
+  const holdPath = !isPlatformLedger && !destinationAccountId;
   const paymentIntentData: {
     transfer_data?: { destination: string };
     metadata: Record<string, string>;
@@ -270,9 +289,15 @@ export async function createAxisAchCheckoutSession(
       ...(holdPath
         ? { platform_hold: "1", hold_amount_cents: String(managerPayoutCents) }
         : {}),
+      // `platform_ledger`: no transfer_data, no application_fee_amount — the
+      // charge stays on the platform outright (separate charges and
+      // transfers). The webhook reads this flag plus `manager_payout_cents`
+      // (already carried in the session metadata below) to credit the
+      // manager's PropLane balance once Stripe settles the charge.
+      ...(isPlatformLedger ? { funding_model: "platform_ledger" } : {}),
     },
   };
-  if (!holdPath) {
+  if (!holdPath && !isPlatformLedger) {
     paymentIntentData.transfer_data = { destination: destinationAccountId };
     if (applicationFeeAmount > 0) {
       paymentIntentData.application_fee_amount = applicationFeeAmount;
@@ -347,6 +372,7 @@ export async function createAxisAchCheckoutSession(
       service_fee_cents: String(fee.serviceFeeCents),
       manager_payout_cents: String(managerPayoutCents),
       ...(holdPath ? { platform_hold: "1", hold_amount_cents: String(managerPayoutCents) } : {}),
+      ...(isPlatformLedger ? { funding_model: "platform_ledger" } : {}),
     },
     payment_intent_data: paymentIntentData,
   };

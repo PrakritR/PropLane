@@ -2,7 +2,7 @@ import { SITE_MEASURE } from "@/components/marketing/site/primitives";
 
 const REPLACES: { from: string; to: string }[] = [
   { from: "the spreadsheet", to: "a ledger" },
-  { from: "group texts", to: "one inbox" },
+  { from: "group texts", to: "Communication" },
   { from: "chasing rent by text", to: "rent that collects itself" },
   { from: "PDF leases", to: "drafted & e-signed" },
   { from: "“who’s the plumber?”", to: "vendors that show up" },
@@ -12,11 +12,16 @@ const REPLACES: { from: string; to: string }[] = [
 export function SiteReplacesStrip() {
   return (
     <div className="border-b border-border/70 bg-[var(--pl-surface-muted)] [html[data-theme=dark]_&]:bg-white/[0.03]">
-      <div className={`${SITE_MEASURE} flex flex-wrap items-center gap-x-4 gap-y-2.5 py-4 text-[13.5px] max-[379px]:hidden`}>
-        <span className="text-[11.5px] font-extrabold uppercase tracking-[0.12em] text-muted">Replaces</span>
-        <ul className="flex flex-wrap items-center gap-2">
+      <div
+        className={`${SITE_MEASURE} flex flex-wrap items-center gap-x-4 gap-y-2.5 overflow-x-auto py-4 text-[13.5px] max-[379px]:hidden xl:flex-nowrap xl:gap-x-2.5 xl:text-[12px]`}
+      >
+        <span className="shrink-0 text-[11.5px] font-extrabold uppercase tracking-[0.12em] text-muted">Replaces</span>
+        <ul className="flex flex-wrap items-center gap-2 xl:flex-nowrap xl:gap-1.5">
           {REPLACES.map((r) => (
-            <li key={r.from} className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-3 py-1">
+            <li
+              key={r.from}
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-3 py-1 xl:gap-1 xl:px-2 xl:py-0.5"
+            >
               <span className="text-muted line-through decoration-muted/60">{r.from}</span>
               <span aria-hidden className="text-muted">→</span>
               <span className="font-semibold text-foreground">{r.to}</span>

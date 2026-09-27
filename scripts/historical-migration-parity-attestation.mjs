@@ -9,7 +9,8 @@ export const REMINDER_ATTESTATION = Object.freeze({
   }),
 });
 export const REVIEWED_REMINDER_CONSTRAINTS = Object.freeze({
-  portal_reminder_records_kind_check: '89fb76a2f4cfc607f72af4639fe06fc5e1e9d93258268020bc8f64bea34f2603',
+  // Current definition from 20260920231000_lease_ending_sequence_reminder_kinds.sql (SHA-256 5786a8ee4535f01202d8421d5ac077a0e7983315bfeaba247d95b07f08d3366b).
+  portal_reminder_records_kind_check: '5edc34c3861213ec4e89ddff89ffc80ec7d2ac652bee6cae8c675bfc8dfed038',
   portal_reminder_records_role_check: '35cc35596b4e9c045bcf0e44987608cc7ac91a8d8ecaed7f6ed74d2b4461b974',
   portal_reminder_records_lead_check: 'ad1f4d9d3302d953256be1091e162972cf27fc28a51fa95aba44eb079efd39ff',
   work_order_vendor_offers_status_check: 'ab04751a08a28adec1217a662d95a4454025d5bbd861dcb020ab1dbf5b5fb697',

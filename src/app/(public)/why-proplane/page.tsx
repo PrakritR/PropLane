@@ -113,7 +113,7 @@ const CHAPTERS = [
 
 const OLD_WAY = [
   "Retype applications into lease templates and chase signatures by email.",
-  "Text tenants about rent and track paid/unpaid in a spreadsheet.",
+  "Text residents about rent and track paid/unpaid in a spreadsheet.",
   "Phone-tag contractors for one quote on one repair.",
   "Reconcile receipts every spring for something tax-ready.",
 ] as const;

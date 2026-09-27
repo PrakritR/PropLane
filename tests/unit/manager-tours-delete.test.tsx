@@ -34,7 +34,13 @@ vi.mock("@/hooks/use-scheduled-tour-reminders", () => ({
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [], vendors: [] }),
 }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast }) }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast }),
+  // Not exercised by this file's delete-flow assertions (a separate
+  // `ConfirmDeleteModal` handles that) — only present so the header's quick
+  // decline confirm (C029/C030) does not crash on mount.
+  useConfirm: () => async () => true,
+}));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),

@@ -22,6 +22,7 @@ import { AssistantDisplayModeSetting } from "@/components/portal/assistant-displ
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { readAssistantDisplayMode } from "@/lib/assistant-display-preferences";
 import { initAssistantDockState } from "@/lib/axis-assistant/dock-store";
 
@@ -47,20 +48,24 @@ function installFakeStorage() {
 /** The manager portal shell: assistant chrome + the opt-in rail + Settings. */
 function renderPortal({ dockable = true }: { dockable?: boolean } = {}) {
   return render(
-    <AxisAssistant managerName="Jordan Lee" dockable={dockable}>
-      <PortalTopBar kind="pro" basePath="/portal" name="Jordan Lee" email="mgr@example.com" />
-      <AssistantDisplayModeSetting />
-      <PortalAssistantDockRail managerName="Jordan Lee" />
-    </AxisAssistant>,
+    <AppUiProvider>
+      <AxisAssistant managerName="Jordan Lee" dockable={dockable}>
+        <PortalTopBar kind="pro" basePath="/portal" name="Jordan Lee" email="mgr@example.com" />
+        <AssistantDisplayModeSetting />
+        <PortalAssistantDockRail managerName="Jordan Lee" />
+      </AxisAssistant>
+    </AppUiProvider>,
   );
 }
 
 function renderPortalWithTopBar() {
   return render(
-    <AxisAssistant managerName="Jordan Lee" dockable>
-      <PortalTopBar kind="pro" basePath="/portal" name="Jordan Lee" email="mgr@example.com" />
-      <PortalAssistantDockRail managerName="Jordan Lee" />
-    </AxisAssistant>,
+    <AppUiProvider>
+      <AxisAssistant managerName="Jordan Lee" dockable>
+        <PortalTopBar kind="pro" basePath="/portal" name="Jordan Lee" email="mgr@example.com" />
+        <PortalAssistantDockRail managerName="Jordan Lee" />
+      </AxisAssistant>
+    </AppUiProvider>,
   );
 }
 

@@ -300,6 +300,7 @@ export function PortalInboxMessageTable({
   primaryPartyHeader = "From",
   layout = "default",
   selection,
+  hideExpandedDetail = false,
 }: {
   rows: PortalInboxTableRow[];
   onMarkRead?: (id: string) => void;
@@ -316,6 +317,17 @@ export function PortalInboxMessageTable({
   /** Schedule tab uses Recipient + Send date & time + Subject (no trailing When). */
   layout?: PortalInboxTableLayout;
   selection?: PortalInboxSelectionProps;
+  /**
+   * Additive (default `false`, every existing caller unchanged): skip
+   * rendering the inline conversation/reply block below an expanded row.
+   * `expandedId` / `onToggleExpand` still drive row selection, clickability,
+   * and the chevron state — for a caller (admin Communication, C022) that
+   * renders the open conversation in a separate `InboxThreadView` pane
+   * instead of inline, so the table is purely the list side of a two-pane
+   * layout. `getThreadMessages` / `onReply` / `renderExtraActions` become
+   * unused in that mode and may be omitted.
+   */
+  hideExpandedDetail?: boolean;
 }) {
   const { showToast } = useAppUi();
   const [replyDraftById, setReplyDraftById] = useState<Record<string, string>>({});
@@ -493,7 +505,7 @@ export function PortalInboxMessageTable({
                 {extra}
               </div>
             ) : null}
-            {isExpanded ? (
+            {isExpanded && !hideExpandedDetail ? (
               <div className="mt-3 border-t border-border pt-3">{renderExpandedContent(row, detailText, extra)}</div>
             ) : null}
           </div>
@@ -573,7 +585,7 @@ export function PortalInboxMessageTable({
                       </div>
                     </td>
                   </tr>
-                  {isExpanded ? (
+                  {isExpanded && !hideExpandedDetail ? (
                     <tr className={PORTAL_TABLE_DETAIL_ROW}>
                       <td colSpan={detailColSpan} className={`${PORTAL_TABLE_DETAIL_CELL} text-left`}>
                         {renderExpandedContent(row, detailText, extra)}
@@ -1148,20 +1160,46 @@ export function InboxListSegmentTabs({
   value,
   onChange,
   counts,
+  interceptNavigation = false,
 }: {
   commBase: string;
   value: InboxListSegment;
   onChange?: (segment: Extract<InboxListSegment, "active" | "archived">) => void;
   counts?: { active?: number; archived?: number };
+  /**
+   * Update client state instead of a full route navigation on a plain left
+   * click (no modifier key, not opening in a new tab) — used by the manager
+   * unified inbox so Active/Archived switches instantly with no remount
+   * (PLAN B1). Resident/vendor callers omit this and keep ordinary
+   * navigation.
+   */
+  interceptNavigation?: boolean;
 }) {
   const selected = value === "archived" ? "archived" : "active";
   return (
     <div
       data-attr="inbox-list-segments"
       onClick={(event) => {
-        const href = (event.target as HTMLElement).closest("a")?.getAttribute("href") ?? "";
-        if (href.endsWith("/archived")) onChange?.("archived");
-        else if (href.endsWith("/active")) onChange?.("active");
+        const anchor = (event.target as HTMLElement).closest("a");
+        const href = anchor?.getAttribute("href") ?? "";
+        const nextSegment: "active" | "archived" | null = href.endsWith("/archived")
+          ? "archived"
+          : href.endsWith("/active")
+            ? "active"
+            : null;
+        if (!nextSegment) return;
+        if (
+          interceptNavigation &&
+          anchor &&
+          event.button === 0 &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+        }
+        onChange?.(nextSegment);
       }}
     >
       <DestinationNav
@@ -2747,6 +2785,7 @@ export function InboxThreadView({
   hideIdentityHeader = false,
   headerActions,
   composer,
+  beforeMessages,
   afterMessages,
   emptyLabel = "No messages yet.",
   threadKey,
@@ -2769,6 +2808,8 @@ export function InboxThreadView({
   headerActions?: ReactNode;
   /** Pass an <InboxComposer/>; omit for a read-only thread (e.g. Trash). */
   composer?: ReactNode;
+  /** Continuation controls at the oldest edge of a paged transcript. */
+  beforeMessages?: ReactNode;
   /**
    * Rendered inside the scroll body AFTER the message bubbles — used for inline
    * "Scheduled · sends <when>" cards so a person's future/pending communication
@@ -2807,7 +2848,7 @@ export function InboxThreadView({
             data-attr="inbox-thread-back"
           >
             <ChevronLeft className="h-5 w-5" strokeWidth={2.25} />
-            <span className="sr-only">Inbox</span>
+            <span className="sr-only">Communication</span>
           </button>
         ) : null}
         {!hideIdentityHeader ? (
@@ -2838,7 +2879,7 @@ export function InboxThreadView({
             : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background/40 px-2 py-2 [-webkit-overflow-scrolling:touch] md:px-3 md:py-3"
         }
       >
-        {messages.length === 0 && !afterMessages ? (
+        {messages.length === 0 && !beforeMessages && !afterMessages ? (
           <div className={`flex flex-col items-center justify-center py-4 ${pageScroll ? "" : "min-h-full flex-1"}`}>
             <PortalInboxEmptyState title={emptyLabel} />
           </div>
@@ -2846,6 +2887,7 @@ export function InboxThreadView({
           <div
             className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "mt-auto"}`}
           >
+            {beforeMessages}
             <InboxMessageTimeline
               messages={messages}
               showAuthors={showAuthors}

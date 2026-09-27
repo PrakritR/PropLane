@@ -1142,7 +1142,7 @@ export const VendorInboxPanel = forwardRef<
 
   return (
     <ManagerPortalPageShell
-      title="Inbox"
+      title="Communication"
       titleAside={
         <div className={PORTAL_PAGE_ACTIONS_DESKTOP}>
           <Button type="button" variant="primary" className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`} onClick={() => setComposeOpen(true)}>

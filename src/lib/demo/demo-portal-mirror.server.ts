@@ -111,7 +111,7 @@ function remapInbox(rows: PersistedInboxThread[]): PersistedInboxThread[] {
   }));
 }
 
-async function resolveProfileIds(db: Db) {
+export async function resolveProfileIds(db: Db) {
   const emails = [
     CANONICAL_DEMO_MANAGER_EMAIL,
     CANONICAL_DEMO_RESIDENT_EMAIL,
@@ -294,6 +294,32 @@ function mergeWithStaticFallback(mirror: Partial<DemoDataSnapshot>): DemoDataSna
 }
 
 /**
+ * The Seattle Homes portfolio's own property ids (`demo-guided-data.ts`'s
+ * `seattleHomesSnapshot()`). `manager@test.proplane.local` is a SHARED
+ * canonical QA account other panes' tests also seed properties onto (co-manager
+ * fixtures, one-off proof houses, …) — this public mirror must show exactly the
+ * curated Seattle Homes portfolio regardless of whatever else has accumulated
+ * on that account, not "whatever the account happens to hold today". Every
+ * property-scoped row not carrying one of these ids is filtered out below.
+ */
+const SEATTLE_HOMES_PROPERTY_IDS = new Set(["demo-prop-alder", "demo-prop-maple", "demo-prop-fremont"]);
+
+function onlySeattleHomesProperties(properties: MockProperty[]): MockProperty[] {
+  return properties.filter((p) => SEATTLE_HOMES_PROPERTY_IDS.has(p.id));
+}
+
+/**
+ * STRICT allowlist: keeps only rows explicitly scoped to a Seattle Homes
+ * property. A missing/unrecognized property id is dropped, not kept — the
+ * shared account has accumulated rows from other panes' tests with no
+ * property id at all (e.g. legacy service requests), and this mirror must
+ * never let those inflate a public-facing KPI ("Open requests 24").
+ */
+function onlySeattleHomesScoped<T extends { propertyId?: string | null }>(rows: T[]): T[] {
+  return rows.filter((row) => !!row.propertyId && SEATTLE_HOMES_PROPERTY_IDS.has(row.propertyId));
+}
+
+/**
  * Read-only snapshot of the canonical test portal accounts for `/demo`.
  * Rewrites scope ids to the synthetic demo session keys the UI expects.
  */
@@ -347,23 +373,28 @@ export async function fetchDemoPortalMirrorSnapshot(): Promise<DemoDataSnapshot 
   );
 
   const mirrored: Partial<DemoDataSnapshot> = {
-    properties: remapManagerScope(properties),
-    applications: remapManagerScope(
-      remapResidentScope(applications, CANONICAL_DEMO_RESIDENT_EMAIL),
-    ) as DemoApplicantRow[],
-    charges: remapManagerScope(remapResidentScope(charges, CANONICAL_DEMO_RESIDENT_EMAIL)),
-    rentProfiles: remapManagerScope(remapResidentScope(rentProfiles, CANONICAL_DEMO_RESIDENT_EMAIL)),
-    leases: remapManagerScope(leases),
-    workOrders: remapWorkOrders(workOrders, primaryVendor?.name ?? CANONICAL_DEMO_VENDOR_NAME),
+    properties: onlySeattleHomesProperties(remapManagerScope(properties)),
+    applications: onlySeattleHomesScoped(
+      remapManagerScope(remapResidentScope(applications, CANONICAL_DEMO_RESIDENT_EMAIL)) as DemoApplicantRow[],
+    ),
+    charges: onlySeattleHomesScoped(remapManagerScope(remapResidentScope(charges, CANONICAL_DEMO_RESIDENT_EMAIL))),
+    rentProfiles: onlySeattleHomesScoped(
+      remapManagerScope(remapResidentScope(rentProfiles, CANONICAL_DEMO_RESIDENT_EMAIL)),
+    ),
+    leases: onlySeattleHomesScoped(remapManagerScope(leases)),
+    workOrders: onlySeattleHomesScoped(remapWorkOrders(workOrders, primaryVendor?.name ?? CANONICAL_DEMO_VENDOR_NAME)),
     workOrderBids: remapBids(workOrderBids, ids.vendorUserId),
     vendorPayouts,
     vendors: remapVendors(vendors, ids.vendorUserId, CANONICAL_DEMO_VENDOR_EMAIL),
     promotions: remapManagerScope(promotions),
-    serviceRequests: remapManagerScope(serviceRequests),
+    serviceRequests: onlySeattleHomesScoped(remapManagerScope(serviceRequests)),
     managerInbox: remapInbox(managerInbox),
     residentInbox: remapInbox(residentInbox),
     vendorInbox: remapInbox(vendorInbox),
-    schedule,
+    schedule: {
+      ...schedule,
+      plannedEvents: onlySeattleHomesScoped(schedule.plannedEvents),
+    },
   };
 
   return mergeWithStaticFallback(mirrored);

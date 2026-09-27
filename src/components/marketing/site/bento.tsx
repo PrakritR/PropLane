@@ -72,8 +72,8 @@ export function SiteBento() {
             </p>
           </MockFrame>
         </Tile>
-        <Tile title="One inbox" body="Residents, applicants, vendors — email, text and in-app in one thread, with a draft waiting on each.">
-          <MockFrame title="Inbox">
+        <Tile title="Communication" body="Residents, applicants, vendors — email, text and in-app in one thread, with a draft waiting on each.">
+          <MockFrame title="Communication">
             <div className="divide-y divide-border/60">
               {[
                 ["Dana Reyes", "Draft", "warn"],
@@ -89,7 +89,7 @@ export function SiteBento() {
             </div>
           </MockFrame>
         </Tile>
-        <Tile title="Vendors who show up" body="Request → bids → visit → invoice → payout, tracked from your inbox to their phone.">
+        <Tile title="Vendors who show up" body="Request → bids → visit → invoice → payout, tracked from Communication to their phone.">
           <MockFrame title="Services · Maple 2A">
             <div className="divide-y divide-border/60">
               <Line left="Faucet · Maple 2A" right="Booked Thu" tone="info" />

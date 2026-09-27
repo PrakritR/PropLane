@@ -74,6 +74,7 @@
     "sandbox:open": "node scripts/sandbox-open-review.mjs",
     "ship:to-prakrit": "bash scripts/ship-to-prakrit.sh",
     "seed:dev-account": "npx tsx scripts/seed-dev-manager-portfolio.ts",
+    "seed:demo-manager-portfolio": "npx tsx scripts/seed-demo-manager-portfolio.ts",
     "admin:sync-account": "node scripts/ensure-admin-account.mjs",
     "admin:set-manager-plan": "node scripts/set-manager-plan.mjs",
     "admin:ensure-demo-manager": "node scripts/ensure-demo-manager-account.mjs",

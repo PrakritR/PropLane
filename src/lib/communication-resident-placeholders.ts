@@ -25,6 +25,21 @@ export function isContactInboxThreadId(threadId: string): boolean {
   return threadId.startsWith(CONTACT_INBOX_THREAD_PREFIX);
 }
 
+/**
+ * A persisted (real) thread id for a resident-directory placeholder's
+ * contact, minted once the manager archives it. Deliberately a DIFFERENT
+ * prefix from `CONTACT_INBOX_THREAD_PREFIX` — that one names the synthetic,
+ * never-persisted placeholder ROW ITSELF (no stored conversation exists),
+ * while this one becomes a genuine `portal_inbox_thread_records` row the
+ * instant it is archived, and must never be mistaken for the placeholder by
+ * `isContactInboxThreadId` (which gates "no actions available").
+ */
+export const CONTACT_ARCHIVE_THREAD_PREFIX = "contact_thread_";
+
+export function contactArchiveThreadId(contactId: string): string {
+  return `${CONTACT_ARCHIVE_THREAD_PREFIX}${contactId}`;
+}
+
 /** Residents with no live email/SMS thread still appear so managers can start a chat. */
 export function buildResidentPlaceholderInboxItems(args: {
   contacts: InboxScopedContact[];

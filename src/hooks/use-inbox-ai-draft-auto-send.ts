@@ -5,6 +5,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
 
 export function useInboxAiDraftAutoSend() {
   const { showToast } = useAppUi();
@@ -12,25 +13,31 @@ export function useInboxAiDraftAutoSend() {
   const { userId, ready } = usePortalSession();
   const [enabled, setEnabledLocal] = useState(false);
 
-  const load = useCallback(async () => {
-    if (demo) {
-      setEnabledLocal(false);
-      return;
-    }
-    try {
-      const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-      if (!res.ok) return;
-      const body = (await res.json()) as { settings?: { inboxAiDraftAutoSend?: boolean } };
-      setEnabledLocal(body.settings?.inboxAiDraftAutoSend === true);
-    } catch {
-      // Leave the last known value — auto-send is opt-in and non-critical to load.
-    }
-  }, [demo]);
+  // Account-level (no workspace/property scope) — matches every other reader
+  // of `inboxAiDraftAutoSend`. Routed through the shared cache so the several
+  // inbox widgets that each want this flag on mount cost at most one request
+  // per TTL window instead of one each.
+  const load = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (demo) {
+        setEnabledLocal(false);
+        return;
+      }
+      if (!userId) return;
+      try {
+        const loaded = await loadManagerAutomationSettingsCached(userId, opts);
+        setEnabledLocal(loaded.settings.inboxAiDraftAutoSend === true);
+      } catch {
+        // Leave the last known value — auto-send is opt-in and non-critical to load.
+      }
+    },
+    [demo, userId],
+  );
 
   useEffect(() => {
     if (!demo && (!ready || !userId)) return;
     void load();
-    const onSettings = () => void load();
+    const onSettings = () => void load({ force: true });
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
   }, [demo, load, ready, userId]);

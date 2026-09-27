@@ -1142,11 +1142,25 @@ export function collapsePersonInboxThreads(
 
   for (const thread of threads) {
     const counterparty = smsNoticeIdentity(thread) || inboxThreadCounterpartyEmail(thread);
-    if ((!counterparty.includes("@") && !counterparty.startsWith("sms-notice:")) || (thread.folder === "trash" && !counterparty.startsWith("sms-notice:"))) {
+    const isNoticeIdentity = counterparty.startsWith("sms-notice:");
+    if (!counterparty.includes("@") && !isNoticeIdentity) {
       solo.push(thread);
       continue;
     }
-    const key = mergeFolders && thread.folder !== "trash" ? counterparty : `${thread.folder}:${counterparty}`;
+    // The ordinary, folder-scoped listing (`mergeFolders` false) keeps an
+    // archived thread its own row — Active must never show an Archived row.
+    // Only the cross-folder MERGED person view (`mergeFolders`, e.g. the open
+    // direct-chat pane and the manager list's own person-collapse) heals a
+    // same-person archived predecessor back into the live conversation here:
+    // a past delivery-side bug could fork a new near-empty active thread
+    // beside the real, archived history for the same person (captain
+    // resurrection sweep) — the canonical (most recently active) thread wins
+    // folder and every message from both merges into one timeline.
+    if (thread.folder === "trash" && !isNoticeIdentity && !mergeFolders) {
+      solo.push(thread);
+      continue;
+    }
+    const key = mergeFolders ? counterparty : `${thread.folder}:${counterparty}`;
     const bucket = groups.get(key) ?? [];
     bucket.push(thread);
     groups.set(key, bucket);

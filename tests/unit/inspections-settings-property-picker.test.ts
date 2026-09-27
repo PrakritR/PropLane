@@ -9,7 +9,9 @@ describe("Operations settings gears carry a Property picker", () => {
   it("Inspections passes propertyOptions into its settings sheet", () => {
     expect(inspections).toContain("buildManagerPropertyFilterOptions");
     expect(inspections).toContain("propertyOptions={propertyOptions}");
-    expect(inspections).toContain('initialTab="inspections"');
+    // Inspections settings tab is gone (C111/C116) — the gear opens the
+    // central Reminders hub, grouped to Inspections, instead.
+    expect(inspections).toContain('initialTab="automation"');
     expect(inspections).toContain("from \"lucide-react\"");
     expect(inspections).toMatch(/import \{[^}]*Settings[^}]*\} from "lucide-react"/);
     expect(inspections).not.toContain("Settings2");

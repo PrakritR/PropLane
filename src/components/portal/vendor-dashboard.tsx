@@ -17,7 +17,7 @@ import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card"
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks } from "lucide-react";
+import { CalendarDays, ListChecks, Wrench, FileText, Mail } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   MANAGER_WORK_ORDERS_EVENT,
@@ -60,6 +60,49 @@ export function VendorDashboard({}: { displayName: string }) {
   const [needsContact, setNeedsContact] = useState(false);
   const [contactNudgeDismissed, setContactNudgeDismissed] = useState(false);
   const [signupNotice, setSignupNotice] = useState<string | null>(null);
+  // STATE-driven, not delivery-driven: a vendor with no linked manager sees this
+  // every time they load the dashboard while unlinked — not just once, right
+  // after the signup redirect that happened to queue a reason (docs/agents/vendor-portal.md).
+  const [unlinked, setUnlinked] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [onboarding, setOnboarding] = useState<{
+    businessDone: boolean;
+    tradesAreaDone: boolean;
+    licenseInsuranceDone: boolean;
+    completedAt: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    void fetch("/api/vendor/business-profile", { credentials: "include" })
+      .then((r) => r.json())
+      .then(
+        (data: {
+          profile?: {
+            businessName?: string;
+            trades?: string[];
+            serviceArea?: string;
+            serviceAreaZips?: string[];
+            serviceRadiusMiles?: number | null;
+            licenseNumber?: string;
+            insuranceProvider?: string;
+            onboardingCompletedAt?: string | null;
+          };
+        }) => {
+          const p = data.profile;
+          if (!p) return;
+          setOnboarding({
+            businessDone: Boolean(p.businessName?.trim()),
+            tradesAreaDone:
+              Boolean(p.trades?.length) &&
+              Boolean(p.serviceArea?.trim() || p.serviceAreaZips?.length || p.serviceRadiusMiles != null),
+            licenseInsuranceDone: Boolean(p.licenseNumber?.trim() || p.insuranceProvider?.trim()),
+            completedAt: p.onboardingCompletedAt ?? null,
+          });
+        },
+      )
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const pending = takePendingNotice(window.location.pathname);
@@ -100,8 +143,9 @@ export function VendorDashboard({}: { displayName: string }) {
     if (isDemoModeActive()) return;
     void fetch("/api/vendor/profile", { credentials: "include" })
       .then((r) => r.json())
-      .then((data: { contact?: { phone?: string; smsConsent?: boolean } }) => {
+      .then((data: { linked?: boolean; contact?: { phone?: string; smsConsent?: boolean } }) => {
         setNeedsContact(!data.contact?.phone || !data.contact?.smsConsent);
+        setUnlinked(data.linked === false);
       })
       .catch(() => undefined);
   }, []);
@@ -192,6 +236,18 @@ export function VendorDashboard({}: { displayName: string }) {
 
   const jobCards = openWorkOrders.slice(0, 3);
 
+  // Shown until every item is done — Payout bank reuses the existing payouts
+  // connect flow rather than duplicating it here.
+  const onboardingChecklistItems = onboarding
+    ? [
+        { id: "business", label: "Business", done: onboarding.businessDone, href: "/vendor/onboarding" },
+        { id: "trades-area", label: "Trades & area", done: onboarding.tradesAreaDone, href: "/vendor/onboarding" },
+        { id: "license-insurance", label: "License & insurance", done: onboarding.licenseInsuranceDone, href: "/vendor/onboarding" },
+        { id: "payout-bank", label: "Payout bank", done: paymentsConnected, href: `${BASE}/financials/payouts` },
+      ]
+    : [];
+  const onboardingChecklistOpen = onboarding !== null && onboardingChecklistItems.some((item) => !item.done);
+
   return (
     <ManagerPortalPageShell
       title="Dashboard"
@@ -200,14 +256,46 @@ export function VendorDashboard({}: { displayName: string }) {
     >
       <PortalHomeLayout
         banner={
-          signupNotice ? (
-            <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm" role="status">
-              <p className="min-w-0 text-sm font-semibold text-foreground">{signupNotice}</p>
-              <Button type="button" variant="outline" className="shrink-0 rounded-full px-3 py-1 text-xs" data-attr="vendor-signup-notice-dismiss" onClick={() => setSignupNotice(null)}>
-                Dismiss
-              </Button>
-            </div>
-          ) : null
+          <>
+            {unlinked && !bannerDismissed ? (
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm" role="status">
+                <p className="min-w-0 text-sm font-semibold text-foreground">
+                  {signupNotice ?? "Waiting on a property manager to connect with you."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 rounded-full px-3 py-1 text-xs"
+                  data-attr="vendor-signup-notice-dismiss"
+                  onClick={() => setBannerDismissed(true)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            ) : null}
+            {onboardingChecklistOpen ? (
+              <div className="rounded-2xl border border-border bg-card p-4" data-attr="vendor-onboarding-checklist">
+                <p className="text-sm font-semibold text-foreground">Finish setting up</p>
+                <ul className="mt-3 flex flex-wrap gap-2">
+                  {onboardingChecklistItems.map((item) => (
+                    <li key={item.id}>
+                      <Link
+                        href={item.href}
+                        className="flex min-h-11 items-center gap-2 rounded-full border border-border px-3 text-sm font-medium text-foreground hover:bg-secondary/60"
+                        data-attr={`vendor-onboarding-checklist-${item.id}`}
+                      >
+                        <span
+                          aria-hidden
+                          className={`size-2 rounded-full ${item.done ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                        />
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
         }
         kpis={
           <>
@@ -216,24 +304,28 @@ export function VendorDashboard({}: { displayName: string }) {
               value={String(openWorkOrders.length)}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-jobs"
+              icon={Wrench}
             />
             <KpiCard
               label="Quotes due"
               value={String(quotesPending.length)}
               href={vendorWorkOrderListHref(BASE, "pending")}
               dataAttr="vendor-dashboard-kpi-quotes"
+              icon={FileText}
             />
             <KpiCard
               label="Upcoming visits"
               value={String(upcomingVisits.length)}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
+              icon={CalendarDays}
             />
             <KpiCard
               label="Unread messages"
               value={String(inboxThreads.length)}
               href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
+              icon={Mail}
             />
           </>
         }
@@ -268,16 +360,12 @@ export function VendorDashboard({}: { displayName: string }) {
               </div>
             </div>
             {jobCards.length === 0 ? (
+              // Exactly one create control for "Your jobs": the header icon
+              // action above stays the CTA — this card explains the empty
+              // state without a second, duplicate "Add" button (C147).
               <PortalListEmptyCard
                 title={portalEmptyCopy("work-orders.pending").title}
                 section="work-orders"
-                actions={[
-                  {
-                    label: "Add",
-                    onClick: () => router.push(`${vendorWorkOrderListHref(BASE, "pending")}?add=1`),
-                    dataAttr: "vendor-dashboard-empty-add",
-                  },
-                ]}
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

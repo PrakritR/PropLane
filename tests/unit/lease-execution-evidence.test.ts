@@ -207,7 +207,7 @@ describe("signing records the hash of what was signed", () => {
       RESIDENT_SCOPE,
     );
 
-    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toBe(true);
+    expect(await residentSignLease("jordan.lee@example.com", "Jordan Lee", LEASE_ESIGN_CONSENT_VERSION)).toEqual({ ok: true });
 
     const row = readLeasePipeline().find((r) => r.id === "lease_evidence")!;
     expect(row.residentSignature?.documentSha256).toBe(independentSha256(LEASE_HTML));
@@ -237,7 +237,7 @@ describe("signing records the hash of what was signed", () => {
       MANAGER_ID,
     );
 
-    expect(await managerSignLease("lease_evidence", "Pat Manager", MANAGER_ID, LEASE_ESIGN_CONSENT_VERSION)).toBe(true);
+    expect(await managerSignLease("lease_evidence", "Pat Manager", MANAGER_ID, LEASE_ESIGN_CONSENT_VERSION)).toEqual({ ok: true });
 
     const row = readLeasePipeline(MANAGER_ID).find((r) => r.id === "lease_evidence")!;
     expect(row.status).toBe("Fully Signed");

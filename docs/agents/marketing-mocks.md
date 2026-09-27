@@ -3,10 +3,32 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+## The home page's product rows reuse REAL portal components, statically
+
+Captain 2026-09-26: "remove live demo no need" — `src/components/marketing/
+site/lifecycle-rows.tsx` ("From first tour to fixed faucet.") and the
+"Switching" import section (`switch-steps.tsx`) no longer embed a live
+`<iframe src="/demo">`. Each row's product panel now renders the REAL portal
+presentational components (the record-list surface, its rows, the sidebar
+shell, the import review card) fed static "Seattle Homes" fixture props —
+never a hand-drawn lookalike, and never a network request or auth dependency.
+This file's copy-accuracy discipline applies here same as everywhere else:
+when you add or change a row, open the real component you're reusing and
+match its labels, tab names, and row anatomy exactly (see the table below and
+each component's own doc comment for its fixture source).
+
+A row's panel is interactive but never persists: tabs switch between
+different fixture row sets, search filters the fixture rows client-side,
+`⋯` menus open, and a primary action opens the real modal/sheet with default
+values — but Save/Send/Approve only closes it and shows the real toast, since
+there is no server to write to. If a panel's real component fetches internally
+(session, workspace, or data hooks), build a thin static wrapper around its
+purely presentational pieces instead of trying to mount the whole page tree.
+
 ## Marketing mocks must use portal-accurate copy
 
-Every product mock on the marketing site — the homepage Applications panel
-(`landing-applications-pipeline.tsx`), the ops task rows in
+Every OTHER hand-drawn product mock on the marketing site — the homepage
+Applications panel (`landing-applications-pipeline.tsx`), the ops task rows in
 `landing-home-sections.tsx`, the guide art under `public/marketing/` — depicts
 a screen a manager can actually open. Marketing-only slang that no portal
 surface ships ("lease packet", "lease draft") reads as a fake product and has

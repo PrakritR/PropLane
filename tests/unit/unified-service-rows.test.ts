@@ -21,7 +21,11 @@ import {
 describe("state mapping", () => {
   it("maps an add-on request's status", () => {
     expect(addOnState("pending")).toBe("open");
-    expect(addOnState("approved")).toBe("scheduled");
+    // C246: "approved" alone is NOT genuinely scheduled — that would mislabel an
+    // approval date as a scheduled-visit date. It only becomes "scheduled" once a
+    // real visit is confirmed.
+    expect(addOnState("approved")).toBe("open");
+    expect(addOnState("approved", true)).toBe("scheduled");
     // The item came back — the request is finished.
     expect(addOnState("returned")).toBe("done");
     // Declined is NOT done: filtering for finished work must not surface things that never happened.
@@ -72,14 +76,26 @@ describe("building the merged list", () => {
   });
 
   it("puts scheduled work first, soonest at the top", () => {
-    // "What is happening next" is the manager's actual question.
+    // "What is happening next" is the manager's actual question. req-1 is an
+    // APPROVED add-on with no confirmed visit (C246), so it is not genuinely
+    // scheduled — only wo-1 (a real booked visit) leads.
     const rows = buildUnifiedServiceRows({ addOns, maintenance });
-    expect(rows.slice(0, 2).map((r) => r.id)).toEqual(["wo-1", "req-1"]);
+    expect(rows[0]!.id).toBe("wo-1");
   });
 
   it("orders unscheduled work newest-first behind the scheduled block", () => {
     const rows = buildUnifiedServiceRows({ addOns, maintenance });
-    expect(rows.slice(2).map((r) => r.id)).toEqual(["wo-2", "req-2"]);
+    expect(rows.slice(1).map((r) => r.id)).toEqual(["wo-2", "req-2", "req-1"]);
+  });
+
+  it("carries an approved add-on's approval date separately from a scheduled-visit date (C246)", () => {
+    const rows = buildUnifiedServiceRows({ addOns, maintenance: [] });
+    const approved = rows.find((r) => r.id === "req-1")!;
+    expect(approved.state).toBe("open");
+    expect(approved.scheduledIso).toBe("");
+    expect(approved.approvedIso).toBe("2026-09-02T17:00:00Z");
+    const pending = rows.find((r) => r.id === "req-2")!;
+    expect(pending.approvedIso).toBe("");
   });
 
   it("resolves an add-on's property through the caller's catalog", () => {
@@ -117,7 +133,9 @@ describe("building the merged list", () => {
   });
 
   it("counts each state for the filter pills", () => {
+    // req-1 (approved, no confirmed visit) now counts as open, not scheduled (C246) —
+    // only wo-1's real booked visit counts as scheduled.
     const counts = countServiceRowsByState(buildUnifiedServiceRows({ addOns, maintenance }));
-    expect(counts).toEqual({ open: 2, scheduled: 2, done: 0, declined: 0 });
+    expect(counts).toEqual({ open: 3, scheduled: 1, done: 0, declined: 0 });
   });
 });

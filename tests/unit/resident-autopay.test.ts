@@ -622,4 +622,39 @@ describe("resolveResidentAutopayHousehold", () => {
     expect(household?.propertyId).toBe("prop_b");
     expect(household?.nextCharge).toBeNull();
   });
+
+  it("treats a Postgres invalid-uuid rejection (a malformed manager_id, e.g. a legacy non-UUID fixture id) as no household instead of throwing", async () => {
+    // A resident profile can carry a manager_id that isn't a real UUID (data
+    // corruption, or a pre-migration legacy id). manager_user_id is a `uuid`
+    // column, so Postgres rejects the whole query with 22P02 rather than
+    // returning zero rows. GET /api/resident/autopay must surface the same
+    // "no household" response every other not-yet-linked resident gets, not
+    // a 500 (Night QA finding #1: resident/move-in 500s twice per load).
+    const db = {
+      from(table: string) {
+        if (table === "portal_household_charge_records") {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  in: () => ({
+                    limit: async () => ({
+                      data: null,
+                      error: { code: "22P02", message: 'invalid input syntax for type uuid: "AXIS-TESTRSID"' },
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+    const household = await resolveResidentAutopayHousehold(db as never, {
+      residentEmail: "resident@example.com",
+      managerId: "AXIS-TESTRSID",
+    });
+    expect(household).toBeNull();
+  });
 });

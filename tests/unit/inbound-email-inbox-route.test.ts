@@ -159,7 +159,7 @@ function receivedPayload(overrides: Record<string, unknown> = {}) {
       email_id: EMAIL_ID,
       created_at: "2026-07-23T17:41:09.000Z",
       from: "Jane Prospect <jane@example.com>",
-      to: ["support@prop-lane.space"],
+      to: ["support@proplane.ai"],
       subject: "Question about the Ravenna listing",
       ...overrides,
     },

@@ -1,22 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
 import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 
 /**
- * Per-device "I've seen it" for the notice. A convenience, not state: it
- * clears when the browser does, and the dashboard's attention list keeps the
- * same row until a number is actually assigned.
+ * Per-workspace "I've seen it" for the notice (AXI night sweep area 2d — a
+ * global per-device dismiss meant switching to a DIFFERENT workspace that
+ * still needs messaging set up silently inherited the dismiss from an
+ * unrelated one). Falls back to a workspace-less key so it still dismisses
+ * before the workspace context has resolved.
  */
-const DISMISSED_KEY = "proplane.messaging-setup-notice.dismissed";
+const DISMISSED_KEY_PREFIX = "proplane.messaging-setup-notice.dismissed";
 
-function readDismissed(): boolean {
+function readDismissed(workspaceId: string | null): boolean {
   try {
-    return window.localStorage.getItem(DISMISSED_KEY) === "1";
+    return window.localStorage.getItem(`${DISMISSED_KEY_PREFIX}:${workspaceId ?? "unknown"}`) === "1";
   } catch {
     return false;
   }
@@ -52,18 +55,28 @@ function readDismissed(): boolean {
 export function ManagerMessagingSetupBanner() {
   const { resolved, statusError, status } = useManagerMessagingNumberStatus();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const workspaceId = useWorkspaces()?.active?.id ?? null;
   // Read after mount so the server and the first client paint agree.
   const [dismissed, setDismissed] = useState<boolean | null>(null);
   useEffect(() => {
-    const seen = readDismissed();
+    const seen = readDismissed(workspaceId);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is only readable after mount
     setDismissed(seen);
-  }, []);
+  }, [workspaceId]);
+
+  // Scoped to the two screens this is actually actionable from — Communication
+  // (whose own header repeats the same CTA, so the notice stood in for it
+  // there) and the messaging settings tab itself. Every other page used to
+  // carry this on unrelated work (Properties, Applications, a vendor's own
+  // Calendar) as a nag that reappeared on every navigation (AXI night sweep
+  // area 2d).
+  const onCommunication = Boolean(pathname?.startsWith("/portal/communication"));
+  const onMessagingSettings =
+    pathname === "/portal/profile" && searchParams.get("tab") === "messaging";
+  if (!onCommunication && !onMessagingSettings) return null;
 
   if (!resolved || statusError || !status) return null;
-  // Communication's own header carries the same "Set up messaging" action;
-  // the notice above it said the same thing twice on one screen.
-  if (pathname?.startsWith("/portal/communication")) return null;
   if (status.number?.phoneNumber) return null;
   if (status.planTier === "free") return null;
   if (dismissed !== false) return null;
@@ -99,7 +112,7 @@ export function ManagerMessagingSetupBanner() {
         type="button"
         onClick={() => {
           try {
-            window.localStorage.setItem(DISMISSED_KEY, "1");
+            window.localStorage.setItem(`${DISMISSED_KEY_PREFIX}:${workspaceId ?? "unknown"}`, "1");
           } catch {
             // A browser that refuses storage still gets the notice closed for this page.
           }

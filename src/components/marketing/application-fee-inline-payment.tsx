@@ -18,6 +18,15 @@ function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** C203: how long the embedded checkout may sit unresolved before the host offers a reload. */
+const STUCK_AFTER_MS = 45_000;
+let stuckAfterMs = STUCK_AFTER_MS;
+
+/** Test seam: shorten the stuck-checkout timeout. `null` restores the default. */
+export function setApplicationFeeStuckTimeoutMsForTests(ms: number | null): void {
+  stuckAfterMs = ms ?? STUCK_AFTER_MS;
+}
+
 /**
  * Inline (embedded) application-fee payment — the card form renders INSIDE the
  * application step; the applicant never leaves the wizard for a hosted Stripe
@@ -57,6 +66,17 @@ export function ApplicationFeeInlinePayment({
   // A missing server key or an unfinished manager setup cannot be retried away.
   const [canRetry, setCanRetry] = useState(true);
   const [loading, setLoading] = useState(false);
+  // C203: a hung embedded checkout ("Processing…" that never redirects to
+  // `returnPath`) has no client-visible error to catch — Stripe's own iframe
+  // stays open and silent. This is a HOST-side timeout, never a new charge:
+  // it never re-fetches a client secret, it only remounts the SAME embedded
+  // checkout (via `reloadNonce` in the key) so a wedged iframe gets a fresh
+  // start on the identical PaymentIntent. See docs/stripe-ach-local-test.md
+  // "Card/embedded checkout also needs the local webhook relay" — the most
+  // common LOCAL cause of this hang is no `stripe listen` running, so the
+  // server never learns the payment succeeded.
+  const [stuck, setStuck] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const inFlight = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +162,16 @@ export function ApplicationFeeInlinePayment({
     return () => window.clearInterval(timer);
   }, [start]);
 
+  // Reaching the return page navigates away and unmounts this component, so
+  // this timer only ever fires while the applicant is still looking at a
+  // checkout that has not resolved either way.
+  useEffect(() => {
+    if (!clientSecret) return;
+    setStuck(false);
+    const timer = window.setTimeout(() => setStuck(true), stuckAfterMs);
+    return () => window.clearTimeout(timer);
+  }, [clientSecret, reloadNonce]);
+
   if (error) {
     return (
       <div ref={rootRef} className="space-y-3 rounded-2xl border border-border bg-card p-4" data-attr="application-fee-inline-error">
@@ -187,7 +217,30 @@ export function ApplicationFeeInlinePayment({
           Preparing secure payment…
         </div>
       ) : null}
-      {clientSecret ? <StripeEmbeddedCheckout clientSecret={clientSecret} /> : null}
+      {clientSecret ? (
+        <StripeEmbeddedCheckout key={`${clientSecret}:${reloadNonce}`} clientSecret={clientSecret} />
+      ) : null}
+      {stuck && clientSecret ? (
+        <div
+          className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm"
+          data-attr="application-fee-inline-stuck"
+        >
+          <p className="font-medium text-foreground">This is taking longer than expected.</p>
+          <p className="text-xs text-muted">
+            If you already submitted payment, don&apos;t pay again — reloading restarts the same payment
+            and never creates a new charge.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="px-4 text-[13px]"
+            data-attr="application-fee-inline-reload"
+            onClick={() => setReloadNonce((n) => n + 1)}
+          >
+            Reload payment form
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -42,6 +42,7 @@ import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } f
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
+import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import {
   isGoogleBusyIncompleteWarning,
@@ -90,7 +91,7 @@ type PortalCalendarProps = {
 };
 
 export function PortalCalendar(props: PortalCalendarProps) {
-  if (props.portal === "vendor") return <VendorCalendarPanel view={props.vendorCalendarView ?? "week"} />;
+  if (props.portal === "vendor") return <VendorCalendarPanel tab={props.vendorCalendarView ?? "all"} />;
   return <PortalCalendarManager {...props} portal={props.portal} />;
 }
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
@@ -666,6 +667,9 @@ function PortalCalendarManager({
         titleInlineFilter={null}
         compactFilterRow={portal === "manager"}
       >
+        {portal === "manager" ? (
+          <GoogleCalendarPendingChangesBanner apiBase="/api/portal/google-calendar" refreshSignal={googleCalendarTick} />
+        ) : null}
         {portal === "manager" ? (
           <PortalListControlStack
             className="mb-2 max-lg:mb-1.5"

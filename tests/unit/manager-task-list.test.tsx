@@ -27,14 +27,18 @@ vi.mock("@/components/providers/app-ui-provider", () => {
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [], vendors: [], ready: true }),
 }));
-vi.mock("@/lib/demo-admin-scheduling", () => ({
-  formatRangeLabel: () => "Tomorrow",
-  syncScheduleRecordsFromServer: () => Promise.resolve(true),
-  // Reached through the settings modal the Reminders button opens. A whole-module
-  // mock must name every export the tree touches, or the first missing one fails
-  // the import rather than the assertion.
-  formatAvailabilitySlotLabel: (slot: number) => `slot ${slot}`,
-}));
+vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/demo-admin-scheduling")>();
+  return {
+    ...actual,
+    formatRangeLabel: () => "Tomorrow",
+    syncScheduleRecordsFromServer: () => Promise.resolve(true),
+    // Reached through the settings modal the Reminders button opens. A whole-module
+    // mock must name every export the tree touches, or the first missing one fails
+    // the import rather than the assertion.
+    formatAvailabilitySlotLabel: (slot: number) => `slot ${slot}`,
+  };
+});
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/demo-property-pipeline")>();
   return {

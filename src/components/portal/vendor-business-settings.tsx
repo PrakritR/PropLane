@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Building2, Mail, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -127,7 +128,9 @@ export function VendorBusinessProfilePane({ ctx }: { ctx: Ctx }) {
     >
       <PortalSettingsGroup>
         {ctx.loading ? (
-          <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+          <div className="px-4 py-4">
+            <ListSkeleton rows={2} showLeading={false} />
+          </div>
         ) : (
           <PortalSettingsFormBody>
             {ctx.error ? (
@@ -197,7 +200,9 @@ export function VendorWorkContactsPane({ ctx }: { ctx: Ctx }) {
     >
       <PortalSettingsGroup>
         {ctx.loading ? (
-          <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+          <div className="px-4 py-4">
+            <ListSkeleton rows={2} showLeading={false} />
+          </div>
         ) : (
           <PortalSettingsFormBody>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -272,7 +277,7 @@ export function VendorWorkIdentityPane({ channel }: { channel: "email" | "sms" }
   };
   return <PortalSettingsSection title={channel === "email" ? "Work email" : "Work number"}>
     <PortalSettingsGroup><PortalSettingsFormBody>
-      {loading ? <p className="px-4 py-4 text-sm text-muted" role="status">Loading</p> : failed ? <p className="px-4 py-4 text-sm text-danger" role="alert">Could not load <button type="button" className="font-semibold underline" onClick={() => void load()}>Retry</button></p> : <div className="space-y-2"><div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{status}</span>{value?.value ? <span className="text-sm text-muted">{value.value}</span> : null}<span className="text-xs">Send {value?.sendReady ? "ready" : "unavailable"} · Receive {value?.receiveReady ? "ready" : "unavailable"}</span></div><div className="flex items-center justify-between gap-3 text-sm"><span>Cost</span><span className="font-medium">Free · covered by PropLane</span></div></div>}
+      {loading ? <div className="px-4 py-4" role="status" aria-label="Loading"><ListSkeleton rows={1} showLeading={false} /></div> : failed ? <p className="px-4 py-4 text-sm text-danger" role="alert">Could not load <button type="button" className="font-semibold underline" onClick={() => void load()}>Retry</button></p> : <div className="space-y-2"><div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{status}</span>{value?.value ? <span className="text-sm text-muted">{value.value}</span> : null}<span className="text-xs">Send {value?.sendReady ? "ready" : "unavailable"} · Receive {value?.receiveReady ? "ready" : "unavailable"}</span></div><div className="flex items-center justify-between gap-3 text-sm"><span>Cost</span><span className="font-medium">Free · covered by PropLane</span></div></div>}
     </PortalSettingsFormBody>
     <div className="border-t border-border px-4 py-4"><Button variant="primary" disabled={loading || saving || !value?.canSetup} onClick={() => setup()}>{saving ? "Saving…" : "Set up"}</Button></div>
     </PortalSettingsGroup>
@@ -292,7 +297,9 @@ export function VendorWorkspaceAccessPane({
     >
       <PortalSettingsGroup>
         {ctx.loading ? (
-          <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+          <div className="px-4 py-4">
+            <ListSkeleton rows={2} showLeading={false} />
+          </div>
         ) : ctx.workspaces.length === 0 ? (
           <p className="px-4 py-4 text-sm text-muted" data-attr="vendor-workspaces-empty">
             No manager has linked you yet. Ask a manager for their vendor invite link, or wait for one to add you.

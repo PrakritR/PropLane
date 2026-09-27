@@ -320,6 +320,57 @@ function accessToLevels(access: ModuleAccessLevel, notification: boolean | undef
 }
 
 /**
+ * Module rows grouped the way the manager sidebar itself groups sections
+ * (`src/lib/portals/nav-groups.ts` PRO_GROUPS), so "grouped like the sidebar"
+ * (C112) is one map onto the real nav rather than an invented taxonomy.
+ * `bankAccount` and `teams` have no sidebar row of their own (bank lives
+ * inside Payments' setup modal; Team lives under Settings -> Workspaces) —
+ * both get their own trailing group rather than being folded silently into
+ * an unrelated one.
+ */
+const PERMISSION_EDITOR_GROUPS: Array<{ label: string; ids: CoManagerPermissionId[] }> = [
+  { label: "Workspace", ids: ["properties"] },
+  { label: "Leasing", ids: ["applications", "leases"] },
+  { label: "Tenancy", ids: ["residents", "payments", "services"] },
+  { label: "Operations", ids: ["calendar", "inbox"] },
+  { label: "Marketing", ids: ["promotion"] },
+  { label: "Finances", ids: ["financials", "documents", "bankAccount"] },
+  { label: "Administration", ids: ["teams"] },
+];
+
+/**
+ * One-click presets that set every module dropdown at once (C112 "plus 3
+ * presets") — real ids standing in for the studio mock's leasing_only /
+ * full_no_money / everything trio. `Clear all` (below) already covers the
+ * fourth "reset to nothing" case, so it stays a separate, always-present
+ * action rather than a fourth preset.
+ */
+const PERMISSION_LEVEL_PRESETS: Array<{ label: string; dataAttr: string; levels: Partial<Record<CoManagerPermissionId, ModuleAccessLevel>> }> = [
+  {
+    label: "Leasing only",
+    dataAttr: "co-manager-preset-leasing-only",
+    levels: { applications: "manage", leases: "manage" },
+  },
+  {
+    label: "Full access but money",
+    dataAttr: "co-manager-preset-full-no-money",
+    levels: Object.fromEntries(
+      CO_MANAGER_PERMISSION_OPTIONS.map(({ id }) => [
+        id,
+        id === "bankAccount" || id === "financials" || id === "payments" ? "none" : "manage",
+      ]),
+    ) as Partial<Record<CoManagerPermissionId, ModuleAccessLevel>>,
+  },
+  {
+    label: "Everything",
+    dataAttr: "co-manager-preset-everything",
+    levels: Object.fromEntries(CO_MANAGER_PERMISSION_OPTIONS.map(({ id }) => [id, "manage"])) as Partial<
+      Record<CoManagerPermissionId, ModuleAccessLevel>
+    >,
+  },
+];
+
+/**
  * Per-module access, one decision each: No access / View / Edit / Manage,
  * plus whether the person is notified. Empty means no access — assigning a
  * property never grants a module by itself. The grant written is the same
@@ -362,6 +413,17 @@ export function CoManagerPermissionsEditor({
     if (currentRole !== "custom") onRoleChange?.("custom");
   };
 
+  const applyPreset = (levels: Partial<Record<CoManagerPermissionId, ModuleAccessLevel>>) => {
+    const next: CoManagerPermissions = {};
+    for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+      const access = levels[id] ?? "none";
+      const grant = levelsToGrant(accessToLevels(access, grantToLevels(value[id]).notification));
+      if (grant !== undefined) next[id] = grant;
+    }
+    onChange(next);
+    onRoleChange?.("custom");
+  };
+
   const isEmpty = Object.keys(value).length === 0;
   const grantedCount = CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => levelsToAccess(grantToLevels(value[id])) !== "none").length;
 
@@ -383,6 +445,18 @@ export function CoManagerPermissionsEditor({
         >
           Clear all
         </button>
+        {PERMISSION_LEVEL_PRESETS.map((preset) => (
+          <button
+            key={preset.dataAttr}
+            type="button"
+            disabled={disabled}
+            onClick={() => applyPreset(preset.levels)}
+            className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+            data-attr={preset.dataAttr}
+          >
+            {preset.label}
+          </button>
+        ))}
         <span className="ml-auto text-xs text-muted" data-attr="co-manager-effective-access">
           {isEmpty
             ? "No access"
@@ -391,12 +465,18 @@ export function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Choose a role, or set View, Edit, or Manage for each module below.
+          No access. Choose a role, a preset, or set View, Edit, or Manage for each module below.
         </p>
       ) : null}
-      <div className="space-y-2">
-        {CO_MANAGER_PERMISSION_OPTIONS.map(({ id, label }) => {
-          const levels = grantToLevels(value[id]);
+      <div className="space-y-4">
+        {PERMISSION_EDITOR_GROUPS.map((group) => (
+          <div key={group.label} className="space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted" data-attr={`co-manager-group-${group.label.toLowerCase()}`}>
+              {group.label}
+            </p>
+            {group.ids.map((id) => {
+        const label = CO_MANAGER_PERMISSION_OPTIONS.find((option) => option.id === id)!.label;
+        const levels = grantToLevels(value[id]);
           const access = levelsToAccess(levels);
           return (
             <div
@@ -451,7 +531,9 @@ export function CoManagerPermissionsEditor({
               </div>
             </div>
           );
-        })}
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

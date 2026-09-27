@@ -74,7 +74,10 @@ const DEFAULT_STACK_CLASS = "fixed inset-0 z-[90] overflow-y-auto overscroll-con
 const DEFAULT_CENTER_CLASS =
   "relative z-[91] flex min-h-full items-center justify-center px-2 py-4 sm:px-4 sm:py-6 [html[data-native]_&]:pt-[max(1rem,var(--native-safe-top))] [html[data-native]_&]:pb-[max(1rem,var(--native-safe-bottom))]";
 
-import { isPortaledFieldSelectMenuTarget } from "@/components/ui/field-select-portal-interaction";
+import {
+  isAnyPortaledFieldSelectMenuOpen,
+  isPortaledFieldSelectMenuTarget,
+} from "@/components/ui/field-select-portal-interaction";
 
 /** Field-select menus portal to `document.body`; keep Radix/Vaul from treating them as outside dismiss. */
 function allowPortaledFieldSelectInteraction(event: Event) {
@@ -160,6 +163,18 @@ export function ModalShell({
     allowPortaledFieldSelectInteraction(event);
   };
 
+  /**
+   * An Escape meant to close an open field-select dropdown must not also
+   * close this modal underneath it (BUILD-WAVE2 C090/C092) — see
+   * `isAnyPortaledFieldSelectMenuOpen`'s doc comment for why the race exists
+   * and why `preventDefault()` here is what fixes it.
+   */
+  const blockEscapeKeyDown = (event: Event) => {
+    if (dismissBlocked || isAnyPortaledFieldSelectMenuOpen()) {
+      event.preventDefault();
+    }
+  };
+
   const stackClass = stackClassName ?? DEFAULT_STACK_CLASS;
   const centerClass = centerClassName ?? DEFAULT_CENTER_CLASS;
   const overlayClass = overlayClassName ?? MODAL_OVERLAY_BACKDROP_CLASS;
@@ -196,7 +211,7 @@ export function ModalShell({
           className={cn(PORTAL_MOBILE_DRAWER_SHELL_CLASS, panelClassName, PORTAL_MOBILE_DRAWER_EDGE_CLASS)}
             onPointerDownOutside={blockDismissInteraction}
             onInteractOutside={blockDismissInteraction}
-            onEscapeKeyDown={dismissBlocked ? (event) => event.preventDefault() : undefined}
+            onEscapeKeyDown={blockEscapeKeyDown}
             {...contentA11y}
           >
             {showDrawerHandle ? (
@@ -229,7 +244,7 @@ export function ModalShell({
               className={panelClassName}
               onPointerDownOutside={blockDismissInteraction}
               onInteractOutside={blockDismissInteraction}
-              onEscapeKeyDown={dismissBlocked ? (event) => event.preventDefault() : undefined}
+              onEscapeKeyDown={blockEscapeKeyDown}
               {...contentA11y}
             >
               {children}

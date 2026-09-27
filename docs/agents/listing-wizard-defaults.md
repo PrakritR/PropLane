@@ -244,3 +244,23 @@ On Short stay / Airbnb, a two-or-more-resident room has a **Rent per
 resident** dropdown: Same for every resident / Different per resident
 (`stayResidentPricing` / `stayResidentPrices`). Different opens Resident 1 /
 2 with Rent /night and Rent /week. Independent of the long-term checkbox.
+
+## Workspace application form: a live default, not a snapshot
+
+A manager can set one workspace-wide rental application template (Settings →
+Application form) that every listing follows unless it explicitly opts into
+`applicationFormSource: "custom"` — `resolveEffectiveApplicationForm`
+(`src/lib/rental-application/workspace-application-form.ts`), the one
+function `publicListingProjection`, server-side validation, and the listing
+editor's own preview all go through. Unlike a Rooms/Bathrooms "Default card"
+(removed above because each record's values are independent data with no
+live link, and "still following" was an invisible value-equality guess),
+"follows the workspace" here is a LIVE resolution, not a one-time copy: the
+mode is an explicit, persisted, manager-visible field
+(`applicationFormSource`), never inferred from comparing values, so it never
+hits the ambiguity a Default card did. A listing with no workspace template
+saved yet, or any listing predating this feature, resolves to its own fields
+exactly as before — "missing workspace form" always falls back to today's
+behaviour. Switching a listing TO Custom still does the familiar one-time
+copy (mirrors "Same as Room X"): the workspace form's fields are copied onto
+the listing once, then edited independently.

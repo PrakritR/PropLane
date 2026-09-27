@@ -33,7 +33,7 @@ import {
   normalizeListingPaymentWaiverCode,
 } from "@/lib/payment-policy";
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
-import { uploadListingImageFiles } from "@/lib/listing-media-client";
+import { uploadListingImageFiles, uploadListingVideoFile } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import {
   listingSyndicationHasStreetAddress,
@@ -436,7 +436,7 @@ function PhotoStrip({
  * entity, not a list — offering a gallery here would imply a second clip could
  * be added and then silently drop it.
  */
-function VideoSlot({
+export function VideoSlot({
   url,
   onChange,
   label,
@@ -447,13 +447,35 @@ function VideoSlot({
   label: string;
   inherited?: boolean;
 }) {
-  const read = (files: FileList | null) => {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+
+  /*
+   * Videos upload as they are chosen, through the same client path
+   * PhotoStrip uses for photos, so the submission carries a permanent URL
+   * rather than a base64 data URL. A 40-170MB phone clip held as a data URL
+   * made the iOS web view fail in total silence: no error, no spinner, the
+   * tile just stayed on "+".
+   */
+  async function pick(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => onChange(String(reader.result ?? "") || null);
-    reader.readAsDataURL(file);
-  };
+    setError("");
+    setBusy(true);
+    setProgress(0);
+    try {
+      const uploaded = await uploadListingVideoFile(file, { onProgress: setProgress });
+      onChange(uploaded);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const percent = Math.round(progress * 100);
+
   return (
     <div>
       {/*
@@ -475,21 +497,28 @@ function VideoSlot({
             </button>
           </span>
         ) : (
-          <label className="grid h-16 w-20 cursor-pointer place-items-center rounded-lg border border-dashed border-border bg-accent/20 text-[18px] text-muted">
-            +
+          <label className="relative grid h-16 w-20 cursor-pointer place-items-center overflow-hidden rounded-lg border border-dashed border-border bg-accent/20 text-[18px] text-muted">
+            {busy ? <span className="text-[12.5px] font-semibold">{percent}%</span> : "+"}
+            {busy ? (
+              <span className="absolute inset-x-0 bottom-0 h-1 bg-border/40">
+                <span className="block h-1 rounded bg-primary" style={{ width: `${percent}%` }} />
+              </span>
+            ) : null}
             <input
               type="file"
               accept="video/*"
+              disabled={busy}
               className="sr-only"
               aria-label={`Add ${label} video`}
               onChange={(e) => {
-                read(e.target.files);
+                void pick(e.target.files);
                 e.target.value = "";
               }}
             />
           </label>
         )}
       </div>
+      {error ? <p className="mt-1 text-[12px] font-semibold text-red-700">{error}</p> : null}
     </div>
   );
 }

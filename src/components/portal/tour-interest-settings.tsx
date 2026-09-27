@@ -14,7 +14,7 @@ function interestSnapshot(enabled: boolean, body: string) {
 
 /** Owner setting in the existing reminder namespace. Changes affect new replies. */
 export function TourInterestSettings() {
-  const { userId } = usePortalSession();
+  const { userId, ready } = usePortalSession();
   const reportSaveStatus = useReportSettingsSaveStatus();
   const generation = useRef(0);
   const [enabled, setEnabled] = useState(false);
@@ -35,7 +35,15 @@ export function TourInterestSettings() {
   }, [userId]);
 
   useEffect(() => {
-    if (!userId) return;
+    // C027/C205: `userId` starts null while the session hydrates and this
+    // effect correctly re-runs once it resolves — but if it resolves to
+    // genuinely signed-out (`ready` true, `userId` still null), there is
+    // nothing to load and `loading` must not hang at its initial `true`
+    // forever (the reported stuck "Loading…" section).
+    if (!userId) {
+      if (ready) setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setLoaded(false);
@@ -60,7 +68,7 @@ export function TourInterestSettings() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [userId, retry]);
+  }, [userId, ready, retry]);
 
   const isDirty = useMemo(
     () => loaded && interestSnapshot(enabled, body) !== savedSnapshot,

@@ -14,6 +14,7 @@ import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submi
 import { roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { sharedRoomApplicationFact } from "@/lib/shared-room-display";
+import { leaseFirstInitialsProgress } from "@/lib/leasing/lease-first-signing-document";
 
 export type ManagerLeaseListCluster = ResidentCluster<LeasePipelineRow>;
 
@@ -116,6 +117,18 @@ export function leaseResidentSlotFact(row: LeasePipelineRow): string | undefined
         ? roomResidentPriceForSlot(room, (row.application?.residentSlot as number) || 1)?.monthlyRent
         : undefined;
   return sharedRoomApplicationFact(capacity, rent) ?? undefined;
+}
+
+/**
+ * "N of M initials" — the imported-lease-first signing progress fact (C280).
+ * `undefined` for every ordinary lease (no `signingTemplateSnapshot`), so the
+ * row's facts line is unchanged for every workspace but Ida Cares-style
+ * lease-first ones.
+ */
+export function leaseInitialsProgressFact(row: LeasePipelineRow): string | undefined {
+  const progress = leaseFirstInitialsProgress(row.signingTemplateSnapshot, row.signingAnswers);
+  if (!progress) return undefined;
+  return `${progress.answered} of ${progress.total} initials`;
 }
 
 /** " · Renewal requested" / " · Signed off-platform" — what the update stamp carries after the date. */

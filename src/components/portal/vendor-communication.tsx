@@ -4,9 +4,10 @@ import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/comp
 
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PenSquare, Settings } from "lucide-react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
+import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { Input } from "@/components/ui/input";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -46,8 +47,10 @@ import {
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
+import { useCommunicationListSegment } from "@/hooks/use-communication-list-segment";
 import {
   clearCommunicationThreadUrl,
+  selectCommunicationSegmentUrl,
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import {
@@ -96,6 +99,7 @@ function VendorUnifiedInbox({
   commBase,
   listActions,
   threadFilters,
+  onSegmentChange,
 }: {
   inboxRef: React.RefObject<VendorInboxPanelHandle | null>;
   smsUiEnabled: boolean;
@@ -113,6 +117,12 @@ function VendorUnifiedInbox({
   listActions?: React.ReactNode;
   /** Narrows the list — currently only `recordRefs`/`recordKinds` (record-linked communication). */
   threadFilters?: CommunicationThreadFilters;
+  /**
+   * A plain-click Active/Archived tab switch updates client state instead of
+   * a full route navigation (same instant-switch behavior as the manager
+   * unified inbox, PLAN B1) — omit to keep ordinary Link navigation.
+   */
+  onSegmentChange?: (segment: "active" | "archived") => void;
 }) {
   const { ready: sessionReady } = usePortalSession();
   const [emailThreads, setEmailThreads] = useState(() => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, []));
@@ -256,7 +266,12 @@ function VendorUnifiedInbox({
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <VendorWorkNumberCard />
       <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-        <InboxListSegmentTabs commBase={commBase} value={listSegment} />
+        <InboxListSegmentTabs
+          commBase={commBase}
+          value={listSegment}
+          onChange={onSegmentChange}
+          interceptNavigation={Boolean(onSegmentChange)}
+        />
         <div className="flex min-w-0 items-center gap-1">
           <div className="relative min-w-0 flex-1">
             <Input
@@ -388,7 +403,7 @@ function VendorUnifiedInbox({
 export type VendorEmailTabId = "unopened" | "opened" | "schedule" | "sent" | "trash";
 
 export function VendorCommunication({
-  listSegment = "active",
+  listSegment: listSegmentProp = "active",
   threadId,
   smsUiEnabled = false,
   threadFilters,
@@ -407,10 +422,38 @@ export function VendorCommunication({
   const communicationSettingsEntry = getSettingsEntryPoint("vendorCommunication");
   const inboxRef = useRef<VendorInboxPanelHandle>(null);
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
+  // Client-tracked segment (PLAN B1, mirrored from the manager unified inbox):
+  // a plain-click Active/Archived tab switch updates this via
+  // `history.pushState` instead of a full App Router navigation, so the
+  // already-loaded lists never re-fetch. A genuine full navigation (deep
+  // link, reload, sidebar link) still remounts this component, re-seeding
+  // the hook from the fresh `listSegmentProp`.
+  const { segment: listSegment, setSegment: setListSegment } = useCommunicationListSegment(
+    commBase,
+    listSegmentProp,
+  );
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [status, setStatus] = useState<CommunicationStatus>(listSegment);
-  useEffect(() => setStatus(listSegment), [listSegment]);
+  useEffect(() => {
+    // Archived is the tab's job now (hideArchived below) — never let the
+    // Filter sheet's own status settle on "archived"/"all" behind it.
+    setStatus((current) => {
+      if (listSegment === "unread") return current === "unread" ? current : "unread";
+      if (current === "archived" || current === "all") return "active";
+      return current;
+    });
+  }, [listSegment]);
+  const handleSegmentNavigate = useCallback(
+    (next: "active" | "archived") => {
+      setListSegment(next);
+      // A thread open in one folder never exists in the other — close it so
+      // the URL (now segment-only) and the open-thread state agree.
+      setActiveThreadId(undefined);
+      selectCommunicationSegmentUrl(`${commBase}/${next}`);
+    },
+    [commBase, setActiveThreadId, setListSegment],
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The "About" record-kind filter (PLAN-0920-1058 area 1c) — local UI state,
@@ -425,6 +468,35 @@ export function VendorCommunication({
     return { ...(threadFilters ?? EMPTY_COMMUNICATION_THREAD_FILTERS), recordKinds: [recordKindFilter] };
   }, [threadFilters, recordKindFilter]);
 
+  // The chips stay on the page background between the title band and the
+  // cards, same placement as the manager's (PortalActiveFilterChips returns
+  // null when empty, and the shell drops its wrapper with it).
+  const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
+    const chips: PortalActiveFilterChip[] = [];
+    if (status === "read" || status === "unread") {
+      chips.push({
+        id: "status",
+        label: status === "read" ? "Read" : "Unread",
+        onRemove: () => setStatus("active"),
+      });
+    }
+    if (recordKindFilter) {
+      const label = RECORD_KIND_FILTER_OPTIONS.find((o) => o.value === recordKindFilter)?.label ?? recordKindFilter;
+      chips.push({
+        id: "about",
+        label: `About: ${label}`,
+        onRemove: () => setRecordKindFilter(""),
+      });
+    }
+    return chips;
+  }, [status, recordKindFilter]);
+
+  // The list segment actually fed to the merge is the tab (Active/Archived)
+  // combined with the Filter's own Unread/Read/All — archived always wins
+  // (status can never settle on "archived" itself, see the effect above).
+  const mergeSegment: InboxListSegment =
+    listSegment === "archived" ? "archived" : status === "unread" ? "unread" : "active";
+
   const communicationCommandActions = (
     <>
       <PortalFilterSortSheet
@@ -434,7 +506,7 @@ export function VendorCommunication({
         commandStripTrigger
         dataAttr="vendor-communication-filter-open"
       >
-        <CommunicationStatusFilterDraft value={status} onChange={setStatus} />
+        <CommunicationStatusFilterDraft value={status} onChange={setStatus} hideArchived />
         <FieldSingleSelect
           label="About"
           value={recordKindFilter}
@@ -463,6 +535,7 @@ export function VendorCommunication({
     <PortalCommunicationShell
       title="Communication"
       hideTitleOnMobileNav
+      controlStack={<PortalActiveFilterChips chips={activeFilterChips} />}
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}
@@ -475,9 +548,8 @@ export function VendorCommunication({
       <VendorUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}
-        listSegment={status === "read" || status === "all" ? "active" : status}
+        listSegment={mergeSegment}
         readOnly={status === "read"}
-        includeArchived={status === "all"}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
         searchQuery={searchQuery}
@@ -487,6 +559,7 @@ export function VendorCommunication({
         commBase={commBase}
         listActions={communicationCommandActions}
         threadFilters={effectiveThreadFilters}
+        onSegmentChange={handleSegmentNavigate}
       />
     </PortalCommunicationShell>
   );

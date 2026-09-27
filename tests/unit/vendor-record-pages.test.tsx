@@ -11,6 +11,7 @@ vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate })
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
   subscribeDemoPath: () => () => {},
+  DEMO_MANAGER_USER_ID: "demo-manager",
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/vendor/work-orders",

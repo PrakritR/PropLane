@@ -29,6 +29,7 @@ import { setAutopayTool, startRentPaymentTool } from "./domains/resident/payment
 import { rentReportingStatusTool } from "./domains/resident/rent-reporting";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
+import { residentSmsListingTools } from "./domains/resident/sms-listings";
 import {
   listMyServiceRequestsTool,
   listMyWorkOrdersTool,
@@ -133,6 +134,9 @@ const APPLICATION_PHASE_TOOLS = new Set([
   "send_message_to_manager",
   "schedule_message",
   "cancel_scheduled_message",
+  "list_live_listings",
+  "get_listing_details",
+  "get_listing_link",
 ]);
 
 /**
@@ -147,7 +151,7 @@ export const residentAgentRegistry: ToolRegistry<ResidentAgentContext> = buildRe
  * + messaging; a free-tier manager hides services/documents tools.
  */
 export function buildResidentRegistry(ctx: ResidentAgentContext): ToolRegistry<ResidentAgentContext> {
-  const tools = ALL_RESIDENT_TOOLS.filter((tool) => {
+  const tools = [...ALL_RESIDENT_TOOLS, ...(ctx.channel === "sms" ? residentSmsListingTools : [])].filter((tool) => {
     if (ctx.phase === "application" && !APPLICATION_PHASE_TOOLS.has(tool.name)) return false;
     if (ctx.channel === "sms" && PORTAL_ONLY_TOOLS.has(tool.name)) return false;
     const section = TOOL_SECTION[tool.name];

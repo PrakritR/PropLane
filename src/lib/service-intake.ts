@@ -237,8 +237,23 @@ export type ServiceIntakeOption = {
   isCustomAddOn?: boolean;
 };
 
+/**
+ * C133: repair categories (Plumbing, Electrical, …) a workspace has explicitly disabled —
+ * from `ServiceAutomationSettings.disabledRepairCategories` — are never offered to a
+ * resident. A null/undefined/empty list disables nothing (the additive default), so an
+ * unconfigured workspace sees every category exactly as before.
+ */
+export function filterEnabledRepairCategories(
+  disabledCategories: readonly string[] | null | undefined,
+): ResidentMaintenanceCategoryLabel[] {
+  if (!disabledCategories || disabledCategories.length === 0) return [...RESIDENT_SERVICE_REPAIR_CATEGORIES];
+  const disabled = new Set(disabledCategories);
+  return RESIDENT_SERVICE_REPAIR_CATEGORIES.filter((category) => !disabled.has(category));
+}
+
 export function buildServiceIntakeOptions(
   catalogOffers: readonly ManagerListingServiceOption[],
+  disabledRepairCategories?: readonly string[] | null,
 ): ServiceIntakeOption[] {
   const options: ServiceIntakeOption[] = [];
 
@@ -254,12 +269,17 @@ export function buildServiceIntakeOptions(
     });
   }
 
-  options.push({
-    key: `repair:${MAINTENANCE_SERVICE_OFFER_ID}`,
-    label: "Maintenance",
-    kind: "repair",
-    group: "repair",
-  });
+  // The single "Maintenance" entry covers every repair category — only hide it
+  // outright once a workspace has disabled ALL of them; a partial disable still
+  // needs the category picker filtered (see `filterEnabledRepairCategories`).
+  if (filterEnabledRepairCategories(disabledRepairCategories).length > 0) {
+    options.push({
+      key: `repair:${MAINTENANCE_SERVICE_OFFER_ID}`,
+      label: "Maintenance",
+      kind: "repair",
+      group: "repair",
+    });
+  }
 
   options.push({
     key: "addon:custom",

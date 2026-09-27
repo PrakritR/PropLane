@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { DashboardSkeleton, DashboardLoadError } from "@/components/portal/dashboard-skeleton";
 import {
   PortfolioPropertiesSection,
   readPortfolioSnapshot,
@@ -1036,7 +1037,25 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     };
   }, [data, periodKind, nowMs]);
 
-  if (!data) return null;
+  // A slow session read (common on a first phone load) used to `return null`
+  // here, blanking the whole page below the header with no feedback at all.
+  // Show a shape-matched skeleton while the session resolves, and a retry
+  // card only for the genuine failure case (signed out / session read
+  // failed), never for the brief in-between.
+  if (!authReady) {
+    return (
+      <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle>
+        <DashboardSkeleton />
+      </ManagerPortalPageShell>
+    );
+  }
+  if (!data) {
+    return (
+      <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle>
+        <DashboardLoadError onRetry={() => router.refresh()} />
+      </ManagerPortalPageShell>
+    );
+  }
 
   const {
     portfolio,

@@ -58,7 +58,8 @@ export async function POST(req: Request) {
       materialsCostCents?: number;
       materialsMemo?: string;
       workDoneSummary?: string;
-      paymentChannel?: "ach";
+      /** `"balance"` (night/vendor-pay) pays instantly from the manager's PropLane balance; ignored (treated as `"ach"`) while the flag is off. */
+      paymentChannel?: "ach" | "balance";
       acknowledgeExistingPayout?: unknown;
     };
 
@@ -71,6 +72,18 @@ export async function POST(req: Request) {
       if ("existingPayout" in result) {
         return NextResponse.json(
           { error: result.error, code: result.code, existingPayout: result.existingPayout },
+          { status: result.status },
+        );
+      }
+      if ("code" in result && result.code === "insufficient_balance") {
+        return NextResponse.json(
+          {
+            error: result.error,
+            code: result.code,
+            availableCents: result.availableCents,
+            requestedCents: result.requestedCents,
+            shortfallCents: result.shortfallCents,
+          },
           { status: result.status },
         );
       }

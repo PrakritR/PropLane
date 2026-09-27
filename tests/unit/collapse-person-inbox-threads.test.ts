@@ -240,4 +240,58 @@ describe("collapsePersonInboxThreads", () => {
     ]);
     expect(new Set(timeline.map((message) => message.id)).size).toBe(timeline.length);
   });
+
+  /**
+   * Regression for the captain resurrection sweep, item 3: a same-person
+   * archived thread that a past delivery-side bug had already forked into a
+   * separate near-empty active duplicate stayed forked forever on read —
+   * Active showed the (near-empty) duplicate while the real history sat
+   * stuck in Archived. The merged (cross-folder) person view now heals this:
+   * the more recently active thread wins folder, and both threads' messages
+   * merge into one timeline.
+   */
+  it("heals a same-person archived thread into the active duplicate when merging folders", () => {
+    const rows = collapsePersonInboxThreads(
+      [
+        thread({
+          id: "email_archived_1",
+          email: "person@test.com",
+          folder: "trash",
+          previousFolder: "inbox",
+          body: "Archived history",
+          time: "Jan 1, 10:00 AM",
+        }),
+        thread({
+          id: "email_active_2",
+          email: "person@test.com",
+          folder: "inbox",
+          body: "Fresh duplicate",
+          time: "Jan 2, 10:00 AM",
+        }),
+      ],
+      { mergeFolders: true },
+    );
+    expect(rows).toHaveLength(1);
+    const merged = rows[0]!;
+    expect(merged.folder).toBe("inbox");
+    expect(inboxThreadMessages(merged).map((m) => m.body)).toEqual(["Archived history", "Fresh duplicate"]);
+  });
+
+  it("keeps an archived thread its own row in the ordinary, folder-scoped listing", () => {
+    const rows = collapsePersonInboxThreads([
+      thread({ id: "email_archived_1", email: "person@test.com", folder: "trash", previousFolder: "inbox", body: "Archived history" }),
+      thread({ id: "email_active_2", email: "person@test.com", folder: "inbox", body: "Fresh duplicate", time: "Jan 2, 10:00 AM" }),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((t) => t.folder === "trash")?.id).toBe("email_archived_1");
+  });
+
+  it("keeps a person with only an archived thread archived after merging folders", () => {
+    const rows = collapsePersonInboxThreads(
+      [thread({ id: "email_archived_only", email: "person@test.com", folder: "trash", previousFolder: "inbox", body: "Archived only" })],
+      { mergeFolders: true },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.folder).toBe("trash");
+  });
 });

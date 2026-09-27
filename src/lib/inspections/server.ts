@@ -13,7 +13,7 @@ import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
   applyInspectionObservations, assertInspectionWritable, createInspectionSchema, ensureInspectionSchema,
   transitionResidentSubmission,
-  inspectionPhotoCounts, inspectionToday, InspectionError, residencyOccupancy,
+  inspectionPhotoCounts, inspectionRoomProgress, inspectionToday, InspectionError, residencyOccupancy,
   type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionRecord,
   type InspectionResidency, type InspectionSummary,
 } from "./model";
@@ -269,7 +269,8 @@ export async function listInspections(actor: InspectionActor, applicationId?: st
     const row = raw as unknown as InspectionRecord;
     return authorized(actor, scope, row) && (!applicationId || row.application_id === applicationId);
   }).map(raw => {
-    const summary: Record<string, unknown> = { ...raw, photos: inspectionPhotoCounts((raw as unknown as InspectionRecord).document) };
+    const document = (raw as unknown as InspectionRecord).document;
+    const summary: Record<string, unknown> = { ...raw, photos: inspectionPhotoCounts(document), roomProgress: inspectionRoomProgress(document) };
     delete summary.document; delete summary.resident_email; delete summary.resident_user_id;
     return summary as unknown as InspectionSummary;
   }).sort((a, b) => b.created_at.localeCompare(a.created_at));

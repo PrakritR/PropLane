@@ -12,9 +12,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import {
+  customFieldErrorKey,
   encodeMultiSelectAnswer,
   formatCustomFieldAnswerDisplay,
   parseMultiSelectAnswer,
+  validateCustomFieldAnswers,
 } from "@/lib/rental-application/custom-fields";
 import {
   CUSTOM_APPLICATION_FIELD_TYPES,
@@ -237,3 +239,73 @@ describe("formatCustomFieldAnswerDisplay never leaks JSON for a new type", () =>
     }
   });
 });
+
+describe("initials question type (WS1B lease import support)", () => {
+  it("is a valid stored type and picker option", () => {
+    expect(CUSTOM_APPLICATION_FIELD_TYPES).toContain("initials");
+    expect(CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.some((o) => o.id === "initials")).toBe(true);
+  });
+
+  it("normalizes a stored initials question to initials, not text", () => {
+    const normalized = normalizeCustomApplicationFields([
+      { id: "caf-3", key: "resident-initials", label: "Initial here", type: "initials", required: true },
+    ]);
+    expect(normalized[0].type).toBe("initials");
+  });
+
+  it("CustomQuestionField renders a plain text input, capped at 6 characters", () => {
+    render(<CustomQuestionField field={baseField({ type: "initials" })} value="" onChange={() => {}} />);
+    const el = screen.getByLabelText("Question label", { exact: false }) as HTMLInputElement;
+    expect(el.tagName).toBe("INPUT");
+    expect(el.maxLength).toBe(6);
+  });
+
+  it("validateCustomFieldAnswers rejects initials longer than 6 characters", () => {
+    const field = baseField({ type: "initials", required: false });
+    const tooLong = validateCustomFieldAnswers([field], [{ key: "q1", label: "Question label", type: "initials", value: "ABCDEFG" }]);
+    expect(tooLong[customFieldErrorKey("q1")]).toBeTruthy();
+    const ok = validateCustomFieldAnswers([field], [{ key: "q1", label: "Question label", type: "initials", value: "AB" }]);
+    expect(ok[customFieldErrorKey("q1")]).toBeUndefined();
+  });
+
+  it("validateCustomFieldAnswers still requires a required initials answer (shares the generic empty-value check)", () => {
+    const field = baseField({ type: "initials", required: true });
+    const errors = validateCustomFieldAnswers([field], []);
+    expect(errors[customFieldErrorKey("q1")]).toBeTruthy();
+  });
+
+  it("formatCustomFieldAnswerDisplay returns the raw initials, never JSON", () => {
+    const display = formatCustomFieldAnswerDisplay({ key: "k", label: "L", type: "initials", value: "JD" });
+    expect(display).toBe("JD");
+  });
+});
+
+describe("filledBy: manager custom questions (WS1B lease import support)", () => {
+  it("round-trips filledBy through normalizeCustomApplicationFields", () => {
+    const normalized = normalizeCustomApplicationFields([
+      { id: "caf-4", key: "manager-note", label: "Manager fills this in", type: "text", filledBy: "manager" },
+      { id: "caf-5", key: "resident-note", label: "Resident fills this in", type: "text", filledBy: "resident" },
+      { id: "caf-6", key: "default-note", label: "No filledBy set", type: "text" },
+    ]);
+    expect(normalized.find((f) => f.key === "manager-note")?.filledBy).toBe("manager");
+    expect(normalized.find((f) => f.key === "resident-note")?.filledBy).toBe("resident");
+    expect(normalized.find((f) => f.key === "default-note")?.filledBy).toBeUndefined();
+  });
+
+  it("an invalid stored filledBy value normalizes to undefined (defaults to resident-filled)", () => {
+    const normalized = normalizeCustomApplicationFields([
+      { id: "caf-7", key: "weird", label: "Weird value", type: "text", filledBy: "nobody" },
+    ]);
+    expect(normalized[0].filledBy).toBeUndefined();
+  });
+
+  it("CustomQuestionField's readOnly wrapper renders the same control but strips interaction (what a manager-filled question uses)", () => {
+    const { container } = render(
+      <CustomQuestionField field={baseField({ type: "text" })} value="JD" onChange={() => {}} readOnly />,
+    );
+    const wrapper = container.querySelector('[inert]');
+    expect(wrapper).toBeTruthy();
+    expect(wrapper?.className).toContain("pointer-events-none");
+  });
+});
+

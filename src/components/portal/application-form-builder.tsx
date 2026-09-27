@@ -166,6 +166,7 @@ export function ApplicationSectionPreviewPane({
 
 function BuilderQuestionCard({
   field,
+  allFields,
   expanded,
   onToggleExpand,
   error,
@@ -181,6 +182,8 @@ function BuilderQuestionCard({
   blockedTypes = [],
 }: {
   field: ResolvedApplicationField;
+  /** Every question in the form (all sections), for "Show only if …" candidates. */
+  allFields: ResolvedApplicationField[];
   expanded: boolean;
   onToggleExpand: () => void;
   error?: string | null;
@@ -287,6 +290,7 @@ function BuilderQuestionCard({
           field={field}
           onPatch={onPatch}
           error={error}
+          siblingFields={allFields}
           editableLabel={canEditBuiltIn?.(field, "label") ?? true}
           editableRequired={canEditBuiltIn?.(field, "required") ?? true}
           editableType={!field.isStandard}
@@ -382,6 +386,7 @@ export function ApplicationFormBuilder({
                 <div key={field.id} className="space-y-2">
                   <BuilderQuestionCard
                     field={field}
+                    allFields={applicationFields}
                     expanded={expandedQuestionIds.has(field.id)}
                     onToggleExpand={() => onToggleExpand(field.id)}
                     error={fieldErrors?.get(field.id) ?? null}

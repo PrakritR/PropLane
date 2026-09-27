@@ -81,7 +81,7 @@ export async function POST(req: Request) {
       kind: kind as VendorDocumentKind,
       fileName: safeName,
       storagePath,
-      url: `/api/vendor/documents/file?kind=${encodeURIComponent(kind)}`,
+      url: `/api/vendor/documents/signed-url?kind=${encodeURIComponent(kind)}`,
       uploadedAt: new Date().toISOString(),
     };
 

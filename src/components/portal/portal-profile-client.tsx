@@ -7,14 +7,14 @@ import {
   Bell,
   BellRing,
   Calendar,
-  CalendarDays,
   CheckSquare,
-  ClipboardCheck,
   CreditCard,
   FileText,
+  Folder,
   Home,
   KeyRound,
   Landmark,
+  ListChecks,
   Lock,
   MessageSquareText,
   MessagesSquare,
@@ -36,6 +36,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
+import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -72,8 +73,11 @@ import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
+import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
+import { ManagerFormsSettingsPanel } from "@/components/portal/pro-portal-settings-forms-panel";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
@@ -120,8 +124,6 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "payouts",
   "tasks",
   "reminders",
-  "bookings",
-  "inspections",
   "services",
 ]);
 
@@ -130,7 +132,7 @@ export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
  * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
  * `workspace-only` variant — no properties picker.
  */
-export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications"]);
+export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications", "applicationForm", "leaseDocuments", "forms"]);
 
 /** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
 export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
@@ -164,16 +166,17 @@ export type SettingsGroupId =
   | "account"
   | "properties"
   | "applications"
+  | "applicationForm"
   | "lease"
+  | "leaseDocuments"
+  | "forms"
   | "tours"
   | "resident"
   | "payments"
   | "payouts"
   | "tasks"
   | "reminders"
-  | "bookings"
   | "spreadsheets"
-  | "inspections"
   | "services";
 
 const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
@@ -185,8 +188,6 @@ const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>
   payouts: "payouts",
   tasks: "tasks",
   reminders: "automation",
-  bookings: "bookings",
-  inspections: "inspections",
   services: "services",
 };
 
@@ -227,6 +228,20 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
   );
 
   return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
+}
+
+function FormsSettingsModulePane() {
+  const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const propertyOptions = useMemo(
+    () =>
+      unionLabeledPropertyOptions(
+        allWorkspacePropertyOptions(workspaces?.workspaces ?? []),
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+      ),
+    [userId, workspaces?.workspaces],
+  );
+  return <ManagerFormsSettingsPanel propertyOptions={propertyOptions} />;
 }
 
 export function PortalProfileClient({
@@ -462,7 +477,22 @@ export function PortalProfileClient({
     if (variant === "manager") {
       list.push(
         { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
+        {
+          id: "applicationForm",
+          label: "Application form",
+          description: "The rental application questions every listing asks by default.",
+          icon: ListChecks,
+          group: "Portfolio",
+        },
         { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
+        { id: "leaseDocuments", label: "Lease documents", description: "Uploaded lease PDFs a property or lease can reuse.", icon: Folder, group: "Portfolio" },
+        {
+          id: "forms",
+          label: "Forms",
+          description: "Naming, the intake form, and the lease template every property follows by default.",
+          icon: FileText,
+          group: "Portfolio",
+        },
         { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
         { id: "resident", label: "Residents", description: "Resident settings for this workspace.", icon: Home, group: "Portfolio" },
       );
@@ -484,10 +514,10 @@ export function PortalProfileClient({
         { id: "payouts", label: "Payouts", description: "Balance, bank accounts, and withdrawals.", icon: Landmark, group: "Operations" },
         { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
         { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
-        { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },
         { id: "spreadsheets", label: "Spreadsheets", description: "Google workbooks.", icon: Table2, group: "Operations" },
-        { id: "inspections", label: "Inspections", description: "Inspection rules.", icon: ClipboardCheck, group: "Operations" },
-        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
+        // Bookings and Inspections settings tabs are gone (C111/C116): both
+        // held only reminders, now on this Reminders entry.
+        { id: "reminders", label: "Reminders", description: "Reminder matrix, quiet hours, and every area's automated messages.", icon: BellRing, group: "Operations" },
       );
     }
     return list;
@@ -516,6 +546,11 @@ export function PortalProfileClient({
     if (rawTab === "automation") router.replace("/portal/profile?tab=reminders");
     if (rawTab === "leases") router.replace("/portal/profile?tab=lease");
     if (rawTab === "residents") router.replace("/portal/profile?tab=resident");
+    // Bookings and Inspections settings tabs are gone (C111/C116): both held
+    // only reminders, now on this Reminders tab — an old bookmark lands
+    // there instead of silently falling back to Profile.
+    if (rawTab === "bookings") router.replace("/portal/profile?tab=reminders");
+    if (rawTab === "inspections") router.replace("/portal/profile?tab=reminders");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const activeGroup =
@@ -689,13 +724,15 @@ export function PortalProfileClient({
       case "preferences":
         return (
           <>
-            <PortalSettingsSection title="Appearance">
-              <PortalSettingsGroup>
-                <PortalSettingsRow label="Theme">
-                  <ThemeToggle className="shrink-0" />
-                </PortalSettingsRow>
-              </PortalSettingsGroup>
-            </PortalSettingsSection>
+            {DARK_MODE_ENABLED ? (
+              <PortalSettingsSection title="Appearance">
+                <PortalSettingsGroup>
+                  <PortalSettingsRow label="Theme">
+                    <ThemeToggle className="shrink-0" />
+                  </PortalSettingsRow>
+                </PortalSettingsGroup>
+              </PortalSettingsSection>
+            ) : null}
             <AssistantDisplaySetting />
             <AssistantCustomInstructionsSetting role={variant} />
           </>
@@ -718,8 +755,14 @@ export function PortalProfileClient({
             embedded
           />
         );
+      case "applicationForm":
+        return <ManagerApplicationFormSettings />;
+      case "forms":
+        return <FormsSettingsModulePane />;
       case "spreadsheets":
         return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
+      case "leaseDocuments":
+        return <LeaseDocumentLibraryPanel />;
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
     }

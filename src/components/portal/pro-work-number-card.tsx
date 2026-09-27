@@ -104,9 +104,13 @@ function copyIdentityAction(args: {
 }
 
 function IdentitySkeleton({ dataAttr }: { dataAttr: string }) {
+  // `bg-accent/50` matches the shimmer tone every other list/card skeleton in
+  // the app uses (ListSkeleton, PanelSkeleton, …). The old `bg-muted` block
+  // read as a broken, unstyled element rather than "still loading" next to
+  // those (night UX sweep).
   return (
     <div
-      className="h-[52px] animate-pulse rounded-2xl bg-muted"
+      className="h-[52px] animate-pulse rounded-2xl bg-accent/50 motion-reduce:animate-none"
       data-attr={dataAttr}
       aria-hidden
     />

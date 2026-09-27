@@ -40,3 +40,28 @@ export function selectCommunicationThreadUrl(href: string, opts?: { replaceExist
 export function clearCommunicationThreadUrl(listHref: string) {
   updateCommunicationUrl(listHref, "replace");
 }
+
+/** Parse `/…/communication/{active|unread|archived}[/…]` from the current pathname. */
+export function parseCommunicationListSegment(
+  pathname: string,
+  commBase: string,
+): "active" | "unread" | "archived" | undefined {
+  const base = commBase.replace(/\/$/, "");
+  const prefix = `${base}/`;
+  if (!pathname.startsWith(prefix)) return undefined;
+  const segment = pathname.slice(prefix.length).split("/").filter(Boolean)[0];
+  if (segment !== "active" && segment !== "unread" && segment !== "archived") return undefined;
+  return segment;
+}
+
+/**
+ * Switch the Active/Archived command tabs without a full App Router
+ * navigation — the same history-push mechanism `selectCommunicationThreadUrl`
+ * already uses for opening a thread, so the segment change never remounts
+ * `ManagerUnifiedInbox` (PLAN B1). Browser back/forward through these entries
+ * is handled by the caller's own `popstate` listener
+ * (`useCommunicationListSegment`).
+ */
+export function selectCommunicationSegmentUrl(href: string) {
+  updateCommunicationUrl(href, "push");
+}

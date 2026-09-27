@@ -37,11 +37,12 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { resolveAddPropertyWorkspaceAction } from "@/lib/workspaces/add-property-gate";
 import {
   countManagerManagedPropertiesForUser,
-  mirrorLocalPropertyPipelineToServer,
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
-import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
+import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
+import { PROPERTY_RECORD_REFUSED_EVENT, type PropertyRecordRefusedDetail } from "@/lib/property-record-outbox";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import {
@@ -213,16 +214,9 @@ export function ManagerProperties({
 
   useEffect(() => {
     queueMicrotask(() => {
-      void refreshPortfolio().then(() => {
-        // Only push local state up once a real sync has run (userId resolved) — otherwise
-        // this re-uploads a stale locally-cached snapshot and can clobber an admin-side
-        // status change (e.g. request-change) that happened since this browser last synced.
-        if (userId) {
-          void mirrorLocalPropertyPipelineToServer(userId, collectLinkedPropertyIds(userId), {
-            onError: (message) => showToast(message),
-          });
-        }
-      });
+      // No page-load re-upload: the sync replaces this browser's copy with the
+      // server's, and unsent local writes ride the property-record outbox.
+      void refreshPortfolio();
     });
     const on = (e: Event) => {
       // A sync-originated event already delivered the fresh snapshot into the
@@ -240,7 +234,23 @@ export function ManagerProperties({
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
     };
-  }, [refreshPortfolio, userId, scopeUserId, showToast]);
+  }, [refreshPortfolio, scopeUserId]);
+
+  // A queued write the plan refused would otherwise leave a listing that exists
+  // only in this browser with no reason given. Only the plan refusal is shown:
+  // this is background work, and other failures carry nothing to act on.
+  // ponytail: one toast per distinct message, which covers a batch of rows refused for the same plan.
+  useEffect(() => {
+    let lastMessage = "";
+    const onRefused = (event: Event) => {
+      const detail = (event as CustomEvent<PropertyRecordRefusedDetail>).detail;
+      if (detail?.code !== MANAGER_PROPERTY_LIMIT_ERROR_CODE || !detail.message || detail.message === lastMessage) return;
+      lastMessage = detail.message;
+      showToast(detail.message);
+    };
+    window.addEventListener(PROPERTY_RECORD_REFUSED_EVENT, onRefused);
+    return () => window.removeEventListener(PROPERTY_RECORD_REFUSED_EVENT, onRefused);
+  }, [showToast]);
 
   const stageCounts = useMemo(() => {
     void portfolioTick;
@@ -450,15 +460,6 @@ export function ManagerProperties({
       onAddProperty={tryOpenAdd}
       searchQuery={listSearch}
       onClearSearch={() => setListSearch("")}
-      /*
-        Disabled only while the PLAN is still unknown — never because the cap is
-        spent. A manager at the Free limit gets a live button that refuses and
-        says why, with the upgrade path in the message. Disabling it instead
-        makes it a dead click: the one moment the product has to explain the
-        limit and offer the upgrade passes in silence. Same rule, same reason as
-        the sidebar's `upsell` nav lock in AGENTS.md.
-      */
-      addPropertyDisabled={!skuLoaded}
     />
   );
 
@@ -522,7 +523,11 @@ export function ManagerProperties({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction label="Add property" disabled={!skuLoaded} data-attr="manager-properties-add-top" />
+                  {/* Not pre-disabled on `!skuLoaded`: `onOpenChange` above
+                      already calls `canOpenAdd()`, which toasts and queues a
+                      retry for the still-loading case. A washed-out disabled-
+                      looking button for that brief window was the bug. */}
+                  <PortalPrimaryIconAction label="Add property" data-attr="manager-properties-add-top" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem data-attr="manager-properties-add-property" onSelect={tryOpenAdd}>

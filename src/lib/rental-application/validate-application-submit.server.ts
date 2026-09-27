@@ -10,6 +10,10 @@ import {
   validateResidentApplicationSubmit,
   type ValidateResidentApplicationSubmitResult,
 } from "@/lib/rental-application/validate-application-submit";
+import {
+  applyEffectiveApplicationForm,
+  normalizeWorkspaceApplicationFormTemplate,
+} from "@/lib/rental-application/workspace-application-form";
 
 export type ServerApplicationValidationResult =
   | { ok: true }
@@ -64,7 +68,7 @@ export async function validateResidentApplicationRowForPersistence(
   if (propertyId) {
     const { data, error } = await db
       .from("manager_property_records")
-      .select("property_data")
+      .select("property_data, workspace_id")
       .eq("id", propertyId)
       .maybeSingle();
     if (error) {
@@ -76,6 +80,38 @@ export async function validateResidentApplicationRowForPersistence(
       };
     }
     property = asValidationProperty(data?.property_data, propertyId);
+    // Same effective-form resolution as the public payload the applicant
+    // actually saw (`publicListingProjection`) — required-ness for a
+    // question served from the workspace template must be enforced here
+    // exactly as it was rendered, never re-derived from the listing's own
+    // (possibly different) triplet alone.
+    if (property?.listingSubmission?.v === 1 && data?.workspace_id) {
+      // Best-effort: this lookup only refines which questions are required.
+      // A failure here (missing table in an environment mid-migration, a
+      // narrow test double, a transient error) must never turn an otherwise
+      // valid submission into a 500 — fall back to the listing's own fields,
+      // exactly like `resolveEffectiveApplicationForm` already does for a
+      // workspace that has genuinely never saved a template.
+      try {
+        const { data: workspaceRow } = await db
+          .from("workspace_automation_settings")
+          .select("row_data")
+          .eq("workspace_id", data.workspace_id)
+          .maybeSingle();
+        const rowData = workspaceRow?.row_data;
+        const raw =
+          rowData && typeof rowData === "object" && !Array.isArray(rowData)
+            ? (rowData as Record<string, unknown>).applicationFormTemplate
+            : undefined;
+        const workspaceForm = normalizeWorkspaceApplicationFormTemplate(raw);
+        property = {
+          ...property,
+          listingSubmission: applyEffectiveApplicationForm(property.listingSubmission, workspaceForm),
+        };
+      } catch {
+        /* fall back to the listing's own fields, unchanged */
+      }
+    }
   }
 
   if (!property) {

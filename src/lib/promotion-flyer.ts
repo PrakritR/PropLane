@@ -48,7 +48,7 @@ export type PromotionInputs = {
   promo: string;
   /** Call to action, e.g. "Book a tour today". */
   cta: string;
-  /** Contact line, e.g. "leasing@prop-lane.space · (206) 555-0142". */
+  /** Contact line, e.g. "leasing@proplane.ai · (206) 555-0142". */
   contact: string;
   /** Copy tone, e.g. "Warm & welcoming". */
   tone: string;

@@ -10,13 +10,26 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 type FixtureThread = Record<string, unknown>;
 
 let threadRows: FixtureThread[] = [];
+/** Local cache read, separate from `threadRows` (the SERVER's answer) — a
+ *  cold reload starts with an empty local cache even when the server has
+ *  the thread, which is exactly the race `initialSyncDone` guards against. */
+let localCacheRows: FixtureThread[] | null = null;
+/** When set, `syncPersistedInboxFromServer` awaits it instead of resolving
+ *  immediately — lets a test observe the state BEFORE the first sync lands. */
+let syncGate: Promise<void> | null = null;
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
-    loadPersistedInbox: (_key: string, fallback: unknown[]) => threadRows ?? fallback,
-    syncPersistedInboxFromServer: async () => threadRows,
+    loadPersistedInbox: (_key: string, fallback: unknown[]) => localCacheRows ?? threadRows ?? fallback,
+    syncPersistedInboxFromServer: async () => {
+      if (syncGate) await syncGate;
+      // The real implementation persists what it fetches, so a subsequent
+      // loadPersistedInbox() call reflects the server's answer.
+      localCacheRows = threadRows;
+      return threadRows;
+    },
   };
 });
 
@@ -55,6 +68,8 @@ const OTHER_CONTACT_THREAD: FixtureThread = {
 
 beforeEach(() => {
   threadRows = [];
+  localCacheRows = null;
+  syncGate = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof fetch,
@@ -125,8 +140,20 @@ describe("RecordCommunicationSection", () => {
     expect(screen.getByPlaceholderText("Write a reply…")).toBeInTheDocument();
   });
 
-  it("shows the other-conversations link only when other threads with this contact exist", async () => {
-    threadRows = [LEASE_THREAD, OTHER_CONTACT_THREAD];
+  it("merges every conversation with this contact into one timeline, archived included, with no separate link", async () => {
+    const ARCHIVED_CONTACT_THREAD: FixtureThread = {
+      id: "thr-resident-2",
+      folder: "trash",
+      from: "Jordan Vega",
+      email: "jordan@example.com",
+      subject: "About the weekend",
+      preview: "Are you around this weekend?",
+      body: "Are you around this weekend?",
+      time: "Sep 8, 9:00 AM",
+      unread: false,
+      recordRef: { kind: "resident" as const, id: "res-9", label: "Jordan Vega" },
+    };
+    threadRows = [LEASE_THREAD, OTHER_CONTACT_THREAD, ARCHIVED_CONTACT_THREAD];
     render(
       <RecordCommunicationSection
         role="manager"
@@ -136,8 +163,13 @@ describe("RecordCommunicationSection", () => {
       />,
     );
 
-    const link = await screen.findByText(/1 other conversation with this contact/i);
-    expect(link.closest("a")).toHaveAttribute("href", "/portal/communication");
+    await screen.findByText("Hi, quick question about move-in.");
+    // The other (non-recordRef) conversation with the same contact — and the
+    // archived one — merge into this ONE timeline rather than staying behind
+    // a separate "N other conversations" link, which no longer exists.
+    expect(screen.getByText("Where can I park?")).toBeInTheDocument();
+    expect(screen.getByText("Are you around this weekend?")).toBeInTheDocument();
+    expect(screen.queryByText(/other conversation/i)).toBeNull();
 
     cleanup();
     threadRows = [LEASE_THREAD];
@@ -199,5 +231,51 @@ describe("RecordCommunicationSection", () => {
         label: "Northwest Plumbing Co",
       });
     });
+  });
+
+  it("never claims 'no messages' before the first server sync lands — a cold local cache is not a real answer", async () => {
+    // Reproduces the Night flow F7 race: a reload starts with an EMPTY local
+    // cache (`localCacheRows`) even though the server (`threadRows`) genuinely
+    // has the thread — the empty state must read as loading, not final, until
+    // syncPersistedInboxFromServer's own promise settles.
+    localCacheRows = [];
+    threadRows = [LEASE_THREAD];
+    let releaseSync!: () => void;
+    syncGate = new Promise((resolve) => {
+      releaseSync = resolve;
+    });
+
+    render(
+      <RecordCommunicationSection
+        role="manager"
+        recordRef={LEASE_REF}
+        propertyId="prop-1"
+        contactIds={["jordan@example.com"]}
+      />,
+    );
+
+    // Mid-race: the local cache is empty and the server sync has not landed
+    // yet — must show a loading state, never the confident "no messages" copy.
+    await screen.findByText("Loading messages…");
+    expect(screen.queryByText(/No messages about this lease yet/i)).toBeNull();
+
+    releaseSync();
+
+    // Once the sync resolves, the real thread renders.
+    await screen.findByText("Hi, quick question about move-in.");
+    expect(screen.queryByText("Loading messages…")).toBeNull();
+  });
+
+  it("shows the honest empty state once the sync has genuinely found nothing", async () => {
+    localCacheRows = [];
+    threadRows = [];
+    render(
+      <RecordCommunicationSection
+        role="vendor"
+        recordRef={{ kind: "vendor", id: "vendor-1", label: "Acme Plumbing" }}
+        contactIds={["vendor@example.com"]}
+      />,
+    );
+    await screen.findByText(/No messages about this vendor yet — write the first one below/i);
   });
 });

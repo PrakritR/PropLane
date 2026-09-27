@@ -18,6 +18,12 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 
   useAppUi: () => ({ showToast }),
 }));
+// The automation-settings read now goes through the shared cache
+// (`manager-automation-settings-client.ts`), which is keyed on the viewer id
+// this hook supplies — without it the panel's load effect no-ops forever.
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ ready: true, email: "manager@example.com", userId: "mgr-1" }),
+}));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
   // and a hand-listed mock silently breaks every time the module gains an
@@ -27,6 +33,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
+import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automation-settings-client";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
@@ -71,6 +78,9 @@ afterEach(() => {
   cleanup();
   showToast.mockReset();
   vi.unstubAllGlobals();
+  // The shared automation-settings read cache (N032) is module-level and
+  // outlives a single test's render.
+  invalidateManagerAutomationSettingsCache();
 });
 
 function stubPanelFetches(
@@ -110,7 +120,9 @@ describe("CommunicationSettingsPanel", () => {
     stubPanelFetches(readyNumber, readyEmail);
     render(<CommunicationSettingsPanel />);
 
-    expect(await screen.findByText("Auto-send AI drafts")).toBeTruthy();
+    // "Auto-send AI drafts" moved to the central Reminders hub (C111); this
+    // panel's own load-anchor is the reminders/messages link row it left behind.
+    expect(await screen.findByText("Edit reminder timing and automated messages")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Copy work email/ })).toBeNull();
     expect(showToast).not.toHaveBeenCalled();
@@ -136,7 +148,7 @@ describe("CommunicationSettingsPanel", () => {
     stubPanelFetches(readyNumber, null);
     render(<CommunicationSettingsPanel />);
 
-    await screen.findByText("Auto-send AI drafts");
+    await screen.findByText("Edit reminder timing and automated messages");
     expect(screen.queryByText("Who can email the assistant")).toBeNull();
   });
 });

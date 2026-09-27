@@ -87,6 +87,9 @@ describe("ManagerPortfolioBookingsCalendar", () => {
     });
 
     expect(screen.queryByRole("tablist", { name: "Bookings layout" })).toBeNull();
-    expect(screen.getByText("September 2026")).toBeTruthy();
+    // The Day/Week/Month/Year segmented control and its "September 2026" nav
+    // title are gone in calendar-only mode — replaced by the all-properties
+    // Timeline's own window-range header (BUILD-WAVE2 C257).
+    expect(screen.getByText("Aug 31 – Sep 20, 2026")).toBeTruthy();
   });
 });

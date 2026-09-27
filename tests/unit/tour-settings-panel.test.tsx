@@ -18,6 +18,13 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
 
+// The automation-settings read now goes through the shared cache
+// (`manager-automation-settings-client.ts`), which is keyed on the viewer id
+// this hook supplies — without it the panel's load effect no-ops forever.
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ ready: true, email: "manager@example.com", userId: "mgr-1" }),
+}));
+
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
   // and a hand-listed mock silently breaks every time the module gains an
@@ -27,12 +34,18 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 
 import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
+import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automation-settings-client";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
+  // The shared read cache (N032) is module-level and outlives a single test's
+  // render — without dropping it, the second test's mount would silently
+  // reuse the first test's cached (successful) automation-settings value
+  // instead of hitting its own 401 stub.
+  invalidateManagerAutomationSettingsCache();
 });
 
 describe("TourSettingsPanel", () => {
@@ -47,12 +60,6 @@ describe("TourSettingsPanel", () => {
         if (url.includes("/api/portal/automation-settings")) {
           return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
         }
-        // The panel now embeds the manager reminder-rule settings, which load
-        // from their own endpoint. Unstubbed, that child stayed in "Loading…"
-        // after the parent had finished, so the panel never looked loaded.
-        if (url.includes("/api/portal/reminder-settings")) {
-          return Response.json({ settings: {} });
-        }
         throw new Error(`Unexpected fetch: ${url}`);
       }),
     );
@@ -61,13 +68,15 @@ describe("TourSettingsPanel", () => {
 
     expect(screen.getByText("Loading…")).toBeTruthy();
     expect(await screen.findByText("Notice required")).toBeTruthy();
-    // The embedded reminder settings load independently, so the parent being
-    // done does not mean every "Loading…" has gone. Waiting for that is the
-    // assertion this test actually means; checking it synchronously raced.
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
   });
 
-  it("clears loading and toasts when automation settings are unauthorized", async () => {
+  it("shows the load error with a retry, not a bare toast, when automation settings are unauthorized", async () => {
+    // WS4 (PLAN-0925 Part 5, C191): the panel used to toast the error and
+    // still render the form on whatever partial state it had — now it shows
+    // the same inline error + retry shape as `ManagerPortalAutomationSettingsPanel`
+    // ("the Reminders panel next to it"), so a failed load is never silently
+    // half-rendered.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -78,17 +87,16 @@ describe("TourSettingsPanel", () => {
         if (url.includes("/api/portal/automation-settings")) {
           return Response.json({ error: "Unauthorized." }, { status: 401 });
         }
-        if (url.includes("/api/portal/reminder-settings")) {
-          return Response.json({ settings: {} });
-        }
         throw new Error(`Unexpected fetch: ${url}`);
       }),
     );
 
     render(<TourSettingsPanel />);
 
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Unauthorized."));
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    expect(screen.getByText("Notice required")).toBeTruthy();
+    expect(await screen.findByText("Unauthorized.")).toBeTruthy();
+    expect(screen.getByText("Try again")).toBeTruthy();
+    expect(screen.queryByText("Notice required")).toBeNull();
+    expect(showToast).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { exchangeGoogleCalendarCode, googleCalendarOAuthReturnTo, verifyOAuthState } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
+import { ensureProplaneCalendarId } from "@/lib/google-calendar/proplane-calendar.server";
 import { exchangeGoogleSheetsCode } from "@/lib/sheet-sync/google-sheets-auth";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -57,6 +58,18 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}gsheet=connected`);
     }
     await exchangeGoogleCalendarCode(db, oauthState.userId, code, oauthState.returnOrigin);
+    // Best-effort: create (or find) the dedicated "PropLane" secondary
+    // calendar right away so the very first tour/service-visit push already
+    // lands there instead of the user's primary calendar. Never blocks or
+    // fails the connect itself — an older consent grant without
+    // `calendar.app.created`, or any other Google-side hiccup, just leaves
+    // writes on the primary calendar until the next reconnect.
+    await ensureProplaneCalendarId(db, oauthState.userId).catch((e) => {
+      debugGoogleCalendarLog("callback/route.ts:GET", "proplane calendar creation failed", {
+        managerSuffix: oauthState.userId.slice(-6),
+        message: e instanceof Error ? e.message : "unknown",
+      });
+    });
     debugGoogleCalendarLog("callback/route.ts:GET", "calendar connected", {
       hypothesisId: "H2",
       runId: "post-fix-v8",

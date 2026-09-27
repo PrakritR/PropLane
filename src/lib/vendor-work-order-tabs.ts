@@ -1,14 +1,22 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 
-/** Vendor Services tabs — same row as manager Tours (Pending / Upcoming / Past). */
+/**
+ * Vendor Services tabs. Ids and legacy URL mapping are unchanged (`pending` /
+ * `upcoming` / `past`) — only the DISPLAYED labels read Potential / Current /
+ * Past, matching the bucket's real meaning for a vendor: Potential = an open
+ * marketplace match or an invited-but-undecided bid, Current = a submitted or
+ * accepted bid still in play, Past = completed, declined, or withdrawn
+ * (spec:addendum-6, "Jobs' own real bucket set becomes Potential / Current /
+ * Past").
+ */
 export type VendorWorkOrderTab = "pending" | "upcoming" | "past";
 
 export const VENDOR_WORK_ORDER_TAB_ORDER: VendorWorkOrderTab[] = ["pending", "upcoming", "past"];
 
 export const VENDOR_WORK_ORDER_TAB_LABELS: Record<VendorWorkOrderTab, string> = {
-  pending: "Pending",
-  upcoming: "Upcoming",
+  pending: "Potential",
+  upcoming: "Current",
   past: "Past",
 };
 

@@ -39,9 +39,15 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   ]);
   if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
   const participantIds = [...new Set([userId, ...(links.data ?? []).map((link) => link.inviter_user_id)])];
-  const profiles = await db.from("profiles").select("id,email").in("id", participantIds);
+  const profiles = await db.from("profiles").select("id,email,full_name").in("id", participantIds);
   if (profiles.error) throw new Error("Could not verify workspace participants. Please retry.");
   const emails = new Map((profiles.data ?? []).map((p) => [p.id, p.email ?? ""]));
+  // C207: participantIds already covers every inviter (owner) of a shared
+  // workspace this viewer can see, so this map is complete without another
+  // query. Falls back to email when the owner never set a display name.
+  const ownerNames = new Map(
+    (profiles.data ?? []).map((p) => [p.id, String((p as { full_name?: string | null }).full_name ?? "").trim() || (p.email ?? "")]),
+  );
   const permissions: PropertyCoManagerPermissions = {};
   const assigned = new Set<string>();
   // The inviter (owner) who assigned each granted property, so a property
@@ -217,6 +223,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       : [];
     return {
       id: w.id, name: w.name, ownerUserId: w.owner_user_id,
+      ownerName: ownedHere ? undefined : ownerNames.get(w.owner_user_id),
       owned: ownedHere, isDefault: w.is_default,
       propertyIds,
       livePropertyCount,

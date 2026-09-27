@@ -370,6 +370,19 @@ function canUseStorage() {
   return typeof window !== "undefined";
 }
 
+/**
+ * `Response.json()` throws a SyntaxError on an empty or malformed body — a 200
+ * with nothing readable in it must read as "no rows came back", never as an
+ * uncaught exception a caller has to remember to wrap (C200).
+ */
+async function safeParseJsonBody<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 function managerApplicationsSessionKey(scopeUserId?: string | null): string {
   // Demo sandbox: one shared store for every scope so the demo manager and
   // demo resident act on the same application rows (mirrors the lease store).
@@ -837,7 +850,21 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
         managerApplicationsSuccessfulServerSyncAt = 0;
         return { rows: readManagerApplicationRows(), ok: false };
       }
-      const body = (await res.json()) as { rows?: DemoApplicantRow[] };
+      // A 200 with an empty or malformed body makes `res.json()` throw a
+      // SyntaxError rather than answering `{ rows: [] }` — safe-parse it so
+      // that throw never masquerades as a network failure, then retry the GET
+      // once immediately (C200): a transient empty response must not fall
+      // straight back to a possibly-stale cache with no further attempt.
+      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(res);
+      if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+      if (!body || !Array.isArray(body.rows)) {
+        const retryRes = await fetch(url, { credentials: "include" }).catch(() => null);
+        if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+        if (retryRes) {
+          notePortalResponse(retryRes.status);
+          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(retryRes);
+        }
+      }
       if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         applicationsReadSucceeded = false;

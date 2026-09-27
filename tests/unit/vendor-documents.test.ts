@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   findVendorDocument,
   isVendorDocumentKind,
+  isVendorComplianceDocumentKind,
   removeVendorDocument,
   upsertVendorDocument,
   VENDOR_DOCUMENT_KINDS,
   VENDOR_DOCUMENT_SECTIONS,
+  VENDOR_COMPLIANCE_DOCUMENT_KINDS,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
 
@@ -56,5 +58,13 @@ describe("vendor-documents", () => {
     });
     expect(removeVendorDocument(withW9, "insurance")).toHaveLength(1);
     expect(findVendorDocument(withW9, "w9")?.fileName).toBe("w9.pdf");
+  });
+
+  it("flags only the directory-Verified-gating kinds as compliance-critical (C262)", () => {
+    for (const kind of VENDOR_COMPLIANCE_DOCUMENT_KINDS) {
+      expect(isVendorComplianceDocumentKind(kind)).toBe(true);
+    }
+    expect(isVendorComplianceDocumentKind("bond")).toBe(false);
+    expect(isVendorComplianceDocumentKind("income_tax_return")).toBe(false);
   });
 });

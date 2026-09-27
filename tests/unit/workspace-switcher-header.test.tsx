@@ -68,7 +68,12 @@ describe("the header switcher", () => {
     setContext();
     render(<WorkspaceSwitcher />);
     const trigger = screen.getByRole("button", { name: "Switch workspace: My workspace" });
-    expect(trigger.textContent).toContain("MW");
+    // C007: every workspace draws the shared PropLane house mark in its avatar
+    // chip, not a per-workspace initials tile — the mark is a decorative
+    // (aria-hidden) glyph, not text, so it is asserted by presence, never by
+    // "MW"/"BA" text content.
+    expect(trigger.querySelector("svg")).toBeTruthy();
+    expect(trigger.textContent).not.toContain("MW");
     // The active workspace holds 3 records (propertyIds) but only 2 are live.
     expect(trigger.textContent).toContain("Owner · 2 houses");
   });
@@ -113,7 +118,12 @@ describe("the header switcher", () => {
   it("collapsed, it is the avatar alone with the name as its label", () => {
     setContext();
     render(<WorkspaceSwitcher compact />);
+    // getByRole with `name` already asserts the accessible label is the
+    // workspace name — the guarantee this test exists for. Collapsed, the
+    // trigger's visible content is the house-mark glyph alone (aria-hidden,
+    // so no visible text), never a name/initials label of its own.
     const trigger = screen.getByRole("button", { name: "Switch workspace: My workspace" });
-    expect(trigger.textContent).toBe("MW");
+    expect(trigger.textContent).toBe("");
+    expect(trigger.querySelector("svg")).toBeTruthy();
   });
 });

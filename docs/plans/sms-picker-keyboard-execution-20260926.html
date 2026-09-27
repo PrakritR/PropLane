@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS picker keyboard correction - execution handoff</title>
+  <style>body{max-width:900px;margin:40px auto;padding:0 24px;color:#17212b;background:#fff;font:16px/1.55 system-ui,sans-serif}h1{line-height:1.2}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd3da;padding:8px;text-align:left;vertical-align:top}th{background:#f3f5f7}</style>
+</head>
+<body>
+  <h1>SMS picker keyboard correction</h1>
+  <p>26 September 2026. Frozen implementation handoff for independent review. Scope: the P2 Text line keyboard selection finding in <a href="sms-validation-corrections-review-20260926.html">the independent review</a>.</p>
+  <h2>Change</h2>
+  <p>The shared listbox pick hook now accepts native zero-detail clicks on enabled option buttons. Enter, Space and assistive button activation therefore select an option. Pointerup remains the physical pointer selection path; its click with positive detail is ignored, preserving one pick. The existing movement threshold, disabled checks and filter-sheet dismissal guard remain active. Label rows are outside the new click path.</p>
+  <p>The real manager inbox integration test now focuses the second Text line option and activates it with Enter. It verifies the selected applicant label, one send with the exact <code>projection-two</code> ID, and refusal of a retired line. Focused picker tests cover Enter, Space, assistive zero-detail click, disabled refusal, pointer plus click exactly once, and scroll without a pick.</p>
+  <h2>Validation</h2>
+  <table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
+    <tr><td>Focused Vitest, one worker, Node 22, 768 MB heap</td><td>Exit 0; 2 files, 26 tests passed.</td></tr>
+    <tr><td>Scoped ESLint on the three code/test files</td><td>Exit 0; no output.</td></tr>
+  </tbody></table>
+  <p>An intermediate focused run exited 1 because a new test expected the dismissal guard to arm exactly once. The component also arms it while scheduling menu close. The assertion was corrected to verify that the guard is armed; the final rerun above passed.</p>
+  <p>No whole-project validation, graph refresh, server, browser, database, provider or git operation was run in this bounded execution. Root owns those gates and the separate SMS diffs.</p>
+  <h2>Exact changed file list and frozen SHA-256</h2>
+  <table><thead><tr><th>File</th><th>SHA-256</th></tr></thead><tbody>
+    <tr><td><code>src/components/ui/field-select-listbox-pick.ts</code></td><td><code>81269c2140df69f0f27d95c862c64e8e77c97d1ce9acb8d6120ad3f32fdbf4d8</code></td></tr>
+    <tr><td><code>tests/unit/field-select-listbox-pick.test.tsx</code></td><td><code>48668fc5cad79076b2f6bcbcf270f8cc84fbfb080a050e0db29e887ce02fe83d</code></td></tr>
+    <tr><td><code>tests/unit/manager-unified-inbox-read-integration.test.tsx</code></td><td><code>b774ba330a249ca8262d8abb1a7d07b08165ec02c8d1c15cd7ac6c786db81aa5</code></td></tr>
+    <tr><td><code>docs/plans/sms-picker-keyboard-execution-20260926.html</code></td><td>This handoff artifact.</td></tr>
+  </tbody></table>
+</body>
+</html>

@@ -1,7 +1,7 @@
 /**
  * Inbound support-email webhook — the public support address's front door.
  *
- * Mail to support@prop-lane.space is routed to Resend Inbound, which POSTs an
+ * Mail to support@proplane.ai is routed to Resend Inbound, which POSTs an
  * `email.received` event here (Svix-signed). We verify the signature and write the
  * thread row INLINE, so a failed write answers 5xx and Resend retries instead of
  * the mail vanishing behind an early ack; only the body enrichment runs in
@@ -9,7 +9,7 @@
  * fail-closed on Vercel, in-memory rate limit, service-role Supabase client.
  *
  * Configure in the Resend dashboard:
- *   • Receiving → add the MX record so support@prop-lane.space routes to Resend
+ *   • Receiving → add the MX record so support@proplane.ai routes to Resend
  *   • Webhooks → subscribe `email.received` to
  *       {APP_URL}/api/webhooks/email/inbound
  *   • Set RESEND_INBOUND_WEBHOOK_SECRET to that endpoint's signing secret (whsec_…)

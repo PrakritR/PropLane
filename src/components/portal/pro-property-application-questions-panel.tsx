@@ -3,15 +3,14 @@ import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
-import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
-import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -28,6 +27,7 @@ import {
 } from "@/lib/manager-property-save-target";
 import {
   applicationFormVariantForTemplate,
+  createPropertyApplicationTemplate,
   readPropertyApplicationTemplates,
   removePropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
@@ -46,6 +46,22 @@ import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
+
+/**
+ * "Ida Cares Homes_Intake Form.pdf" -> "Intake Form": a manager's uploaded
+ * PDF becomes a NAMED form (captain override — never a Lease/Application
+ * nav rename), and most exported application/lease PDFs are named
+ * "<workspace or property>_<form name>.pdf". Take the text after the last
+ * "_" or "-" when present (dropping the extension) as a reasonable default
+ * name; the manager can still rename it like any other form. No separator
+ * falls back to the whole filename.
+ */
+export function deriveFormNameFromFileName(fileName: string): string {
+  const withoutExt = fileName.replace(/\.pdf$/i, "").trim();
+  const lastSeparator = Math.max(withoutExt.lastIndexOf("_"), withoutExt.lastIndexOf("-"));
+  const candidate = lastSeparator >= 0 ? withoutExt.slice(lastSeparator + 1).trim() : withoutExt;
+  return candidate || "Uploaded form";
+}
 
 type QuestionsSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -113,12 +129,14 @@ export function ManagerPropertyApplicationQuestionsPanel({
    */
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const router = useRouter();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [formKindFilter, setFormKindFilter] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
+  const [autoImportFile, setAutoImportFile] = useState<File | null>(null);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
@@ -135,11 +153,10 @@ export function ManagerPropertyApplicationQuestionsPanel({
       }),
     [listingId, saveTarget, managerUserId, bulkPropertyIds],
   );
-  const settingsPropertyOptions = useMemo(() => {
-    const id = settingsPropertyId?.trim();
-    if (!id) return [];
-    return [{ id, label: settingsPropertyLabel?.trim() || "This property" }];
-  }, [settingsPropertyId, settingsPropertyLabel]);
+  // `settingsPropertyId`/`settingsPropertyLabel` no longer resolve a local automation
+  // sheet (C228) — kept as props so callers need no change, just unused here.
+  void settingsPropertyId;
+  void settingsPropertyLabel;
 
   const persistSubmission = useCallback(
     async (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
@@ -306,6 +323,50 @@ export function ManagerPropertyApplicationQuestionsPanel({
     setEditorOpen(true);
   }, []);
 
+  /**
+   * Add popup → Upload PDF (captain override — an uploaded application PDF
+   * becomes a NAMED form, e.g. "Intake form", never a Lease/Application nav
+   * rename). Creates a real (empty) template and saves it FIRST — exactly
+   * `addSeedTemplate`'s pattern — so the editor reopens with a real
+   * `applicationTemplate.id` and its Import PDF step is already live, then
+   * hands the picked file through as `autoImportFile` so the modal runs the
+   * same import a manual "Import PDF" click runs. A name typed in the popup
+   * wins over the one derived from the file name.
+   */
+  const handleUploadPdfFile = useCallback(
+    async (file: File, typedLabel = "") => {
+      if (!managerUserId) {
+        showToast("Could not create the form.");
+        return;
+      }
+      setUploadingPdf(true);
+      try {
+        const created = createPropertyApplicationTemplate({
+          kind: "long-term",
+          label: typedLabel.trim() || deriveFormNameFromFileName(file.name),
+        });
+        if (bulkPropertyIds.length > 0) {
+          // A bulk (multi-property) edit has no single listing to import a
+          // source PDF against — PDF import stays a single-property action.
+          showToast("Upload a PDF for one property at a time.");
+          return;
+        }
+        const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
+        const next = withPropertyApplicationTemplatesExplicit(base, [...readPropertyApplicationTemplates(base), created]);
+        const saved = await persistSubmission(next, { message: "Form created. Importing your PDF…" });
+        if (!saved) return;
+        onUpdated();
+        setAutoImportFile(file);
+        setEditorMode("edit");
+        setEditingTemplate(created);
+        setEditorOpen(true);
+      } finally {
+        setUploadingPdf(false);
+      }
+    },
+    [bulkPropertyIds.length, managerUserId, onUpdated, persistSubmission, showToast, sub, syncedSub],
+  );
+
   const openEditApplication = useCallback(async (template: PropertyApplicationTemplate) => {
     // Older properties render their default forms from listing terms before the
     // generated templates have been stored. The PDF import route reads the
@@ -377,6 +438,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
+    setAutoImportFile(null);
     clearSelection();
   };
 
@@ -450,15 +512,21 @@ export function ManagerPropertyApplicationQuestionsPanel({
         </div>
       ) : null}
 
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add application"
-          icon={PORTAL_LIST_ADD_ICONS.application}
-          onClick={openAdd}
-          dataAttr="property-application-add"
-        />
-      </div>
+      {/* The page's command bar carries the one "+" (its popup also takes a
+          PDF upload); only the embedded modal, which has no command bar,
+          needs a footer add row. */}
+      {embedInModal ? (
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+          <PortalListAddRow
+            label="Add"
+            ariaLabel="Add application"
+            icon={PORTAL_LIST_ADD_ICONS.application}
+            onClick={openAdd}
+            dataAttr="property-application-add"
+            inline
+          />
+        </div>
+      ) : null}
     </>
   );
 
@@ -486,33 +554,31 @@ export function ManagerPropertyApplicationQuestionsPanel({
           onClose={closeEditor}
           onSaved={onUpdated}
           showToast={showToast}
+          autoImportFile={autoImportFile}
+          onAutoImportConsumed={() => setAutoImportFile(null)}
+          // PDF import is a single-property action; bulk edit has no one listing.
+          onUploadPdf={
+            bulkPropertyIds.length === 0 ? (file, label) => void handleUploadPdfFile(file, label) : undefined
+          }
+          uploadingPdf={uploadingPdf}
         />
       ) : null}
 
-      {settingsPropertyOptions.length > 0 ? (
-        <ProPortalSettingsModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          initialTab="applications"
-          initialPane="automation"
-          scoped
-          scopedTitle="Application"
-          propertyOptions={settingsPropertyOptions}
-          initialPropertyId={settingsPropertyOptions[0]?.id}
-        />
-      ) : null}
     </>
   );
 
+  // C228: the property page no longer carries its own application automation
+  // block. The gear now opens Settings -> Forms, where every application
+  // form's Automation block lives (same workspace-scoped storage) alongside "Used at".
   const commandBar = !embedInModal ? (
     <PropertyFormAutomationCommandBar
       pane={pane}
       onPaneChange={setPane}
+      panes={[{ id: "form", label: "Form" }]}
       filter={formFilterSheet}
-      onSettings={() => setSettingsOpen(true)}
-      settingsLabel="Application settings"
+      onSettings={() => router.push("/portal/profile?tab=forms")}
+      settingsLabel="Application automation"
       settingsDataAttr="property-application-settings-open"
-      settingsDisabled={settingsPropertyOptions.length === 0}
       onAdd={openAdd}
       addLabel="Add application"
       addDataAttr="property-application-command-add"
@@ -537,20 +603,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
     />
   ) : null;
 
-  const automationBody =
-    !embedInModal && pane === "automation" ? (
-      <SettingsModulePage
-        tab="applications"
-        propertyOptions={settingsPropertyOptions}
-        initialPropertyId={settingsPropertyOptions[0]?.id}
-        active
-      />
-    ) : null;
-
   return (
     <>
       {commandBar}
-      {automationBody}
       {embedInModal || pane === "form" ? (
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
         <>

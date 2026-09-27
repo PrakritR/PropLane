@@ -37,15 +37,19 @@ export function buildServiceRequestDeniedNotice(input: {
   residentName: string;
   offerName: string;
   propertyLabel?: string;
+  /** C273: the manager's actual reason for declining — required at the call site,
+   * relayed here verbatim rather than the old generic "can't approve this" copy. */
+  reason?: string;
 }): { subject: string; body: string } {
   const name = input.residentName.trim() || "there";
   const offer = input.offerName.trim() || "your add-on service";
+  const reason = input.reason?.trim();
   const subject = `Add-on service update: ${offer}`;
   const lines = [
     `Hi ${name},`,
     "",
     `We're writing about your add-on service "${offer}".`,
-    "Unfortunately we can't approve this request at this time.",
+    reason ? `Unfortunately we can't approve this request: ${reason}` : "Unfortunately we can't approve this request at this time.",
   ];
   if (input.propertyLabel?.trim()) lines.push(`Property: ${input.propertyLabel.trim()}`);
   lines.push(

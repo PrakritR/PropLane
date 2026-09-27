@@ -33,3 +33,24 @@ export function listManagerCatalogVendors(roster: readonly ManagerVendorRow[]): 
   }
   return out;
 }
+
+/**
+ * The "PropLane vendors" tab's trade/area Filter must narrow EVERY row it
+ * renders, not just the self-serve directory rows the server already
+ * pre-filters by the same params — a curated catalog row (or a shared-roster
+ * row) with no matching trade must not survive the filter either
+ * (proof-bug #2: HVAC/Electrical/Cleaning stayed visible with "Plumbing" selected).
+ */
+export function catalogVendorMatchesTradeArea(
+  row: Pick<AxisCatalogVendor, "trade" | "trades" | "city" | "zip">,
+  trade: string,
+  area: string,
+): boolean {
+  if (trade) {
+    const rowTrades = row.trades?.length ? row.trades : row.trade ? [row.trade] : [];
+    if (!rowTrades.includes(trade)) return false;
+  }
+  const needle = area.trim().toLowerCase();
+  if (needle && !(row.city.toLowerCase().includes(needle) || row.zip.includes(needle))) return false;
+  return true;
+}

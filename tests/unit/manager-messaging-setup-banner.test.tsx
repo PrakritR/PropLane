@@ -20,6 +20,20 @@ vi.mock("@/hooks/use-manager-messaging-number-status", () => ({
   useManagerMessagingNumberStatus: () => statusState(),
 }));
 
+// The banner is scoped to Communication and the messaging settings tab (AXI
+// night sweep area 2d) — everything below defaults to Communication so the
+// existing status-only cases keep testing status logic, with dedicated cases
+// for the page scoping itself.
+let mockPathname = "/portal/communication";
+let mockSearch = new URLSearchParams();
+vi.mock("next/navigation", () => ({
+  usePathname: () => mockPathname,
+  useSearchParams: () => mockSearch,
+}));
+vi.mock("@/components/portal/workspace-provider", () => ({
+  useWorkspaces: () => null,
+}));
+
 import { ManagerMessagingSetupBanner } from "@/components/portal/messaging-setup-banner";
 
 function status(
@@ -58,6 +72,8 @@ function banner() {
 afterEach(() => {
   cleanup();
   statusState.mockReset();
+  mockPathname = "/portal/communication";
+  mockSearch = new URLSearchParams();
 });
 
 describe("the portal-wide messaging setup banner", () => {
@@ -135,6 +151,32 @@ describe("the portal-wide messaging setup banner", () => {
     resolved({ planTier: "unknown" });
     render(<ManagerMessagingSetupBanner />);
     expect(banner()).not.toBeNull();
+  });
+
+  it("stays off pages that have nothing to do with messaging, even when it would otherwise prompt", () => {
+    // This used to render on every page except Communication — the exact
+    // inverse — so it nagged on Properties, Applications, Services, Payments
+    // and reappeared on every navigation (AXI night sweep area 2d).
+    mockPathname = "/portal/properties/all";
+    resolved();
+    render(<ManagerMessagingSetupBanner />);
+    expect(banner()).toBeNull();
+  });
+
+  it("shows on the messaging settings tab", () => {
+    mockPathname = "/portal/profile";
+    mockSearch = new URLSearchParams("tab=messaging");
+    resolved();
+    render(<ManagerMessagingSetupBanner />);
+    expect(banner()).not.toBeNull();
+  });
+
+  it("stays off other profile tabs", () => {
+    mockPathname = "/portal/profile";
+    mockSearch = new URLSearchParams("tab=account");
+    resolved();
+    render(<ManagerMessagingSetupBanner />);
+    expect(banner()).toBeNull();
   });
 
   it("does not flash before the status resolves, or after it fails", () => {

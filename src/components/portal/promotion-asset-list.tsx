@@ -93,6 +93,31 @@ function promotionAssetCanEdit(asset: PromotionAsset, onEdit?: (asset: Promotion
   return Boolean(onEdit) && (asset.kind === "flyer" || asset.kind === "text");
 }
 
+/**
+ * C241: a first-time manager staring at "No promotions yet" has no way to
+ * tell what pressing "+" actually generates. This is a static, muted,
+ * non-interactive sample row — same tile/title/facts shape a real asset
+ * row draws, an obviously placeholder address, no photo (never a fabricated
+ * listing image) — so the empty state itself shows the shape of the thing
+ * it makes.
+ */
+function PromotionEmptyExample() {
+  return (
+    <div className="mb-3" aria-hidden data-attr="promotion-empty-example">
+      <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted/60">Example</p>
+      <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-accent/20 p-3 opacity-80">
+        <div className="grid h-[4.125rem] w-[5.5rem] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-primary/70 max-md:h-[3.125rem] max-md:w-16">
+          <Megaphone className="size-[22px]" strokeWidth={1.5} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13.5px] font-semibold text-foreground/80">Sample flyer — 123 Example St</p>
+          <p className="truncate text-[12px] text-muted">Flyer · Updated just now</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PromotionAssetStack({
   assets,
   onView,
@@ -119,7 +144,12 @@ export function PromotionAssetStack({
 }) {
   if (assets.length === 0) {
     if (!emptyMessage?.trim()) return null;
-    return <PortalDataTableEmpty message={emptyMessage} icon="data" />;
+    return (
+      <div>
+        <PromotionEmptyExample />
+        <PortalDataTableEmpty message={emptyMessage} icon="data" />
+      </div>
+    );
   }
 
   const kindIndices = promotionAssetKindIndices(assets);

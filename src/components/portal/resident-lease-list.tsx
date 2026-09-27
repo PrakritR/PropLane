@@ -23,6 +23,7 @@ import {
   residentLeaseDetailSubtitle,
 } from "@/components/portal/resident-lease-document-preview";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { isDemoModeActive, resolveDemoPortfolioScopeUserId } from "@/lib/demo/demo-session";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   LEASE_PIPELINE_EVENT,
@@ -98,6 +99,17 @@ export function useResidentLeasePipelineRow(): LeasePipelineRow | null {
             (b.application as { submittedAt?: string } | undefined)?.submittedAt?.trim() ?? "";
           return bTs.localeCompare(aTs);
         })[0];
+
+      // `/demo` has no real `profiles` row for the synthetic resident id, and
+      // this is an auth-gated table read besides — the sandbox's own manager
+      // scope is already known, so skip the network entirely and use it.
+      if (isDemoModeActive()) {
+        if (cancelled) return;
+        setResidentAxisId(resolveResidentPortalAxisId({ applicationRowId: matchingApplication?.id }));
+        setProfileManagerId(resolveDemoPortfolioScopeUserId());
+        setAxisResolved(true);
+        return;
+      }
 
       await syncManagerApplicationsFromServer({ selfScope: true }).catch(() => undefined);
 

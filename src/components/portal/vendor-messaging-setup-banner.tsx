@@ -47,7 +47,13 @@ export function VendorMessagingSetupBanner() {
     };
   }, []);
 
-  if (pathname?.startsWith("/vendor/communication")) return null;
+  // Scoped to the two screens this is actually actionable from — Communication
+  // and the vendor's own Settings (where "Set up messaging" lands). Every
+  // other page (a vendor's own Calendar included) used to carry this as a nag
+  // that reappeared on every navigation (AXI night sweep area 2d).
+  const onCommunication = Boolean(pathname?.startsWith("/vendor/communication"));
+  const onSettings = Boolean(pathname?.startsWith("/vendor/profile"));
+  if (!onCommunication && !onSettings) return null;
   if (dismissed !== false) return null;
   if (!needsPhone) return null;
 

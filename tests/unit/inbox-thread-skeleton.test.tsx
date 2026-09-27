@@ -21,6 +21,6 @@ describe("InboxThreadSkeleton", () => {
     const source = readFileSync("src/components/portal/pro-unified-inbox.tsx", "utf8");
     expect(source).toContain("pendingThread");
     expect(source).toContain("<InboxThreadSkeleton");
-    expect(source).toMatch(/pendingThread \? \(\s*<InboxThreadSkeleton/);
+    expect(source).toMatch(/pendingThread \? \(\s*routedSmsError \? <InboxThreadEmpty title=\{routedSmsError\} \/> : <InboxThreadSkeleton \/>/);
   });
 });

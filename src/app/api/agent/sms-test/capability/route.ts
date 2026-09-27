@@ -19,7 +19,12 @@ export async function GET(request: Request) {
 
   try {
     const capability = await resolveSmsTestCapability(portal);
-    if (!capability) return NextResponse.json({ error: "Not found." }, { status: 404, headers: PRIVATE_HEADERS });
+    // Not eligible is the common case — nearly every account is not a
+    // test-workspace member. That is a normal "no" answer, not a missing
+    // resource, so it is a 200 with a null capability rather than a 404: the
+    // global assistant widget probes this on effectively every portal page
+    // load, and a 404 status makes an expected, silently-handled response
+    // look like a broken endpoint in the network log (Night QA finding #5).
     return NextResponse.json({ capability }, { headers: PRIVATE_HEADERS });
   } catch (error) {
     const unavailable = error instanceof Error && (
@@ -27,9 +32,7 @@ export async function GET(request: Request) {
       || error.message.includes("approved non-production database")
     );
     if (!unavailable) console.error("[agent/sms-test/capability] capability lookup failed", error);
-    return NextResponse.json(
-      { error: unavailable ? "Not found." : "Could not check SMS test access." },
-      { status: unavailable ? 404 : 503, headers: PRIVATE_HEADERS },
-    );
+    if (unavailable) return NextResponse.json({ capability: null }, { headers: PRIVATE_HEADERS });
+    return NextResponse.json({ error: "Could not check SMS test access." }, { status: 503, headers: PRIVATE_HEADERS });
   }
 }

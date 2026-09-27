@@ -114,8 +114,14 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
+      // Captain 2026-09-26: "remove live demo no need" — the public site no
+      // longer embeds or links the running `/demo` sandbox anywhere, so the
+      // route itself (bare and every sub-path) now bounces home. The page
+      // component (`src/app/demo/page.tsx`) and its data layer
+      // (`src/lib/demo/*`) stay in the tree — other code/tests still import
+      // them — this only closes the public URL. See docs/agents/demo-sandbox.md.
       { source: "/demo", destination: "/", permanent: false },
-      { source: "/demo/:path*", destination: "/", permanent: false },
+      { source: "/demo/:path+", destination: "/", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a

@@ -356,6 +356,16 @@ function writeLocalTasks(managerUserId: string, tasks: ManagerTask[]) {
   localTasks.set(managerUserId, tasks);
 }
 
+/**
+ * Seeds the `/demo` sandbox's local, in-memory task store — never touches the
+ * network or a real account. Mirrors the `seedDemo…` pattern the other portal
+ * stores use (`seedDemoManagerWorkOrderRows`, `seedDemoHouseholdCharges`, …).
+ */
+export function seedDemoManagerTasks(managerUserId: string, tasks: ManagerTask[]): void {
+  writeLocalTasks(managerUserId, tasks);
+  notifyManagerTasksChanged();
+}
+
 function dueDateToCalendarWindow(dueDateIso: string): { start: string; end: string } | null {
   const due = new Date(dueDateIso);
   if (Number.isNaN(due.getTime())) return null;

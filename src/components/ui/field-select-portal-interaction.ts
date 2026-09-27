@@ -94,6 +94,28 @@ export const FIELD_SELECT_MENU_DATA_ATTR = "data-field-select-menu";
  * Portaled menus (field-select, row ⋯) sit outside Radix/Vaul modal trees.
  * Modal outside-click handlers must ignore them so a pick does not dismiss the sheet.
  */
+/**
+ * Is a portaled field-select menu (or any listbox it renders as, per
+ * `isPortaledFieldSelectMenuTarget`) currently open anywhere in the document?
+ *
+ * A field-select menu's own Escape handling closes itself, but that listener
+ * runs on `document` in the bubble phase — it always runs AFTER a Radix
+ * `Dialog`/`Drawer`'s own Escape handling, which Radix registers on
+ * `document` in the CAPTURE phase (see `@radix-ui/react-use-escape-keydown`).
+ * So an Escape meant only to close the dropdown was also closing the whole
+ * modal underneath it (BUILD-WAVE2 C090/C092). The fix hooks into Radix's own
+ * `onEscapeKeyDown` prop (see `modal.tsx`): when a field-select menu is open,
+ * that handler calls `preventDefault()`, which Radix's `DismissableLayer`
+ * checks before dismissing — the modal stays open, and the menu's own
+ * (slightly later) listener still closes just the dropdown.
+ */
+export function isAnyPortaledFieldSelectMenuOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  return Boolean(
+    document.querySelector(`[${FIELD_SELECT_MENU_DATA_ATTR}]`) || document.querySelector('[role="listbox"]'),
+  );
+}
+
 export function isPortaledFieldSelectMenuTarget(target: EventTarget | null): boolean {
   const element = fieldSelectEventTargetElement(target);
   if (!element) return false;

@@ -56,17 +56,16 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
   use a reviewed fail-closed apply path, and verify the result. Authorization for
   one bounded change does not authorize unrelated production mutations.
 - **Never write the locked live listings** (5257 / 5259 Brooklyn, 4709A 8th Ave). See `.cursor/rules/no-production-live-listings.mdc`.
-- **Never skip `staging` outside the dated exception.** Live ships from
-  `production` only after QA by default. Until 2026-09-15T04:00:00Z, an
-  explicit Akhil-authorized release may use
+- **Never skip `staging` except under Akhil's standing exception.** Live ships
+  from `production` only after staging QA by default. Since 2026-09-26, with no
+  end date, an explicit Akhil-authorized release may skip staging entirely with
   `npm run ship:production -- --skip-staging` under
-  [the temporary policy](docs/agents/temporary-direct-production-policy.json).
-  Prakrit's
+  [the standing policy](docs/agents/temporary-direct-production-policy.json)
+  (delete that file to revoke). Every other gate still applies. Prakrit's
   agents never merge to protected branches. Agents working for Akhil may merge
-  only his keeper → `main` → `staging` → `production`, and only after his
-  explicit ship request under `docs/agents/AGENTS-akhil.md`.
-  Akhil's new exception through 2026-09-23T21:08:02Z waives staging QA only,
-  not the branch ladder or other gates: `docs/plans/staging-qa-exception-20260916.html`.
+  only his keeper → `main` → `staging` → `production` (or keeper → `main` →
+  `production` under the policy), and only after his explicit ship request
+  under `docs/agents/AGENTS-akhil.md`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.
@@ -75,7 +74,7 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 **Prakrit: standing keeper → `prakrit` (captain integrate) → `main`; agents working
 for Akhil after his explicit ship request: his prompt branch → `main`. QA on
-`staging` by default, subject only to the dated policy above. Live from
+`staging` by default; Akhil's releases skip it under the standing policy above. Live from
 `production`.**
 Prakrit keeps six standing agent branches and the captain integration worktree
 open. His roster and integration authorization live in
@@ -118,10 +117,10 @@ Production Branch setting stays **`production`**. Full ops: `docs/agents/deploym
 ```
 npm run ship:staging      # ff origin/main → origin/staging
 npm run ship:production   # ff origin/staging → origin/production
-npm run ship:production -- --skip-staging # temporary, policy-gated origin/main → origin/production
+npm run ship:production -- --skip-staging # Akhil only, policy-gated origin/main → origin/production
 ```
 
-Never ff `main` onto `production` except through the active dated policy
+Never ff `main` onto `production` except through the standing Akhil policy
 option above. Retired: `scripts/promote-main-to-production.sh` (exits 1).
 
 ## Production push also ships iOS — TestFlight and the App Store
@@ -201,6 +200,11 @@ non-interchangeable (viewer id, window, portal role). Tag server-sync store
 events (`serverSyncOriginatedEvent`) so listeners do not refetch the snapshot
 they just wrote. Calendar polling plan: `docs/realtime-schedule-invalidation.md`.
 
+Never re-upload the local portfolio on page load: the sync replaces the local
+copy with the server's. Local-first property writes go through the outbox
+(`src/lib/property-record-outbox.ts`), which the sync flushes first; an empty
+outbox sends nothing.
+
 # AI Agent & Tool Layer
 
 Read [`docs/ai-assistant.md`](docs/ai-assistant.md) before touching `src/lib/tools/`
@@ -261,10 +265,12 @@ Empty `PropertyBrowseCard.imageUrl` means no real photo. Render
 
 # Portal UI system
 
-**Start at [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).**
+**Start at [`docs/agents/ui-page-structure.md`](docs/agents/ui-page-structure.md)** (the generic
+anatomy every page follows), then [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).
 Every list tab copies Properties via `PortalRecordListSurface`: header card
-with the search box, flat shared record rows, dashed ADD footer with
-unique `ariaLabel`, per-record ⋯ menus with contextual actions. Mobile is the same surface.
+with tabs, search, icon actions and the round blue + (the only create action;
+filters open from the top-right Filter popover), flat shared record rows,
+per-record ⋯ menus with contextual actions. Mobile is the same surface.
 **No pills on rows**: a row is tile · title · place line · glyph facts · figure · ⋯,
 never a `Badge` or status chip — the tab says the bucket, anything else is a
 plain fact with a glyph (`tests/unit/portal-list-rows-no-pills.test.ts`).
@@ -357,16 +363,18 @@ branches on `"resident"` without consulting `profile_roles`.
 Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communication-inbox.md).
 
 - **One conversation list.** Standalone inbox page shell is `/demo` only.
-  Manager Communication has Active | Archived tabs under the work identity
-  boxes; resident and vendor keep status in Filter.
+  Manager and vendor Communication both have Active | Archived tabs under the
+  work identity boxes, switching instantly with no remount; resident is the
+  one portal that keeps status in Filter with no tab row.
 - Scheduled sends render **inline** in the recipient thread (admin table is the exception).
 - A message enters the store **after** the send is authorized. Copy the resident panel, not the manager/vendor ones.
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.
 - SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
 - Residents cannot schedule a compose (deliberate).
 - A thread's `row_data` may carry a `recordRef: {kind,id,label}`; a record page's
-  Communication section (`record-communication-section.tsx`) filters the same
-  inbox down to that one record's threads — see `docs/agents/communication-inbox.md` § recordRef.
+  Communication section (`record-communication-section.tsx`) merges the same
+  inbox into one timeline of every conversation with that record's contact(s),
+  archived included — see `docs/agents/communication-inbox.md` § recordRef.
 
 ## Inbox attachments
 
@@ -411,6 +419,7 @@ answer. Fail closed to `true`.
 | Manager account creation | `docs/agents/manager-account-creation.md` | `/auth/create-account` never auto-redirects into a portal |
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
+| Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |
 | Communication | `docs/agents/communication-inbox.md` | One inbox; authorize then append; `formatInboxStamp`; never `inline` |
 | Record pages | docs/agents/record-page.md | Residents standard; header icons per section; no footer or toolbar; picker on phone |
 | Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |

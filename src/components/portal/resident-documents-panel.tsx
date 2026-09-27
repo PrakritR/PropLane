@@ -34,7 +34,20 @@ import {
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Download, Pencil } from "lucide-react";
-import { ResidentLeaseDocumentsListSection } from "@/components/portal/resident-lease-list";
+import { ResidentLeaseListTable } from "@/components/portal/resident-lease-list";
+import type { ResidentLeaseStatusFilter } from "@/lib/resident-lease-documents";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import {
+  parseResidentDocumentTab,
+  residentDocumentTabForApplication,
+  RESIDENT_DOCUMENT_KIND_DEFAULT_TAB,
+  RESIDENT_DOCUMENT_KIND_LABELS,
+  RESIDENT_DOCUMENT_KIND_ORDER,
+  RESIDENT_DOCUMENT_TAB_LABELS,
+  RESIDENT_DOCUMENT_TAB_ORDER,
+  type ResidentDocumentKind,
+  type ResidentDocumentTab,
+} from "@/lib/resident-documents-tabs";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   ResidentLeaseBareDocumentPreview,
@@ -155,7 +168,7 @@ function RentReceiptDateRangeFilter({
 }
 
 /** Documents › Application — the resident's applications as selectable rows. */
-function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
+function ApplicationDocumentsTable({ basePath, bucket }: { basePath: string; bucket: ResidentDocumentTab }) {
   const session = usePortalSession();
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
@@ -177,10 +190,12 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
     return sortResidentApplicationRows(
       readManagerApplicationRows().filter(
         (row) =>
-          residentOwnsApplicationRow(row, { email, userId }) && !isWithdrawnApplicationRow(row),
+          residentOwnsApplicationRow(row, { email, userId }) &&
+          !isWithdrawnApplicationRow(row) &&
+          residentDocumentTabForApplication(row.bucket) === bucket,
       ),
     );
-  }, [email, userId, tick]);
+  }, [email, userId, tick, bucket]);
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const { selectedIds, toggleSelected } = useResidentDocumentSelection(rowIds);
@@ -809,27 +824,50 @@ function RentReceiptsTab({
 }
 
 /**
- * Documents › Lease — read-only signed leases; tap a row for the detail page.
- * Signing and renewals live on the standalone Lease tab.
+ * Documents › Lease — read-only lease documents; tap a row for the detail
+ * page. Signing and renewals live on the standalone Lease tab. `statusFilter`
+ * is the bucket's own To sign ("pending") / Signed ("signed") split — the
+ * top buttons already do the job the in-section Pending/Signed pill row used
+ * to, so this renders `ResidentLeaseListTable` directly rather than through
+ * `ResidentLeaseDocumentsListSection`'s own (now redundant) pill switcher.
  */
-function SignedLeaseDocumentsTable({ basePath }: { basePath: string }) {
-  return <ResidentLeaseDocumentsListSection basePath={basePath} />;
+function SignedLeaseDocumentsTable({
+  basePath,
+  statusFilter,
+}: {
+  basePath: string;
+  statusFilter: ResidentLeaseStatusFilter;
+}) {
+  return (
+    <ResidentLeaseListTable
+      basePath={basePath}
+      detailHref={(base, _bucket, leaseDetailId) => residentDocumentsLeaseDetailHref(base, leaseDetailId)}
+      routePendingToLeaseSection
+      statusFilter={statusFilter}
+      documentsListSurface
+      emptyMessage="Your signed lease will appear here once it's signed."
+    />
+  );
 }
 
 export function ResidentDocumentsPanel({
   tabId,
   basePath = "/resident",
-  tabs,
   applicationId,
   leaseId,
   receiptId,
+  bucket,
+  kindFilter,
 }: {
+  /** Detail dispatch only ("application" / "lease" / "receipts") — unchanged. */
   tabId: string;
   basePath?: string;
-  tabs: ReadonlyArray<{ id: string; label: string }>;
   applicationId?: string;
   leaseId?: string;
   receiptId?: string;
+  /** List mode: the routed bucket. Falls back to parsing `tabId` defensively. */
+  bucket?: ResidentDocumentTab;
+  kindFilter?: ResidentDocumentKind | null;
 }) {
   const { showToast } = useAppUi();
   const session = usePortalSession();
@@ -840,6 +878,18 @@ export function ResidentDocumentsPanel({
   const [uploads, setUploads] = useState<UploadedOwnLease[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
   const [receiptRange, setReceiptRange] = useState<ReceiptDateRange>(() => residentLedgerReceiptRange());
+  const [kindFilterState, setKindFilterState] = useState<ResidentDocumentKind | "all">(kindFilter ?? "all");
+  // A caller that still passes a legacy kind id as `tabId` with no explicit
+  // `bucket` (an older render site, a direct test render) lands on THAT
+  // kind's own default bucket rather than the generic "to-sign" fallback —
+  // otherwise "receipts"/"other" would incorrectly resolve to "to-sign" and
+  // render the Lease table instead of Rent receipts / Other documents.
+  const activeBucket: ResidentDocumentTab =
+    bucket ??
+    RESIDENT_DOCUMENT_KIND_DEFAULT_TAB[tabId as ResidentDocumentKind] ??
+    parseResidentDocumentTab(tabId);
+  const showKind = (k: ResidentDocumentKind) => kindFilterState === "all" || kindFilterState === k;
+  const leaseStatusFilter: ResidentLeaseStatusFilter = activeBucket === "to-sign" ? "pending" : "signed";
 
   const refreshUploads = useCallback(async () => {
     if (!email) {
@@ -860,11 +910,6 @@ export function ResidentDocumentsPanel({
     queueMicrotask(() => void refreshUploads());
   }, [refreshUploads]);
 
-  const tabItems = useMemo(
-    () => tabs.map((tab) => ({ id: tab.id, label: tab.label, href: `${basePath}/documents/${tab.id}` })),
-    [tabs, basePath],
-  );
-
   const openAdd = () => {
     if (!email) {
       showToast("Sign in to upload documents.");
@@ -873,9 +918,13 @@ export function ResidentDocumentsPanel({
     setAddOpen(true);
   };
 
+  // "Other documents" is always in the Archived bucket — land there (with
+  // the Kind filter pinned to Other, so the upload is visible immediately)
+  // instead of the retired `/documents/other`.
   const onDocumentAdded = () => {
     setUploads(readUploadedOwnLeases(email));
-    if (tabId !== "other") navigate(`${basePath}/documents/other`);
+    setKindFilterState("other");
+    if (activeBucket !== "archived") navigate(`${basePath}/documents/archived?kind=other`);
   };
 
   const onRemoveUpload = (id: string) => {
@@ -905,29 +954,55 @@ export function ResidentDocumentsPanel({
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         stickyDestinations={false}
-        destinations={tabItems.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          href: tab.href,
-          dataAttr: `resident-documents-tab-${tab.id}`,
+        destinations={RESIDENT_DOCUMENT_TAB_ORDER.map((id) => ({
+          id,
+          label: RESIDENT_DOCUMENT_TAB_LABELS[id],
+          href: `${basePath}/documents/${id}`,
+          dataAttr: `resident-documents-tab-${id}`,
         }))}
-        activeDestinationId={tabId}
+        activeDestinationId={activeBucket}
         destinationAriaLabel="Documents"
         actions={
-          // No toolbar Upload: the dashed UPLOAD row in the list below already
-          // does it, and the two sat one above the other saying the same thing.
-          tabId === "receipts" ? (
-            <RentReceiptDateRangeFilter range={receiptRange} onRangeChange={setReceiptRange} />
-          ) : null
+          <div className="flex items-center gap-1.5">
+            <PortalFilterSortSheet
+              activeCount={portalFilterActiveCount([kindFilterState !== "all" ? kindFilterState : ""])}
+              compactPanel
+              commandStripTrigger
+              filterFieldCount={1}
+              onReset={() => setKindFilterState("all")}
+              dataAttr="resident-documents-kind-filter-open"
+            >
+              <FieldSingleSelect
+                label="Kind"
+                variant="cell"
+                value={kindFilterState}
+                onChange={(next) => setKindFilterState(next as ResidentDocumentKind | "all")}
+                options={[
+                  { value: "all", label: "All kinds" },
+                  ...RESIDENT_DOCUMENT_KIND_ORDER.map((k) => ({ value: k, label: RESIDENT_DOCUMENT_KIND_LABELS[k] })),
+                ]}
+                dataAttr="resident-documents-kind-select"
+              />
+            </PortalFilterSortSheet>
+            {activeBucket === "archived" && showKind("receipts") ? (
+              <RentReceiptDateRangeFilter range={receiptRange} onRangeChange={setReceiptRange} />
+            ) : null}
+          </div>
         }
       />
-      {tabId === "application" ? <ApplicationDocumentsTable basePath={basePath} /> : null}
+      {showKind("application") && activeBucket !== "signed" ? (
+        <ApplicationDocumentsTable basePath={basePath} bucket={activeBucket} />
+      ) : null}
 
-      {tabId === "lease" ? <SignedLeaseDocumentsTable basePath={basePath} /> : null}
+      {showKind("lease") && activeBucket !== "archived" ? (
+        <SignedLeaseDocumentsTable basePath={basePath} statusFilter={leaseStatusFilter} />
+      ) : null}
 
-      {tabId === "receipts" ? <RentReceiptsTab basePath={basePath} range={receiptRange} /> : null}
+      {showKind("receipts") && activeBucket === "archived" ? (
+        <RentReceiptsTab basePath={basePath} range={receiptRange} />
+      ) : null}
 
-      {tabId === "other" ? (
+      {showKind("other") && activeBucket === "archived" ? (
         <>
           <ResidentOtherDocumentsTable
             uploads={uploads}

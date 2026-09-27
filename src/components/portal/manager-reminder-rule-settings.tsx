@@ -97,7 +97,7 @@ function ReminderRuleSendViaSelect({
       label="Send via"
       hideLabel
       options={[
-        { value: "inbox", label: "Inbox", disabled: true },
+        { value: "inbox", label: "Communication", disabled: true },
         { value: "email", label: "Email" },
         { value: "sms", label: "Text" },
       ]}

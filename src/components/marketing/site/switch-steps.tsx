@@ -1,14 +1,8 @@
-import {
-  MockButton,
-  MockChip,
-  MockFrame,
-  MockRow,
-  SiteCtaPair,
-  SiteEyebrow,
-  SiteIntro,
-  SiteSection,
-} from "@/components/marketing/site/primitives";
-import { cn } from "@/lib/utils";
+"use client";
+
+import { ImportReviewPanel } from "@/components/marketing/site/product-mock/panels";
+import { ProductPanelBackdrop } from "@/components/marketing/site/product-mock/shared";
+import { SiteCtaPair, SiteEyebrow, SiteIntro, SiteSection } from "@/components/marketing/site/primitives";
 
 type SwitchStep = { eyebrow: string; title: string; body: string };
 
@@ -16,30 +10,31 @@ const STEPS: SwitchStep[] = [
   {
     eyebrow: "Step 1",
     title: "Import your portfolio",
-    body: "Upload a spreadsheet or an export from AppFolio or Buildium. Properties, units and residents come in together, in the right order.",
+    body: "Drop a rent roll, an AppFolio or Buildium export, or lease PDFs. One read returns properties, rooms, residents, leases and open balances together.",
   },
   {
     eyebrow: "Step 2",
-    title: "Invite your residents",
-    body: "Residents get their own portal for paying rent, submitting requests and asking the property assistant questions.",
+    title: "Review what the agent found",
+    body: "One card per property, one row per resident, each citing the row or page it came from. Anything the file didn't say clearly is flagged, not guessed.",
   },
   {
     eyebrow: "Step 3",
-    title: "Collect rent in PropLane",
-    body: "Payments land in your dashboard as they come in, and anything paid outside PropLane can be recorded too.",
+    title: "Create it, invite when you're ready",
+    body: "Properties, residents, leases, charges and tasks are created through the same paths every other create in PropLane uses. Nothing is emailed until you say so.",
   },
 ];
 
-const WIZARD_STEPS = ["1 Upload", "2 Match columns", "3 Review", "4 Import", "5 Invite"];
-const CURRENT_WIZARD_STEP = "3 Review";
-
-const SUMMARY = [
-  { value: "2", label: "properties" },
-  { value: "7", label: "units" },
-  { value: "6", label: "residents" },
-];
-
-/** How switching to PropLane works: import, invite, collect — told as three steps beside the import screen itself. */
+/**
+ * Captain 2026-09-26: redesigned in the same Codex-style row as the
+ * lifecycle rows below it — a compact left text column (the three steps,
+ * condensed) beside the real `/portal/properties/import` Review step
+ * (`PortfolioImportReviewStep`, fed the bundled sample rent roll
+ * `demo-import-sample.ts`), desktop web UI only. No live `/demo` iframe, no
+ * Manager/Resident/Vendor switch, no phone frame — see
+ * `docs/agents/portfolio-import.md` and `docs/agents/marketing-mocks.md`.
+ * The real three-step flow is Upload → Review → Create (never the 5-step
+ * "match columns" wizard this section used to invent).
+ */
 export function SiteSwitchSteps() {
   return (
     <SiteSection tone="muted" ariaLabelledBy="site-switch-heading">
@@ -49,71 +44,20 @@ export function SiteSwitchSteps() {
         title="Up and running without starting over."
         lede="Your properties, units and residents come with you. Here's what switching to PropLane looks like."
       />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-2 lg:items-start">
-        <div className="min-w-0">
-          <div className="space-y-8">
-            {STEPS.map((step) => (
-              <div key={step.title} className="border-t border-border pt-5">
-                <SiteEyebrow className="mb-2">{step.eyebrow}</SiteEyebrow>
-                <h3 className="text-[19px] font-bold leading-snug tracking-tight text-foreground">{step.title}</h3>
-                <p className="mt-2 text-[14.5px] leading-relaxed text-muted">{step.body}</p>
-              </div>
-            ))}
-          </div>
-          <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-8" />
+      <div className="grid grid-cols-1 items-stretch gap-8 lg:grid-cols-[minmax(0,0.34fr)_minmax(0,0.66fr)] lg:gap-10">
+        <div className="flex flex-col justify-center gap-5">
+          {STEPS.map((step) => (
+            <div key={step.title} className="border-t border-border pt-4 first:border-t-0 first:pt-0">
+              <SiteEyebrow className="mb-1.5">{step.eyebrow}</SiteEyebrow>
+              <h3 className="text-[16.5px] font-bold leading-snug tracking-tight text-foreground">{step.title}</h3>
+              <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{step.body}</p>
+            </div>
+          ))}
+          <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-1" />
         </div>
-        <div className="mx-auto w-full min-w-0 max-w-[540px] lg:mr-0">
-          <MockFrame title="Manager · Import your portfolio">
-            <div className="flex flex-wrap gap-1.5">
-              {WIZARD_STEPS.map((step) => {
-                const current = step === CURRENT_WIZARD_STEP;
-                return (
-                  <span
-                    key={step}
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold",
-                      current ? "border-primary bg-primary/10 text-primary" : "border-border text-muted",
-                    )}
-                  >
-                    {step}
-                  </span>
-                );
-              })}
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              {SUMMARY.map((cell) => (
-                <div key={cell.label} className="rounded-xl border border-border px-3 py-2.5 text-center">
-                  <span className="block text-[20px] font-bold leading-none text-foreground">{cell.value}</span>
-                  <span className="block text-[11px] text-muted">{cell.label}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 divide-y divide-border/60">
-              <MockRow
-                name="Maple Court"
-                title="Maple Court"
-                sub="220 Maple Ave · 4 units · 3 occupied"
-                right={<MockChip tone="good">Ready</MockChip>}
-              />
-              <MockRow
-                name="1412 Pine St"
-                title="1412 Pine St"
-                sub="3 rooms · 2 occupied"
-                right={<MockChip tone="good">Ready</MockChip>}
-              />
-              <MockRow
-                name="Luis Ortega"
-                title="Luis Ortega · Room 3"
-                sub="No email — add one to invite"
-                right={<MockChip tone="warn">Check</MockChip>}
-              />
-            </div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <MockButton primary>Import 2 properties, 6 residents</MockButton>
-              <span className="text-[12px] text-muted">Nothing is emailed until you say so</span>
-            </div>
-          </MockFrame>
-        </div>
+        <ProductPanelBackdrop className="h-[340px] sm:h-[440px] lg:h-[500px]">
+          <ImportReviewPanel />
+        </ProductPanelBackdrop>
       </div>
     </SiteSection>
   );

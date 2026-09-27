@@ -103,8 +103,21 @@ export function useGoogleCalendarBusyMeetings(input: {
   refreshSignal?: number;
   daysAhead?: number;
   onWarning?: (warning: GoogleCalendarBusyWarning) => void;
+  /**
+   * Manager (default) reads `/api/portal/google-calendar/events`; a role
+   * cloning the read onto its own storage (vendor) passes its own route —
+   * same `{timeMin,timeMax}` query shape and `{meetings,warning,hint,truncated}`
+   * response shape, gated on that role instead of manager.
+   */
+  endpoint?: string;
 }): DemoMeeting[] {
-  const { enabled, refreshSignal, daysAhead = GOOGLE_BUSY_DEFAULT_DAYS_AHEAD, onWarning } = input;
+  const {
+    enabled,
+    refreshSignal,
+    daysAhead = GOOGLE_BUSY_DEFAULT_DAYS_AHEAD,
+    onWarning,
+    endpoint = "/api/portal/google-calendar/events",
+  } = input;
   const [meetings, setMeetings] = useState<DemoMeeting[]>([]);
 
   useEffect(() => {
@@ -118,7 +131,7 @@ export function useGoogleCalendarBusyMeetings(input: {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + GOOGLE_BUSY_DAYS_BEFORE + daysAhead);
     void fetch(
-      `/api/portal/google-calendar/events?timeMin=${encodeURIComponent(
+      `${endpoint}?timeMin=${encodeURIComponent(
         weekStart.toISOString(),
       )}&timeMax=${encodeURIComponent(weekEnd.toISOString())}`,
       { credentials: "include" },
@@ -142,7 +155,7 @@ export function useGoogleCalendarBusyMeetings(input: {
     // `onWarning` is intentionally excluded: callers pass an inline closure, and
     // depending on it would refetch Google on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, refreshSignal, daysAhead]);
+  }, [enabled, refreshSignal, daysAhead, endpoint]);
 
   return meetings;
 }

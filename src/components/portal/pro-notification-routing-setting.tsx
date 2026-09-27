@@ -22,9 +22,12 @@ import {
 } from "@/lib/manager-notification-preferences";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
+  PAYMENT_AUTOMATION_SETTINGS_EVENT,
   normalizeManagerAutomationSettings,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
+import { loadManagerAutomationSettingsCached } from "@/lib/manager-automation-settings-client";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   MANAGER_MESSAGING_SETTINGS_HREF,
   formatManagerMessagingPhone,
@@ -78,6 +81,7 @@ type LoadState = "loading" | "ready" | "error";
 
 export function ManagerNotificationRoutingSetting() {
   const { showToast } = useAppUi();
+  const { userId } = usePortalSession();
   const { workspaceId: scopeWorkspaceId, reportSource } = useSettingsPropertyScope();
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [saving, setSaving] = useState(false);
@@ -87,27 +91,28 @@ export function ManagerNotificationRoutingSetting() {
   const [source, setSource] = useState<SettingsResolutionSource | null>(null);
   const [numberStatus, setNumberStatus] = useState<ManagerMessagingNumberStatus | null>(null);
 
-  const load = useCallback(async () => {
-    setLoadState("loading");
-    try {
-      const query = scopeWorkspaceId ? `?workspaceId=${encodeURIComponent(scopeWorkspaceId)}` : "";
-      const [settingsResponse, numberResponse] = await Promise.all([
-        fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
-        fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
-      ]);
-      if (!settingsResponse.ok) throw new Error("Could not load manager alert preferences.");
-      const body = (await settingsResponse.json()) as { settings?: unknown; source?: SettingsResolutionSource };
-      setSettings(normalizeManagerAutomationSettings(body.settings));
-      setSource(body.source ?? null);
-      reportSource("automation-settings", body.source);
-      setNumberStatus(
-        numberResponse.ok ? ((await numberResponse.json()) as ManagerMessagingNumberStatus) : null,
-      );
-      setLoadState("ready");
-    } catch {
-      setLoadState("error");
-    }
-  }, [scopeWorkspaceId, reportSource]);
+  const load = useCallback(
+    async (opts?: { force?: boolean }) => {
+      setLoadState("loading");
+      try {
+        if (!userId) return;
+        const [loaded, numberResponse] = await Promise.all([
+          loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, force: opts?.force }),
+          fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
+        ]);
+        setSettings(normalizeManagerAutomationSettings(loaded.settings));
+        setSource(loaded.source);
+        reportSource("automation-settings", loaded.source);
+        setNumberStatus(
+          numberResponse.ok ? ((await numberResponse.json()) as ManagerMessagingNumberStatus) : null,
+        );
+        setLoadState("ready");
+      } catch {
+        setLoadState("error");
+      }
+    },
+    [scopeWorkspaceId, reportSource, userId],
+  );
 
   useEffect(() => {
     // Defer the initial state transition out of the effect body. This keeps the
@@ -152,6 +157,10 @@ export function ManagerNotificationRoutingSetting() {
       setSettings(normalizeManagerAutomationSettings(body.settings));
       setSource(body.source ?? null);
       reportSource("automation-settings", body.source);
+      // Every other automation-settings save dispatches this so the shared
+      // read cache (manager-automation-settings-client.ts) invalidates; this
+      // save path was missing it, so a sibling reader kept its stale value.
+      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
       showToast("Manager alert preferences saved.");
     } catch {
       showToast("Could not save manager alert preferences. Try again.");
