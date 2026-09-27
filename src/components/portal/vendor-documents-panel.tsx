@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FileText, Upload } from "lucide-react";
+import { AlertTriangle, Check, Clock, FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -9,7 +9,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -33,6 +33,7 @@ import {
   type VendorDocumentKind,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
+
 import { DOCUMENT_CATEGORY_LABELS, type ManagerDocumentDTO } from "@/lib/documents/manager-documents";
 
 const DEMO_VENDOR_DOCUMENTS: VendorDocumentRecord[] = [
@@ -62,19 +63,6 @@ type DocumentsPayload = {
 };
 
 type DocumentSource = "all" | "mine" | "managers";
-type DocumentStatusTab = "all" | "on-file" | "missing";
-
-const STATUS_TAB_LABELS: Record<DocumentStatusTab, string> = {
-  all: "All",
-  "on-file": "On file",
-  missing: "Missing",
-};
-
-const DOCUMENT_STATUS_TABS: DocumentStatusTab[] = ["all", "on-file", "missing"];
-
-function parseDocumentStatusTab(raw: string): DocumentStatusTab {
-  return (DOCUMENT_STATUS_TABS as readonly string[]).includes(raw) ? (raw as DocumentStatusTab) : "all";
-}
 
 /**
  * One row's ⋯ — mirrors `BookingsRowOverflow` (`bookings-row-overflow.tsx`),
@@ -88,12 +76,14 @@ function VendorDocumentRowOverflow({
   label,
   hasDoc,
   onReplace,
+  onDownload,
   onDelete,
   children,
 }: {
   label: string;
   hasDoc: boolean;
   onReplace: () => void;
+  onDownload?: () => void;
   onDelete?: () => void;
   children: React.ReactNode;
 }) {
@@ -104,6 +94,17 @@ function VendorDocumentRowOverflow({
         clear: () => {},
         actions: (
           <>
+            {onDownload ? (
+              <Button
+                type="button"
+                variant="outline"
+                data-attr="vendor-document-download"
+                data-record-action-id="download"
+                onClick={onDownload}
+              >
+                Download
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -133,13 +134,15 @@ function VendorDocumentRowOverflow({
   );
 }
 
-/** Vendor Documents — one filtered, tabbed list of the vendor's own compliance checklist plus manager-shared files. */
+/**
+ * Vendor Documents — the vendor's own compliance checklist, grouped by
+ * section (Tax / Business license / Insurance, 2026-09-27), plus
+ * manager-shared files. No status tabs (VD16) — Filter narrows by section.
+ */
 export function VendorDocumentsPanel({
-  tabId,
   basePath = "/vendor",
   demo: demoProp,
 }: {
-  tabId: string;
   basePath?: string;
   demo?: boolean;
 }) {
@@ -159,13 +162,11 @@ export function VendorDocumentsPanel({
   // marker is never used as an iframe `src` directly — this is fetched fresh
   // from `/api/vendor/documents/signed-url` whenever `previewKind` changes.
   const [ownPreviewUrl, setOwnPreviewUrl] = useState<string | null>(null);
-  const [unlinked, setUnlinked] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [source, setSource] = useState<DocumentSource>("all");
   const [category, setCategory] = useState<string>("");
-  const statusTab = parseDocumentStatusTab(tabId);
   const [sharedDocuments, setSharedDocuments] = useState<ManagerDocumentDTO[]>([]);
   const [sharedLoading, setSharedLoading] = useState(!demo);
   const [sharedExpandedId, setSharedExpandedId] = useState<string | null>(null);
@@ -191,7 +192,6 @@ export function VendorDocumentsPanel({
         }
         throw new Error(data.error ?? "Failed to load documents.");
       }
-      setUnlinked(data.linked === false);
       setDocuments(data.documents ?? []);
     } catch (e) {
       if (!loadToastShown.current) {
@@ -241,7 +241,7 @@ export function VendorDocumentsPanel({
   useEffect(() => {
     setSharedExpandedId(null);
     setPreviewKind(null);
-  }, [source, category, statusTab]);
+  }, [source, category]);
 
   useEffect(() => {
     if (!previewKind || demo) {
@@ -293,52 +293,53 @@ export function VendorDocumentsPanel({
   const sourceOwnRows = source === "managers" ? [] : ownRows;
   const sourceSharedRows = source === "mine" ? [] : sharedDocuments;
 
-  // Category groups the vendor's own three-section checklist (Tax & income /
-  // Insurance / Business & licensing). Manager-shared files use a different,
+  // Category (Section) groups the vendor's own three-section checklist —
+  // Tax / Business license / Insurance. Manager-shared files use a different,
   // wider category taxonomy of their own (lease/notice/invoice/…) — picking a
-  // vendor category narrows to the vendor's own rows rather than guessing an
+  // vendor section narrows to the vendor's own rows rather than guessing an
   // equivalence between the two enums.
   const categoryOwnRows = category ? sourceOwnRows.filter((row) => row.sectionId === category) : sourceOwnRows;
   const categorySharedRows = category ? [] : sourceSharedRows;
 
-  const statusOwnRows = useMemo(() => {
-    if (statusTab === "on-file") return categoryOwnRows.filter((row) => Boolean(row.doc));
-    if (statusTab === "missing") return categoryOwnRows.filter((row) => !row.doc);
-    return categoryOwnRows;
-  }, [categoryOwnRows, statusTab]);
-  // Manager-shared files are always on file — the "Missing" tab never shows any.
-  const statusSharedRows = statusTab === "missing" ? [] : categorySharedRows;
-
   const needle = listSearch.trim().toLowerCase();
   const ownRowsVisible = useMemo(() => {
-    if (!needle) return statusOwnRows;
-    return statusOwnRows.filter((row) => {
+    if (!needle) return categoryOwnRows;
+    return categoryOwnRows.filter((row) => {
       const haystack = `${VENDOR_DOCUMENT_LABELS[row.kind]} ${row.sectionLabel} ${row.doc?.fileName ?? ""}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [statusOwnRows, needle]);
+  }, [categoryOwnRows, needle]);
   const sharedRowsVisible = useMemo(() => {
-    if (!needle) return statusSharedRows;
-    return statusSharedRows.filter((doc) =>
+    if (!needle) return categorySharedRows;
+    return categorySharedRows.filter((doc) =>
       `${doc.displayName} ${DOCUMENT_CATEGORY_LABELS[doc.category]}`.toLowerCase().includes(needle),
     );
-  }, [statusSharedRows, needle]);
+  }, [categorySharedRows, needle]);
 
-  // Tab counts reflect Source + Category (a real narrowing), never the search
-  // text (tab counts stay the bucket totals).
-  const tabCounts = useMemo(() => {
-    const withStatus = (tab: DocumentStatusTab) => {
-      const own =
-        tab === "on-file"
-          ? categoryOwnRows.filter((row) => row.doc)
-          : tab === "missing"
-            ? categoryOwnRows.filter((row) => !row.doc)
-            : categoryOwnRows;
-      const shared = tab === "missing" ? [] : categorySharedRows;
-      return own.length + shared.length;
-    };
-    return { all: withStatus("all"), "on-file": withStatus("on-file"), missing: withStatus("missing") };
-  }, [categoryOwnRows, categorySharedRows]);
+  // No status tabs any more (VD16) — the checklist renders grouped by
+  // section instead, each header showing "uploaded of total" for that
+  // section's real kinds (unaffected by search, which only narrows the rows
+  // shown underneath). A section with no rows matching the current
+  // section/search filters is left out entirely.
+  const ownSectionsVisible = useMemo(() => {
+    const visibleIds = new Set(ownRowsVisible.map((row) => row.kind));
+    return VENDOR_DOCUMENT_SECTIONS.filter((section) => !category || category === section.id)
+      .map((section) => {
+        const fullRows = sourceOwnRows.filter((row) => row.sectionId === section.id);
+        const rows = fullRows.filter((row) => visibleIds.has(row.kind));
+        const uploadedCount = fullRows.filter((row) => row.doc).length;
+        return { section, rows, uploadedCount, totalCount: fullRows.length };
+      })
+      .filter((entry) => entry.rows.length > 0);
+  }, [category, ownRowsVisible, sourceOwnRows]);
+
+  // First still-missing REQUIRED kind, in section order — the header upload
+  // picker's default selection (VD19); falls back to the first missing kind
+  // of any kind, then to nothing (every document already on file).
+  const defaultUploadKind = useMemo<VendorDocumentKind | undefined>(() => {
+    const missing = ownRows.filter((row) => !row.doc);
+    return (missing.find((row) => isVendorComplianceDocumentKind(row.kind)) ?? missing[0])?.kind;
+  }, [ownRows]);
 
   const previewDoc = previewKind ? documentsByKind.get(previewKind) : undefined;
   const visibleRowCount = ownRowsVisible.length + sharedRowsVisible.length;
@@ -438,16 +439,16 @@ export function VendorDocumentsPanel({
     }
   };
 
-  // Status lives on the routed tab (with real counts) — the Filter sheet
-  // narrows by Source and Category only, never the same dimension twice.
+  // No status tabs (VD16) — the Filter sheet narrows by Source and Section
+  // only, never the same dimension twice.
   const filterActiveCount = portalFilterActiveCount([source !== "all" ? source : "", category]);
   const sourceOptions = [
     { value: "all", label: "All" },
     { value: "mine", label: "Mine" },
     { value: "managers", label: "From managers" },
   ];
-  const categoryOptions = [
-    { value: "", label: "All categories" },
+  const sectionOptions = [
+    { value: "", label: "All sections" },
     ...VENDOR_DOCUMENT_TABS.map((tab) => ({ value: tab.id, label: tab.label })),
   ];
 
@@ -480,14 +481,14 @@ export function VendorDocumentsPanel({
           />
         </FilterCollapsibleSection>
         <FilterCollapsibleSection
-          sectionId="category"
-          label="Category"
-          summary={filterSingleSelectSummary(category, categoryOptions, "All categories")}
+          sectionId="section"
+          label="Section"
+          summary={filterSingleSelectSummary(category, sectionOptions, "All sections")}
           empty={!category}
-          menuOptionCount={categoryOptions.length}
-          dataAttr="vendor-documents-filter-category"
+          menuOptionCount={sectionOptions.length}
+          dataAttr="vendor-documents-filter-section"
         >
-          <FilterSingleSelectList options={categoryOptions} value={category} onChange={setCategory} dataAttr="vendor-documents-category" />
+          <FilterSingleSelectList options={sectionOptions} value={category} onChange={setCategory} dataAttr="vendor-documents-section" />
         </FilterCollapsibleSection>
       </FilterFieldsAccordion>
     </PortalFilterSortSheet>
@@ -498,15 +499,6 @@ export function VendorDocumentsPanel({
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinations={DOCUMENT_STATUS_TABS.map((id) => ({
-          id,
-          label: STATUS_TAB_LABELS[id],
-          count: tabCounts[id],
-          href: `${basePath}/documents/${id}`,
-          dataAttr: `vendor-documents-tab-${id}`,
-        }))}
-        activeDestinationId={statusTab}
-        destinationAriaLabel="Document status"
         search={{
           value: listSearch,
           onChange: setListSearch,
@@ -563,57 +555,73 @@ export function VendorDocumentsPanel({
           }
           dataAttr="vendor-documents-list"
         >
-          {unlinked ? (
-            <PortalListEmptyCard
-              title="Waiting on a manager"
-              section="documents"
-              tone="muted"
-              dataAttr="vendor-documents-unlinked-banner"
-            />
-          ) : null}
-          {ownRowsVisible.map(({ kind, sectionLabel, doc }) => {
-            const complianceMissing = !doc && isVendorComplianceDocumentKind(kind);
-            return (
-              <VendorDocumentRowOverflow
-                key={kind}
-                label={VENDOR_DOCUMENT_LABELS[kind]}
-                hasDoc={Boolean(doc)}
-                onReplace={() => fileRefs.current[kind]?.click()}
-                onDelete={doc ? () => removeDocument(kind) : undefined}
-              >
-                <PortalPropertyRecordRow
-                  title={VENDOR_DOCUMENT_LABELS[kind]}
-                  attention={complianceMissing}
-                  address={`${sectionLabel} · ${doc?.fileName ?? "—"}`}
-                  leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
-                  // On file shows date + status; a missing row leaves this
-                  // blank rather than repeating "Missing" — the Missing tab
-                  // already says the bucket. A compliance gap still gets its
-                  // own red statusWord (a distinct, higher-stakes callout).
-                  facts={doc ? [safeFormatDateTime(doc.uploadedAt), "On file"].filter(Boolean).join(" · ") : undefined}
-                  statusWord={complianceMissing ? { tone: "bad", text: "Missing — required" } : undefined}
-                  omitActionView={!doc}
-                  onOpen={doc ? () => setPreviewKind((cur) => (cur === kind ? null : kind)) : () => fileRefs.current[kind]?.click()}
-                  dataAttr="vendor-document-row"
-                />
-                <input
-                  ref={(el) => {
-                    fileRefs.current[kind] = el;
-                  }}
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) void uploadFile(kind, file);
-                  }}
-                  data-attr={`vendor-documents-upload-input-${kind}`}
-                />
-                {uploadingKind === kind ? <p className="px-1 text-xs text-muted">Uploading…</p> : null}
-              </VendorDocumentRowOverflow>
-            );
-          })}
+          {ownSectionsVisible.map(({ section, rows, uploadedCount, totalCount }) => (
+            <div key={section.id} data-attr="vendor-documents-section" className="vdoc-section">
+              <div className="flex items-baseline justify-between px-1 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+                <span>{section.label}</span>
+                <span className="font-semibold normal-case tracking-normal text-[12.5px]">
+                  {uploadedCount} of {totalCount}
+                </span>
+              </div>
+              {rows.map(({ kind, doc }) => {
+                const complianceMissing = !doc && isVendorComplianceDocumentKind(kind);
+                return (
+                  <VendorDocumentRowOverflow
+                    key={kind}
+                    label={VENDOR_DOCUMENT_LABELS[kind]}
+                    hasDoc={Boolean(doc)}
+                    onReplace={() => fileRefs.current[kind]?.click()}
+                    onDownload={doc ? () => void downloadOwnDocument(kind, doc.fileName) : undefined}
+                    onDelete={doc ? () => removeDocument(kind) : undefined}
+                  >
+                    <PortalPropertyRecordRow
+                      title={VENDOR_DOCUMENT_LABELS[kind]}
+                      attention={complianceMissing}
+                      address={doc?.fileName}
+                      leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+                      // Uploaded shows the date; a required-but-missing kind
+                      // reads "Required" with an alert glyph, an optional
+                      // missing kind reads "Not uploaded" with a clock glyph
+                      // — never the old on-file/missing tab wording (VD18).
+                      facts={
+                        doc ? (
+                          <PortalRowFact icon={Check} srLabel="Uploaded">
+                            {`Uploaded ${safeFormatDateTime(doc.uploadedAt)}`}
+                          </PortalRowFact>
+                        ) : complianceMissing ? (
+                          <PortalRowFact icon={AlertTriangle} srLabel="Required">
+                            Required
+                          </PortalRowFact>
+                        ) : (
+                          <PortalRowFact icon={Clock} srLabel="Not uploaded">
+                            Not uploaded
+                          </PortalRowFact>
+                        )
+                      }
+                      omitActionView={!doc}
+                      onOpen={doc ? () => setPreviewKind((cur) => (cur === kind ? null : kind)) : () => fileRefs.current[kind]?.click()}
+                      dataAttr="vendor-document-row"
+                    />
+                    <input
+                      ref={(el) => {
+                        fileRefs.current[kind] = el;
+                      }}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) void uploadFile(kind, file);
+                      }}
+                      data-attr={`vendor-documents-upload-input-${kind}`}
+                    />
+                    {uploadingKind === kind ? <p className="px-1 text-xs text-muted">Uploading…</p> : null}
+                  </VendorDocumentRowOverflow>
+                );
+              })}
+            </div>
+          ))}
           {sharedRowsVisible.map((doc) => {
             const expanded = sharedExpandedId === doc.id;
             return (
@@ -664,6 +672,7 @@ export function VendorDocumentsPanel({
       <VendorUploadDocumentWorkspace
         open={uploadOpen}
         demo={demo}
+        initialKind={defaultUploadKind}
         onClose={() => setUploadOpen(false)}
         onUploaded={(next) => {
           if (demo) {
