@@ -4,11 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -17,13 +12,12 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings, Share2 } from "lucide-react";
+import { Share2 } from "lucide-react";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   LEASE_PIPELINE_EVENT,
-  computeLeasePipelineProgress,
   countManagerLeaseTabs,
   readLeasePipeline,
   syncLeasePipelineFromServer,
@@ -42,22 +36,12 @@ import {
 } from "@/lib/leasing-pipeline-preferences";
 import { readCachedLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
 
-const leasesSettingsEntry = getSettingsEntryPoint("leases");
-
 const LEASE_LABELS: { id: ManagerLeaseTab; label: string; dataAttr: string }[] = [
   { id: "manager", label: "Manager review", dataAttr: "leases-tab-manager" },
   { id: "resident", label: "Resident signature", dataAttr: "leases-tab-resident" },
   { id: "signed", label: "Manager signature", dataAttr: "leases-tab-signed" },
   { id: "completed", label: "Signed", dataAttr: "leases-tab-completed" },
 ];
-
-/** One color per pipeline stage, in the same order as `LEASE_LABELS` (C245). */
-const LEASE_PIPELINE_SEGMENT_TONE: Record<ManagerLeaseTab, string> = {
-  manager: "bg-amber-400",
-  resident: "bg-sky-400",
-  signed: "bg-violet-400",
-  completed: "bg-emerald-500",
-};
 
 export function ManagerLeases({
   tab: tabProp = "manager",
@@ -87,7 +71,6 @@ export function ManagerLeases({
   const [clientReady, setClientReady] = useState(false);
   const [shareLeasesOpen, setShareLeasesOpen] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
-  const [leaseSettingsOpen, setLeaseSettingsOpen] = useState(false);
 
   useEffect(() => {
     queueMicrotask(() => setClientReady(true));
@@ -188,16 +171,6 @@ export function ManagerLeases({
     () => LEASE_LABELS.map(({ id, label, dataAttr }) => ({ id, label, count: counts[id], dataAttr })),
     [counts],
   );
-  // C245 (U027): the four tabs read as a pipeline (Manager review · Resident
-  // signature · Manager signature · Signed) but gave no sense of total
-  // progress across the whole pipeline — a segmented bar plus a "N of M
-  // signed" line, sized off the SAME counts the tabs already show.
-  const pipelineProgress = useMemo(() => computeLeasePipelineProgress(counts), [counts]);
-  const pipelineSegmentLabel = useMemo(
-    () => new Map(LEASE_LABELS.map(({ id, label }) => [id, label])),
-    [],
-  );
-
   const shareableProperties = useMemo(() => {
     void propertyTick;
     return buildManagerShareablePropertyOptions(userId);
@@ -230,8 +203,7 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
-  // Lease form lives inside Settings (Form | Automation) — the toolbar is one
-  // row of plain icons. Lease-first (or application not required) adds Send lease.
+  // Lease-first (or application not required) adds Send lease.
   const leasesListActions = (
     <>
       {leasesFilterSheet}
@@ -248,12 +220,6 @@ export function ManagerLeases({
           disabled={shareableProperties.length === 0}
         />
       ) : null}
-      <PortalIconAction
-        icon={Settings}
-        label={leasesSettingsEntry.label}
-        data-attr={leasesSettingsEntry.dataAttr}
-        onClick={() => setLeaseSettingsOpen(true)}
-      />
     </>
   );
 
@@ -275,15 +241,6 @@ export function ManagerLeases({
         managerUserId={userId}
         onSubmitted={() => setTick((n) => n + 1)}
         onOpenLease={openLeaseAfterAdd}
-      />
-      <ManagerPortalSettingsModal
-        open={leaseSettingsOpen}
-        onClose={() => setLeaseSettingsOpen(false)}
-        initialTab="lease"
-        scopedTitle={settingsDialogTitlePrefix(leasesSettingsEntry)}
-        propertyOptions={propertyOptions}
-        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
-        onFormSaved={() => setPropertyTick((n) => n + 1)}
       />
     </>
   );
@@ -363,30 +320,6 @@ export function ManagerLeases({
             ) : null
           }
         />
-        {pipelineProgress ? (
-          <div
-            className="mb-2 rounded-xl border border-border bg-card px-3.5 py-2.5"
-            data-attr="leases-pipeline-progress"
-          >
-            <p className="text-[13px] font-medium text-foreground">
-              {pipelineProgress.signed} of {pipelineProgress.total} leases signed
-            </p>
-            <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
-              {pipelineProgress.segments.map((segment) =>
-                segment.count > 0 ? (
-                  <span
-                    key={segment.id}
-                    className={LEASE_PIPELINE_SEGMENT_TONE[segment.id]}
-                    style={{ width: `${segment.pct}%` }}
-                    role="img"
-                    aria-label={`${pipelineSegmentLabel.get(segment.id)}: ${segment.count}`}
-                    data-attr={`leases-pipeline-progress-segment-${segment.id}`}
-                  />
-                ) : null,
-              )}
-            </div>
-          </div>
-        ) : null}
         <ManagerLeasesPipelinePanel
           rows={rows}
           tab={tab}

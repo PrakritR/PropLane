@@ -4,18 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
-import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 import { BookingsDayPage } from "@/components/portal/bookings-day-page";
 import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
-import { CalendarSync, Settings } from "lucide-react";
+import { CalendarSync } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
@@ -55,8 +50,6 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 
 const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
-
-const bookingsSettingsEntry = getSettingsEntryPoint("bookings");
 
 const BOOKING_BUCKET_LABELS = MANAGER_BOOKING_BUCKETS.map((id) => ({
   id,
@@ -117,7 +110,6 @@ function useBookingsWorkspace({
   const { userId, ready: authReady } = useManagerUserId();
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [sheet, setSheet] = useState<{
     open: boolean;
     dayKey: string | null;
@@ -418,13 +410,6 @@ function useBookingsWorkspace({
             disabled={linkDisabled}
             onClick={() => setCalendarsOpen(true)}
           />
-          <PortalIconAction
-            icon={Settings}
-            label={bookingsSettingsEntry.label}
-            data-attr={bookingsSettingsEntry.dataAttr}
-            disabled={linkDisabled}
-            onClick={() => setSettingsModalOpen(true)}
-          />
         </>
       }
       primary={
@@ -518,13 +503,6 @@ function useBookingsWorkspace({
       />
     );
 
-  /*
-   * Settings and Link Airbnb are two different dialogs.
-   *
-   * Settings used to open the Link Airbnb modal as well, so the section had two
-   * buttons that led to the same place and nowhere to put a booking preference.
-   * Settings is now the section's own scoped settings — booking reminders.
-   */
   const modals = (
     <>
       <BookingsBlockDatesModal
@@ -552,15 +530,6 @@ function useBookingsWorkspace({
         }
         showToast={showToast}
         onChanged={() => onRefreshSignal?.()}
-      />
-      <ProPortalSettingsModal
-        open={settingsModalOpen}
-        onClose={() => setSettingsModalOpen(false)}
-        initialTab="automation"
-        scoped
-        scopedTitle={settingsDialogTitlePrefix(bookingsSettingsEntry)}
-        propertyOptions={propertyOptions}
-        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
       />
     </>
   );

@@ -16,15 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { FinancesExportMenu, type FinancesExportItem } from "@/components/portal/finances/finances-export-menu";
-import { CalendarClock, CalendarPlus, MessageSquare, Settings, Share2, Trash2, XCircle } from "lucide-react";
+import { CalendarClock, CalendarPlus, MessageSquare, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -101,8 +96,6 @@ import {
 } from "@/lib/tour-notifications";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-
-const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
   id,
@@ -364,7 +357,6 @@ export function ManagerTours({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
@@ -1833,12 +1825,6 @@ export function ManagerTours({
               disabled={scopedPropertyIds.length === 0}
             />
             <PortalIconAction
-              icon={Settings}
-              label={toursSettingsEntry.label}
-              data-attr={toursSettingsEntry.dataAttr}
-              onClick={() => setSettingsOpen(true)}
-            />
-            <PortalIconAction
               icon={Share2}
               label="Share tour link"
               disabled={scopedPropertyIds.length === 0}
@@ -1944,12 +1930,6 @@ export function ManagerTours({
         propertyLabel={scopedPropertyLabel}
         propertyOptions={propertyOptions}
         showToast={showToast}
-      />
-      <ManagerPortalSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        initialTab="tours"
-        scopedTitle={settingsDialogTitlePrefix(toursSettingsEntry)}
       />
     </>
   );

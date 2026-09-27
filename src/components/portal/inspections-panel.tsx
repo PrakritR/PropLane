@@ -1,11 +1,10 @@
 "use client";
 
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Camera, ClipboardCheck, Settings } from "lucide-react";
+import { CalendarDays, Camera, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -653,9 +652,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       search={{ value: query, onChange: setQuery, placeholder: "Search inspections", dataAttr: "inspections-search" }}
-      actions={role === "manager" && !isDemoModeActive()
-        ? <PortalIconAction icon={Settings} label={inspectionsSettingsEntry.label} data-attr={inspectionsSettingsEntry.dataAttr} onClick={() => setSettingsOpen(true)} />
-        : undefined}
     />
     )}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}

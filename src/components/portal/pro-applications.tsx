@@ -16,7 +16,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, Check, Download, Plus, Settings, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
+import { Bell, Check, Download, Plus, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -44,11 +44,6 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
@@ -171,7 +166,6 @@ import {
   portalPropertyFilterIdsEqual,
   sanitizePortalPropertyFilterIds,
 } from "@/lib/portal-property-list-filters";
-const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 
 function isApprovableApplicationRow(row: DemoApplicantRow): boolean {
   if (isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row)) return false;
@@ -649,7 +643,6 @@ export function ManagerApplications({
     setInviteModalOpen(true);
   }, []);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
-  const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
   const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
@@ -1674,17 +1667,6 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
-  // Application form lives inside Settings (Form | Automation), so the toolbar
-  // stays one row of plain icons; Send application is the share glyph.
-  const applicationsSettingsButton = (
-    <PortalIconAction
-      icon={Settings}
-      label={applicationsSettingsEntry.label}
-      data-attr={applicationsSettingsEntry.dataAttr}
-      onClick={() => setApplicationSettingsOpen(true)}
-    />
-  );
-
   const applicationsAddButton = (
     <PortalIconAction
       icon={Share2}
@@ -1714,7 +1696,6 @@ export function ManagerApplications({
   const applicationsListActions = (
     <>
       {applicationsFilterSort}
-      {applicationsSettingsButton}
       {applicationsAddButton}
       {applicationsManualAddButton}
     </>
@@ -2198,16 +2179,6 @@ export function ManagerApplications({
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
-      <ManagerPortalSettingsModal
-        open={applicationSettingsOpen}
-        onClose={() => setApplicationSettingsOpen(false)}
-        initialTab="applications"
-        scoped
-        scopedTitle={settingsDialogTitlePrefix(applicationsSettingsEntry)}
-        propertyOptions={propertyOptions}
-        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
-        onFormSaved={() => setPortfolioTick((n) => n + 1)}
-      />
       {checkrScreeningModal}
       {!authReady && rows.length === 0 ? (
         <div className={PORTAL_DATA_TABLE_WRAP}>

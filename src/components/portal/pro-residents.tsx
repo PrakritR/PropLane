@@ -5,8 +5,8 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2, Mail, Settings } from "lucide-react";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { Link2, Mail } from "lucide-react";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -3764,17 +3764,7 @@ export function ManagerResidents({
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
         search={{ value: residentSearch, onChange: setResidentSearch, placeholder: "Search residents", dataAttr: "residents-search" }}
-        actions={
-          <>
-            {residentsFilterSheet}
-            <PortalIconAction
-              icon={Settings}
-              label={residentsSettingsEntry.label}
-              data-attr={residentsSettingsEntry.dataAttr}
-              onClick={() => openResidentDetailSettings("resident")}
-            />
-          </>
-        }
+        actions={residentsFilterSheet}
         primary={
           <PortalPrimaryIconAction
             label="Add resident"

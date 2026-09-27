@@ -12,9 +12,6 @@ describe("Operations settings gears carry a Property picker", () => {
     // Inspections settings tab is gone (C111/C116) — the gear opens the
     // central Reminders hub, grouped to Inspections, instead.
     expect(inspections).toContain('initialTab="automation"');
-    expect(inspections).toContain("from \"lucide-react\"");
-    expect(inspections).toMatch(/import \{[^}]*Settings[^}]*\} from "lucide-react"/);
-    expect(inspections).not.toContain("Settings2");
   });
 
   it("the settings modal always wraps the module page in the All properties picker", () => {
@@ -22,8 +19,11 @@ describe("Operations settings gears carry a Property picker", () => {
     expect(modal).toContain("SettingsScopeBar");
   });
 
-  it("Tasks already hands propertyOptions to the same sheet", () => {
+  // S021 (captain, 2026-09-27): the Tasks list page dropped its own settings
+  // sheet entirely — task reminders now live only on the central Settings ->
+  // Reminders hub, which the property-picker guarantee above still covers.
+  it("Tasks no longer opens its own settings sheet", () => {
+    expect(tasks).not.toContain('initialTab="tasks"');
     expect(tasks).toContain("propertyOptions={propertyOptions}");
-    expect(tasks).toContain('initialTab="tasks"');
   });
 });
