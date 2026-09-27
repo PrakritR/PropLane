@@ -4,9 +4,9 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import { Button } from "@/components/ui/button";
 import {
   ManagerPortalPageShell,
-  ManagerPortalStatusPills,
   PORTAL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   PORTAL_DETAIL_BTN,
   PORTAL_DETAIL_BTN_PRIMARY,
@@ -491,7 +491,13 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
   const body = (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <ManagerPortalStatusPills tabs={tabs} activeId={bucket} onChange={(id) => setBucket(id as VendorPaymentBucket)} />
+        <LocalDestinationNav
+          items={tabs}
+          activeId={bucket}
+          onChange={(id) => setBucket(id as VendorPaymentBucket)}
+          ariaLabel="Payment status"
+          appearance="command"
+        />
       </div>
 
       {unlinked ? (
