@@ -80,13 +80,24 @@ describe("VendorWorkIdentitySection", () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith({ workPhone: "+12065559999" }));
   });
 
-  it("area code -> pick one of 3 -> claim purchases the exact picked number", async () => {
+  it("area code -> pick one of 3 -> claim sends the matching claim token and purchases exactly that number", async () => {
     let claimedNumber: string | null = null;
+    let claimBody: { phoneNumber?: string; claimToken?: string } | undefined;
+    const tokenFor = (phoneNumber: string) => `tok-${phoneNumber}`;
     mockFetchByUrl({
-      "/api/vendor/work-identity/candidates": { ok: true, candidates: ["+12065550101", "+12065550102", "+12065550103"] },
+      "/api/vendor/work-identity/candidates": {
+        ok: true,
+        candidates: ["+12065550101", "+12065550102", "+12065550103"].map((phoneNumber) => ({
+          phoneNumber,
+          claimToken: tokenFor(phoneNumber),
+        })),
+      },
       "/api/vendor/work-identity": (body: unknown) => {
-        const b = body as { channel?: string; phoneNumber?: string } | undefined;
-        if (b?.channel === "sms" && b.phoneNumber) claimedNumber = b.phoneNumber;
+        const b = body as { channel?: string; phoneNumber?: string; claimToken?: string } | undefined;
+        if (b?.channel === "sms" && b.phoneNumber) {
+          claimBody = { phoneNumber: b.phoneNumber, claimToken: b.claimToken };
+          claimedNumber = b.phoneNumber;
+        }
         return { ok: true, identity: identity({ sms: { value: claimedNumber, state: claimedNumber ? "reconciling" : "not_started", canSetup: !claimedNumber } }) };
       },
     });
@@ -106,6 +117,7 @@ describe("VendorWorkIdentitySection", () => {
     fireEvent.click(claimButton);
     await waitFor(() => expect(document.querySelector('[data-attr="vs-claimed-number"]')).toBeTruthy());
     expect(document.querySelector('[data-attr="vs-claimed-number"]')?.textContent).toContain("555-0102");
+    expect(claimBody).toEqual({ phoneNumber: "+12065550102", claimToken: tokenFor("+12065550102") });
   });
 
   it("claims the real work email with one button, never a local-part picker", async () => {

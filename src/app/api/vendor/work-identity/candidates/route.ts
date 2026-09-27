@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { searchVendorWorkNumberCandidates } from "@/lib/vendor-work-identity.server";
+import { signVendorWorkNumberClaim } from "@/lib/vendor-work-number-claim-token.server";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,11 @@ function invalid(message: string) {
  * (area code -> pick one of 3 -> claim). Never purchases — `POST
  * /api/vendor/work-identity` with the chosen `phoneNumber` is the only route
  * that buys anything, and only after the same runtime/provisioning gates.
+ *
+ * Each offered number carries a short-lived signed `claimToken` binding it to
+ * THIS vendor. The claim route requires that token and refuses any
+ * `phoneNumber` presented without one — a bare `phoneNumber` in the claim
+ * body is never enough to make a purchase happen (security review, VD04).
  */
 export async function POST(req: Request) {
   const resolved = await resolveVendorPortalUserId();
@@ -25,7 +31,11 @@ export async function POST(req: Request) {
   if (!AREA_CODE_RE.test(areaCode)) return invalid("Enter a valid 3-digit area code.");
 
   try {
-    const candidates = await searchVendorWorkNumberCandidates(areaCode);
+    const numbers = await searchVendorWorkNumberCandidates(areaCode);
+    const candidates = numbers.map((phoneNumber) => ({
+      phoneNumber,
+      claimToken: signVendorWorkNumberClaim({ vendorUserId: resolved.userId, phoneNumber }),
+    }));
     return NextResponse.json({ ok: true, candidates });
   } catch {
     return NextResponse.json({ ok: false, error: "Could not search numbers right now." }, { status: 503 });

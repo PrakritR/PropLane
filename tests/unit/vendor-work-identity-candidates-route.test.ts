@@ -41,13 +41,24 @@ describe("POST /api/vendor/work-identity/candidates", () => {
     expect(mocks.searchVendorWorkNumberCandidates).not.toHaveBeenCalled();
   });
 
-  it("returns up to 3 candidates for a valid area code", async () => {
+  it("returns up to 3 candidates for a valid area code, each carrying a claim token bound to this vendor", async () => {
     mocks.searchVendorWorkNumberCandidates.mockResolvedValue(["+12065550101", "+12065550102", "+12065550103"]);
     const res = await POST(jsonRequest("http://test/api/vendor/work-identity/candidates", { method: "POST", body: { areaCode: "206" } }));
-    const { status, data } = await parseJsonResponse<{ ok: boolean; candidates: string[] }>(res);
+    const { status, data } = await parseJsonResponse<{ ok: boolean; candidates: { phoneNumber: string; claimToken: string }[] }>(res);
     expect(status).toBe(200);
-    expect(data.candidates).toEqual(["+12065550101", "+12065550102", "+12065550103"]);
+    expect(data.candidates.map((c) => c.phoneNumber)).toEqual(["+12065550101", "+12065550102", "+12065550103"]);
     expect(mocks.searchVendorWorkNumberCandidates).toHaveBeenCalledWith("206");
+    for (const candidate of data.candidates) {
+      expect(typeof candidate.claimToken).toBe("string");
+      expect(candidate.claimToken.split(".").length).toBe(2);
+    }
+    // No two candidates share a token, and each verifies to its own number/vendor.
+    const { verifyVendorWorkNumberClaim } = await import("@/lib/vendor-work-number-claim-token.server");
+    for (const candidate of data.candidates) {
+      const payload = verifyVendorWorkNumberClaim(candidate.claimToken);
+      expect(payload?.vendorUserId).toBe("vendor-1");
+      expect(payload?.phoneNumber).toBe(candidate.phoneNumber);
+    }
   });
 
   it("answers 503 rather than leaking a raw provider error when the search throws", async () => {

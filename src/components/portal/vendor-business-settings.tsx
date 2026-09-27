@@ -312,11 +312,12 @@ export function useVendorWorkIdentity() {
   return { identity, setIdentity, load, reload };
 }
 
+type SmsCandidate = { phoneNumber: string; claimToken: string };
 type SmsClaimState = {
   step: "code" | "pick";
   areaCode: string;
-  candidates: string[];
-  selected: string | null;
+  candidates: SmsCandidate[];
+  selected: SmsCandidate | null;
   busy: boolean;
   error: string | null;
 };
@@ -361,7 +362,7 @@ function VendorWorkNumberClaim({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ areaCode: digits }),
       });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; candidates?: string[]; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; candidates?: SmsCandidate[]; error?: string };
       if (!res.ok || !body.candidates?.length) {
         setClaim((c) => ({ ...c, busy: false, error: body.error ?? "No numbers available in that area code — try another." }));
         return;
@@ -380,7 +381,12 @@ function VendorWorkNumberClaim({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: "sms", idempotencyKey: crypto.randomUUID(), phoneNumber: claim.selected }),
+        body: JSON.stringify({
+          channel: "sms",
+          idempotencyKey: crypto.randomUUID(),
+          phoneNumber: claim.selected.phoneNumber,
+          claimToken: claim.selected.claimToken,
+        }),
       });
       if (!res.ok) throw new Error("unavailable");
       setClaim(SMS_CLAIM_IDLE);
@@ -466,18 +472,18 @@ function VendorWorkNumberClaim({
     <div className="space-y-3 px-4 py-4" data-attr="vs-numcards">
       <p className="text-[12.5px] text-muted">Pick a number in the {claim.areaCode} area code.</p>
       <div className="flex flex-col gap-2">
-        {claim.candidates.map((n) => {
-          const active = n === claim.selected;
+        {claim.candidates.map((candidate) => {
+          const active = candidate.phoneNumber === claim.selected?.phoneNumber;
           return (
             <button
-              key={n}
+              key={candidate.phoneNumber}
               type="button"
-              onClick={() => setClaim((c) => ({ ...c, selected: n }))}
+              onClick={() => setClaim((c) => ({ ...c, selected: candidate }))}
               data-attr="vendor-work-number-candidate"
               aria-pressed={active}
               className={`flex items-center justify-between rounded-lg border px-3.5 py-3 text-left text-sm font-bold ${active ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-foreground"}`}
             >
-              <span>{formatSmsPhoneLabel(n) || n}</span>
+              <span>{formatSmsPhoneLabel(candidate.phoneNumber) || candidate.phoneNumber}</span>
               {active ? <Check className="size-4" /> : null}
             </button>
           );
@@ -488,7 +494,7 @@ function VendorWorkNumberClaim({
           Different area code
         </Button>
         <Button variant="primary" disabled={claim.busy || !claim.selected} onClick={() => void claimNumber()} data-attr="vendor-work-number-claim">
-          {claim.busy ? "Claiming…" : `Claim ${claim.selected ? formatSmsPhoneLabel(claim.selected) || claim.selected : "number"}`}
+          {claim.busy ? "Claiming…" : `Claim ${claim.selected ? formatSmsPhoneLabel(claim.selected.phoneNumber) || claim.selected.phoneNumber : "number"}`}
         </Button>
       </div>
       {claim.error ? <p className="text-[12.5px] text-danger">{claim.error}</p> : null}

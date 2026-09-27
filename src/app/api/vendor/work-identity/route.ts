@@ -4,9 +4,7 @@ import {
   getVendorWorkIdentity,
   setupVendorWorkIdentity,
 } from "@/lib/vendor-work-identity.server";
-
-/** Loose E.164-ish check — the exact number came from our own search moments earlier. */
-const PHONE_NUMBER_RE = /^\+?[1-9]\d{9,14}$/;
+import { isUsLocalSmsNumber, verifyVendorWorkNumberClaim } from "@/lib/vendor-work-number-claim-token.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -34,19 +32,27 @@ export async function GET() {
 export async function POST(req: Request) {
   const current = await actor();
   if ("response" in current) return current.response;
-  const body = await req.json().catch(() => null) as { channel?: unknown; idempotencyKey?: unknown; phoneNumber?: unknown } | null;
+  const body = await req.json().catch(() => null) as { channel?: unknown; idempotencyKey?: unknown; phoneNumber?: unknown; claimToken?: unknown } | null;
   const channel = typeof body?.channel === "string" ? body.channel : "";
   const idempotencyKey = typeof body?.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
   if (channel !== "email" && channel !== "sms") return invalid("channel must be email or sms.");
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(idempotencyKey)) return invalid("A UUID idempotencyKey is required.");
-  // Only SMS ever takes a selected number (from a prior candidates search) — an
-  // email claim never accepts client-chosen identity, so a stray field there is
-  // simply ignored rather than rejected.
+  // A bare phoneNumber is never authority to purchase it — every SMS claim
+  // must carry the signed claimToken minted by /candidates for THIS exact
+  // number and THIS exact vendor, or nothing is purchased (security review,
+  // VD04: a client could otherwise make PropLane buy any Twilio number —
+  // toll-free, premium-rate, foreign — just by naming it in the body).
   let selectedPhoneNumber: string | undefined;
-  if (channel === "sms" && typeof body?.phoneNumber === "string" && body.phoneNumber.trim()) {
-    const candidate = body.phoneNumber.trim();
-    if (!PHONE_NUMBER_RE.test(candidate)) return invalid("phoneNumber must be a valid number.");
-    selectedPhoneNumber = candidate;
+  if (channel === "sms") {
+    const phoneNumber = typeof body?.phoneNumber === "string" ? body.phoneNumber.trim() : "";
+    const claimToken = typeof body?.claimToken === "string" ? body.claimToken.trim() : "";
+    if (!phoneNumber || !claimToken) return invalid("phoneNumber and claimToken are both required to claim a work number.");
+    const claim = verifyVendorWorkNumberClaim(claimToken);
+    if (!claim) return invalid("This claim has expired or is invalid — search numbers again.");
+    if (claim.vendorUserId !== current.userId) return invalid("This claim does not belong to your account.");
+    if (claim.phoneNumber !== phoneNumber) return invalid("phoneNumber does not match the claim.");
+    if (!isUsLocalSmsNumber(phoneNumber)) return invalid("Only a US local number can be claimed.");
+    selectedPhoneNumber = phoneNumber;
   }
   try {
     // The lifecycle currently reconciles the requested channel through the

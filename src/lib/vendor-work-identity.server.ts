@@ -342,6 +342,19 @@ export async function setupVendorWorkIdentity(
   // Sponsored numbers are still real provider purchases. The platform-wide
   // provisioning kill switch governs them just as it governs manager lines.
   if (channel === "sms" && !isProvisioningEnabled(process.env)) return getVendorWorkIdentity(db, vendorUserId, provider);
+  // Never a second real purchase. `claim_vendor_work_identity_operation`'s
+  // idempotency guard only protects against REPLAYING the same key — a
+  // fresh idempotency key with channel "sms" would otherwise sail straight
+  // through it and buy another number for a vendor who already has one (or
+  // has one mid-flight). Reconciling a stuck/ambiguous purchase is the one
+  // job of reconcileVendorWorkIdentity, which never buys a replacement
+  // either — this function only ever buys from a genuinely fresh identity.
+  if (channel === "sms") {
+    const current = await loadIdentity(db, vendorUserId);
+    if (current && (current.phone_number || current.sms_state !== "not_started")) {
+      return getVendorWorkIdentity(db, vendorUserId, provider);
+    }
+  }
   const domain = channel === "email" ? configuredDomain() : null;
   if (channel === "email" && !domain) return getVendorWorkIdentity(db, vendorUserId, provider);
   const { data: ensured, error: ensureError } = await db.rpc("ensure_vendor_work_identity", {

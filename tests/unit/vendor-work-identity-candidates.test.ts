@@ -65,7 +65,18 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  function fakeDb(ensuredId = "identity-1") {
+  type FakeIdentityRow = Record<string, unknown>;
+
+  function fakeDb(options: { ensuredId?: string; identity?: Partial<FakeIdentityRow>; claimedSequence?: boolean[] } = {}) {
+    const ensuredId = options.ensuredId ?? "identity-1";
+    let identityRow: FakeIdentityRow = {
+      id: ensuredId, vendor_user_id: "vendor-1", lifecycle_state: "not_started",
+      email_state: "not_started", sms_state: "not_started", email_address: null, email_provider_id: null,
+      email_send_ready: false, email_receive_ready: false, phone_number: null, phone_number_sid: null,
+      messaging_service_sid: null, carrier_ready: false, sms_send_ready: false, sms_receive_ready: false,
+      attachment_state: "not_started", quarantined_at: null, released_at: null,
+      ...options.identity,
+    };
     const writes: unknown[] = [];
     const from = vi.fn((table: string) => {
       const q: Record<string, unknown> = {};
@@ -74,23 +85,13 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
       q.in = () => q;
       q.order = () => q;
       q.limit = () => q;
-      q.update = (value: unknown) => {
+      q.update = (value: Record<string, unknown>) => {
         writes.push({ table, value });
+        if (table === "vendor_work_identities") identityRow = { ...identityRow, ...value };
         return q;
       };
       q.maybeSingle = async () => {
-        if (table === "vendor_work_identities") {
-          return {
-            data: {
-              id: ensuredId, vendor_user_id: "vendor-1", lifecycle_state: "not_started",
-              email_state: "not_started", sms_state: "not_started", email_address: null, email_provider_id: null,
-              email_send_ready: false, email_receive_ready: false, phone_number: null, phone_number_sid: null,
-              messaging_service_sid: null, carrier_ready: false, sms_send_ready: false, sms_receive_ready: false,
-              attachment_state: "not_started", quarantined_at: null, released_at: null,
-            },
-            error: null,
-          };
-        }
+        if (table === "vendor_work_identities") return { data: identityRow, error: null };
         if (table === "vendor_work_identity_runtime") {
           return { data: { enabled: true, max_active_identities: 10, outbound_message_cap: 100 }, error: null };
         }
@@ -100,14 +101,18 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
         resolve({ data: table === "vendor_work_identity_usage_events" ? [] : null, error: null });
       return q;
     });
+    // Real DB: `on conflict (vendor_user_id, operation_kind, idempotency_key) do
+    // nothing` — claimed:true only the FIRST time a given key is inserted.
+    const claimSequence = [...(options.claimedSequence ?? [true])];
     const rpc = vi.fn((name: string) => {
       if (name === "ensure_vendor_work_identity") return Promise.resolve({ data: ensuredId, error: null });
       if (name === "claim_vendor_work_identity_operation") {
-        return Promise.resolve({ data: [{ operation_id: "op-1", claimed: true, state: "claimed" }], error: null });
+        const claimed = claimSequence.length > 1 ? claimSequence.shift()! : claimSequence[0]!;
+        return Promise.resolve({ data: [{ operation_id: "op-1", claimed, state: claimed ? "claimed" : "succeeded" }], error: null });
       }
       return Promise.resolve({ data: null, error: null });
     });
-    return { db: { from, rpc } as unknown as SupabaseClient, writes };
+    return { db: { from, rpc } as unknown as SupabaseClient, writes, rpc, currentIdentity: () => identityRow };
   }
 
   it("purchases the vendor's exact picked number, not just the first available one", async () => {
@@ -126,5 +131,34 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
     expect(provider.purchaseSms).toHaveBeenCalledWith(
       expect.objectContaining({ phoneNumber: undefined }),
     );
+  });
+
+  it("never buys a second number when the vendor already has an active/ready sponsored number", async () => {
+    const { db, rpc } = fakeDb({ identity: { sms_state: "ready", phone_number: "+12065550199", phone_number_sid: "PN-existing", messaging_service_sid: "MG1", carrier_ready: true, sms_send_ready: true, sms_receive_ready: true, attachment_state: "attached" } });
+    const provider = fakeProvider();
+    await setupVendorWorkIdentity(db, "vendor-1", "44444444-4444-4444-4444-444444444444", "sms", provider, "+12065550101");
+    expect(provider.purchaseSms).not.toHaveBeenCalled();
+    // Short-circuits before even touching the idempotent claim RPC — no
+    // needless operation row for a vendor who cannot buy anything anyway.
+    expect(rpc).not.toHaveBeenCalledWith("claim_vendor_work_identity_operation", expect.anything());
+  });
+
+  it("never buys a second number when a purchase is already mid-flight (provisioning/reconciling), even before it reaches ready", async () => {
+    const { db } = fakeDb({ identity: { sms_state: "reconciling", phone_number: "+12065550199" } });
+    const provider = fakeProvider();
+    await setupVendorWorkIdentity(db, "vendor-1", "55555555-5555-5555-5555-555555555555", "sms", provider, "+12065550101");
+    expect(provider.purchaseSms).not.toHaveBeenCalled();
+  });
+
+  it("reusing the same idempotency key can never end up buying a DIFFERENT number", async () => {
+    const { db } = fakeDb({ claimedSequence: [true, false] });
+    const provider = fakeProvider();
+    const SAME_KEY = "66666666-6666-6666-6666-666666666666";
+    await setupVendorWorkIdentity(db, "vendor-1", SAME_KEY, "sms", provider, "+12065550101");
+    expect(provider.purchaseSms).toHaveBeenCalledTimes(1);
+    expect(provider.purchaseSms).toHaveBeenCalledWith(expect.objectContaining({ phoneNumber: "+12065550101" }));
+    // Same key, a different requested number the second time — real Twilio call must not fire again.
+    await setupVendorWorkIdentity(db, "vendor-1", SAME_KEY, "sms", provider, "+12065550999");
+    expect(provider.purchaseSms).toHaveBeenCalledTimes(1);
   });
 });
