@@ -4,15 +4,15 @@
  * Set availability — redesigned (VD22, 2026-09-27): weekly hours (on/off per
  * day, one or more time windows, + add / × remove, copy-to-every-day,
  * Flexible kept) plus Date overrides (date, all day or hours, note, listed
- * with delete), one Save. This is a NEW file, not an edit to the existing
- * `VendorAvailabilityEditor` in `vendor-settings-panel.tsx` — Settings
- * (VD01-VD09/VD60-VD79) is another builder's batch. The vendor Calendar page
- * (mine) now imports THIS component instead; Settings' own Availability tab
- * can switch to it the same way once that batch is ready — same exported
- * name, same `VENDOR_AVAILABILITY_CHANGED_EVENT` /
- * `VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT` contract (re-exported from the
- * existing settings module so both editors stay wire-compatible), same
- * `dialog` prop shape.
+ * with delete), one Save. This is the one canonical `VendorAvailabilityEditor`
+ * (s27/vavail, 2026-09-27 dedupe): the vendor Calendar page's "Set
+ * availability" dialog renders it with `dialog`, and vendor Settings ›
+ * Availability (vendor-settings-panel.tsx) renders it inline with
+ * `dialog={false}` — the settings-local fork that used to live in that file
+ * has been deleted so there is only ever this one implementation, one
+ * `VENDOR_AVAILABILITY_CHANGED_EVENT` / `VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT`
+ * contract, and one `/api/vendor/availability` round trip either surface can
+ * trigger.
  *
  * Every edit still round-trips `/api/vendor/availability` immediately
  * (add/remove/toggle), matching how the rest of the app already persists —
@@ -42,10 +42,6 @@ import {
   type VendorAvailabilityRule,
 } from "@/lib/vendor-availability";
 
-// Same string values as `vendor-settings-panel.tsx`'s own constants (kept
-// independent rather than importing that off-limits file — Settings is
-// another builder's batch) so a calendar-triggered edit and a future
-// Settings-triggered one stay wire-compatible either way.
 export const VENDOR_AVAILABILITY_CHANGED_EVENT = "axis:vendor-availability-changed";
 export const VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT = "axis:vendor-availability-edit-request";
 
