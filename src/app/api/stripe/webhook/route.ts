@@ -52,6 +52,10 @@ import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
 import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
 import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
+import {
+  completeVendorInvoicePaymentFromStripeSession,
+  VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
+} from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
 import {
   handleAutopayPaymentIntentFailed,
@@ -331,6 +335,14 @@ export async function POST(req: Request) {
           await enrichCheckoutLedgerFees(stripe, session).catch(() => undefined);
         } catch (e) {
           console.error("[stripe webhook] vendor_invoice_pay checkout", e);
+          throw e;
+        }
+      } else if (session.metadata?.purpose === VENDOR_INVOICE_DIRECT_PAY_PURPOSE) {
+        try {
+          await completeVendorInvoicePaymentFromStripeSession(db, session);
+          await enrichCheckoutLedgerFees(stripe, session).catch(() => undefined);
+        } catch (e) {
+          console.error("[stripe webhook] vendor_invoice_direct_pay checkout", e);
           throw e;
         }
       } else if (session.mode === "setup" && session.metadata?.purpose === "manager_card_setup") {
