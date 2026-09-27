@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
 import { researchPropertyLocation, type PropertyResearchTopic } from "@/lib/property-location-research.server";
-import { applicationPropertyIds } from "./property-research-application";
+import { applicationPropertyId } from "./property-research-application";
 
 type Row = Record<string, unknown>;
 
@@ -34,19 +34,23 @@ async function findAuthorizedLiveProperty(ctx: ResidentAgentContext, requestedId
   const id = requestedId.trim();
   if (!id || !ctx.email?.trim() || !ctx.userId?.trim()) return null;
 
-  let applications = ctx.db
-    .from("manager_application_records")
-    .select("row_data, property_id, assigned_property_id, manager_user_id")
-    .eq("resident_email", ctx.email);
-  if (ctx.activeManagerId) applications = applications.eq("manager_user_id", ctx.activeManagerId);
-  const { data: applicationRows, error: applicationError } = await applications.limit(500);
-  if (applicationError) throw new Error(applicationError.message);
-
-  const authorizedApplications = ((applicationRows ?? []) as Row[]).filter((record) => {
-    const row = object(record.row_data);
-    const managerId = text(record.manager_user_id);
-    return row && managerId && applicationPropertyIds(record).includes(id);
-  });
+  const authorizedApplications: Row[] = [];
+  for (let from = 0; ; from += 1000) {
+    let applications = ctx.db
+      .from("manager_application_records")
+      .select("id, row_data, property_id, assigned_property_id, manager_user_id")
+      .eq("resident_email", ctx.email);
+    if (ctx.activeManagerId) applications = applications.eq("manager_user_id", ctx.activeManagerId);
+    const { data, error } = await applications.order("id", { ascending: true }).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as Row[];
+    authorizedApplications.push(...page.filter((record) => {
+      const row = object(record.row_data);
+      const managerId = text(record.manager_user_id);
+      return Boolean(row && managerId && applicationPropertyId(record) === id);
+    }));
+    if (page.length < 1000) break;
+  }
   if (!authorizedApplications.length) return null;
 
   for (const application of authorizedApplications) {

@@ -105,8 +105,11 @@ function candidates(body: unknown): Array<{ title: string; url: string; snippets
       const citation = validSource({ type: "url_citation", url: row.url, title: row.title });
       if (!citation) return null;
       const snippets = Array.isArray(row.snippets) ? row.snippets.filter((part): part is string => typeof part === "string") : [];
-      const sourceAge = payload.sources?.[citation.url]?.age;
-      const age = Array.isArray(sourceAge) && typeof sourceAge[1] === "string" ? sourceAge[1] : "";
+      const originalUrl = typeof row.url === "string" ? row.url : "";
+      const sourceAge = (payload.sources?.[originalUrl] ?? payload.sources?.[citation.url])?.age;
+      const age = Array.isArray(sourceAge) && typeof sourceAge[1] === "string"
+        ? plainExternalText(sourceAge[1]).slice(0, 80)
+        : "";
       return { ...citation, snippets, age };
     }).filter((row): row is { title: string; url: string; snippets: string[]; age: string } => row !== null);
 }
@@ -156,10 +159,11 @@ async function search(input: ResearchInput, address: string, key: string): Promi
   } catch {
     return failure("Search provider unavailable or timed out.", accepted ? "confirmed_estimate" : "unknown");
   } finally { clearTimeout(timeout); }
-  const rows = candidates(body).slice(0, 6);
+  const rows = candidates(body);
   const sources: Source[] = [];
   const snippets: string[] = [];
   for (const row of rows) {
+    if (sources.length >= 6) break;
     if (sources.some(source => source.url === row.url)) continue;
     const text = row.snippets.slice(0, 2).map(part => plainExternalText(part).slice(0, 500)).filter(Boolean).join(" ");
     if (!text) continue;

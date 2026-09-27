@@ -48,6 +48,30 @@ describe("property location research", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps scanning past empty excerpts before taking six usable citations", async () => {
+    const generic = [
+      ...Array.from({ length: 6 }, (_, n) => ({ title: `Empty ${n}`, url: `https://example.org/empty-${n}`, snippets: [] })),
+      { title: "Transit agency", url: "https://transit.example.org/stops", snippets: ["The stop is listed by the operator."] },
+    ];
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ grounding: { generic } }), { status: 200 })) as typeof fetch;
+    const result = await researchPropertyLocation({ scopeKey: "manager:m1", propertyId: "p1", topic: "transit_service",
+      location: { address: "100 Main St", zip: "94102" } });
+    expect(result.verified).toBe(true);
+    expect(result.sources).toEqual([{ title: "Transit agency", url: "https://transit.example.org/stops" }]);
+  });
+
+  it("retains the provider date when a citation URL loses tracking parameters", async () => {
+    const originalUrl = "https://transit.example.org/alerts?utm_source=brave";
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      grounding: { generic: [{ title: "Transit agency", url: originalUrl, snippets: ["Service alert published by the operator."] }] },
+      sources: { [originalUrl]: { age: ["", "2026-09-27"] } },
+    }), { status: 200 })) as typeof fetch;
+    const result = await researchPropertyLocation({ scopeKey: "manager:m1", propertyId: "p1", topic: "transit_service",
+      location: { address: "100 Main St", zip: "94102" } });
+    expect(result.sources).toEqual([{ title: "Transit agency", url: "https://transit.example.org/alerts" }]);
+    expect(result.summary?.untrustedContent).toContain("source date 2026-09-27");
+  });
+
   it("returns cited links only, treating injected source prose as untrusted data", async () => {
     global.fetch = vi.fn(async () => new Response(JSON.stringify({ grounding: { generic: [
       { title: "\\[offer\\]\\(//evil.example/title\\) BART", url: "https://www.bart.gov/stations/civc",

@@ -12,15 +12,13 @@ function id(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/** Match the resident placement precedence before the original application choice. */
-export function applicationPropertyIds(application: ApplicationRecord): string[] {
+/** A placement has one effective property. Stale original choices are not grants. */
+export function applicationPropertyId(application: ApplicationRecord): string | null {
   const row = record(application.row_data);
   const nested = record(row?.application);
-  return [...new Set([
-    application.assigned_property_id,
-    row?.assignedPropertyId,
-    application.property_id,
-    row?.propertyId,
-    nested?.propertyId,
-  ].map(id).filter((value): value is string => Boolean(value)))];
+  return id(application.assigned_property_id)
+    ?? id(application.property_id)
+    ?? id(row?.assignedPropertyId)
+    ?? id(row?.propertyId)
+    ?? id(nested?.propertyId);
 }

@@ -23,7 +23,8 @@ function makeDb(options: { applications?: unknown[]; property?: unknown; applica
       const query: Record<string, unknown> = {};
       query.select = vi.fn(() => query);
       query.eq = vi.fn((key: string, value: unknown) => { filters[`${table}.${key}`] = value; return query; });
-      query.limit = vi.fn(async () => ({ data: options.applications ?? [APPLICATION], error: options.applicationError ?? null }));
+      query.order = vi.fn(() => query);
+      query.range = vi.fn(async (from: number, to: number) => ({ data: (options.applications ?? [APPLICATION]).slice(from, to + 1), error: options.applicationError ?? null }));
       query.maybeSingle = vi.fn(async () => ({ data: options.property ?? PROPERTY, error: null }));
       return query;
     }),
@@ -45,7 +46,7 @@ describe("resident property location research", () => {
   it("discovers an assigned property from the real application projection and researches it", async () => {
     const { ctx } = makeResidentToolCtx({
       manager_application_records: [
-        { id: "app-own", manager_user_id: "manager-1", resident_email: "resident@example.test", property_id: "original-house", assigned_property_id: "house-1", row_data: { id: "app-own", property: "Main House", stage: "Approved", bucket: "approved", assignedPropertyId: "house-1", application: { ssn: "SECRET" } } },
+        { id: "app-own", manager_user_id: "manager-1", resident_email: "resident@example.test", property_id: "original-house", assigned_property_id: "house-1", row_data: { id: "app-own", property: "Main House", stage: "Approved", bucket: "approved", assignedPropertyId: "house-1", application: { propertyId: "sibling-house", ssn: "SECRET" } } },
         { id: "app-foreign", manager_user_id: "manager-1", resident_email: "foreign@example.test", property_id: "foreign-house", row_data: { id: "app-foreign", property: "Foreign House", bucket: "approved" } },
         { id: "app-other-manager", manager_user_id: "manager-2", resident_email: "resident@example.test", property_id: "other-house", row_data: { id: "app-other-manager", property: "Other House", bucket: "approved" } },
       ],
@@ -58,6 +59,8 @@ describe("resident property location research", () => {
     const propertyId = status.applications[0]?.propertyId;
     expect(propertyId).toBe("house-1");
     expect(await researchMyPropertyLocationTool.handler(actor, { propertyId: propertyId!, topic: "parks" })).toMatchObject({ found: true });
+    expect(await researchMyPropertyLocationTool.handler(actor, { propertyId: "original-house", topic: "parks" })).toMatchObject({ found: false });
+    expect(await researchMyPropertyLocationTool.handler(actor, { propertyId: "sibling-house", topic: "parks" })).toMatchObject({ found: false });
     expect(await researchMyPropertyLocationTool.handler(actor, { propertyId: "foreign-house", topic: "parks" })).toMatchObject({ found: false });
     expect(await researchMyPropertyLocationTool.handler(actor, { propertyId: "other-house", topic: "parks" })).toMatchObject({ found: false });
     expect(research).toHaveBeenCalledTimes(1);
@@ -86,6 +89,13 @@ describe("resident property location research", () => {
     const result = await researchMyPropertyLocationTool.handler(context(db), { propertyId: "house-1", topic: "schools" });
     expect(result).toMatchObject({ found: false });
     expect(research).not.toHaveBeenCalled();
+  });
+
+  it("finds an authorized application after the first database page", async () => {
+    const fillers = Array.from({ length: 1000 }, (_, n) => ({ ...APPLICATION, id: `app-${String(n).padStart(4, "0")}`, property_id: `other-${n}`, row_data: { propertyId: `other-${n}` } }));
+    const { db } = makeDb({ applications: [...fillers, { ...APPLICATION, id: "app-last" }] });
+    expect(await researchMyPropertyLocationTool.handler(context(db), { propertyId: "house-1", topic: "schools" })).toMatchObject({ found: true });
+    expect(research).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when the property is not live", async () => {

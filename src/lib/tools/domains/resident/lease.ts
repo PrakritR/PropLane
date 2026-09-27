@@ -17,7 +17,7 @@ import {
   resolveResidentMoveInFromApplications,
 } from "@/lib/resident-move-in-resolve";
 import { loadResidentEmailRows, untrustedText } from "./load-resident-rows";
-import { applicationPropertyIds } from "./property-research-application";
+import { applicationPropertyId } from "./property-research-application";
 
 /**
  * Safe projection of the resident's own lease: workflow status + key dates +
@@ -84,7 +84,7 @@ export const getMyApplicationStatusTool = defineTool({
       const r = record.row_data;
       return {
       id: record.id || r.id,
-      propertyId: applicationPropertyIds(record)[0] ?? null,
+      propertyId: applicationPropertyId(record),
       property: r.property || null,
       stage: r.stage || null,
       bucket: r.bucket || null,
