@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS conversation durability: correction execution</title>
+  <style>
+    :root{color-scheme:light dark;font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{max-width:980px;margin:3rem auto;padding:0 1.5rem}h1{font-size:2rem;line-height:1.2}h2{margin-top:2.2rem;border-bottom:1px solid #9996;padding-bottom:.3rem}table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;border-bottom:1px solid #9996;padding:.55rem}.tag{display:inline-block;padding:.1rem .5rem;border:1px solid #8888;border-radius:99px}code{overflow-wrap:anywhere}a{color:#2875c4}@media(prefers-color-scheme:dark){a{color:#8cbeff}}
+  </style>
+</head>
+<body>
+  <h1>SMS conversation durability: correction execution</h1>
+  <p><span class="tag">Correction cycle 1</span> <span class="tag">Dev/test only</span> <span class="tag">Independent review pending</span></p>
+  <p>25 September 2026. This handoff covers the correction to the SMS conversation projection in Manager Communication. The original <a href="sms-conversation-durability-20260925.html">plan</a>, <a href="sms-conversation-durability-review-20260925.html">first review</a>, <a href="sms-conversation-durability-correction-plan-20260925.html">correction plan</a>, and <a href="sms-conversation-durability-execution-checkpoint-20260925.html">initial execution checkpoint</a> give the full context. This document describes the corrected implementation and observed validation. The shared worktree also contains unrelated concurrent changes; this handoff covers only the SMS scope.</p>
+
+  <h2>Result and boundaries</h2>
+  <p>Two incoming originals from the same fake sender and manager work line now resolve to one durable conversation. The browser list displayed one matching row, and opening it rendered both exact message bodies. The authoritative provider SID, receipt timestamp, wire pair, owner and work-line epoch anchor original events; alternate operational sources enrich that same event only with source proof. A deleted event has a line-scoped tombstone, so a later retry or backfill cannot resurrect it.</p>
+  <p>Transport continues while the Communication SMS UI flag is off. Sending through a selected work line stays within the existing consent, billing, idempotency and unknown-outcome dispatcher. This work does not rewrite every portal SMS reader. No provider send, production or staging database mutation, deployment, commit, push or no-mistakes pipeline occurred.</p>
+
+  <h2>Correction coverage</h2>
+  <table><thead><tr><th>Area</th><th>Implementation</th></tr></thead><tbody>
+    <tr><td>Original ingress and retries</td><td>Receipt envelope supplies original body, timestamp and wire pair before operational logging, classification and burst processing. Operational logging success no longer depends on projection success. Source-only pending intents for receipts and eligible manager logs rehydrate authoritative rows on retry. Receipt repair waits while classification is processing, so simultaneous SIDs do not create transient visible unknown placeholders.</td></tr>
+    <tr><td>Identity and deletion</td><td>Conversation identity includes owning manager, line, role and counterparty; exact source aliases and enrichment require event proof. Source retries honor deleted results. Read, archive, bulk and send actions use the selected server-authorized line. Detail loading uses the selected conversation even when absent from the current list page; cursor paging retains line and filter scope.</td></tr>
+    <tr><td>Legacy notices and co-managers</td><td>New inbound notices carry a per-original source marker; suppression requires that individual marker to match a projected event or tombstone. Unbound content stays visible. Historical import distinguishes source row IDs from provider SIDs, proves historical line ownership against its provision and release window, and resolves the co-manager workspace owner without using viewer cookies as authority.</td></tr>
+    <tr><td>Historical data and cutover</td><td>Backfill processes sources in precedence order, persists a cursor, compares exact event identity, records bounded historical dispositions and requires two complete clean apply passes before marking the dev/test cutover ready. Historical rows without a known phone remain source-specific unresolved records rather than guessed contacts. New public tables have RLS and client privilege restrictions and account-purge classification.</td></tr>
+  </tbody></table>
+
+  <h2>Database evidence</h2>
+  <p>The earlier 130, 140 and 150 migrations remain unchanged. Two additive migrations were applied only to dev/test project <code>emstjswhotsnyksqhqyf</code> through exact-target, transactional scripts with ledger hash checks, an advisory transaction lock and postflight checks. Their SHA-256 hashes are:</p>
+  <table><thead><tr><th>Migration</th><th>SHA-256</th></tr></thead><tbody>
+    <tr><td><code>20260925160000_sms_projection_corrections.sql</code></td><td><code>e300a47f2c32f7950ca542be099d7f0a6036dcc43bfe16f1fe618bafde853d86</code></td></tr>
+    <tr><td><code>20260925170000_sms_projection_historical_identity.sql</code></td><td><code>1ecf19e955afb712215052a59fa92e98f2d4554d0be9c249172c0516049ecce8</code></td></tr>
+  </tbody></table>
+  <p>The historical backfill first found eight no-line ingress rows, one no-line manager row, two projectable inbound rows and two projectable manager rows. Following exact source-lineage corrections, two full clean apply passes completed. The second returned <code>exit 0</code>, <code>complete: true</code>, <code>readyForApply: true</code>, <code>readinessUpdated: true</code>, <code>cleanPasses: 2</code>. All six feeds reported zero unresolved line, notice, relay, integrity and error counts. The dev/test <code>sms_projection_cutover.ready</code> value is true. No global readiness override was used.</p>
+
+  <h2>Validation</h2>
+  <table><thead><tr><th>Check</th><th>Observed result</th></tr></thead><tbody>
+    <tr><td>Node runtime and dependencies</td><td>Pinned Node 22. <code>npm ci --prefer-offline --maxsockets=2 --no-audit --no-fund</code> exited 0; lockfile was not changed.</td></tr>
+    <tr><td>Focused tests</td><td>Transport worker: 52 passing focused tests. Integrated correction tests: 50 passing in three files; two legacy UI regressions fixed and the affected two files passed 5/5 afterward. Final combined focused run is listed below when complete.</td></tr>
+    <tr><td>TypeScript and lint</td><td>Whole-project <code>tsc --noEmit --pretty false</code> exited 2 with seven diagnostics in concurrently modified, unrelated lease/application files and zero SMS task diagnostics. Targeted ESLint exited 0 with warnings.</td></tr>
+    <tr><td>Desktop and mobile, SMS UI on</td><td>Playwright scenario <code>tests/e2e/sms-durability-observe.spec.ts</code> passed 1/1 in 1.0 minute after the mobile assertion was added. Manager list API returned one matching projected conversation, detail API returned both original SIDs and bodies, and the browser rendered both bubbles after opening the sole row at desktop and 390 × 844 mobile viewport. <a href="../../output/playwright/sms-durability-after.png">Desktop screenshot</a>; <a href="../../output/playwright/sms-durability-mobile-after.png">mobile screenshot</a>.</td></tr>
+    <tr><td>SMS UI off</td><td>A separate Playwright run with <code>SMS_COMM_UI_ENABLED=0</code> passed 1/1 with one intentional skip in 29.3 seconds. The loaded Communication list showed one inbound notice row for the fake sender; opening it rendered both exact original bodies while the work identity said texting was off. <a href="../../output/playwright/sms-durability-flag-off.png">Flag-off screenshot</a>.</td></tr>
+    <tr><td>Graph</td><td><code>npx graphify hook-rebuild</code> could not reach the npm registry (<code>ENOTFOUND</code>). The cached TypeScript graphify CLI parsed 5,454 files but exited 143 during its semantic phase; no new runtime or graph artifact was produced. The existing graph remains stale, so no portable-check claim is made.</td></tr>
+  </tbody></table>
+  <p>The desktop browser scenario does not exercise arrival of a new event while detail remains open. The fresh independent reviewer is examining that live-refresh edge.</p>
+
+  <h2>Evidence locations</h2>
+  <p>Repository evidence: <code>tests/e2e/sms-durability-observe.spec.ts</code>, <code>tests/unit/sms-projection.test.ts</code>, <code>tests/unit/sms-projection-backfill.test.ts</code>, <code>tests/unit/manager-sms-projection-gate.test.ts</code>, and the three screenshots linked above. Local, temporary dev/test apply scripts: <code>/private/tmp/sms-dev-correction-apply.mjs</code> and <code>/private/tmp/sms-dev-historical-identity-apply.mjs</code>. The local backfill cursor is <code>/private/tmp/sms-corr-backfill-cursor.json</code>. Console validation results and the two clean backfill reports were observed in the execution session but were not retained as standalone log files; the exact status and counts are recorded above. Temporary scripts and cursor are not release artifacts and contain no persisted database credentials.</p>
+
+  <h2>Operational handoff</h2>
+  <p>Review the corrective SQL, source intent hydration, strict backfill dispositions, inbox marker matching and selected-detail behavior before any broader rollout. The dev/test cutover value is evidence for the current reconciled dev/test dataset, not authorization to promote schema or data elsewhere. Rerun equivalent reconciliation and browser QA in each release environment under the repository release gate. The local task-owned browser server and local PostgreSQL rehearsal server are stopped after validation.</p>
+</body>
+</html>

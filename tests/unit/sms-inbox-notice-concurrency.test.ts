@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { noticeRpcMemory } from "./sms-notice-rpc-memory";
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
@@ -8,7 +9,7 @@ import { inboxThreadMessages, type PersistedInboxThread } from "@/lib/portal-inb
 type Row = { id: string; owner_user_id: string; scope: string; thread_type: string; row_data: Record<string, unknown>; updated_at: string };
 function memoryDb() {
   const rows = new Map<string, Row>();
-  const db = { from() {
+  const db = { rpc: noticeRpcMemory(rows), from() {
     const filters: ((r: Row) => boolean)[] = [];
     let operation = "read";
     let value: Partial<Row> = {};

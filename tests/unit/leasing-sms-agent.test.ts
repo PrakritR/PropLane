@@ -353,7 +353,8 @@ describe("pure listing helpers", () => {
     const base = ctxFor({ crossCatalog: true });
     base.leasingScope = {
       ...base.leasingScope!,
-      recentDeliveredReplies: [{ messageId: "out-1", text: "Rent is $1,200.", submittedAt: new Date().toISOString() }],
+      currentInboundText: "thanks",
+      recentDeliveredReplies: [{ messageId: "out-1", text: "Rent is $1,200.", deliveredAt: new Date().toISOString() }],
     };
     await expect(suppressRedundantLeasingReplyTool.handler(base, {
       recentOutboundMessageId: "out-1",
@@ -361,8 +362,21 @@ describe("pure listing helpers", () => {
     })).resolves.toMatchObject({ suppress: true, referenceMessageId: "out-1" });
     await expect(suppressRedundantLeasingReplyTool.handler(base, {
       recentOutboundMessageId: "failed-out",
-      reason: "repeated_question",
+      reason: "acknowledgment",
     })).rejects.toThrow(/not a confirmed recent delivered reply/i);
+  });
+
+  it("refuses suppression for the capacity clarification that was previously lost", async () => {
+    const base = ctxFor({ crossCatalog: true });
+    base.leasingScope = {
+      ...base.leasingScope!,
+      currentInboundText: "so each room has own resident? no more than 3 people in the house?",
+      recentDeliveredReplies: [{ messageId: "out-1", text: "Each renter gets a private room.", deliveredAt: new Date().toISOString() }],
+    };
+    await expect(suppressRedundantLeasingReplyTool.handler(base, {
+      recentOutboundMessageId: "out-1",
+      reason: "acknowledgment",
+    })).rejects.toThrow(/not a standalone acknowledgment/i);
   });
 
   // PRP-426: a prospect quotes the Facebook ad title, which is not the PropLane

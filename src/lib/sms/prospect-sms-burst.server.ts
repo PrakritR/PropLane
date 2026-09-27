@@ -81,7 +81,14 @@ async function publishBurstJob(args: {
 export async function enqueueProspectSmsBurst(db: SupabaseClient, args: {
   sourceMessageId: string; managerUserId: string; counterpartyPhoneE164: string;
   channel: ProspectSmsChannel; body: string; replyFromNumber?: string | null;
-}): Promise<{ ok: true; burstId: string; revision: number; duplicate: boolean; published: boolean; dueAt: string | null } | { ok: false; error: string }> {
+  /**
+   * The Twilio webhook has a 15 second response deadline. Once ingress is
+   * durable, its route may run the claimed burst in `after()` and let the
+   * recovery cron publish it if that continuation dies, avoiding a blocking
+   * QStash network call before the TwiML acknowledgment.
+   */
+  deferPublication?: boolean;
+}): Promise<{ ok: true; burstId: string; revision: number; duplicate: boolean; published: boolean; publicationDeferred?: true; dueAt: string | null } | { ok: false; error: string }> {
   if (args.channel === "claw") {
     return { ok: false, error: "retired_transport_unsupported" };
   }
@@ -101,8 +108,11 @@ export async function enqueueProspectSmsBurst(db: SupabaseClient, args: {
   // A stale callback is harmless because the DB claim fences its revision.
   const dueMs = Date.parse(String(row.due_at ?? ""));
   const delaySeconds = Number.isFinite(dueMs) ? Math.max(0, (dueMs - Date.now()) / 1000) : QUIET_SECONDS;
-  const publish = await publishBurstJob({ burstId, revision, delaySeconds, attemptId: "ingress" });
   const dueAt = Number.isFinite(dueMs) ? new Date(dueMs).toISOString() : null;
+  if (args.deferPublication) {
+    return { ok: true, burstId, revision, duplicate: row.inserted !== true, published: false, publicationDeferred: true, dueAt };
+  }
+  const publish = await publishBurstJob({ burstId, revision, delaySeconds, attemptId: "ingress" });
   if (!publish.ok) {
     // The ingress row is durable, so a queue outage (quota, network) must not
     // drop the text: the caller runs this burst itself behind the same claim.
@@ -115,6 +125,36 @@ export async function enqueueProspectSmsBurst(db: SupabaseClient, args: {
     updated_at: new Date().toISOString(),
   }).eq("id", burstId).eq("revision", revision);
   return { ok: true, burstId, revision, duplicate: row.inserted !== true, published: true, dueAt };
+}
+
+/** Publish one already-durable ingress after the webhook response. */
+export async function publishDeferredProspectSmsBurst(
+  db: SupabaseClient,
+  args: InlineProspectBurst,
+): Promise<boolean> {
+  const dueMs = Date.parse(args.dueAt ?? "");
+  const delaySeconds = Number.isFinite(dueMs) ? Math.max(0, (dueMs - Date.now()) / 1000) : QUIET_SECONDS;
+  const publish = await publishBurstJob({
+    burstId: args.burstId,
+    revision: args.revision,
+    delaySeconds,
+    attemptId: "ingress",
+  });
+  if (!publish.ok) {
+    console.warn("prospect burst deferred queue publish failed; running inline", {
+      burstId: args.burstId,
+      revision: args.revision,
+      status: publish.status,
+    });
+    return false;
+  }
+  const now = new Date().toISOString();
+  const { error } = await db.from("prospect_sms_bursts").update({
+    queue_job_id: publish.jobId,
+    published_at: now,
+    updated_at: now,
+  }).eq("id", args.burstId).eq("revision", args.revision);
+  return !error;
 }
 
 /** Republish unpublished/expired-lease work with a fresh queue-attempt identity. */

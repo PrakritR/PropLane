@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS co-manager QA fixture plan</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.55 system-ui, sans-serif; color: #17212b; background: #f5f7f8; }
+    body { max-width: 850px; margin: 36px auto; padding: 0 22px; }
+    main { background: white; border: 1px solid #dce3e8; border-radius: 12px; padding: 30px 34px; }
+    h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 8px; }
+    h2 { margin: 25px 0 7px; font-size: 1.12rem; }
+    p, ul, ol { margin: 8px 0; }
+    code { font: 0.91em ui-monospace, SFMono-Regular, Consolas, monospace; background: #f0f3f5; padding: 1px 4px; border-radius: 4px; overflow-wrap: anywhere; }
+    .lead { color: #425260; }
+    .note { border-left: 3px solid #c17a14; padding-left: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>SMS co-manager QA fixture plan</h1>
+  <p class="lead">Read-only planning artifact for a dev/test browser check of one SMS projection conversation across Communication read, edit authorization, and grant revocation.</p>
+
+  <h2>Use the dev/test owner and co-manager pair</h2>
+  <p>Candidate identities supplied for the dev/test project: owner <code>c02c7ffd-50ec-47d0-acf2-82928be6db27</code> and co-manager <code>eae42709-255f-4316-80d1-bb3189e3f813</code>. Before writing, verify their profile identities, manager roles, an owner-owned workspace with one available house slot, an existing work line assigned to that workspace, and no conflicting accepted owner/co-manager link for that workspace. Do not use the staging candidate: it has no work line.</p>
+  <p>Use a generated property ID with a run marker, for example <code>sms-cm-qa-&lt;run-uuid&gt;</code>, and insert one non-live property record into the owner's existing workspace. Keep it out of public listing state: use <code>status: "review"</code>, no live photo, and a <code>row_data</code> marker identifying this fixture. Never select, update, or delete IDs 5257, 5259, or 4709A 8th Ave.</p>
+
+  <h2>Build the grant and projected conversation</h2>
+  <ol>
+    <li>Create one accepted <code>account_link_invites</code> manager row for the exact owner, co-manager, and workspace, with <code>house_scope: "selected"</code>, <code>assigned_property_ids: [fixturePropertyId]</code>, and <code>property_co_manager_permissions: { [fixturePropertyId]: { inbox: { read: true, edit: true } } }</code>. Set its required inviter/invitee axis IDs from the existing profiles. Use a unique row ID and leave <code>delete</code> absent. The visibility resolver reads this accepted row and its per-house permission map; a team role or workspace membership alone is not the grant.</li>
+    <li>Use the existing owner work line and <code>project_sms_conversation_event</code> RPC to create one clearly labeled, run-unique inbound test event with a generated source event ID, test-only namespace, non-routable test phone, and a unique legacy conversation key. Do not call Twilio or create an outbox row. This RPC establishes the real projection conversation, turn, and alias under the validated owner line.</li>
+    <li>Tag that exact legacy key in <code>manager_sms_conversation_houses</code> with the fixture property ID, <code>source: "manual"</code>, and the owner as <code>tagged_by_user_id</code>. The reader resolves projection aliases to this house tag before applying the co-manager grant.</li>
+  </ol>
+
+  <h2>Browser checks</h2>
+  <ol>
+    <li>Sign in as the co-manager using the known test login and select the same owner workspace. Confirm the fixture conversation appears in Communication and its detail loads. The read path is <code>GET /api/manager/sms-conversations</code> and <code>GET /api/manager/sms-conversations/:id</code>.</li>
+    <li>Exercise the edit gate without sending: post the selected projection ID, its matching phone, and an empty message to <code>POST /api/manager/sms-conversations</code>. With the grant present, detail authorization succeeds and the send handler returns its expected <code>400 Enter a message.</code> validation before any outbox or provider work.</li>
+    <li>Revoke only the fixture house's <code>inbox</code> grant on that exact link row, retaining its workspace and house assignment. Confirm the list omits the conversation, detail returns 404, and the same empty-message POST returns 404 before the send handler. Then restore the exact saved grant and confirm the row returns.</li>
+  </ol>
+
+  <h2>Exact schema and cleanup boundary</h2>
+  <p>Fixture rows: <code>portal_workspaces</code> is reused unchanged; one <code>manager_property_records</code> row uses <code>id, manager_user_id, workspace_id, status, row_data, property_data</code>; one <code>account_link_invites</code> row uses <code>id, inviter_user_id, invitee_user_id, tab_kind, inviter_axis_id, invitee_axis_id, assigned_property_ids, status, workspace_id, house_scope, property_co_manager_permissions</code>; the work line is read-only from <code>manager_sms_numbers</code>; the canonical event RPC creates <code>sms_projection_conversations</code>, <code>sms_projection_turns</code>, and <code>sms_projection_aliases</code>; one house tag uses <code>manager_sms_conversation_houses(manager_user_id, conversation_key, property_id, source, tagged_by_user_id)</code>.</p>
+  <p>Before setup, record whether the invite row is newly created or pre-existing. Prefer a new exact pair/workspace row; if one already exists, do not overwrite its broader permission map. Record the full original grant before temporarily changing any pre-existing row, and restore it immediately after the check. Cleanup only rows created by this run: verify owner, workspace, generated property ID, and the fixture marker before deleting the property; delete the exact house tag and invite row by generated IDs; delete the projection conversation by its generated ID only after confirming its owner and fixture source event, allowing its turns, aliases, and view state to cascade. Confirm the original invite payload is restored and no fixture tag, marker event, turn, or projection remains.</p>
+
+  <h2>Existing helpers and evidence</h2>
+  <ul>
+    <li><code>tests/fixtures/index.ts</code> and <code>tests/fixtures/qa-accounts.mjs</code> provide the standard manager and manager2 browser accounts; <code>tests/helpers/auth.ts</code> has <code>signInAsManager</code>. The supplied dev identities may need direct <code>signIn</code> with their established test credentials.</li>
+    <li><code>tests/e2e/property-metadata-omission-preservation.spec.ts</code> is the existing example for a generated, marker-owned non-production property fixture, workspace capacity checks, exact cleanup verification, and dev-target refusal. It is reference code only; its seed/test flow is not run for this plan.</li>
+    <li><code>tests/e2e/sms-durability-observe.spec.ts</code> demonstrates browser coverage for list/detail of an already-seeded projected conversation. There is no existing browser fixture helper for a co-manager grant plus house-tagged SMS projection, so use the RPC and exact-row cleanup described above.</li>
+  </ul>
+
+  <p class="note">Hard precondition: if the selected dev owner has no resolvable work line in the target workspace, or the co-manager account lacks the supplied usable login, stop and choose another non-production fixture pair. Do not create a work line, widen an existing unrelated membership, use a locked property, or send a real SMS to make this check pass.</p>
+</main>
+</body>
+</html>

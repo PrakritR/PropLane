@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { getDocumentProxy, getResolvedPDFJS, renderPageAsImage } from "unpdf";
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFStream } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFStream } from "pdf-lib";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_PAGES = 60;
@@ -12,16 +12,29 @@ const MAX_CHARACTERS = 250_000;
 const MAX_OCR_PAGES = 4;
 const OCR_PAGE_TIMEOUT_MS = 12_000;
 
+/** Every message is a constant, so routes may return `error.message` as-is. */
 export class UnsafePdfImportError extends Error {}
+
+export const PROTECTED_PDF_MESSAGE =
+  "This PDF is password-protected. Remove the protection (or print it to a new PDF) and upload it again.";
+export const ACTIVE_PDF_MESSAGE =
+  "This PDF contains scripts, attachments, or other active content. Print it to a new PDF and upload that copy.";
 
 /** Inspect decoded PDF objects, including object streams, before retaining bytes. */
 export async function assertSafePdfForImport(bytes: Uint8Array): Promise<void> {
   try { await inspectPdfObjects(bytes); }
-  catch { throw new UnsafePdfImportError("PDF contains active or unsupported content and cannot be imported."); }
+  catch (error) {
+    throw new UnsafePdfImportError(error instanceof ProtectedPdfError ? PROTECTED_PDF_MESSAGE : ACTIVE_PDF_MESSAGE);
+  }
 }
 
+class ProtectedPdfError extends Error {}
+
 async function inspectPdfObjects(bytes: Uint8Array): Promise<void> {
-  const document = await PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false });
+  const document = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  // Encrypted object streams can't be inspected, so a protected file is still
+  // refused, just with a message the manager can act on.
+  if (document.isEncrypted) throw new ProtectedPdfError();
   const context = document.context;
   const visited = new Set<object>();
   const scanned = new Set<object>();
@@ -40,6 +53,40 @@ async function inspectPdfObjects(bytes: Uint8Array): Promise<void> {
     }
     if (value.has(PDFName.of("Next"))) inspectAction(value.get(PDFName.of("Next")));
   };
+  // In a tagged PDF (Word, Google Docs, Canva exports) a structure element's
+  // `/A` is its attribute object - `/O` owner, never `/S` - not an action.
+  // Skip it only for dictionaries actually reached from the structure tree
+  // (never by shape alone: an outline item can mimic `/S` + `/P`), and never
+  // when it carries `/Next`, which PDFium runs whatever the parent's type.
+  // The key scan below still walks these dictionaries for `/JS` and friends.
+  const resolve = (value: unknown) => (value instanceof PDFRef ? context.lookup(value) : value);
+  const structureElements = new Set<PDFDict>();
+  {
+    const pending: unknown[] = [document.catalog.get(PDFName.of("StructTreeRoot"))];
+    const seen = new Set<unknown>();
+    while (pending.length) {
+      const node = resolve(pending.pop());
+      if (!node || seen.has(node)) continue;
+      seen.add(node);
+      if (node instanceof PDFArray) pending.push(...node.asArray());
+      else if (node instanceof PDFDict) {
+        if (node.has(PDFName.of("S"))) structureElements.add(node);
+        pending.push(node.get(PDFName.of("K")));
+      }
+    }
+  }
+  const isStructureAttributes = (owner: PDFDict, value: unknown): boolean => {
+    if (!structureElements.has(owner) || owner.has(PDFName.of("Subtype"))) return false;
+    const resolved = resolve(value);
+    const items = resolved instanceof PDFArray ? resolved.asArray().map(resolve) : [resolved];
+    return items.every((item) =>
+      item instanceof PDFNumber ||
+      (item instanceof PDFDict &&
+        item.has(PDFName.of("O")) &&
+        !item.has(PDFName.of("S")) &&
+        !item.has(PDFName.of("Next"))),
+    );
+  };
   const scanDictionary = (dict: PDFDict): void => {
     if (scanned.has(dict)) return;
     scanned.add(dict);
@@ -52,6 +99,9 @@ async function inspectPdfObjects(bytes: Uint8Array): Promise<void> {
     for (const key of ["A", "AA", "OpenAction"]) {
       const action = dict.get(PDFName.of(key));
       if (!action) continue;
+      if (key === "A" && isStructureAttributes(dict, action)) continue;
+      // `/OpenAction [page /Fit]` is a destination ("open at page 1"), not an action.
+      if (key === "OpenAction" && resolve(action) instanceof PDFArray) continue;
       if (key === "AA") {
         const additional = context.lookup(action);
         if (!(additional instanceof PDFDict)) throw new Error("PDF contains an unsupported action and cannot be imported.");

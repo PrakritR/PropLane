@@ -35,22 +35,36 @@ const MAX_INBOUND_PER_HOUR = 30;
 const HISTORY_LIMIT = 24;
 const SESSION_KIND = "leasing_sms";
 
-async function loadRecentConfirmedReplies(db: Db, args: { landlordId: string; phone: string }) {
+/**
+ * A delivered message can suppress an acknowledgment only when the trusted
+ * inbound event happened after that delivery. Queue insertion time is not an
+ * inbound event clock, so callers must provide the original occurrence time.
+ */
+export async function loadRecentDeliveredReplies(
+  db: Db,
+  args: { landlordId: string; phone: string; originalInboundOccurredAt?: string },
+) {
+  const inboundTime = Date.parse(args.originalInboundOccurredAt ?? "");
+  // A missing or malformed original receipt cannot prove ordering. Do not let
+  // a worker-start or ingress timestamp turn that uncertainty into silence.
+  if (!Number.isFinite(inboundTime)) return [];
   const since = new Date(Date.now() - 2 * 60_000).toISOString();
   const { data } = await db.from("sms_outbox")
     .select("id, body, updated_at")
     .eq("manager_user_id", args.landlordId)
     .eq("recipient_phone", args.phone)
     .eq("counterparty_role", "prospect")
-    .in("status", ["submitted", "sent", "delivered"])
+    .eq("status", "delivered")
     .gte("updated_at", since)
     .order("updated_at", { ascending: false })
-    .limit(4);
+    .limit(8);
   return (data ?? []).map((row) => ({
     messageId: String((row as { id?: unknown }).id ?? ""),
     text: String((row as { body?: unknown }).body ?? ""),
-    submittedAt: String((row as { updated_at?: unknown }).updated_at ?? ""),
-  })).filter((row) => row.messageId && row.text && row.submittedAt);
+    deliveredAt: String((row as { updated_at?: unknown }).updated_at ?? ""),
+  })).filter((row) => row.messageId && row.text && row.deliveredAt &&
+    Number.isFinite(Date.parse(row.deliveredAt)) && Date.parse(row.deliveredAt) <= inboundTime,
+  ).slice(0, 4);
 }
 
 async function loadDurableSmsHistory(db: Db, args: {
@@ -320,7 +334,13 @@ export async function runLeasingSmsAgentTurn(
     maxReplyChars?: number;
     traceName?: string;
     /** Queue-worker revision lease; absent on voice and legacy synchronous turns. */
-    prospectBurst?: { burstId: string; revision: number; workerId: string; claimedSourceIds?: string[]; snapshotCutoff?: string; testSessionId?: string };
+    prospectBurst?: {
+      burstId: string; revision: number; workerId: string; claimedSourceIds?: string[];
+      snapshotCutoff?: string;
+      /** Earliest trusted event time in this burst; never an ingress insertion time. */
+      originalInboundOccurredAt?: string;
+      testSessionId?: string;
+    };
     /** Authenticated test identity. It is deliberately never coerced into a phone field. */
     testActor?: { userId: string; email: string; targetListingId: string; sessionKind: string; sessionId?: string | null };
     testTarget?: { listingId: string; title: string };
@@ -428,9 +448,10 @@ export async function runLeasingSmsAgentTurn(
   }
 
   const prospectPhone = normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim();
-  const recentDeliveredReplies = args.testActor ? [] : await loadRecentConfirmedReplies(db, {
+  const recentDeliveredReplies = args.testActor ? [] : await loadRecentDeliveredReplies(db, {
     landlordId: session.landlord_id,
     phone: prospectPhone,
+    originalInboundOccurredAt: args.prospectBurst?.originalInboundOccurredAt,
   });
   const ctx = buildLeasingSmsAgentContext(db, {
     landlordId: session.landlord_id,
@@ -446,6 +467,7 @@ export async function runLeasingSmsAgentTurn(
       workNumber: args.workNumber?.trim() || null,
       crossCatalog: args.crossCatalog === true,
       channel,
+      currentInboundText: text,
       recentDeliveredReplies,
       prospectBurst: args.prospectBurst
         ? {
@@ -489,7 +511,7 @@ export async function runLeasingSmsAgentTurn(
         ? `${systemBase}\n\nYou are speaking on a phone call, not texting. Keep replies concise and easy to hear. Always call list_open_tour_slots before quoting tour availability.`
         : systemBase;
     if (recentDeliveredReplies.length > 0) {
-      system += `\n\nConfirmed recent delivered SMS replies eligible for suppress_redundant_reply (copy only these ids):\n${recentDeliveredReplies.map((reply) => `- ${reply.messageId} at ${reply.submittedAt}: ${reply.text}`).join("\n")}`;
+      system += `\n\nConfirmed recent delivered SMS replies eligible for suppress_redundant_reply (copy only these ids):\n${recentDeliveredReplies.map((reply) => `- ${reply.messageId} at ${reply.deliveredAt}: ${reply.text}`).join("\n")}`;
     }
     if (args.prospectBurst) {
       const persistedSchedulingPrompt = schedulingContextPrompt(durableSchedulingContext);

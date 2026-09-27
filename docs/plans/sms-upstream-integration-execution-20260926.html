@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMS upstream integration execution - 26 September 2026</title>
+<style>
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; color: #17202b; }
+  h1, h2 { line-height: 1.2; }
+  code { background: #eef2f5; padding: .1em .3em; border-radius: 3px; overflow-wrap: anywhere; }
+  li { margin: .5em 0; }
+  .callout { border-left: 4px solid #2b63ad; padding: 12px 16px; background: #f1f6fc; }
+</style>
+<h1>SMS upstream integration execution</h1>
+<p>26 September 2026. Release worktree: <code>/Users/akhilvemuri/coding/AXIS-2-sms-release</code>. This resolves the four code conflicts from merging upstream <code>origin/main</code> into SMS checkpoint <code>061007cee</code>. The merge remains open for independent review and root-owned staging and commit.</p>
+
+<h2>Conflict decisions</h2>
+<ul>
+  <li><code>pro-unified-inbox.tsx</code>: initial load always reads SMS projection summaries, including when SMS-specific controls are hidden. It forces a fresh read so Retry is a genuine attempt, retains viewer/generation guards and pagination, and keeps the upstream last-ready snapshot visible during background revalidation.</li>
+  <li><code>use-unified-communication-bulk.ts</code>: email archive and restore retain optimistic updates with exact rollback. SMS targets are deduplicated, run in parallel, use projection compare-and-set versions when available, retain the legacy path for legacy targets, refresh after attempts, and report partial failure counts.</li>
+  <li><code>manager-sms-conversations-client.ts</code>: the 20-second TTL now keys on viewer, workspace, and cursor. Each caller receives an independent response body; invalidating a workspace clears its head and every cursor page. Forced calls still fetch afresh.</li>
+  <li><code>sms-inbox-notice.server.ts</code>: successful atomic append returns the thread and message identifiers and keeps original SMS-event metadata. A genuine inbound reopening clears archived flags in the legacy control rows; outbound appends leave those flags alone.</li>
+</ul>
+<p>The ten files changed by both parents were inspected, including account deletion, the purge manifest, inbox UI, communication documentation, and readiness tests. Their automatic merges retain both sets of additions. No migration file was edited.</p>
+
+<h2>Validation</h2>
+<ul>
+  <li>Node <code>22.23.0</code>, <code>NODE_OPTIONS=--max-old-space-size=768</code>, Vitest <code>--maxWorkers=1</code>: five focused test files, 56 tests passed, exit code 0. These cover hidden-SMS initial loading, retry and snapshot behavior, cursor cache invalidation, optimistic email rollback, projection bulk archive and restore, notice append concurrency, and archive reopening.</li>
+  <li>Focused ESLint on the four conflict files and three touched test files: exit code 0, 0 errors, 21 warnings in the inbox/hook code.</li>
+  <li><code>git diff --check</code> for touched files: exit code 0. Conflict markers removed from all four files.</li>
+</ul>
+
+<div class="callout"><strong>Remaining review and release work.</strong> The index still marks the four files unresolved until root stages them. Root owns fresh independent review, the upstream migration-version collision decision, whole-project validation, real-data browser QA, and the branch ladder. This executor ran no database commands or localhost server and made no git commit or push.</div>
+</html>

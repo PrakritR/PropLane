@@ -422,9 +422,9 @@ describe("A manager already OVER the door cap keeps every listing they have", ()
   });
 
   it("re-mirroring the whole over-limit portfolio writes every existing row", async () => {
-    // `mirrorLocalPropertyPipelineToServer` re-upserts every locally known row
-    // on load. For an over-limit account that is N live upserts in a row, and
-    // every one of them must land.
+    // An over-limit account's existing rows must keep accepting upserts: the
+    // property-record outbox replays unsent edits of them, N in a row, and the
+    // old page-load mirror re-sent all of them. Every one of them must land.
     for (let i = 1; i <= OVER_BY; i += 1) {
       EXISTING_ROW = { manager_user_id: FREE_MANAGER, status: "live" };
       const res = await post({

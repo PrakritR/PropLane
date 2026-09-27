@@ -14,6 +14,7 @@
  * round trip a component-level render test would only be able to assert
  * indirectly through a mocked `fetch`.
  */
+import { File as NodeFile } from "node:buffer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readVendorDocumentDataUrl } from "@/lib/vendor-documents";
 
@@ -123,7 +124,9 @@ describe("vendor documents Replace round-trips through the real upload route", (
     mocks.createSupabaseServiceRoleClient.mockReturnValue({ storage: { from: () => ({ upload: vi.fn() }) } });
     const body = new FormData();
     body.set("kind", "insurance");
-    body.set("file", new File(["x"], "x.pdf", { type: "application/pdf" }));
+    // Node's File, not jsdom's: undici can't read a jsdom File's bytes, so the
+    // multipart body never finishes streaming and `req.json()` hangs.
+    body.set("file", new NodeFile(["x"], "x.pdf", { type: "application/pdf" }) as unknown as File);
 
     const { POST } = await import("@/app/api/vendor/documents/upload/route");
     const res = await POST(new Request("http://t/api/vendor/documents/upload", { method: "POST", body }));
