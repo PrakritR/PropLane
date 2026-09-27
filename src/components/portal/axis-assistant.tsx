@@ -25,8 +25,13 @@ import {
   AssistantMessageList,
   AssistantPanelHeader,
   MANAGER_ASSISTANT_ENDPOINT,
+  VENDOR_ASSISTANT_ENDPOINT,
 } from "@/components/portal/assistant-panel-chrome";
-import { AssistantPendingActionCard, AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
+import {
+  AssistantPendingActionCard,
+  AxisAssistantSparkleIcon,
+  VENDOR_ASSISTANT_SUGGESTIONS,
+} from "@/components/portal/assistant-shared";
 import {
   AssistantConversationProvider,
   useOptionalAssistantConversation,
@@ -212,6 +217,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
   const visibleMessages = visibleConversationMessages(messages);
   const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
   const keyboardOpen = keyboardInset > 0;
+  const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
 
   useEffect(() => {
     if (!open) {
@@ -385,6 +391,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
                   disabled={loading}
                   hideChips={keyboardOpen}
                   className="[html[data-native]_&]:flex-none"
+                  suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : undefined}
                 />
               ) : (
                 <AssistantMessageList
@@ -424,7 +431,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
               onAttachmentError={(message) => setError(message)}
               loading={loading}
               inputRef={inputRef}
-              placeholder={smsTestActive ? "Type an SMS message…" : "Ask about your portfolio…"}
+              placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : "Ask about your portfolio…"}
               allowAttachments={!smsTestActive}
               onSend={() => void send()}
             />

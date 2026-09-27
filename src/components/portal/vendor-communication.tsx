@@ -17,6 +17,7 @@ import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-s
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { VendorInboxPanel, type VendorInboxPanelHandle } from "@/components/portal/vendor-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
+import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
@@ -70,6 +71,17 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_vendor";
+/**
+ * VD23/VD63-65 (2026-09-27): a pinned "PropLane" conversation row at the top
+ * of vendor Communication, on every tab. It is deliberately kept OUT of the
+ * merged email/SMS `UnifiedInboxListItem` list (never touching the shared
+ * `UnifiedInboxChannel` union or the manager/resident cross-portal merge
+ * logic) — its own `assistantSelected` boolean drives selection instead, and
+ * its thread view is the real `AssistantDockPanel` (the exact same
+ * conversation surface — and the exact same `/api/agent/vendor-chat` session —
+ * the popup and rail already use), reused, never forked.
+ */
+const PROPLANE_AGENT_THREAD_ID = "proplane-agent";
 
 function loadOpenedIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -129,6 +141,7 @@ function VendorUnifiedInbox({
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
   const [smsOpened] = useState<Set<string>>(() => loadOpenedIds());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [assistantSelected, setAssistantSelected] = useState(routeThreadId === PROPLANE_AGENT_THREAD_ID);
 
   useEffect(() => {
     const sync = () => setEmailThreads(loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, []));
@@ -233,6 +246,13 @@ function VendorUnifiedInbox({
 
   const merged = useMemo(() => mergeUnifiedInboxItems([...emailItems, ...smsItems]).filter((row) => !readOnly || !row.unread), [emailItems, smsItems, readOnly]);
 
+  // Pinned on every tab (Active/Unread/Archived) — it cannot itself be
+  // archived away — but still respects an active search, like every other row.
+  const assistantRowVisible = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    return !needle || "proplane".includes(needle);
+  }, [searchQuery]);
+
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: merged,
     listSegment,
@@ -247,20 +267,33 @@ function VendorUnifiedInbox({
   });
 
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
+  const anySelected = Boolean(selection) || assistantSelected;
 
   useEffect(() => {
     if (!routeThreadId) return;
+    if (routeThreadId === PROPLANE_AGENT_THREAD_ID) {
+      setAssistantSelected(true);
+      setSelectedKey(null);
+      return;
+    }
     const match = merged.find((r) => r.threadId === routeThreadId);
-    if (match) setSelectedKey(match.key);
+    if (match) {
+      setSelectedKey(match.key);
+      setAssistantSelected(false);
+    }
   }, [routeThreadId, merged]);
 
   useEffect(() => {
-    onThreadOpenChange?.(Boolean(routeThreadId) && Boolean(selection));
-  }, [onThreadOpenChange, routeThreadId, selection]);
+    if (!routeThreadId) setAssistantSelected(false);
+  }, [routeThreadId]);
 
   useEffect(() => {
-    onThreadSelectedChange?.(Boolean(selection));
-  }, [onThreadSelectedChange, selection]);
+    onThreadOpenChange?.(Boolean(routeThreadId) && anySelected);
+  }, [onThreadOpenChange, routeThreadId, anySelected]);
+
+  useEffect(() => {
+    onThreadSelectedChange?.(anySelected);
+  }, [onThreadSelectedChange, anySelected]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -297,6 +330,27 @@ function VendorUnifiedInbox({
         </p>
       ) : null}
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
+        {assistantRowVisible ? (
+          <div data-attr="vendor-communication-assistant-row">
+            <InboxConversationRow
+              name="PropLane"
+              subtitle="PropLane"
+              preview="Ask about your services, quotes or payments"
+              time=""
+              unread={false}
+              selected={assistantSelected}
+              onOpen={() => {
+                setAssistantSelected(true);
+                setSelectedKey(null);
+                onRouteThreadChange?.(PROPLANE_AGENT_THREAD_ID);
+                const href = `${commBase}/${listSegment}/${PROPLANE_AGENT_THREAD_ID}`;
+                if (routeThreadId !== PROPLANE_AGENT_THREAD_ID) {
+                  selectCommunicationThreadUrl(href, { replaceExisting: Boolean(routeThreadId) });
+                }
+              }}
+            />
+          </div>
+        ) : null}
         {merged.length === 0 ? (
           searchQuery.trim() ? (
             <div className="p-4">
@@ -349,12 +403,26 @@ function VendorUnifiedInbox({
   const smsSelected = selection?.channel === "sms";
   const threadPane = (
     <>
-      {smsSelected ? (
+      {assistantSelected ? (
+        <div className="flex min-h-0 flex-1 flex-col" data-attr="vendor-communication-assistant-thread">
+          <AssistantDockPanel
+            endpoint="/api/agent/vendor-chat"
+            composerHint="Ask about your services, quotes or payments."
+            pinnedComposer
+            onClose={() => {
+              setAssistantSelected(false);
+              onRouteThreadChange?.(undefined);
+              clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
+            }}
+          />
+        </div>
+      ) : null}
+      {!assistantSelected && smsSelected ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
           <RoleSmsPanel apiPath="/api/vendor/sms-conversations" storageScope="vendor" tabId={"all" as ManagerSmsBucketId} />
         </div>
       ) : null}
-      <div className={smsSelected ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+      <div className={assistantSelected || smsSelected ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
         <VendorInboxPanel
           ref={inboxRef}
           tabId={listSegment === "archived" ? "trash" : "all"}
@@ -387,11 +455,11 @@ function VendorUnifiedInbox({
       <InboxTwoPane
         panes="split"
         heightMode="viewport"
-        fillViewport={Boolean(selection)}
+        fillViewport={anySelected}
         fillParent
         mobileCompact
         className="min-h-0 flex-1"
-        threadOpen={Boolean(selection)}
+        threadOpen={anySelected}
         list={listPane}
         thread={threadPane}
       />
