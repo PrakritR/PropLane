@@ -61,7 +61,7 @@ type PropertyLeaseOption = {
   propertyLabel: string;
 };
 
-type ApprovedResidentOption = {
+export type ApprovedResidentOption = {
   applicationId: string;
   residentName: string;
   residentEmail: string;
@@ -69,6 +69,19 @@ type ApprovedResidentOption = {
   propertyLabel: string;
   roomLabel: string;
 };
+
+/**
+ * C271 (U077): every real entry in this dropdown IS an approved applicant
+ * (`buildApprovedResidentOptions` filters to `bucket === "approved"` below) —
+ * but next to "New resident…" the plain name gave no sign of that, so a
+ * manager had to already know the Residents tab by heart to tell which rows
+ * were ready for a lease. Flagging it here, not by widening which rows show:
+ * the filter to approved-only was already correct.
+ */
+export function approvedResidentOptionLabel(row: Pick<ApprovedResidentOption, "residentName" | "roomLabel">): string {
+  const parts = [row.residentName, row.roomLabel, "Approved"].filter((part) => part.trim());
+  return parts.join(" · ");
+}
 
 function residentBelongsToProperty(resident: ApprovedResidentOption, property: PropertyLeaseOption): boolean {
   if (resident.propertyId && resident.propertyId === property.propertyId) return true;
@@ -457,7 +470,7 @@ export function ManagerAddLeaseModal({
                       { value: NEW_RESIDENT_ID, label: "New resident…" },
                       ...residentsForProperty.map((row) => ({
                         value: row.applicationId,
-                        label: row.roomLabel ? `${row.residentName} · ${row.roomLabel}` : row.residentName,
+                        label: approvedResidentOptionLabel(row),
                       })),
                     ]}
                     placeholder={propertyId ? "Select resident" : "Select property first"}
