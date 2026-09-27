@@ -33,16 +33,6 @@ import {
 } from "@/lib/portal-inbox-storage";
 
 const BASE = "/vendor";
-const CONTACT_NUDGE_DISMISSED_KEY = "axis_vendor_contact_nudge_dismissed";
-
-function readContactNudgeDismissed(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(CONTACT_NUDGE_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
@@ -56,8 +46,6 @@ export function VendorDashboard({}: { displayName: string }) {
   const [nowMs] = useState(() => Date.now());
   const bump = () => setTick((n) => n + 1);
   const [paymentsConnected, setPaymentsConnected] = useState(false);
-  const [needsContact, setNeedsContact] = useState(false);
-  const [contactNudgeDismissed, setContactNudgeDismissed] = useState(false);
 
   useEffect(() => {
     void Promise.allSettled([
@@ -88,26 +76,6 @@ export function VendorDashboard({}: { displayName: string }) {
       .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    setContactNudgeDismissed(readContactNudgeDismissed());
-    if (isDemoModeActive()) return;
-    void fetch("/api/vendor/profile", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { contact?: { phone?: string; smsConsent?: boolean } }) => {
-        setNeedsContact(!data.contact?.phone || !data.contact?.smsConsent);
-      })
-      .catch(() => undefined);
-  }, []);
-
-  function dismissContactNudge() {
-    setContactNudgeDismissed(true);
-    try {
-      window.localStorage.setItem(CONTACT_NUDGE_DISMISSED_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-  }
-
   const data = useMemo(() => {
     void tick;
     const rows = readVendorWorkOrderRows();
@@ -131,16 +99,6 @@ export function VendorDashboard({}: { displayName: string }) {
   const payoutItems = paymentsConnected ? pendingPayouts : [];
 
   const attentionRows: ManagerAttentionRow[] = [];
-  if (needsContact && !contactNudgeDismissed) {
-    attentionRows.push({
-      id: "phone",
-      title: "Phone number not set up",
-      detail: "Phone",
-      actionLabel: "Set up",
-      href: `${BASE}/profile`,
-      tone: "pending",
-    });
-  }
   if (quotesPending.length > 0) {
     attentionRows.push({
       id: "quotes",
