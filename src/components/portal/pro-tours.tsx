@@ -2,6 +2,7 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
@@ -355,6 +356,14 @@ export function ManagerTours({
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const { userId, ready: authReady } = useManagerUserId();
+  // C201: the active workspace resolves via its own async fetch, racing the
+  // tour sync below; `workspaceContainsProperty` reads that resolution off a
+  // plain module variable, so a memo that never depends on it can compute
+  // against a workspace still mid-load and then sit stale once it finishes —
+  // the list reads empty until something else happens to bump `tick`. Reading
+  // the id reactively (same hook every other workspace-scoped consumer uses)
+  // forces `allRows` to recompute the moment the workspace actually lands.
+  const activeWorkspaceId = useSelectedWorkspaceId();
   const { reminders: tourReminders, reload: reloadTourReminders } = useScheduledTourReminders();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tick, setTick] = useState(0);
@@ -460,7 +469,7 @@ export function ManagerTours({
       viewerUserId: userId,
       propertyIds: scopedPropertyId ? [scopedPropertyId] : null,
     }).filter((row) => workspaceContainsProperty(row.propertyId));
-  }, [tick, userId, scopedPropertyId]);
+  }, [tick, userId, scopedPropertyId, activeWorkspaceId]);
 
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
 

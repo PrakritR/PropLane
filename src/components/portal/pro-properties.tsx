@@ -31,6 +31,7 @@ import {
   type DemoPropertiesStage,
 } from "@/lib/demo/demo-playback";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
 import { propertyRowTitle } from "@/lib/property-row-summary";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
@@ -102,6 +103,15 @@ export function ManagerProperties({
   const workspaces = useWorkspaces();
   const { userId } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
+  // C201: the workspace resolves asynchronously (its own fetch, racing the
+  // portfolio sync below), and `workspaceContainsProperty` reads that
+  // resolution from a plain module variable, not React state — so a memo
+  // whose deps never include it can compute against a workspace that has not
+  // finished loading its `propertyIds` yet and then never recompute once it
+  // has, leaving the list stuck empty until a manual reload. Depending on the
+  // active workspace id (the same reactive read `useSelectedWorkspaceId`
+  // gives every other consumer) forces the recompute once it lands.
+  const activeWorkspaceId = useSelectedWorkspaceId();
   const [skuLoaded, setSkuLoaded] = useState(false);
   const [skuTier, setSkuTier] = useState<string | null>(null);
   const [propCount, setPropCount] = useState(0);
@@ -260,12 +270,12 @@ export function ManagerProperties({
       unlisted,
       drafts,
     } satisfies Record<ManagerStageKey, number>;
-  }, [portfolioTick, scopeUserId]);
+  }, [portfolioTick, scopeUserId, activeWorkspaceId]);
 
   const shareableProperties = useMemo(() => {
     void portfolioTick;
     return buildManagerShareablePropertyOptions(scopeUserId);
-  }, [scopeUserId, portfolioTick]);
+  }, [scopeUserId, portfolioTick, activeWorkspaceId]);
 
   const atPropertyLimit = skuLoaded && managerTierPropertyLimitReached(skuTier, propCount);
   const limitMax = maxPropertiesForManagerTier(skuTier);
