@@ -35,6 +35,14 @@ loaders used by each portal and agent registry:
 | Resident | `resident_email` match, additionally pinned to the owner of the work number texted | Resident tools; writes retain the SMS `YES` confirmation gate |
 | Vendor | Work orders represented by that verified phone's active job sessions (assigned/live-offered jobs only) | Job-bound read tools; only `escalate_to_manager` remains inline-allowed |
 
+Verified resident SMS can read the texted manager's live public listings with
+`list_live_listings`, `get_listing_details`, and `get_listing_link`. A named
+room's `publishedAvailability` is its saved listing label;
+`currentAvailability` is shown only after the same occupancy check used by the
+public listing succeeds. The room's furnishing and amenities come from that
+room's submitted listing details. These tools are read-only and do not expose
+other managers' listings or prospect write actions.
+
 The stable handle is per manager, so a co-manager or vendor can legitimately
 see two `WO-1042` records under different owners. Several visible matches return
 a clarification naming only those visible jobs. No visible match, including a

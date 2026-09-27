@@ -45,6 +45,8 @@ export type AgentContext = {
   vendorScope?: VendorAgentScope;
   /** Present only on leasing SMS agent turns; pins links to the prospect phone. */
   leasingScope?: LeasingSmsAgentScope;
+  /** Resident SMS listing reads must intersect the owner's rows with the public catalog. */
+  listingPublicOnly?: boolean;
   /**
    * This manager's data reach beyond their own portfolio, on ANY surface.
    *

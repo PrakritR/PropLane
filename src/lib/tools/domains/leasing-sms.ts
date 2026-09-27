@@ -19,6 +19,9 @@ import { residentPortalPath } from "@/lib/claw-resident-links";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { getPublicListings } from "@/lib/public-listings.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
+import { availabilityLabelFromPublicSpans, pacificListingDay } from "@/lib/public-room-occupancy";
 import {
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
@@ -119,7 +122,11 @@ function summarizeRooms(src: Record<string, unknown> | null) {
       dailyRentPrice: number | null;
       priceLabel: string | null;
       pricingMode: "fixed" | "flexible";
-      availability: string | null;
+      publishedAvailability: string | null;
+      currentAvailabilityVerified: false;
+      furnishing: string | null;
+      roomAmenities: string | null;
+      detail: string | null;
       moveInAvailableDate: string | null;
       securityDeposit: string | null;
       utilitiesEstimate: string | null;
@@ -143,7 +150,11 @@ function summarizeRooms(src: Record<string, unknown> | null) {
         dailyRentPrice: roomDailyRentPrice(r) ?? null,
         priceLabel: roomAdvertisedPriceLabel(r, "") || null,
         pricingMode: roomPricingIsFlexible(r) ? ("flexible" as const) : ("fixed" as const),
-        availability: r.availability?.trim() || null,
+        publishedAvailability: str(r as unknown as Record<string, unknown>, "availability"),
+        currentAvailabilityVerified: false as const,
+        furnishing: r.furnishing?.trim() || null,
+        roomAmenities: r.roomAmenitiesText?.trim() || null,
+        detail: str(r as unknown as Record<string, unknown>, "detail"),
         moveInAvailableDate: r.moveInAvailableDate?.trim() || null,
         securityDeposit: r.securityDeposit?.trim() || null,
         utilitiesEstimate: r.utilitiesEstimate?.trim() || null,
@@ -289,6 +300,42 @@ async function loadOwnedListing(
   return (data as RawPropertyRecord | null) ?? null;
 }
 
+/** Authorize a link with the same live-listing resolution as details, without reading occupancy. */
+export async function resolveLiveListingForSms(ctx: AgentContext, propertyId: string): Promise<string | null> {
+  return (await loadResolvableListing(ctx, propertyId))?.id ?? null;
+}
+
+// Public occupancy already has a CDN cache. SMS detail reads share a short,
+// owner-scoped in-process cache so follow-up turns do not rescan a portfolio.
+const SMS_OCCUPANCY_TTL_MS = 30_000;
+const smsOccupancyCache = new Map<string, { at: number; rows: Awaited<ReturnType<typeof loadPublicRoomOccupancy>> }>();
+const smsOccupancyInflight = new Map<string, Promise<Awaited<ReturnType<typeof loadPublicRoomOccupancy>>>>();
+
+async function loadListingOccupancyForSms(rec: RawPropertyRecord, submission: Record<string, unknown>, ownerId?: string) {
+  const key = `${ownerId ?? "public"}::${rec.id}`;
+  const cached = smsOccupancyCache.get(key);
+  if (cached && Date.now() - cached.at < SMS_OCCUPANCY_TTL_MS) return cached.rows;
+  const inflight = smsOccupancyInflight.get(key);
+  if (inflight) return inflight;
+  const pending = loadPublicRoomOccupancy(
+    createSupabaseServiceRoleClient(),
+    [{ id: rec.id, listingSubmission: submission as never }],
+    ownerId,
+  ).then((rows) => {
+    if (smsOccupancyCache.size >= 100) smsOccupancyCache.clear();
+    smsOccupancyCache.set(key, { at: Date.now(), rows });
+    return rows;
+  }).finally(() => smsOccupancyInflight.delete(key));
+  smsOccupancyInflight.set(key, pending);
+  return pending;
+}
+
+/** Test-only: discard occupancy snapshots between fixtures. */
+export function __resetSmsOccupancyCache(): void {
+  smsOccupancyCache.clear();
+  smsOccupancyInflight.clear();
+}
+
 /**
  * A public-catalog listing (any owner) reshaped into the raw-row form the
  * summarizers expect. `getPublicListings()` already returns the marketing
@@ -312,30 +359,34 @@ function mockPropertyToRecord(p: {
  * calls) doesn't refetch the whole public catalog 3× — egress guard per
  * AGENTS.md. Single in-flight promise coalesces concurrent calls. */
 const CATALOG_TTL_MS = 30_000;
-let catalogCache: { at: number; rows: RawPropertyRecord[] } | null = null;
-let catalogInflight: Promise<RawPropertyRecord[]> | null = null;
+const catalogCache = new Map<string, { at: number; rows: RawPropertyRecord[] }>();
+const catalogInflight = new Map<string, Promise<RawPropertyRecord[]>>();
 
-async function loadPublicCatalogRows(): Promise<RawPropertyRecord[]> {
+async function loadPublicCatalogRows(testWorkspaceId?: string): Promise<RawPropertyRecord[]> {
+  const key = testWorkspaceId ?? "public";
   const now = Date.now();
-  if (catalogCache && now - catalogCache.at < CATALOG_TTL_MS) return catalogCache.rows;
-  if (catalogInflight) return catalogInflight;
-  catalogInflight = (async () => {
+  const cached = catalogCache.get(key);
+  if (cached && now - cached.at < CATALOG_TTL_MS) return cached.rows;
+  const inflight = catalogInflight.get(key);
+  if (inflight) return inflight;
+  const pending = (async () => {
     try {
-      const listings = await getPublicListings();
+      const listings = await getPublicListings(testWorkspaceId ? { testWorkspaceId } : undefined);
       const rows = listings.map(mockPropertyToRecord);
-      catalogCache = { at: Date.now(), rows };
+      catalogCache.set(key, { at: Date.now(), rows });
       return rows;
     } finally {
-      catalogInflight = null;
+      catalogInflight.delete(key);
     }
   })();
-  return catalogInflight;
+  catalogInflight.set(key, pending);
+  return pending;
 }
 
 /** Test-only: drop the catalog memo so fixtures aren't shadowed across tests. */
 export function __resetLeasingCatalogCache(): void {
-  catalogCache = null;
-  catalogInflight = null;
+  catalogCache.clear();
+  catalogInflight.clear();
 }
 
 function isCrossCatalog(ctx: AgentContext): boolean {
@@ -348,7 +399,13 @@ function isCrossCatalog(ctx: AgentContext): boolean {
  */
 async function loadBrowsableListings(ctx: AgentContext): Promise<RawPropertyRecord[]> {
   if (isCrossCatalog(ctx)) return loadPublicCatalogRows();
-  return loadOwnedLiveListings(ctx);
+  const owned = await loadOwnedLiveListings(ctx);
+  if (!ctx.listingPublicOnly) return owned;
+  const publicById = new Map((await loadPublicCatalogRows(currentSmsTestTransport()?.workspaceId)).map((row) => [row.id, row]));
+  return owned.flatMap((row) => {
+    const projected = publicById.get(row.id);
+    return projected ? [projected] : [];
+  });
 }
 
 /**
@@ -363,7 +420,11 @@ async function loadResolvableListing(
   const id = propertyId.trim();
   if (!id) return null;
   const owned = await loadOwnedListing(ctx, id);
-  if (owned) return owned;
+  if (owned) {
+    if (!ctx.listingPublicOnly) return owned;
+    const publicRows = await loadPublicCatalogRows(currentSmsTestTransport()?.workspaceId);
+    return publicRows.find((row) => row.id === owned.id) ?? null;
+  }
   if (!isCrossCatalog(ctx)) return null;
   const rows = await loadPublicCatalogRows();
   return rows.find((r) => r.id === id) ?? null;
@@ -395,7 +456,8 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
     address: str(src, "address"),
     neighborhood: str(src, "neighborhood"),
     rentLabel: str(src, "rentLabel"),
-    available: str(src, "available"),
+    // The aggregate card label can disagree with an individual room. The
+    // stored room label is published information, not a current occupancy check.
     tagline: tagline || null,
     alsoListedAs: alsoListedAs || null,
     petFriendly,
@@ -409,7 +471,9 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
       rentBasis: r.rentBasis,
       dailyRentPrice: r.dailyRentPrice,
       priceLabel: r.priceLabel,
-      availability: r.availability,
+      publishedAvailability: r.publishedAvailability,
+      currentAvailabilityVerified: r.currentAvailabilityVerified,
+      furnishing: r.furnishing,
     })),
     bundles: summarizeBundles(src),
   };
@@ -567,7 +631,7 @@ export const suppressRedundantLeasingReplyTool = defineTool({
 export const getListingDetailsTool = defineTool({
   name: "get_listing_details",
   description:
-    "Full prospect-safe details for one live listing: address, rooms and their published prices/availability, available lease terms with represented surcharges, nullable pet policy, listing and room security deposits, and utility estimates/payment model. On the shared PropLane line this resolves ANY live listing on the platform. Call before answering specifics about a house or room.",
+    "Full prospect-safe details for one live listing: address, rooms and their published prices, verified current availability when the occupancy read succeeds, furnishing and amenities, available lease terms, nullable pet policy, deposits, and utilities. A failed occupancy read leaves current availability unknown. Call before answering specifics about a house or room.",
   kind: "read",
   inputSchema: z
     .object({
@@ -583,6 +647,22 @@ export const getListingDetailsTool = defineTool({
     if (!rec) return { found: false };
     const src = propertySource(rec);
     const rooms = summarizeRooms(src);
+    let occupancy: Awaited<ReturnType<typeof loadPublicRoomOccupancy>> | null = null;
+    try {
+      const submission = asObject(src?.listingSubmission);
+      if (submission?.v === 1) {
+        occupancy = await loadListingOccupancyForSms(rec, submission, isCrossCatalog(ctx) ? undefined : ctx.landlordId);
+      }
+    } catch {
+      // A failed read cannot turn a saved label into verified current availability.
+    }
+    const occupancyByRoom = new Map(occupancy?.map((row) => [row.roomChoice, row.spans]) ?? []);
+    const roomCapacity = new Map<string, unknown>();
+    const submission = asObject(src?.listingSubmission);
+    for (const room of Array.isArray(submission?.rooms) ? submission.rooms : []) {
+      const record = asObject(room);
+      if (record && typeof record.id === "string") roomCapacity.set(record.id, record.occupancyCapacity);
+    }
     const facts = leasingListingFacts(src, rooms);
     const roomNeedle = (input.roomQuery ?? "").trim().toLowerCase();
     const matchedRooms = roomNeedle
@@ -601,7 +681,6 @@ export const getListingDetailsTool = defineTool({
         address: str(src, "address"),
         neighborhood: str(src, "neighborhood"),
         rentLabel: str(src, "rentLabel"),
-        available: str(src, "available"),
         beds: typeof src?.beds === "number" ? src.beds : null,
         baths: typeof src?.baths === "number" ? src.baths : null,
         tagline: str(src, "tagline"),
@@ -610,7 +689,16 @@ export const getListingDetailsTool = defineTool({
         alsoListedAs: str(src, "alsoListedAs"),
         petFriendly: facts.petFriendly,
         description: str(src, "description")?.slice(0, 800) ?? null,
-        rooms: matchedRooms,
+        rooms: matchedRooms.map((room) => {
+          const spans = occupancyByRoom.get(`${rec.id}::${room.id}`);
+          return {
+            ...room,
+            currentAvailability: spans
+              ? availabilityLabelFromPublicSpans(spans, roomCapacity.get(room.id), pacificListingDay())
+              : null,
+            currentAvailabilityVerified: spans !== undefined,
+          };
+        }),
         allRoomCount: rooms.length,
         bundles: summarizeBundles(src),
         leaseTerms: facts.leaseTerms,

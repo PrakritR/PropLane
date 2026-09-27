@@ -208,7 +208,8 @@ export type ManagerRoomSubmission = {
   /**
    * Next date this room is free (YYYY-MM-DD), or "" when it is free now. Derived
    * from `manualUnavailableRanges` and bookings by the wizard on every change
-   * (`roomAvailabilityPatch`); readers may keep trusting it as before.
+   * (`roomAvailabilityPatch`). Later bookings can make the saved label stale;
+   * readers needing current occupancy must recheck it separately.
    */
   moveInAvailableDate: string;
   /** Keys, parking, access, what to bring — shown to placed residents. Required for new listings. */
