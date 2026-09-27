@@ -160,9 +160,26 @@ export async function recordVendorPayoutSettled(
     vendorUserId: string;
     amountCents: number;
     stripeTransferId?: string | null;
+    /**
+     * VENDOR_BANKING_ENABLED extras — the caller passes these only when the
+     * flag is on; omitted, the row's new columns keep their harmless
+     * defaults (0 fee, no destination/charge id), same as before this field
+     * existed.
+     */
+    platformFeeCents?: number;
+    destination?: "destination_charge" | "hold" | null;
+    stripeChargeId?: string | null;
   },
 ): Promise<void> {
   const nowIso = new Date().toISOString();
+  const extras =
+    opts.platformFeeCents !== undefined || opts.destination !== undefined || opts.stripeChargeId !== undefined
+      ? {
+          platform_fee_cents: opts.platformFeeCents ?? 0,
+          destination: opts.destination ?? null,
+          stripe_charge_id: opts.stripeChargeId ?? null,
+        }
+      : {};
   const { data: existing } = await db
     .from("vendor_payouts")
     .select("id")
@@ -177,6 +194,7 @@ export async function recordVendorPayoutSettled(
         stripe_transfer_id: opts.stripeTransferId ?? null,
         failure_reason: null,
         updated_at: nowIso,
+        ...extras,
       })
       .eq("id", existing.id);
     return;
@@ -190,6 +208,7 @@ export async function recordVendorPayoutSettled(
     stripe_transfer_id: opts.stripeTransferId ?? null,
     created_at: nowIso,
     updated_at: nowIso,
+    ...extras,
   });
 }
 
