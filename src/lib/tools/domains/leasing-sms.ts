@@ -401,7 +401,7 @@ async function loadBrowsableListings(ctx: AgentContext): Promise<RawPropertyReco
   if (isCrossCatalog(ctx)) return loadPublicCatalogRows();
   const owned = await loadOwnedLiveListings(ctx);
   if (!ctx.listingPublicOnly) return owned;
-  const publicById = new Map((await loadPublicCatalogRows(currentSmsTestTransport()?.workspaceId)).map((row) => [row.id, row]));
+  const publicById = new Map((await loadPublicCatalogRows(currentSmsTestTransport()?.workspaceId ?? undefined)).map((row) => [row.id, row]));
   return owned.flatMap((row) => {
     const projected = publicById.get(row.id);
     return projected ? [projected] : [];
@@ -422,7 +422,7 @@ async function loadResolvableListing(
   const owned = await loadOwnedListing(ctx, id);
   if (owned) {
     if (!ctx.listingPublicOnly) return owned;
-    const publicRows = await loadPublicCatalogRows(currentSmsTestTransport()?.workspaceId);
+    const publicRows = await loadPublicCatalogRows(currentSmsTestTransport()?.workspaceId ?? undefined);
     return publicRows.find((row) => row.id === owned.id) ?? null;
   }
   if (!isCrossCatalog(ctx)) return null;
