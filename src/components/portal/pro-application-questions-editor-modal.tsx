@@ -1080,7 +1080,9 @@ export function ManagerApplicationQuestionsEditorModal({
         steps={workspaceSteps}
         current={current}
         onJump={jump}
-        onClose={onClose}
+        // While Upload PDF is creating the form, closing would let the modal
+        // pop back open in edit mode when that save lands.
+        onClose={uploadingPdf ? () => {} : onClose}
         onRequestClose={() => {
           if (addChooserSectionId) {
             setAddChooserSectionId(null);
@@ -1109,7 +1111,7 @@ export function ManagerApplicationQuestionsEditorModal({
           }
           return true;
         }}
-        busy={saving}
+        busy={saving || uploadingPdf}
         onFinish={() => void commitSave()}
         saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
         dataAttrPrefix="application-questions"

@@ -353,7 +353,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         }
         const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
         const next = withPropertyApplicationTemplatesExplicit(base, [...readPropertyApplicationTemplates(base), created]);
-        const saved = await persistSubmission(next, { message: "Form created — importing your PDF…" });
+        const saved = await persistSubmission(next, { message: "Form created. Importing your PDF…" });
         if (!saved) return;
         onUpdated();
         setAutoImportFile(file);
@@ -556,7 +556,10 @@ export function ManagerPropertyApplicationQuestionsPanel({
           showToast={showToast}
           autoImportFile={autoImportFile}
           onAutoImportConsumed={() => setAutoImportFile(null)}
-          onUploadPdf={(file, label) => void handleUploadPdfFile(file, label)}
+          // PDF import is a single-property action; bulk edit has no one listing.
+          onUploadPdf={
+            bulkPropertyIds.length === 0 ? (file, label) => void handleUploadPdfFile(file, label) : undefined
+          }
           uploadingPdf={uploadingPdf}
         />
       ) : null}
