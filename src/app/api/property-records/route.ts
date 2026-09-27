@@ -534,12 +534,30 @@ export async function POST(req: Request) {
           body.editRequestNote !== undefined ? body.editRequestNote : null,
         updated_at: new Date().toISOString(),
       };
-    const hasApplicationTemplates = [propertyDataForWrite, existing?.property_data, rowDataForWrite, existing?.row_data].some((data) => {
+    // Optimistic-concurrency guard: a property template a manager can lose
+    // real edits to (question config, uploaded lease document, fee/waiver
+    // settings) gets a compare-and-swap write instead of a plain upsert, so
+    // two overlapping saves refuse the loser (409) rather than one silently
+    // clobbering the other's `row_data`/`property_data` wholesale.
+    //
+    // This started as `hasApplicationTemplates` (application templates only)
+    // and never covered `propertyLeaseTemplates` — so a lease-template save
+    // (Add/Edit lease, the property Lease tab's seed-add) had NO concurrency
+    // protection at all: any other write landing after it (a stale mirror
+    // sync, another open tab, a background reconcile) would silently
+    // overwrite the just-added lease with `{"ok":true}` still reported to
+    // the caller that made the save nobody kept. Widened to match.
+    const hasProtectedTemplates = [propertyDataForWrite, existing?.property_data, rowDataForWrite, existing?.row_data].some((data) => {
       if (!data || typeof data !== "object") return false;
-      const submission = (data as { listingSubmission?: { propertyApplicationTemplates?: unknown } }).listingSubmission;
-      return Array.isArray(submission?.propertyApplicationTemplates) && submission.propertyApplicationTemplates.length > 0;
+      const submission = (
+        data as { listingSubmission?: { propertyApplicationTemplates?: unknown; propertyLeaseTemplates?: unknown } }
+      ).listingSubmission;
+      return (
+        (Array.isArray(submission?.propertyApplicationTemplates) && submission.propertyApplicationTemplates.length > 0) ||
+        (Array.isArray(submission?.propertyLeaseTemplates) && submission.propertyLeaseTemplates.length > 0)
+      );
     });
-    const writeResult = hasApplicationTemplates && existing
+    const writeResult = hasProtectedTemplates && existing
       ? await db.from("manager_property_records")
         .update(recordForWrite)
         .eq("id", id)
@@ -547,7 +565,7 @@ export async function POST(req: Request) {
         .select("id")
       : await db.from("manager_property_records").upsert(recordForWrite, { onConflict: "id" });
     const { error } = writeResult;
-    if (hasApplicationTemplates && existing && !error && !writeResult.data?.length) {
+    if (hasProtectedTemplates && existing && !error && !writeResult.data?.length) {
       return NextResponse.json({ error: "Property changed while you were editing. Reload and try again." }, { status: 409 });
     }
     if (error) {
