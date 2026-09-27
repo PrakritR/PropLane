@@ -69,6 +69,7 @@ import {
   readManagerPaymentsLedgerCharges,
   unpaidManagerPaymentCharges,
 } from "@/lib/manager-payments-scope";
+import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import {
@@ -811,6 +812,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       .filter((a) => applicationVisibleToPortalUser(a, userId))
       .filter((a) => workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined));
     const pendingApps = allApps.filter((a) => isSubmittedPendingApplicationRow(a));
+    // N080: a work order / service request whose resident has no surviving
+    // directory row (Potential/Current/Past) is orphaned data and must not
+    // inflate the "requests" KPI or the attention list below. Charges are
+    // already scoped this way inside `readManagerPaymentsLedgerCharges`
+    // (manager-payments-scope.ts), so this dashboard needs no separate pass
+    // for those.
+    const directoryEmails = directoryResidentEmailSet(allApps);
 
     const leases = readLeasePipeline(userId).filter((l) =>
       workspaceContainsProperty(l.propertyId?.trim() || l.application?.propertyId?.trim() || undefined),
@@ -828,14 +836,20 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-    const managerWorkOrders = readManagerWorkOrderRows().filter((w) =>
-      moduleRowVisibleToPortalUser(w, userId, "services"),
+    // A general property maintenance row (no resident named at all) is never
+    // "orphaned" — only a row that names an email with no surviving directory
+    // row is dropped.
+    const managerWorkOrders = readManagerWorkOrderRows().filter(
+      (w) =>
+        moduleRowVisibleToPortalUser(w, userId, "services") &&
+        (!w.residentEmail?.trim() || isLinkedToDirectoryResident(w.residentEmail, directoryEmails)),
     );
     const pendingServiceRequests = readAllServiceRequests().filter(
       (r) =>
         moduleRowVisibleToPortalUser(r, userId, "services") &&
         r.status === "pending" &&
-        workspaceContainsProperty(r.propertyId),
+        workspaceContainsProperty(r.propertyId) &&
+        (!r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails)),
     );
     const pendingWorkOrders = managerWorkOrders.filter((w) => w.bucket === "open" || w.bucket === "scheduled");
     const serviceItems: DashboardServiceAttentionItem[] = [

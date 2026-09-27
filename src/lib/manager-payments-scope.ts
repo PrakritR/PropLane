@@ -10,6 +10,7 @@ import { isUpcomingHouseholdCharge } from "@/lib/household-charge-visibility";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
 import { readCachedShowUpcomingChargesSetting } from "@/lib/payment-automation-settings";
+import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 /**
@@ -69,6 +70,13 @@ export function shouldExcludePaymentAccount(residentName: string, residentEmail?
  * their manager could not see. Money a manager cannot see is money they never
  * chase, so an email is excluded only when it has an approved-but-no-longer-
  * current row AND no current-resident row anywhere.
+ *
+ * A THIRD filter (N080) is orthogonal to the "moved out" rule above: a charge
+ * whose email has NO application row at all — Potential, Current, or Past —
+ * names a resident this manager has fully deleted from Residents. Leftover
+ * rows like that (from the old fire-and-forget delete, or a future bug) must
+ * not keep rendering just because Bookings/Payments/Services never checked.
+ * `isManagerAddedOneOffCharge` stays exempt: the manager entered it deliberately.
  */
 export function scopeChargesToManagerPaymentsLedger(
   charges: HouseholdCharge[],
@@ -84,12 +92,15 @@ export function scopeChargesToManagerPaymentsLedger(
       .map(emailOf)
       .filter((e) => e && !currentResidentEmails.has(e)),
   );
+  const directoryEmails = directoryResidentEmailSet(applications);
   return charges
     .filter((charge) => !shouldExcludePaymentAccount(charge.residentName, charge.residentEmail))
     .filter((charge) => {
       if (isManagerAddedOneOffCharge(charge)) return true;
       const email = charge.residentEmail?.trim().toLowerCase();
-      return !email || !movedOutEmails.has(email);
+      if (!email) return true;
+      if (movedOutEmails.has(email)) return false;
+      return isLinkedToDirectoryResident(email, directoryEmails);
     });
 }
 

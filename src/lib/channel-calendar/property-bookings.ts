@@ -261,6 +261,8 @@ export type LeaseBookingRow = {
   propertyId?: string;
   roomChoice?: string | null;
   residentName?: string;
+  /** Who to check against the manager's Residents directory (N080). */
+  residentEmail?: string;
   stageLabel?: string;
   status?: string;
   leaseKind?: string;
@@ -333,6 +335,13 @@ export function leaseBookingEntries(
     openEndedHorizonKey: string;
     /** When false, a lease with no room choice is omitted rather than blocking every room. */
     entireHomeListing?: boolean;
+    /**
+     * N080: when supplied, a lease whose `residentEmail` fails this check is
+     * dropped — the resident has no surviving directory row, so the row is
+     * orphaned data, not a stay. Omitted = no filtering (existing callers that
+     * have not been updated to pass a directory set keep their old behavior).
+     */
+    isResidentLinked?: (residentEmail: string) => boolean;
   },
 ): PropertyBookingEntry[] {
   const propertyId = opts.propertyId.trim();
@@ -341,6 +350,7 @@ export function leaseBookingEntries(
   for (const row of rows) {
     if (!leaseIsFullyExecuted(row as LeasePipelineRow)) continue;
     if ((row.propertyId ?? "").trim() !== propertyId) continue;
+    if (opts.isResidentLinked && !opts.isResidentLinked(row.residentEmail ?? "")) continue;
     const start = normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
     const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
@@ -383,6 +393,8 @@ export function leaseBookingEntriesForProperties(
     properties: readonly { id: string; label: string; entireHomeListing?: boolean }[];
     roomLabelForId?: (propertyId: string, roomId: string) => string;
     openEndedHorizonKey: string;
+    /** N080: see `leaseBookingEntries`. */
+    isResidentLinked?: (residentEmail: string) => boolean;
   },
 ): PropertyBookingEntry[] {
   const out: PropertyBookingEntry[] = [];
@@ -394,6 +406,7 @@ export function leaseBookingEntriesForProperties(
         roomLabelForId: (roomId) => opts.roomLabelForId?.(property.id, roomId) ?? "Room",
         openEndedHorizonKey: opts.openEndedHorizonKey,
         entireHomeListing: property.entireHomeListing,
+        isResidentLinked: opts.isResidentLinked,
       }),
     );
   }

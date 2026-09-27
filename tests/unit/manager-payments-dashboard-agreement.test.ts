@@ -117,6 +117,26 @@ describe("manager payments scope (F-PAY-1)", () => {
     expect(scopeChargesToManagerPaymentsLedger(charges, apps).map((c) => c.id)).toEqual(["hc_mgr_one_off"]);
   });
 
+  // N080: a charge naming an email with NO application row at all — the
+  // manager fully deleted that resident, or a bug left the row behind — is
+  // orphaned and must not render, unlike the "moved out" and
+  // "rejected/withdrawn" cases above, which still have a real application row.
+  it("drops a charge for an email with no application row anywhere (N080 orphan)", () => {
+    const charges = [
+      charge({ id: "kept", residentEmail: "current@example.com" }),
+      charge({ id: "orphaned", residentEmail: "deleted@example.com" }),
+    ];
+    const apps = [application({ id: "a1", email: "current@example.com" })];
+    expect(scopeChargesToManagerPaymentsLedger(charges, apps).map((c) => c.id)).toEqual(["kept"]);
+  });
+
+  it("still keeps a manager-entered one-off for a fully deleted resident", () => {
+    const charges = [
+      charge({ id: "hc_mgr_one_off", residentEmail: "deleted@example.com", kind: "other_cost" }),
+    ];
+    expect(scopeChargesToManagerPaymentsLedger(charges, []).map((c) => c.id)).toEqual(["hc_mgr_one_off"]);
+  });
+
   it("the dashboard's unpaid count equals the Payments Pending + Overdue tabs", () => {
     const charges = [
       charge({ id: "pending", dueDateLabel: "2099-01-01" }),
