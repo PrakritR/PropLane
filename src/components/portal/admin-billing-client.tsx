@@ -18,8 +18,13 @@ type RuleDraft = { includedDollars: string; sharedAcrossWorkspaces: boolean; rol
  * over. Only takes effect through the messaging-credit pool
  * (`COMMS_CREDIT_POOL_ENABLED`) — while that flag is off this table still
  * edits real rows, but nothing reads them yet.
+ *
+ * Exported so `AdminAxisUsersClient` (the live Accounts surface) can mount it
+ * inside the "Plan credit" header modal its header icon action opens. Saves
+ * go through the same `/api/admin/comms-plan-credit-rules` route regardless
+ * of which surface renders this component.
  */
-function PlanCreditRulesSection() {
+export function PlanCreditRulesSection() {
   const [rules, setRules] = useState<CommsPlanCreditRule[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({});
   const [busyTier, setBusyTier] = useState<string | null>(null);
@@ -189,12 +194,19 @@ function PlanCreditRulesSection() {
  * same accounts Accounts already lists, which is two sets of rules for the
  * same write.
  *
- * The `/admin/billing` route otherwise survives only as the one-line redirect
- * card below, so a bookmark or a link a staff member already sent lands
- * somewhere real instead of a 404 — but it is also, per
- * `docs/agents/plan-entitlements.md` § Admin Billing, the one place a GLOBAL
- * (not per-account) plan default belongs, so the Plan credit table above it
- * lives here rather than inventing a second admin surface.
+ * `/admin/billing` has no route: `"billing"` was never added to
+ * `adminPortal.sections` (`src/lib/portals/admin.ts`), so
+ * `render-portal-section.tsx`'s `findSection` lookup 404s before any branch
+ * for this section could run — the redirect card below was landed but never
+ * actually reachable by URL. The stale claim that it "still resolves" has
+ * been corrected in `admin.ts`, and the now-dead `section === "billing"`
+ * branch that used to mount this component has been removed from
+ * `render-portal-section.tsx`, so `AdminBillingClient` itself is unused by any
+ * route today. It is kept only because the shared `PlanCreditRulesSection`
+ * above lived in this file first; that table is what actually ships now, via
+ * the "Plan credit" header action + modal on Accounts
+ * (`AdminAxisUsersClient`), per `docs/agents/plan-entitlements.md` § Admin
+ * Billing (a GLOBAL, not per-account, plan default).
  */
 export function AdminBillingClient() {
   const router = useRouter();

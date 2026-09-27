@@ -266,14 +266,22 @@ staff-authored text about a commercial decision, not lifted from a resident — 
 it is trimmed to 280 characters. `dedupe_key` is left unset on purpose: setting
 the same cap twice is two real decisions.
 
-**One global default now exists (S27):** the Plan credit table at
-`/admin/billing` sets each plan's included messaging credit, whether it is
-shared across a funder's workspaces, and whether unused credit rolls over
+**One global default now exists (S27):** the Plan credit table
+(`PlanCreditRulesSection`, `src/components/portal/admin-billing-client.tsx`)
+sets each plan's included messaging credit, whether it is shared across a
+funder's workspaces, and whether unused credit rolls over
 (`comms_plan_credit_rules`, seeded from `RATE_CARD`) — see
 [comms-billing.md § messaging-credit pool](comms-billing.md). It only takes
 effect through that pool (`COMMS_CREDIT_POOL_ENABLED`, off by default); every
 other plan-wide figure (doors, floor price, residents) is still hand-typed in
 `RATE_CARD` and not yet admin-editable.
+
+It landed pointed at `/admin/billing`, but `"billing"` was never registered in
+`adminPortal.sections` (`src/lib/portals/admin.ts`), so that URL 404s — the
+table was reachable in code review, never in the product. It now mounts from
+Accounts (`/admin/axis-users`) behind the header "Plan credit" icon action
+(`AdminAxisUsersClient`), which opens it in a modal; there is no separate
+`/admin/billing` route.
 
 Coverage: `tests/unit/admin-billing-rows.test.ts`,
 `admin-manager-billing-overrides-route.test.ts`,

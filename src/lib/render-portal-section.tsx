@@ -22,7 +22,6 @@ import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
-import { AdminBillingClient } from "@/components/portal/admin-billing-client";
 import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminEventsClient } from "@/components/portal/admin-events-client";
@@ -581,10 +580,15 @@ export async function renderPortalSection(
     return <AdminAxisUsersClient detailId={detailId} />;
   }
 
-  if (kind === "admin" && section === "billing") {
-    if (tabParts?.length) notFound();
-    return <AdminBillingClient />;
-  }
+  // A branch handling the admin "billing" section used to live here — dead
+  // code. That section id was never registered in `adminPortal.sections`
+  // (`src/lib/portals/admin.ts`), so `findSection` above always 404s an
+  // incoming `/admin/billing` request before reaching a branch here — this
+  // one never ran. Removed rather than fixed forward: the
+  // captain's call was "combine Billing and Accounts", so `/admin/billing`
+  // gets no route at all now. The Plan credit table that briefly lived behind
+  // it now mounts on Accounts (`AdminAxisUsersClient`'s "Plan credit" header
+  // action + modal); `AdminBillingClient` itself is unused by any route.
 
   if (kind === "admin" && section === "test-accounts") {
     // A workspace row's record page is `/admin/test-accounts/<workspaceId>` (C168).
