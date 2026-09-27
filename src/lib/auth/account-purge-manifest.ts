@@ -306,6 +306,30 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["owner_key"], preserveFinancial: true },
   },
   {
+    // night/vendor-banking, VENDOR_BANKING_ENABLED. Append-only statement
+    // history — never deleted or reassigned, same financial-history
+    // preservation as ledger_entries/vendor_payouts.
+    table: "vendor_banking_ledger_entries",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    // The reconciliation stamp is derived from vendor_banking_ledger_entries
+    // (which is itself preserved) — kept for the same reason.
+    table: "vendor_banking_reconciliation",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    // A refund shortfall is real money the vendor still owes — preserved
+    // like every other financial-history row here rather than wiped by an
+    // account deletion.
+    table: "vendor_banking_shortfalls",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
