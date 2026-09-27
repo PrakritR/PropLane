@@ -560,7 +560,7 @@ function useBookingsWorkspace({
         scoped
         scopedTitle={settingsDialogTitlePrefix(bookingsSettingsEntry)}
         propertyOptions={propertyOptions}
-        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
+        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined}
       />
     </>
   );
