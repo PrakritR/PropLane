@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
-import { approveManagerBill, payManagerBill } from "@/lib/manager-bills.server";
+import { approveManagerBill, payManagerBill, voidManagerBill } from "@/lib/manager-bills.server";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -31,16 +31,9 @@ export async function PATCH(
     }
 
     if (body.action === "void") {
-      const now = new Date().toISOString();
-      const { data, error } = await auth.db
-        .from("manager_bills")
-        .update({ status: "void", updated_at: now })
-        .eq("id", id)
-        .eq("manager_user_id", auth.userId)
-        .select("id")
-        .maybeSingle();
-      if (error || !data) return NextResponse.json({ error: "Bill not found." }, { status: 404 });
-      return NextResponse.json({ ok: true });
+      const bill = await voidManagerBill(auth.db, auth.userId, id);
+      track("bill_voided", auth.userId, { billId: bill.id });
+      return NextResponse.json({ bill });
     }
 
     return NextResponse.json({ error: "Invalid action." }, { status: 400 });

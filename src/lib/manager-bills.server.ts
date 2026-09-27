@@ -181,6 +181,28 @@ export async function payManagerBill(
   return mapManagerBillRow(data as Record<string, unknown>);
 }
 
+export async function voidManagerBill(
+  db: SupabaseClient,
+  managerUserId: string,
+  billId: string,
+): Promise<ManagerBill> {
+  const bill = await loadBill(db, managerUserId, billId);
+  if (!bill) throw new Error("Bill not found.");
+  await assertBillInActiveWorkspace(db, managerUserId, bill);
+
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from("manager_bills")
+    .update({ status: "void", updated_at: now, ...smsTestProvenanceColumns() })
+    .eq("id", billId)
+    .eq("manager_user_id", managerUserId)
+    .select(MANAGER_BILL_SELECT)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Void failed");
+
+  return mapManagerBillRow(data as Record<string, unknown>);
+}
+
 async function loadBill(db: SupabaseClient, managerUserId: string, billId: string): Promise<ManagerBill | null> {
   const { data, error } = await db
     .from("manager_bills")

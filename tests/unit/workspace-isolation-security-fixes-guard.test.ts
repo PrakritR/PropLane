@@ -107,6 +107,11 @@ const FIXED_SURFACES: { finding: string; path: string; requiredPattern: RegExp }
     path: "src/lib/manual-planned-tour.server.ts",
     requiredPattern: /assertPropertyInActiveWorkspace/,
   },
+  {
+    finding: "W015",
+    path: "src/app/api/manager-bills/[id]/route.ts",
+    requiredPattern: /voidManagerBill/,
+  },
 ];
 
 describe("workspace-isolation security fixes stay wired (2026-09-27 pass)", () => {
