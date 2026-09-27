@@ -56,17 +56,16 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
   use a reviewed fail-closed apply path, and verify the result. Authorization for
   one bounded change does not authorize unrelated production mutations.
 - **Never write the locked live listings** (5257 / 5259 Brooklyn, 4709A 8th Ave). See `.cursor/rules/no-production-live-listings.mdc`.
-- **Never skip `staging` outside the dated exception.** Live ships from
-  `production` only after QA by default. Until 2026-09-15T04:00:00Z, an
-  explicit Akhil-authorized release may use
+- **Never skip `staging` except under Akhil's standing exception.** Live ships
+  from `production` only after staging QA by default. Since 2026-09-26, with no
+  end date, an explicit Akhil-authorized release may skip staging entirely with
   `npm run ship:production -- --skip-staging` under
-  [the temporary policy](docs/agents/temporary-direct-production-policy.json).
-  Prakrit's
+  [the standing policy](docs/agents/temporary-direct-production-policy.json)
+  (delete that file to revoke). Every other gate still applies. Prakrit's
   agents never merge to protected branches. Agents working for Akhil may merge
-  only his keeper → `main` → `staging` → `production`, and only after his
-  explicit ship request under `docs/agents/AGENTS-akhil.md`.
-  Akhil's new exception through 2026-09-23T21:08:02Z waives staging QA only,
-  not the branch ladder or other gates: `docs/plans/staging-qa-exception-20260916.html`.
+  only his keeper → `main` → `staging` → `production` (or keeper → `main` →
+  `production` under the policy), and only after his explicit ship request
+  under `docs/agents/AGENTS-akhil.md`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.
@@ -118,10 +117,10 @@ Production Branch setting stays **`production`**. Full ops: `docs/agents/deploym
 ```
 npm run ship:staging      # ff origin/main → origin/staging
 npm run ship:production   # ff origin/staging → origin/production
-npm run ship:production -- --skip-staging # temporary, policy-gated origin/main → origin/production
+npm run ship:production -- --skip-staging # Akhil only, policy-gated origin/main → origin/production
 ```
 
-Never ff `main` onto `production` except through the active dated policy
+Never ff `main` onto `production` except through the standing Akhil policy
 option above. Retired: `scripts/promote-main-to-production.sh` (exits 1).
 
 ## Production push also ships iOS — TestFlight and the App Store

@@ -2,9 +2,9 @@
 
 **`production` deploys the live site; `staging` is QA by default; `main` is
 tested on localhost.** Every agent must follow this ladder. A single
-[temporary policy](temporary-direct-production-policy.json) permits an
-explicit Akhil-authorized `origin/main` → `origin/production` promotion only
-until 2026-09-15T04:00:00Z. See `AGENTS.md` § Branching & deployment for the
+[standing policy](temporary-direct-production-policy.json) permits an
+explicit Akhil-authorized `origin/main` → `origin/production` promotion, with
+no end date (delete it to revoke). See `AGENTS.md` § Branching & deployment for the
 rest of the contract.
 
 ## Branch ladder
@@ -95,9 +95,9 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 5. For Akhil only, after his explicit ship request, agents working for him may
    use the fast-forward-only integration path to land his reviewed keeper on
    `main`. They do not write `prakrit` or run Prakrit's no-mistakes pipeline.
-6. `npm run ship:staging` then dedicated QA on staging URL by default. During
-   the dated exception only, an explicit Akhil-authorized release may omit this
-   rung and later pass `--skip-staging` to `ship:production`.
+6. `npm run ship:staging` then dedicated QA on staging URL by default. An explicit
+   Akhil-authorized release omits this rung under the standing policy and
+   passes `--skip-staging` to `ship:production`.
 7. Apply production Supabase migrations **before** pushing `production`.
 8. `npm run ship:production` after QA sign-off (live + TestFlight).
 9. Confirm Vercel Production **and** iOS TestFlight succeeded.
