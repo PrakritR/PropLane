@@ -224,6 +224,11 @@ vi.mock("@/lib/auth/vendor-api-access", () => ({
   requireVendorApiAccess: async () => vendorAccess,
 }));
 
+const vendorBankingFlagState: { enabled: boolean } = { enabled: false };
+vi.mock("@/lib/vendor-banking/flag", () => ({
+  vendorBankingEnabled: () => vendorBankingFlagState.enabled,
+}));
+
 import { POST as managerCreate } from "@/app/api/stripe/payouts/create/route";
 import { PUT as managerSchedule } from "@/app/api/stripe/payouts/schedule/route";
 import { GET as managerBalance } from "@/app/api/stripe/payouts/balance/route";
@@ -242,6 +247,7 @@ beforeEach(() => {
   payoutContext.canEditBankAccount = true;
   payoutContext.isCoManagerForPayout = false;
   vendorAccess = { ok: true, actor: { userId: "vendor-1", email: "vendor@example.com" } };
+  vendorBankingFlagState.enabled = false;
   fakeDb = makeFakeDb();
   fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents: 100_000, bankInstantEligible: true });
 });
@@ -561,6 +567,48 @@ describe("POST /api/vendor/payouts/create — vendor scoping", () => {
       vendor_user_id: "vendor-1",
       stripe_connect_account_id: "acct_owner",
     });
+  });
+});
+
+describe("POST /api/vendor/payouts/create — VENDOR_BANKING_ENABLED Instant fee", () => {
+  it("flag off: Instant withdrawal keeps the shared 1% fee (unchanged)", async () => {
+    vendorBankingFlagState.enabled = false;
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant" }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ feeCents: 1_000, netCents: 99_000 }); // 1%
+  });
+
+  it("flag on: Instant withdrawal uses the vendor-specific 1.5% fee instead", async () => {
+    vendorBankingFlagState.enabled = true;
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant" }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ feeCents: 1_500, netCents: 98_500 }); // 1.5%
+  });
+
+  it("flag on: Standard withdrawal is still free — the vendor rate only ever applies to Instant", async () => {
+    vendorBankingFlagState.enabled = true;
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "standard" }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ feeCents: 0, netCents: 100_000 });
+  });
+
+  it("flag on: the manager route is completely unaffected — still the shared 1%", async () => {
+    vendorBankingFlagState.enabled = true;
+    const res = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant" }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ feeCents: 1_000, netCents: 99_000 });
   });
 });
 

@@ -4,7 +4,9 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { createInAppPayout, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
-import { validateCreatePayoutRequestBody } from "@/lib/stripe-payouts";
+import { validateCreatePayoutRequestBody, type PayoutMethod } from "@/lib/stripe-payouts";
+import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
+import { vendorInstantWithdrawFeeCents } from "@/lib/platform-fees";
 
 export const runtime = "nodejs";
 
@@ -38,6 +40,14 @@ export async function POST(req: Request) {
         ownerUserId: access.actor.userId,
         vendorUserId: access.actor.userId,
         input: validated.input,
+        // VD-studio ground truth (payout-withdraw-sheet.tsx): vendor Instant
+        // withdrawals carry PropLane's own 1.5% fee (min $0.50), distinct
+        // from the shared 1% Stripe-cost fee every other Instant payout
+        // uses. 0 with the flag off falls through to the shared rate.
+        computeFeeCents: vendorBankingEnabled()
+          ? (method: PayoutMethod, amountCents: number) =>
+              method === "instant" ? vendorInstantWithdrawFeeCents(amountCents) : 0
+          : undefined,
       });
       if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: result.status });
