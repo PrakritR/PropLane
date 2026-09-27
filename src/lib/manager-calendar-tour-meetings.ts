@@ -110,6 +110,7 @@ export function buildScheduledTourMeetings(
             sourceTaskId: event.sourceTaskId,
             hostLabel: hostPeer?.label,
             isPeerTour,
+            allDay: event.kind === "task" ? Boolean(event.allDay) : undefined,
           } satisfies DemoMeeting;
         })
     : [];

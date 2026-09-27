@@ -811,6 +811,13 @@ export type PlannedEvent = {
   /** Set when a confirmed tour is cancelled — kept for Past list history. */
   canceledAt?: string | null;
   assignee?: import("@/lib/work-assignment").WorkAssignee;
+  /**
+   * True only for a task synthesized from a due DATE with no explicit time
+   * (`dueDateToCalendarWindow`'s default 9–9:30am window). The calendar draws
+   * these in an "All day" row instead of the synthetic time slot; a task
+   * given a real `start`/`end` keeps its own time and is never all-day.
+   */
+  allDay?: boolean;
 };
 
 export function isActivePlannedEvent(event: PlannedEvent): boolean {
