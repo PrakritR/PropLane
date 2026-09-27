@@ -21,7 +21,7 @@ import { installVendorAvailabilityPaintCache, VendorCalendarPanel } from "@/comp
 import {
   VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT,
   VendorAvailabilityEditor,
-} from "@/components/portal/vendor-settings-panel";
+} from "@/components/portal/vendor-availability-editor";
 import { readAvailabilityDateSetForStorageKey } from "@/lib/demo-admin-scheduling";
 import { resetVendorAvailabilityCacheForTests, type VendorAvailabilityRule } from "@/lib/vendor-availability";
 
